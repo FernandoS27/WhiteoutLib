@@ -60,11 +60,22 @@ CompositeOp opFor(m3::LayerBlendOp blend) {
         return CompositeOp::Modulate;
     case m3::LayerBlendOp::Mod2x:
         return CompositeOp::Modulate2x;
+    // M3's `Add` weights by the layer's alpha and `AddNoAlpha` does not
+    // (`CombineLayerColor`: `base + layer.rgb * layer.a` against
+    // `base + layer.rgb`), which is exactly the difference between WEM's two.
+    // Folding both onto `Add` drew a decal's white texels at full strength the
+    // moment one was opened as Warcraft III, where `Additive` does not consult
+    // alpha either.
     case m3::LayerBlendOp::Add:
+        return CompositeOp::AddAlpha;
     case m3::LayerBlendOp::AddNoAlpha:
+        return CompositeOp::Add;
+    // Neither team op reaches the layer's own rgb — they add the team colour
+    // scaled by its alpha — so no composite op says what they do. The
+    // alpha-weighted add is the nearer of the two.
     case m3::LayerBlendOp::TeamColorEmissiveAdd:
     case m3::LayerBlendOp::TeamColorDiffuseAdd:
-        return CompositeOp::Add;
+        return CompositeOp::AddAlpha;
     case m3::LayerBlendOp::Lerp:
         return CompositeOp::AlphaBlend;
     default:
@@ -76,9 +87,10 @@ m3::LayerBlendOp blendOpFor(CompositeOp op) {
     switch (op) {
     case CompositeOp::Modulate2x:
         return m3::LayerBlendOp::Mod2x;
-    case CompositeOp::Add:
     case CompositeOp::AddAlpha:
         return m3::LayerBlendOp::Add;
+    case CompositeOp::Add:
+        return m3::LayerBlendOp::AddNoAlpha;
     case CompositeOp::AlphaBlend:
         return m3::LayerBlendOp::Lerp;
     default:

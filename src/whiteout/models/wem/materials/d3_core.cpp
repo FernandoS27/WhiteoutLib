@@ -56,6 +56,16 @@ constexpr i32 kCullClockwise = 2;
 // is clean rather than probabilistic: all 855 `Legacy.fx` passes carry the stage
 // block against 15 of 236 `ActorIrrad.fx`, 12 of 155 `Prop.fx` and 6 of 179
 // `Scene.fx`. So the kind follows the block, never the effect file's name.
+//
+// Nor the *program*'s name, which is worth saying because the renderer looks
+// like it disagrees: `d3_surface_table.cpp` builds its stage chain only for
+// `Legacy.fx`/`ps_legacy` and falls back to the shader-named slots for the other
+// 71 entry points. But it reads the block even then — `slot.channels` comes
+// straight out of the combine codes — so those passes are a chain there too,
+// spelled as slots. Following the program instead cost the whole chain: the base
+// map of a wing is OPAQUE and its shape is one to three alpha masks
+// (`d3_standard.slang`), so Malthael's wings came out as white sheets over the
+// model the moment the masks stopped being stages.
 
 // ---------------------------------------------------------------------------
 // The combine alphabet
@@ -344,6 +354,9 @@ Material ImportVariant(const d3n::SubObjectAppearance& variant, const std::strin
     // --- the native block ---------------------------------------------------
     native::D3Material block;
     block.sourceVersion = context.sourceVersion;
+    // Bit 0 of this word is the per-look visibility the render-record builder
+    // opens with, so it is a fact about the material and not about the section.
+    block.variantFlags = variant.dwUnknown00;
     CopyToNative(variant.tMaterial, block.uber);
     CopyToNative(variant.snoMaterial, block.baseMaterial);
     CopyToNative(variant.snoCloth, block.cloth);
@@ -386,6 +399,12 @@ Material ImportVariant(const d3n::SubObjectAppearance& variant, const std::strin
 
     // --- the common projection ----------------------------------------------
     CommonMaterial& common = material.InitCommon();
+    // The same bit, in the layer a derive keeps. `ActorModel_BuildSubObjectRenderRecords`
+    // opens each record with `subObjectAppearance[0] & 1`, and a variant without
+    // it is the look's way of saying this piece is not worn.
+    if ((variant.dwUnknown00 & 1) == 0) {
+        common.flags |= MaterialFlags::Invisible;
+    }
     const native::D3RenderState* first =
         block.opaquePasses.empty() ? nullptr : &block.opaquePasses.front();
     if (first != nullptr) {
@@ -461,6 +480,19 @@ Material ImportVariant(const d3n::SubObjectAppearance& variant, const std::strin
             if (type == 0) {
                 continue; // an unused stage
             }
+            const native::D3ShaderTagValue* rgb =
+                findPassTag(kTagColorCombine + static_cast<u32>(s));
+            const native::D3ShaderTagValue* alpha =
+                findPassTag(kTagAlphaCombine + static_cast<u32>(s));
+            if (rgb == nullptr && alpha == nullptr) {
+                // A stage the block gives no combine code for is not a stage of
+                // the chain -- the engine's own reader skips it, and a texture
+                // can be declared for a program to use some other way. Malthael's
+                // wings declare six and combine four; the last two are the flow
+                // maps `ps_legacy_Malthael_wings_flow` warps by, and defaulting
+                // them to a replace put two of them over his own wing.
+                continue;
+            }
             entryOfType = findEntry(type);
             CombinerStage stage;
             if (entryOfType != nullptr) {
@@ -475,14 +507,13 @@ Material ImportVariant(const d3n::SubObjectAppearance& variant, const std::strin
                          name + ": pass declares stage type " + std::to_string(type) +
                              ", which the material has no entry for");
             }
-            const native::D3ShaderTagValue* rgb =
-                findPassTag(kTagColorCombine + static_cast<u32>(s));
-            const native::D3ShaderTagValue* alpha =
-                findPassTag(kTagAlphaCombine + static_cast<u32>(s));
             const std::string where = name + " stage " + std::to_string(s);
-            stage.rgb = rgb != nullptr ? DecodeCombine(rgb->value, where, out) : CombinerOp::Opaque;
+            // A missing code on one channel is a zero on that channel, which
+            // `DecodeCombine` reads as the identity -- the same thing the engine
+            // does with an absent tag.
+            stage.rgb = rgb != nullptr ? DecodeCombine(rgb->value, where, out) : CombinerOp::Pass;
             stage.alpha =
-                alpha != nullptr ? DecodeCombine(alpha->value, where, out) : CombinerOp::Opaque;
+                alpha != nullptr ? DecodeCombine(alpha->value, where, out) : CombinerOp::Pass;
             body.stages.push_back(std::move(stage));
         }
         common.body = std::move(body);

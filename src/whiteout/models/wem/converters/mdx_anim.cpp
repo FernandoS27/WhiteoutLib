@@ -1160,36 +1160,44 @@ private:
 
     // ---- sections -----------------------------------------------------------
 
-    /// A `GeosetAnimation` keys a geoset, and this converter writes one geoset
-    /// per mesh, so the mesh index is the geoset id. One record per geoset,
-    /// created on first use — alpha and colour are two channels sharing it.
-    mdx::GeosetAnimation& geosetAnimationFor(u32 mesh) {
+    /// A `GeosetAnimation` keys a geoset. One record per geoset, created on
+    /// first use — alpha and colour are two channels sharing it, and a hidden
+    /// section already made one before the animation export ran.
+    mdx::GeosetAnimation& geosetAnimationFor(u32 geoset) {
         for (mdx::GeosetAnimation& existing : out_.geosetAnimations) {
-            if (existing.geosetId == mesh) {
+            if (existing.geosetId == geoset) {
                 return existing;
             }
         }
         mdx::GeosetAnimation created;
-        created.geosetId = mesh;
+        created.geosetId = geoset;
         created.flags = mdx::GeosetAnimation::Flag::Color;
         out_.geosetAnimations.push_back(std::move(created));
         return out_.geosetAnimations.back();
     }
 
+    /// A section channel names a MESH, and a mesh is now several geosets — so
+    /// the curve is written onto each of them. Equal on a document that came
+    /// from `.mdx`, where a mesh is one geoset by construction.
     void emitSectionChannel(const AnimChannel& channel, const MergedTrack& merged) {
-        if (channel.target.mesh >= out_.geosets.size()) {
+        if (channel.target.mesh >= context_.geosetsOfMesh.size()) {
             return;
         }
-        mdx::GeosetAnimation& animation = geosetAnimationFor(channel.target.mesh);
-        switch (channel.target.channel) {
-        case Channel::Alpha:
-            Emit(merged, animation.alphaTracks);
-            return;
-        case Channel::Color:
-            Emit(merged, animation.colorTracks);
-            return;
-        default:
-            break;
+        for (const u32 geoset : context_.geosetsOfMesh[channel.target.mesh]) {
+            if (geoset >= out_.geosets.size()) {
+                continue;
+            }
+            mdx::GeosetAnimation& animation = geosetAnimationFor(geoset);
+            switch (channel.target.channel) {
+            case Channel::Alpha:
+                Emit(merged, animation.alphaTracks);
+                break;
+            case Channel::Color:
+                Emit(merged, animation.colorTracks);
+                break;
+            default:
+                break;
+            }
         }
     }
 

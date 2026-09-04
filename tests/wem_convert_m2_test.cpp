@@ -127,7 +127,7 @@ TEST_CASE("wem m2 attachments become bone children", "[wem][convert][m2][nodes]"
     CHECK(attachment.kind == NodeKind::Attachment);
     CHECK(attachment.parent == 1);
     // The equip slot is the point of an M2 attachment, so it has to survive.
-    CHECK(attachment.native.value("attachmentId") == 12);
+    CHECK(attachment.native.value("m2AttachmentId") == 12);
     // Model-space z=8 under a bone pivoted at z=5 is a local z=3, and the world
     // bind pose puts it back where the file had it.
     CHECK(attachment.local.translation.z == 3.0f);

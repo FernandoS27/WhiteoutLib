@@ -80,6 +80,16 @@ enum class MaterialFlags : u32 {
     NoShadowReceive = 0x08,
     SortNearZ = 0x10, ///< MDX SortPrimsNearZ — a draw-order hint, not a depth mode.
     SortFarZ = 0x20,  ///< MDX SortPrimsFarZ.
+
+    /// The surface exists and does not draw.
+    ///
+    /// Not the same thing as a hidden *section* (`SectionFlags::Hidden`), which
+    /// is why it is here: Diablo III's visibility bit is per (sub-object, look)
+    /// and a material is per (slot, look), so the material is the only record
+    /// with the right scope to hold it. Tyrael's two bodies and the Skeleton
+    /// King's four are each other's alternates, and every one of them drew at
+    /// once for as long as this lived only in the native block.
+    Invisible = 0x40,
 };
 
 constexpr MaterialFlags operator|(MaterialFlags a, MaterialFlags b) {

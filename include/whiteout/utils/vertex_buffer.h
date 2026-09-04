@@ -101,6 +101,14 @@ struct VertexBuffer {
      */
     std::vector<Vector2f> getUVs(size_t which, f32 uvMultiply, f32 uvOffset) const;
     std::vector<Vector4f> getColors() const;
+    /// @brief The @p which'th colour layer. Diablo III authors two — a tint and
+    /// a baked occlusion mask — and reading only the first drops the second.
+    std::vector<Vector4f> getColors(size_t which) const;
+    /// @brief The binormal layer, when the buffer declares one. Its own
+    /// attribute rather than a sign bit on the tangent: D3 authors both
+    /// vectors, and reconstructing one from the other assumes an orthonormal
+    /// frame that content does not promise.
+    std::vector<Vector3f> getBinormals() const;
     /// @brief Extract bone indices (4 x u8 at offset 16, region-local)
     std::vector<std::array<u32, 4>> getBoneIndices() const;
     /// @brief Extract bone weights (4 x u8 at offset 12, divide by 255.0)

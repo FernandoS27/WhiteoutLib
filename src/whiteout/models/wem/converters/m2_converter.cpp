@@ -132,7 +132,7 @@ NodeTree ImportNodes(const m2::Model& source) {
         node.flags = ToNodeFlags(bone.flags);
         node.parent = bone.parentBoneId < 0 ? kInvalidNode : static_cast<u32>(bone.parentBoneId);
         node.native.set("keyBoneId", bone.keyBoneId);
-        node.native.set("flagBits", static_cast<i64>(bone.flags));
+        node.native.set("m2FlagBits", static_cast<i64>(bone.flags));
         node.native.set("submeshId", static_cast<i64>(bone.submeshId));
         node.native.set("boneNameCRC", static_cast<i64>(bone.boneNameCRC));
 
@@ -174,7 +174,7 @@ NodeTree ImportNodes(const m2::Model& source) {
         node.kind = NodeKind::Attachment;
         node.resetPayloadForKind();
         // The equip-slot key, which is the whole point of an M2 attachment.
-        node.native.set("attachmentId", static_cast<i64>(attachment.id));
+        node.native.set("m2AttachmentId", static_cast<i64>(attachment.id));
         attach(attachment.boneId, attachment.position, node);
         tree.add(std::move(node));
     }
@@ -187,7 +187,7 @@ NodeTree ImportNodes(const m2::Model& source) {
         node.resetPayloadForKind();
         auto& payload = std::get<LightPayload>(node.payload);
         payload.kind = light.type == 0 ? LightKind::Directional : LightKind::Omni;
-        node.native.set("lightType", static_cast<i64>(light.type));
+        node.native.set("m2LightType", static_cast<i64>(light.type));
         attach(light.boneId < 0 ? 0xFFFFu : static_cast<u32>(light.boneId), light.position, node);
         tree.add(std::move(node));
     }
@@ -501,7 +501,7 @@ Result<m2::Model> M2Converter::toM2(const Document& document, ProfileId profile,
                                     static_cast<u32>(out.bones.size())};
         m2::Bone bone;
         bone.keyBoneId = static_cast<i32>(node.native.value("keyBoneId", -1));
-        bone.flags = static_cast<u32>(node.native.value("flagBits"));
+        bone.flags = static_cast<u32>(node.native.value("m2FlagBits"));
         bone.submeshId = static_cast<u16>(node.native.value("submeshId"));
         bone.boneNameCRC = static_cast<u32>(node.native.value("boneNameCRC"));
         bone.parentBoneId = -1;
@@ -523,7 +523,7 @@ Result<m2::Model> M2Converter::toM2(const Document& document, ProfileId profile,
         switch (node.kind) {
         case NodeKind::Attachment: {
             m2::Attachment attachment;
-            attachment.id = static_cast<u32>(node.native.value("attachmentId"));
+            attachment.id = static_cast<u32>(node.native.value("m2AttachmentId"));
             attachment.boneId = parentBone;
             attachment.position = world;
             animContext.nodeSlots[n] = {m2_anim::ExportContext::Slot::Attachment,
@@ -533,7 +533,7 @@ Result<m2::Model> M2Converter::toM2(const Document& document, ProfileId profile,
         }
         case NodeKind::Light: {
             m2::Light light;
-            light.type = static_cast<u16>(node.native.value("lightType"));
+            light.type = static_cast<u16>(node.native.value("m2LightType"));
             light.boneId = static_cast<i16>(parentBone);
             light.position = world;
             animContext.nodeSlots[n] = {m2_anim::ExportContext::Slot::Light,

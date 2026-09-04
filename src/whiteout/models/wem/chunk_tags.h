@@ -273,10 +273,12 @@ struct ChunkTagTraits<Node> {
     static constexpr bool is_trivial = false;
 };
 
+/// v2 adds `NativeBag::Entry::text` — the string half a D3 sub-object's Maya
+/// shape name needs.
 template <>
 struct ChunkTagTraits<NativeBag::Entry> {
     static constexpr u32 value = kTag("NBAG");
-    static constexpr u32 max_version = 1;
+    static constexpr u32 max_version = 2;
     static constexpr bool is_trivial = false;
 };
 

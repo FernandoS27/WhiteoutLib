@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-/// WEM v3 P6 — Diablo III import.
+/// WEM v3 P6 — Diablo III, both directions.
 ///
 /// The claims under test, in the order they matter:
 ///
@@ -32,12 +32,19 @@
 #include "test_helpers.h"
 #include "wem_d3_corpus.h"
 
+// The animation converter is a private header: `ExportAnims` is the mirror of
+// `ImportAnim` and neither is on `D3Converter`, because a clip belongs to the
+// document rather than to one appearance.
+#include "whiteout/models/wem/converters/d3_anim.h"
+
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -142,8 +149,7 @@ d3n::Appearances makeAppearance() {
     app.arMaterials.resize(2);
     app.dwMaterialCount = 2;
     for (int m = 0; m < 2; ++m) {
-        app.arMaterials[static_cast<std::size_t>(m)].szName =
-            m == 0 ? "body_mat" : "cloth_mat";
+        app.arMaterials[static_cast<std::size_t>(m)].szName = m == 0 ? "body_mat" : "cloth_mat";
         app.arMaterials[static_cast<std::size_t>(m)].arVariants.resize(2);
         for (int look = 0; look < 2; ++look) {
             auto& variant = app.arMaterials[static_cast<std::size_t>(m)]
@@ -170,8 +176,7 @@ d3n::Appearances makeAppearance() {
 // Shape, on a fixture
 // ===========================================================================
 
-TEST_CASE("wem d3 an appearance becomes one model with one diablo3 set",
-          "[wem][convert][d3]") {
+TEST_CASE("wem d3 an appearance becomes one model with one diablo3 set", "[wem][convert][d3]") {
     const d3n::Appearances app = makeAppearance();
     D3Converter converter;
     Result<Document> result = converter.fromAppearance(app);
@@ -198,8 +203,7 @@ TEST_CASE("wem d3 an appearance becomes one model with one diablo3 set",
     CHECK(mesh.sections[1].materialSlot == 1);
 }
 
-TEST_CASE("wem d3 every bone carries five poses under a five-entry schema",
-          "[wem][convert][d3]") {
+TEST_CASE("wem d3 every bone carries five poses under a five-entry schema", "[wem][convert][d3]") {
     const d3n::Appearances app = makeAppearance();
     D3Converter converter;
     Result<Document> result = converter.fromAppearance(app);
@@ -337,8 +341,7 @@ TEST_CASE("wem d3 export is refused, not faked", "[wem][convert][d3]") {
     REQUIRE(imported.ok());
 
     CHECK_FALSE(converter.supportsExport());
-    Result<std::vector<u8>> exported =
-        converter.exportToBytes(*imported.value, ProfileId::Diablo3);
+    Result<std::vector<u8>> exported = converter.exportToBytes(*imported.value, ProfileId::Diablo3);
     CHECK_FALSE(exported.ok());
     CHECK(exported.diagnostics.countOf(DiagCode::OperationUnsupported) == 1);
 }
@@ -382,8 +385,7 @@ TEST_CASE("wem d3 importing an actor without a provider refuses", "[wem][convert
 // The corpus arm — §16's P6 gate
 // ===========================================================================
 
-TEST_CASE("wem d3 the fourteen player appearances convert whole",
-          "[wem][convert][d3][corpus]") {
+TEST_CASE("wem d3 the fourteen player appearances convert whole", "[wem][convert][d3][corpus]") {
     const auto players = loadPlayerAppearances();
     if (players.empty()) {
         SKIP("D3 Appearances corpus not found");
@@ -454,9 +456,8 @@ TEST_CASE("wem d3 the fourteen player appearances convert whole",
     }
 
     INFO("sub-objects " << subObjects << ", joined " << joined << ", descriptors "
-                        << descriptorsParsed << ", bones " << bones << ", hardpoints "
-                        << hardpoints << ", lights " << lights << ", validation errors "
-                        << validationErrors);
+                        << descriptorsParsed << ", bones " << bones << ", hardpoints " << hardpoints
+                        << ", lights " << lights << ", validation errors " << validationErrors);
     CHECK(validationErrors == 0);
 
     // §16's P6 gate, as measured.
@@ -581,7 +582,8 @@ TEST_CASE("wem d3 shader resolution fills the render state", "[wem][convert][d3]
     std::size_t resolved = 0;
     std::size_t combiners = 0;
     std::size_t legacy = 0;
-    for (const Material& material : withAssets.value->models.front().profileSets.front().materials) {
+    for (const Material& material :
+         withAssets.value->models.front().profileSets.front().materials) {
         const auto* block = std::get_if<native::D3Material>(&material.Native());
         REQUIRE(block != nullptr);
         // Import-only, so the block is the truth and common is a projection.
@@ -604,4 +606,452 @@ TEST_CASE("wem d3 shader resolution fills the render state", "[wem][convert][d3]
           withAssets.value->models.front().profileSets.front().materials.size());
     // The cache did its job: fewer loads than materials asked for.
     CHECK(assets.stats().hits > 0);
+}
+
+// ===========================================================================
+// toAppearance — the native model back out
+// ===========================================================================
+//
+// The claims, in the order they matter:
+//
+// - **A section is a sub-object, and it owns its vertices.** Its face corners
+//   are `u16` into its own array, so the ranges are disjoint slices.
+// - **The dressing survives.** Two strings decide what a D3 character draws and
+//   neither is derivable: `szMaterialName` (the substring `ActorModel_ApplyLook`
+//   searches) and the per-look visibility bit on the variant.
+// - **The five poses leave as five.** A and B are different poses.
+// - **The materials are restored, not re-derived.** The block is authoritative,
+//   so the textures that come back are the shipped SNO ids.
+
+TEST_CASE("wem d3 a model comes back as an appearance", "[wem][convert][d3]") {
+    const d3n::Appearances app = makeAppearance();
+    D3Converter converter;
+    Result<Document> imported = converter.fromAppearance(app);
+    REQUIRE(imported.ok());
+
+    Result<D3AppearanceExport> exported = converter.toAppearance(*imported.value);
+    REQUIRE(exported.ok());
+    const d3n::Appearances& back = exported.value->appearance;
+
+    CHECK(back.dwSnoId == 4242);
+    REQUIRE(back.arBones.size() == 2);
+    CHECK(back.arBones[0].szName == "root");
+    CHECK(back.arBones[0].nParentIndex == -1);
+    CHECK(back.arBones[1].szName == "spine");
+    CHECK(back.arBones[1].nParentIndex == 0);
+
+    // Five distinct slots, still distinct and still in order. The fixture puts
+    // `b * 10 + slot` in each translation, so a swapped pair is visible.
+    for (int b = 0; b < 2; ++b) {
+        const d3n::BoneStructure& bone = back.arBones[static_cast<std::size_t>(b)];
+        const d3n::PRSTransform* slots[5] = {&bone.tTransform0, &bone.tTransform1,
+                                             &bone.tTransform2, &bone.tTransform3,
+                                             &bone.tTransform4};
+        for (int p = 0; p < 5; ++p) {
+            CHECK(slots[p]->vTranslation.x == Catch::Approx(static_cast<f32>(b * 10 + p)));
+        }
+        // Only the LOCAL pose carries the fixture's scale of 2, and D3 holds one
+        // float — the export must not average or drop it.
+        CHECK(slots[2]->flScale == Catch::Approx(2.0f));
+    }
+
+    REQUIRE(back.arHardpoints.size() == 1);
+    CHECK(back.arHardpoints[0].szName == "HP_head");
+    CHECK(back.arHardpoints[0].nBoneIndex == 1);
+    CHECK(back.arHardpoints[0].tTransform.vTranslation.z == Catch::Approx(5.0f));
+
+    REQUIRE(back.arStaticLights.size() == 1);
+    CHECK(back.arStaticLights[0].nType == 1);
+    CHECK(back.arStaticLights[0].flIntensity == Catch::Approx(2.0f));
+
+    // The counts an `.app` carries beside its arrays, which a consumer reading
+    // the struct rather than the file still reads.
+    CHECK(back.dwBoneCount == 2);
+    CHECK(back.dwHardpointCount == 1);
+    CHECK(back.dwLookCount == 2);
+    CHECK(back.dwMaterialCount == 2);
+    CHECK(back.tGeoSet0.dwSubObjectCount == static_cast<i32>(back.tGeoSet0.arSubObjects.size()));
+}
+
+TEST_CASE("wem d3 a section is a sub-object that owns its vertices", "[wem][convert][d3]") {
+    const d3n::Appearances app = makeAppearance();
+    D3Converter converter;
+    Result<Document> imported = converter.fromAppearance(app);
+    REQUIRE(imported.ok());
+    // One mesh, two sections — which is the case a mesh-per-geoset export gets
+    // wrong by merging them into one draw.
+    REQUIRE(imported.value->models.front().meshes.size() == 1);
+    REQUIRE(imported.value->models.front().meshes.front().sections.size() == 2);
+
+    Result<D3AppearanceExport> exported = converter.toAppearance(*imported.value);
+    REQUIRE(exported.ok());
+    const d3n::GeoSet& geoset = exported.value->appearance.tGeoSet0;
+    REQUIRE(geoset.arSubObjects.size() == 2);
+
+    for (const d3n::SubObject& sub : geoset.arSubObjects) {
+        CHECK(sub.arVertices.size() == 3);
+        CHECK(sub.arIndices.size() == 3);
+        CHECK(sub.dwVertexCount == 3);
+        CHECK(sub.dwIndexCount == 3);
+        // Its own array: every corner is in range for THIS sub-object, which is
+        // the invariant a shared vertex pool breaks.
+        for (const u16 index : sub.arIndices) {
+            CHECK(index < sub.arVertices.size());
+        }
+    }
+    CHECK(geoset.arSubObjects[0].szName == "body_mat");
+    CHECK(geoset.arSubObjects[1].szName == "cloth_mat");
+    // The rigid binding: the fixture puts each sub-object on its own bone and
+    // neither carries influences.
+    CHECK(geoset.arSubObjects[0].nBoneIndex == 0);
+    CHECK(geoset.arSubObjects[1].nBoneIndex == 1);
+    CHECK(geoset.arSubObjects[0].arVertexInfluences.empty());
+
+    // The document says which section each record came from, in emission order.
+    REQUIRE(exported.value->sourceSections.size() == 2);
+    CHECK(exported.value->sourceSections[0] == std::pair<u32, u32>{0, 0});
+    CHECK(exported.value->sourceSections[1] == std::pair<u32, u32>{0, 1});
+}
+
+TEST_CASE("wem d3 the Maya shape name survives, because the dressing reads it",
+          "[wem][convert][d3]") {
+    const d3n::Appearances app = makeAppearance();
+    D3Converter converter;
+    Result<Document> imported = converter.fromAppearance(app);
+    REQUIRE(imported.ok());
+
+    Result<D3AppearanceExport> exported = converter.toAppearance(*imported.value);
+    REQUIRE(exported.ok());
+    const d3n::GeoSet& geoset = exported.value->appearance.tGeoSet0;
+    REQUIRE(geoset.arSubObjects.size() == 2);
+
+    // Verbatim, not rebuilt from the parse: `ActorModel_ApplyLook` does a
+    // case-sensitive substring search on this string and never parses it, so a
+    // regenerated spelling would re-dress differently from the game on exactly
+    // the names the parse gets wrong.
+    CHECK(geoset.arSubObjects[0].szMaterialName == "N_TRS_HVY_AShape_body_mat_001");
+    CHECK(geoset.arSubObjects[1].szMaterialName == "N_TRS_NKDShape_cloth_mat_001");
+
+    // And therefore the descriptor parses to the same triple it did on the way
+    // in — the labelling half of the same fact.
+    const d3n::GeosetName first = d3n::parseGeosetName(geoset.arSubObjects[0]);
+    CHECK(first.parsed);
+    CHECK(first.slot == d3n::LookSlot::Torso);
+    CHECK(first.weight == d3n::ArmourWeight::Heavy);
+    CHECK(first.variant == 'A');
+}
+
+TEST_CASE("wem d3 the per-look visibility bit is on the material, not the section",
+          "[wem][convert][d3]") {
+    d3n::Appearances app = makeAppearance();
+    // Bit 0 is what `ActorModel_BuildSubObjectRenderRecords` opens with. Set it
+    // for `body_mat` under look A only — Tyrael's shape, where one look draws
+    // the Stranger and the other the restored angel.
+    app.arMaterials[0].arVariants[0].dwUnknown00 = 1;
+    app.arMaterials[0].arVariants[1].dwUnknown00 = 0;
+    app.arMaterials[1].arVariants[0].dwUnknown00 = 0;
+    app.arMaterials[1].arVariants[1].dwUnknown00 = 1;
+
+    D3Converter converter;
+    Result<Document> imported = converter.fromAppearance(app);
+    REQUIRE(imported.ok());
+    Result<D3AppearanceExport> exported = converter.toAppearance(*imported.value);
+    REQUIRE(exported.ok());
+    const d3n::Appearances& back = exported.value->appearance;
+    REQUIRE(back.arMaterials.size() == 2);
+
+    // Per (slot, look), which is why it cannot fold into `SectionFlags::Hidden`:
+    // that is per section and would have to pick one look's answer.
+    CHECK((back.arMaterials[0].arVariants[0].dwUnknown00 & 1) == 1);
+    CHECK((back.arMaterials[0].arVariants[1].dwUnknown00 & 1) == 0);
+    CHECK((back.arMaterials[1].arVariants[0].dwUnknown00 & 1) == 0);
+    CHECK((back.arMaterials[1].arVariants[1].dwUnknown00 & 1) == 1);
+
+    // And in the COMMON material as well, because that is the layer a derive
+    // keeps: living only in the block, it went no further than Diablo III, and
+    // the Skeleton King's four alternate bodies all drew at once anywhere else.
+    const ProfileMaterialSet& set = imported.value->models.front().profileSets.front();
+    REQUIRE(set.materials.size() == 4);
+    const auto invisible = [&](std::size_t slot, std::size_t look) {
+        const u32 index = set.slotBindings[slot].byLook[look];
+        REQUIRE(index < set.materials.size());
+        return hasFlag(set.materials[index].Common().flags, MaterialFlags::Invisible);
+    };
+    CHECK_FALSE(invisible(0, 0));
+    CHECK(invisible(0, 1));
+    CHECK(invisible(1, 0));
+    CHECK_FALSE(invisible(1, 1));
+}
+
+TEST_CASE("wem d3 a stage the pass gives no combine code for is not a chain stage",
+          "[wem][convert][d3][corpus]") {
+    // The engine's own reader skips it — `d3_surface_table.cpp` opens with
+    // `if (!color && !alpha) continue` — and a texture the pass declares can be
+    // there for the program to use some other way. Malthael's wings declare six
+    // stages and combine four; the last two are the flow maps his program warps
+    // by, and defaulting them to a replace put two of them over the wing.
+    const fs::path root = corpusRoot();
+    if (!fs::is_directory(root / "Shaders")) {
+        SKIP("D3 corpus not found");
+    }
+    const auto players = loadPlayerAppearances();
+    if (players.empty()) {
+        SKIP("D3 Appearances corpus not found");
+    }
+
+    CorpusProvider provider(root);
+    AssetSource assets(provider);
+    D3Converter converter;
+    Result<Document> imported = converter.fromAppearance(players.front().second, &assets);
+    REQUIRE(imported.ok());
+
+    constexpr u32 kColorCombine = 0xA0016u;
+    constexpr u32 kAlphaCombine = 0xA001Cu;
+    std::size_t chains = 0;
+    for (const Material& material : imported.value->models.front().profileSets.front().materials) {
+        const CombinersBody* body = material.Common().combiners();
+        const auto* block = std::get_if<native::D3Material>(&material.Native());
+        if (body == nullptr || block == nullptr || block->opaquePasses.empty()) {
+            continue;
+        }
+        const native::D3RenderState& pass = block->opaquePasses.front();
+        std::size_t combined = 0;
+        for (std::size_t stage = 0; stage < pass.textureStages.size() && stage < 6; ++stage) {
+            if (pass.textureStages[stage].contentStage == 0) {
+                continue;
+            }
+            const auto has = [&](u32 base) {
+                for (const native::D3ShaderTagValue& tag : pass.shaderParams) {
+                    if (tag.tagId == base + static_cast<u32>(stage)) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+            if (has(kColorCombine) || has(kAlphaCombine)) {
+                ++combined;
+            }
+        }
+        INFO(material.name << ": " << body->stages.size() << " stages, " << combined << " combined "
+                           << "of " << pass.textureStages.size() << " declared");
+        CHECK(body->stages.size() == combined);
+        ++chains;
+    }
+    INFO("checked " << chains << " chain materials");
+    CHECK(chains > 0);
+}
+
+TEST_CASE("wem d3 the materials are restored from the block, not re-derived",
+          "[wem][convert][d3]") {
+    const d3n::Appearances app = makeAppearance();
+    D3Converter converter;
+    Result<Document> imported = converter.fromAppearance(app);
+    REQUIRE(imported.ok());
+
+    Result<D3AppearanceExport> exported = converter.toAppearance(*imported.value);
+    REQUIRE(exported.ok());
+    const d3n::Appearances& back = exported.value->appearance;
+    REQUIRE(back.arMaterials.size() == 2);
+
+    // Slot order is the model's slot list, which the import built from
+    // `arMaterials` — so the join a sub-object makes on `szName` still lands.
+    CHECK(back.arMaterials[0].szName == "body_mat");
+    CHECK(back.arMaterials[1].szName == "cloth_mat");
+    for (const d3n::AppearanceMaterial& material : back.arMaterials) {
+        CHECK(material.arVariants.size() == 2);
+    }
+    // The shipped SNO ids, not document indices: an `UberMaterial` names a
+    // texture by id and the common view holds an index into `Document::textures`,
+    // so a re-derivation through the common material would bind the wrong file.
+    CHECK(back.arMaterials[0].arVariants[0].tMaterial.arTextures.at(0).snoTexture.id == 100);
+    CHECK(back.arMaterials[0].arVariants[1].tMaterial.arTextures.at(0).snoTexture.id == 101);
+    CHECK(back.arMaterials[1].arVariants[0].tMaterial.arTextures.at(0).snoTexture.id == 110);
+    CHECK(back.arMaterials[1].arVariants[1].tMaterial.arTextures.at(0).snoTexture.id == 111);
+}
+
+TEST_CASE("wem d3 a wardrobe choice comes back as the hidden mask, not as a drop",
+          "[wem][convert][d3]") {
+    const d3n::Appearances app = makeAppearance();
+    D3Converter converter;
+    D3ImportOptions options;
+    // `body_mat` is `N_TRS_HVY_A`; asking for the naked torso hides it and
+    // leaves `cloth_mat`, which is `N_TRS_NKD`, drawing.
+    options.wardrobe.push_back(D3WardrobePiece{d3n::LookSlot::Torso, d3n::ArmourWeight::Naked, 0});
+    Result<Document> imported = converter.fromAppearance(app, nullptr, options);
+    REQUIRE(imported.ok());
+
+    Result<D3AppearanceExport> exported = converter.toAppearance(*imported.value);
+    REQUIRE(exported.ok());
+
+    // Both sub-objects are still written — an `.app` holds every variant at
+    // once and visibility is never in it — and the choice comes back beside
+    // them for the caller to apply.
+    CHECK(exported.value->appearance.tGeoSet0.arSubObjects.size() == 2);
+    REQUIRE(exported.value->hidden.size() == 2);
+    CHECK(exported.value->hidden[0] == 1);
+    CHECK(exported.value->hidden[1] == 0);
+}
+
+TEST_CASE("wem d3 exporting a model with no diablo3 set refuses", "[wem][convert][d3]") {
+    const d3n::Appearances app = makeAppearance();
+    D3Converter converter;
+    Result<Document> imported = converter.fromAppearance(app);
+    REQUIRE(imported.ok());
+    imported.value->models.front().profileSets.clear();
+
+    Result<D3AppearanceExport> exported = converter.toAppearance(*imported.value);
+    CHECK_FALSE(exported.ok());
+    CHECK(exported.diagnostics.countOf(DiagCode::ProfileNotCarried) == 1);
+}
+
+TEST_CASE("wem d3 clips come back as the anim they came from", "[wem][convert][d3]") {
+    const d3n::Appearances app = makeAppearance();
+    D3Converter converter;
+    Result<Document> imported = converter.fromAppearance(app);
+    REQUIRE(imported.ok());
+
+    // Two permutations of one `.ani`, driving the two fixture bones.
+    d3n::Anim anim;
+    anim.dwSnoId = 777;
+    anim.arPermutations.resize(2);
+    for (int p = 0; p < 2; ++p) {
+        d3n::AnimPermutation& perm = anim.arPermutations[static_cast<std::size_t>(p)];
+        perm.szName = p == 0 ? "walk_a" : "walk_b";
+        perm.flFramesPerTick = 0.5f; // 30 fps
+        perm.dwFrameCount = 31;      // one second
+        perm.arBoneNames.resize(1);
+        perm.arBoneNames[0].szBoneName = "spine";
+        perm.arTranslationCurves.resize(1);
+        perm.arTranslationCurves[0].arKeys.push_back(d3n::TranslationKey{0, Vector3f{0, 0, 0}});
+        perm.arTranslationCurves[0].arKeys.push_back(
+            d3n::TranslationKey{30, Vector3f{static_cast<f32>(p + 1), 2, 3}});
+        perm.arScaleCurves.resize(1);
+        perm.arScaleCurves[0].arKeys.push_back(d3n::ScaleKey{0, 1.0f});
+        perm.arScaleCurves[0].arKeys.push_back(d3n::ScaleKey{30, 4.0f});
+    }
+
+    Diagnostics diagnostics;
+    const std::vector<u32> clips = d3_anim::ImportAnim(anim, *imported.value, 0, diagnostics);
+    REQUIRE(clips.size() == 2);
+
+    const std::vector<d3n::Anim> back = d3_anim::ExportAnims(*imported.value, 0, diagnostics);
+    REQUIRE(back.size() == 1);
+    // One `Anim` per source `.ani`, and its permutations are its clips — the
+    // grouping the import recorded on `Clip::native["animSnoId"]`.
+    CHECK(back[0].dwSnoId == 777);
+    REQUIRE(back[0].arPermutations.size() == 2);
+    CHECK(back[0].dwPermutationCount == 2);
+
+    for (int p = 0; p < 2; ++p) {
+        const d3n::AnimPermutation& perm = back[0].arPermutations[static_cast<std::size_t>(p)];
+        CHECK(perm.szName == (p == 0 ? "walk_a" : "walk_b"));
+        // `fps = flFramesPerTick * 60` and the duration counts spans, so the
+        // two invert exactly.
+        CHECK(perm.flFramesPerTick == Catch::Approx(0.5f));
+        CHECK(perm.dwFrameCount == 31);
+        REQUIRE(perm.arBoneNames.size() == 1);
+        CHECK(perm.arBoneNames[0].szBoneName == "spine");
+        REQUIRE(perm.arTranslationCurves.size() == 1);
+        REQUIRE(perm.arTranslationCurves[0].arKeys.size() == 2);
+        CHECK(perm.arTranslationCurves[0].dwKeyCount == 2);
+        CHECK(perm.arTranslationCurves[0].arKeys[1].nFrame == 30);
+        CHECK(perm.arTranslationCurves[0].arKeys[1].vPosition.x ==
+              Catch::Approx(static_cast<f32>(p + 1)));
+        // One float, matching the channel the import declared. Widening it to
+        // three would invent two components D3 has no field for.
+        REQUIRE(perm.arScaleCurves[0].arKeys.size() == 2);
+        CHECK(perm.arScaleCurves[0].arKeys[1].flScale == Catch::Approx(4.0f));
+    }
+}
+
+TEST_CASE("wem d3 the corpus appearances round trip exactly", "[wem][convert][d3][corpus]") {
+    const fs::path directory = corpusRoot() / "Appearances";
+    if (!fs::is_directory(directory)) {
+        SUCCEED("no D3 corpus");
+        return;
+    }
+    CorpusProvider provider(corpusRoot());
+    AssetSource assets(provider);
+    D3Converter converter;
+
+    u32 files = 0, exact = 0;
+    u32 emptied = 0, reported = 0;
+    for (const auto& entry : fs::directory_iterator(directory)) {
+        if (files >= 200) {
+            break;
+        }
+        const std::vector<u8> bytes = readWhole(entry.path());
+        std::optional<d3n::Appearances> parsed = d3n::parseAppearances(bytes);
+        if (!parsed.has_value()) {
+            continue;
+        }
+        ++files;
+
+        Result<Document> imported = converter.fromAppearance(*parsed, &assets);
+        REQUIRE(imported.ok());
+        Result<D3AppearanceExport> exported = converter.toAppearance(*imported.value);
+        REQUIRE(exported.ok());
+        const d3n::Appearances& back = exported.value->appearance;
+
+        bool clean = back.arBones.size() == parsed->arBones.size() &&
+                     back.arHardpoints.size() == parsed->arHardpoints.size() &&
+                     back.arMaterials.size() == parsed->arMaterials.size() &&
+                     back.arLooks.size() == parsed->arLooks.size();
+        for (std::size_t b = 0; b < back.arBones.size() && clean; ++b) {
+            clean = back.arBones[b].szName == parsed->arBones[b].szName &&
+                    back.arBones[b].nParentIndex == parsed->arBones[b].nParentIndex &&
+                    back.arBones[b].tTransform4.vTranslation.x ==
+                        parsed->arBones[b].tTransform4.vTranslation.x;
+        }
+
+        // A section the §5.3 manifold repair emptied writes no record, and the
+        // export has to say so — a sub-object going missing from the middle of
+        // a geoset is exactly what a counts-only check never sees.
+        std::size_t withGeometry = 0;
+        const d3n::GeoSet* sets[2] = {&parsed->tGeoSet0, &parsed->tGeoSet1};
+        for (const d3n::GeoSet* set : sets) {
+            for (const d3n::SubObject& sub : set->arSubObjects) {
+                if (!sub.arVertices.empty() && !sub.arIndices.empty()) {
+                    ++withGeometry;
+                }
+            }
+        }
+        const std::size_t written =
+            back.tGeoSet0.arSubObjects.size() + back.tGeoSet1.arSubObjects.size();
+        if (written != withGeometry) {
+            // Not a failure, and not silent either: the count that went missing
+            // and the count the export reported have to agree.
+            emptied += static_cast<u32>(withGeometry - written);
+            reported += exported.diagnostics.countOf(DiagCode::DegenerateFaceDropped);
+        }
+        // The `szMaterialName` join, on every record that was written.
+        for (int g = 0; g < 2 && clean; ++g) {
+            const d3n::GeoSet& source = *sets[g];
+            const d3n::GeoSet& result = g == 0 ? back.tGeoSet0 : back.tGeoSet1;
+            for (std::size_t s = 0; s < result.arSubObjects.size() && clean; ++s) {
+                // `sourceSections` names the section, which IS the source
+                // sub-object's index in its geoset.
+                const std::size_t at = s < exported.value->sourceSections.size()
+                                           ? exported.value->sourceSections[s].second
+                                           : source.arSubObjects.size();
+                clean =
+                    at < source.arSubObjects.size() &&
+                    result.arSubObjects[s].szName == source.arSubObjects[at].szName &&
+                    result.arSubObjects[s].szMaterialName == source.arSubObjects[at].szMaterialName;
+            }
+        }
+        if (clean) {
+            ++exact;
+        }
+    }
+
+    REQUIRE(files > 0);
+    INFO(exact << " of " << files << " appearances round trip exactly; the repair emptied "
+               << emptied << " sub-objects and reported " << reported);
+    // Every one, with nothing excused: the bones, their five poses, the
+    // hardpoints, the look table and the two join strings all come back as
+    // shipped. The only thing that shrinks is what the manifold repair took,
+    // and that is counted rather than tolerated.
+    CHECK(exact == files);
+    CHECK(reported >= emptied);
 }

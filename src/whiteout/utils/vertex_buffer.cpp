@@ -672,7 +672,27 @@ std::vector<Vector2f> VertexBuffer::getUVs(size_t which, f32 uvMultiply, f32 uvO
 }
 
 std::vector<Vector4f> VertexBuffer::getColors() const {
-    const auto* attr = findAttr(*this, AttributeClass::Color);
+    return getColors(0);
+}
+
+std::vector<Vector3f> VertexBuffer::getBinormals() const {
+    const auto* attr = findAttr(*this, AttributeClass::Binormal);
+    if (!attr)
+        return {};
+    const size_t n = vertexCount();
+    const size_t bpe = bytesPerEncoding(attr->encoding);
+    const size_t comps = std::min(attr->component_count, size_t{3});
+    std::vector<Vector3f> result(n);
+    for (size_t vi = 0; vi < n; ++vi) {
+        const u8* base = data.data() + vi * vertex_stride + attr->offset;
+        for (size_t c = 0; c < comps; ++c)
+            result[vi].data[c] = decodeFloat(base + c * bpe, attr->encoding);
+    }
+    return result;
+}
+
+std::vector<Vector4f> VertexBuffer::getColors(size_t which) const {
+    const auto* attr = findAttr(*this, AttributeClass::Color, which);
     if (!attr)
         return {};
     const size_t n = vertexCount();

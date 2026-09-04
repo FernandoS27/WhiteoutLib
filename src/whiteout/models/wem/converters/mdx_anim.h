@@ -108,6 +108,13 @@ struct ExportContext {
     /// Parallel to `Model::nodes`.
     std::vector<NodeSlot> nodeSlots;
 
+    /// Per `Model::meshes[]`, the geosets its sections became.
+    ///
+    /// One entry per mesh once, several now: a geoset carries one material, so
+    /// `toMdx` writes one per SECTION. A `Kind::Section` channel still names
+    /// only a mesh (`TrackTarget::mesh`), so it fans out over that mesh's run.
+    std::vector<std::vector<u32>> geosetsOfMesh;
+
     /// Per material slot, the layer index each WEM ordinal became. The identity
     /// map on every shipped material — `ImportMaterial` numbers ordinals over
     /// the *filtered* stack and the export writes exactly that stack — but

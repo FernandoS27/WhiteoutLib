@@ -50,8 +50,10 @@ m3::Model makeModel(u32 version) {
     m3::Bone root;
     root.name = "root";
     root.parentIndex = 0xFFFF;
-    root.flags = m3::BoneFlag::InheritTranslation | m3::BoneFlag::InheritScale |
-                 m3::BoneFlag::InheritRotation;
+    // What a shipped bone actually carries. The three `Inherit` bits are set on
+    // NO bone in the corpus — 0 of 50,771 across 4,000 files — so a fixture
+    // that sets them is the one shape the mapping below cannot get wrong.
+    root.flags = m3::BoneFlag::Real | m3::BoneFlag::Animated | m3::BoneFlag::Skinned;
     root.scale.initValue = Vector3f{1, 1, 1};
     root.rotation.initValue = Quaternion{0, 0, 0, 1};
     m3::Bone child = root;
@@ -110,6 +112,35 @@ m3::Model makeModel(u32 version) {
 }
 
 } // namespace
+
+TEST_CASE("wem m3 bone flags stay native", "[wem][convert][m3][nodes]") {
+    const M3Converter converter;
+    Result<Document> imported = converter.fromM3(makeModel(25));
+    REQUIRE(imported.ok());
+    const NodeTree& tree = imported->models.front().nodes;
+    REQUIRE(tree.nodes.size() >= 2);
+
+    // `BONE.flags` says nothing `NodeFlags` can carry. StarCraft II reads two
+    // bits out of it (both dead), never the three `Inherit` ones — and those
+    // three are set on no shipped bone, so deriving `DontInherit*` from their
+    // absence hands every bone of every `.m3` all three suppressions. A
+    // pivot-relative target honours them, which detached every bone from its
+    // parent the moment one was opened as Warcraft III.
+    for (const Node& node : tree.nodes) {
+        CHECK(node.flags == NodeFlags::None);
+    }
+    // The word itself survives, under a name only the M3 converter answers to.
+    CHECK(tree.nodes[0].native.value("m3FlagBits") ==
+          static_cast<i64>(static_cast<u32>(m3::BoneFlag::Real | m3::BoneFlag::Animated |
+                                            m3::BoneFlag::Skinned)));
+    CHECK(tree.nodes[0].native.find("flagBits") == nullptr);
+
+    Result<m3::Model> exported = converter.toM3(*imported, ProfileId::Sc2);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->bones.size() >= 2);
+    CHECK(exported->bones[0].flags ==
+          (m3::BoneFlag::Real | m3::BoneFlag::Animated | m3::BoneFlag::Skinned));
+}
 
 TEST_CASE("wem m3 picks its profile from the MODL version", "[wem][convert][m3]") {
     CHECK(M3Converter::ProfileForVersion(23) == ProfileId::Sc2);

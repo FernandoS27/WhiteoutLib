@@ -26,9 +26,10 @@
  * reference is what a later re-resolve would need, and dropping it would make
  * the round trip lossy for a field the file actually has.
  *
- * `D3Converter` is import-only (§18), so this block's gate is WEM write →
- * re-read rather than a re-export, and its converter lands with the actors at
- * P6.
+ * The block is what `toAppearance` restores from, which is what makes the D3
+ * round trip a *restore* rather than a re-derivation: a `UberMaterial` names its
+ * textures by SNO id and the common view holds indices into `Document::textures`,
+ * so deriving one from the other would bind the wrong files.
  */
 
 #include <vector>
@@ -47,6 +48,20 @@ struct D3Material {
     /// 260 for the shipped `.app` corpus. The 2.6.2 binary disagrees about
     /// where the geoset descriptor lives, so a converter cannot assume.
     u32 sourceVersion = 0;
+
+    /// `SubObjectAppearance::dwUnknown00`, whose **bit 0 decides whether this
+    /// sub-object draws under this look**.
+    ///
+    /// Not foldable into `SectionFlags::Hidden`: that is per section and this is
+    /// per (section, look) — Tyrael's `A_restored_mat` draws under `A_restored`
+    /// and not under `A`, and a death body (`A_skeleton_mat`) draws under
+    /// neither. Dropping it makes a re-opened character draw its own corpse.
+    /// `ActorModel_BuildSubObjectRenderRecords` is the reader.
+    ///
+    /// Defaults to bit 0 **set**: a v1 block recorded no answer, and "draws" is
+    /// the only safe substitute — zero would blank every material in a document
+    /// written before this field existed.
+    i32 variantFlags = 1;
 
     /// The per-look embedded material. Wins over `baseMaterial` when present.
     D3UberMaterial uber;
@@ -67,6 +82,11 @@ struct D3Material {
     template <class V>
     void reflect(V& v) {
         v.field("sourceVersion", sourceVersion);
+        // v2: a v1 block predates the per-look visibility bit being kept, so a
+        // v1 chunk reads nothing here and the member keeps its initialiser --
+        // which is "draws", the only safe substitute for an answer that was
+        // never recorded.
+        v.since(2).field("variantFlags", variantFlags);
         v.field("uber", uber);
         v.field("baseMaterial", baseMaterial);
         v.field("cloth", cloth);
@@ -81,7 +101,7 @@ struct D3Material {
 template <>
 struct ChunkTagTraits<native::D3Material> {
     static constexpr u32 value = kTag("ND3_");
-    static constexpr u32 max_version = 1;
+    static constexpr u32 max_version = 2;
     static constexpr bool is_trivial = false;
 };
 

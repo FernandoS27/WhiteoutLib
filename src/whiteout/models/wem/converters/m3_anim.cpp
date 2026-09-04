@@ -470,8 +470,8 @@ private:
                 clip.flags = ClipFlags::AutoPlay | ClipFlags::Persistent | ClipFlags::WorldClocked;
             }
             clip.native.set("sequenceId", static_cast<i64>(sequence.id));
-            clip.native.set("flagBits", static_cast<i64>(static_cast<u32>(sequence.flags)));
-            clip.native.set("frequency", static_cast<i64>(sequence.frequency));
+            clip.native.set("m3SeqFlags", static_cast<i64>(static_cast<u32>(sequence.flags)));
+            clip.native.set("m3Frequency", static_cast<i64>(sequence.frequency));
             clip.native.set("blendTime", static_cast<i64>(sequence.blendTime));
             clip.native.set("startFrame", static_cast<i64>(sequence.startFrame));
             // The sequence's own bound: the posed model over this clip, which
@@ -816,7 +816,7 @@ private:
         sequence.name = clip.name;
         sequence.id = static_cast<i32>(clip.native.value("sequenceId", 0));
         sequence.index = static_cast<i32>(out_.sequences.size());
-        sequence.flags = static_cast<m3::SequenceFlag>(clip.native.value("flagBits", 0));
+        sequence.flags = static_cast<m3::SequenceFlag>(clip.native.value("m3SeqFlags", 0));
         if (!clip.looping) {
             sequence.flags = static_cast<m3::SequenceFlag>(
                 static_cast<u32>(sequence.flags) | static_cast<u32>(m3::SequenceFlag::NotLooping));
@@ -826,7 +826,7 @@ private:
                 static_cast<m3::SequenceFlag>(static_cast<u32>(sequence.flags) |
                                               static_cast<u32>(m3::SequenceFlag::AlwaysGlobal));
         }
-        sequence.frequency = static_cast<u32>(clip.native.value("frequency", 0));
+        sequence.frequency = static_cast<u32>(clip.native.value("m3Frequency", 0));
         sequence.blendTime = static_cast<u32>(clip.native.value("blendTime", 0));
         const i32 origin = static_cast<i32>(clip.native.value("startFrame", 0));
         sequence.startFrame = static_cast<u32>(origin);

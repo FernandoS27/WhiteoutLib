@@ -100,13 +100,14 @@ enum class DiagCode : u16 {
     SectionUndrawn,            ///< A section whose profile mask is empty — nothing draws it.
 
     // --- nodes (§10) ----------------------------------------------------------
-    NodeRemovalRefused,      ///< `SkinPolicy::Refuse` and the node had influences.
-    SkinInfluenceReassigned, ///< `SkinPolicy::ReassignToParent` moved weights up (§10.6).
-    DanglingNodeReference,   ///< A referencer pointed at a node that no longer exists.
-    BindPoseRecomposed,      ///< `preserveWorld` rebuilt a survivor's local transform.
-    RigConventionChanged,    ///< `RetargetSkeleton` restated the tree's bind convention.
-    BoneShearSplit,          ///< A bind frame sheared; a helper parent carries the stretch.
-    BoneShearProjected,      ///< The shear was projected away — the pose is approximate.
+    NodeRemovalRefused,       ///< `SkinPolicy::Refuse` and the node had influences.
+    SkinInfluenceReassigned,  ///< `SkinPolicy::ReassignToParent` moved weights up (§10.6).
+    DanglingNodeReference,    ///< A referencer pointed at a node that no longer exists.
+    BindPoseRecomposed,       ///< `preserveWorld` rebuilt a survivor's local transform.
+    RigConventionChanged,     ///< `RetargetSkeleton` restated the tree's bind convention.
+    BoneShearSplit,           ///< A bind frame sheared; a helper parent carries the stretch.
+    BoneShearProjected,       ///< The shear was projected away — the pose is approximate.
+    NonUniformScaleFlattened, ///< A target holding one scale float got the x component.
 
     // --- animation (§10.8) ----------------------------------------------------
     MixedInterpolationInTrack, ///< A sub-track mixes interpolation modes (§10.8.2).

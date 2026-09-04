@@ -3,9 +3,13 @@
 
 #include "d3_anim.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <map>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include <whiteout/models/wem/anim/clip.h>
 
@@ -268,6 +272,268 @@ std::vector<u32> ImportAnim(const d3n::Anim& source, Document& document, u32 mod
         return {};
     }
     return Builder(source, document, model, out).run();
+}
+
+// ============================================================================
+// ExportAnim
+// ============================================================================
+
+namespace {
+
+/// The inverse of `DecodeQ16`. The fields are `u16` and the data is signed, so
+/// this writes the `i16` bit pattern — reading it back unsigned is what mirrors
+/// every rotation past a half turn, and writing it unsigned is the same bug on
+/// the other side.
+d3n::Quaternion16 EncodeQ16(const Quaternion& source) {
+    const auto component = [](f32 value) -> u16 {
+        const f32 scaled = std::clamp(value, -1.0f, 1.0f) * 32767.0f;
+        const i32 rounded = static_cast<i32>(scaled >= 0.0f ? scaled + 0.5f : scaled - 0.5f);
+        return static_cast<u16>(static_cast<i16>(std::clamp(rounded, -32767, 32767)));
+    };
+    d3n::Quaternion16 out;
+    out.nX = component(source.x);
+    out.nY = component(source.y);
+    out.nZ = component(source.z);
+    out.nW = component(source.w);
+    return out;
+}
+
+template <class T>
+T ReadAt(const std::vector<u8>& values, std::size_t offset) {
+    T out{};
+    if (offset + sizeof(T) <= values.size()) {
+        std::memcpy(&out, values.data() + offset, sizeof(T));
+    }
+    return out;
+}
+
+/// The frame a key at @p time lands on. `Anim_InitPlaybackState` runs the other
+/// way — `time = frame / fps` — so this rounds, and a source whose times were
+/// not on a frame boundary is reported by the caller rather than silently
+/// snapped.
+i32 FrameOf(f32 time, f32 fps, bool& snapped) {
+    const f32 exact = time * fps;
+    const i32 rounded = static_cast<i32>(exact >= 0.0f ? exact + 0.5f : exact - 0.5f);
+    if (std::fabs(exact - static_cast<f32>(rounded)) > 1e-3f) {
+        snapped = true;
+    }
+    return rounded;
+}
+
+/// The bone a channel drives, and where in the permutation's own bone list it
+/// went. One list per permutation, in first-use order, because that is the
+/// order the curve arrays are parallel to.
+class PermutationWriter {
+public:
+    PermutationWriter(const Model& model, const Clip& clip, Diagnostics& out)
+        : model_(model), clip_(clip), out_(out) {}
+
+    d3n::AnimPermutation run() {
+        d3n::AnimPermutation out;
+        out.szName = clip_.name;
+        out.dwFlags = static_cast<i32>(clip_.native.value("flags", 0));
+        out.dwSelectionWeight = static_cast<i32>(clip_.native.value("selectionWeight", 0));
+        out.nBlendTicksFromOtherAnim =
+            static_cast<i32>(clip_.native.value("blendTicksFromOtherAnim", 0));
+        out.nBlendTicksSamePermSwap =
+            static_cast<i32>(clip_.native.value("blendTicksSamePermSwap", 0));
+        out.flSpeedScalar = 1.0f;
+
+        // The rate the import derived the times with, recovered from the frame
+        // count and the duration rather than stored: `fps = flFramesPerTick*60`
+        // is what turned frames into seconds, and `(frameCount - 1) / fps` is
+        // the duration, so the pair inverts exactly. A clip that never came
+        // from an `.ani` has no frame count, and 30 fps is then the rate the
+        // times are quantised at — stated, not inferred.
+        const i64 frames = clip_.native.value("frameCount", 0);
+        f32 fps = kDefaultFps;
+        if (frames > 1 && clip_.duration > 0.0f) {
+            fps = static_cast<f32>(frames - 1) / clip_.duration;
+        }
+        out.flFramesPerTick = fps / 60.0f;
+        out.dwFrameCount =
+            frames > 0 ? static_cast<i32>(frames) : static_cast<i32>(clip_.duration * fps) + 1;
+
+        bool snapped = false;
+        for (const SubTrackContainer& container : clip_.containers) {
+            for (const SubTrack& track : container.subTracks) {
+                addTrack(out, track, fps, snapped);
+            }
+        }
+        if (snapped) {
+            out_.warn(DiagCode::AnimTrackApproximated,
+                      "clip '" + clip_.name +
+                          "' has keys off the frame grid; a D3 key is an integer frame and they "
+                          "were rounded to the nearest",
+                      ElementRef(), ProfileId::Diablo3);
+        }
+
+        out.dwBoneCount = static_cast<i32>(out.arBoneNames.size());
+        // Every bone that got any curve gets all three arrays, because the three
+        // are indexed by the same bone ordinal and a short one would silently
+        // re-map every bone past it.
+        out.arTranslationCurves.resize(out.arBoneNames.size());
+        out.arRotationCurves.resize(out.arBoneNames.size());
+        out.arScaleCurves.resize(out.arBoneNames.size());
+        for (auto& [bone, curves] : pending_) {
+            out.arTranslationCurves[bone] = std::move(curves.translation);
+            out.arRotationCurves[bone] = std::move(curves.rotation);
+            out.arScaleCurves[bone] = std::move(curves.scale);
+        }
+        for (std::size_t b = 0; b < out.arBoneNames.size(); ++b) {
+            out.arTranslationCurves[b].dwKeyCount =
+                static_cast<i32>(out.arTranslationCurves[b].arKeys.size());
+            out.arRotationCurves[b].dwKeyCount =
+                static_cast<i32>(out.arRotationCurves[b].arKeys.size());
+            out.arScaleCurves[b].dwKeyCount = static_cast<i32>(out.arScaleCurves[b].arKeys.size());
+        }
+
+        writeAttachments(out, fps);
+        return out;
+    }
+
+private:
+    struct Curves {
+        d3n::TranslationCurve translation;
+        d3n::RotationCurve rotation;
+        d3n::ScaleCurve scale;
+    };
+
+    void addTrack(d3n::AnimPermutation& out, const SubTrack& track, f32 fps, bool& snapped) {
+        const AnimChannel* channel = model_.animChannels.find(track.channel);
+        if (channel == nullptr || channel->target.kind != TrackTarget::Kind::Node) {
+            return;
+        }
+        const u32 node = channel->target.node;
+        if (node >= model_.nodes.size() || model_.nodes.nodes[node].kind != NodeKind::Bone) {
+            // A D3 permutation drives bones and nothing else; a light's colour
+            // track has no field in an `.ani` to land in.
+            out_.warn(DiagCode::AnimTrackDropped,
+                      "clip '" + clip_.name +
+                          "' drives a non-bone node; a `.ani` curve is per "
+                          "bone",
+                      ElementRef(ElementKind::Track, track.channel), ProfileId::Diablo3);
+            return;
+        }
+        const std::size_t bone = boneSlot(out, model_.nodes.nodes[node].name);
+        Curves& curves = pending_[bone];
+
+        const std::size_t stride =
+            ValuesPerKey(track.interp) * geom::AttrTypeSize(channel->valueType);
+        const std::size_t value = (ValuesPerKey(track.interp) - 1) / 2; // Hermite: the value slot.
+        for (std::size_t k = 0; k < track.times.size(); ++k) {
+            const std::size_t at = k * stride + value * geom::AttrTypeSize(channel->valueType);
+            const i32 frame = FrameOf(track.times[k], fps, snapped);
+            switch (channel->target.channel) {
+            case Channel::Translation:
+                curves.translation.arKeys.push_back(
+                    d3n::TranslationKey{frame, ReadAt<Vector3f>(track.values, at)});
+                break;
+            case Channel::Rotation:
+                curves.rotation.arKeys.push_back(
+                    d3n::RotationKey{frame, EncodeQ16(ReadAt<Quaternion>(track.values, at))});
+                break;
+            case Channel::Scale:
+                // One float, matching the channel the import declared. A
+                // three-component scale from another format takes x, the same
+                // flattening the bind pose reports.
+                curves.scale.arKeys.push_back(
+                    d3n::ScaleKey{frame, channel->valueType == geom::AttrType::F32
+                                             ? ReadAt<f32>(track.values, at)
+                                             : ReadAt<Vector3f>(track.values, at).x});
+                break;
+            default:
+                out_.warn(DiagCode::AnimTrackDropped,
+                          "clip '" + clip_.name + "' drives a channel a `.ani` has no curve for",
+                          ElementRef(ElementKind::Track, track.channel), ProfileId::Diablo3);
+                break;
+            }
+        }
+    }
+
+    std::size_t boneSlot(d3n::AnimPermutation& out, const std::string& name) {
+        for (std::size_t b = 0; b < out.arBoneNames.size(); ++b) {
+            if (out.arBoneNames[b].szBoneName == name) {
+                return b;
+            }
+        }
+        out.arBoneNames.push_back(d3n::BoneName{name});
+        return out.arBoneNames.size() - 1;
+    }
+
+    void writeAttachments(d3n::AnimPermutation& out, f32 fps) {
+        for (const ClipEvent& event : clip_.events) {
+            d3n::KeyframedAttachment attachment;
+            attachment.flFrame = event.time * fps;
+            attachment.tEvent.tHardpoint0.szName = event.name;
+            attachment.tEvent.tPayload.dwNameHandle = static_cast<i32>(event.value);
+            out.arAttachments.push_back(std::move(attachment));
+        }
+    }
+
+    const Model& model_;
+    const Clip& clip_;
+    Diagnostics& out_;
+    std::map<std::size_t, Curves> pending_;
+};
+
+} // namespace
+
+std::vector<d3n::Anim> ExportAnims(const Document& document, u32 model, Diagnostics& out) {
+    std::vector<d3n::Anim> anims;
+    if (model >= document.models.size()) {
+        return anims;
+    }
+    const Model& source = document.models[model];
+
+    // One `Anim` per source `.ani`, in first-use order — the clips of one
+    // animation are its permutations, and the import recorded which they came
+    // from. A clip with no id gets one from a synthetic range so the anim set
+    // still has something to name; the range is above every shipped SNO id, so
+    // it cannot collide with a real one the host has open.
+    i32 nextSynthetic = kSyntheticAnimBase;
+    std::vector<std::pair<i32, std::size_t>> byId;
+    u32 invented = 0;
+
+    for (std::size_t c = 0; c < document.clips.size(); ++c) {
+        const Clip& clip = document.clips[c];
+        if (clip.model != model && !(clip.model == kInvalidIndex && document.models.size() == 1)) {
+            continue;
+        }
+        i32 id = static_cast<i32>(clip.native.value("animSnoId", -1));
+        if (id < 0) {
+            id = nextSynthetic++;
+            ++invented;
+        }
+        std::size_t at = anims.size();
+        bool found = false;
+        for (const auto& entry : byId) {
+            if (entry.first == id) {
+                at = entry.second;
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            d3n::Anim anim;
+            anim.dwSnoId = id;
+            anims.push_back(std::move(anim));
+            byId.emplace_back(id, at);
+        }
+        anims[at].arPermutations.push_back(PermutationWriter(source, clip, out).run());
+    }
+
+    for (d3n::Anim& anim : anims) {
+        anim.dwPermutationCount = static_cast<i32>(anim.arPermutations.size());
+    }
+    if (invented != 0) {
+        out.info(DiagCode::AssetUnresolved,
+                 std::to_string(invented) +
+                     " clips carry no source `.ani` id and were given one from the synthetic "
+                     "range; a host that resolves ids against a storage will not find them",
+                 ElementRef(), ProfileId::Diablo3);
+    }
+    return anims;
 }
 
 } // namespace d3_anim

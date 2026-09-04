@@ -238,6 +238,225 @@ TEST_CASE("wem exporting a collapsed chain restores the layer stack", "[wem][mat
     CHECK(exported.layers[1].textureId == 1);
 }
 
+TEST_CASE("wem exporting a composite writes only the layers MDX draws", "[wem][materials][mdx]") {
+    // The shape every format but MDX has: one material, one texture per surface
+    // channel. An `.mdx` layer is a textured draw of the whole geoset, so only
+    // the three channels that come out as colour have anywhere to go.
+    Material material;
+    material.name = "zergling";
+    CompositeBody body;
+    const SurfaceChannel channels[] = {SurfaceChannel::Color, SurfaceChannel::Specular,
+                                       SurfaceChannel::Emissive, SurfaceChannel::Normal};
+    u32 texture = 0;
+    for (const SurfaceChannel channel : channels) {
+        CompositeLayer layer;
+        layer.input.texture = texture++;
+        layer.target = channel;
+        layer.op = channel == SurfaceChannel::Emissive ? CompositeOp::Add : CompositeOp::Set;
+        body.layers.push_back(layer);
+    }
+    // The glow's strength, which an `.m3` fills from `hdrEmissiveMultiplier`. An
+    // MDX layer is a whole pass and carries no strength of its own, so a channel
+    // whose factor is zero has nowhere to put "and hardly at all" — see the case
+    // below.
+    body.emissiveFactor = Vector4f{1, 1, 1, 1};
+    material.InitCommon().body = std::move(body);
+    material.MutableCommon().blend = BlendMode::Opaque;
+
+    Diagnostics diagnostics;
+    const mdx::Material exported =
+        mdx_core::ExportMaterial(material, ProfileId::Wc3Classic, makeContext(), diagnostics);
+
+    // Specular and Normal are gone. Writing them drew the whole model twice more
+    // in flat colour, the second time in its normal map — which is what a
+    // StarCraft II model opened as Warcraft III looked like.
+    REQUIRE(exported.layers.size() == 2);
+    CHECK(exported.layers[0].textureId == 0);
+    CHECK(exported.layers[1].textureId == 2);
+    // Emissive keeps its additive pass, which is how Warcraft III spells a glow.
+    CHECK(exported.layers[0].filterMode == Layer::FilterMode::None);
+    CHECK(exported.layers[1].filterMode == Layer::FilterMode::Additive);
+}
+
+TEST_CASE("wem a channel scaled to nothing writes no layer", "[wem][materials][mdx]") {
+    // Diablo III leaves `environmentFactor` at zero on every material and lets
+    // the gloss map carry the reflection instead. An MDX layer has no strength —
+    // it is a whole draw — so writing one anyway added the environment map at
+    // full weight, which turned the Skeleton King's gold armour teal.
+    Material material;
+    material.name = "reflective";
+    CompositeBody body;
+    CompositeLayer colour;
+    colour.input.texture = 0;
+    colour.target = SurfaceChannel::Color;
+    body.layers.push_back(colour);
+    CompositeLayer environment;
+    environment.input.texture = 1;
+    environment.target = SurfaceChannel::Environment;
+    body.layers.push_back(environment);
+    body.environmentFactor = 0.0f;
+    material.InitCommon().body = std::move(body);
+    material.MutableCommon().blend = BlendMode::Opaque;
+
+    Diagnostics diagnostics;
+    const mdx::Material exported =
+        mdx_core::ExportMaterial(material, ProfileId::Wc3Classic, makeContext(), diagnostics);
+    REQUIRE(exported.layers.size() == 1);
+    CHECK(exported.layers[0].textureId == 0);
+
+    // Non-zero, and it comes back — scaled into the layer's weight, which is the
+    // one knob a pass has for it.
+    Material lit = material;
+    CompositeBody scaled = *material.Common().composite();
+    scaled.environmentFactor = 0.5f;
+    lit.MutableCommon().body = std::move(scaled);
+    const mdx::Material withEnv =
+        mdx_core::ExportMaterial(lit, ProfileId::Wc3Classic, makeContext(), diagnostics);
+    REQUIRE(withEnv.layers.size() == 2);
+    CHECK(withEnv.layers[1].textureId == 1);
+    CHECK(withEnv.layers[1].filterMode == Layer::FilterMode::Additive);
+    CHECK(withEnv.layers[1].alpha == 0.5f);
+}
+
+TEST_CASE("wem a dropped first layer still leaves an opaque base", "[wem][materials][mdx]") {
+    // The base of the stack is the first layer WRITTEN. Reading `i == 0` instead
+    // would give the emissive pass the header blend and leave the colour pass
+    // additive over nothing.
+    Material material;
+    material.name = "normal-first";
+    CompositeBody body;
+    CompositeLayer normal;
+    normal.input.texture = 0;
+    normal.target = SurfaceChannel::Normal;
+    body.layers.push_back(normal);
+    CompositeLayer colour;
+    colour.input.texture = 1;
+    colour.target = SurfaceChannel::Color;
+    colour.op = CompositeOp::Modulate;
+    body.layers.push_back(colour);
+    material.InitCommon().body = std::move(body);
+    material.MutableCommon().blend = BlendMode::Opaque;
+
+    Diagnostics diagnostics;
+    const mdx::Material exported =
+        mdx_core::ExportMaterial(material, ProfileId::Wc3Classic, makeContext(), diagnostics);
+    REQUIRE(exported.layers.size() == 1);
+    CHECK(exported.layers[0].textureId == 1);
+    CHECK(exported.layers[0].filterMode == Layer::FilterMode::None);
+}
+
+// ============================================================================
+// §7.2.2 the other way — a chain of passes, which is what an `.mdx` layer is
+// ============================================================================
+
+namespace {
+
+/// A combiner material with @p ops as its stage colour ops, one texture each.
+Material makeChain(std::initializer_list<CombinerOp> ops, BlendMode blend = BlendMode::Opaque) {
+    Material material;
+    material.name = "chain";
+    CombinersBody body;
+    u32 texture = 0;
+    for (const CombinerOp op : ops) {
+        CombinerStage stage;
+        stage.input.texture = texture++;
+        stage.rgb = op;
+        stage.alpha = op;
+        body.stages.push_back(stage);
+    }
+    material.InitCommon().body = std::move(body);
+    material.MutableCommon().blend = blend;
+    return material;
+}
+
+} // namespace
+
+TEST_CASE("wem a chain's base layer takes the material's blend", "[wem][materials][mdx]") {
+    // Not an unconditional `None`. A chain seeded by an opaque stage still meets
+    // the scene however its header says, and Diablo III's additive wings met it
+    // as solid plates for as long as this was hard-coded.
+    Diagnostics diagnostics;
+    const mdx::Material exported = mdx_core::ExportMaterial(
+        makeChain({CombinerOp::Opaque, CombinerOp::Mod}, BlendMode::AdditiveAlpha),
+        ProfileId::Wc3Classic, makeContext(), diagnostics);
+    REQUIRE(exported.layers.size() == 2);
+    CHECK(exported.layers[0].filterMode == Layer::FilterMode::AddAlpha);
+    CHECK(exported.layers[1].filterMode == Layer::FilterMode::Modulate);
+}
+
+TEST_CASE("wem a mid-chain replace restarts the stack", "[wem][materials][mdx]") {
+    // An `.mdx` layer is a PASS. `None` on a later layer is not an identity and
+    // not a chain-replace: it is an opaque draw of the whole geoset, and every
+    // layer under it stops existing. Which is the right reading of a replace —
+    // a stage that replaces its register really does kill the ones before it —
+    // but only if the stack is actually restarted. Left in place it is a stack
+    // whose LAST opaque layer is the whole material, which is how a Diablo III
+    // wing arrived as one flat alpha mask.
+    Diagnostics diagnostics;
+    const mdx::Material exported = mdx_core::ExportMaterial(
+        makeChain({CombinerOp::Opaque, CombinerOp::Mod, CombinerOp::Opaque, CombinerOp::Mod},
+                  BlendMode::AlphaBlend),
+        ProfileId::Wc3Classic, makeContext(), diagnostics);
+    REQUIRE(exported.layers.size() == 2);
+    CHECK(exported.layers[0].textureId == 2); // the replace, now the base
+    CHECK(exported.layers[0].filterMode == Layer::FilterMode::Blend);
+    CHECK(exported.layers[1].textureId == 3);
+    CHECK(exported.layers[1].filterMode == Layer::FilterMode::Modulate);
+}
+
+TEST_CASE("wem a passing stage draws only when it is the base", "[wem][materials][mdx]") {
+    // `Pass` is Diablo III's identity: the stage masks alpha and leaves the
+    // colour alone. Warcraft III has no filter mode that draws nothing, so a
+    // later one is dropped — while the FIRST is the register's only value and
+    // therefore what the chain draws. Dropping that left a wing as its two
+    // masks, which is a bright sheet rather than a wing.
+    Diagnostics diagnostics;
+    const mdx::Material exported = mdx_core::ExportMaterial(
+        makeChain({CombinerOp::Pass, CombinerOp::Mod, CombinerOp::Pass}, BlendMode::AdditiveAlpha),
+        ProfileId::Wc3Classic, makeContext(), diagnostics);
+    REQUIRE(exported.layers.size() == 2);
+    CHECK(exported.layers[0].textureId == 0);
+    CHECK(exported.layers[0].filterMode == Layer::FilterMode::AddAlpha);
+    CHECK(exported.layers[1].textureId == 1);
+    CHECK(exported.layers[1].filterMode == Layer::FilterMode::Modulate);
+    CHECK(diagnostics.byCode(DiagCode::LayerDropped).size() == 1);
+}
+
+TEST_CASE("wem an invisible material draws nothing", "[wem][materials][mdx]") {
+    // Diablo III's visibility bit is per (sub-object, look) and a material is
+    // per (slot, look), so the material is the only record with the right scope
+    // to hold it. MDX has no such flag and the idiom it does have is a blended
+    // pass at zero opacity.
+    Material material = makeChain({CombinerOp::Opaque});
+    material.MutableCommon().flags |= MaterialFlags::Invisible;
+
+    Diagnostics diagnostics;
+    const mdx::Material exported =
+        mdx_core::ExportMaterial(material, ProfileId::Wc3Classic, makeContext(), diagnostics);
+    REQUIRE(exported.layers.size() == 1);
+    CHECK(exported.layers[0].filterMode == Layer::FilterMode::Blend);
+    CHECK(exported.layers[0].alpha == 0.0f);
+    // The texture stays, so a tool reading the file still sees what the surface
+    // would have worn.
+    CHECK(exported.layers[0].textureId == 0);
+}
+
+TEST_CASE("wem a material with no drawable layer still writes one", "[wem][materials][mdx]") {
+    // An empty stack is not "draws nothing" in MDX — a geoset whose material has
+    // no layers draws untextured white, and Diablo's `FX_EMIT` emitter proxies
+    // (which carry no texture at all) came through his chest as white shards.
+    Material material;
+    material.name = "FX_EMIT";
+    material.InitCommon().body = CombinersBody{};
+
+    Diagnostics diagnostics;
+    const mdx::Material exported =
+        mdx_core::ExportMaterial(material, ProfileId::Wc3Classic, makeContext(), diagnostics);
+    REQUIRE(exported.layers.size() == 1);
+    CHECK(exported.layers[0].filterMode == Layer::FilterMode::Blend);
+    CHECK(exported.layers[0].alpha == 0.0f);
+}
+
 TEST_CASE("wem a native block in sync is what export writes", "[wem][materials][mdx]") {
     mdx::Material source = makeMaterial({Layer::FilterMode::Modulate});
     source.priorityPlane = 7;

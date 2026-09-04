@@ -12,6 +12,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <whiteout/models/wem/converters.h>
+#include <whiteout/models/wem/geometry/builder.h>
 
 using namespace whiteout;
 using namespace whiteout::models::wem;
@@ -75,7 +76,295 @@ mdx::Model makeModel() {
     return model;
 }
 
+/// One mesh, `sections` disjoint quads, one material slot each, every vertex
+/// bound to the bone whose index is the section's.
+///
+/// The shape MDX cannot come from and every other format does: an `.m2` skin is
+/// one mesh per batch, an `.m3` division one per region, a Diablo III
+/// appearance one mesh of thirty sub-objects.
+Document makeSectionedDocument(u32 sections) {
+    geom::MeshBuilder builder;
+    for (u32 s = 0; s < sections; ++s) {
+        MeshSection section;
+        section.name = "part_" + std::to_string(s);
+        section.materialSlot = s;
+        section.profiles = ProfileBit(ProfileId::Wc3Classic);
+        builder.addSection(std::move(section));
+    }
+    for (u32 s = 0; s < sections; ++s) {
+        const f32 x = static_cast<f32>(s) * 4.0f;
+        const geom::VertexId a = builder.addVertex(Vector3f{x, 0, 0});
+        const geom::VertexId b = builder.addVertex(Vector3f{x + 1, 0, 0});
+        const geom::VertexId c = builder.addVertex(Vector3f{x + 1, 1, 0});
+        const geom::VertexId d = builder.addVertex(Vector3f{x, 1, 0});
+        for (const geom::VertexId v : {a, b, c, d}) {
+            builder.addInfluence(v, s, 1.0f);
+        }
+        for (const geom::FaceId face :
+             {builder.addTriangle(a, b, c, s), builder.addTriangle(a, c, d, s)}) {
+            for (u32 corner = 0; corner < 3; ++corner) {
+                builder.setCornerAttr(face, corner, geom::names::kNormal, Vector3f{0, 0, 1});
+                builder.setCornerAttr(face, corner, geom::names::uv(0), Vector2f{0, 0});
+            }
+        }
+    }
+
+    Document document;
+    document.declare(ProfileId::Wc3Classic);
+    document.defaultProfile = ProfileId::Wc3Classic;
+    document.name = "sectioned";
+    document.textures.push_back(TextureRef{});
+
+    Model model;
+    model.name = "sectioned";
+    model.meshes.push_back(builder.build().mesh);
+
+    ProfileMaterialSet set;
+    set.profile = ProfileId::Wc3Classic;
+    set.looks.looks.push_back(Look{});
+    for (u32 s = 0; s < sections; ++s) {
+        model.addSlot("slot_" + std::to_string(s));
+    }
+    set.resizeBindings(model.materialSlots.size());
+    for (u32 s = 0; s < sections; ++s) {
+        Material material;
+        material.name = "slot_" + std::to_string(s);
+        set.slotBindings[s].byLook[0] = static_cast<u32>(set.materials.size());
+        set.materials.push_back(std::move(material));
+    }
+    model.profileSets.push_back(std::move(set));
+
+    for (u32 s = 0; s < sections; ++s) {
+        Node bone;
+        bone.name = "bone_" + std::to_string(s);
+        bone.kind = NodeKind::Bone;
+        bone.parent = kInvalidNode;
+        model.nodes.nodes.push_back(std::move(bone));
+    }
+
+    document.models.push_back(std::move(model));
+    return document;
+}
+
 } // namespace
+
+TEST_CASE("wem mdx a mesh of several sections writes a geoset each",
+          "[wem][convert][mdx][geometry]") {
+    const Document document = makeSectionedDocument(3);
+    const MdxConverter converter;
+    Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic, 800);
+    REQUIRE(exported.ok());
+    const mdx::Model& out = *exported;
+
+    // A geoset carries ONE materialId, so a mesh of three sections is three
+    // geosets. Writing one per mesh drew all of them with section 0's material.
+    REQUIRE(out.geosets.size() == 3);
+    for (u32 g = 0; g < 3; ++g) {
+        const mdx::Geoset& geoset = out.geosets[g];
+        CHECK(geoset.materialId == g);
+        CHECK(geoset.lodName == "part_" + std::to_string(g));
+        // Its OWN vertex slice: four corners, and every face index inside it.
+        CHECK(geoset.vertexPositions.size() == 4);
+        REQUIRE(geoset.faces.size() == 6);
+        for (const u16 corner : geoset.faces) {
+            CHECK(corner < geoset.vertexPositions.size());
+        }
+        // Disjoint, and in the section's own place along x.
+        for (const Vector3f& position : geoset.vertexPositions) {
+            CHECK(position.x >= static_cast<f32>(g) * 4.0f - 0.001f);
+            CHECK(position.x <= static_cast<f32>(g) * 4.0f + 1.001f);
+        }
+        // A bound derived from the section, not inherited from the mesh.
+        CHECK(geoset.extent.maximum.x <= static_cast<f32>(g) * 4.0f + 1.001f);
+    }
+}
+
+TEST_CASE("wem mdx writes no inheritance a node did not claim", "[wem][convert][mdx][nodes]") {
+    Document document = makeSectionedDocument(2);
+    // What every `.m3` and most `.m2` bones carry: nothing. Warcraft III honours
+    // all three `DontInherit*` bits, so one invented here detaches the bone from
+    // its parent and takes the subtree with it.
+    document.models[0].nodes.nodes[1].parent = 0;
+
+    const MdxConverter converter;
+    Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic, 800);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->bones.size() == 2);
+    for (const mdx::Bone& bone : exported->bones) {
+        CHECK(bone.node.flags == mdx::Node::NodeFlag::None);
+    }
+
+    // And a bag written by another format does not become MDX flags. Three
+    // converters had picked the bare name `flagBits` for three unrelated bit
+    // vocabularies, so `.m3`'s `BoneFlag::Real` reached Warcraft III as
+    // `CollisionShape` and `Skinned` as `Attachment`.
+    document.models[0].nodes.nodes[0].native.set("m3FlagBits", 0x2A00);
+    document.models[0].nodes.nodes[1].native.set("m2FlagBits", 0x2A00);
+    exported = converter.toMdx(document, ProfileId::Wc3Classic, 800);
+    REQUIRE(exported.ok());
+    for (const mdx::Bone& bone : exported->bones) {
+        CHECK(bone.node.flags == mdx::Node::NodeFlag::None);
+    }
+
+    // Its own name still round-trips, which is the whole point of the bag.
+    document.models[0].nodes.nodes[0].native.set("mdxFlagBits", 0x2000);
+    exported = converter.toMdx(document, ProfileId::Wc3Classic, 800);
+    REQUIRE(exported.ok());
+    CHECK(exported->bones[0].node.flags == mdx::Node::NodeFlag::CollisionShape);
+}
+
+TEST_CASE("wem mdx keeps only a replaceable id MDX numbers", "[wem][convert][mdx][textures]") {
+    Document document = makeSectionedDocument(1);
+    document.textures.clear();
+    TextureRef skin;
+    skin.key = TexturePath{"skin.blp"};
+    skin.path = "skin.blp";
+    // World of Warcraft's texture TYPE 11 — a monster's first skin — in the
+    // field Warcraft III reads as replaceable 11, a tileset. The adapter takes
+    // the replaceable branch before it looks at the name, so the model drew
+    // white with a perfectly resolvable key sitting unused beside the slot.
+    skin.replaceableId = 11;
+    document.textures.push_back(skin);
+
+    const MdxConverter converter;
+
+    document.defaultProfile = ProfileId::Wow;
+    Result<mdx::Model> fromWow = converter.toMdx(document, ProfileId::Wc3Classic, 800);
+    REQUIRE(fromWow.ok());
+    REQUIRE(fromWow->textures.size() == 1);
+    CHECK(fromWow->textures[0].replaceableId == 0);
+    CHECK(fromWow->textures[0].fileName == "skin.blp");
+
+    // A document Warcraft III authored keeps them: there the number IS MDX's,
+    // and `defaultProfile` is the authoring profile a derive does not move.
+    document.defaultProfile = ProfileId::Wc3Classic;
+    Result<mdx::Model> fromMdx = converter.toMdx(document, ProfileId::Wc3Classic, 800);
+    REQUIRE(fromMdx.ok());
+    REQUIRE(fromMdx->textures.size() == 1);
+    CHECK(fromMdx->textures[0].replaceableId == 11);
+}
+
+TEST_CASE("wem mdx a hidden section becomes a static alpha of zero",
+          "[wem][convert][mdx][geometry]") {
+    Document document = makeSectionedDocument(3);
+    document.models[0].meshes[0].sections[1].flags |= SectionFlags::Hidden;
+
+    const MdxConverter converter;
+    Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic, 800);
+    REQUIRE(exported.ok());
+
+    // The only per-geoset visibility MDX has, and what Warcraft III itself uses
+    // to keep an alternate body part out of the frame.
+    REQUIRE(exported->geosetAnimations.size() == 1);
+    const mdx::GeosetAnimation& animation = exported->geosetAnimations.front();
+    CHECK(animation.geosetId == 1);
+    CHECK(animation.alpha == 0.0f);
+    CHECK_FALSE(animation.alphaTracks.isUsed);
+
+    // And back: a static alpha is not a track, so nothing else in the import
+    // would have seen it.
+    Result<Document> reimported = converter.fromMdx(*exported);
+    REQUIRE(reimported.ok());
+    REQUIRE(reimported->models.front().meshes.size() == 3);
+    CHECK_FALSE(
+        hasFlag(reimported->models.front().meshes[0].sections[0].flags, SectionFlags::Hidden));
+    CHECK(hasFlag(reimported->models.front().meshes[1].sections[0].flags, SectionFlags::Hidden));
+    CHECK_FALSE(
+        hasFlag(reimported->models.front().meshes[2].sections[0].flags, SectionFlags::Hidden));
+}
+
+TEST_CASE("wem mdx writes the skinning encoding the target version reads",
+          "[wem][convert][mdx][skin]") {
+    const Document document = makeSectionedDocument(2);
+    const MdxConverter converter;
+
+    SECTION("800 writes groups and nothing else") {
+        Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic, 800);
+        REQUIRE(exported.ok());
+        const mdx::Geoset& geoset = exported->geosets.at(1);
+        // `SKIN` is written only above 800, so at 800 the group encoding is the
+        // only skinning the file has -- and it must be there, or the geoset
+        // ships a GNDX of zero entries and poses at nothing.
+        CHECK(geoset.skinData.empty());
+        CHECK(geoset.vertexGroups.size() == geoset.vertexPositions.size());
+        // Every vertex of this section binds the one bone, so one group.
+        REQUIRE(geoset.matrixGroups.size() == 1);
+        CHECK(geoset.matrixGroups[0] == 1);
+        REQUIRE(geoset.matrixIndices.size() == 1);
+        CHECK(geoset.matrixIndices[0] == 1);
+        for (const u8 group : geoset.vertexGroups) {
+            CHECK(group == 0);
+        }
+    }
+
+    SECTION("1000 writes SKIN over a palette") {
+        // The version decides, not the profile: `SKIN` is a chunk the writer
+        // gates on 800, and Reforged is the same container at a later one.
+        Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic, 1000);
+        REQUIRE(exported.ok());
+        const mdx::Geoset& geoset = exported->geosets.at(1);
+        // `SKIN` indexes `MATS` directly, so `MATS` is the palette and `MTGC`
+        // has no choice but one group per bone -- the shape a shipped Reforged
+        // file writes.
+        CHECK(geoset.skinData.size() == geoset.vertexPositions.size() * 8);
+        REQUIRE(geoset.matrixIndices.size() == 1);
+        CHECK(geoset.matrixIndices[0] == 1);
+        REQUIRE(geoset.matrixGroups.size() == 1);
+        CHECK(geoset.matrixGroups[0] == 1);
+        CHECK(geoset.vertexGroups.size() == geoset.vertexPositions.size());
+        for (std::size_t v = 0; v < geoset.vertexPositions.size(); ++v) {
+            CHECK(geoset.skinData[v * 8 + 0] == 0);
+            CHECK(geoset.skinData[v * 8 + 4] == 255);
+        }
+    }
+}
+
+TEST_CASE("wem mdx numbers object ids by chunk, not by node order",
+          "[wem][convert][mdx][nodes][skin]") {
+    Document document = makeSectionedDocument(2);
+    Model& model = document.models.front();
+
+    // A helper BETWEEN the two bones -- the shape `RetargetSkeleton` leaves
+    // behind when it splits a sheared node, since the stretch parent lands
+    // immediately before the bone it stretches.
+    Node helper;
+    helper.name = "bone_0_stretch";
+    helper.kind = NodeKind::Helper;
+    helper.resetPayloadForKind();
+    helper.parent = 0;
+    model.nodes.nodes.insert(model.nodes.nodes.begin() + 1, std::move(helper));
+    model.nodes.nodes[2].parent = 1;
+    model.nodes.invalidateHierarchy();
+    for (geom::Influence& influence : model.meshes.front().skin.influences) {
+        if (influence.bone >= 1) {
+            ++influence.bone;
+        }
+    }
+
+    const MdxConverter converter;
+    Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic, 800);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->bones.size() == 2);
+    REQUIRE(exported->helpers.size() == 1);
+
+    // MDX numbers a node by the chunk it lands in, so both bones come before
+    // the helper whatever order the document holds them in. `MATS` names an
+    // object id and every reader takes one for an index into the bone array --
+    // ours asks `BoneIndexToNodeIndex` first -- so the two agree only while the
+    // bones are 0..n-1. Numbering in node order put the helper at 1 and skinned
+    // every vertex of the second bone to the first.
+    CHECK(exported->bones[0].node.objectId == 0);
+    CHECK(exported->bones[1].node.objectId == 1);
+    CHECK(exported->helpers[0].node.objectId == 2);
+    CHECK(exported->bones[1].node.parentId == 2); // Still parented through it.
+
+    // `PIVT` is indexed by object id, so it is filled by id and not appended.
+    REQUIRE(exported->pivotPoints.size() == 3);
+
+    const mdx::Geoset& second = exported->geosets.at(1);
+    REQUIRE(second.matrixIndices.size() == 1);
+    CHECK(second.matrixIndices[0] == 1);
+}
 
 TEST_CASE("wem mdx import produces one model with a classic set", "[wem][convert][mdx]") {
     const MdxConverter converter;

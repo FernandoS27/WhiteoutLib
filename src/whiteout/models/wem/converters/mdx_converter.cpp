@@ -36,6 +36,7 @@
 
 #include <algorithm>
 #include <array>
+#include <map>
 #include <string>
 #include <unordered_map>
 
@@ -274,7 +275,7 @@ void FillPayload(const mdx::Model& source, const PendingNode& pending, Node& nod
     }
     case Origin::Attachment: {
         const mdx::Attachment& attachment = source.attachments[pending.sourceIndex];
-        node.native.set("attachmentId", static_cast<i64>(attachment.attachmentId));
+        node.native.set("mdxAttachmentId", static_cast<i64>(attachment.attachmentId));
         break;
     }
     case Origin::ParticleEmitter: {
@@ -377,7 +378,7 @@ NodeImport ImportNodes(const mdx::Model& source) {
             mdxNode.parentId == mdx::Node::NO_PARENT ? kInvalidNode : out.resolve(mdxNode.parentId);
         node.native.set("objectId", static_cast<i64>(mdxNode.objectId));
         node.native.set("nodeFamilyId", static_cast<i64>(mdxNode.nodeFamilyId));
-        node.native.set("flagBits", static_cast<i64>(static_cast<u32>(mdxNode.flags)));
+        node.native.set("mdxFlagBits", static_cast<i64>(static_cast<u32>(mdxNode.flags)));
         FillPayload(source, item, node);
 
         // See the file comment: the rest pose is the pivot, so the local
@@ -418,6 +419,36 @@ NodeImport ImportNodes(const mdx::Model& source) {
 // ============================================================================
 // Geometry
 // ============================================================================
+
+/// Where a node kind's chunk sits in `mdx/writer.cpp`'s emission order — BONE,
+/// LITE, HELP, ATCH, PRE2, RIBB, EVTS, CLID — which is the order MDX assigns
+/// object ids in. `Camera` has no node chunk and so no id, and answers -1.
+int ChunkRank(NodeKind kind) {
+    switch (kind) {
+    case NodeKind::Bone:
+        return 0;
+    case NodeKind::Light:
+        return 1;
+    case NodeKind::Helper:
+        return 2;
+    case NodeKind::Attachment:
+        return 3;
+    case NodeKind::ParticleEmitter:
+        return 4;
+    case NodeKind::RibbonEmitter:
+        return 5;
+    case NodeKind::Event:
+        return 6;
+    case NodeKind::CollisionShape:
+        return 7;
+    case NodeKind::Camera:
+    case NodeKind::Count:
+        break;
+    }
+    return -1;
+}
+
+constexpr int kLastChunkRank = 7;
 
 /// Feeds one geoset's skinning into @p builder.
 ///
@@ -578,6 +609,16 @@ Result<Document> MdxConverter::fromMdx(const mdx::Model& source) const {
                              ElementRef(ElementKind::Mesh, g));
         }
         section.native.set("selectionFlags", static_cast<i64>(geoset.selectionFlags));
+        // A geoset Warcraft III hides carries a static alpha of zero -- the
+        // only per-geoset visibility the format has -- and a static alpha is
+        // not a track, so nothing else in this import would have seen it.
+        for (const mdx::GeosetAnimation& animation : source.geosetAnimations) {
+            if (animation.geosetId == g && !animation.alphaTracks.isUsed &&
+                animation.alpha <= 0.0f) {
+                section.flags |= SectionFlags::Hidden;
+                break;
+            }
+        }
         const u32 sectionIndex = builder.addSection(std::move(section));
 
         for (const Vector3f& position : geoset.vertexPositions) {
@@ -667,6 +708,162 @@ Result<Document> MdxConverter::fromMdx(const mdx::Model& source) const {
     return result;
 }
 
+/**
+ * @brief Writes one geoset's `GNDX` / `MTGC` / `MATS` and, above version 800,
+ *        its `SKIN`.
+ *
+ * Two encodings of the same fact, and both go in every file because the writer
+ * emits all three group chunks unconditionally.
+ *
+ * - **`GNDX`/`MTGC`/`MATS`** is what Warcraft III classic skins with, and it
+ *   has no weights: `MTGC` gives the size of each group, `MATS` is the groups
+ *   concatenated, and a vertex names a group whose bones are averaged
+ *   **uniformly**. So a group IS the set of bones a vertex binds, and identical
+ *   sets share one. `Ace.mdx` needs 100 of them for 6,148 vertices.
+ * - **`SKIN`** carries four (bone, weight) pairs per vertex and indexes `MATS`
+ *   directly, which is why a Reforged file writes the degenerate form of the
+ *   groups instead: `LadyAlexstraszaReforged.mdx` has `MATS` = the identity
+ *   over all 242 bones, `MTGC` = 242 ones, and `GNDX` pointing each vertex at
+ *   one of them. This reproduces exactly that shape.
+ *
+ * `GNDX` is a byte, so no more than 256 groups can be named. Past that the
+ * set encoding falls back to the dominant-bone one, which is a real loss of
+ * blending for a classic file and none at all for a Reforged one -- where
+ * `SKIN` is what the renderer reads.
+ */
+void WriteGeosetSkin(mdx::Geoset& geoset, const std::vector<u32>& sourceOf,
+                     const std::vector<std::array<u32, 4>>& boneIndices,
+                     const std::vector<std::array<f32, 4>>& boneWeights,
+                     const std::vector<u32>& objectIdOf, bool skinChunk, u32 mesh,
+                     Diagnostics& diagnostics) {
+    if (boneIndices.empty() || boneWeights.empty()) {
+        return;
+    }
+
+    // Per geoset vertex, the object ids it binds and their weights, already
+    // resolved through the node -> object renumbering and with the unbound
+    // influences (weight 0, or a node this export dropped) removed.
+    struct Bound {
+        std::vector<u32> ids;
+        std::vector<f32> weights;
+        u32 dominant = 0; ///< Index into `ids` of the heaviest influence.
+    };
+    std::vector<Bound> bound(sourceOf.size());
+    std::vector<u32> palette;
+    std::unordered_map<u32, u32> paletteOf;
+
+    for (std::size_t v = 0; v < sourceOf.size(); ++v) {
+        const u32 source = sourceOf[v];
+        if (source >= boneIndices.size() || source >= boneWeights.size()) {
+            continue;
+        }
+        Bound& entry = bound[v];
+        f32 best = -1.0f;
+        for (std::size_t k = 0; k < boneIndices[source].size(); ++k) {
+            const f32 weight = k < boneWeights[source].size() ? boneWeights[source][k] : 0.0f;
+            if (weight <= 0.0f) {
+                continue;
+            }
+            const u32 node = boneIndices[source][k];
+            const u32 objectId = node < objectIdOf.size() ? objectIdOf[node] : mdx::Node::NO_PARENT;
+            if (objectId == mdx::Node::NO_PARENT) {
+                continue;
+            }
+            if (weight > best) {
+                best = weight;
+                entry.dominant = static_cast<u32>(entry.ids.size());
+            }
+            entry.ids.push_back(objectId);
+            entry.weights.push_back(weight);
+            if (paletteOf.try_emplace(objectId, static_cast<u32>(palette.size())).second) {
+                palette.push_back(objectId);
+            }
+        }
+    }
+    if (palette.empty()) {
+        return;
+    }
+
+    // The set encoding, attempted first: a group is a sorted set of object ids,
+    // deduplicated across the geoset.
+    std::vector<u32> groupOf(sourceOf.size(), 0);
+    std::vector<std::vector<u32>> groups;
+    std::map<std::vector<u32>, u32> groupIndex;
+    bool sets = true;
+    for (std::size_t v = 0; v < bound.size() && sets; ++v) {
+        std::vector<u32> key = bound[v].ids;
+        std::sort(key.begin(), key.end());
+        key.erase(std::unique(key.begin(), key.end()), key.end());
+        if (key.empty()) {
+            key.push_back(palette.front());
+        }
+        const auto [entry, inserted] = groupIndex.try_emplace(key, static_cast<u32>(groups.size()));
+        if (inserted) {
+            if (groups.size() >= 256) {
+                sets = false;
+                break;
+            }
+            groups.push_back(key);
+        }
+        groupOf[v] = entry->second;
+    }
+
+    if (!sets) {
+        diagnostics.warn(DiagCode::BonePaletteLimit,
+                         "section binds more than 256 distinct bone sets; the group encoding "
+                         "keeps only the heaviest bone per vertex",
+                         ElementRef(ElementKind::Mesh, mesh));
+    }
+
+    if (sets && !skinChunk) {
+        geoset.matrixGroups.reserve(groups.size());
+        for (const std::vector<u32>& group : groups) {
+            geoset.matrixGroups.push_back(static_cast<u32>(group.size()));
+            geoset.matrixIndices.insert(geoset.matrixIndices.end(), group.begin(), group.end());
+        }
+        geoset.vertexGroups.reserve(sourceOf.size());
+        for (const u32 group : groupOf) {
+            geoset.vertexGroups.push_back(static_cast<u8>(group));
+        }
+        return;
+    }
+
+    // `MATS` is the palette itself from here on, because `SKIN` addresses it --
+    // which leaves `MTGC` no choice but one group per bone, and `GNDX` no
+    // choice but the heaviest.
+    if (palette.size() > 256) {
+        diagnostics.warn(DiagCode::BonePaletteLimit,
+                         "section binds " + std::to_string(palette.size()) +
+                             " bones; a geoset palette holds 256",
+                         ElementRef(ElementKind::Mesh, mesh));
+    }
+    geoset.matrixIndices = palette;
+    geoset.matrixGroups.assign(palette.size(), 1u);
+    geoset.vertexGroups.reserve(sourceOf.size());
+    for (const Bound& entry : bound) {
+        const u32 slot =
+            entry.dominant < entry.ids.size() ? paletteOf[entry.ids[entry.dominant]] : 0u;
+        geoset.vertexGroups.push_back(static_cast<u8>(std::min<u32>(slot, 0xFFu)));
+    }
+
+    if (!skinChunk) {
+        return;
+    }
+    geoset.skinData.assign(sourceOf.size() * 8, 0);
+    for (std::size_t v = 0; v < bound.size(); ++v) {
+        const Bound& entry = bound[v];
+        for (std::size_t k = 0; k < entry.ids.size() && k < 4; ++k) {
+            const u32 slot = paletteOf[entry.ids[k]];
+            if (slot > 0xFFu) {
+                continue;
+            }
+            geoset.skinData[v * 8 + k] = static_cast<u8>(slot);
+            geoset.skinData[v * 8 + 4 + k] =
+                static_cast<u8>(std::clamp(entry.weights[k], 0.0f, 1.0f) * 255.0f + 0.5f);
+        }
+    }
+}
+
 // ============================================================================
 // toMdx
 // ============================================================================
@@ -697,11 +894,25 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
     mdx_core::Context context;
     context.modelVersion = targetVersion;
     out.textures.reserve(document.textures.size());
+    // `TextureRef::replaceableId` is two vocabularies in one field — its own
+    // header says so — and only one of them is MDX's. Warcraft III numbers team
+    // colour 1, team glow 2 and the tilesets from 11; World of Warcraft numbers
+    // *texture types*, where 11 is a monster's first skin. Copying a `.m2`'s 11
+    // across told the adapter to ask `ReplaceableTextureManager` for a tileset,
+    // and the replaceable branch is taken before the file name is ever read —
+    // so a felstalker opened as Warcraft III drew white with a resolvable
+    // `fileDataID` sitting unused beside the slot.
+    //
+    // `defaultProfile` is the authoring profile and a derive does not move it,
+    // so a two-profile `.mdx` document keeps its ids and an imported one drops
+    // them back to the texture's own key.
+    const bool authoredAsMdx =
+        Profile(document.defaultProfile).nativeMaterialKind == NativeKind::Mdx;
     for (const TextureRef& ref : document.textures) {
         mdx::Texture texture;
         texture.fileName = ref.path;
         texture.flags = static_cast<mdx::Texture::Flag>(ref.flags);
-        texture.replaceableId = ref.replaceableId;
+        texture.replaceableId = authoredAsMdx ? ref.replaceableId : 0u;
         context.textureIndexMap.push_back(static_cast<u32>(out.textures.size()));
         out.textures.push_back(std::move(texture));
     }
@@ -721,15 +932,30 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
         animContext.nodeSlots[node] = {slot, static_cast<u32>(index)};
     };
 
-    out.pivotPoints.reserve(model.nodes.size());
+    // MDX numbers a node by the chunk it lands in, so every bone comes first,
+    // then the lights, then the helpers, in `mdx/writer.cpp`'s emission order.
+    // That is not cosmetic: `MATS` names an object id, and a reader that takes
+    // one for an index into the bone array gets the right node only while the
+    // bones are 0..n-1. Ours does exactly that (`resolveBoneIdx` asks
+    // `BoneIndexToNodeIndex` first), and so does every other tool, because no
+    // Blizzard file has ever been numbered any other way.
+    //
+    // Numbering in node order interleaved the kinds, which cost nothing until
+    // `RetargetSkeleton` began inserting a shear helper immediately before the
+    // bone it stretches — three of them, in the middle of the bone list. From
+    // then on a StarCraft II model skinned nearly every vertex to a bone three
+    // places off, which is a torn skeleton, not a wrong pose.
     std::vector<u32> objectIdOf(model.nodes.size(), mdx::Node::NO_PARENT);
     u32 nextObjectId = 0;
-    for (std::size_t i = 0; i < model.nodes.size(); ++i) {
-        if (model.nodes.nodes[i].kind == NodeKind::Camera) {
-            continue; // Cameras are not node chunks; they are written below.
+    for (int rank = 0; rank <= kLastChunkRank; ++rank) {
+        for (std::size_t i = 0; i < model.nodes.size(); ++i) {
+            // A camera is not a node chunk and carries no id; it is written below.
+            if (ChunkRank(model.nodes.nodes[i].kind) == rank) {
+                objectIdOf[i] = nextObjectId++;
+            }
         }
-        objectIdOf[i] = nextObjectId++;
     }
+    out.pivotPoints.assign(nextObjectId, Vector3f{0, 0, 0});
 
     const auto buildNode = [&](std::size_t index) {
         const Node& node = model.nodes.nodes[index];
@@ -739,7 +965,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
         out_node.parentId = node.parent == kInvalidNode || node.parent >= objectIdOf.size()
                                 ? mdx::Node::NO_PARENT
                                 : objectIdOf[node.parent];
-        const NodeNative::Entry* raw = node.native.find("flagBits");
+        const NodeNative::Entry* raw = node.native.find("mdxFlagBits");
         out_node.flags = FromNodeFlags(node.flags, raw ? static_cast<u32>(raw->value) : 0u);
         const NodeNative::Entry* family = node.native.find("nodeFamilyId");
         out_node.nodeFamilyId = family ? static_cast<u32>(family->value) : 0u;
@@ -767,9 +993,12 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
         // — `.m3` leaves every `pivot` zero. Composing the rest chain is the
         // best a bare export can do; `RetargetSkeleton` is what makes the
         // tracks agree with it.
-        out.pivotPoints.push_back(model.nodes.rig == RigConvention::PivotRelative
-                                      ? node.pivot
-                                      : model.nodes.worldBind(static_cast<u32>(i)).translation);
+        // `PIVT` is indexed by object id, so it is filled by id rather than
+        // appended -- the loop below runs in node order, which is no longer it.
+        out.pivotPoints[objectIdOf[i]] =
+            model.nodes.rig == RigConvention::PivotRelative
+                ? node.pivot
+                : model.nodes.worldBind(static_cast<u32>(i)).translation;
         switch (node.kind) {
         case NodeKind::Bone: {
             mdx::Bone bone;
@@ -818,7 +1047,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
         case NodeKind::Attachment: {
             mdx::Attachment attachment;
             attachment.node = buildNode(i);
-            if (const auto* id = node.native.find("attachmentId")) {
+            if (const auto* id = node.native.find("mdxAttachmentId")) {
                 attachment.attachmentId = static_cast<u32>(id->value);
             }
             claim(i, mdx_anim::ExportContext::Slot::Attachment, out.attachments.size());
@@ -934,6 +1163,18 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
     }
 
     // --- meshes -> geosets --------------------------------------------------
+    //
+    // **One geoset per SECTION, not per mesh.** A geoset carries a single
+    // `materialId`, and a mesh carries as many sections as its source drew
+    // batches: an `.m2` skin is one per batch, an `.m3` division one per
+    // region, a Diablo III appearance thirty over one mesh. A geoset per mesh
+    // merged every one of them into a single draw wearing section 0's material
+    // -- for a Barbarian, all thirty armour variants at once in the look of a
+    // hidden one.
+    //
+    // Each geoset takes a DISJOINT vertex slice in first-use order, so its
+    // faces index its own array (the rule `toM3` already follows for a region),
+    // and its own bone palette, because in MDX both are per geoset.
     geom::RenderMeshDesc desc;
     desc.attributes = {
         {geom::names::kPosition, utils::AttributeClass::Position, utils::AttributeEncoding::Float32,
@@ -946,84 +1187,130 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
     desc.maxInfluences = Profile(profile).maxBoneInfluences;
     desc.splitBySection = true;
 
+    // `SKIN` and `TANG` are written only above 800 (mdx/writer.cpp), so at 800
+    // the group encoding is the only skinning the file carries.
+    const bool skinChunk = targetVersion > 800;
+    animContext.geosetsOfMesh.assign(model.meshes.size(), {});
+    // The geosets a hidden section produced, turned into geoset animations once
+    // every geoset exists.
+    std::vector<u32> hiddenGeosets;
+
+    constexpr u32 kUnmapped = ~0u;
     for (std::size_t m = 0; m < model.meshes.size(); ++m) {
         const Mesh& mesh = model.meshes[m];
         const geom::RenderMesh render = geom::BuildRenderMesh(mesh, desc);
         diagnostics.append(render.diagnostics);
 
-        mdx::Geoset geoset;
-        geoset.lodName = mesh.name;
-        geoset.lod = mesh.lodLevel;
-        geoset.extent = FromExtent(mesh.bounds);
-        geoset.vertexPositions = render.vertices.getPositions();
-        geoset.vertexNormals = render.vertices.getNormals();
+        const std::vector<Vector3f> positions = render.vertices.getPositions();
+        const std::vector<Vector3f> normals = render.vertices.getNormals();
         const std::vector<Vector2f> uv0 = render.vertices.getUVs(0);
-        if (!uv0.empty()) {
-            geoset.textureCoordinateSets.push_back(uv0);
-        }
-
-        geoset.faces.reserve(render.indices.size());
-        for (u32 index : render.indices) {
-            if (index > 0xFFFFu) {
-                diagnostics.warn(DiagCode::IndexWidthExceeded,
-                                 "mesh needs more than 65535 vertices for one geoset",
-                                 ElementRef(ElementKind::Mesh, m));
-                geoset.faces.push_back(0xFFFFu);
-            } else {
-                geoset.faces.push_back(static_cast<u16>(index));
-            }
-        }
-        geoset.faceTypeGroups.push_back(4);
-        geoset.faceGroups.push_back(static_cast<u32>(geoset.faces.size()));
-
-        // The skin palette is per geoset: `matrixIndices` holds the object ids
-        // this geoset binds to, and `skinData` addresses that array.
         const std::vector<std::array<u32, 4>> boneIndices = render.vertices.getBoneIndices();
         const std::vector<std::array<f32, 4>> boneWeights = render.vertices.getBoneWeights();
-        if (!boneIndices.empty() && !boneWeights.empty()) {
-            std::unordered_map<u32, u32> paletteOf;
-            geoset.skinData.resize(boneIndices.size() * 8, 0);
-            for (std::size_t v = 0; v < boneIndices.size(); ++v) {
-                for (std::size_t k = 0; k < 4; ++k) {
-                    const f32 weight = k < boneWeights[v].size() ? boneWeights[v][k] : 0.0f;
-                    if (weight <= 0.0f) {
-                        continue;
-                    }
-                    const u32 node = boneIndices[v][k];
-                    const u32 objectId =
-                        node < objectIdOf.size() ? objectIdOf[node] : mdx::Node::NO_PARENT;
-                    if (objectId == mdx::Node::NO_PARENT) {
-                        continue;
-                    }
-                    auto [entry, inserted] = paletteOf.try_emplace(
-                        objectId, static_cast<u32>(geoset.matrixIndices.size()));
-                    if (inserted) {
-                        geoset.matrixIndices.push_back(objectId);
-                    }
-                    if (entry->second > 0xFFu) {
-                        diagnostics.warn(DiagCode::BonePaletteLimit,
-                                         "geoset needs more than 256 bones",
-                                         ElementRef(ElementKind::Mesh, m));
-                        continue;
-                    }
-                    geoset.skinData[v * 8 + k] = static_cast<u8>(entry->second);
-                    geoset.skinData[v * 8 + 4 + k] =
-                        static_cast<u8>(std::clamp(weight, 0.0f, 1.0f) * 255.0f + 0.5f);
+
+        // One slot per GPU vertex, cleared after each range rather than
+        // reallocated: two sections can share a vertex when their corner
+        // attributes agree, so the map is not a simple offset.
+        std::vector<u32> localOf(render.vertexCount(), kUnmapped);
+
+        for (const geom::RenderRange& range : render.ranges) {
+            const MeshSection* section =
+                range.section < mesh.sections.size() ? &mesh.sections[range.section] : nullptr;
+
+            mdx::Geoset geoset;
+            geoset.lod = mesh.lodLevel;
+            geoset.lodName =
+                section != nullptr && !section->name.empty() ? section->name : mesh.name;
+
+            std::vector<u32> sourceOf;
+            sourceOf.reserve(range.indexCount);
+            geoset.faces.reserve(range.indexCount);
+            bool wide = false;
+            const u32 end = range.firstIndex + range.indexCount;
+            for (u32 i = range.firstIndex; i < end && i < render.indices.size(); ++i) {
+                const u32 source = render.indices[i];
+                if (source >= localOf.size()) {
+                    geoset.faces.push_back(0);
+                    continue;
+                }
+                if (localOf[source] == kUnmapped) {
+                    localOf[source] = static_cast<u32>(sourceOf.size());
+                    sourceOf.push_back(source);
+                }
+                const u32 local = localOf[source];
+                wide = wide || local > 0xFFFFu;
+                geoset.faces.push_back(static_cast<u16>(local & 0xFFFFu));
+            }
+            for (const u32 source : sourceOf) {
+                localOf[source] = kUnmapped;
+            }
+            if (wide) {
+                diagnostics.warn(DiagCode::IndexWidthExceeded,
+                                 "section needs more than 65535 vertices for one geoset",
+                                 ElementRef(ElementKind::Mesh, m));
+            }
+            geoset.faceTypeGroups.push_back(4);
+            geoset.faceGroups.push_back(static_cast<u32>(geoset.faces.size()));
+
+            geoset.vertexPositions.reserve(sourceOf.size());
+            geoset.vertexNormals.reserve(sourceOf.size());
+            std::vector<Vector2f> uvs;
+            if (!uv0.empty()) {
+                uvs.reserve(sourceOf.size());
+            }
+            Extent bounds;
+            ResetExtent(bounds);
+            for (const u32 source : sourceOf) {
+                const Vector3f position =
+                    source < positions.size() ? positions[source] : Vector3f(0, 0, 0);
+                geoset.vertexPositions.push_back(position);
+                GrowExtent(bounds, position);
+                geoset.vertexNormals.push_back(source < normals.size() ? normals[source]
+                                                                       : Vector3f(0, 0, 1));
+                if (!uv0.empty()) {
+                    uvs.push_back(source < uv0.size() ? uv0[source] : Vector2f(0, 0));
                 }
             }
-            geoset.matrixGroups.push_back(static_cast<u32>(geoset.matrixIndices.size()));
-        }
-
-        if (!mesh.sections.empty()) {
-            const MeshSection& section = mesh.sections.front();
-            geoset.materialId = section.materialSlot;
-            geoset.selectionGroup = section.selectionGroup;
-            if (const auto* flags = section.native.find("selectionFlags")) {
-                geoset.selectionFlags = static_cast<u32>(flags->value);
+            if (!uvs.empty()) {
+                geoset.textureCoordinateSets.push_back(std::move(uvs));
             }
-        }
+            // Derived, like every other bound in WEM. It is also the one thing
+            // the merged geoset could not state: a section's own volume.
+            if (!sourceOf.empty()) {
+                FinishExtent(bounds);
+                geoset.extent = FromExtent(bounds);
+            } else {
+                geoset.extent = FromExtent(mesh.bounds);
+            }
 
-        out.geosets.push_back(std::move(geoset));
+            WriteGeosetSkin(geoset, sourceOf, boneIndices, boneWeights, objectIdOf, skinChunk,
+                            static_cast<u32>(m), diagnostics);
+
+            if (section != nullptr) {
+                geoset.materialId = section->materialSlot;
+                geoset.selectionGroup = section->selectionGroup;
+                if (const auto* flags = section->native.find("selectionFlags")) {
+                    geoset.selectionFlags = static_cast<u32>(flags->value);
+                }
+                if (hasFlag(section->flags, SectionFlags::Hidden)) {
+                    hiddenGeosets.push_back(static_cast<u32>(out.geosets.size()));
+                }
+            }
+
+            animContext.geosetsOfMesh[m].push_back(static_cast<u32>(out.geosets.size()));
+            out.geosets.push_back(std::move(geoset));
+        }
+    }
+
+    // A hidden section becomes a static alpha of zero, which is the only
+    // per-geoset visibility MDX has and what Warcraft III itself uses to keep
+    // an alternate body part out of the frame. Written before the animation
+    // export so that a mesh which also keys alpha lands on the same record.
+    for (const u32 geoset : hiddenGeosets) {
+        mdx::GeosetAnimation animation;
+        animation.geosetId = geoset;
+        animation.alpha = 0.0f;
+        animation.flags = mdx::GeosetAnimation::Flag::Color;
+        out.geosetAnimations.push_back(std::move(animation));
     }
 
     // Last, because a geoset animation names a geoset and an event object has

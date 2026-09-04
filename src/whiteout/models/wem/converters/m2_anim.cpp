@@ -182,9 +182,9 @@ private:
             clip.looping = m2::hasFlag(sequence.flags, m2::SequenceFlag::Looping);
             clip.native.set("animationId", static_cast<i64>(sequence.id));
             clip.native.set("variationIndex", static_cast<i64>(sequence.variationIndex));
-            clip.native.set("flagBits", static_cast<i64>(static_cast<u32>(sequence.flags)));
+            clip.native.set("m2SeqFlags", static_cast<i64>(static_cast<u32>(sequence.flags)));
             clip.native.set("movespeed", sequence.movespeed);
-            clip.native.set("frequency", static_cast<i64>(sequence.frequency));
+            clip.native.set("m2Frequency", static_cast<i64>(sequence.frequency));
             clip.native.set("blendTimeIn", static_cast<i64>(sequence.blendTimeIn));
             clip.native.set("blendTimeOut", static_cast<i64>(sequence.blendTimeOut));
             // The chains §10.8.3 sends here: following one is playback policy,
@@ -703,11 +703,11 @@ private:
             sequence.variationIndex = static_cast<u16>(clip.native.value("variationIndex", 0));
             sequence.duration = MillisecondsOf(clip.duration);
             sequence.movespeed = static_cast<f32>(clip.native.value("movespeed", 0));
-            sequence.flags = static_cast<m2::SequenceFlag>(clip.native.value("flagBits", 0));
+            sequence.flags = static_cast<m2::SequenceFlag>(clip.native.value("m2SeqFlags", 0));
             if (clip.looping) {
                 sequence.flags = sequence.flags | m2::SequenceFlag::Looping;
             }
-            sequence.frequency = static_cast<i16>(clip.native.value("frequency", 0));
+            sequence.frequency = static_cast<i16>(clip.native.value("m2Frequency", 0));
             sequence.blendTimeIn = static_cast<u16>(clip.native.value("blendTimeIn", 0));
             sequence.blendTimeOut = static_cast<u16>(clip.native.value("blendTimeOut", 0));
             sequence.variationNext = static_cast<i16>(clip.native.value("variationNext", -1));

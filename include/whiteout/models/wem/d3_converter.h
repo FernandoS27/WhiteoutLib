@@ -33,10 +33,15 @@
  * that numbering is not pinned to body parts — `character.h` says so — and
  * baking an inference into a format is how it becomes permanent.
  *
- * ### Import only
+ * ### No bytes out, but a model out
  *
- * Writing SNO is a separate project (§18). `supportsExport()` is false and
- * `exportToBytes` refuses, rather than producing a file the game would not load.
+ * Writing SNO is a separate project (§18), so `supportsExport()` is false and
+ * `exportToBytes` still refuses. What §18 rules out is a *file the game would
+ * load* — and that is not what a viewer needs. `toAppearance` builds the native
+ * `Appearances` **in memory**, exactly as `toMdx` / `toM2` / `toM3` build their
+ * format's struct, which is what lets a Diablo III `.wem` re-open as Diablo III
+ * and reach the whole D3 render path — surfaces, dressing, cloth, hardpoints —
+ * without one line of it being written against a WEM type.
  *
  * ### Sharing is the norm, and it is conditional
  *
@@ -163,6 +168,76 @@ struct D3ImportOptions {
 };
 
 // ============================================================================
+// Export
+// ============================================================================
+
+/// The SNO ids a Diablo III document that has none of its own is given.
+///
+/// A document derived from another profile has no `.app` behind it, and a host
+/// cache still needs a key. Both sit above every shipped id — the 2.8 install
+/// tops out near 800,000 — and below `d3_anim`'s synthetic animation range, so
+/// the three can never collide with each other or with a real asset.
+inline constexpr i32 d3SyntheticAppearanceId = 0x3FFFFFFE;
+inline constexpr i32 d3SyntheticAnimSetId = 0x3FFFFFFF;
+
+struct D3ExportOptions {
+    /// Which `Document::models[]` becomes the appearance. A document holding an
+    /// actor and what rides its hardpoints holds several, and each is its own
+    /// `.app`.
+    u32 model = 0;
+
+    /// The look the result defaults to. Empty means the set's own
+    /// `defaultLook`, which is what the import recorded.
+    std::string look;
+};
+
+/**
+ * @brief What one `toAppearance` produced.
+ *
+ * The appearance, plus the two things a D3 host needs that an `.app` has
+ * nowhere to keep — because in Diablo III **neither is in the asset**. Which
+ * armour draws is equipment state (`ActorModel_ApplyLook`), and which look each
+ * piece resolves under is per equipped item. WEM does hold both, on the section
+ * and on the profile set, so they come back beside the appearance rather than
+ * being dropped for having no field to land in.
+ */
+struct D3AppearanceExport {
+    sno::d3::native::Appearances appearance;
+
+    /// Which `arLooks` entry the set said to draw. An `.app` has no field for
+    /// it — a look is chosen by the actor and by what is equipped, never by the
+    /// appearance — so it comes back here for the caller to hand a renderer.
+    u32 look = 0;
+
+    /// One byte per **emitted** sub-object — `tGeoSet0`'s then `tGeoSet1`'s, in
+    /// order — set where the section carried `SectionFlags::Hidden`.
+    ///
+    /// Aligned with a D3 host's own geoset numbering by construction: a section
+    /// with no faces writes no sub-object, so this list and the one a renderer
+    /// builds by skipping empty sub-objects are the same list.
+    std::vector<u8> hidden;
+
+    /// Per emitted sub-object, the look its materials resolve under, or
+    /// `kInvalidIndex` for "the appearance's own".
+    ///
+    /// The look is per *item* in the original — each equipped piece carries its
+    /// own look name on tag `0x10401`, and one material serves a whole weight
+    /// class — so a heavy chest and heavy boots from two different sets are one
+    /// material read at two variant indices. A model-wide index cannot say that,
+    /// which is why this is a list and not a scalar. Empty when nothing
+    /// overrides.
+    std::vector<u32> looks;
+
+    /// Per emitted sub-object, the dye row (0 undyed, 2..22 a `dye_ramp` row).
+    /// Empty when nothing is dyed. Dye 1 means *hidden* and is resolved to the
+    /// naked look upstream; it never reaches here.
+    std::vector<i32> dyes;
+
+    /// Parallel to @ref hidden: the `(mesh, section)` each sub-object came from.
+    std::vector<std::pair<u32, u32>> sourceSections;
+};
+
+// ============================================================================
 // D3Converter
 // ============================================================================
 
@@ -259,6 +334,60 @@ public:
     /// The model in @p document built from appearance @p snoId, or
     /// `kInvalidIndex`.
     static u32 FindAppearanceModel(const Document& document, i32 snoId);
+
+    /**
+     * @brief One `Model` back to the native `Appearances` a D3 renderer draws.
+     *
+     * The mirror of @ref fromAppearance and the reason a Diablo III `.wem` can
+     * be opened as Diablo III at all. It writes a struct, never bytes (§18).
+     *
+     * **One section is one `SubObject`.** That is the unit D3 draws, joins a
+     * material to and flips visibility on, so a section that shares a mesh with
+     * thirty others still leaves as its own record with its own vertex slice and
+     * its own local `u16` indices — the same disjoint-slice rule `toM3` follows,
+     * and for the same reason: a sub-object's face corners address its own
+     * array.
+     *
+     * **The materials are a restore, not a re-derivation.** D3's native block is
+     * attached authoritative (§7.3), so the `UberMaterial` that comes back is
+     * the one that was read: the textures are the shipped SNO ids and the
+     * colours are the shipped floats. A material with no D3 block is written
+     * from the common projection and reported, because that is the only case
+     * where anything is being invented.
+     *
+     * Fails when the model carries no `Diablo3` set. What it cannot carry is
+     * reported rather than assumed: the per-bone ragdoll rig and the
+     * appearance's octree were never imported, a cloth section's simulation has
+     * no native block to have ridden (see the file comment), and a `.wem` that
+     * came from another format has no D3 material to restore.
+     *
+     * Measured over the whole shipped corpus — 11,347 appearances through
+     * `fromAppearance` and back — every one comes out with the same bones, the
+     * same five poses, the same hardpoints, looks, materials, texture ids,
+     * visibility bits, both join strings, both vertex colours and the same
+     * positions, UVs and normals. The only thing that shrinks is what §5.3's
+     * manifold repair took on the way in.
+     */
+    Result<D3AppearanceExport> toAppearance(const Document& document,
+                                            const D3ExportOptions& options = {}) const;
+
+    /**
+     * @brief The model's clips back as the `.ani` set they came from.
+     *
+     * One `Anim` per distinct source `.ani` — the clips of one animation are its
+     * permutations, and the import recorded which they belonged to on
+     * `Clip::native["animSnoId"]`. A clip with no such id (a document converted
+     * from another format) is given one from a synthetic range and reported, so
+     * the anim set can still name it.
+     *
+     * The `AnimSet` is the model's own, with the weapon maps that named a base
+     * of the core set restored to the tag maps they came from.
+     */
+    struct D3AnimExport {
+        std::vector<sno::d3::native::Anim> anims;
+        sno::d3::native::AnimSet animSet;
+    };
+    Result<D3AnimExport> toAnimSet(const Document& document, u32 model) const;
 };
 
 } // namespace wem

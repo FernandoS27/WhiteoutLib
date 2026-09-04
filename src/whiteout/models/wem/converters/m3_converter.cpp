@@ -122,36 +122,27 @@ m3::Extent FromExtent(const Extent& source) {
     return out;
 }
 
-/// M3 spells the inherit bits positively; WEM (and MDX) spell them as opt-outs.
-NodeFlags ToNodeFlags(m3::BoneFlag source) {
-    NodeFlags out = NodeFlags::None;
-    if (!hasFlag(source, m3::BoneFlag::InheritTranslation)) {
-        out |= NodeFlags::DontInheritTranslation;
-    }
-    if (!hasFlag(source, m3::BoneFlag::InheritScale)) {
-        out |= NodeFlags::DontInheritScale;
-    }
-    if (!hasFlag(source, m3::BoneFlag::InheritRotation)) {
-        out |= NodeFlags::DontInheritRotation;
-    }
-    // The two `Billboard` bits are deliberately not mapped: they are set on no
-    // bone in the whole corpus, and billboarding comes from `BBSC`.
-    return out;
+/// `BONE.flags` carries nothing `NodeFlags` can say.
+///
+/// It looks as though it does: `InheritTranslation`, `InheritScale` and
+/// `InheritRotation` read as the positive spelling of MDX's three opt-outs. But
+/// StarCraft II never asks. The evaluator composes every chain unconditionally
+/// and the only bits it reads out of this word are the two billboard ones,
+/// which are themselves dead (`m3_model_adapter.cpp`; billboards come from
+/// `BBSC`). And the three are set on **no bone at all** — 0 of 50,771 across
+/// 4,000 corpus `.m3` files — so mapping their absence hands every bone of
+/// every `.m3` in existence all three suppressions, in a document a
+/// pivot-relative target *does* honour. That detached every bone from its
+/// parent the moment a `.m3` was opened as Warcraft III.
+///
+/// So the word stays native: `m3FlagBits` round-trips it verbatim and no
+/// `NodeFlags` bit is derived from it.
+NodeFlags ToNodeFlags(m3::BoneFlag) {
+    return NodeFlags::None;
 }
 
-m3::BoneFlag FromNodeFlags(NodeFlags source, u32 rawFallback) {
-    u32 bits = rawFallback;
-    const auto set = [&bits](m3::BoneFlag bit, bool on) {
-        if (on) {
-            bits |= static_cast<u32>(bit);
-        } else {
-            bits &= ~static_cast<u32>(bit);
-        }
-    };
-    set(m3::BoneFlag::InheritTranslation, !hasFlag(source, NodeFlags::DontInheritTranslation));
-    set(m3::BoneFlag::InheritScale, !hasFlag(source, NodeFlags::DontInheritScale));
-    set(m3::BoneFlag::InheritRotation, !hasFlag(source, NodeFlags::DontInheritRotation));
-    return static_cast<m3::BoneFlag>(bits);
+m3::BoneFlag FromNodeFlags(NodeFlags, u32 rawFallback) {
+    return static_cast<m3::BoneFlag>(rawFallback);
 }
 
 std::string SlotName(std::size_t materialMapIndex) {
@@ -247,7 +238,7 @@ NodeTree ImportNodes(const m3::Model& source) {
         node.resetPayloadForKind();
         node.flags = ToNodeFlags(bone.flags);
         node.parent = bone.parentIndex == 0xFFFFu ? kInvalidNode : bone.parentIndex;
-        node.native.set("flagBits", static_cast<i64>(static_cast<u32>(bone.flags)));
+        node.native.set("m3FlagBits", static_cast<i64>(static_cast<u32>(bone.flags)));
 
         // The bone's own rest transform, in the source's own parent-relative
         // terms -- rebased, because a translation is a vector in the basis
@@ -307,7 +298,7 @@ NodeTree ImportNodes(const m3::Model& source) {
         payload.attenuationEnd = light.attenuationEnd;
         payload.hotSpot = light.hotSpot.initValue;
         payload.falloff = light.falloff.initValue;
-        node.native.set("lightFlags", static_cast<i64>(static_cast<u32>(light.flags)));
+        node.native.set("m3LightFlags", static_cast<i64>(static_cast<u32>(light.flags)));
         tree.add(std::move(node));
     }
 
@@ -651,7 +642,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                                     static_cast<u32>(out.bones.size())};
         m3::Bone bone;
         bone.name = node.name;
-        bone.flags = FromNodeFlags(node.flags, static_cast<u32>(node.native.value("flagBits")));
+        bone.flags = FromNodeFlags(node.flags, static_cast<u32>(node.native.value("m3FlagBits")));
         bone.parentIndex = 0xFFFFu;
         if (node.parent != kInvalidNode && node.parent < boneOf.size() &&
             boneOf[node.parent] != 0xFFFFu) {
@@ -693,7 +684,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             m3::Light light;
             light.boneIndex = static_cast<u16>(parentBone == 0xFFFFu ? 0u : parentBone);
             light.flags =
-                static_cast<m3::LightFlag>(static_cast<u32>(node.native.value("lightFlags")));
+                static_cast<m3::LightFlag>(static_cast<u32>(node.native.value("m3LightFlags")));
             if (const auto* payload = std::get_if<LightPayload>(&node.payload)) {
                 switch (payload->kind) {
                 case LightKind::Spot:

@@ -34,22 +34,35 @@
  * appearance's octree and collision capsules. They are a physics asset that
  * happens to ship inside a drawable, and WEM is a model format. The counts ride
  * `native` so nothing goes missing silently.
+ *
+ * A sub-object's `ClothStructure` goes the same way and for a different reason.
+ * §18 lets cloth ride along **as a native block**, and D3's is per sub-object —
+ * particles, staples and two constraint sets — which is the one scope WEM has
+ * no typed native block for: a *material* has one per format (§7.3) and a
+ * section has only the shared name/value bag. The section keeps
+ * `SectionFlags::ClothSimulated`, so nothing about it is a guess on the way
+ * back; it simply draws skinned, and the export reports how many did.
  */
 
 #include "whiteout/models/wem/d3_converter.h"
 #include "whiteout/models/wem/geometry/builder.h"
+#include "whiteout/models/wem/geometry/render_view.h"
 
 #include <whiteout/sno/d3/native/geometry.h>
 
 #include "../materials/d3_core.h"
+#include "../native/d3_copy.h"
 #include "d3_anim.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <cmath>
 #include <cstring>
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace whiteout {
@@ -128,8 +141,8 @@ bool HasAttachedModel(const Model& model) {
 Transform ToTransform(const d3n::PRSTransform& source) {
     Transform out;
     out.translation = source.vTranslation;
-    out.rotation = Quaternion{source.qRotation.x, source.qRotation.y, source.qRotation.z,
-                              source.qRotation.w};
+    out.rotation =
+        Quaternion{source.qRotation.x, source.qRotation.y, source.qRotation.z, source.qRotation.w};
     out.scale = Vector3f{source.flScale, source.flScale, source.flScale};
     return out;
 }
@@ -137,8 +150,8 @@ Transform ToTransform(const d3n::PRSTransform& source) {
 Transform ToTransform(const d3n::PRTransform& source) {
     Transform out;
     out.translation = source.vTranslation;
-    out.rotation = Quaternion{source.qRotation.x, source.qRotation.y, source.qRotation.z,
-                              source.qRotation.w};
+    out.rotation =
+        Quaternion{source.qRotation.x, source.qRotation.y, source.qRotation.z, source.qRotation.w};
     return out;
 }
 
@@ -217,8 +230,7 @@ NodeBuild ImportNodes(const d3n::Appearances& source, Diagnostics& out) {
         payload.sphere = ToSphere(bone.tSphere);
         // The ragdoll rig is not imported; the counts say it was there.
         if (!bone.arCollisionShapes.empty()) {
-            node.native.set("collisionShapeCount",
-                            static_cast<i64>(bone.arCollisionShapes.size()));
+            node.native.set("collisionShapeCount", static_cast<i64>(bone.arCollisionShapes.size()));
         }
         if (!bone.arConstraints.empty()) {
             node.native.set("constraintCount", static_cast<i64>(bone.arConstraints.size()));
@@ -290,8 +302,8 @@ NodeBuild ImportNodes(const d3n::Appearances& source, Diagnostics& out) {
         payload.intensity = light.flIntensity;
         payload.attenuationStart = light.flAttenuation0;
         payload.attenuationEnd = light.flAttenuation1;
-        node.native.set("lightType", static_cast<i64>(light.nType));
-        node.native.set("lightFlags", static_cast<i64>(light.dwFlags));
+        node.native.set("d3LightType", static_cast<i64>(light.nType));
+        node.native.set("d3LightFlags", static_cast<i64>(light.dwFlags));
         tree.add(std::move(node));
     }
 
@@ -362,6 +374,24 @@ Mesh ImportGeoSet(const d3n::GeoSet& geoSet, const std::string& name, Model& mod
         }
         if (sub.snoSurface.valid()) {
             section.native.set("surfaceSno", static_cast<i64>(sub.snoSurface.id));
+        }
+        section.native.set("vertexFormat", static_cast<i64>(sub.dwVertexFormat));
+        // `nBoneIndex` is on **every** sub-object, not only the rigid ones: a
+        // skinned one still names a bone, and `section.rigidNode` below records
+        // it only where it is the whole binding. Kept as a node index, because
+        // that is what survives a tree edit — the bone index does not.
+        section.native.set(
+            "boneNode", sub.nBoneIndex >= 0 && static_cast<u32>(sub.nBoneIndex) < boneToNode.size()
+                            ? static_cast<i64>(boneToNode[static_cast<u32>(sub.nBoneIndex)])
+                            : -1);
+        // **The Maya shape name, kept verbatim.** Not redundant with the parsed
+        // triple below: `ActorModel_ApplyLook` never parses this string, it does
+        // a case-sensitive substring search for `"<category>_<value>"` in it, so
+        // an oddly-spelled name is selected by the spelling and by nothing else.
+        // A document that kept only the parse would re-dress differently from
+        // the game on exactly the names the parse gets wrong.
+        if (!sub.szMaterialName.empty()) {
+            section.native.setText("materialName", sub.szMaterialName);
         }
 
         // §8: visibility is data. The parsed descriptor rides the section
@@ -439,10 +469,18 @@ Mesh ImportGeoSet(const d3n::GeoSet& geoSet, const std::string& name, Model& mod
                 // The binormal is its own layer rather than a tangent sign: D3
                 // authors both, and reconstructing one from the other assumes an
                 // orthonormal frame this content does not promise.
-                builder.setCornerAttr(face, c, geom::names::kTangent,
-                                      d3n::vertexTangent(vertex));
-                builder.setCornerAttr(face, c, geom::names::kBinormal,
-                                      d3n::vertexBinormal(vertex));
+                builder.setCornerAttr(face, c, geom::names::kTangent, d3n::vertexTangent(vertex));
+                builder.setCornerAttr(face, c, geom::names::kBinormal, d3n::vertexBinormal(vertex));
+                // Both colour channels. D3's vertex shaders read `color0` as a
+                // tint and `color1` as the per-vertex ambient occlusion / team
+                // mask, so dropping either is a visible change and not a
+                // rounding one.
+                const d3n::VertexColor color = d3n::vertexColor(vertex);
+                const d3n::VertexColor aux = d3n::vertexAuxColor(vertex);
+                builder.setCornerAttr(face, c, geom::names::color(0),
+                                      std::array<u8, 4>{color.r, color.g, color.b, color.a});
+                builder.setCornerAttr(face, c, geom::names::color(1),
+                                      std::array<u8, 4>{aux.r, aux.g, aux.b, aux.a});
             }
         }
     }
@@ -685,8 +723,8 @@ Result<Document> D3Converter::fromAppearance(const d3n::Appearances& source, Ass
         // slot, which is what an appearance with no look list has.
         set.looks = LookTable::Single();
     }
-    const std::string wanted = options.materialLook.empty() ? kDefaultLookName
-                                                            : options.materialLook;
+    const std::string wanted =
+        options.materialLook.empty() ? kDefaultLookName : options.materialLook;
     const u32 chosen = set.looks.find(wanted);
     if (chosen == kInvalidIndex) {
         if (!options.materialLook.empty()) {
@@ -730,8 +768,8 @@ Result<Document> D3Converter::fromAppearance(const d3n::Appearances& source, Ass
         for (std::size_t look = 0; look < material.arVariants.size() && look < set.looks.size();
              ++look) {
             Material imported = d3_core::ImportVariant(
-                material.arVariants[look],
-                material.szName + "#" + set.looks.looks[look].name, context, diagnostics);
+                material.arVariants[look], material.szName + "#" + set.looks.looks[look].name,
+                context, diagnostics);
             set.slotBindings[slot].byLook[look] = static_cast<u32>(set.materials.size());
             set.materials.push_back(std::move(imported));
         }
@@ -788,8 +826,7 @@ Result<Document> D3Converter::fromAppearance(const d3n::Appearances& source, Ass
 // ============================================================================
 
 Result<u32> D3Converter::appendActor(Document& document, const d3n::Actor& source,
-                                     AssetSource& assets,
-                                     const D3ImportOptions& options) const {
+                                     AssetSource& assets, const D3ImportOptions& options) const {
     Result<u32> result;
     Diagnostics& diagnostics = result.diagnostics;
 
@@ -831,10 +868,9 @@ Result<u32> D3Converter::appendActor(Document& document, const d3n::Actor& sourc
         if (existing != kInvalidIndex && !HasAttachedModel(document.models[existing])) {
             const ProfileMaterialSet* set = document.models[existing].setFor(ProfileId::Diablo3);
             const bool sameLook =
-                set != nullptr &&
-                (wantedLook.empty() ||
-                 (set->defaultLook < set->looks.size() &&
-                  IEquals(set->looks.looks[set->defaultLook].name, wantedLook)));
+                set != nullptr && (wantedLook.empty() ||
+                                   (set->defaultLook < set->looks.size() &&
+                                    IEquals(set->looks.looks[set->defaultLook].name, wantedLook)));
             const NativeBag::Entry* animSet =
                 set != nullptr ? set->native.find("animSetSnoId") : nullptr;
             const i64 wantedAnimSet = source.snoAnimSet.valid() ? source.snoAnimSet.id : -1;
@@ -848,9 +884,9 @@ Result<u32> D3Converter::appendActor(Document& document, const d3n::Actor& sourc
 
     const d3n::Appearances* appearance = assets.appearance(source.snoAppearance.id);
     if (appearance == nullptr) {
-        diagnostics.error(DiagCode::AssetUnresolved,
-                          "appearance " + std::to_string(source.snoAppearance.id) +
-                              " did not load");
+        diagnostics.error(DiagCode::AssetUnresolved, "appearance " +
+                                                         std::to_string(source.snoAppearance.id) +
+                                                         " did not load");
         return result;
     }
 
@@ -954,9 +990,9 @@ Result<u32> D3Converter::appendActor(Document& document, const d3n::Actor& sourc
                 }
             }
             if (node == kInvalidNode) {
-                diagnostics.warn(DiagCode::HardpointUnresolved,
-                                 "event names hardpoint '" + wanted + "', which the model has no "
-                                 "attachment node for");
+                diagnostics.warn(DiagCode::HardpointUnresolved, "event names hardpoint '" + wanted +
+                                                                    "', which the model has no "
+                                                                    "attachment node for");
             }
         }
 
@@ -1140,6 +1176,811 @@ Result<Document> D3Converter::fromActor(const d3n::Actor& source, AssetSource& a
     }
     document.name = document.models[*root.value].name;
     result.value = std::move(document);
+    return result;
+}
+
+// ============================================================================
+// toAppearance — the native model, in memory (§18's line, and which side of it)
+// ============================================================================
+
+namespace {
+
+d3n::PRSTransform FromTransform(const Transform& source) {
+    d3n::PRSTransform out;
+    out.qRotation =
+        Vector4f{source.rotation.x, source.rotation.y, source.rotation.z, source.rotation.w};
+    out.vTranslation = source.translation;
+    // One float. `Node::uniformScaleOnly` is the import's promise that this is
+    // safe; the caller checks it and reports rather than silently taking x.
+    out.flScale = source.scale.x;
+    return out;
+}
+
+d3n::PRTransform FromTransformPR(const Transform& source) {
+    d3n::PRTransform out;
+    out.qRotation =
+        Vector4f{source.rotation.x, source.rotation.y, source.rotation.z, source.rotation.w};
+    out.vTranslation = source.translation;
+    return out;
+}
+
+d3n::AABB FromExtent(const Extent& extent) {
+    d3n::AABB out;
+    out.vCenter = Vector3f{(extent.minimum.x + extent.maximum.x) * 0.5f,
+                           (extent.minimum.y + extent.maximum.y) * 0.5f,
+                           (extent.minimum.z + extent.maximum.z) * 0.5f};
+    out.vHalfExtent = Vector3f{(extent.maximum.x - extent.minimum.x) * 0.5f,
+                               (extent.maximum.y - extent.minimum.y) * 0.5f,
+                               (extent.maximum.z - extent.minimum.z) * 0.5f};
+    return out;
+}
+
+d3n::Sphere FromSphere(const Sphere& sphere) {
+    d3n::Sphere out;
+    out.vCenter = sphere.center;
+    out.flRadius = sphere.radius;
+    return out;
+}
+
+/// The inverse of `d3n::unpackVertexVector`. Rounds rather than truncates: the
+/// decode is `b * 2/255 - 1`, so 127.5 is the zero and truncation biases every
+/// component of every normal one step negative.
+u32 PackVertexVector(const Vector3f& value) {
+    const auto channel = [](f32 v) -> u32 {
+        const f32 scaled = (std::clamp(v, -1.0f, 1.0f) + 1.0f) * (255.0f / 2.0f);
+        return static_cast<u32>(std::clamp(scaled + 0.5f, 0.0f, 255.0f));
+    };
+    // The fourth byte is zero in every shipped vertex.
+    return channel(value.x) | (channel(value.y) << 8) | (channel(value.z) << 16);
+}
+
+/// The inverse of `d3n::unpackTexCoord`: two u16 in 8.8 fixed point, biased 64.
+/// The range is [-64, 63.998]; a UV outside it wraps rather than clamping in the
+/// original, but a converter that wrapped would move a coordinate the source
+/// held exactly, so this clamps and the caller counts.
+u32 PackTexCoord(const Vector2f& value, bool& clamped) {
+    const auto channel = [&clamped](f32 v) -> u32 {
+        const f32 scaled = (v + 64.0f) * 512.0f;
+        if (scaled < 0.0f || scaled > 65535.0f) {
+            clamped = true;
+        }
+        return static_cast<u32>(std::clamp(scaled + 0.5f, 0.0f, 65535.0f));
+    };
+    return channel(value.x) | (channel(value.y) << 16);
+}
+
+u32 PackVertexColor(const std::array<u8, 4>& rgba) {
+    return static_cast<u32>(rgba[0]) | (static_cast<u32>(rgba[1]) << 8) |
+           (static_cast<u32>(rgba[2]) << 16) | (static_cast<u32>(rgba[3]) << 24);
+}
+
+/// A bone's five `PRSTransform`s, from whatever the tree actually carries.
+///
+/// A document imported from D3 carries all five and they leave untouched — they
+/// are five *different* poses (see the file comment) and deriving any of them
+/// from another loses the 8% of bones where A and B disagree. A document from
+/// anywhere else has no such schema, and then the honest answer is the one every
+/// other format states: A and B are both the composed bind, and the local is the
+/// local.
+std::array<Transform, 5> FivePoses(const NodeTree& tree, u32 node, bool& derived) {
+    const Node& source = tree.nodes[node];
+    if (tree.poseSchema.size() == 5 && source.poses.size() == 5) {
+        return {source.poses[0], source.poses[1], source.poses[2], source.poses[3],
+                source.poses[4]};
+    }
+    derived = true;
+    const Transform world = tree.worldBind(node);
+    const Transform inverse = Inverse(world);
+    return {world, inverse, source.local, world, inverse};
+}
+
+/// A `Material`'s D3 block, or null. Never the common projection: §7.1 says a
+/// consumer reads the native block when it is authoritative, and for D3 it
+/// always is — the import attaches it that way because the common material is a
+/// projection of a shader the game compiled.
+const native::D3Material* D3BlockOf(const Material& material) {
+    return std::get_if<native::D3Material>(&material.Native());
+}
+
+/// One `wem::Material` back to the per-look record a sub-object resolves.
+d3n::SubObjectAppearance ExportVariant(const Material& material) {
+    d3n::SubObjectAppearance out;
+    const native::D3Material* block = D3BlockOf(material);
+    if (block == nullptr) {
+        // Nothing to restore. The record is still written — a slot with no
+        // variant draws nothing at all — and the caller reports it once.
+        out.dwUnknown00 = 1;
+        return out;
+    }
+    out.dwUnknown00 = block->variantFlags;
+    CopyFromNative(block->cloth, out.snoCloth);
+    CopyFromNative(block->baseMaterial, out.snoMaterial);
+    CopyFromNative(block->uber, out.tMaterial);
+    out.arShaderParams.reserve(block->shaderParams.size());
+    for (const native::D3TagValue& value : block->shaderParams) {
+        d3n::TagMapEntry entry;
+        CopyFromNative(value, entry);
+        out.arShaderParams.push_back(entry);
+    }
+    return out;
+}
+
+/// The vertex attributes a D3 `FatVertex` holds, as the render view wants them.
+geom::RenderMeshDesc D3VertexDesc() {
+    geom::RenderMeshDesc desc;
+    desc.attributes = {
+        {geom::names::kPosition, utils::AttributeClass::Position, utils::AttributeEncoding::Float32,
+         3, 0},
+        {geom::names::kNormal, utils::AttributeClass::Normal, utils::AttributeEncoding::Float32, 3,
+         0},
+        {geom::names::uv(0), utils::AttributeClass::UV, utils::AttributeEncoding::Float32, 2, 0},
+        {geom::names::uv(1), utils::AttributeClass::UV, utils::AttributeEncoding::Float32, 2, 0},
+        {geom::names::kTangent, utils::AttributeClass::Tangent, utils::AttributeEncoding::Float32,
+         3, 0},
+        {geom::names::kBinormal, utils::AttributeClass::Binormal, utils::AttributeEncoding::Float32,
+         3, 0},
+        {geom::names::color(0), utils::AttributeClass::Color, utils::AttributeEncoding::UInt8, 4,
+         0},
+        {geom::names::color(1), utils::AttributeClass::Color, utils::AttributeEncoding::UInt8, 4,
+         0},
+    };
+    desc.includeSkin = true;
+    desc.maxInfluences = Profile(ProfileId::Diablo3).maxBoneInfluences;
+    desc.splitBySection = true;
+    return desc;
+}
+
+/// The state one `toAppearance` accumulates. A class because the geometry pass
+/// needs the bone map, the diagnostics and the counters, and threading five
+/// out-parameters through four functions is how they get out of step.
+class AppearanceWriter {
+public:
+    AppearanceWriter(const Document& document, const Model& model, const ProfileMaterialSet& set,
+                     Diagnostics& out)
+        : document_(document), model_(model), set_(set), out_(out) {}
+
+    D3AppearanceExport run(u32 look) {
+        D3AppearanceExport result;
+        result.look = look;
+        d3n::Appearances& appearance = result.appearance;
+
+        appearance.dwSnoId = static_cast<i32>(set_.native.value("appearanceSnoId", -1));
+        appearance.eObjectType = static_cast<i32>(set_.native.value("objectType", 0));
+        appearance.tBounds = FromExtent(model_.bounds.valid() ? model_.bounds : document_.bounds);
+
+        writeBones(appearance);
+        writeLooks(appearance);
+        writeGeometry(appearance, result);
+        // Both lists are all-default far more often than not, and an empty one
+        // is what a host reads as "nothing to apply".
+        if (overrides_ == 0) {
+            result.looks.clear();
+        }
+        if (dyed_ == 0) {
+            result.dyes.clear();
+        }
+
+        appearance.dwBoneCount = static_cast<i32>(appearance.arBones.size());
+        appearance.dwHardpointCount = static_cast<i32>(appearance.arHardpoints.size());
+        appearance.dwLookCount = static_cast<i32>(appearance.arLooks.size());
+        appearance.dwMaterialCount = static_cast<i32>(appearance.arMaterials.size());
+        appearance.dwStaticLightCount = static_cast<i32>(appearance.arStaticLights.size());
+        appearance.tGeoSet0.dwSubObjectCount =
+            static_cast<i32>(appearance.tGeoSet0.arSubObjects.size());
+        appearance.tGeoSet1.dwSubObjectCount =
+            static_cast<i32>(appearance.tGeoSet1.arSubObjects.size());
+
+        // §18 lets rigid bodies, joints and cloth ride along **as native
+        // blocks**, and D3's cloth is per sub-object — a `ClothStructure` of
+        // particles, staples and two constraint sets — which is the one scope
+        // WEM has no typed native block for. So the section keeps
+        // `ClothSimulated` and loses the simulation: the piece draws, skinned,
+        // where it would have hung.
+        if (clothSections_ != 0) {
+            out_.warn(DiagCode::OperationUnsupported,
+                      std::to_string(clothSections_) +
+                          " sections are cloth-simulated and the simulation is not carried; they "
+                          "draw skinned",
+                      ElementRef(), ProfileId::Diablo3);
+        }
+
+        // The ragdoll rig, which the import never took either. Counting it is
+        // the whole point of the counts it did keep: a model that had 26 bone
+        // collision shapes and comes back with none is a fact worth hearing.
+        const i64 capsules = set_.native.value("collisionCapsuleCount", 0);
+        const i64 constraints = set_.native.value("constraintCount", 0);
+        if (capsules != 0 || constraints != 0 || droppedBoneShapes_ != 0) {
+            out_.info(DiagCode::OperationUnsupported,
+                      "the ragdoll rig is not carried: " + std::to_string(droppedBoneShapes_) +
+                          " bone collision shapes, " + std::to_string(capsules) +
+                          " collision capsules and " + std::to_string(constraints) +
+                          " constraints were counted on import and never stored",
+                      ElementRef(), ProfileId::Diablo3);
+        }
+        return result;
+    }
+
+private:
+    // --- bones, hardpoints, lights -----------------------------------------
+
+    void writeBones(d3n::Appearances& appearance) {
+        const NodeTree& tree = model_.nodes;
+        boneOf_.assign(tree.size(), kInvalidIndex);
+        for (u32 n = 0; n < tree.size(); ++n) {
+            if (tree.nodes[n].kind == NodeKind::Bone) {
+                boneOf_[n] = static_cast<u32>(appearance.arBones.size());
+                appearance.arBones.emplace_back();
+            }
+        }
+
+        bool derivedAny = false;
+        u32 nonUniform = 0;
+        for (u32 n = 0; n < tree.size(); ++n) {
+            if (boneOf_[n] == kInvalidIndex) {
+                continue;
+            }
+            const Node& node = tree.nodes[n];
+            d3n::BoneStructure& bone = appearance.arBones[boneOf_[n]];
+            bone.szName = node.name;
+            bone.nParentIndex = static_cast<i32>(nearestBone(n));
+            const auto& payload = std::get<BonePayload>(node.payload);
+            bone.tBounds = FromExtent(payload.bounds);
+            bone.tSphere = FromSphere(payload.sphere);
+
+            const std::array<Transform, 5> poses = FivePoses(tree, n, derivedAny);
+            d3n::PRSTransform* slots[5] = {&bone.tTransform0, &bone.tTransform1, &bone.tTransform2,
+                                           &bone.tTransform3, &bone.tTransform4};
+            for (std::size_t p = 0; p < 5; ++p) {
+                *slots[p] = FromTransform(poses[p]);
+                if (!Uniform(poses[p].scale)) {
+                    ++nonUniform;
+                }
+            }
+            droppedBoneShapes_ += static_cast<u32>(node.native.value("collisionShapeCount", 0));
+        }
+
+        if (derivedAny) {
+            out_.warn(DiagCode::BindPoseRecomposed,
+                      "the tree carries no five-entry D3 pose schema; bind poses A and B were "
+                      "both composed from the local chain",
+                      ElementRef(), ProfileId::Diablo3);
+        }
+        if (nonUniform != 0) {
+            out_.warn(DiagCode::NonUniformScaleFlattened,
+                      std::to_string(nonUniform) +
+                          " bind poses carry a non-uniform scale; a D3 `PRSTransform` holds one "
+                          "float and the x component was written",
+                      ElementRef(), ProfileId::Diablo3);
+        }
+
+        // A hardpoint is an attachment node that carries nothing. The ones that
+        // do are the actor's spawn points (§9.5) — they were never in the `.app`
+        // and putting them back would invent hardpoints the skeleton never had.
+        for (u32 n = 0; n < tree.size(); ++n) {
+            const Node& node = tree.nodes[n];
+            if (node.kind != NodeKind::Attachment) {
+                continue;
+            }
+            const auto& payload = std::get<AttachmentPayload>(node.payload);
+            if (!payload.asset.empty() || payload.model != kInvalidIndex) {
+                continue;
+            }
+            d3n::Hardpoint point;
+            point.szName = node.name;
+            point.nBoneIndex = static_cast<i32>(nearestBone(n));
+            point.tTransform = FromTransformPR(node.local);
+            appearance.arHardpoints.push_back(std::move(point));
+        }
+
+        for (u32 n = 0; n < tree.size(); ++n) {
+            const Node& node = tree.nodes[n];
+            if (node.kind == NodeKind::ParticleEmitter) {
+                // `nearestBone` answers `kInvalidIndex` for a node under no
+                // bone, which the bounds check already rejects.
+                const u32 bone = nearestBone(n);
+                if (bone < appearance.arBones.size()) {
+                    const auto& payload = std::get<ParticlePayload>(node.payload);
+                    appearance.arBones[bone].snoParticle.id = static_cast<i32>(payload.system.id);
+                    appearance.arBones[bone].snoParticle.group =
+                        static_cast<d3n::Group>(payload.system.group);
+                }
+                continue;
+            }
+            if (node.kind != NodeKind::Light) {
+                continue;
+            }
+            const auto& payload = std::get<LightPayload>(node.payload);
+            d3n::StaticLight light;
+            light.nType = static_cast<i32>(node.native.value("d3LightType", 0));
+            light.dwFlags = static_cast<i32>(node.native.value("d3LightFlags", 0));
+            light.vPosition = node.local.translation;
+            light.flIntensity = payload.intensity;
+            light.flAttenuation0 = payload.attenuationStart;
+            light.flAttenuation1 = payload.attenuationEnd;
+            const auto byte = [](f32 v) {
+                return static_cast<u32>(std::clamp(v * 255.0f + 0.5f, 0.0f, 255.0f));
+            };
+            light.dwColor = byte(payload.color.x) | (byte(payload.color.y) << 8) |
+                            (byte(payload.color.z) << 16);
+            appearance.arStaticLights.push_back(light);
+        }
+    }
+
+    /// The bone index of @p node's nearest bone ancestor, or `kInvalidIndex` —
+    /// which is -1 as the `i32` a `nParentIndex` is.
+    ///
+    /// A walk, not a lookup: a document from another format can put a Helper
+    /// between two bones, and D3's parent field addresses bones only.
+    u32 nearestBone(u32 node) const {
+        for (u32 walk = model_.nodes.nodes[node].parent; walk != kInvalidNode;
+             walk = model_.nodes.nodes[walk].parent) {
+            if (boneOf_[walk] != kInvalidIndex) {
+                return boneOf_[walk];
+            }
+        }
+        return kInvalidIndex;
+    }
+
+    static bool Uniform(const Vector3f& scale) {
+        const f32 tolerance = 1e-5f;
+        return std::fabs(scale.x - scale.y) <= tolerance &&
+               std::fabs(scale.x - scale.z) <= tolerance;
+    }
+
+    // --- looks and materials -----------------------------------------------
+
+    void writeLooks(d3n::Appearances& appearance) {
+        for (const Look& entry : set_.looks.looks) {
+            d3n::AppearanceLook out;
+            out.szName = entry.name;
+            appearance.arLooks.push_back(std::move(out));
+        }
+        if (appearance.arLooks.empty()) {
+            appearance.arLooks.push_back(d3n::AppearanceLook{});
+        }
+
+        // One `AppearanceMaterial` per slot, one variant per look — the shape
+        // the join expects, and the reason `D3VariantFor` can index
+        // `arVariants[lookIndex]` at all.
+        u32 improvised = 0;
+        for (std::size_t slot = 0; slot < model_.materialSlots.size(); ++slot) {
+            d3n::AppearanceMaterial material;
+            material.szName = model_.materialSlots[slot];
+            bool bound = false;
+            for (std::size_t l = 0; l < appearance.arLooks.size(); ++l) {
+                const Material* resolved = Resolve(model_, static_cast<u32>(slot),
+                                                   ProfileId::Diablo3, static_cast<u32>(l));
+                if (resolved == nullptr) {
+                    material.arVariants.push_back(d3n::SubObjectAppearance{});
+                    continue;
+                }
+                bound = true;
+                if (D3BlockOf(*resolved) == nullptr) {
+                    ++improvised;
+                }
+                material.arVariants.push_back(ExportVariant(*resolved));
+            }
+            if (!bound) {
+                out_.warn(DiagCode::SlotNotBound,
+                          "slot '" + material.szName + "' has no Diablo III material",
+                          ElementRef(ElementKind::Slot, static_cast<u32>(slot)),
+                          ProfileId::Diablo3);
+            }
+            appearance.arMaterials.push_back(std::move(material));
+        }
+        if (improvised != 0) {
+            out_.warn(DiagCode::DroppedNativeBlock,
+                      std::to_string(improvised) +
+                          " materials carry no Diablo III block; they were written empty rather "
+                          "than derived, because a `UberMaterial` names textures by SNO id and "
+                          "the common view holds document indices",
+                      ElementRef(), ProfileId::Diablo3);
+        }
+    }
+
+    // --- geometry ----------------------------------------------------------
+
+    void writeGeometry(d3n::Appearances& appearance, D3AppearanceExport& result) {
+        const geom::RenderMeshDesc desc = D3VertexDesc();
+        bool clamped = false;
+
+        for (std::size_t m = 0; m < model_.meshes.size(); ++m) {
+            const Mesh& mesh = model_.meshes[m];
+            // Two geosets and no more: the second is the appearance's shadow /
+            // low-detail set, and a document carrying a third mesh has nowhere
+            // in an `.app` to put it.
+            d3n::GeoSet& target = mesh.lodLevel == 0 ? appearance.tGeoSet0 : appearance.tGeoSet1;
+            if (mesh.lodLevel > 1) {
+                out_.warn(DiagCode::LayerDropped,
+                          "mesh '" + mesh.name + "' is LOD " + std::to_string(mesh.lodLevel) +
+                              "; an appearance holds two geosets and it was written into the "
+                              "second",
+                          ElementRef(ElementKind::Mesh, static_cast<u32>(m)), ProfileId::Diablo3);
+            }
+
+            const geom::RenderMesh render = geom::BuildRenderMesh(mesh, desc);
+            out_.append(render.diagnostics);
+
+            // A section the §5.3 repair emptied writes no record, so say so:
+            // 156 sub-objects across the shipped corpus are two- or
+            // three-triangle non-manifold `invis_` collision placeholders that
+            // lose everything, and a record silently missing from the middle of
+            // a geoset is exactly what a counts-only gate never sees.
+            for (std::size_t sec = 0; sec < mesh.sections.size(); ++sec) {
+                if (mesh.facesOfSection(static_cast<u32>(sec)).empty()) {
+                    out_.warn(DiagCode::DegenerateFaceDropped,
+                              "section '" + mesh.sections[sec].name +
+                                  "' has no faces left and writes no sub-object",
+                              ElementRef(ElementKind::Section, static_cast<u32>(sec)),
+                              ProfileId::Diablo3);
+                }
+            }
+
+            const std::vector<Vector3f> positions = render.vertices.getPositions();
+            const std::vector<Vector3f> normals = render.vertices.getNormals();
+            const std::vector<Vector2f> uv0 = render.vertices.getUVs(0);
+            const std::vector<Vector2f> uv1 = render.vertices.getUVs(1);
+            const std::vector<Vector4f> tangents = render.vertices.getTangents();
+            const std::vector<Vector3f> binormals = render.vertices.getBinormals();
+            const std::vector<Vector4f> color0 = render.vertices.getColors(0);
+            const std::vector<Vector4f> color1 = render.vertices.getColors(1);
+            const std::vector<std::array<u32, 4>> boneIndices = render.vertices.getBoneIndices();
+            const std::vector<std::array<f32, 4>> boneWeights = render.vertices.getBoneWeights();
+
+            for (const geom::RenderRange& range : render.ranges) {
+                if (range.indexCount == 0) {
+                    // No faces, no sub-object. That keeps `result.hidden`
+                    // aligned with the geosets a renderer emits, which skips
+                    // exactly the sub-objects with no geometry.
+                    continue;
+                }
+                const MeshSection* section =
+                    range.section < mesh.sections.size() ? &mesh.sections[range.section] : nullptr;
+
+                d3n::SubObject sub;
+                sub.szName = section != nullptr ? section->name : std::string();
+                // The join key is `szName` and the descriptor is
+                // `szMaterialName`, and the two are different strings — see the
+                // import. A section that lost the second gets one built from the
+                // first, which parses to "no slot" and therefore always draws.
+                if (section != nullptr) {
+                    sub.szMaterialName = section->native.text("materialName");
+                    if (sub.szMaterialName.empty()) {
+                        sub.szMaterialName = sub.szName + "Shape_" + sub.szName + "_001";
+                    }
+                    sub.dwVertexFormat = static_cast<i32>(section->native.value("vertexFormat", 0));
+                    sub.tBounds = FromExtent(section->bounds);
+                    const i64 surface = section->native.value("surfaceSno", -1);
+                    if (surface >= 0) {
+                        sub.snoSurface.id = static_cast<i32>(surface);
+                        sub.snoSurface.group = d3n::Group::Surface;
+                    }
+                }
+
+                const Slices slices{positions, normals, uv0,    uv1,         tangents,
+                                    binormals, color0,  color1, boneIndices, boneWeights};
+                writeSubObject(render, range, slices, section, sub, clamped);
+
+                if (section != nullptr && hasFlag(section->flags, SectionFlags::ClothSimulated)) {
+                    ++clothSections_;
+                }
+                // **Geoset order, not mesh order.** A renderer walks `tGeoSet0`
+                // and then `tGeoSet1`, and a document from another format can
+                // interleave its LODs — mesh 0 at LOD 0, mesh 1 at LOD 1, mesh 2
+                // at LOD 0 again — so appending in mesh order would put a
+                // geoset-1 entry in the middle of geoset 0's run and shift every
+                // mask a host applies.
+                Emitted& emitted = &target == &appearance.tGeoSet0 ? first_ : second_;
+                emitted.hidden.push_back(
+                    section != nullptr && hasFlag(section->flags, SectionFlags::Hidden) ? 1u : 0u);
+                // The two per-piece overrides an `.app` also has no field for.
+                // They ride the section's bag because they are per (section),
+                // unlike the visibility bit, which is per (section, look).
+                const i64 look =
+                    section != nullptr ? section->native.value("lookOverride", -1) : -1;
+                const i64 dye = section != nullptr ? section->native.value("dye", 0) : 0;
+                emitted.looks.push_back(look >= 0 ? static_cast<u32>(look) : kInvalidIndex);
+                emitted.dyes.push_back(static_cast<i32>(dye));
+                if (look >= 0) {
+                    ++overrides_;
+                }
+                if (dye != 0) {
+                    ++dyed_;
+                }
+                emitted.sections.emplace_back(static_cast<u32>(m), range.section);
+                target.arSubObjects.push_back(std::move(sub));
+            }
+        }
+
+        // `tGeoSet0`'s run, then `tGeoSet1`'s — the order a renderer emits.
+        for (const Emitted* emitted : {&first_, &second_}) {
+            result.hidden.insert(result.hidden.end(), emitted->hidden.begin(),
+                                 emitted->hidden.end());
+            result.looks.insert(result.looks.end(), emitted->looks.begin(), emitted->looks.end());
+            result.dyes.insert(result.dyes.end(), emitted->dyes.begin(), emitted->dyes.end());
+            result.sourceSections.insert(result.sourceSections.end(), emitted->sections.begin(),
+                                         emitted->sections.end());
+        }
+
+        if (clamped) {
+            out_.warn(DiagCode::AttributeCountMismatch,
+                      "a UV fell outside the [-64, 64) range a D3 texture coordinate encodes and "
+                      "was clamped",
+                      ElementRef(), ProfileId::Diablo3);
+        }
+    }
+
+    /// One mesh's decoded vertex arrays. A struct because a `FatVertex` has
+    /// eight of them, and passing eight parallel vectors down a call is how one
+    /// ends up indexed against another's bound.
+    struct Slices {
+        const std::vector<Vector3f>& positions;
+        const std::vector<Vector3f>& normals;
+        const std::vector<Vector2f>& uv0;
+        const std::vector<Vector2f>& uv1;
+        const std::vector<Vector4f>& tangents;
+        const std::vector<Vector3f>& binormals;
+        const std::vector<Vector4f>& color0;
+        const std::vector<Vector4f>& color1;
+        const std::vector<std::array<u32, 4>>& boneIndices;
+        const std::vector<std::array<f32, 4>>& boneWeights;
+    };
+
+    void writeSubObject(const geom::RenderMesh& render, const geom::RenderRange& range,
+                        const Slices& slices, const MeshSection* section, d3n::SubObject& sub,
+                        bool& clamped) {
+        const std::vector<Vector3f>& positions = slices.positions;
+        const std::vector<std::array<u32, 4>>& boneIndices = slices.boneIndices;
+        const std::vector<std::array<f32, 4>>& boneWeights = slices.boneWeights;
+        // **A sub-object owns its vertices.** Its face corners are `u16` into
+        // its own array, so the range gets a disjoint slice in first-use order
+        // — the same rule `toM3` follows for a region, and for the same reason.
+        std::vector<u32> localOf(positions.size(), kInvalidIndex);
+        std::vector<u32> sourceOf;
+        sub.arIndices.reserve(range.indexCount);
+        for (u32 i = 0; i < range.indexCount; ++i) {
+            const u32 index = render.indices[range.firstIndex + i];
+            if (index >= localOf.size()) {
+                sub.arIndices.push_back(0);
+                continue;
+            }
+            if (localOf[index] == kInvalidIndex) {
+                localOf[index] = static_cast<u32>(sourceOf.size());
+                sourceOf.push_back(index);
+            }
+            sub.arIndices.push_back(static_cast<u16>(localOf[index]));
+        }
+        if (sourceOf.size() > 0x10000u) {
+            out_.warn(DiagCode::IndexWidthExceeded,
+                      "sub-object '" + sub.szName + "' needs " + std::to_string(sourceOf.size()) +
+                          " vertices, past the u16 a D3 face corner is",
+                      ElementRef(), ProfileId::Diablo3);
+        }
+
+        // §5.6: a rigid section names one node and every vertex binds there, so
+        // it ships `nBoneIndex` and no influence array at all — 91% of the
+        // shipped corpus. Anything else writes three influences per vertex.
+        const bool rigid = section != nullptr && section->rigidNode.has_value();
+        // Every sub-object names a bone, rigid or not — what `rigidNode` adds is
+        // that the name is the whole binding. The skinned ones' node came in on
+        // the section's native bag, and dropping it moves a skinned sub-object's
+        // fallback frame to the root.
+        const u32 node =
+            rigid ? *section->rigidNode
+                  : (section != nullptr ? static_cast<u32>(section->native.value("boneNode", -1))
+                                        : kInvalidIndex);
+        sub.nBoneIndex = node < boneOf_.size() && boneOf_[node] != kInvalidIndex
+                             ? static_cast<i32>(boneOf_[node])
+                             : -1;
+
+        // `UInt8` is an integer encoding, so a colour comes back 0..255 and the
+        // components already are the bytes the blob wants. A mesh with no colour
+        // layer gets opaque white, which is the identity for both channels.
+        const auto colorAt = [](const std::vector<Vector4f>& layer, u32 index) -> u32 {
+            if (index >= layer.size()) {
+                return 0xFFFFFFFFu;
+            }
+            std::array<u8, 4> bytes{};
+            for (std::size_t c = 0; c < 4; ++c) {
+                bytes[c] = static_cast<u8>(std::clamp(layer[index].data[c], 0.0f, 255.0f) + 0.5f);
+            }
+            return PackVertexColor(bytes);
+        };
+
+        sub.arVertices.reserve(sourceOf.size());
+        for (const u32 source : sourceOf) {
+            d3n::FatVertex vertex;
+            vertex.vPosition = positions[source];
+            vertex.dwNormal = PackVertexVector(
+                source < slices.normals.size() ? slices.normals[source] : Vector3f{0, 0, 1});
+            vertex.dwTexCoord0 = PackTexCoord(
+                source < slices.uv0.size() ? slices.uv0[source] : Vector2f{0, 0}, clamped);
+            vertex.dwTexCoord1 = PackTexCoord(
+                source < slices.uv1.size() ? slices.uv1[source] : Vector2f{0, 0}, clamped);
+            vertex.dwTangent = source < slices.tangents.size()
+                                   ? PackVertexVector(Vector3f{slices.tangents[source].x,
+                                                               slices.tangents[source].y,
+                                                               slices.tangents[source].z})
+                                   : PackVertexVector(Vector3f{1, 0, 0});
+            vertex.dwBinormal = PackVertexVector(
+                source < slices.binormals.size() ? slices.binormals[source] : Vector3f{0, 1, 0});
+            vertex.dwColor = colorAt(slices.color0, source);
+            vertex.dwAuxColor = colorAt(slices.color1, source);
+            sub.arVertices.push_back(vertex);
+        }
+
+        if (!rigid) {
+            sub.arVertexInfluences.reserve(sourceOf.size());
+            for (const u32 source : sourceOf) {
+                d3n::VertInfluences influences;
+                d3n::Influence* three[3] = {&influences.tInfluence0, &influences.tInfluence1,
+                                            &influences.tInfluence2};
+                for (std::size_t k = 0; k < 3; ++k) {
+                    three[k]->nBoneIndex = 0;
+                    three[k]->flWeight = 0.0f;
+                    if (source >= boneIndices.size() || source >= boneWeights.size() ||
+                        boneWeights[source][k] <= 0.0f) {
+                        continue;
+                    }
+                    const u32 node = boneIndices[source][k];
+                    const u32 bone = node < boneOf_.size() ? boneOf_[node] : kInvalidIndex;
+                    if (bone == kInvalidIndex) {
+                        continue;
+                    }
+                    three[k]->nBoneIndex = static_cast<i32>(bone);
+                    three[k]->flWeight = boneWeights[source][k];
+                }
+                sub.arVertexInfluences.push_back(influences);
+            }
+        }
+
+        sub.dwVertexCount = static_cast<i32>(sub.arVertices.size());
+        sub.dwIndexCount = static_cast<i32>(sub.arIndices.size());
+    }
+
+    const Document& document_;
+    const Model& model_;
+    const ProfileMaterialSet& set_;
+    Diagnostics& out_;
+    /// One geoset's worth of the per-sub-object lists, accumulated while the
+    /// meshes are walked and concatenated in geoset order at the end.
+    struct Emitted {
+        std::vector<u8> hidden;
+        std::vector<u32> looks;
+        std::vector<i32> dyes;
+        std::vector<std::pair<u32, u32>> sections;
+    };
+    Emitted first_;
+    Emitted second_;
+
+    std::vector<u32> boneOf_;
+    u32 droppedBoneShapes_ = 0;
+    u32 clothSections_ = 0;
+    u32 overrides_ = 0;
+    u32 dyed_ = 0;
+};
+
+} // namespace
+
+Result<D3AppearanceExport> D3Converter::toAppearance(const Document& document,
+                                                     const D3ExportOptions& options) const {
+    Result<D3AppearanceExport> result;
+    if (options.model >= document.models.size()) {
+        result.diagnostics.error(DiagCode::ClipTargetMissing,
+                                 "model " + std::to_string(options.model) + " of " +
+                                     std::to_string(document.models.size()));
+        return result;
+    }
+    const Model& model = document.models[options.model];
+    const ProfileMaterialSet* set = model.setFor(ProfileId::Diablo3);
+    if (set == nullptr) {
+        result.diagnostics.error(DiagCode::ProfileNotCarried,
+                                 "the model carries no Diablo III material set; derive one first",
+                                 ElementRef(), ProfileId::Diablo3);
+        return result;
+    }
+
+    u32 look = set->defaultLook;
+    if (!options.look.empty()) {
+        const u32 named = set->looks.find(options.look);
+        if (named == kInvalidIndex) {
+            result.diagnostics.warn(DiagCode::LookDropped,
+                                    "look '" + options.look + "' is not in this set", ElementRef(),
+                                    ProfileId::Diablo3);
+        } else {
+            look = named;
+        }
+    }
+
+    result.value = AppearanceWriter(document, model, *set, result.diagnostics).run(look);
+    return result;
+}
+
+// ============================================================================
+// toAnimSet
+// ============================================================================
+
+Result<D3Converter::D3AnimExport> D3Converter::toAnimSet(const Document& document,
+                                                         u32 model) const {
+    Result<D3AnimExport> result;
+    if (model >= document.models.size()) {
+        result.diagnostics.error(DiagCode::ClipTargetMissing,
+                                 "model " + std::to_string(model) + " of " +
+                                     std::to_string(document.models.size()));
+        return result;
+    }
+
+    D3AnimExport out;
+    out.anims = d3_anim::ExportAnims(document, model, result.diagnostics);
+
+    // The `.ani` a clip index belongs to, so a tag row can name it. Built from
+    // the same walk `ExportAnims` made, and by the same rule, because the two
+    // disagreeing would point a tag at an animation that is not there.
+    std::vector<i32> animOfClip(document.clips.size(), -1);
+    {
+        i32 synthetic = d3_anim::kSyntheticAnimBase;
+        for (std::size_t c = 0; c < document.clips.size(); ++c) {
+            const Clip& clip = document.clips[c];
+            if (clip.model != model &&
+                !(clip.model == kInvalidIndex && document.models.size() == 1)) {
+                continue;
+            }
+            const i32 id = static_cast<i32>(clip.native.value("animSnoId", -1));
+            animOfClip[c] = id >= 0 ? id : synthetic++;
+        }
+    }
+
+    const Model& source = document.models[model];
+    const u32 core = source.animSet;
+    if (core == kInvalidIndex || core >= document.animSets.size()) {
+        result.value = std::move(out);
+        return result;
+    }
+    out.animSet.dwSnoId =
+        static_cast<i32>(source.setFor(ProfileId::Diablo3) != nullptr
+                             ? source.setFor(ProfileId::Diablo3)->native.value("animSetSnoId", -1)
+                             : -1);
+
+    // Back into the 30 tag maps the import spread them over. The join is the
+    // set's `name`, which is the map's own — an `.ans` numbers its maps and this
+    // library names them, and a name is what survives an edit that reorders
+    // `Document::animSets`.
+    u32 unnamed = 0;
+    for (std::size_t s = 0; s < document.animSets.size(); ++s) {
+        const AnimSet& set = document.animSets[s];
+        if (s != core && set.baseAnimSet != core) {
+            continue; // Another model's set.
+        }
+        std::vector<d3n::AnimSetTagMapEntry>* target = nullptr;
+        for (const TagMap& map : kTagMaps) {
+            if (set.name == map.name) {
+                target = &(out.animSet.*(map.field));
+                break;
+            }
+        }
+        if (target == nullptr) {
+            ++unnamed;
+            continue;
+        }
+        for (const AnimTag& tag : set.byTag) {
+            if (tag.clip >= animOfClip.size() || animOfClip[tag.clip] < 0) {
+                continue;
+            }
+            d3n::AnimSetTagMapEntry row;
+            row.dwTagId = static_cast<i32>(tag.tagId);
+            row.snoAnim.id = animOfClip[tag.clip];
+            row.snoAnim.group = d3n::Group::Anim;
+            target->push_back(row);
+        }
+    }
+    if (unnamed != 0) {
+        result.diagnostics.warn(DiagCode::AnimTrackDropped,
+                                std::to_string(unnamed) +
+                                    " anim sets name no `.ans` tag map and were not written",
+                                ElementRef(), ProfileId::Diablo3);
+    }
+
+    result.value = std::move(out);
     return result;
 }
 

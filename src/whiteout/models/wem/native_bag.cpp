@@ -16,19 +16,33 @@ const NativeBag::Entry* NativeBag::find(const std::string& name) const {
     return nullptr;
 }
 
-void NativeBag::set(const std::string& name, i64 value) {
+NativeBag::Entry& NativeBag::slot(const std::string& name) {
     for (Entry& entry : entries) {
         if (entry.name == name) {
-            entry.value = value;
-            return;
+            return entry;
         }
     }
-    entries.push_back(Entry{name, value});
+    entries.push_back(Entry{name, 0, {}});
+    return entries.back();
+}
+
+void NativeBag::set(const std::string& name, i64 value) {
+    slot(name).value = value;
+}
+
+void NativeBag::setText(const std::string& name, std::string text) {
+    slot(name).text = std::move(text);
 }
 
 i64 NativeBag::value(const std::string& name, i64 fallback) const {
     const Entry* entry = find(name);
     return entry == nullptr ? fallback : entry->value;
+}
+
+const std::string& NativeBag::text(const std::string& name) const {
+    static const std::string kEmpty;
+    const Entry* entry = find(name);
+    return entry == nullptr ? kEmpty : entry->text;
 }
 
 } // namespace wem

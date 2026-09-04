@@ -52,6 +52,27 @@ namespace d3_anim {
 std::vector<u32> ImportAnim(const sno::d3::native::Anim& source, Document& document, u32 model,
                             Diagnostics& out);
 
+/// The first id `ExportAnims` hands to a clip that names no source `.ani`.
+///
+/// Above every shipped SNO id (the 2.8 install tops out near 800,000), so a
+/// synthetic id can never be mistaken for one a storage would resolve.
+inline constexpr i32 kSyntheticAnimBase = 0x40000000;
+
+/// The rate a clip that never came from an `.ani` is quantised at on the way
+/// out. D3 keys are integer frames, so a rate has to be chosen; 30 is what the
+/// shipped permutations overwhelmingly use.
+inline constexpr f32 kDefaultFps = 30.0f;
+
+/// The clips of `document.models[model]`, back as the `.ani` files they came
+/// from — one `Anim` per distinct `Clip::native["animSnoId"]`, in first-use
+/// order, each carrying its clips as permutations.
+///
+/// The mirror of @ref ImportAnim, and the reason a Diablo III `.wem` animates:
+/// `D3ModelAdapter` plays through `Anim` records and nothing else, so a document
+/// whose clips stayed WEM-shaped would open as a statue.
+std::vector<sno::d3::native::Anim> ExportAnims(const Document& document, u32 model,
+                                               Diagnostics& out);
+
 } // namespace d3_anim
 } // namespace wem
 } // namespace models

@@ -5,6 +5,8 @@
 
 #include "../native/mdx_copy.h"
 
+#include <algorithm>
+#include <optional>
 #include <string>
 
 namespace whiteout {
@@ -130,19 +132,6 @@ bool collapsibleOp(Layer::FilterMode mode, CombinerOp& op) {
         return true;
     default:
         return false;
-    }
-}
-
-Layer::FilterMode filterModeFor(CombinerOp op) {
-    switch (op) {
-    case CombinerOp::Mod:
-        return Layer::FilterMode::Modulate;
-    case CombinerOp::Mod2x:
-        return Layer::FilterMode::Modulate2x;
-    case CombinerOp::Add:
-        return Layer::FilterMode::Additive;
-    default:
-        return Layer::FilterMode::None;
     }
 }
 
@@ -549,15 +538,83 @@ void exportFromNative(const native::MdxMaterial& block, mdx::Material& dst) {
     CopyFromNative(block, dst);
 }
 
+/// Adds @p layer to @p dst under the compositing intent @p mode.
+///
+/// An `.mdx` layer is a **pass over the whole geoset**, not a step in a register
+/// chain, so `FilterMode::None` is neither an identity nor a chain-replace: it
+/// is an opaque draw, and everything written under it stops being visible. That
+/// makes it the right reading of a replace -- a stage that replaces its register
+/// really does kill the stages before it -- but only if the stack is restarted.
+/// Left in place it is a stack whose LAST opaque layer is the entire material.
+///
+/// The layer that starts a stack takes @p blend instead, because the base layer
+/// is how the whole draw meets the scene and is the one thing it must carry.
+void pushLayer(Layer layer, Layer::FilterMode mode, BlendMode blend, mdx::Material& dst) {
+    if (mode == Layer::FilterMode::None) {
+        dst.layers.clear();
+    }
+    layer.filterMode = dst.layers.empty() ? filterModeFor(blend) : mode;
+    dst.layers.push_back(std::move(layer));
+}
+
+/// Whether an MDX layer stack has anywhere to put a layer aimed at @p channel.
+///
+/// An `.mdx` layer is a textured draw of the whole geoset and nothing else:
+/// there is no slot, so the only question a layer answers is what colour comes
+/// out. `Color` builds it, and `Emissive` and `Environment` are the two channels
+/// Warcraft III spells as further *additive* passes over it — which is the op
+/// they are written with, since a layer's own op is its fold within its channel
+/// and says nothing about how that channel meets the others.
+///
+/// The other three have no SD expression at all, and writing them anyway did
+/// not lose them quietly: a `Normal` layer inherits the material's blend, so a
+/// StarCraft II material opened as Warcraft III repainted the whole model with
+/// its normal map. A two-channel normal map reads as flat orange.
+bool drawsColour(SurfaceChannel channel) {
+    return channel == SurfaceChannel::Color || channel == SurfaceChannel::Emissive ||
+           channel == SurfaceChannel::Environment;
+}
+
+/// How strongly a channel that MDX draws as a further pass contributes.
+///
+/// An `.mdx` layer has no strength of its own — it is a whole draw — so a
+/// channel WEM scales by a factor has to carry it here or not be written at all.
+/// Diablo III leaves `environmentFactor` at zero on every material and lets the
+/// gloss map carry the reflection instead, so adding his environment map as a
+/// full-weight pass turned the Skeleton King's gold armour teal and washed
+/// Malthael's robe out. StarCraft II fills both factors, and keeps its layers.
+f32 channelFactor(const CompositeBody& body, SurfaceChannel channel) {
+    switch (channel) {
+    case SurfaceChannel::Emissive:
+        return std::max({body.emissiveFactor.x, body.emissiveFactor.y, body.emissiveFactor.z});
+    case SurfaceChannel::Environment:
+        return body.environmentFactor;
+    default:
+        return 1.0f;
+    }
+}
+
 void exportComposite(const CompositeBody& body, const CommonMaterial& common,
-                     const Context& context, mdx::Material& dst) {
+                     const Context& context, mdx::Material& dst, Diagnostics& out) {
     for (std::size_t i = 0; i < body.layers.size(); ++i) {
         const CompositeLayer& entry = body.layers[i];
+        if (!drawsColour(entry.target)) {
+            out.warn(DiagCode::LayerDropped,
+                     std::string("MDX has no slot for a '") + ToString(entry.target) + "' layer");
+            continue;
+        }
+        const f32 factor = channelFactor(body, entry.target);
+        if (factor <= 0.0f) {
+            out.info(DiagCode::LayerDropped,
+                     std::string("the '") + ToString(entry.target) +
+                         "' factor is zero, so the layer contributes nothing",
+                     layerRef(static_cast<u32>(i)));
+            continue;
+        }
         Layer layer;
-        layer.filterMode = i == 0 ? filterModeFor(common.blend) : filterModeFor(entry.op);
         layer.textureId = context.toMdx(entry.input.texture);
         layer.coordId = entry.input.uvSet;
-        layer.alpha = entry.input.weight;
+        layer.alpha = entry.input.weight * std::min(factor, 1.0f);
         if (entry.input.mapping == UVMappingMode::EnvSphere) {
             layer.shadingFlags |= Layer::ShadingFlag::SphereEnvMap;
         }
@@ -567,21 +624,82 @@ void exportComposite(const CompositeBody& body, const CommonMaterial& common,
         if (entry.input.wrapV == WrapMode::Repeat) {
             layer.shadingFlags |= Layer::ShadingFlag::WrapHeight;
         }
-        dst.layers.push_back(std::move(layer));
+        // A layer's op is its fold WITHIN its own channel; against the *other*
+        // channels an emissive or an environment layer is the additive pass
+        // `drawsColour` says it is. Reading the op here was fine while the only
+        // source was a `.m3` -- whose stacks carry a real `Add` -- and wrong the
+        // moment a slot map arrived, because a converted one holds exactly one
+        // layer per channel and so carries `Set` on every one of them. Diablo
+        // III's environment map was drawn opaque over his own diffuse.
+        pushLayer(std::move(layer),
+                  entry.target == SurfaceChannel::Color ? filterModeFor(entry.op)
+                                                        : Layer::FilterMode::Additive,
+                  common.blend, dst);
     }
 }
 
-void exportCombiners(const CombinersBody& body, const Context& context, mdx::Material& dst) {
-    // The §7.2.2 inverse: stage 0 becomes an opaque first layer, stage i becomes
-    // layer i with the matching filter mode.
+/// One chain stage as a PASS, or nothing where the stage does not draw.
+///
+/// `Pass` is the identity — the stage leaves the colour alone — and there is no
+/// filter mode that draws nothing, so the caller decides what to do with it
+/// (drop it, or seed the stack with it; see `exportCombiners`). Diablo III is
+/// the only source that spells an identity, a stage that masks alpha and nothing
+/// else; Warcraft III's vocabulary has none, which is why the old mapping folded
+/// it onto `None` and drew every alpha mask as an opaque pass of the mask.
+std::optional<Layer::FilterMode> passModeFor(CombinerOp op) {
+    switch (op) {
+    case CombinerOp::Opaque:
+        return Layer::FilterMode::None; // replaces the register; restarts the stack
+    case CombinerOp::Mod:
+        return Layer::FilterMode::Modulate;
+    case CombinerOp::Mod2x:
+        return Layer::FilterMode::Modulate2x;
+    case CombinerOp::Add:
+        return Layer::FilterMode::Additive;
+    case CombinerOp::Decal:
+    case CombinerOp::Fade:
+        return Layer::FilterMode::Blend;
+    case CombinerOp::Pass:
+    case CombinerOp::Count:
+        break;
+    }
+    return std::nullopt;
+}
+
+void exportCombiners(const CombinersBody& body, const CommonMaterial& common,
+                     const Context& context, mdx::Material& dst, Diagnostics& out) {
+    // The §7.2.2 inverse: a stage becomes a layer with the matching filter mode,
+    // and the layer that starts the stack takes the material's blend rather than
+    // an unconditional `None` — a chain seeded by an opaque stage still meets the
+    // scene however its header says, and Diablo III's additive wings met it as
+    // solid plates while that was hard-coded.
     for (std::size_t i = 0; i < body.stages.size(); ++i) {
         const CombinerStage& stage = body.stages[i];
+        std::optional<Layer::FilterMode> mode = passModeFor(stage.rgb);
+        if (!mode.has_value()) {
+            // `Pass` on a stage the chain has already seeded contributes nothing
+            // to the colour, and there is no filter mode that draws nothing.
+            //
+            // On the FIRST stage it is not nothing: the register has no value
+            // yet, so what the chain draws is that stage's own sample. Diablo
+            // III writes a wing exactly so — the base map's colour code is zero
+            // and its alpha carries the shape — and dropping it left the wing
+            // as its two masks, which is a bright sheet rather than a wing.
+            if (!dst.layers.empty()) {
+                out.warn(DiagCode::LayerDropped,
+                         "combiner stage " + number(i) +
+                             " passes the colour through, and an MDX layer is a draw: there is "
+                             "no pass that contributes nothing",
+                         layerRef(static_cast<u32>(i)));
+                continue;
+            }
+            mode = Layer::FilterMode::None;
+        }
         Layer layer;
-        layer.filterMode = i == 0 ? Layer::FilterMode::None : filterModeFor(stage.rgb);
         layer.textureId = context.toMdx(stage.input.texture);
         layer.coordId = stage.input.uvSet;
         layer.alpha = stage.input.weight;
-        dst.layers.push_back(std::move(layer));
+        pushLayer(std::move(layer), *mode, common.blend, dst);
     }
 }
 
@@ -659,10 +777,10 @@ mdx::Material ExportMaterial(const Material& material, ProfileId profile, const 
 
     switch (common.kind()) {
     case MaterialKind::Composite:
-        exportComposite(*common.composite(), common, context, dst);
+        exportComposite(*common.composite(), common, context, dst, out);
         break;
     case MaterialKind::Combiners:
-        exportCombiners(*common.combiners(), context, dst);
+        exportCombiners(*common.combiners(), common, context, dst, out);
         break;
     case MaterialKind::PBRDeferred:
         exportPbr(*common.pbr(), context, context.modelVersion, dst, out);
@@ -672,6 +790,32 @@ mdx::Material ExportMaterial(const Material& material, ProfileId profile, const 
                  std::string("MDX cannot express a ") + ToString(common.kind()) + " material",
                  ElementRef(), profile);
         break;
+    }
+
+    // A material the kind mapping left with no layers at all. That is not "draws
+    // nothing" in MDX — a geoset whose material has an empty stack draws
+    // untextured white, and Diablo's `FX_EMIT` proxies (emitter markers, which
+    // carry no texture) came through his chest as white shards. One transparent
+    // layer says what the source meant.
+    if (dst.layers.empty()) {
+        out.info(DiagCode::LayerDropped,
+                 "no layer of this material has an MDX expression; writing a transparent one so "
+                 "the geoset does not draw untextured");
+        Layer blank;
+        blank.filterMode = Layer::FilterMode::Blend;
+        blank.alpha = 0.0f;
+        dst.layers.push_back(std::move(blank));
+    }
+
+    // A surface that does not draw. MDX has no such flag, and the idiom
+    // Warcraft III uses for it is the one available here: an alpha-blended pass
+    // at zero opacity covers nothing. The layers stay so the textures a tool
+    // reads off the file are still the ones the surface would have worn.
+    if (hasFlag(common.flags, MaterialFlags::Invisible)) {
+        for (Layer& layer : dst.layers) {
+            layer.filterMode = Layer::FilterMode::Blend;
+            layer.alpha = 0.0f;
+        }
     }
 
     // The per-layer shading flags the header carries back. MDX puts them on

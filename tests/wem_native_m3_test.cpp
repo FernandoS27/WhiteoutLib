@@ -147,7 +147,36 @@ TEST_CASE("wem the second emissive layer takes the second emissive blend mode",
     const std::vector<u32> emissive = body->layersOf(SurfaceChannel::Emissive);
     REQUIRE(emissive.size() == 2);
     CHECK(body->layers[emissive[0]].op == CompositeOp::Modulate);
-    CHECK(body->layers[emissive[1]].op == CompositeOp::Add);
+    // `AddAlpha`, not `Add`: M3's `Add` is `base + layer.rgb * layer.a`
+    // (`CombineLayerColor`), and `AddNoAlpha` is the one that ignores alpha.
+    CHECK(body->layers[emissive[1]].op == CompositeOp::AddAlpha);
+}
+
+TEST_CASE("wem m3 tells its two adds apart", "[wem][materials][m3]") {
+    // The distinction the shader draws and the import used to fold away. It only
+    // shows once the material leaves StarCraft II: Warcraft III's `Additive` does
+    // not consult alpha and its `AddAlpha` does, so collapsing both onto `Add`
+    // drew a white decal texel at full strength.
+    const auto opOfEmissive = [](m3::LayerBlendOp blend) {
+        m3::Model model;
+        m3::StandardMaterial standard;
+        standard.diffuseLayer = makeLayer("diffuse.dds");
+        standard.emissiveLayer1 = makeLayer("emis.dds");
+        standard.emissiveBlendMode1 = blend;
+        model.standardMaterials.push_back(standard);
+
+        Diagnostics diagnostics;
+        const Material imported =
+            m3_core::ImportMaterial(model, mapEntry(m3::MaterialType::Standard, 0), ProfileId::Sc2,
+                                    makeContext(), diagnostics);
+        const CompositeBody* body = imported.Common().composite();
+        REQUIRE(body != nullptr);
+        const std::vector<u32> emissive = body->layersOf(SurfaceChannel::Emissive);
+        REQUIRE(emissive.size() == 1);
+        return body->layers[emissive[0]].op;
+    };
+    CHECK(opOfEmissive(m3::LayerBlendOp::Add) == CompositeOp::AddAlpha);
+    CHECK(opOfEmissive(m3::LayerBlendOp::AddNoAlpha) == CompositeOp::Add);
 }
 
 TEST_CASE("wem a non-standard m3 kind reports that its projection is a likeness",
