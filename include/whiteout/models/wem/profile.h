@@ -259,6 +259,17 @@ struct ProfileDesc {
     // --- materials ---
     std::span<const BlendMode> blendModes;
     MaterialKindMask commonKinds = 0; ///< Which §7.2 kinds the exporter accepts.
+    /// Kinds the CONTAINER can carry that the shading does not contract to.
+    ///
+    /// `commonKinds` is what this profile's renderer takes; a file format can be
+    /// wider. An `.mdx` holds the classic SD layer stack beside the Reforged HD
+    /// slot map, and a material chooses between them by name, so Reforged reads
+    /// `PBRDeferred` and *writes* either. `DeriveProfile` reaches for this only
+    /// when the preferred conversion would throw part of the material away —
+    /// four Diablo III combiner stages folded into one base-colour slot are
+    /// three quarters of a wing lost, and four MDX layers are exactly the four
+    /// stages.
+    MaterialKindMask containerKinds = 0;
     NativeKind nativeMaterialKind = NativeKind::None;
     bool supportsLooks = false;
     bool supportsActors = false;

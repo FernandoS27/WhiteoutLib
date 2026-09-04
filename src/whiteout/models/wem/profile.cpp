@@ -76,8 +76,8 @@ ProfileDesc makeDesc(ProfileId id, const char* name, const char* displayName, co
                      CoordSpace space, f32 sceneScale, u32 maxInfluences, u32 maxUvSets,
                      u32 maxPalette, IndexWidth width, bool ngons, bool vertexColor,
                      std::span<const BlendMode> blends, MaterialKindMask kinds, NativeKind native,
-                     bool looks, bool actors,
-                     RigConvention rig = RigConvention::PivotRelative) {
+                     bool looks, bool actors, RigConvention rig = RigConvention::PivotRelative,
+                     MaterialKindMask containerKinds = 0) {
     ProfileDesc d;
     d.id = id;
     d.name = name;
@@ -96,6 +96,7 @@ ProfileDesc makeDesc(ProfileId id, const char* name, const char* displayName, co
     d.allowsVertexColor = vertexColor;
     d.blendModes = blends;
     d.commonKinds = kinds;
+    d.containerKinds = containerKinds;
     d.nativeMaterialKind = native;
     d.supportsLooks = looks;
     d.supportsActors = actors;
@@ -125,9 +126,16 @@ const std::array<ProfileDesc, static_cast<std::size_t>(ProfileId::Count)>& descs
 
         // Warcraft III, HD. Same container, PBR shading: `SlotType` renames onto
         // `PbrSlot` and layer fresnel becomes a feature.
+        // The HD half of an `.mdx`. `containerKinds` is the SD half of the same
+        // file: a material says which it is by name, so a chain the slot map
+        // cannot fold is written as a layer stack instead. `Combiners` only --
+        // a `Composite` is an ordered stack over NAMED channels and an MDX SD
+        // stack has none, so writing one there drops the normal, the specular
+        // and the ambient occlusion to keep an ordering nothing reads.
         makeDesc(ProfileId::Wc3Reforged, "wc3_reforged", "Warcraft III (Reforged)", "mdx",
                  CoordSpace::Blizzard, 1.0f, 4, 2, 0, IndexWidth::U16, false, false,
-                 modes(kMdxBlendModes), kPbr, NativeKind::Mdx, false, false),
+                 modes(kMdxBlendModes), kPbr, NativeKind::Mdx, false, false,
+                 RigConvention::PivotRelative, kCombiners),
 
         // World of Warcraft. Stage order and combine ops *are* the material, so
         // Combiners is the only kind; looks carry texture variations (§8).

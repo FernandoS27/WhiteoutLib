@@ -220,13 +220,24 @@ bool HasUvAnimation(const native::D3TextureEntry& entry) {
 /// @p id must be unique within the material and is never reused: §10.8's
 /// sub-tracks join a track to a feature on it, so two features sharing one
 /// silently retarget an animation.
+/// The engine's nominal tick, and the unit every authored Diablo III UV rate is
+/// in. `ActorModel_ResolveSubObjectMaterials` steps with a literal 0.016667, and
+/// over 13,857 non-zero rates 99.8% are exact to three decimals once multiplied
+/// by 60 against 8.6% as authored -- so the stored value is per TICK and
+/// `UvAnimationFeature::scrollRate` is per SECOND. Imperius's wings are the
+/// case: -0.0116667 and (-0.00666667, -0.00166667) per tick are -0.7 and
+/// (-0.4, -0.1) per second, which is a flame that moves rather than one that
+/// takes a minute and a half to cross its own texture.
+constexpr f32 kTicksPerSecond = 60.0f;
+
 MaterialFeature UvAnimationOf(const native::D3TextureEntry& entry, u32 layer, u32 id) {
     MaterialFeature feature;
     feature.id = id;
     feature.layer = layer;
     UvAnimationFeature body;
-    body.scrollRate = Vector2f{entry.animU.rate0, entry.animV.rate0};
-    body.rotateRate = entry.animRotate.rate0;
+    body.scrollRate =
+        Vector2f{entry.animU.rate0 * kTicksPerSecond, entry.animV.rate0 * kTicksPerSecond};
+    body.rotateRate = entry.animRotate.rate0 * kTicksPerSecond;
     feature.payload = body;
     return feature;
 }
@@ -285,14 +296,33 @@ void ApplyPass(const native::D3RenderState& pass, CommonMaterial& common, Diagno
                const std::string& where) {
     const native::D3RenderParams& params = pass.renderParams;
     common.blend = BlendOf(params, out, where);
-    common.cull = params.dwCullMode == kCullNone      ? CullMode::None
-                  : params.dwCullMode == kCullClockwise ? CullMode::Front
-                                                        : CullMode::Back;
+    // D3DCULL_CW *culls* clockwise faces, so a pass that asks for it is a pass
+    // whose front faces are counter-clockwise -- `CullMode::Back`, the default
+    // everywhere. Reading it as `Front` inverted the facing of every ordinary
+    // Diablo III surface: the census over all 1,507 corpus `.shd` is none=713,
+    // CW=1,106, CCW=12, and the twelve are the second pass of a two-sided pair,
+    // never a surface that leads with a reversed winding.
+    common.cull = params.dwCullMode == kCullNone        ? CullMode::None
+                  : params.dwCullMode == kCullClockwise ? CullMode::Back
+                                                        : CullMode::Front;
     common.depth.write = params.dwZWriteEnable != 0;
     common.depth.test = params.dwZFunc != 8; // D3DCMP_ALWAYS
     common.depth.bias = params.flDepthBias;
     common.alphaTestThreshold =
         params.dwAlphaTestEnable != 0 ? static_cast<f32>(params.bAlphaRef) * (1.0f / 255.0f) : 0.0f;
+
+    // A pass that alpha-TESTS and writes depth is a cutout, whatever its blend
+    // factors are, and `BlendMode` is the contract a surface meets the scene by
+    // rather than a copy of the D3D9 state. Diablo III leaves blending on and
+    // sets the reference to 192/255 on every character body -- Tyrael's hood,
+    // Imperius's armour -- so reading the factors alone made them translucent:
+    // Warcraft III then drew them unsorted with no depth write and the model was
+    // see-through. It is the same bucketing the D3 renderer does, which keys on
+    // the depth write and not on the blend enable.
+    if (common.blend == BlendMode::AlphaBlend && common.alphaTestThreshold > 0.0f &&
+        common.depth.write) {
+        common.blend = BlendMode::AlphaKey;
+    }
 }
 
 } // namespace

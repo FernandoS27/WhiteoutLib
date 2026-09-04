@@ -547,6 +547,35 @@ MaterialKind targetKindFor(MaterialKind source, MaterialKindMask accepted) {
     return source;
 }
 
+/// What @p target's conversion of @p common would have to drop on the floor.
+///
+/// A trial run, not an estimate: the same four functions the real conversion
+/// calls, with their diagnostics pointed at a sink nobody reads. `LayerDropped`
+/// is the one code all four raise for "this part of the material has no place
+/// in the target kind", which is exactly the question being asked.
+std::size_t kindConversionLoss(const CommonMaterial& common, MaterialKind target,
+                               const ElementRef& where, ProfileId profile) {
+    Diagnostics sink;
+    const KindContext probe{&sink, where, profile};
+    switch (target) {
+    case MaterialKind::Composite:
+        (void)toComposite(common, probe);
+        break;
+    case MaterialKind::Combiners:
+        (void)toCombiners(common, probe);
+        break;
+    case MaterialKind::LegacyDeferred:
+        (void)toLegacy(common, probe);
+        break;
+    case MaterialKind::PBRDeferred:
+        (void)toPbr(common, probe);
+        break;
+    case MaterialKind::Count:
+        break;
+    }
+    return sink.byCode(DiagCode::LayerDropped).size();
+}
+
 void convertKind(CommonMaterial& common, const ProfileDesc& desc, const KindContext& ctx) {
     if (HasMaterialKind(desc.commonKinds, common.kind())) {
         return;
@@ -585,6 +614,23 @@ void convertKind(CommonMaterial& common, const ProfileDesc& desc, const KindCont
     if (target == common.kind()) {
         return;
     }
+
+    // The container's other vocabulary (`ProfileDesc::containerKinds`). A kind
+    // the target cannot fold without loss stays as it is rather than being
+    // flattened into one the file did not need it to be: Diablo III's wings are
+    // four combiner stages, and folding them into a base-colour slot kept the
+    // first -- a soft glow map -- and dropped the flame, the falloff mask and
+    // the noise that made the wing a wing.
+    if (HasMaterialKind(desc.containerKinds, common.kind()) &&
+        kindConversionLoss(common, target, ctx.where, ctx.profile) > 0) {
+        ctx.out->info(DiagCode::LossyKindConversion,
+                      std::string("kept kind ") + ToString(common.kind()) + ": " +
+                          ToString(target) + " would have dropped part of it, and " +
+                          ToString(ctx.profile) + " writes both",
+                      ctx.where, ctx.profile);
+        return;
+    }
+
     ctx.out->info(DiagCode::LossyKindConversion,
                   std::string("kind ") + ToString(common.kind()) + " -> " + ToString(target),
                   ctx.where, ctx.profile);

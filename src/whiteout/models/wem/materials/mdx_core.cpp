@@ -547,8 +547,71 @@ Material ImportMaterial(const mdx::Material& material, ProfileId profile, const 
 
 namespace {
 
-void exportFromNative(const native::MdxMaterial& block, mdx::Material& dst) {
+/// The one string in an `.mdx` below v1100 that says a stack is HD.
+///
+/// A layer carries no shader id until v1100, so the MATERIAL's shader name is
+/// the whole signal: `Parser::Impl::upgradeMaterials` tests it verbatim and only
+/// then merges the six positional layers into one HD layer, and `IsHdLayer`
+/// reads the same string on the way back in. A material this export DERIVED
+/// arrives named for its source — `wing_mat#A` off a Diablo III appearance —
+/// and writing that name into the shader field left Imperius's wings as six
+/// opaque fixed-function passes with six different textures stacked on them.
+constexpr const char* kHdDefaultShader = "Shader_HD_DefaultUnit";
+/// "there is no texture in this slot". `mdx::Layer::textureId` is a `u32` and
+/// the renderer reads it as an `i32`, so this is the -1 every absent-texture
+/// path already tests for.
+constexpr u32 kNoTexture = 0xFFFFFFFFu;
+constexpr const char* kHdCrystalShader = "Shader_HD_Crystal";
+
+/// A native block, un-merged for a file below v1100.
+///
+/// **In memory a layer's textures live in its sub-texture array; below v1100 in a
+/// FILE they do not exist.** `Parser::upgradeModel` moves an SD layer's
+/// `textureId` into `subTextures[0]` and zeroes it, and folds a Reforged
+/// material's six positional layers into one layer with six sub-textures. A
+/// native block is a copy of that in-memory shape, so writing one straight back
+/// out below v1100 wrote texture 0 for every layer of every material: Arthas
+/// came out of his own round trip wearing his team colour head to foot, and the
+/// chimaera lost its normal, ORM, emissive, team-colour and environment maps to
+/// a single-layer material naming one texture.
+///
+/// v800 has no material shader string to say "HD" with, so there a merged layer
+/// keeps its diffuse and nothing else -- which is what a classic file can say.
+void exportFromNative(const native::MdxMaterial& block, u32 modelVersion, mdx::Material& dst) {
     CopyFromNative(block, dst);
+    if (modelVersion >= 1100) {
+        return;
+    }
+    const bool positional = modelVersion >= 900;
+    std::vector<Layer> unmerged;
+    bool anyHd = false;
+    for (Layer& layer : dst.layers) {
+        if (layer.subTextures.empty()) {
+            unmerged.push_back(std::move(layer));
+            continue;
+        }
+        if (layer.subTextures.size() == 1 || !positional) {
+            layer.textureId = layer.subTextures.front().textureId;
+            layer.subTextures.clear();
+            unmerged.push_back(std::move(layer));
+            continue;
+        }
+        // The six back out in `SlotType` order, which is the order the block
+        // holds them in and the order `upgradeMaterials` reads them back by.
+        anyHd = true;
+        for (const Layer::SubTexture& sub : layer.subTextures) {
+            Layer one = layer;
+            one.subTextures.clear();
+            one.textureId = sub.textureId;
+            unmerged.push_back(std::move(one));
+        }
+    }
+    dst.layers = std::move(unmerged);
+    if (anyHd && dst.shader.empty()) {
+        // Below v1100 the material's shader NAME is the only thing that says a
+        // positional stack is one HD material rather than six SD passes.
+        dst.shader = kHdDefaultShader;
+    }
 }
 
 /// Adds @p layer to @p dst under the compositing intent @p mode.
@@ -562,12 +625,20 @@ void exportFromNative(const native::MdxMaterial& block, mdx::Material& dst) {
 ///
 /// The layer that starts a stack takes @p blend instead, because the base layer
 /// is how the whole draw meets the scene and is the one thing it must carry.
-void pushLayer(Layer layer, Layer::FilterMode mode, BlendMode blend, mdx::Material& dst) {
+void pushLayer(Layer layer, Layer::FilterMode mode, BlendMode blend, mdx::Material& dst,
+               std::vector<u32>& layerOfOrdinal, u32 ordinal) {
     if (mode == Layer::FilterMode::None) {
         dst.layers.clear();
+        // The stack restarted, so no ordinal written before this one is still in
+        // it -- the same statement the `clear()` above makes about the layers.
+        std::fill(layerOfOrdinal.begin(), layerOfOrdinal.end(), kInvalidIndex);
     }
     layer.textureAnimationId = kNoTextureAnimation;
     layer.filterMode = dst.layers.empty() ? filterModeFor(blend) : mode;
+    if (layerOfOrdinal.size() <= ordinal) {
+        layerOfOrdinal.resize(ordinal + 1, kInvalidIndex);
+    }
+    layerOfOrdinal[ordinal] = static_cast<u32>(dst.layers.size());
     dst.layers.push_back(std::move(layer));
 }
 
@@ -609,7 +680,8 @@ f32 channelFactor(const CompositeBody& body, SurfaceChannel channel) {
 }
 
 void exportComposite(const CompositeBody& body, const CommonMaterial& common,
-                     const Context& context, mdx::Material& dst, Diagnostics& out) {
+                     const Context& context, mdx::Material& dst, Diagnostics& out,
+                     std::vector<u32>& layerOfOrdinal) {
     for (std::size_t i = 0; i < body.layers.size(); ++i) {
         const CompositeLayer& entry = body.layers[i];
         if (!drawsColour(entry.target)) {
@@ -648,7 +720,7 @@ void exportComposite(const CompositeBody& body, const CommonMaterial& common,
         pushLayer(std::move(layer),
                   entry.target == SurfaceChannel::Color ? filterModeFor(entry.op)
                                                         : Layer::FilterMode::Additive,
-                  common.blend, dst);
+                  common.blend, dst, layerOfOrdinal, static_cast<u32>(i));
     }
 }
 
@@ -683,7 +755,8 @@ std::optional<Layer::FilterMode> passModeFor(CombinerOp op) {
 }
 
 void exportCombiners(const CombinersBody& body, const CommonMaterial& common,
-                     const Context& context, mdx::Material& dst, Diagnostics& out) {
+                     const Context& context, mdx::Material& dst, Diagnostics& out,
+                     std::vector<u32>& layerOfOrdinal) {
     // The §7.2.2 inverse: a stage becomes a layer with the matching filter mode,
     // and the layer that starts the stack takes the material's blend rather than
     // an unconditional `None` — a chain seeded by an opaque stage still meets the
@@ -715,45 +788,123 @@ void exportCombiners(const CombinersBody& body, const CommonMaterial& common,
         layer.textureId = context.toMdx(stage.input.texture);
         layer.coordId = stage.input.uvSet;
         layer.alpha = stage.input.weight;
-        pushLayer(std::move(layer), *mode, common.blend, dst);
+        // The same two flags `exportComposite` writes. A scrolling stage is the
+        // case that needs them: `mdx_anim` gives it a TXAN whose offset walks
+        // past 1, and a clamped layer holds its last column there forever.
+        if (stage.input.wrapU == WrapMode::Repeat) {
+            layer.shadingFlags |= Layer::ShadingFlag::WrapWidth;
+        }
+        if (stage.input.wrapV == WrapMode::Repeat) {
+            layer.shadingFlags |= Layer::ShadingFlag::WrapHeight;
+        }
+        pushLayer(std::move(layer), *mode, common.blend, dst, layerOfOrdinal, static_cast<u32>(i));
     }
 }
 
-void exportPbr(const PbrDeferredBody& body, const Context& context, u32 modelVersion,
-               mdx::Material& dst, Diagnostics& out) {
+void exportPbr(const PbrDeferredBody& body, const CommonMaterial& common, const Context& context,
+               u32 modelVersion, mdx::Material& dst, Diagnostics& out,
+               std::vector<u32>& layerOfOrdinal) {
+    // Crystal is the one other HD shader the format names, and a material that
+    // came in as one is still one; everything else this writes is a default
+    // unit, including every derived material.
+    if (dst.shader != kHdCrystalShader) {
+        dst.shader = kHdDefaultShader;
+    }
+
+    // A slot that is *present* but names no texture is an absent slot.
+    // `Context::toMdx` maps `kInvalidIndex` to 0 — there is no other answer it
+    // could give — and 0 is the base colour, so a slot left blank rather than
+    // removed binds the colour map as a normal, an ORM or an emissive one. That
+    // is the same defect as the old `textureId = 0` fallback, reached from the
+    // other side: not "the slot is missing" but "the slot is empty".
+    const auto textured = [&body](Layer::SlotType type) -> const TextureInput* {
+        const TextureInput* input = body.find(pbrSlotFor(type));
+        return input != nullptr && input->hasTexture() ? input : nullptr;
+    };
+
     Layer layer;
     layer.is_hd = true;
     layer.shader = Layer::ShaderType::HD;
-    layer.filterMode = Layer::FilterMode::None;
+    // An HD stack is one draw and the header blend is its blend, the same way
+    // `ImportMaterial` reads it back off this layer. Hardcoding `None` here made
+    // every derived HD material opaque, which is what turned a translucent
+    // Diablo III wing into a solid orange sheet.
+    layer.filterMode = filterModeFor(common.blend);
     layer.textureAnimationId = kNoTextureAnimation;
 
-    if (modelVersion >= 1200) {
-        for (const auto& [slot, input] : body.slots) {
-            const Layer::SlotType type = slotTypeFor(slot);
-            if (type == Layer::SlotType::Unknown) {
-                out.warn(DiagCode::LayerDropped,
-                         std::string("PBR slot ") + ToString(slot) + " has no MDX SlotType");
-                continue;
-            }
+    // The emissive map's strength, which `emissiveGain` is MDX's name for and
+    // `ImportMaterial` reads back off this same field. Dropping it published
+    // every emissive map at gain 1: a StarCraft II material states its own in
+    // `hdrEmissiveMultiplier` and routinely means it — a Reaper's is **9** —
+    // so a glow that carried the model came out as a faint tint of its map.
+    // Only written when there is a map for it to scale; the factor is zero on
+    // every material that has no emissive, and a gain of zero on a slot the
+    // engine already binds black for says nothing.
+    if (textured(Layer::SlotType::EmissiveMap) != nullptr) {
+        layer.emissiveGain = std::max(
+            {body.emissiveFactor.x, body.emissiveFactor.y, body.emissiveFactor.z});
+    }
+
+    // v1100 is where the sub-texture array exists — `mdx/writer.cpp` gates it on
+    // `>= 1100` and so does `parseLayer` — and above it the merged one-layer
+    // form is the only one a reader understands, because `upgradeMaterials`
+    // stops at v1000 and never runs. Testing 1200 here wrote a v1100 model as
+    // six positional layers with an empty sub-texture array each, which is five
+    // textures lost.
+    if (modelVersion >= 1100) {
+        // Every slot, in `SlotType` order, absent ones included: a consumer is
+        // entitled to read this array positionally — `MdxModelAdapter` does —
+        // and a short array would hand it the environment map as a normal map.
+        for (u32 index = 0; index < static_cast<u32>(kHdPositionalSlotCount); ++index) {
+            const auto type = static_cast<Layer::SlotType>(index);
+            const TextureInput* input = textured(type);
             Layer::SubTexture sub;
-            sub.textureId = context.toMdx(input.texture);
+            sub.textureId = input != nullptr ? context.toMdx(input->texture) : kNoTexture;
             sub.slot = type;
             layer.subTextures.push_back(std::move(sub));
-            layer.coordId = input.uvSet;
-            layer.alpha = input.weight;
+            if (input != nullptr) {
+                layer.coordId = input->uvSet;
+                layer.alpha = input->weight;
+            }
         }
+        for (const auto& [slot, input] : body.slots) {
+            if (slotTypeFor(slot) == Layer::SlotType::Unknown) {
+                out.warn(DiagCode::LayerDropped,
+                         std::string("PBR slot ") + ToString(slot) + " has no MDX SlotType");
+            }
+        }
+        // Every slot is in this one layer, so every ordinal is. An HD stack has
+        // one texture matrix and one alpha for all six slots, which is what a
+        // track or a UV feature on any of them ends up driving.
+        layerOfOrdinal.assign(body.slots.size(), static_cast<u32>(dst.layers.size()));
         dst.layers.push_back(std::move(layer));
         return;
     }
 
     // Pre-1200 has no sub-texture array: the slots go back out as one layer
     // each, in SlotType order, which is the convention import read them by.
+    //
+    // A slot the body does not fill gets `kNoTexture`, NOT texture 0. A derived
+    // material has a base colour and nothing else — no normal map, no ORM, no
+    // emissive, because the source format never had them — and falling back to
+    // index 0 pointed all five at the diffuse: the colour map was read as a
+    // normal map, as a roughness/metalness map, and as an emissive one, which
+    // is what made Imperius's wings a blown-out orange sheet. The engine binds
+    // its own flat normal, neutral ORM and black emissive for an absent slot,
+    // which is exactly what "this material has none" should draw as.
+    layerOfOrdinal.assign(body.slots.size(), kInvalidIndex);
     for (u32 slot = 0; slot < static_cast<u32>(kHdPositionalSlotCount); ++slot) {
-        const TextureInput* input = body.find(pbrSlotFor(static_cast<Layer::SlotType>(slot)));
+        const PbrSlot pbrSlot = pbrSlotFor(static_cast<Layer::SlotType>(slot));
+        const TextureInput* input = textured(static_cast<Layer::SlotType>(slot));
         Layer positional = layer;
-        positional.textureId = input != nullptr ? context.toMdx(input->texture) : 0;
+        positional.textureId = input != nullptr ? context.toMdx(input->texture) : kNoTexture;
         positional.coordId = input != nullptr ? input->uvSet : 0;
         positional.alpha = input != nullptr ? input->weight : 1.0f;
+        for (std::size_t ordinal = 0; ordinal < body.slots.size(); ++ordinal) {
+            if (body.slots[ordinal].first == pbrSlot) {
+                layerOfOrdinal[ordinal] = static_cast<u32>(dst.layers.size());
+            }
+        }
         dst.layers.push_back(std::move(positional));
     }
 }
@@ -761,14 +912,28 @@ void exportPbr(const PbrDeferredBody& body, const Context& context, u32 modelVer
 } // namespace
 
 mdx::Material ExportMaterial(const Material& material, ProfileId profile, const Context& context,
-                             Diagnostics& out) {
+                             Diagnostics& out, std::vector<u32>* layerOfOrdinal) {
     mdx::Material dst;
+    const auto report = [&](const std::vector<u32>& ordinals) {
+        if (layerOfOrdinal != nullptr) {
+            *layerOfOrdinal = ordinals;
+            layerOfOrdinal->resize(material.Common().ordinalCount(), kInvalidIndex);
+        }
+    };
 
     // §7.1: a native block that is not stale IS the answer. The kind mapping
     // below is the fallback path, and only that.
     if (material.hasNative() && material.sync() != NativeSync::CommonEdited) {
         if (material.nativeKind() == NativeKind::Mdx) {
-            exportFromNative(std::get<native::MdxMaterial>(material.Native()), dst);
+            exportFromNative(std::get<native::MdxMaterial>(material.Native()), context.modelVersion,
+                             dst);
+            // The block holds this profile's layers in ordinal order (§7.3), so
+            // here the map really is the identity.
+            std::vector<u32> identity(dst.layers.size());
+            for (std::size_t i = 0; i < identity.size(); ++i) {
+                identity[i] = static_cast<u32>(i);
+            }
+            report(identity);
             return dst;
         }
         out.warn(DiagCode::DroppedNativeBlock,
@@ -792,15 +957,16 @@ mdx::Material ExportMaterial(const Material& material, ProfileId profile, const 
     }
     dst.shader = material.name;
 
+    std::vector<u32> ordinals;
     switch (common.kind()) {
     case MaterialKind::Composite:
-        exportComposite(*common.composite(), common, context, dst, out);
+        exportComposite(*common.composite(), common, context, dst, out, ordinals);
         break;
     case MaterialKind::Combiners:
-        exportCombiners(*common.combiners(), common, context, dst, out);
+        exportCombiners(*common.combiners(), common, context, dst, out, ordinals);
         break;
     case MaterialKind::PBRDeferred:
-        exportPbr(*common.pbr(), context, context.modelVersion, dst, out);
+        exportPbr(*common.pbr(), common, context, context.modelVersion, dst, out, ordinals);
         break;
     default:
         out.warn(DiagCode::UnsupportedMaterialKind,
@@ -835,6 +1001,8 @@ mdx::Material ExportMaterial(const Material& material, ProfileId profile, const 
             layer.alpha = 0.0f;
         }
     }
+
+    report(ordinals);
 
     // The per-layer shading flags the header carries back. MDX puts them on
     // every layer; the header only ever held one set.

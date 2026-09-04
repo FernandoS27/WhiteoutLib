@@ -1150,16 +1150,11 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
             out.materials.push_back(mdx::Material{});
             continue;
         }
-        out.materials.push_back(mdx_core::ExportMaterial(*material, profile, context, diagnostics));
-        // The ordinal is a position in the filtered stack and the export writes
-        // exactly that stack, so the map is the identity — recorded rather than
-        // assumed, because the two are only equal until something reorders a
-        // layer between them.
-        std::vector<u32>& ordinals = animContext.layerOfOrdinal[slot];
-        ordinals.resize(out.materials.back().layers.size());
-        for (std::size_t l = 0; l < ordinals.size(); ++l) {
-            ordinals[l] = static_cast<u32>(l);
-        }
+        // The export says which layer each ordinal became; it is not the
+        // identity, because a chain drops a stage that draws nothing and a
+        // replacing stage clears everything written before it.
+        out.materials.push_back(mdx_core::ExportMaterial(*material, profile, context, diagnostics,
+                                                         &animContext.layerOfOrdinal[slot]));
     }
 
     // --- meshes -> geosets --------------------------------------------------
@@ -1182,6 +1177,13 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
         {geom::names::kNormal, utils::AttributeClass::Normal, utils::AttributeEncoding::Float32, 3,
          0},
         {geom::names::uv(0), utils::AttributeClass::UV, utils::AttributeEncoding::Float32, 2, 0},
+        // `TANG` exists from v900 and an HD material's normal map is meaningless
+        // without it: the shader reads the tangent frame off this chunk, and a
+        // Reforged model that carried a normal map and no tangents shaded as
+        // though every face were flat. Import has always read them (§5.4's
+        // `kTangent` corner layer); export dropped them on the floor.
+        {geom::names::kTangent, utils::AttributeClass::Tangent, utils::AttributeEncoding::Float32,
+         4, 0},
     };
     desc.includeSkin = true;
     desc.maxInfluences = Profile(profile).maxBoneInfluences;
@@ -1204,6 +1206,13 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
         const std::vector<Vector3f> positions = render.vertices.getPositions();
         const std::vector<Vector3f> normals = render.vertices.getNormals();
         const std::vector<Vector2f> uv0 = render.vertices.getUVs(0);
+        // Only when the source actually authored them. A mesh with no tangent
+        // layer would otherwise get a chunk of zeroes, which is worse than the
+        // absence the reader already handles.
+        const bool hasTangents = targetVersion > 800 &&
+                                 mesh.attributes.has(geom::names::kTangent, geom::Domain::Halfedge);
+        const std::vector<Vector4f> tangents =
+            hasTangents ? render.vertices.getTangents() : std::vector<Vector4f>();
         const std::vector<std::array<u32, 4>> boneIndices = render.vertices.getBoneIndices();
         const std::vector<std::array<f32, 4>> boneWeights = render.vertices.getBoneWeights();
 
@@ -1253,6 +1262,9 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
 
             geoset.vertexPositions.reserve(sourceOf.size());
             geoset.vertexNormals.reserve(sourceOf.size());
+            if (!tangents.empty()) {
+                geoset.tangents.reserve(sourceOf.size());
+            }
             std::vector<Vector2f> uvs;
             if (!uv0.empty()) {
                 uvs.reserve(sourceOf.size());
@@ -1266,6 +1278,10 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
                 GrowExtent(bounds, position);
                 geoset.vertexNormals.push_back(source < normals.size() ? normals[source]
                                                                        : Vector3f(0, 0, 1));
+                if (!tangents.empty()) {
+                    geoset.tangents.push_back(source < tangents.size() ? tangents[source]
+                                                                       : Vector4f(1, 0, 0, 1));
+                }
                 if (!uv0.empty()) {
                     uvs.push_back(source < uv0.size() ? uv0[source] : Vector2f(0, 0));
                 }

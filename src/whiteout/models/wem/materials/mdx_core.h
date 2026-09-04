@@ -132,8 +132,17 @@ bool StackCollapses(const std::vector<const mdx::Layer*>& layers);
 /// (stage 0 -> an opaque first layer), `PBRDeferred` through the sub-texture
 /// slots. `textureIndexMap` runs the other way here — document index -> `.mdx`
 /// texture id.
+/// @p layerOfOrdinal, when given, is resized to the material's ordinal count and
+/// filled with the `.mdx` layer each ordinal became, or `kInvalidIndex` for one
+/// that did not survive. It is the inverse of @ref ImportMaterial's
+/// `layerOrdinals` and it is not the identity: a chain drops a stage that draws
+/// nothing, and a stage that replaces the register clears every layer written
+/// before it. Animation needs it -- a layer track and a UV feature both name an
+/// ordinal -- and assuming the identity attached Imperius's second scrolling
+/// stage to a layer index one past the end of the stack, which is to say to
+/// nothing at all.
 mdx::Material ExportMaterial(const Material& material, ProfileId profile, const Context& context,
-                             Diagnostics& out);
+                             Diagnostics& out, std::vector<u32>* layerOfOrdinal = nullptr);
 
 } // namespace mdx_core
 } // namespace wem

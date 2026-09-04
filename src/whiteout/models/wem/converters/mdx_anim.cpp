@@ -4,7 +4,9 @@
 #include "mdx_anim.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -722,6 +724,7 @@ public:
         for (const AnimChannel& channel : model_.animChannels.channels) {
             emitChannel(channel);
         }
+        emitStandingUvTransforms();
         emitEvents();
     }
 
@@ -1253,6 +1256,227 @@ private:
                 break;
             }
         }
+    }
+
+    // ---- UV motion that is not keyed ----------------------------------------
+
+    /// A texture matrix MDX can hold: a scale and an offset, no shear.
+    struct UvState {
+        Vector2f scale{1, 1};
+        Vector2f offset{0, 0};
+    };
+
+    /// `TextureInput::uvTransform` read as one, or nothing when it shears.
+    ///
+    /// MDX's texture matrix is a scale, a rotation about the texture centre and
+    /// an offset -- `AnimateTextureMap` builds nothing else -- so a transform
+    /// with off-diagonal terms has no MDX spelling and is reported rather than
+    /// quietly squared off.
+    static std::optional<UvState> standingUv(const Matrix3x2f& matrix) {
+        if (matrix.m[0][1] != 0.0f || matrix.m[1][0] != 0.0f) {
+            return std::nullopt;
+        }
+        UvState state;
+        state.scale = Vector2f{matrix.m[0][0], matrix.m[1][1]};
+        state.offset = Vector2f{matrix.m[0][2], matrix.m[1][2]};
+        return state;
+    }
+
+    /// The `UvAnimation` feature on @p ordinal that states a RATE, if any.
+    static const UvAnimationFeature* constantRateUv(const CommonMaterial& common, u32 ordinal) {
+        for (const MaterialFeature& feature : common.features) {
+            if (feature.kind() != FeatureKind::UvAnimation || feature.layer != ordinal) {
+                continue;
+            }
+            const auto* body = std::get_if<UvAnimationFeature>(&feature.payload);
+            if (body != nullptr && body->isConstantRate()) {
+                return body;
+            }
+        }
+        return nullptr;
+    }
+
+    /// The global sequence of @p milliseconds, made on first use.
+    ///
+    /// A global sequence *is* a period, so two layers scrolling at the same rate
+    /// share one rather than each adding a row to a chunk every reader walks.
+    u32 globalSequenceOf(u32 milliseconds) {
+        for (std::size_t i = 0; i < out_.globalSequences.size(); ++i) {
+            if (out_.globalSequences[i] == milliseconds) {
+                return static_cast<u32>(i);
+            }
+        }
+        out_.globalSequences.push_back(milliseconds);
+        return static_cast<u32>(out_.globalSequences.size() - 1);
+    }
+
+    /// MDX's translation for a wanted UV offset under a scale.
+    ///
+    /// The engine reads the track as `uv' = ((uv + T - 0.5) * S) + 0.5`, so the
+    /// offset a layer actually gets is `(T - 0.5) * S + 0.5`, and this is that
+    /// read backwards. At `S == 1` it is the offset itself, which is what every
+    /// tool that treats the track as a plain scroll assumes.
+    static Vector3f translationFor(const Vector2f& offset, const Vector2f& scale) {
+        const auto axis = [](f32 want, f32 s) {
+            return s != 0.0f ? (want - 0.5f) / s + 0.5f : want;
+        };
+        return Vector3f{axis(offset.x, scale.x), axis(offset.y, scale.y), 0.0f};
+    }
+
+    /// The period over which @p rate covers a whole number of UV tiles on every
+    /// axis, so the track's last key leaves the texture where the first one
+    /// found it.
+    ///
+    /// The slowest moving axis sets it -- one tile -- and the faster ones are
+    /// rounded to the nearest whole tile within that window. Their rate is then
+    /// off by at most half a tile over the whole period, and the alternative is
+    /// a visible jump every time the sequence wraps.
+    static f32 seamlessPeriod(const Vector2f& rate) {
+        f32 period = 0.0f;
+        for (const f32 axis : {rate.x, rate.y}) {
+            if (axis != 0.0f) {
+                period = std::max(period, 1.0f / std::abs(axis));
+            }
+        }
+        return period;
+    }
+
+    /// Diablo III states UV motion as a RATE, and both it and StarCraft II carry
+    /// a standing scale under it. MDX holds neither on the layer -- its UV state
+    /// is a `TextureAnimation`, which is keys -- so both are written here, after
+    /// the keyed features have taken the TXANs they need.
+    ///
+    /// A rate's keys ride a GLOBAL SEQUENCE because the source's clock is not the
+    /// clip's: `ActorModel_ResolveSubObjectMaterials` steps the scroll off world
+    /// time with a literal 1/60 s, and hanging it on a looping clip would snap
+    /// every scrolling layer back at the loop point.
+    void emitStandingUvTransforms() {
+        for (u32 slot = 0; slot < static_cast<u32>(model_.materialSlots.size()); ++slot) {
+            const Material* material = Resolve(model_, slot, profile_, 0);
+            if (material == nullptr) {
+                continue;
+            }
+            MaterialChannelRef ref;
+            ref.profile = profile_;
+            ref.slot = slot;
+            ref.look = 0;
+
+            const CommonMaterial& common = material->Common();
+            for (u32 ordinal = 0; ordinal < common.ordinalCount(); ++ordinal) {
+                mdx::Layer* layer = layerRecord(ref, ordinal);
+                if (layer == nullptr || layer->textureAnimationId < out_.textureAnimations.size()) {
+                    // No layer, or a keyed feature already owns its UV state.
+                    continue;
+                }
+                const TextureInput* input = common.inputAt(ordinal);
+                const UvAnimationFeature* rate = constantRateUv(common, ordinal);
+                if (input == nullptr || (input->uvTransform.isIdentity() && rate == nullptr)) {
+                    continue;
+                }
+                const std::optional<UvState> standing = standingUv(input->uvTransform);
+                if (!standing.has_value()) {
+                    diagnostics_.warn(DiagCode::AnimTrackDropped,
+                                      "a UV transform with shear has no MDX spelling",
+                                      ElementRef(ElementKind::Layer, slot, ordinal), profile_);
+                    continue;
+                }
+                emitOneUvAnimation(*layer, *standing, rate, slot, ordinal);
+            }
+        }
+    }
+
+    void emitOneUvAnimation(mdx::Layer& layer, const UvState& standing,
+                            const UvAnimationFeature* rate, u32 slot, u32 ordinal) {
+        mdx::TextureAnimation animation;
+        const Vector3f start = translationFor(standing.offset, standing.scale);
+
+        if (standing.scale.x != 1.0f || standing.scale.y != 1.0f) {
+            animation.scalingTracks.isUsed = true;
+            animation.scalingTracks.interpolationType = mdx::InterpolationType::None;
+            animation.scalingTracks.timestamps = {0};
+            animation.scalingTracks.keys_data = {
+                Vector3f{standing.scale.x, standing.scale.y, 1.0f}};
+            animation.scalingTracks.keyCount = 1;
+        }
+
+        u32 globalSequence = kNoGlobalSequence;
+        if (rate != nullptr) {
+            if (rate->scaleRate.x != 0.0f || rate->scaleRate.y != 0.0f) {
+                // A scale that grows without bound has no period, so no global
+                // sequence can hold it.
+                diagnostics_.warn(DiagCode::AnimTrackDropped,
+                                  "a UV scale RATE has no MDX spelling; only the standing scale "
+                                  "was written",
+                                  ElementRef(ElementKind::Layer, slot, ordinal), profile_);
+            }
+            const f32 period = seamlessPeriod(rate->scrollRate);
+            const u32 milliseconds = Milliseconds(period);
+            if (milliseconds > 0) {
+                globalSequence = globalSequenceOf(milliseconds);
+                const Vector2f travelled{std::round(rate->scrollRate.x * period),
+                                         std::round(rate->scrollRate.y * period)};
+                const Vector2f end{standing.offset.x + travelled.x,
+                                   standing.offset.y + travelled.y};
+                animation.translationTracks.isUsed = true;
+                animation.translationTracks.interpolationType = mdx::InterpolationType::Linear;
+                animation.translationTracks.globalSequenceId = globalSequence;
+                animation.translationTracks.timestamps = {0, milliseconds};
+                animation.translationTracks.keys_data = {start,
+                                                         translationFor(end, standing.scale)};
+                animation.translationTracks.keyCount = 2;
+            }
+            if (rate->rotateRate != 0.0f) {
+                emitUvRotation(animation, rate->rotateRate, globalSequence);
+            }
+        }
+
+        if (!animation.translationTracks.isUsed &&
+            (standing.offset.x != 0.0f || standing.offset.y != 0.0f)) {
+            animation.translationTracks.isUsed = true;
+            animation.translationTracks.interpolationType = mdx::InterpolationType::None;
+            animation.translationTracks.timestamps = {0};
+            animation.translationTracks.keys_data = {start};
+            animation.translationTracks.keyCount = 1;
+        }
+        if (!animation.translationTracks.isUsed && !animation.scalingTracks.isUsed &&
+            !animation.rotationTracks.isUsed) {
+            return;
+        }
+        layer.textureAnimationId = static_cast<u32>(out_.textureAnimations.size());
+        out_.textureAnimations.push_back(std::move(animation));
+    }
+
+    /// A turning UV, keyed at the quarter turns a slerp needs: two keys a half
+    /// turn apart have no preferred direction to go round.
+    ///
+    /// The turn shares whatever period the scroll chose, so it is rounded to a
+    /// whole number of turns within it -- a rate off by the same fraction as a
+    /// scrolling axis, and for the same reason.
+    void emitUvRotation(mdx::TextureAnimation& animation, f32 radiansPerSecond,
+                        u32 globalSequence) {
+        constexpr f32 kTwoPi = 6.283185307179586f;
+        if (globalSequence == kNoGlobalSequence) {
+            globalSequence = globalSequenceOf(Milliseconds(kTwoPi / std::abs(radiansPerSecond)));
+        }
+        const u32 milliseconds = out_.globalSequences[globalSequence];
+        const f32 period = static_cast<f32>(milliseconds) / kMilliseconds;
+        const f32 turns = std::max(1.0f, std::round(std::abs(radiansPerSecond) * period / kTwoPi));
+        const f32 total = turns * kTwoPi * (radiansPerSecond < 0.0f ? -1.0f : 1.0f);
+
+        animation.rotationTracks.isUsed = true;
+        animation.rotationTracks.interpolationType = mdx::InterpolationType::Linear;
+        animation.rotationTracks.globalSequenceId = globalSequence;
+        animation.rotationTracks.timestamps.clear();
+        animation.rotationTracks.keys_data.clear();
+        for (u32 step = 0; step <= 4; ++step) {
+            const f32 fraction = static_cast<f32>(step) / 4.0f;
+            const f32 half = total * fraction * 0.5f;
+            animation.rotationTracks.timestamps.push_back(
+                static_cast<u32>(static_cast<f32>(milliseconds) * fraction));
+            animation.rotationTracks.keys_data.push_back(
+                Quaternion{0.0f, 0.0f, std::sin(half), std::cos(half)});
+        }
+        animation.rotationTracks.keyCount = animation.rotationTracks.timestamps.size();
     }
 
     // ---- events -------------------------------------------------------------
