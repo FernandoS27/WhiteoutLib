@@ -4,6 +4,9 @@
 #include <whiteout/models/wem/retarget.h>
 
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 namespace whiteout {
 namespace models {
@@ -201,6 +204,8 @@ CompositeOp compositeOpOf(CombinerOp op, const KindContext& ctx) {
         return CompositeOp::Modulate2x;
     case CombinerOp::Add:
         return CompositeOp::Add;
+    case CombinerOp::AddAlpha:
+        return CompositeOp::AddAlpha;
     case CombinerOp::Decal:
         ctx.approximated("combiner op 'decal' became alpha_blend");
         return CompositeOp::AlphaBlend;
@@ -227,8 +232,7 @@ CombinerOp combinerOpOf(CompositeOp op, const KindContext& ctx) {
     case CompositeOp::Add:
         return CombinerOp::Add;
     case CompositeOp::AddAlpha:
-        ctx.approximated("composite op 'add_alpha' became add; the alpha scale is lost");
-        return CombinerOp::Add;
+        return CombinerOp::AddAlpha;
     case CompositeOp::AlphaBlend:
         return CombinerOp::Fade;
     case CompositeOp::AlphaKey:
@@ -879,6 +883,143 @@ DeriveResult DeriveProfile(Document& document, ProfileId from, ProfileId to,
                                             "'s " + number(targetDesc.maxUvSets) +
                                             "; the geometry is shared and was not changed",
                                         where, to);
+            }
+        }
+
+        // --- the material channels ----------------------------------------------
+        //
+        // §10.8 names a channel's material by `(profile, slot, look)`, so a
+        // derived set arrives with no animation at all: every material channel
+        // in the table still names `from`, and an exporter asked for `to` skips
+        // them all. That is not a small loss. World of Warcraft hides a
+        // conditional batch by keying its `M2Color` alpha to zero — a lich's
+        // glow and its shadow plane are written exactly so — and both drew at
+        // full strength over the model for as long as the derived set had no
+        // channel to hide them with. The scrolling UVs and per-unit fades went
+        // the same way.
+        //
+        // Twins rather than a repoint, because the source set is still here and
+        // still animated. Their sub-tracks are copied with them: a channel is
+        // only a join key, and the curve lives in the clip.
+        std::unordered_map<u32, u32> twinOfChannel;
+        {
+            // Deriving twice is a refresh here too, so anything a previous
+            // derive left addressed to the target goes first — ids and all.
+            std::unordered_set<u32> retired;
+            for (const AnimChannel& channel : model.animChannels.channels) {
+                if (IsMaterialTarget(channel.target.kind) &&
+                    channel.target.material.profile == to) {
+                    retired.insert(channel.id);
+                }
+            }
+            if (!retired.empty()) {
+                std::vector<AnimChannel> kept;
+                kept.reserve(model.animChannels.channels.size());
+                for (AnimChannel& channel : model.animChannels.channels) {
+                    if (retired.count(channel.id) == 0) {
+                        kept.push_back(std::move(channel));
+                    }
+                }
+                model.animChannels.channels = std::move(kept);
+                for (Clip& clip : document.clips) {
+                    if (clip.model != modelIndex) {
+                        continue;
+                    }
+                    for (SubTrackContainer& container : clip.containers) {
+                        std::vector<SubTrack> keptTracks;
+                        keptTracks.reserve(container.subTracks.size());
+                        for (SubTrack& track : container.subTracks) {
+                            if (retired.count(track.channel) == 0) {
+                                keptTracks.push_back(std::move(track));
+                            }
+                        }
+                        container.subTracks = std::move(keptTracks);
+                    }
+                }
+            }
+
+            std::vector<AnimChannel> twins;
+            u32 nextId = model.animChannels.nextFreeId();
+            for (const AnimChannel& source : model.animChannels.channels) {
+                if (!IsMaterialTarget(source.target.kind) ||
+                    source.target.material.profile != from) {
+                    continue;
+                }
+                AnimChannel twin = source;
+                twin.target.material.profile = to;
+                if (!targetDesc.supportsLooks) {
+                    if (source.target.material.look != keptLook) {
+                        // The look it drove is not in this set; `LookDropped`
+                        // above already said the look went.
+                        continue;
+                    }
+                    twin.target.material.look = 0;
+                }
+                const u32 slot = twin.target.material.slot;
+                const u32 look = twin.target.material.look;
+                if (slot >= derived.slotBindings.size() ||
+                    look >= derived.slotBindings[slot].byLook.size()) {
+                    continue;
+                }
+                const u32 material = derived.slotBindings[slot].byLook[look];
+                if (material >= derived.materials.size()) {
+                    continue;
+                }
+                const CommonMaterial& common = derived.materials[material].Common();
+                const ElementRef where(ElementKind::Slot, slot);
+                if (source.target.kind == TrackTarget::Kind::MaterialLayer) {
+                    // `kWholeMaterial` is not an ordinal and survives any kind
+                    // change; an ordinal only survives one the body kept.
+                    if (source.target.sub != kWholeMaterial &&
+                        source.target.sub >= common.ordinalCount()) {
+                        result.diagnostics.warn(
+                            DiagCode::AnimTrackDropped,
+                            std::string("a ") + ToString(source.target.channel) +
+                                " track names ordinal " + number(source.target.sub) +
+                                ", and the derived body has " + number(common.ordinalCount()),
+                            where, to);
+                        continue;
+                    }
+                } else {
+                    bool alive = false;
+                    for (const MaterialFeature& feature : common.features) {
+                        alive = alive || feature.id == source.target.sub;
+                    }
+                    if (!alive) {
+                        result.diagnostics.warn(
+                            DiagCode::AnimTrackDropped,
+                            std::string("a ") + ToString(source.target.channel) +
+                                " track names feature " + number(source.target.sub) +
+                                ", which the derived material dropped",
+                            where, to);
+                        continue;
+                    }
+                }
+                twin.id = nextId++;
+                twinOfChannel.emplace(source.id, twin.id);
+                twins.push_back(std::move(twin));
+            }
+            for (AnimChannel& twin : twins) {
+                model.animChannels.add(twin);
+            }
+        }
+        if (!twinOfChannel.empty()) {
+            for (Clip& clip : document.clips) {
+                if (clip.model != modelIndex) {
+                    continue;
+                }
+                for (SubTrackContainer& container : clip.containers) {
+                    const std::size_t before = container.subTracks.size();
+                    for (std::size_t t = 0; t < before; ++t) {
+                        const auto twin = twinOfChannel.find(container.subTracks[t].channel);
+                        if (twin == twinOfChannel.end()) {
+                            continue;
+                        }
+                        SubTrack copy = container.subTracks[t];
+                        copy.channel = twin->second;
+                        container.subTracks.push_back(std::move(copy));
+                    }
+                }
             }
         }
 

@@ -85,6 +85,9 @@ constexpr const char* kDiagCodeNames[] = {
     "UnsupportedVersion",
     "LegacyDocumentUpgraded",
     "OperationUnsupported",
+
+    "GeometryRescaled",
+    "LevelOfDetailDropped",
 };
 
 static_assert(sizeof(kDiagCodeNames) / sizeof(kDiagCodeNames[0]) ==

@@ -94,6 +94,7 @@ whiteout_add_test(wem_anim_m3_test wem_anim_m3_test.cpp)
 whiteout_add_test(wem_anim_d3_test wem_anim_d3_test.cpp)
 target_include_directories(wem_anim_d3_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 whiteout_add_test(wem_profile_derive_test wem_profile_derive_test.cpp)
+whiteout_add_test(wem_rescale_test wem_rescale_test.cpp)
 
 # The material converter cores live under src/ — they are P5's converters'
 # internals, not public API — so these three reach them through the src include

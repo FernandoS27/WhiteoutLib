@@ -474,3 +474,31 @@ TEST_CASE("wem a native block in sync is what export writes", "[wem][materials][
     REQUIRE(exported.layers.size() == 1);
     CHECK(exported.layers[0].filterMode == Layer::FilterMode::Modulate);
 }
+
+TEST_CASE("wem an add scaled by its own alpha keeps the scale", "[wem][materials][mdx]") {
+    // Warcraft III has the op — `AddAlpha` is `dst + src.rgb * src.a` — and so
+    // do five of World of Warcraft's shipped combiners. `CombinerOp` did not,
+    // so they folded onto `Add` and every glow mask was added at full strength
+    // over the whole surface. Kil'jaeden's skin came out tan.
+    Diagnostics diagnostics;
+    const mdx::Material exported =
+        mdx_core::ExportMaterial(makeChain({CombinerOp::Opaque, CombinerOp::AddAlpha}),
+                                 ProfileId::Wc3Classic, makeContext(), diagnostics);
+    REQUIRE(exported.layers.size() == 2);
+    CHECK(exported.layers[0].filterMode == Layer::FilterMode::None);
+    CHECK(exported.layers[1].filterMode == Layer::FilterMode::AddAlpha);
+}
+
+TEST_CASE("wem a layer this export wrote names no texture animation", "[wem][materials][mdx]") {
+    // `Layer::textureAnimationId` has no presence bit and `mdx::Layer` defaults
+    // it to 0, which is a valid TXAN index. Every layer written here says the
+    // sentinel instead, so the animation export hands out one entry per animated
+    // layer rather than pouring every scrolling UV into entry 0.
+    Diagnostics diagnostics;
+    const mdx::Material exported =
+        mdx_core::ExportMaterial(makeChain({CombinerOp::Opaque, CombinerOp::Mod}),
+                                 ProfileId::Wc3Classic, makeContext(), diagnostics);
+    REQUIRE(exported.layers.size() == 2);
+    CHECK(exported.layers[0].textureAnimationId == 0xFFFFFFFFu);
+    CHECK(exported.layers[1].textureAnimationId == 0xFFFFFFFFu);
+}

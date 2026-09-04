@@ -421,3 +421,63 @@ TEST_CASE("wem import refuses geometry that does not match", "[wem][derive][impo
         CHECK(codes(result.diagnostics) == "GeometryMismatchx1");
     }
 }
+
+// ============================================================================
+// DeriveProfile — the material channels (§10.8)
+// ============================================================================
+
+TEST_CASE("wem a derive gives the new set channels of its own", "[wem][derive][anim]") {
+    // A channel names its material by `(profile, slot, look)`, so a derived set
+    // starts with none: every channel in the table still names the source. That
+    // is the whole material animation gone — WoW hides a conditional batch by
+    // keying its `M2Color` alpha to zero, and the derived set had nothing to
+    // hide it with.
+    Document document = documentWith(ProfileId::Sc2, {makeComposite("m")});
+
+    AnimChannel channel;
+    channel.id = 7;
+    channel.target.kind = TrackTarget::Kind::MaterialLayer;
+    channel.target.material.profile = ProfileId::Sc2;
+    channel.target.material.slot = 0;
+    channel.target.sub = kWholeMaterial;
+    channel.target.channel = Channel::Alpha;
+    channel.valueType = geom::AttrType::F32;
+    document.models[0].animChannels.add(channel);
+
+    Clip clip;
+    clip.name = "stand";
+    clip.model = 0;
+    clip.duration = 1.0f;
+    SubTrackContainer container;
+    SubTrack track;
+    track.channel = 7;
+    track.times = {0.0f};
+    track.values.assign(sizeof(f32), 0);
+    container.subTracks.push_back(std::move(track));
+    clip.containers.push_back(std::move(container));
+    document.clips.push_back(std::move(clip));
+
+    REQUIRE(DeriveProfile(document, ProfileId::Sc2, ProfileId::Diablo3).ok);
+
+    const AnimChannelTable& table = document.models[0].animChannels;
+    REQUIRE(table.channels.size() == 2u);
+    const AnimChannel* twin = nullptr;
+    for (const AnimChannel& entry : table.channels) {
+        if (entry.target.material.profile == ProfileId::Diablo3) {
+            twin = &entry;
+        }
+    }
+    REQUIRE(twin != nullptr);
+    CHECK(twin->id != 7u); // a new id: the source channel is still here
+    CHECK(twin->target.sub == kWholeMaterial);
+    CHECK(twin->target.channel == Channel::Alpha);
+    // The curve came with it. A channel is a join key; the keys live in the clip.
+    REQUIRE(document.clips[0].containers[0].subTracks.size() == 2u);
+    CHECK(document.clips[0].containers[0].find(twin->id) != nullptr);
+
+    // And deriving again is a refresh, not an accumulation — the same rule the
+    // set itself follows.
+    REQUIRE(DeriveProfile(document, ProfileId::Sc2, ProfileId::Diablo3).ok);
+    CHECK(document.models[0].animChannels.channels.size() == 2u);
+    CHECK(document.clips[0].containers[0].subTracks.size() == 2u);
+}

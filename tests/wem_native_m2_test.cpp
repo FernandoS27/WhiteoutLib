@@ -134,8 +134,14 @@ TEST_CASE("wem shaderId names the combiner chain", "[wem][materials][m2]") {
     const CombinersBody* body = imported.Common().combiners();
     REQUIRE(body != nullptr);
     REQUIRE(body->stages.size() == 2);
-    CHECK(body->stages[0].rgb == CombinerOp::Mod);
+    // Stage 0 seeds the register, so its colour op is `Opaque` on every row; the
+    // `Mod` the name puts there is about unit 0's ALPHA, and that is the column
+    // it lands in. `psM2Combiners_Mod_Mod` is `c.rgb * t0.rgb * t1.rgb` with
+    // `c.a * t0.a * t1.a`, which is exactly this.
+    CHECK(body->stages[0].rgb == CombinerOp::Opaque);
+    CHECK(body->stages[0].alpha == CombinerOp::Mod);
     CHECK(body->stages[1].rgb == CombinerOp::Mod);
+    CHECK(body->stages[1].alpha == CombinerOp::Mod);
     CHECK(diagnostics.countOf(DiagCode::UnknownShaderCombo) == 0);
 }
 
@@ -316,4 +322,60 @@ TEST_CASE("wem m2 corpus batches resolve their joins", "[wem][corpus][materials]
     // §7.2.6: every WoW material is `Combiners`. Nothing in the M2 path produces
     // any other kind, so a shortfall means a batch fell out of the chain build.
     CHECK(combiners == batches);
+}
+
+TEST_CASE("wem no unit of an M2 chain replaces the one before it", "[wem][materials][m2]") {
+    // `Combiners_Opaque_Opaque` — the bit-field path's two-texture entry 0. The
+    // name says `Opaque` twice and the shader says `c.rgb * t0.rgb * t1.rgb`:
+    // in World of Warcraft the word means "this unit contributes no alpha", not
+    // "this unit wins". A `CombinerOp::Opaque` here reached MDX as
+    // `FilterMode::None`, which is a fresh opaque pass, and unit 0 was gone.
+    m2::Model model = makeModel();
+    Diagnostics diagnostics;
+    bool outOfTable = false;
+    REQUIRE(m2_core::PixelShaderFor(2, 0, outOfTable) ==
+            m2_core::M2PixelShader::Combiners_Opaque_Opaque);
+
+    const Material imported = m2_core::ImportBatch(model, makeBatch(0), makeContext(), diagnostics);
+    const CombinersBody* body = imported.Common().combiners();
+    REQUIRE(body != nullptr);
+    REQUIRE(body->stages.size() == 2u);
+    CHECK(body->stages[0].rgb == CombinerOp::Opaque); // the seed, on every row
+    CHECK(body->stages[1].rgb == CombinerOp::Mod);
+    // Neither unit takes an alpha, which is what both `Opaque`s were saying.
+    CHECK(body->stages[0].alpha == CombinerOp::Pass);
+    CHECK(body->stages[1].alpha == CombinerOp::Pass);
+}
+
+TEST_CASE("wem a stage masked by unit 0's alpha does not draw", "[wem][materials][m2]") {
+    // Explicit combo row 0 is `Combiners_Opaque_Mod2xNA_Alpha`:
+    // `c*t0 * lerp(t1*2, 1, t0.a)`. The mask is the BASE map's alpha, and where
+    // that is opaque — most of a shipped base map — the second unit contributes
+    // nothing at all. No MDX pass reads another pass's alpha, so the stage is
+    // the identity and the row says which modifier it lost.
+    m2::Model model = makeModel();
+    Diagnostics diagnostics;
+    const Material imported =
+        m2_core::ImportBatch(model, makeBatch(0x8000 | 0), makeContext(), diagnostics);
+    const CombinersBody* body = imported.Common().combiners();
+    REQUIRE(body != nullptr);
+    REQUIRE(body->stages.size() == 2u);
+    CHECK(body->stages[0].rgb == CombinerOp::Opaque);
+    CHECK(body->stages[1].rgb == CombinerOp::Pass);
+    // The row's `unexpressed`, alongside the batch-flag note `makeBatch` earns.
+    CHECK(diagnostics.countOf(DiagCode::LossyKindConversion) >= 1u);
+}
+
+TEST_CASE("wem an add scaled by its own alpha is its own op", "[wem][materials][m2]") {
+    // `Combiners_Opaque_AddAlpha` is `c*t0 + t1.rgb*t1.a`, which is exactly
+    // Warcraft III's `AddAlpha` filter mode. Folding it onto `Add` drew a glow
+    // mask at full strength over the whole surface.
+    m2::Model model = makeModel();
+    Diagnostics diagnostics;
+    const Material imported =
+        m2_core::ImportBatch(model, makeBatch(0x8000 | 1), makeContext(), diagnostics);
+    const CombinersBody* body = imported.Common().combiners();
+    REQUIRE(body != nullptr);
+    REQUIRE(body->stages.size() == 2u);
+    CHECK(body->stages[1].rgb == CombinerOp::AddAlpha);
 }

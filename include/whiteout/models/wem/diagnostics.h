@@ -129,6 +129,10 @@ enum class DiagCode : u16 {
     LegacyDocumentUpgraded, ///< A v2 file was read through the compatibility path (§11.5).
     OperationUnsupported,   ///< The converter does not implement this direction at all.
 
+    // --- document (§6.2) ------------------------------------------------------
+    GeometryRescaled,     ///< Every length in the document was restated at another scale.
+    LevelOfDetailDropped, ///< A mesh above the base level of detail was not carried.
+
     Count
 };
 

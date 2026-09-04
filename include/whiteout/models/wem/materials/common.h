@@ -287,7 +287,15 @@ struct CompositeBody {
 /// glow stage sampled `.xyz` and a mask stage sampled `.w` are mirror images of
 /// each other — and without an identity the chain would have to invent a
 /// modulate by white.
-enum class CombinerOp : u8 { Opaque = 0, Mod, Mod2x, Add, Decal, Fade, Pass, Count };
+///
+/// `AddAlpha` is appended rather than filed next to `Add` because these values
+/// are a byte on disk and inserting one would renumber every `.wem` already
+/// written. It is `Add` scaled by the sample's own alpha — five of World of
+/// Warcraft's shipped combiners spell it (`Combiners_Opaque_AddAlpha` and its
+/// family), `CompositeOp` has carried the twin since revision 3, and Warcraft
+/// III draws it as `FilterMode::AddAlpha`. Folding it onto `Add` added a glow
+/// mask at full strength over the whole surface.
+enum class CombinerOp : u8 { Opaque = 0, Mod, Mod2x, Add, Decal, Fade, Pass, AddAlpha, Count };
 
 const char* ToString(CombinerOp op);
 

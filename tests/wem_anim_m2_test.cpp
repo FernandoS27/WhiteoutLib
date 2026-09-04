@@ -22,6 +22,7 @@
 
 #include <whiteout/models/m2/parser.h>
 #include <whiteout/models/wem/converters.h>
+#include <whiteout/models/wem/retarget.h>
 #include <whiteout/models/wem/validate.h>
 #include <whiteout/utils/os_file_system.h>
 
@@ -398,4 +399,109 @@ TEST_CASE("wem m2 animation survives the corpus", "[wem][anim][m2][.m2slow]") {
     CHECK(channels > 0);
     CHECK(subTracks > 0);
     CHECK(validationErrors == 0u);
+}
+
+// ============================================================================
+// What the WoW material animation becomes in Warcraft III.
+//
+// Both halves of §7's material axis cross a profile boundary here, and both of
+// them were losing everything: `DeriveProfile` builds a second material set and
+// §10.8 keys a channel by `(profile, slot, look)`, so until the derive twinned
+// them the derived set had no animation at all.
+// ============================================================================
+
+TEST_CASE("wem m2 a batch colour hides its batch in Warcraft III too", "[wem][anim][m2][mdx]") {
+    // The shipped idiom for "this batch is not on right now": an `M2Color` whose
+    // alpha is a single key of zero. MDX has no per-material tint, so the only
+    // record with the right reach is `GeosetAnimation`, which keys a geoset.
+    m2::Model model = makeModel();
+    m2::ColorAnimation color;
+    color.color = makeTrack<Vector3f>(m2::InterpolationType::Linear, {{0}, {0}},
+                                      {{Vector3f{1, 1, 1}}, {Vector3f{1, 1, 1}}});
+    color.alpha = makeTrack<i16>(m2::InterpolationType::Linear, {{0}, {0}}, {{0}, {0}});
+    model.colors.push_back(color);
+    model.skinProfiles[0].batches[0].colorIndex = 0;
+
+    Document document = convert(model);
+    const DeriveResult derived = DeriveProfile(document, ProfileId::Wow, ProfileId::Wc3Classic);
+    REQUIRE(derived.ok);
+
+    // The twin: same target, the new profile, a new id, and the sub-tracks came
+    // with it — a channel is a join key and the curve lives in the clip.
+    u32 twins = 0;
+    for (const AnimChannel& channel : document.models[0].animChannels.channels) {
+        if (channel.target.material.profile != ProfileId::Wc3Classic) {
+            continue;
+        }
+        ++twins;
+        CHECK(trackIn(document.clips[0], channel.id) != nullptr);
+    }
+    CHECK(twins == 2u); // the colour and its alpha; this model keys no unit weight
+
+    MdxConverter mdx;
+    Result<mdx::Model> out = mdx.toMdx(document, ProfileId::Wc3Classic);
+    REQUIRE(out.ok());
+    REQUIRE(out.value->geosets.size() == 1u);
+    REQUIRE(out.value->geosetAnimations.size() == 1u);
+    const mdx::GeosetAnimation& animation = out.value->geosetAnimations[0];
+    CHECK(animation.geosetId == 0u);
+    CHECK(hasFlag(animation.flags, mdx::GeosetAnimation::Flag::Color));
+    REQUIRE_FALSE(animation.alphaTracks.keys().empty());
+    CHECK(animation.alphaTracks.keys().front() == 0.0f);
+    CHECK_FALSE(animation.colorTracks.keys().empty());
+}
+
+TEST_CASE("wem m2 each animated layer gets a texture animation of its own",
+          "[wem][anim][m2][mdx]") {
+    // `Layer::textureAnimationId` has no presence bit and defaults to 0, which
+    // is a perfectly good TXAN index — so every layer this export wrote used to
+    // claim entry 0, and the second scrolling layer overwrote the first.
+    m2::Model model = makeModel();
+    m2::Texture second;
+    second.filename = "world/detail.blp";
+    model.textures.push_back(second);
+    model.textureCombos = {0, 1};
+    model.textureCoordCombos = {0, 0};
+    model.textureWeightCombos = {0, 0};
+    model.textureTransformCombos = {0, 1};
+    // Two units, and `shaderId` 0 over two of them is the bit-field path's
+    // `Combiners_Opaque_Opaque` — two stages, so two MDX layers.
+    model.skinProfiles[0].batches[0].textureCount = 2;
+
+    for (int i = 0; i < 2; ++i) {
+        m2::TextureTransform transform;
+        transform.translation =
+            makeTrack<Vector3f>(m2::InterpolationType::Linear, {{0, 1000}, {}},
+                                {{Vector3f{0, 0, 0}, Vector3f{static_cast<f32>(i + 1), 0, 0}}, {}});
+        model.textureTransforms.push_back(transform);
+    }
+
+    Document document = convert(model);
+    REQUIRE(DeriveProfile(document, ProfileId::Wow, ProfileId::Wc3Classic).ok);
+
+    MdxConverter mdx;
+    Result<mdx::Model> out = mdx.toMdx(document, ProfileId::Wc3Classic);
+    REQUIRE(out.ok());
+    REQUIRE(out.value->materials.size() == 1u);
+    const std::vector<mdx::Layer>& layers = out.value->materials[0].layers;
+    REQUIRE(layers.size() == 2u);
+    CHECK(out.value->textureAnimations.size() == 2u);
+    CHECK(layers[0].textureAnimationId != layers[1].textureAnimationId);
+    CHECK(layers[0].textureAnimationId < out.value->textureAnimations.size());
+    CHECK(layers[1].textureAnimationId < out.value->textureAnimations.size());
+}
+
+TEST_CASE("wem m2 a layer with no texture animation says so", "[wem][anim][m2][mdx]") {
+    // The other half of the same sentinel: a layer nothing animates must not
+    // name TXAN 0 either, or a model with one animated layer animates all of
+    // them.
+    Document document = convert(makeModel());
+    REQUIRE(DeriveProfile(document, ProfileId::Wow, ProfileId::Wc3Classic).ok);
+    MdxConverter mdx;
+    Result<mdx::Model> out = mdx.toMdx(document, ProfileId::Wc3Classic);
+    REQUIRE(out.ok());
+    REQUIRE(out.value->materials.size() == 1u);
+    REQUIRE(out.value->materials[0].layers.size() == 1u);
+    CHECK(out.value->textureAnimations.empty());
+    CHECK(out.value->materials[0].layers[0].textureAnimationId == 0xFFFFFFFFu);
 }

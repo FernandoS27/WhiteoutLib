@@ -26,6 +26,16 @@ ElementRef layerRef(u32 ordinal) {
     return ElementRef(ElementKind::Layer, ordinal);
 }
 
+/// `Layer::textureAnimationId`'s "there is none".
+///
+/// The field has no separate presence bit and `mdx::Layer` defaults it to 0,
+/// which is a perfectly good TXAN index — so a layer this export creates and
+/// never fills in claims the model's *first* texture animation. `mdl_converter`
+/// already reads and writes the sentinel; every layer written here says it too,
+/// and `mdx_anim` then hands out one TXAN per animated layer instead of pouring
+/// every scrolling UV in the model into entry 0.
+constexpr u32 kNoTextureAnimation = 0xFFFFFFFFu;
+
 // ── the §7.2.1 split ────────────────────────────────────────────────────────
 
 /// The FIRST layer's filter mode: how the stack meets the scene.
@@ -129,6 +139,9 @@ bool collapsibleOp(Layer::FilterMode mode, CombinerOp& op) {
         return true;
     case Layer::FilterMode::Additive:
         op = CombinerOp::Add;
+        return true;
+    case Layer::FilterMode::AddAlpha:
+        op = CombinerOp::AddAlpha;
         return true;
     default:
         return false;
@@ -553,6 +566,7 @@ void pushLayer(Layer layer, Layer::FilterMode mode, BlendMode blend, mdx::Materi
     if (mode == Layer::FilterMode::None) {
         dst.layers.clear();
     }
+    layer.textureAnimationId = kNoTextureAnimation;
     layer.filterMode = dst.layers.empty() ? filterModeFor(blend) : mode;
     dst.layers.push_back(std::move(layer));
 }
@@ -656,6 +670,8 @@ std::optional<Layer::FilterMode> passModeFor(CombinerOp op) {
         return Layer::FilterMode::Modulate2x;
     case CombinerOp::Add:
         return Layer::FilterMode::Additive;
+    case CombinerOp::AddAlpha:
+        return Layer::FilterMode::AddAlpha;
     case CombinerOp::Decal:
     case CombinerOp::Fade:
         return Layer::FilterMode::Blend;
@@ -709,6 +725,7 @@ void exportPbr(const PbrDeferredBody& body, const Context& context, u32 modelVer
     layer.is_hd = true;
     layer.shader = Layer::ShaderType::HD;
     layer.filterMode = Layer::FilterMode::None;
+    layer.textureAnimationId = kNoTextureAnimation;
 
     if (modelVersion >= 1200) {
         for (const auto& [slot, input] : body.slots) {
@@ -804,6 +821,7 @@ mdx::Material ExportMaterial(const Material& material, ProfileId profile, const 
         Layer blank;
         blank.filterMode = Layer::FilterMode::Blend;
         blank.alpha = 0.0f;
+        blank.textureAnimationId = kNoTextureAnimation;
         dst.layers.push_back(std::move(blank));
     }
 

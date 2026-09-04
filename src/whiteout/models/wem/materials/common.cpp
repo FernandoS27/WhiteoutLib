@@ -95,6 +95,8 @@ const char* ToString(CombinerOp op) {
         return "fade";
     case CombinerOp::Pass:
         return "pass";
+    case CombinerOp::AddAlpha:
+        return "add_alpha";
     case CombinerOp::Count:
         break;
     }

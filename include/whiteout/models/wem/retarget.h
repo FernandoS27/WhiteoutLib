@@ -95,6 +95,79 @@ struct DeriveResult {
 DeriveResult DeriveProfile(Document& document, ProfileId from, ProfileId to,
                            const RetargetOptions& options = {});
 
+// ============================================================================
+// RescaleDocument
+// ============================================================================
+
+/**
+ * @brief What @ref RescaleDocument changed.
+ *
+ * Counted rather than merely reported because "the model came out the wrong
+ * size" and "nothing was scaled" look identical on screen, and these three
+ * numbers tell them apart.
+ */
+struct RescaleResult {
+    bool ok = false;
+    f32 factor = 1.0f;
+    u32 verticesScaled = 0; ///< Across every mesh of every model.
+    u32 nodesScaled = 0;    ///< Pivot, local translation, bind poses and payload.
+    u32 keysScaled = 0;     ///< Sub-track keys on a length-valued channel.
+    Diagnostics diagnostics;
+};
+
+/**
+ * @brief Multiplies every LENGTH in @p document by @p factor.
+ *
+ * The operation `DeriveProfile` refuses to perform and says so (`rescale`
+ * above): geometry is shared by every material set in a model, so a set-level
+ * derive does not get to touch it. This is the whole-document form, and it is
+ * exact — a uniform scale is a conjugation.
+ *
+ * ### Why every length and nothing else
+ *
+ * Write `K = diag(k, k, k, 1)`. Scaling a node's translation by `k` is exactly
+ * `local' = K * local * inverse(K)`, because `K` commutes with a rotation and
+ * with a uniform or non-uniform scale and turns `T(t)` into `T(k t)`. The whole
+ * chain conjugates the same way, so `world' = K * world * inverse(K)` and
+ * `inverseBind' = K * inverseBind * inverse(K)` — which is again "scale the
+ * translation, leave the linear part alone". The skinning matrix therefore
+ * carries `k * v` to `k * (skin * v)` for every bone at every key, which is the
+ * definition of getting a rescale right.
+ *
+ * Rotations and scales are dimensionless and are not touched. Neither are times,
+ * UVs, colours, alphas or fields of view. The lengths are: vertex positions,
+ * bounds and their sphere radii, node pivots, node translations and bind-pose
+ * translations, a light's two attenuation radii, a camera's clip planes, a
+ * collision shape's box, sphere and height, and the sub-track keys and
+ * `initValue`s of `Translation`, `AttenuationStart` and `AttenuationEnd`.
+ *
+ * ### What it does not touch
+ *
+ * **Native blocks.** A `NativeBag` holds the source format's own leftovers under
+ * the source format's own names, and a bag entry that happens to be a length —
+ * an `.m2` `boundsRadius` — belongs to a set this operation is not restating. A
+ * document rescaled and then exported through its ORIGINAL profile therefore
+ * writes a stale native length; rescale on the way to a *different* profile,
+ * which is the case this exists for, and the block is never read.
+ *
+ * @param factor must be finite and greater than zero. A factor of exactly 1
+ *        succeeds and does nothing, which is what a same-scale pair asks for.
+ */
+RescaleResult RescaleDocument(Document& document, f32 factor);
+
+/**
+ * @brief The factor that carries geometry authored for @p from into @p to's
+ *        units, from the profile registry's `sceneScale`.
+ *
+ * `sceneScale` is documentation (§6.2) and this is the one place it becomes an
+ * operation, which is why it is spelled out rather than divided inline at each
+ * call site: World of Warcraft's and StarCraft II's 100 are unit conversions
+ * while Diablo III's 17 is a framing constant, and both are nonetheless the
+ * ratio a host has to apply to put a model on Warcraft III's grid at the size
+ * the viewer draws it.
+ */
+f32 RescaleFactorBetween(ProfileId from, ProfileId to);
+
 /**
  * @brief Brings @p imported's material sets over @p document's geometry as
  *        profile @p profile.

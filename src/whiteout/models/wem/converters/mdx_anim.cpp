@@ -1049,7 +1049,61 @@ private:
         return layer < material.layers.size() ? &material.layers[layer] : nullptr;
     }
 
+    /// A track that multiplies the whole material rather than one of its layers
+    /// — `kWholeMaterial`, which §10.8 introduces for exactly one case: WoW's
+    /// `M2Color`, a colour and an alpha over a whole batch.
+    ///
+    /// MDX has no per-material tint. Its only per-draw one is `GeosetAnimation`,
+    /// which keys a GEOSET, so the curve is written onto every geoset the slot
+    /// draws — the same record a hidden section already uses, and the same
+    /// meaning: Warcraft III multiplies it into the geoset exactly as World of
+    /// Warcraft multiplies `M2Color` into the batch.
+    ///
+    /// Not a layer track. `Layer::alphaTracks` scales one pass, and this scales
+    /// all of them; routing it through `emitLayerChannel` found no ordinal
+    /// `kWholeMaterial` and dropped it, which is how a lich's two effect batches
+    /// — each hidden by a single alpha key of zero — came through as a glow and
+    /// a black plane over the model.
+    void emitWholeMaterialChannel(const AnimChannel& channel, const MergedTrack& merged) {
+        const MaterialChannelRef& ref = channel.target.material;
+        if (ref.profile != profile_) {
+            return;
+        }
+        if (channel.target.channel != Channel::Alpha && channel.target.channel != Channel::Color) {
+            diagnostics_.warn(DiagCode::AnimTrackDropped,
+                              std::string("a whole-material track is ") +
+                                  ToString(channel.target.channel) +
+                                  ", and a geoset animation carries only colour and alpha",
+                              ElementRef(ElementKind::Slot, ref.slot), profile_);
+            return;
+        }
+        bool drawn = false;
+        for (std::size_t g = 0; g < out_.geosets.size(); ++g) {
+            if (out_.geosets[g].materialId != ref.slot) {
+                continue;
+            }
+            drawn = true;
+            mdx::GeosetAnimation& animation = geosetAnimationFor(static_cast<u32>(g));
+            if (channel.target.channel == Channel::Alpha) {
+                Emit(merged, animation.alphaTracks);
+            } else {
+                Emit(merged, animation.colorTracks);
+            }
+        }
+        if (!drawn) {
+            diagnostics_.warn(DiagCode::AnimTrackDropped,
+                              "no geoset draws this material slot, so its whole-material " +
+                                  std::string(ToString(channel.target.channel)) +
+                                  " track has nowhere to go",
+                              ElementRef(ElementKind::Slot, ref.slot), profile_);
+        }
+    }
+
     void emitLayerChannel(const AnimChannel& channel, const MergedTrack& merged) {
+        if (channel.target.sub == kWholeMaterial) {
+            emitWholeMaterialChannel(channel, merged);
+            return;
+        }
         mdx::Layer* layer = layerRecord(channel.target.material, channel.target.sub);
         if (layer == nullptr) {
             // Not this profile's set, or a layer this export filtered out. The

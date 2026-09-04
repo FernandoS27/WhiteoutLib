@@ -328,6 +328,7 @@ M3's own layer op field is near-signal-free in shipped content (mod and add cove
         .value("DECAL", whiteout::models::wem::CombinerOp::Decal)
         .value("FADE", whiteout::models::wem::CombinerOp::Fade)
         .value("PASS", whiteout::models::wem::CombinerOp::Pass)
+        .value("ADD_ALPHA", whiteout::models::wem::CombinerOp::AddAlpha)
         .value("COUNT", whiteout::models::wem::CombinerOp::Count)
     ;
 

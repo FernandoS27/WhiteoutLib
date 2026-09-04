@@ -279,6 +279,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("Decal", whiteout::models::wem::CombinerOp::Decal)
         .value("Fade", whiteout::models::wem::CombinerOp::Fade)
         .value("Pass", whiteout::models::wem::CombinerOp::Pass)
+        .value("AddAlpha", whiteout::models::wem::CombinerOp::AddAlpha)
         .value("Count", whiteout::models::wem::CombinerOp::Count);
 
     enum_<whiteout::models::wem::LegacySlot>("WemLegacySlot")
