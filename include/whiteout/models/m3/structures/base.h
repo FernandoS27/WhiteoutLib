@@ -572,6 +572,10 @@ M3_DEFINE_FLAG_OPS(RigidBodyFlag, u32)
  *
  * Every versioned M3 struct uses this macro to store a version field,
  * set once by the parser and readable thereafter. -1 indicates uninitialized.
+ *
+ * setVersion() refuses to overwrite an already-set version. Version-rewriting
+ * transforms — see engine_compat.h — need forceVersion() instead, because they
+ * operate on structs the parser has already stamped.
  */
 #define M3_DEFINE_VERSION_ACCESSORS()                                                              \
 private:                                                                                           \
@@ -587,6 +591,9 @@ public:                                                                         
         }                                                                                          \
         version = newVersion;                                                                      \
         return true;                                                                               \
+    }                                                                                              \
+    void forceVersion(i32 newVersion) {                                                            \
+        version = newVersion;                                                                      \
     }
 
 } // namespace m3

@@ -31,6 +31,7 @@
  * @endcode
  */
 
+#include "engine_compat.h"
 #include "parser.h"
 #include "structures.h"
 #include "types.h"

@@ -105,6 +105,7 @@ pre {
 15. [Primitive Data Chunks](#15-primitive-data-chunks)
 16. [Animation Data Blocks](#16-animation-data-blocks)
 17. [Complete Version/Size Table](#17-complete-versionsize-table)
+18. [Engine Support Divergence](#18-engine-support-divergence-starcraft-ii-vs-heroes-of-the-storm)
 
 **Appendices**
 
@@ -496,6 +497,11 @@ the field does not exist in that version.
 | m3aAnimHashes | 0x304 | 0x310 | 0x31C | 0x328 | 0x340 | 0x34C | 0x358 |
 
 **MODL version sizes**: v23=784, v24=796, v25=808, v26=820, v28=844, v29=856, v30=868 bytes.
+
+> **v30 is Heroes of the Storm only.** It differs from v29 solely by the
+> `materialAddData` slot at 0x1BC; every field from `particleEmitters` onward
+> is the v29 offset + 12. The StarCraft II client caps MODL at v29 and rejects
+> a v30 file outright. See §18.
 
 ---
 
@@ -1080,6 +1086,10 @@ struct MATM {
 
 **Tag**: `MAT_` | **Versions**: v15=268, v16=280, v17=280, v18=280, v19=340, v20=352 bytes
 
+> **v20 is StarCraft II only.** Heroes of the Storm caps `MAT_` at v19 and
+> rejects a v20 file. The three `hdrEnvironment*` fields below are the whole
+> difference, and they shift the first `Ref<LAYR>` from +52 to +64. See §18.2.
+
 The primary material type used for most rendering.
 
 ```cpp
@@ -1517,6 +1527,9 @@ struct STBM {
 
 **Tag**: `REF_` | **Versions**: v1=84, v2=156, v3=160 bytes
 
+> **v3 is Heroes of the Storm only**, and exists only to carry the MADD link
+> below. StarCraft II caps `REF_` at v2. See §18.1.
+
 ```cpp
 struct REF {
     Ref<CHAR>       name;
@@ -1535,10 +1548,15 @@ struct REF {
     }
     Flag            flags;
     if (version >= 3) {
-        u32         unknown2;
+        i32         dataDrivenMaterialIndex;  // -1 = none; see below
     }
 };
 ```
+
+`dataDrivenMaterialIndex` is not a material parameter. It is the slot the
+Heroes load-time conversion pass writes when it emits a `MADD` record for this
+reflection material (§11.15); the upgrade converter defaults it to **−1** for
+v ≤ 2 records. It is meaningless in a file that carries no `MADD` chunk.
 
 **REF_ Flags** (`flags` field):
 
@@ -1595,6 +1613,10 @@ struct SubFlare {
 ### 11.13 MADD — Data-Driven Material
 
 **Tag**: `MADD` | **Versions**: v1=140, v2=152, v3=160 bytes
+
+> **Heroes of the Storm only.** The StarCraft II client contains no reference to
+> this tag anywhere in its image, and its loader rejects any file containing one.
+> See §18.
 
 The engine's own name for this chunk is **`SDataDrivenMaterialData`**, taken from
 the chunk registration table in the Heroes client (`Heroes.decrypted`, macOS
@@ -3503,7 +3525,7 @@ only.
 | | 0x1A | 820 | +stbMaterials |
 | | 0x1C | 844 | +reflectionMaterials, +clothPhysics |
 | | 0x1D | 856 | +lensFlareMaterials |
-| | 0x1E | 868 | +materialAddData |
+| | 0x1E | 868 | +materialAddData — **HotS only** (§18.1) |
 | **SEQS** | 0x01 | 96 | 2 refs |
 | | 0x02 | 92 | |
 | **STC_** | 0x04 | 204 | 16 refs |
@@ -3530,8 +3552,8 @@ only.
 | | 0x11 | 280 | 15 refs |
 | | 0x12 | 280 | 15 refs |
 | | 0x13 | 340 | 20 refs |
-| | 0x14 | 352 | 20 refs + env multipliers |
-| **MADD** | 0x01 | 140 | 4+4 refs |
+| | 0x14 | 352 | 20 refs + env multipliers — **SC2 only** (§18.2) |
+| **MADD** | 0x01 | 140 | 4+4 refs — **HotS only** (§18) |
 | | 0x02 | 152 | +extraHash ref |
 | | 0x03 | 160 | +extraId0/1 |
 | **LAYR** | 0x14 | 352 **†** | **(β)** 1 ref; pre-v22 layer |
@@ -3553,7 +3575,7 @@ only.
 | **STBM** | 0x00 | 48 | 4 refs |
 | **REF_** | 0x01 | 84 | Minimal |
 | | 0x02 | 156 | |
-| | 0x03 | 160 | Extended |
+| | 0x03 | 160 | +dataDrivenMaterialIndex — **HotS only** (§18.1) |
 | **LFLR** | 0x02 | 80 | Basic |
 | | 0x03 | 152 | +color, HDR, size |
 | **PAR_** | 0x0A | 1300 | **(β)** 3 refs; beta particle emitter |
@@ -3624,6 +3646,104 @@ only.
 | **SR32** | 0x00 | 20 | No refs |
 | **MT32** | 0x00 | 28 | |
 | **MT16** | 0x00 | 14 | |
+
+---
+
+## 18. Engine Support Divergence (StarCraft II vs Heroes of the Storm)
+
+MD34 is one container, but the two engines that read it do **not** implement the
+same chunk set, and neither is a superset of the other. This section records the
+divergence as of the retail clients examined (`SC2.decrypted` and
+`Heroes.decrypted`, both macOS x86-64).
+
+Both clients carry a **chunk descriptor table** — a function that, for every tag
+the engine knows, yields `{tag, engine struct name, element size, current
+version}` (`sub_102C658F0` in SC2, `sub_102771E00` in Heroes). Diffing the two
+tables is an exact statement of what each engine supports. **107 of ~110
+descriptors are byte-identical.** Every difference is listed below.
+
+| Tag | Engine struct | StarCraft II | Heroes of the Storm |
+|-----|---------------|--------------|---------------------|
+| `MADD` | `SDataDrivenMaterialData` | *not supported* | 160 bytes, v3 |
+| `MODL` | `SModelData` | 856 bytes, v29 | 868 bytes, v30 |
+| `REF_` | `SReflectionMaterialData` | 156 bytes, v2 | 160 bytes, v3 |
+| `MAT_` | `SMaterialData` | 352 bytes, **v20** | 340 bytes, **v19** |
+| `SCHR` | *(rename only)* | `SM2Array<char>` | `SM2String` |
+
+Three of the four real differences are one feature — the data-driven material of
+§11.13 — and the fourth moves in the opposite direction.
+
+### 18.1 MODL v30, REF_ v3 and MADD are the same feature
+
+`MADD` does not appear anywhere in the StarCraft II client: a scan of the whole
+81 MB image finds zero occurrences of the FourCC dword `'MADD'` (`0x4D414444`,
+stored in the file as the reversed bytes `44 44 41 4D`), and the string
+`SDataDrivenMaterialData` is likewise absent. Heroes has both, at the same eight
+code sites every other material tag occupies — version table, descriptor table,
+chunk-index builder, upgrade dispatcher, reference validator and writer.
+
+The two companion version bumps carry no independent payload:
+
+- **`MODL` v29 → v30 is purely the MADD slot.** Field offsets are identical
+  through `lensFlareMaterials` (+0x1B0). v30 inserts one 12-byte slot
+  (`materialAddData`, count +0x1BC, ref +0x1C0) and shifts every field from
+  `particleEmitters` onward by +12 — `PAR_` +0x1C0 → +0x1CC, `TMD_` +0x340 →
+  +0x34C, and so on to the end of the struct. 868 − 856 = 12, exactly one slot.
+  Nothing else about MODL changed between the two versions. See §6.1.
+- **`REF_` v2 → v3 adds only the MADD back-reference.** The upgrade converter
+  (`sub_10276BA50`) appends a single `i32` at offset 156 and defaults it to
+  **−1** for v ≤ 2. That field is the one the data-driven conversion pass writes
+  when it emits a MADD record for a reflection material (§11.15) — it is the
+  link from the `REF_` entry to its generated `MADD` index, not a material
+  parameter. The field named `unknown2` in §11.11 is that slot.
+
+So a Heroes model that uses data-driven materials is a MODL v30 file containing
+`MADD` chunks, and possibly `REF_` v3 records pointing into them.
+
+### 18.2 MAT_ v20 is StarCraft II only
+
+The divergence is not one-directional. StarCraft II's `SMaterialData` is **one
+version ahead** of Heroes': SC2 reads and writes v20 (352 bytes), Heroes caps at
+v19 (340 bytes).
+
+v20 inserts three `f32` fields at offsets 52/56/60 — `hdrEnvironmentConstant`,
+`hdrEnvironmentDiffuse`, `hdrEnvironmentSpecular` (§11.2) — which pushes the
+first `Ref<LAYR>` from +52 to +64 and every later reference by +12. SC2's
+converter (`sub_102C5E3A0`) gates them behind `version >= 20`; the Heroes
+converter (`sub_10276A3B0`) has no such branch and places `diffuseLayer` at +52.
+
+Heroes never needed them: its renderer consumes MADD records, where the same
+quantities are properties in the blob rather than fixed struct fields.
+
+### 18.3 Consequences for readers and writers
+
+Version support is enforced **per file, not per chunk**. The load entry point
+(`sub_102C73300` in SC2) runs the chunk table through the version validator
+before anything is parsed, and that validator returns failure — aborting the
+whole model load, not skipping the offending chunk — on either condition:
+
+- a tag it does not recognise, or
+- a version higher than the one in its descriptor table.
+
+The practical results:
+
+| File | StarCraft II | Heroes of the Storm |
+|------|--------------|---------------------|
+| MODL v30, or any file containing `MADD` | rejected | loads |
+| `REF_` v3 | rejected | loads |
+| `MAT_` v20 | loads | rejected |
+| MODL ≤ v29 with `MAT_` ≤ v19 | loads | loads |
+
+A writer targeting both engines must therefore stay at `MODL` ≤ v29, `MAT_`
+≤ v19 and `REF_` ≤ v2, and emit no `MADD`. There is no version tuple that
+expresses both the HDR environment multipliers and a data-driven material.
+
+> **Note for tooling.** Do not derive an engine's supported-tag list from the
+> immediate operands of its version validator. Dense tag ranges compile to jump
+> tables, so tags such as `PHCC`, `PHCL` and `PHCT` never appear as immediates
+> at all; and every `X − 1` boundary constant of the binary search over tags
+> shows up as a phantom tag (`MADC` = `MADD` − 1, `MESG` = `MESH` − 1,
+> `MODK` = `MODL` − 1, …). The descriptor table is the reliable source.
 
 ---
 

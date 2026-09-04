@@ -314,7 +314,10 @@ struct ReflectionMaterial {
     std::optional<TextureLayer> displacementMap; ///< Displacement map texture
     std::optional<TextureLayer> blurMap;         ///< Blur map texture
     ReflectionMaterialFlag flags;                ///< Reflection flags (v2+)
-    u32 unknown2;                                ///< Unknown field
+    /// Index of the DataDrivenMaterial this was converted into, 0xFFFFFFFF if none (v3+).
+    /// Written by the Heroes load-time conversion pass, not a material parameter;
+    /// meaningless in a model that carries no MADD chunk. v3 exists only to hold it.
+    u32 unknown2;
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
