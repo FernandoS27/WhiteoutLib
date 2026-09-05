@@ -618,7 +618,20 @@ u32 Merge(const m3::Model& external, Document& document, u32 model, Diagnostics&
             clip.flags = ClipFlags::AutoPlay | ClipFlags::Persistent | ClipFlags::WorldClocked;
         }
         clip.native.set("sequenceId", static_cast<i64>(sequence.id));
+        // Everything `Import` keeps off a SEQS record, kept here too: an
+        // external sequence is a sequence, and a reader that asked what its
+        // blend time was should not get a different answer for having found it
+        // in the other file.
+        clip.native.set("m3SeqFlags", static_cast<i64>(static_cast<u32>(sequence.flags)));
+        clip.native.set("m3Frequency", static_cast<i64>(sequence.frequency));
+        clip.native.set("blendTime", static_cast<i64>(sequence.blendTime));
+        clip.native.set("startFrame", static_cast<i64>(sequence.startFrame));
         clip.native.set("external", static_cast<i64>(1));
+        // The posed bound the file states for this sequence. Without it the
+        // clip falls back on the model's own, which is the bind pose's — safe,
+        // because it is the larger, and wrong by however much the motion
+        // leaves it.
+        clip.bounds = RebaseExtent(sequence.bounds);
 
         const f32 origin = static_cast<f32>(sequence.startFrame);
         if (s >= external.animationGroups.size()) {

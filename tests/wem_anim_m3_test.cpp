@@ -282,6 +282,61 @@ TEST_CASE("wem m3 an external animation merges on id, never on a name", "[wem][a
     CHECK_FALSE(Validate(document, ValidateLevel::Profile).hasErrors());
 }
 
+TEST_CASE("wem m3 an external clip keeps the record it was written from",
+          "[wem][anim][m3]") {
+    m3::Model base = makeModel();
+    keyTranslation(base, 7, {0}, {Vector3f{0, 0, 0}});
+    Document document = convert(base);
+
+    m3::Model external;
+    m3::Sequence sequence;
+    sequence.id = 41;
+    sequence.name = "Attack";
+    sequence.startFrame = 0;
+    sequence.endFrame = 500;
+    sequence.frequency = 100;
+    sequence.blendTime = 250;
+    sequence.bounds.min = Vector3f{-1, -2, -3};
+    sequence.bounds.max = Vector3f{4, 5, 6};
+    sequence.bounds.radius = 7.0f;
+    external.sequences.push_back(sequence);
+
+    m3::AnimationGroup group;
+    group.subtrackIndices = {0};
+    external.animationGroups.push_back(group);
+
+    m3::SubTrackContainer stc;
+    m3::AnimBlock<Vector3f> known;
+    known.timestamps = {0, 500};
+    known.keys = {Vector3f{0, 0, 0}, Vector3f{1, 0, 0}};
+    stc.sd3v.push_back(std::move(known));
+    stc.animIds.push_back(7);
+    stc.animRefs.push_back(Ref(2, 0));
+    external.subTrackCollections.push_back(std::move(stc));
+
+    M3Converter converter;
+    REQUIRE(converter.mergeAnimation(document, 0, external).ok());
+    REQUIRE(document.clips.size() == 2u);
+    const Clip& added = document.clips[1];
+
+    // The scalars an importing host reads back off the record, which an
+    // external sequence has exactly as much as an authored one.
+    CHECK(added.native.value("blendTime", -1) == 250);
+    CHECK(added.native.value("m3Frequency", -1) == 100);
+    CHECK(added.native.value("startFrame", -1) == 0);
+    CHECK(added.native.value("external", 0) == 1);
+
+    // The bound is the sequence's own, through the basis change: SC2's (x, y)
+    // becomes (-y, x), so the x extent comes from the y one negated.
+    CHECK(added.bounds.minimum.x == -5.0f);
+    CHECK(added.bounds.maximum.x == 2.0f);
+    CHECK(added.bounds.minimum.y == -1.0f);
+    CHECK(added.bounds.maximum.y == 4.0f);
+    CHECK(added.bounds.minimum.z == -3.0f);
+    CHECK(added.bounds.maximum.z == 6.0f);
+    CHECK(added.bounds.sphereRadius == 7.0f);
+}
+
 TEST_CASE("wem m3 merging into a model the document lacks refuses", "[wem][anim][m3]") {
     Document document = convert(makeModel());
     M3Converter converter;

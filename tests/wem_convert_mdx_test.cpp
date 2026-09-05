@@ -244,6 +244,58 @@ TEST_CASE("wem mdx keeps only a replaceable id MDX numbers", "[wem][convert][mdx
     CHECK(fromMdx->textures[0].replaceableId == 11);
 }
 
+TEST_CASE("wem mdx a texture states the address mode its layers ask for",
+          "[wem][convert][mdx][textures]") {
+    Document document = makeSectionedDocument(1);
+    document.textures.clear();
+    TextureRef skin;
+    skin.key = TexturePath{"skin.blp"};
+    skin.path = "skin.blp";
+    document.textures.push_back(skin);
+
+    const auto withWrap = [&document](WrapMode u, WrapMode v) {
+        CompositeBody body;
+        CompositeLayer layer;
+        layer.input.texture = 0;
+        layer.input.wrapU = u;
+        layer.input.wrapV = v;
+        body.layers.push_back(layer);
+        document.models[0].profileSets[0].materials[0].InitCommon().body = body;
+    };
+
+    const MdxConverter converter;
+
+    // MDX states the address mode on the TEXTURE; everything else states it on
+    // the layer, so `TextureRef::flags` is empty on an imported `.m3` -- and an
+    // empty flag word reads as clamp, which smears one edge column across every
+    // surface whose coordinates leave [0,1]. A Murky's body tiles to u ~ 2.
+    document.defaultProfile = ProfileId::Heroes;
+    withWrap(WrapMode::Repeat, WrapMode::Repeat);
+    Result<mdx::Model> tiled = converter.toMdx(document, ProfileId::Wc3Classic, 800);
+    REQUIRE(tiled.ok());
+    REQUIRE(tiled->textures.size() == 1);
+    CHECK(tiled->textures[0].flags ==
+          (mdx::Texture::Flag::WrapWidth | mdx::Texture::Flag::WrapHeight));
+
+    // And a layer that means clamp still gets it: the default is read, not
+    // forced.
+    withWrap(WrapMode::Clamp, WrapMode::Repeat);
+    Result<mdx::Model> clamped = converter.toMdx(document, ProfileId::Wc3Classic, 800);
+    REQUIRE(clamped.ok());
+    REQUIRE(clamped->textures.size() == 1);
+    CHECK(clamped->textures[0].flags == mdx::Texture::Flag::WrapHeight);
+
+    // A document Warcraft III authored keeps its own word, the way it keeps its
+    // own replaceable ids: there the field IS MDX's.
+    document.defaultProfile = ProfileId::Wc3Classic;
+    document.textures[0].flags = static_cast<u32>(mdx::Texture::Flag::WrapWidth);
+    withWrap(WrapMode::Repeat, WrapMode::Repeat);
+    Result<mdx::Model> kept = converter.toMdx(document, ProfileId::Wc3Classic, 800);
+    REQUIRE(kept.ok());
+    REQUIRE(kept->textures.size() == 1);
+    CHECK(kept->textures[0].flags == mdx::Texture::Flag::WrapWidth);
+}
+
 TEST_CASE("wem mdx a hidden section becomes a static alpha of zero",
           "[wem][convert][mdx][geometry]") {
     Document document = makeSectionedDocument(3);

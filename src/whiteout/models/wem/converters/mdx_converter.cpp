@@ -521,6 +521,62 @@ void ImportSkin(const mdx::Geoset& geoset, const NodeImport& nodes, geom::MeshBu
     }
 }
 
+/// The address mode each document texture is sampled with, as MDX's own two
+/// bits: 0x1 wrap U, 0x2 wrap V.
+///
+/// MDX states wrapping on the TEXTURE and every other source states it on the
+/// layer, so `TextureRef::flags` is empty on everything that did not come from
+/// an `.mdx` -- and an empty flag word is not "no opinion", it is clamp. A
+/// clamped layer whose coordinates leave [0,1] samples one edge column across
+/// the whole surface: half of a Murky is a grey smear down the u=1 seam, which
+/// is the same defect the `.m3` adapter's `MaddWrapLayers` was written for and
+/// with the same cause, reached from the export side.
+///
+/// The `.m3` layer's own wrap bit is not the answer either. It is carried in a
+/// per-layer UV transform most layers do not have, so 82% of restored MADD
+/// layers come back with no bit at all, while shipped fixed-function content
+/// wraps on 14464 of 14534 StarCraft II layers and 27664 of 28267 Heroes ones.
+/// `TextureInput` defaults to `Repeat` for exactly that reason, and this reads
+/// the default rather than the source's silence.
+///
+/// A texture two layers disagree about is wrapped: clamping something that
+/// needs to tile loses the whole surface, and tiling something that wanted
+/// clamp shows at one seam.
+std::vector<u32> TextureWrapBits(const Document& document, const ProfileMaterialSet* set) {
+    std::vector<u32> bits(document.textures.size(), 0u);
+    if (set == nullptr) {
+        return bits;
+    }
+    const auto note = [&bits](const TextureInput& input) {
+        if (!input.hasTexture() || input.texture >= bits.size()) {
+            return;
+        }
+        bits[input.texture] |= (input.wrapU == WrapMode::Repeat ? 0x1u : 0u) |
+                               (input.wrapV == WrapMode::Repeat ? 0x2u : 0u);
+    };
+    for (const Material& material : set->materials) {
+        const CommonMaterial& common = material.Common();
+        if (const CompositeBody* body = common.composite()) {
+            for (const CompositeLayer& layer : body->layers) {
+                note(layer.input);
+            }
+        } else if (const CombinersBody* body = common.combiners()) {
+            for (const CombinerStage& stage : body->stages) {
+                note(stage.input);
+            }
+        } else if (const PbrDeferredBody* body = common.pbr()) {
+            for (const auto& [slot, input] : body->slots) {
+                note(input);
+            }
+        } else if (const LegacyDeferredBody* body = common.legacy()) {
+            for (const auto& [slot, input] : body->slots) {
+                note(input);
+            }
+        }
+    }
+    return bits;
+}
+
 } // namespace
 
 // ============================================================================
@@ -908,14 +964,29 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
     // them back to the texture's own key.
     const bool authoredAsMdx =
         Profile(document.defaultProfile).nativeMaterialKind == NativeKind::Mdx;
-    for (const TextureRef& ref : document.textures) {
+    const std::vector<u32> wrapBits = TextureWrapBits(document, set);
+    for (std::size_t t = 0; t < document.textures.size(); ++t) {
+        const TextureRef& ref = document.textures[t];
         mdx::Texture texture;
         texture.fileName = ref.path;
-        texture.flags = static_cast<mdx::Texture::Flag>(ref.flags);
+        // `TextureRef::flags` is MDX's own wrap word only when an `.mdx` put it
+        // there; for every other source it is empty and means nothing, so the
+        // materials say what the texture is sampled with (`TextureWrapBits`).
+        texture.flags = static_cast<mdx::Texture::Flag>(authoredAsMdx ? ref.flags : wrapBits[t]);
         texture.replaceableId = authoredAsMdx ? ref.replaceableId : 0u;
         context.textureIndexMap.push_back(static_cast<u32>(out.textures.size()));
         out.textures.push_back(std::move(texture));
     }
+
+    // A Reforged material names files no document holds: Warcraft III's own
+    // neutral maps, one per HD slot it has nothing of its own for
+    // (`mdx_core::StockTextureFor`). They are interned while the materials are
+    // written and appended below, so the document's own textures keep the
+    // indices every other part of the export assumes are theirs -- the host's
+    // baked ORM among them, which is keyed by document index.
+    std::vector<mdx::Texture> stockTextures;
+    context.stockTextures = &stockTextures;
+    context.stockBase = static_cast<u32>(out.textures.size());
 
     // --- nodes --------------------------------------------------------------
     //
@@ -1156,6 +1227,11 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
         out.materials.push_back(mdx_core::ExportMaterial(*material, profile, context, diagnostics,
                                                          &animContext.layerOfOrdinal[slot]));
     }
+    // Whatever the materials asked for, in the order they asked. `stockBase`
+    // promised these ids and nothing has pushed a texture since.
+    for (mdx::Texture& texture : stockTextures) {
+        out.textures.push_back(std::move(texture));
+    }
 
     // --- meshes -> geosets --------------------------------------------------
     //
@@ -1193,6 +1269,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
     // the group encoding is the only skinning the file carries.
     const bool skinChunk = targetVersion > 800;
     animContext.geosetsOfMesh.assign(model.meshes.size(), {});
+    animContext.sectionOfGeoset.assign(model.meshes.size(), {});
     // The geosets a hidden section produced, turned into geoset animations once
     // every geoset exists.
     std::vector<u32> hiddenGeosets;
@@ -1313,6 +1390,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
             }
 
             animContext.geosetsOfMesh[m].push_back(static_cast<u32>(out.geosets.size()));
+            animContext.sectionOfGeoset[m].push_back(range.section);
             out.geosets.push_back(std::move(geoset));
         }
     }

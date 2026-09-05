@@ -176,6 +176,41 @@ void applyTexture(const PropertyMap& props, const LayerSpec& spec, const DataDri
     layer.textureSource = source;
 }
 
+/// A layer with the values a shipped `MAT_` carries where a MADD has no
+/// property for them.
+///
+/// Not cosmetic. `AnimRef<f32>` starts at zero and a `mapAlpha` of zero is a
+/// layer at **zero strength**: `m3_core` reads it into `TextureInput::weight`
+/// and `exportPbr` writes it as the Reforged layer's alpha, so a restored
+/// Heroes material came out fully transparent and the exported model drew
+/// nothing at all. The engine's own renderer never reads the field, which is
+/// why the same model looks right on screen and empty in the file.
+///
+/// One is the right value, measured rather than assumed: over 29,088 shipped
+/// StarCraft II layers `mapAlpha` is **1.0 on 99.15%** of them, and a MADD
+/// group carrying no `<prefix>Alpha` property is a layer at full strength.
+/// `rgbMultiply` is the same story — `applyChannelSelection` only sets it when
+/// the group has a `ChannelSelection`, and a normal-map group usually has none.
+TextureLayer neutralLayer() {
+    TextureLayer layer;
+    layer.mapAlpha.initValue = 1.0f;
+    layer.rgbMultiply.initValue = 1.0f;
+    return layer;
+}
+
+/// The material scalars a MADD has no property for at all.
+///
+/// A Brightwing's two records name `Specularity` and nothing else — there is no
+/// HDR multiplier anywhere in the property set — and zero is not "no
+/// multiplier", it is "multiply the highlight and the glow to black". The
+/// engine's own surface table reads `<= 0` as 1; saying 1 outright means a
+/// consumer that has no such guard gets the same answer, and `exportPbr`'s
+/// `emissiveGain` is exactly that consumer.
+void applyNeutralScalars(StandardMaterial& mat) {
+    mat.hdrSpecularMultiplier = 1.0f;
+    mat.hdrEmissiveMultiplier = 1.0f;
+}
+
 void applyChannelSelection(const PropertyMap& props, const LayerSpec& spec, TextureLayer& layer) {
     const auto* p = find(props, std::string(spec.prefix) + "ChannelSelection");
     if (!p || p->data.size() < 20)
@@ -276,6 +311,7 @@ StandardMaterialConversion DataDrivenMaterial::toStandardMaterial() const {
 
     StandardMaterial& mat = out.material;
     mat.name = materialName;
+    applyNeutralScalars(mat);
 
     if (has("TwoSided"))
         mat.flags |= MaterialFlag::TwoSided;
@@ -303,7 +339,7 @@ StandardMaterialConversion DataDrivenMaterial::toStandardMaterial() const {
         if (family == spec.families.end())
             continue;
 
-        TextureLayer layer;
+        TextureLayer layer = neutralLayer();
         applyTexture(props, spec, *this, layer, out.lossy);
         applyUV(props, spec, layer);
         applyChannelSelection(props, spec, layer);
@@ -437,6 +473,7 @@ StandardMaterialConversion DataDrivenMaterial::approximateStandardMaterial() con
 
     StandardMaterialConversion out;
     out.material.name = materialName;
+    applyNeutralScalars(out.material);
 
     // extraHashes runs parallel to the node list, holding the name the artist
     // gave each node (0 for pipeline fragments, which are not nodes).
@@ -512,7 +549,7 @@ StandardMaterialConversion DataDrivenMaterial::approximateStandardMaterial() con
 
     StandardMaterial& mat = out.material;
     for (const auto& [role, path] : assigned) {
-        TextureLayer layer;
+        TextureLayer layer = neutralLayer();
         layer.texturePath = path;
         mat.*(graphSlot(role)) = std::move(layer);
     }

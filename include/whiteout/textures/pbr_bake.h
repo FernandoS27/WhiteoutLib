@@ -16,6 +16,47 @@
  * it — so the conversion is a *heuristic*, and the point of putting it here is
  * that it is one heuristic, written once, with the numbers visible.
  *
+ * **What makes the crossing tractable is that Reforged's own shader is not
+ * standard PBR.** `ps_ibl.slang`, reconstructed from the retail pixel shader,
+ * splits the surface as
+ *
+ * ```
+ * F0            = metalness * albedo
+ * diffuseAlbedo = (1 - metalness) * albedo
+ * ```
+ *
+ * with **no dielectric F0 floor** — the 0.04 every other engine adds is simply
+ * absent. So a Reforged surface at metalness 0 has no head-on specular at all,
+ * only the grazing term Schlick leaves behind, and `metalness` is not a
+ * material classification but *the specular knob*. That single fact settles the
+ * whole conversion: the source's specular map is not evidence to weigh, it is a
+ * reflectance to reproduce, and reproducing it means solving
+ *
+ * ```
+ * (1 - m) * albedo = diffuse        the source's diffuse response
+ *       m * albedo = F0             the source's specular response
+ * ```
+ *
+ * for both unknowns at once. Written on luminances so one scalar metalness can
+ * carry it, and as a **gain on the albedo** rather than an addition to it:
+ *
+ * ```
+ * m      = S / (D + S)
+ * albedo = diffuse * (D + S) / D          with D, S the two luminances
+ * ```
+ *
+ * because `(1 - m) * gain == 1` exactly, so every channel of the diffuse
+ * survives untouched. Adding `F0` component-wise matches the same luminance and
+ * drifts the hue toward the specular's — a Reaper whose specular map is blue
+ * comes back blue in the shadows, where StarCraft II shows none of it. The
+ * specular's own hue is lost either way, since Reforged reads `F0 = m * albedo`
+ * and its highlight is the albedo's colour whatever we write.
+ *
+ * That is why @ref BakeBaseColor takes the specular too: half the answer lands
+ * in the map this file bakes and the other half in the one beside it, and a
+ * converter that writes only the metalness makes the model *darker* rather than
+ * shinier, because it has taken `m` out of the diffuse and given nothing back.
+ *
  * Nothing in this file does I/O or knows about a model. It takes decoded
  * textures and returns a decoded texture; the caller resolves the files, picks
  * the container and writes them.
@@ -45,7 +86,7 @@ struct ScalarInput {
     /// Null means "not present" — @ref constant answers instead.
     const Texture* texture = nullptr;
     Channel channel = Channel::R;
-    /// Read `1 - v`. A gloss map is a roughness map spelled backwards.
+    /// Read `1 - v`.
     bool invert = false;
     f32 constant = 0.0f;
 
@@ -58,17 +99,72 @@ struct ScalarInput {
  * @brief One colour term of the bake.
  *
  * `srgb` is the colour space the *samples* are in, not a request: a specular
- * map is display-referred on every source this library reads, and the
- * thresholds below are linear ones, so the bake decodes before it measures.
+ * map is display-referred on every source this library reads and the app binds
+ * it through an sRGB view, so the value the source's own shader multiplies is
+ * the decoded one, and that is what the arithmetic below is written in.
  */
 struct ColorInput {
     const Texture* texture = nullptr;
     bool srgb = true;
     f32 constant[3] = {0.0f, 0.0f, 0.0f};
 
+    /// Read this one channel into all three, the way StarCraft II's
+    /// `SelectChannels` splat does — a layer's channel select and a material's
+    /// `SpecularMode` both reach for it. Absent reads the texture's own RGB.
+    ///
+    /// An sRGB *view* decodes RGB and never alpha, so a splat of
+    /// @ref Channel::A is read encoded even when @ref srgb is set. That is not
+    /// a shortcut: it is what the sampler hands the shader, and assuming
+    /// otherwise is the same mistake that tilted every DXT5nm normal.
+    std::optional<Channel> splat;
+
+    /// Applied after the decode: the layer's own tint times its `rgbMultiply`,
+    /// then `rgbAdd`. They are not cosmetic — a specular map authored at x2 is
+    /// twice the reflectance, and the environment layer that ships with the
+    /// golden Adept carries its whole look in an `add`.
+    f32 scale[3] = {1.0f, 1.0f, 1.0f};
+    f32 bias = 0.0f;
+
     bool present() const {
         return texture != nullptr;
     }
+};
+
+/**
+ * @brief What a specular/gloss source says a surface reflects.
+ *
+ * Both bakes need it and they must agree texel for texel, so it is one struct
+ * the caller fills once. The two terms it resolves are the reflectance @ref
+ * BakeBaseColor adds back into the albedo and @ref BakeOrm turns into a
+ * metalness, and the roughness that replaces the exponent.
+ */
+struct SpecularReflectance {
+    /// The specular colour, as the source's shader would sample it.
+    ColorInput specular;
+
+    /// The material's Blinn-Phong exponent. StarCraft II's `specularExponent`;
+    /// 20 is what the engine substitutes for an unauthored zero, and 20/40/80
+    /// are 97.5% of the corpus.
+    f32 exponent = 20.0f;
+
+    /// Scales @ref exponent per texel, **squared**.
+    ///
+    /// A StarCraft II gloss layer is a *specularity* multiplier and not a
+    /// smoothness: `psmaterial.fx:579` does `specPower *= g*g`, so a mid-grey
+    /// gloss texel lands at a quarter of the exponent, not half. Reading it as
+    /// `1 - g` — which is what "gloss" invites — makes the glossiest texels the
+    /// roughest. Absent is 1.
+    ScalarInput exponentScale{nullptr, Channel::A, false, 1.0f};
+
+    /// `hdrSpecularMultiplier`. Absent is 1.
+    f32 factor = 1.0f;
+
+    /// Whether the source dims the highlight by its own relative area —
+    /// StarCraft II's `FakeEnergyConservingSpec`, which is on unless the
+    /// material sets `SimulateRoughness` (76 of 13,091 measured materials do).
+    /// It is a normalisation, so it belongs in the reflectance and not in the
+    /// lobe; see @ref ReflectanceScale.
+    bool energyConserving = true;
 };
 
 /**
@@ -80,21 +176,14 @@ struct ColorInput {
  * 0.12 and his helmet 0.00.)
  */
 struct OrmRecipe {
-    /// The specular colour. Both the roughness fallback and the whole of the
-    /// metalness are read off it.
-    ColorInput specular;
-
-    /// Gloss, if the material has one. Set `invert` to read it as roughness.
-    ScalarInput gloss;
+    /// Where the roughness and the metalness both come from.
+    SpecularReflectance reflectance;
 
     /// Ambient occlusion. Absent is 1 — unoccluded.
     ScalarInput occlusion{nullptr, Channel::R, false, 1.0f};
 
-    /// The environment (reflection) mask. Absent is 0.
-    ScalarInput environmentMask;
-
     /// Where the team colour lands, as the *source* states it — a blend weight
-    /// on every game this reads. The output is coverage; see @ref BakeOrm.
+    /// on every game this reads.
     /// Absent is 0 — no team colour anywhere.
     ScalarInput teamMask;
 
@@ -107,13 +196,13 @@ struct OrmRecipe {
     /// union is what "this texel is team-coloured" means.
     ScalarInput teamMaskAlt;
 
-    /// The albedo the team tint will modulate, if the caller has it.
+    /// The albedo the metalness splits, and the team tint modulates.
     ///
-    /// It is never written to the output. It decides where the source's blend
-    /// weight becomes coverage: a texel is the team's when the team colour is
-    /// the larger part of what the source would have shown there, and how large
-    /// that part is depends on how dark the paint under it is. Absent thresholds
-    /// the raw weight at a half instead, which over dark art is far too strict.
+    /// Never written to the output, and required for a metalness that means
+    /// anything: `m = F0 / (F0 + albedo)` has no answer without it, and a
+    /// caller that omits it gets a surface with no specular at all rather than
+    /// a guess. It is read *after* the team mask lightens it, because that is
+    /// the albedo @ref BakeBaseColor writes and the runtime multiplies.
     ///
     /// Never counted when choosing the output size: the
     /// occlusion/roughness/metalness map follows the material maps, not the
@@ -127,13 +216,14 @@ struct OrmRecipe {
 };
 
 /**
- * @brief What one team-masked base colour is made of.
+ * @brief What one rewritten base colour is made of.
  *
- * The two masks are the same two @ref OrmRecipe carries and are combined the
- * same way, by max: the map and the albedo have to agree texel for texel or the
- * tint lands where the art was not prepared for it.
+ * The masks are the same two @ref OrmRecipe carries and are combined the same
+ * way, by max; the reflectance is the same one, for the same reason. The two
+ * bakes are halves of one answer and disagreeing about either input puts the
+ * split in a different place in each.
  */
-struct TeamBaseColorRecipe {
+struct BaseColorRecipe {
     /// The source albedo. Required — there is nothing to rewrite without it.
     ColorInput baseColor;
 
@@ -142,11 +232,50 @@ struct TeamBaseColorRecipe {
 
     /// A second team mask, combined with @ref teamMask by **max**.
     ScalarInput teamMaskAlt;
+
+    /// What the metalness will take back out. Absent leaves the albedo alone,
+    /// which is only right for a caller that is also writing metalness 0.
+    SpecularReflectance reflectance;
 };
 
 // ============================================================================
 // Operations
 // ============================================================================
+
+/**
+ * @brief The GGX roughness that stands in for a Blinn-Phong exponent.
+ *
+ * `alpha = sqrt(2 / (n + 2))` is the usual lobe-width match, and Reforged's
+ * `ggxNDF` is the Disney remap — it squares the roughness it is handed before
+ * using it as alpha — so the value the map holds is `sqrt(alpha)`.
+ *
+ * The corpus lands where it should: exponent 20 (72.7% of materials) is
+ * roughness 0.55, 40 is 0.47, 80 is 0.39. The old fallback — inferred from how
+ * bright the specular map was — pinned StarCraft II near **0.88**, which is a
+ * surface with no highlight to see.
+ */
+f32 RoughnessFromExponent(f32 exponent);
+
+/**
+ * @brief What one unit of authored specular is worth as an F0.
+ *
+ * A Blinn-Phong lobe reflects `specColor * dim * pow(NdotH, n)`, and the
+ * energy-preserving normalisation for that lobe is `(n + 8) / (8*pi)`. Equating
+ * the two gives the reflectance an authored sample stands for:
+ *
+ * ```
+ * F0 = specColor * factor * dim(n) * 8*pi / (n + 8)
+ * ```
+ *
+ * where `dim` is StarCraft II's own `FakeEnergyConservingSpec` polynomial
+ * (`psmaterial.fx:203`), itself very nearly proportional to `n` — which is why
+ * the whole scale comes out **flat across the shipped exponents**: 0.078 at 20,
+ * 0.095 at 40, 0.092 at 80. A StarCraft II specular map's white is a little
+ * under a tenth of a mirror, and it is that calibration, not a tuned constant,
+ * that keeps the converted metalness in the same range shipped Reforged art
+ * uses (mean 0.22 over 3,092 maps).
+ */
+f32 ReflectanceScale(f32 exponent, bool energyConserving);
 
 /**
  * @brief Bake @p recipe into one RGBA8 occlusion/roughness/metalness map.
@@ -155,29 +284,35 @@ struct TeamBaseColorRecipe {
  * out of the code:
  *
  * ```
- * specLum   = dot(linear(specular.rgb), (0.2126, 0.7152, 0.0722))
- * saturation = maxS > 1e-5 ? (maxS - minS) / maxS : 0
+ * n         = max(1, exponent * exponentScale^2)
+ * roughness = RoughnessFromExponent(n)
  *
- * roughness  = gloss present ? 1 - gloss
- *                            : 0.1 + 0.8 * pow(1 - specLum, 0.7)
- *
- * metalEvidence = smoothstep(0.08, 0.30, specLum)
- *               * (0.25 + 0.75 * smoothstep(0.05, 0.30, saturation))
- * metallic      = metalEvidence * lerp(0.5, 1.0, 1 - environmentMask)
+ * F0        = linear(specular) * factor * ReflectanceScale(n, ...)
+ * metalness = luminance(F0) / (luminance(F0) + luminance(teamAlbedo))
  * ```
  *
- * The metalness reads *two* pieces of evidence because either alone is a
- * false positive: a bright grey specular is a polished dielectric as often as
- * it is metal, and a saturated dim one is a tinted highlight. A conductor is
- * bright **and** coloured, which is what the product says.
+ * The roughness comes from the **exponent** and not from the specular map,
+ * because that is what the exponent is: a StarCraft II material's highlight is
+ * the same width everywhere unless a gloss layer says otherwise, and its map
+ * varies the highlight's *strength*, which is the metalness's job. Reading the
+ * map as a roughness gets both terms wrong at once and is what a spec/gloss
+ * converter reaches for when it has not looked at the source shader.
  *
- * The team mask is the one channel that is not a measurement but a **decision**.
- * Warcraft III's is coverage — over a footman's five shipped maps the alpha sits
- * 88-100% at 0..15 and 7-11% at 240..255, with 0.4-1.3% anywhere between, which
- * is an antialiased edge and nothing else — while every source this reads states
- * a blend *weight*. So the bake thresholds, and @ref OrmRecipe::baseColor is
- * what it thresholds against. The shading of a team-coloured surface belongs in
- * the base colour, which is @ref BakeTeamBaseColor's job.
+ * It also makes the packed map compressible. Three uncorrelated channels in
+ * BC3's BC1-grade RGB block share one interpolation line and cannot be fitted;
+ * the artefacts land in all three, which is why a *constant* occlusion channel
+ * comes back out speckled. With the roughness constant per material and the
+ * occlusion usually so too, the block reduces to a line along metalness and the
+ * error collapses. Shipped Reforged ORMs are all BC3 and get the same benefit
+ * from the other direction — their metalness is nearly binary (69.8% below
+ * 16/255, 14.1% above 240).
+ *
+ * The team mask is the one channel that is not a measurement but a **decision**
+ * — Warcraft III's is coverage where every source this reads states a blend
+ * weight — so the bake weighs the team's share against the paint under it, and
+ * @ref OrmRecipe::baseColor is what it weighs against. The shading of a
+ * team-coloured surface belongs in the base colour, which is @ref
+ * BakeBaseColor's job.
  *
  * Sources of different sizes are sampled bilinearly at the output resolution.
  * The result is marked `Multikind` with per-channel kinds, so `generateMipmaps`
@@ -191,38 +326,48 @@ struct TeamBaseColorRecipe {
 std::optional<Texture> BakeOrm(const OrmRecipe& recipe);
 
 /**
- * @brief Rewrite an albedo so that a *modulated* team tint reproduces a
- *        *replaced* one.
+ * @brief Rewrite an albedo so a metal/rough engine reproduces a spec/gloss
+ *        one — and so a *modulated* team tint reproduces a *replaced* one.
  *
- * The two engines colour a unit differently, and the difference is not
- * cosmetic. StarCraft II replaces the albedo — `psmateriallayer.fx` does
- * `lerp(teamColour, diffuse, a)`, so where `a` is low the art underneath is
- * never seen and it does not matter that it is dark. Warcraft III modulates:
- * measured on a real export, forcing the mask to 1 drives green and blue to
- * zero while red holds steady, which is `albedo * lerp(1, team, m)` and nothing
- * else. So the crossing has to solve for both the albedo and the mask:
+ * Two rewrites, both additive, both in linear light.
+ *
+ * **The metal split.** Reforged spends the albedo on the two lobes:
+ * `diffuseAlbedo = (1 - m) * albedo` and `F0 = m * albedo`. Asking that those
+ * equal the source's diffuse and specular scales the albedo by
+ * `(D + S) / D` — up by exactly what the metalness will take out, so the
+ * diffuse response is preserved channel for channel and the highlight is paid
+ * for. Leaving it out is how "we added metalness and the model got darker"
+ * happens. Where the art is black there is nothing to scale — `F0 = m * albedo`
+ * is zero however large `m` grows — so the reflectance is added outright
+ * instead, which is the only way such a texel reflects at all.
+ *
+ * **The team lerp.** The two engines colour a unit differently, and the
+ * difference is not cosmetic. StarCraft II replaces the albedo —
+ * `psmateriallayer.fx` does `lerp(teamColour, diffuse, a)`, so where `a` is low
+ * the art underneath is never seen and it does not matter that it is dark.
+ * Warcraft III modulates: measured on a real export, forcing the mask to 1
+ * drives green and blue to zero while red holds steady, which is
+ * `albedo * lerp(1, team, m)` and nothing else. So the crossing has to solve
+ * for both the albedo and the mask:
  *
  * ```
  * want:  a*diffuse + (1-a)*team   ==   base * (1 - m + m*team)
  *
  * term by term:   base*(1-m) = a*diffuse        base*m = 1-a
  * their sum:      base = a*diffuse + (1-a)  =  lerp(white, diffuse, a)
- * their ratio:    m    = (1-a) / ((1-a) + a*luminance(diffuse))
  * ```
  *
- * The mask that goes beside it is *coverage* — 1 or 0, see @ref BakeOrm — so
- * everything about a team-coloured surface except where it is has to be here.
- * That is what this lerp keeps: at `a = 0` the texel is white and the swatch
- * supplies the colour outright, which is the whole point of a replaceable; as
- * `a` rises the art's own darkness comes back through, and it is that variation
- * the runtime multiplies to shade the tint. **Writing only the mask is what
- * "the team colour is barely there" looks like** — StarCraft II art under a
- * mask averages 26/255 against a Reforged footman's 93, because StarCraft II
- * was going to replace it, and a modulate over 26/255 is nearly black.
+ * At `a = 0` the texel is white and the swatch supplies the colour outright,
+ * which is the whole point of a replaceable; as `a` rises the art's own
+ * darkness comes back through, and it is that variation the runtime multiplies
+ * to shade the tint. **Writing only the mask is what "the team colour is barely
+ * there" looks like** — StarCraft II art under a mask averages 26/255 against a
+ * Reforged footman's 93, because StarCraft II was going to replace it, and a
+ * modulate over 26/255 is nearly black.
  *
- * Where the mask is 0 nothing moves. The lerp is done in the colour space
- * @ref ColorInput::srgb names, because that is where the engine's own lerp
- * happens.
+ * Where neither term applies nothing moves. The lerp and the add are done in
+ * linear light and re-encoded into the space @ref ColorInput::srgb names,
+ * because that is where the engine's own lerp happens.
  *
  * The result is opaque. StarCraft II never read the diffuse alpha as coverage
  * — its alpha-mask layers are the coverage — and Warcraft III does, so leaving
@@ -232,7 +377,7 @@ std::optional<Texture> BakeOrm(const OrmRecipe& recipe);
  * @return The rewritten albedo as RGBA8, or `std::nullopt` if the base colour
  *         is absent or empty.
  */
-std::optional<Texture> BakeTeamBaseColor(const TeamBaseColorRecipe& recipe);
+std::optional<Texture> BakeBaseColor(const BaseColorRecipe& recipe);
 
 /**
  * @brief How a restated normal's two components are laid out.

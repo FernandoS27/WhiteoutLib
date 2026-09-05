@@ -168,6 +168,35 @@ void applyMapping(m3::UVMappingMode mode, TextureInput& input) {
     }
 }
 
+/// A restored MADD layer wraps, whatever the restore says.
+///
+/// The record only names an address mode inside a per-layer UV transform and
+/// most layers have none, so 5778 of 7015 restored layers (82%) come back with
+/// no wrap bit at all. Clamp is not what that silence means: shipped
+/// fixed-function content wraps on 14464 of 14534 StarCraft II layers and 27664
+/// of 28267 Heroes ones, and a Murky's body tiles to u ~ 2. Read literally, half
+/// of him is a grey smear down the u = 1 seam -- which is the same correction
+/// the renderer's own adapter makes, for the same reason.
+void MaddLayersWrap(m3::StandardMaterial& material) {
+    using Slot = std::optional<m3::TextureLayer> m3::StandardMaterial::*;
+    static constexpr Slot kSlots[] = {
+        &m3::StandardMaterial::diffuseLayer,          &m3::StandardMaterial::decalLayer,
+        &m3::StandardMaterial::specularLayer,         &m3::StandardMaterial::glossLayer,
+        &m3::StandardMaterial::emissiveLayer1,        &m3::StandardMaterial::emissiveLayer2,
+        &m3::StandardMaterial::environmentLayer,      &m3::StandardMaterial::environmentMaskLayer,
+        &m3::StandardMaterial::alphaLayer1,           &m3::StandardMaterial::alphaLayer2,
+        &m3::StandardMaterial::normalLayer,           &m3::StandardMaterial::heightLayer,
+        &m3::StandardMaterial::lightMapLayer,         &m3::StandardMaterial::ambientOcclusionLayer,
+        &m3::StandardMaterial::normalBlend1MaskLayer, &m3::StandardMaterial::normalBlend2MaskLayer,
+        &m3::StandardMaterial::normalBlend1Layer,     &m3::StandardMaterial::normalBlend2Layer,
+    };
+    for (const Slot slot : kSlots) {
+        if (auto& layer = material.*slot; layer.has_value()) {
+            layer->flags |= m3::TextureLayerFlag::UVWrapX | m3::TextureLayerFlag::UVWrapY;
+        }
+    }
+}
+
 TextureInput inputFor(const m3::TextureLayer& layer, const Context& context, u32 ordinal,
                       Diagnostics& out) {
     TextureInput input;
@@ -183,6 +212,14 @@ TextureInput inputFor(const m3::TextureLayer& layer, const Context& context, u32
                  ElementRef(ElementKind::Layer, ordinal));
     }
     applyMapping(layer.uvMapping, input);
+    // The address mode. StarCraft II states it per LAYER and Warcraft III per
+    // TEXTURE, so this is the field the `.mdx` export has to reconstruct a TEXS
+    // flag word from -- and a layer read as clamp whose coordinates leave [0,1]
+    // samples one edge column across the whole surface.
+    input.wrapU = hasFlag(layer.flags, m3::TextureLayerFlag::UVWrapX) ? WrapMode::Repeat
+                                                                     : WrapMode::Clamp;
+    input.wrapV = hasFlag(layer.flags, m3::TextureLayerFlag::UVWrapY) ? WrapMode::Repeat
+                                                                     : WrapMode::Clamp;
     // `color` is an AnimRef; the constant is its initial value, and the
     // animation lives in the channel table (§10.8).
     const m3::ColorBGRA tint = layer.color.initValue;
@@ -610,6 +647,7 @@ Material ImportMaterial(const m3::Model& model, const m3::MaterialMap& entry, Pr
             restored = source.approximateStandardMaterial();
         }
         if (restored.converted) {
+            MaddLayersWrap(restored.material);
             importStandard(restored.material, context, common, out, layerOrdinals);
             native::M3Standard standard;
             CopyToNative(restored.material, standard);
@@ -715,6 +753,12 @@ m3::TextureLayer layerFrom(const TextureInput& input, const Context& context) {
     layer.uvOffset.initValue = Vector2f(input.uvTransform.m[0][2], input.uvTransform.m[1][2]);
     layer.uvTiling.initValue = Vector2f(input.uvTransform.m[0][0], input.uvTransform.m[1][1]);
     layer.mapAlpha.initValue = input.weight;
+    if (input.wrapU == WrapMode::Repeat) {
+        layer.flags |= m3::TextureLayerFlag::UVWrapX;
+    }
+    if (input.wrapV == WrapMode::Repeat) {
+        layer.flags |= m3::TextureLayerFlag::UVWrapY;
+    }
     return layer;
 }
 

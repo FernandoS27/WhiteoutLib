@@ -1569,6 +1569,15 @@ void Parser::Impl::upgradeMaterials(Model& mdx) {
         } else {
             // Non-HD path: seed subTextures[0] for each layer so the writer
             // can emit the unified v1100 layout consistently.
+            //
+            // The shader name still says which kind of non-HD this is. Below
+            // v1100 there is no per-layer shader field, so `Shader_SD_FixedFunction`
+            // -- the classic pipeline running inside a Reforged model -- is
+            // carried by the material's name alone, and dropping it here left
+            // the layer reading as plain `SD`. That is what a `.mdl` conversion
+            // then wrote, because `mdl_writer` emits the `Shader` line off the
+            // LAYER: an SD-on-HD material converted to text stopped being one.
+            const bool sdOnHd = mat.shader == "Shader_SD_FixedFunction";
             for (auto& layer : mat.layers) {
                 Layer::SubTexture subTex;
                 subTex.textureId = layer.textureId;
@@ -1577,6 +1586,9 @@ void Parser::Impl::upgradeMaterials(Model& mdx) {
                 layer.subTextures.push_back(subTex);
                 layer.textureId = 0; // Clear textureId since it will be in subTextures
                 layer.textureIdTracks = Track<u32>(); // Clear old tracks
+                if (sdOnHd) {
+                    layer.shader = Layer::ShaderType::SDOnHD;
+                }
             }
         }
     }

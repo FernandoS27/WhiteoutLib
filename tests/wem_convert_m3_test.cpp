@@ -15,6 +15,7 @@
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
 
 #include <whiteout/models/wem/converters.h>
 
@@ -190,6 +191,82 @@ TEST_CASE("wem m3 skinning goes through the region's bone lookup", "[wem][conver
     // Slot 0 of the window, not bone 0.
     CHECK(influences[0].bone == 1);
     CHECK(influences[0].weight == 1.0f);
+}
+
+TEST_CASE("wem m3 a gate bone keeps the visibility it rests at",
+          "[wem][convert][m3][visibility]") {
+    m3::Model model = makeModel(30);
+    // A batch gated on bone 1, whose visibility rests VISIBLE. Nothing keys it:
+    // 972 of Heroes' 18,409 models carry no sequence at all, and Alexstrasza --
+    // whose four batches all gate on one `Vis_` bone -- is one of them.
+    model.bones[1].visibility.initValue = 1;
+    model.divisions[0].batches[0].boneCount = 1;
+
+    const M3Converter converter;
+    Result<Document> document = converter.fromM3(model, ProfileId::Heroes);
+    REQUIRE(document.ok());
+    Result<m3::Model> written = converter.toM3(*document, ProfileId::Heroes, 30);
+    REQUIRE(written.ok());
+
+    REQUIRE(written->divisions.size() == 1);
+    REQUIRE(written->divisions[0].batches.size() == 1);
+    CHECK(written->divisions[0].batches[0].boneCount == 1);
+    REQUIRE(written->bones.size() == 2);
+    // Position, rotation and scale rest in the node; visibility has no node
+    // field, so the export has to go back to the channel for it. Left at the
+    // struct's zero the gate reads "invisible" and the model draws nothing.
+    CHECK(written->bones[1].visibility.initValue == 1u);
+}
+
+TEST_CASE("wem m3 a region states the scale its UVs decode at",
+          "[wem][convert][m3][uv]") {
+    // The raw i16 pair every vertex of the quad carries.
+    constexpr i16 kRawU = 4096;
+    constexpr i16 kRawV = 2048;
+
+    const auto imported = [&](bool v5, f32 scale, f32 offset) {
+        m3::Model model = makeModel(30);
+        for (std::size_t v = 0; v < 4; ++v) {
+            std::memcpy(model.vertices.data.data() + v * kStride + 24, &kRawU, sizeof(i16));
+            std::memcpy(model.vertices.data.data() + v * kStride + 26, &kRawV, sizeof(i16));
+        }
+        model.vertices.initialize();
+        m3::Region& region = model.divisions[0].regions[0];
+        if (v5) {
+            region.setVersion(5);
+            region.uvScale = scale;
+            region.uvOffset = offset;
+        }
+        const M3Converter converter;
+        Result<Document> document = converter.fromM3(model, ProfileId::Heroes);
+        REQUIRE(document.ok());
+        const Mesh& mesh = document->models.front().meshes.front();
+        const auto uvs =
+            mesh.attributes.get<const Vector2f>(geom::names::uv(0), geom::Domain::Halfedge);
+        REQUIRE(!uvs.empty());
+        return uvs[0];
+    };
+
+    // A region that says nothing is the flat divide every pre-v5 one implies.
+    const Vector2f implied = imported(false, 0.0f, 0.0f);
+    CHECK(implied.x == Catch::Approx(static_cast<f32>(kRawU) / 2048.0f));
+    CHECK(implied.y == Catch::Approx(static_cast<f32>(kRawV) / 2048.0f));
+
+    // The stock v5 pair is the same thing said out loud: 16 / 32767 is 1 / 2048
+    // to within a part in 32767, which is why reading it wrong looks right on
+    // most models.
+    const Vector2f stock = imported(true, 16.0f, 0.0f);
+    CHECK(stock.x == Catch::Approx(static_cast<f32>(kRawU) / 2048.0f).epsilon(0.001));
+
+    // And one that says something else. Shipped Heroes regions carry scales
+    // from 0.26 to 17 with an offset to match -- Alexstrasza's body is
+    // 0.941 / 0.941 -- and at 1/2048 her [0,1] skin lands anywhere in
+    // [-16, 16], which a clamped sampler then smears into one column.
+    const Vector2f stated = imported(true, 0.941076f, 0.941076f);
+    CHECK(stated.x ==
+          Catch::Approx(static_cast<f32>(kRawU) * 0.941076f / 32767.0f + 0.941076f));
+    CHECK(stated.y ==
+          Catch::Approx(static_cast<f32>(kRawV) * 0.941076f / 32767.0f + 0.941076f));
 }
 
 TEST_CASE("wem m3 interns texture paths as it imports", "[wem][convert][m3][textures]") {

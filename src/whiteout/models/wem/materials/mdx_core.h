@@ -48,6 +48,7 @@
  * that case imports and diagnoses rather than being silently reinterpreted.
  */
 
+#include <string>
 #include <vector>
 
 #include <whiteout/models/mdx/structures.h>
@@ -70,6 +71,12 @@ inline constexpr f32 kTransparentAlphaRef = 0.75f;
 /// sub-texture array to name the slots with.
 inline constexpr std::size_t kHdPositionalSlotCount = 6;
 
+/// "there is no texture in this slot". `mdx::Layer::textureId` is a `u32` and
+/// the renderer reads it as an `i32`, so this is the -1 every absent-texture
+/// path already tests for. A written Reforged material should never contain one
+/// — see @ref Context::stockTexture.
+inline constexpr u32 kNoTexture = 0xFFFFFFFFu;
+
 /// What the converter must supply that a `mdx::Material` does not carry.
 struct Context {
     /// `mdx::Model::version` — 800 | 900 | 1000 | 1100 | 1200. Decides whether
@@ -88,7 +95,40 @@ struct Context {
     /// `.mdx` texture, which is dozens, and a second index would be a second
     /// thing to keep in step.
     u32 toMdx(u32 documentTextureId) const;
+
+    /// Where a texture the *export* needs and the document never held is put.
+    ///
+    /// A Reforged HD material is six slots and shipped content fills all six:
+    /// across the 12,893 six-slot HD layers in `war3.w3mod` not one slot is
+    /// empty. Where a material has no map of its own it names the stock neutral
+    /// of that slot (@ref StockSlotTexture), and those files are not in any
+    /// document — they are Warcraft III's, and the material only learns it needs
+    /// one while it is being written.
+    ///
+    /// Entries appended here are written after the document's own textures,
+    /// starting at @ref stockBase. Null is the hand-built context a test makes:
+    /// an absent slot then stays `-1`, which is what this used to write always.
+    std::vector<mdx::Texture>* stockTextures = nullptr;
+
+    /// The `.mdx` texture id `(*stockTextures)[0]` will be given — that is, the
+    /// number of textures the document itself contributed.
+    u32 stockBase = 0;
+
+    /// The `.mdx` texture id naming @p path, or replaceable @p replaceableId,
+    /// interning it. @ref kNoTexture when there is no sink.
+    u32 stockTexture(const std::string& path, u32 replaceableId = 0) const;
 };
+
+/// Warcraft III's neutral for one Reforged HD slot, as shipped content spells
+/// it — see @ref Context::stockTexture. `replaceableId` is non-zero only for the
+/// team colour, which no file backs.
+struct StockSlotTexture {
+    const char* path = "";
+    u32 replaceableId = 0;
+};
+
+/// The stock neutral for @p slot. Empty for a slot Warcraft III has none for.
+StockSlotTexture StockTextureFor(mdx::Layer::SlotType slot);
 
 /// Whether @p layer of @p material is a Reforged HD layer. See the file comment:
 /// this is not `layer.is_hd`, because nothing sets that.

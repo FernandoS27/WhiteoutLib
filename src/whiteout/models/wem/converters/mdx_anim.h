@@ -115,6 +115,12 @@ struct ExportContext {
     /// only a mesh (`TrackTarget::mesh`), so it fans out over that mesh's run.
     std::vector<std::vector<u32>> geosetsOfMesh;
 
+    /// Parallel to @ref geosetsOfMesh: which SECTION each of those geosets came
+    /// from. A `Kind::Section` channel names only a mesh and fans out, but a
+    /// section can also carry a per-section gate (`visibilityBone`, §5.5), and
+    /// that one has to land on its own geoset and no other.
+    std::vector<std::vector<u32>> sectionOfGeoset;
+
     /// Per material slot, the layer index each WEM ordinal became. The identity
     /// map on every shipped material — `ImportMaterial` numbers ordinals over
     /// the *filtered* stack and the export writes exactly that stack — but

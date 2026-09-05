@@ -215,6 +215,49 @@ struct M3VertexEncoder {
     }
 };
 
+/// The multiply/add that turns a raw i16 UV unit into a texture coordinate.
+///
+/// A REGN v5 states the pair itself, in SNORM space -- so the stock 16.0 is
+/// `16 / 32767`, which is the same `1 / 2048` every older region implies and
+/// what makes the flat divide look right on most models. It is not right on all
+/// of them: shipped Heroes regions carry scales from 0.26 to 17, and reading one
+/// at 1/2048 puts a body authored for [0,1] anywhere in [-16, 16]. The renderer
+/// has always done this (`m3_surface_table.cpp`); the converter had not, and the
+/// export only looked correct because a clamped sampler hid it.
+Vector2f UvDecodeFor(const m3::Region& region) {
+    if (region.getVersion() >= 5 && region.uvScale > 0.0f) {
+        return Vector2f{region.uvScale / 32767.0f, region.uvOffset};
+    }
+    return Vector2f{1.0f / 2048.0f, 0.0f};
+}
+
+/// What a bone's visibility rests at, which is the only thing that decides
+/// whether a gated batch draws in a model with nothing keying it.
+///
+/// A bone's position, rotation and scale rest in `Node::local`, so the export
+/// reads them from there. Visibility has no such home -- it is an M3 property
+/// with no node field of its own, and the import parks its rest in the channel
+/// it declares for it. A written `.m3` therefore left `visibility.initValue` at
+/// the struct's zero, which reads as "invisible": Alexstrasza, whose four
+/// batches all gate on `Vis_Alexstrasza` and whose `.m3` has no sequence at all,
+/// round-tripped into a model that draws nothing.
+///
+/// Visible is the answer when the document says nothing. Every source but M3
+/// gates no batch, so the value is never read there; within M3 the file's own
+/// AnimRef default is the rest, and `restValue` put it in the channel.
+f32 VisibilityRest(const Model& model, u32 node) {
+    for (const AnimChannel& channel : model.animChannels.channels) {
+        if (channel.target.kind != TrackTarget::Kind::Node || channel.target.node != node ||
+            channel.target.channel != Channel::Visibility || !channel.hasInitValue()) {
+            continue;
+        }
+        f32 rest = 1.0f;
+        std::memcpy(&rest, channel.initValue.data(), sizeof(f32));
+        return rest;
+    }
+    return 1.0f;
+}
+
 NodeTree ImportNodes(const m3::Model& source) {
     NodeTree tree;
 
@@ -425,9 +468,15 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
     const std::vector<Vector4f> tangents = source.vertices.getTangents();
     const std::vector<m3::ColorBGRA> colors = source.vertices.getColors();
     const std::size_t uvCount = source.vertices.UVsNum();
+    // RAW i16 units, because the coordinate is not a property of the blob: a
+    // REGN v5 states its own `uvScale`/`uvOffset` and only a stock one carries
+    // 16 and 0 -- the pair that reproduces the flat `raw / 2048` older regions
+    // imply. Alexstrasza's four regions carry 0.92/1.07, 0.26/0.26, 0.94/0.94
+    // and 0.32/0.34, so decoding her at 1/2048 spreads a body meant for [0,1]
+    // across the whole +-16 range. `UvDecodeFor` does the per-region half.
     std::vector<std::vector<Vector2f>> uvSets;
     for (std::size_t u = 0; u < uvCount; ++u) {
-        uvSets.push_back(source.vertices.getUVs(u));
+        uvSets.push_back(source.vertices.getUVs(u, 1.0f, 0.0f));
     }
     // Both come back as raw bytes: an index is region-local and a weight is
     // 0..255, so the divide is the converter's to do.
@@ -474,8 +523,22 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
             section.name = "region_" + std::to_string(r);
             section.native.set("rootBone", static_cast<i64>(region.rootBone));
             section.native.set("regionFlags", static_cast<i64>(static_cast<u32>(region.flags)));
-            if (hasFlag(region.flags, m3::RegionFlag::Hidden)) {
-                section.flags = SectionFlags::Hidden;
+            // `Hidden` never appears alone. Measured over 111,743 shipped
+            // regions — 36,712 Heroes and 75,031 StarCraft II — it is 189 + 189
+            // and 27 + 27, in pairs: one `Hidden|ClothSimulated` beside one
+            // `Hidden|Placeholder|ClothInfluenced`. The first is the simulation
+            // cage and is not drawn; the second IS the cape, and reading its
+            // `Hidden` bit as "do not draw" exported Alexstrasza's cloak and
+            // Artanis's cloth as nothing at all.
+            if (hasFlag(region.flags, m3::RegionFlag::ClothSimulated)) {
+                section.flags |= SectionFlags::ClothSimulated;
+            }
+            if (hasFlag(region.flags, m3::RegionFlag::ClothInfluenced)) {
+                section.flags |= SectionFlags::ClothInfluenced;
+            }
+            if (hasFlag(region.flags, m3::RegionFlag::Hidden) &&
+                !hasFlag(region.flags, m3::RegionFlag::ClothInfluenced)) {
+                section.flags |= SectionFlags::Hidden;
             }
             const u32 batch = batchOfRegion[r];
             if (batch == kInvalidIndex) {
@@ -496,13 +559,14 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
                 // §16's measured finding: `boneCount` is a bone *index* whose
                 // animated visibility gates the batch, and 0xFFFF means always
                 // drawn. It is section state, not a count.
-                section.native.set("visibilityBone", static_cast<i64>(record.boneCount));
+                section.native.set(kSectionVisibilityNode, static_cast<i64>(record.boneCount));
             }
             sectionOfRegion[r] = builder.addSection(std::move(section));
         }
 
         for (std::size_t r = 0; r < division.regions.size(); ++r) {
             const m3::Region& region = division.regions[r];
+            const Vector2f uvDecode = UvDecodeFor(region);
             const u32 base = region.firstVertex - lowest;
             const std::size_t first = region.firstIndex;
             const std::size_t last = first + region.indexCount;
@@ -542,8 +606,11 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
                     }
                     for (std::size_t u = 0; u < uvSets.size(); ++u) {
                         if (global < uvSets[u].size()) {
-                            builder.setCornerAttr(face, c, geom::names::uv(static_cast<u32>(u)),
-                                                  uvSets[u][global]);
+                            const Vector2f& raw = uvSets[u][global];
+                            builder.setCornerAttr(
+                                face, c, geom::names::uv(static_cast<u32>(u)),
+                                Vector2f{raw.x * uvDecode.x + uvDecode.y,
+                                         raw.y * uvDecode.x + uvDecode.y});
                         }
                     }
                 }
@@ -652,6 +719,9 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         const Quaternion& rotation = node.local.rotation;
         bone.rotation.initValue = Quaternion{rotation.y, -rotation.x, rotation.z, rotation.w};
         bone.scale.initValue = node.local.scale;
+        // The batch gate reads this and nothing else when no clip drives it.
+        bone.visibility.initValue =
+            VisibilityRest(model, static_cast<u32>(n)) > 0.5f ? 1u : 0u;
         out.bones.push_back(std::move(bone));
 
         // IREF, one matrix per bone and in the same order. `poseMatrixOf`
@@ -831,6 +901,11 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             region.indexCount = range.indexCount;
             region.boneWeightPairs = 4;
             region.boneIndexPairs = 4;
+            // `M3VertexEncoder` writes `uv * 2048`, so the pair that reads it
+            // back is the stock one. Stated rather than left at the struct's
+            // uninitialised float, which a v5 reader would take literally.
+            region.uvScale = 16.0f;
+            region.uvOffset = 0.0f;
             region.firstBoneLookup = static_cast<u16>(out.boneLookup.size());
 
             if (range.section < mesh.sections.size()) {
@@ -951,7 +1026,8 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             batch.boneCount = 0xFFFFu;
             if (range.section < mesh.sections.size()) {
                 batch.boneCount = static_cast<u16>(
-                    mesh.sections[range.section].native.value("visibilityBone", 0xFFFF));
+                    mesh.sections[range.section].native.value(kSectionVisibilityNode,
+                                                             kSectionAlwaysDrawn));
             }
             division.regions.push_back(std::move(region));
             division.batches.push_back(batch);

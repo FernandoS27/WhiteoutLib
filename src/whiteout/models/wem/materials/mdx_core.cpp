@@ -412,6 +412,45 @@ u32 Context::toMdx(u32 documentTextureId) const {
     return 0;
 }
 
+u32 Context::stockTexture(const std::string& path, u32 replaceableId) const {
+    if (stockTextures == nullptr) {
+        return kNoTexture;
+    }
+    for (std::size_t i = 0; i < stockTextures->size(); ++i) {
+        const mdx::Texture& texture = (*stockTextures)[i];
+        if (texture.replaceableId == replaceableId && texture.fileName == path) {
+            return stockBase + static_cast<u32>(i);
+        }
+    }
+    mdx::Texture texture;
+    texture.fileName = path;
+    texture.replaceableId = replaceableId;
+    stockTextures->push_back(std::move(texture));
+    return stockBase + static_cast<u32>(stockTextures->size() - 1);
+}
+
+StockSlotTexture StockTextureFor(Layer::SlotType slot) {
+    switch (slot) {
+    case Layer::SlotType::DiffuseMap:
+        return {"Textures/white.blp", 0};
+    case Layer::SlotType::NormalMap:
+        return {"Textures/normal.blp", 0};
+    case Layer::SlotType::ORMMap:
+        return {"Textures/ORM.blp", 0};
+    case Layer::SlotType::EmissiveMap:
+        return {"Textures/Black32.blp", 0};
+    case Layer::SlotType::TeamColor:
+        // No file backs it: the engine substitutes the owning player's swatch,
+        // and the ORM's alpha decides where it lands.
+        return {"", 1};
+    case Layer::SlotType::EnvironmentMap:
+        return {"ReplaceableTextures/EnvironmentMap.blp", 0};
+    default:
+        break;
+    }
+    return {};
+}
+
 // ============================================================================
 // Import
 // ============================================================================
@@ -557,11 +596,12 @@ namespace {
 /// and writing that name into the shader field left Imperius's wings as six
 /// opaque fixed-function passes with six different textures stacked on them.
 constexpr const char* kHdDefaultShader = "Shader_HD_DefaultUnit";
-/// "there is no texture in this slot". `mdx::Layer::textureId` is a `u32` and
-/// the renderer reads it as an `i32`, so this is the -1 every absent-texture
-/// path already tests for.
-constexpr u32 kNoTexture = 0xFFFFFFFFu;
 constexpr const char* kHdCrystalShader = "Shader_HD_Crystal";
+/// The classic pipeline, running inside a Reforged model. Below v1100 the
+/// material's shader name is the whole signal -- `mdl_writer` and
+/// `Parser::upgradeMaterials` both read this exact string -- and from v1100
+/// the layer's own `SDOnHD` says it too.
+constexpr const char* kSdOnHdShader = "Shader_SD_FixedFunction";
 
 /// A native block, un-merged for a file below v1100.
 ///
@@ -801,19 +841,55 @@ void exportCombiners(const CombinersBody& body, const CommonMaterial& common,
     }
 }
 
+/// Whether this material is a textured surface and nothing more.
+///
+/// Warcraft III has a shader for exactly that inside a Reforged model --
+/// `Shader_SD_FixedFunction`, the classic pipeline running in the HD one -- and
+/// a material with nothing but a colour map is what it is for. Put through the
+/// HD shader instead, the same surface is lit as though it had a flat normal, a
+/// mid roughness and no metalness: a plastic sheen over art whose lighting is
+/// already painted in. A `.m3` effect plane and a `.m2` creature both arrive
+/// this way, because neither source has any of the maps the HD shader wants.
+///
+/// The emissive is allowed to name the SAME texture as the colour and nothing
+/// else, because that is how a self-lit surface comes out of a derive: one map,
+/// bound twice. Anything further -- a normal, an ORM, a team colour, an emissive
+/// that is its own map -- is a material the HD shader can say something about.
+bool isPlainColour(const PbrDeferredBody& body) {
+    const TextureInput* base = body.find(PbrSlot::BaseColor);
+    if (base == nullptr || !base->hasTexture()) {
+        return false;
+    }
+    // Every slot, not only the six with an MDX `SlotType`: a body carrying the
+    // unpacked metal/rough alternative has PBR maps that this file has nowhere
+    // to put, and "nowhere to put it" is not the same statement as "the surface
+    // is a colour map".
+    for (const auto& [slot, input] : body.slots) {
+        if (!input.hasTexture() || slot == PbrSlot::BaseColor) {
+            continue;
+        }
+        if (slot == PbrSlot::Emissive && input.texture == base->texture) {
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
 void exportPbr(const PbrDeferredBody& body, const CommonMaterial& common, const Context& context,
                u32 modelVersion, mdx::Material& dst, Diagnostics& out,
                std::vector<u32>& layerOfOrdinal) {
     // Crystal is the one other HD shader the format names, and a material that
     // came in as one is still one; everything else this writes is a default
     // unit, including every derived material.
-    if (dst.shader != kHdCrystalShader) {
+    const bool crystal = dst.shader == kHdCrystalShader;
+    if (!crystal) {
         dst.shader = kHdDefaultShader;
     }
 
     // A slot that is *present* but names no texture is an absent slot.
-    // `Context::toMdx` maps `kInvalidIndex` to 0 — there is no other answer it
-    // could give — and 0 is the base colour, so a slot left blank rather than
+    // `Context::toMdx` maps `kInvalidIndex` to 0 -- there is no other answer it
+    // could give -- and 0 is the base colour, so a slot left blank rather than
     // removed binds the colour map as a normal, an ORM or an emissive one. That
     // is the same defect as the old `textureId = 0` fallback, reached from the
     // other side: not "the slot is missing" but "the slot is empty".
@@ -832,34 +908,97 @@ void exportPbr(const PbrDeferredBody& body, const CommonMaterial& common, const 
     layer.filterMode = filterModeFor(common.blend);
     layer.textureAnimationId = kNoTextureAnimation;
 
+    // --- a surface with only a colour map is not an HD surface ---------------
+    //
+    // It goes out as SD content drawn through the HD pipeline, which is a whole
+    // material's worth of vocabulary Warcraft III has and the PBR slot map does
+    // not: one textured pass, lit the classic way. Crystal is left alone -- it
+    // is an HD shader with a look of its own, not a default unit with fewer
+    // maps.
+    if (!crystal && isPlainColour(body)) {
+        const TextureInput* base = textured(Layer::SlotType::DiffuseMap);
+        dst.shader = kSdOnHdShader;
+        layer.is_hd = false;
+        layer.shader = Layer::ShaderType::SDOnHD;
+        layer.coordId = base->uvSet;
+        layer.alpha = base->weight;
+        const u32 id = context.toMdx(base->texture);
+        if (modelVersion >= 1100) {
+            // The spelling shipped content uses: 738 of the 739 classic layers
+            // in `war3.w3mod` put the texture in `subTextures[0]` and leave
+            // `textureId` at 0, which is also what `Parser::upgradeMaterials`
+            // writes when it lifts a pre-1100 layer.
+            Layer::SubTexture sub;
+            sub.textureId = id;
+            sub.slot = Layer::SlotType::DiffuseMap;
+            layer.subTextures.push_back(std::move(sub));
+        } else {
+            layer.textureId = id;
+        }
+        const f32 gain =
+            std::max({body.emissiveFactor.x, body.emissiveFactor.y, body.emissiveFactor.z});
+        if (textured(Layer::SlotType::EmissiveMap) != nullptr && gain > 1.0f) {
+            out.info(DiagCode::LossyKindConversion,
+                     "the emissive map is the colour map, so the surface goes out as one "
+                     "fixed-function pass and its emissive gain is not carried");
+        }
+        layerOfOrdinal.assign(body.slots.size(), static_cast<u32>(dst.layers.size()));
+        dst.layers.push_back(std::move(layer));
+        return;
+    }
+
     // The emissive map's strength, which `emissiveGain` is MDX's name for and
     // `ImportMaterial` reads back off this same field. Dropping it published
     // every emissive map at gain 1: a StarCraft II material states its own in
-    // `hdrEmissiveMultiplier` and routinely means it — a Reaper's is **9** —
+    // `hdrEmissiveMultiplier` and routinely means it -- a Reaper's is **9** --
     // so a glow that carried the model came out as a faint tint of its map.
     // Only written when there is a map for it to scale; the factor is zero on
     // every material that has no emissive, and a gain of zero on a slot the
     // engine already binds black for says nothing.
     if (textured(Layer::SlotType::EmissiveMap) != nullptr) {
-        layer.emissiveGain = std::max(
-            {body.emissiveFactor.x, body.emissiveFactor.y, body.emissiveFactor.z});
+        layer.emissiveGain =
+            std::max({body.emissiveFactor.x, body.emissiveFactor.y, body.emissiveFactor.z});
     }
 
-    // v1100 is where the sub-texture array exists — `mdx/writer.cpp` gates it on
-    // `>= 1100` and so does `parseLayer` — and above it the merged one-layer
+    // --- every slot names a texture -----------------------------------------
+    //
+    // Not one of the 12,893 six-slot HD layers in `war3.w3mod` leaves a slot
+    // empty, and `-1` is not a value the engine has a reading for: it is a
+    // texture id like any other. A material with no map of its own for a slot
+    // names Warcraft III's own neutral there instead (`StockTextureFor`), which
+    // is what shipped content does -- `Textures/normal.blp` on 900 files,
+    // `Textures/Black32.blp` on 3,237.
+    //
+    // The environment map is the one slot whose own input is *ignored*: all
+    // 12,893 name `ReplaceableTextures/EnvironmentMap.blp`, because the engine
+    // substitutes the current map's own reflection there. A source's reflection
+    // map has nowhere to go, and binding it would be a cube the map disagrees
+    // with.
+    const auto textureIdFor = [&](Layer::SlotType type) -> u32 {
+        if (type != Layer::SlotType::EnvironmentMap) {
+            if (const TextureInput* input = textured(type)) {
+                return context.toMdx(input->texture);
+            }
+        }
+        const StockSlotTexture stock = StockTextureFor(type);
+        return context.stockTexture(stock.path, stock.replaceableId);
+    };
+
+    // v1100 is where the sub-texture array exists -- `mdx/writer.cpp` gates it
+    // on `>= 1100` and so does `parseLayer` -- and above it the merged one-layer
     // form is the only one a reader understands, because `upgradeMaterials`
     // stops at v1000 and never runs. Testing 1200 here wrote a v1100 model as
     // six positional layers with an empty sub-texture array each, which is five
     // textures lost.
     if (modelVersion >= 1100) {
-        // Every slot, in `SlotType` order, absent ones included: a consumer is
-        // entitled to read this array positionally — `MdxModelAdapter` does —
-        // and a short array would hand it the environment map as a normal map.
+        // Every slot, in `SlotType` order: a consumer is entitled to read this
+        // array positionally -- `MdxModelAdapter` does -- and a short array
+        // would hand it the environment map as a normal map.
         for (u32 index = 0; index < static_cast<u32>(kHdPositionalSlotCount); ++index) {
             const auto type = static_cast<Layer::SlotType>(index);
             const TextureInput* input = textured(type);
             Layer::SubTexture sub;
-            sub.textureId = input != nullptr ? context.toMdx(input->texture) : kNoTexture;
+            sub.textureId = textureIdFor(type);
             sub.slot = type;
             layer.subTextures.push_back(std::move(sub));
             if (input != nullptr) {
@@ -881,23 +1020,22 @@ void exportPbr(const PbrDeferredBody& body, const CommonMaterial& common, const 
         return;
     }
 
-    // Pre-1200 has no sub-texture array: the slots go back out as one layer
+    // Pre-1100 has no sub-texture array: the slots go back out as one layer
     // each, in SlotType order, which is the convention import read them by.
     //
-    // A slot the body does not fill gets `kNoTexture`, NOT texture 0. A derived
-    // material has a base colour and nothing else — no normal map, no ORM, no
-    // emissive, because the source format never had them — and falling back to
-    // index 0 pointed all five at the diffuse: the colour map was read as a
-    // normal map, as a roughness/metalness map, and as an emissive one, which
-    // is what made Imperius's wings a blown-out orange sheet. The engine binds
-    // its own flat normal, neutral ORM and black emissive for an absent slot,
-    // which is exactly what "this material has none" should draw as.
+    // A slot the body does not fill takes the stock neutral above, NOT texture
+    // 0. A derived material has a base colour and nothing else -- no normal map,
+    // no ORM, no emissive, because the source format never had them -- and
+    // falling back to index 0 pointed all five at the diffuse: the colour map
+    // was read as a normal map, as a roughness/metalness map, and as an emissive
+    // one, which is what made Imperius's wings a blown-out orange sheet.
     layerOfOrdinal.assign(body.slots.size(), kInvalidIndex);
     for (u32 slot = 0; slot < static_cast<u32>(kHdPositionalSlotCount); ++slot) {
-        const PbrSlot pbrSlot = pbrSlotFor(static_cast<Layer::SlotType>(slot));
-        const TextureInput* input = textured(static_cast<Layer::SlotType>(slot));
+        const auto type = static_cast<Layer::SlotType>(slot);
+        const PbrSlot pbrSlot = pbrSlotFor(type);
+        const TextureInput* input = textured(type);
         Layer positional = layer;
-        positional.textureId = input != nullptr ? context.toMdx(input->texture) : kNoTexture;
+        positional.textureId = textureIdFor(type);
         positional.coordId = input != nullptr ? input->uvSet : 0;
         positional.alpha = input != nullptr ? input->weight : 1.0f;
         for (std::size_t ordinal = 0; ordinal < body.slots.size(); ++ordinal) {

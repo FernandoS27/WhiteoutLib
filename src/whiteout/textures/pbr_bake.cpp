@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numbers>
 #include <vector>
 
 namespace whiteout::textures::pbr {
@@ -94,26 +95,24 @@ f32 luminance(const f32 rgb[3]) {
 
 /// A colour term, resolved against its plane or its constant, and decoded.
 void colorAt(const ColorInput& input, const Plane& plane, f32 u, f32 v, f32 out[3]) {
-    out[0] = input.constant[0];
-    out[1] = input.constant[1];
-    out[2] = input.constant[2];
+    f32 texel[4] = {input.constant[0], input.constant[1], input.constant[2], 0.0f};
     if (input.present() && !plane.empty()) {
-        f32 texel[4];
         sample(plane, u, v, texel);
-        out[0] = texel[0];
-        out[1] = texel[1];
-        out[2] = texel[2];
     }
     if (input.srgb) {
         for (i32 c = 0; c < 3; ++c) {
-            out[c] = srgbToLinear(out[c]);
+            texel[c] = srgbToLinear(texel[c]);
         }
     }
-}
-
-f32 smoothstep(f32 edge0, f32 edge1, f32 x) {
-    const f32 t = std::clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
-    return t * t * (3.0f - 2.0f * t);
+    // After the decode and never before: an sRGB *view* gamma-decodes RGB and
+    // leaves alpha alone, so a splat of alpha carries the encoded byte. Taking
+    // the splat first would de-gamma a channel the sampler never touched.
+    const f32 splat =
+        input.splat.has_value() ? texel[static_cast<u32>(*input.splat)] : 0.0f;
+    for (i32 c = 0; c < 3; ++c) {
+        const f32 value = input.splat.has_value() ? splat : texel[c];
+        out[c] = value * input.scale[c] + input.bias;
+    }
 }
 
 u8 quantise(f32 value) {
@@ -139,20 +138,101 @@ f32 teamAt(const ScalarInput& primary, const Plane& primaryPlane, const ScalarIn
                     scalarAt(secondary, secondaryPlane, u, v));
 }
 
-/// Above what share of a texel the team colour owns it outright.
+/// `lerp(white, albedo, 1 - team)`, written so the identity at `team == 0` is
+/// exact. This is the albedo both bakes reason about: the ORM's metalness
+/// splits it and the base colour writes it.
+void teamAlbedoAt(const f32 albedo[3], f32 team, f32 out[3]) {
+    const f32 keep = 1.0f - team;
+    for (i32 c = 0; c < 3; ++c) {
+        out[c] = 1.0f + (albedo[c] - 1.0f) * keep;
+    }
+}
+
+/// Everything the two bakes have to agree on about the specular, resolved once
+/// per texel: the reflectance the source states and the exponent behind it.
+struct Reflectance {
+    f32 f0[3] = {0.0f, 0.0f, 0.0f};
+    f32 exponent = 20.0f;
+};
+
+/// How much brighter the albedo has to be for `(1 - m) * albedo` to come back
+/// out as the source's diffuse, and the `m` that goes with it.
 ///
-/// Half, because the question a coverage mask answers is "is this texel team
-/// colour or is it paint", and the honest place to draw that line is where one
-/// stops being the larger part of what the source would have shown.
-constexpr f32 kTeamCoverageThreshold = 0.5f;
+/// Scaling the albedo rather than adding the reflectance to it is what makes
+/// the identity hold **per channel** and not only in luminance: with
+/// `gain = (D + S) / D` and `m = S / (D + S)` on luminances, `(1-m) * gain == 1`
+/// exactly, so every channel of the diffuse survives untouched. Adding `F0`
+/// component-wise instead reproduces the same luminance and drifts the hue
+/// toward the specular's — a Reaper whose specular map is blue came back blue
+/// in the shadows, where StarCraft II shows none of it.
+///
+/// The specular's own hue is lost either way: Reforged reads `F0 = m * albedo`,
+/// so its highlight is the albedo's colour whatever we write. Given the choice,
+/// the diffuse is the half worth keeping.
+struct MetalSplit {
+    f32 gain = 1.0f;
+    f32 metallic = 0.0f;
+};
+
+MetalSplit metalSplit(f32 albedoLum, f32 specLum) {
+    MetalSplit split;
+    const f32 total = albedoLum + specLum;
+    if (total <= 1e-6f) {
+        return split;
+    }
+    split.metallic = specLum / total;
+    // Below this the art is black and Reforged cannot reflect anything off it
+    // — `F0 = m * albedo` is zero however large `m` grows — so the caller adds
+    // the reflectance outright instead of scaling by a number that runs away.
+    split.gain = albedoLum > 1e-4f ? total / albedoLum : 0.0f;
+    return split;
+}
+
+Reflectance reflectanceAt(const SpecularReflectance& source, const Plane& specular,
+                          const Plane& exponentScale, f32 u, f32 v) {
+    Reflectance out;
+    const f32 g = scalarAt(source.exponentScale, exponentScale, u, v);
+    out.exponent = std::max(1.0f, source.exponent * g * g);
+    if (!source.specular.present() && source.specular.constant[0] == 0.0f &&
+        source.specular.constant[1] == 0.0f && source.specular.constant[2] == 0.0f &&
+        source.specular.bias == 0.0f) {
+        return out;
+    }
+    f32 spec[3];
+    colorAt(source.specular, specular, u, v, spec);
+    const f32 scale = source.factor * ReflectanceScale(out.exponent, source.energyConserving);
+    for (i32 c = 0; c < 3; ++c) {
+        out.f0[c] = std::max(0.0f, spec[c]) * scale;
+    }
+    return out;
+}
 
 } // namespace
 
+f32 RoughnessFromExponent(f32 exponent) {
+    const f32 n = std::max(1.0f, exponent);
+    // alpha = sqrt(2 / (n + 2)); Reforged's `ggxNDF` squares what it is handed
+    // before using it as alpha, so the map holds sqrt(alpha).
+    return std::clamp(std::pow(2.0f / (n + 2.0f), 0.25f), 0.0f, 1.0f);
+}
+
+f32 ReflectanceScale(f32 exponent, bool energyConserving) {
+    const f32 n = std::max(1.0f, exponent);
+    f32 dim = 1.0f;
+    if (energyConserving) {
+        // psmaterial.fx:203 FakeEnergyConservingSpec, verbatim, on the clamp
+        // the engine applies (CMaterial_ApplyForDraw).
+        const f32 p = std::clamp(n, 1.0f, 512.0f);
+        dim = std::clamp(-0.000004444f * p * p + 0.004333f * p + 0.0020834f, 0.0f, 1.0f);
+    }
+    const f32 normalisation = 8.0f * std::numbers::pi_v<f32> / (n + 8.0f);
+    return dim * normalisation;
+}
+
 std::optional<Texture> BakeOrm(const OrmRecipe& recipe) {
-    const Plane specular = decode(recipe.specular.texture);
-    const Plane gloss = decode(recipe.gloss.texture);
+    const Plane specular = decode(recipe.reflectance.specular.texture);
+    const Plane exponentScale = decode(recipe.reflectance.exponentScale.texture);
     const Plane occlusion = decode(recipe.occlusion.texture);
-    const Plane environmentMask = decode(recipe.environmentMask.texture);
     const Plane teamMask = decode(recipe.teamMask.texture);
     const Plane teamMaskAlt = decode(recipe.teamMaskAlt.texture);
     const Plane baseColor = decode(recipe.baseColor.texture);
@@ -161,7 +241,7 @@ std::optional<Texture> BakeOrm(const OrmRecipe& recipe) {
     u32 height = recipe.height;
     if (width == 0 || height == 0) {
         for (const Plane* plane :
-             {&specular, &gloss, &occlusion, &environmentMask, &teamMask, &teamMaskAlt}) {
+             {&specular, &exponentScale, &occlusion, &teamMask, &teamMaskAlt}) {
             width = std::max(width, plane->width);
             height = std::max(height, plane->height);
         }
@@ -187,76 +267,64 @@ std::optional<Texture> BakeOrm(const OrmRecipe& recipe) {
         for (u32 x = 0; x < width; ++x) {
             const f32 u = (static_cast<f32>(x) + 0.5f) / static_cast<f32>(width);
 
-            // `colorAt` de-gammas when the input says the samples are
-            // display-referred, and they are on every source this reads. The
-            // thresholds below are linear ones — 0.08 is a shade above a
-            // dielectric's 0.04 F0 and 0.30 is well into conductor territory —
-            // so measuring the encoded byte instead calls half the dielectrics
-            // metal.
-            f32 spec[3];
-            colorAt(recipe.specular, specular, u, v, spec);
+            const Reflectance reflectance =
+                reflectanceAt(recipe.reflectance, specular, exponentScale, u, v);
 
-            const f32 specLum = luminance(spec);
-            const f32 maxS = std::max(spec[0], std::max(spec[1], spec[2]));
-            const f32 minS = std::min(spec[0], std::min(spec[1], spec[2]));
-            const f32 saturation = maxS > 1e-5f ? (maxS - minS) / maxS : 0.0f;
+            // The roughness is the material's own highlight width, not a
+            // measurement of the map: StarCraft II varies the highlight's
+            // strength per texel and its width only where a gloss layer says
+            // so. Reading the map instead pinned every StarCraft II surface at
+            // 0.88 and left nothing for a normal map to move.
+            const f32 roughness = RoughnessFromExponent(reflectance.exponent);
 
-            const f32 intensityEvidence = smoothstep(0.08f, 0.30f, specLum);
-            const f32 colorEvidence = smoothstep(0.05f, 0.30f, saturation);
-            const f32 metalEvidence = intensityEvidence * (0.25f + 0.75f * colorEvidence);
+            f32 share = teamAt(recipe.teamMask, teamMask, recipe.teamMaskAlt, teamMaskAlt, u, v);
 
-            const f32 environment = scalarAt(recipe.environmentMask, environmentMask, u, v);
-            const f32 metallic = metalEvidence * (0.5f + 0.5f * (1.0f - environment));
+            // The metalness IS the specular knob — Reforged's shader has no
+            // dielectric F0 and reads `F0 = metalness * albedo` — so the
+            // question is what fraction of the albedo the highlight is owed.
+            // `BakeBaseColor` puts that fraction back in, which is why the two
+            // have to read the same team-lightened albedo.
+            f32 metallic = 0.0f;
+            const f32 specLum = luminance(reflectance.f0);
+            if (recipe.baseColor.present() && !baseColor.empty()) {
+                f32 albedo[3];
+                colorAt(recipe.baseColor, baseColor, u, v, albedo);
+                f32 teamAlbedo[3];
+                teamAlbedoAt(albedo, share, teamAlbedo);
+                metallic = metalSplit(std::max(0.0f, luminance(teamAlbedo)), specLum).metallic;
 
-            // A gloss layer the caller named but that would not decode falls
-            // through to the specular fallback rather than to `1 - 0`, which is
-            // a fully rough surface and reads as a bug in the source art.
-            const bool hasGloss = recipe.gloss.present() && !gloss.empty();
-            const f32 roughness =
-                hasGloss ? scalarAt(recipe.gloss, gloss, u, v)
-                         : 0.1f + 0.8f * std::pow(std::max(0.0f, 1.0f - specLum), 0.7f);
+                // Warcraft III's team mask is coverage where StarCraft II's is
+                // a weight, so the crossing is a decision, and the term that
+                // decides it is how dark the art under the mask is.
+                // `lerp(teamColour, diffuse, a)` shows mostly team colour when
+                // `1-a` outweighs `a*luminance(diffuse)`. Over StarCraft II art
+                // (luminance about 0.05) that fires at a raw weight near 0.05;
+                // over a light surface it holds out for much more, which a
+                // fixed threshold on the raw weight could not do.
+                const f32 paint = (1.0f - share) * luminance(albedo) * 0.8f;
+                share = share + paint > 1e-5f ? share / (share + paint) : 0.0f;
+            }
 
             const std::size_t offset =
                 (static_cast<std::size_t>(y) * width + static_cast<std::size_t>(x)) * 4;
             pixels[offset + 0] = quantise(scalarAt(recipe.occlusion, occlusion, u, v));
             pixels[offset + 1] = quantise(roughness);
             pixels[offset + 2] = quantise(metallic);
-            // Warcraft III's team mask is COVERAGE, not a blend weight, and
-            // shipped content says so: over a footman's five maps the alpha is
-            // 88-100% at 0..15 and 7-11% at 240..255, with 0.4-1.3% in between
-            // — an antialiased edge and nothing else. The shading of a
-            // team-coloured surface lives in its base colour; this channel only
-            // says where.
-            //
-            // StarCraft II's is a genuine weight, so the crossing is a
-            // decision, and the term that decides it is how dark the art under
-            // the mask is. `lerp(teamColour, diffuse, a)` shows mostly team
-            // colour when `1-a` outweighs `a*luminance(diffuse)`, so that
-            // comparison — the team's *relative* share, thresholded — is the
-            // question "is this texel team colour or is it paint". Over
-            // StarCraft II art (luminance about 0.05) it fires at a raw weight
-            // near 0.05; over a light surface it holds out for much more, which
-            // a fixed threshold on the raw weight could not do.
-            f32 share = teamAt(recipe.teamMask, teamMask, recipe.teamMaskAlt, teamMaskAlt, u, v);
-            if (recipe.baseColor.present() && !baseColor.empty()) {
-                f32 albedo[3];
-                colorAt(recipe.baseColor, baseColor, u, v, albedo);
-                const f32 paint = (1.0f - share) * luminance(albedo);
-                share = share + paint > 1e-5f ? share / (share + paint) : 0.0f;
-            }
-            pixels[offset + 3] = share > kTeamCoverageThreshold ? 255 : 0;
+            pixels[offset + 3] = quantise(share);
         }
     }
     return out;
 }
 
-std::optional<Texture> BakeTeamBaseColor(const TeamBaseColorRecipe& recipe) {
+std::optional<Texture> BakeBaseColor(const BaseColorRecipe& recipe) {
     const Plane baseColor = decode(recipe.baseColor.texture);
     if (baseColor.empty()) {
         return std::nullopt;
     }
     const Plane teamMask = decode(recipe.teamMask.texture);
     const Plane teamMaskAlt = decode(recipe.teamMaskAlt.texture);
+    const Plane specular = decode(recipe.reflectance.specular.texture);
+    const Plane exponentScale = decode(recipe.reflectance.exponentScale.texture);
 
     const u32 width = baseColor.width;
     const u32 height = baseColor.height;
@@ -271,19 +339,28 @@ std::optional<Texture> BakeTeamBaseColor(const TeamBaseColorRecipe& recipe) {
             const f32 u = (static_cast<f32>(x) + 0.5f) / static_cast<f32>(width);
             const f32 team =
                 teamAt(recipe.teamMask, teamMask, recipe.teamMaskAlt, teamMaskAlt, u, v);
-            const f32 keep = 1.0f - team;
 
             f32 albedo[3];
             colorAt(recipe.baseColor, baseColor, u, v, albedo);
+            f32 mixed[3];
+            teamAlbedoAt(albedo, team, mixed);
+
+            // The metalness beside this takes exactly the reflectance back out
+            // again, so the diffuse response is unchanged and the highlight is
+            // paid for out of the raise rather than out of the surface.
+            const Reflectance reflectance =
+                reflectanceAt(recipe.reflectance, specular, exponentScale, u, v);
+            const MetalSplit split =
+                metalSplit(std::max(0.0f, luminance(mixed)), luminance(reflectance.f0));
 
             const std::size_t offset =
                 (static_cast<std::size_t>(y) * width + static_cast<std::size_t>(x)) * 4;
             for (i32 c = 0; c < 3; ++c) {
-                // `lerp(white, albedo, keep)`, which is `a*diffuse + (1-a)`
-                // written so the identity at `team == 0` is exact.
-                const f32 mixed = 1.0f + (albedo[c] - 1.0f) * keep;
+                const f32 value = split.gain > 0.0f ? mixed[c] * split.gain
+                                                    : mixed[c] + reflectance.f0[c];
                 pixels[offset + static_cast<std::size_t>(c)] =
-                    quantise(recipe.baseColor.srgb ? linearToSrgb(mixed) : mixed);
+                    quantise(recipe.baseColor.srgb ? linearToSrgb(std::clamp(value, 0.0f, 1.0f))
+                                                   : std::clamp(value, 0.0f, 1.0f));
             }
             pixels[offset + 3] = 255;
         }

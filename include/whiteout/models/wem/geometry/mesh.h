@@ -75,6 +75,22 @@ constexpr bool hasFlag(SectionFlags value, SectionFlags bit) {
     return (static_cast<u32>(value) & static_cast<u32>(bit)) != 0;
 }
 
+/// The node whose animated visibility gates a section's draw, in the shared
+/// section bag: M3's per-batch `visibilityBone`, which is a bone index and not
+/// the count its field name claims. `SectionFlags::Hidden` says "never drawn";
+/// this says "drawn while that node's visibility flag is set", which is a
+/// different and animated thing.
+///
+/// It holds a **node index**, so it is one of §10.6's referencers even though it
+/// is not a field: `RemoveNodes` and `RetargetSkeleton` both remap it, and a
+/// reader that resolves it against the wrong node list gates the wrong geoset.
+/// It lives in the bag rather than in a field of its own only because promoting
+/// it would take a container version with it.
+inline constexpr const char* kSectionVisibilityNode = "visibilityBone";
+
+/// The source's own "no gate, always drawn", stored rather than omitted.
+inline constexpr i64 kSectionAlwaysDrawn = 0xFFFF;
+
 /// Metadata only; one per draw section. The faces that belong to it are the ones
 /// whose `section` attribute names it.
 struct MeshSection {

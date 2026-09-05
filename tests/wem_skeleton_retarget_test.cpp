@@ -386,6 +386,39 @@ TEST_CASE("skeleton retarget splits a bone whose bind frame shears") {
     CHECK(WorstSkinError(before, after, kProbeTimes) < 1e-3f);
 }
 
+TEST_CASE("skeleton retarget carries a section's visibility gate with the nodes") {
+    // The fifth referencer of section 10.6, and the only one that is a bag key
+    // rather than a field. The split below inserts a helper, every node after it
+    // shifts, and a gate left behind names whatever landed in its old slot --
+    // which is how a StarCraft II model exported with every gated geoset drawn.
+    Document document = MakeExplicitRig(Vector3f{2.0f, 1.0f, 0.5f});
+    Model& model = document.models[0];
+
+    Mesh mesh;
+    mesh.name = "body";
+    mesh.sections.emplace_back();
+    mesh.sections[0].native.set(kSectionVisibilityNode, 2);
+    model.meshes.push_back(std::move(mesh));
+
+    // A second section with no gate at all, which must stay that way.
+    model.meshes[0].sections.emplace_back();
+
+    const u32 visibility = DeclareChannel(model, 2, Channel::Visibility, geom::AttrType::F32);
+
+    const SkeletonRetargetResult result = RetargetSkeleton(document, ProfileId::Wc3Classic);
+    REQUIRE(result.ok);
+    REQUIRE(result.nodesInserted > 0);
+
+    const Model& after = document.models[0];
+    const AnimChannel* gate = after.animChannels.find(visibility);
+    REQUIRE(gate != nullptr);
+    const u32 moved = gate->target.node;
+    CHECK(moved != 2u); // the split really did move it
+    CHECK(after.meshes[0].sections[0].native.value(kSectionVisibilityNode, -1) ==
+          static_cast<i64>(moved));
+    CHECK(after.meshes[0].sections[1].native.value(kSectionVisibilityNode, -1) == -1);
+}
+
 TEST_CASE("skeleton retarget without the split is only approximate") {
     const Document before = MakeExplicitRig(Vector3f{2.0f, 1.0f, 0.5f});
     Document projected = before;

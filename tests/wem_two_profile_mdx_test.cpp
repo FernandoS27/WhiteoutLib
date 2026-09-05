@@ -72,6 +72,67 @@ mdx::Material makeMixedMaterial() {
     return material;
 }
 
+/// A `PBRDeferred` material with @p slots filled, each naming its own texture.
+///
+/// No native block, so `ExportMaterial` goes through the kind mapping — which is
+/// the whole point: a material that came out of an `.mdx` reproduces its block
+/// and never reaches `exportPbr`, so only a DERIVED one exercises this.
+Material makePbr(std::initializer_list<std::pair<PbrSlot, u32>> slots) {
+    Material material;
+    material.name = "derived";
+    PbrDeferredBody body;
+    for (const auto& [slot, texture] : slots) {
+        TextureInput input;
+        input.texture = texture;
+        body.set(slot, input);
+    }
+    material.InitCommon().body = std::move(body);
+    return material;
+}
+
+/// A context that can intern the stock maps, the way the converter's does.
+struct StockContext {
+    std::vector<mdx::Texture> textures;
+    mdx_core::Context context;
+
+    explicit StockContext(u32 version) {
+        context = makeContext(version);
+        context.stockTextures = &textures;
+        context.stockBase = static_cast<u32>(context.textureIndexMap.size());
+    }
+
+    /// What the `.mdx` texture @p id is, as a name — a stock file's path, or
+    /// `#<replaceable>`, or `document` for one the document contributed.
+    std::string nameOf(u32 id) const {
+        if (id < context.stockBase) {
+            return "document";
+        }
+        const std::size_t at = id - context.stockBase;
+        if (at >= textures.size()) {
+            return "<out of range>";
+        }
+        const mdx::Texture& texture = textures[at];
+        return texture.replaceableId != 0 ? "#" + std::to_string(texture.replaceableId)
+                                          : texture.fileName;
+    }
+};
+
+/// The texture each of the six HD slots names, whichever way the version
+/// spells them.
+std::vector<u32> slotTextures(const mdx::Material& material) {
+    std::vector<u32> ids;
+    if (material.layers.size() == 1 && !material.layers[0].subTextures.empty()) {
+        for (const Layer::SubTexture& sub : material.layers[0].subTextures) {
+            ids.push_back(sub.textureId);
+        }
+        return ids;
+    }
+    for (const Layer& layer : material.layers) {
+        ids.push_back(layer.textureId);
+    }
+    return ids;
+}
+
 } // namespace
 
 TEST_CASE("wem one mdx material feeds both WC3 profiles", "[wem][materials][mdx]") {
@@ -191,6 +252,116 @@ TEST_CASE("wem a classic-only material produces no Reforged set", "[wem][materia
     source.layers.push_back(makeLayer(Layer::FilterMode::None, false, 0));
     CHECK(mdx_core::HasLayersFor(source, ProfileId::Wc3Classic, makeContext()));
     CHECK_FALSE(mdx_core::HasLayersFor(source, ProfileId::Wc3Reforged, makeContext()));
+}
+
+
+// ============================================================================
+// What a written Reforged material has to look like
+// ============================================================================
+
+TEST_CASE("wem a Reforged material never leaves a slot empty", "[wem][materials][mdx]") {
+    // Measured, not chosen: across the 12,893 six-slot HD layers in
+    // `war3.w3mod` not one slot is `-1`. The engine reads that field as a
+    // texture id, and a material with no map of its own names Warcraft III's
+    // stock neutral instead — `Textures/normal.blp` on 900 shipped files,
+    // `Textures/Black32.blp` on 3,237, `ReplaceableTextures/EnvironmentMap.blp`
+    // on 3,681, and replaceable 1 in the team slot on all of them.
+    for (const u32 version : {1000u, 1200u}) {
+        StockContext stock(version);
+        Diagnostics diagnostics;
+        const mdx::Material exported = mdx_core::ExportMaterial(
+            makePbr({{PbrSlot::BaseColor, 0}, {PbrSlot::Normal, 1}, {PbrSlot::Orm, 2}}),
+            ProfileId::Wc3Reforged, stock.context, diagnostics);
+
+        const std::vector<u32> ids = slotTextures(exported);
+        REQUIRE(ids.size() == mdx_core::kHdPositionalSlotCount);
+        for (const u32 id : ids) {
+            CHECK(id != mdx_core::kNoTexture);
+        }
+        CHECK(stock.nameOf(ids[0]) == "document");
+        CHECK(stock.nameOf(ids[1]) == "document");
+        CHECK(stock.nameOf(ids[2]) == "document");
+        CHECK(stock.nameOf(ids[3]) == "Textures/Black32.blp");
+        CHECK(stock.nameOf(ids[4]) == "#1");
+        CHECK(stock.nameOf(ids[5]) == "ReplaceableTextures/EnvironmentMap.blp");
+    }
+}
+
+TEST_CASE("wem the environment slot is Warcraft III's own, never the source's",
+          "[wem][materials][mdx]") {
+    // All 12,893 shipped HD layers name the same file there, because the engine
+    // substitutes the current map's reflection for it. A source's own
+    // reflection map is a cube the map does not agree with, so it is dropped
+    // rather than bound.
+    StockContext stock(1200);
+    Diagnostics diagnostics;
+    const mdx::Material exported = mdx_core::ExportMaterial(
+        makePbr({{PbrSlot::BaseColor, 0}, {PbrSlot::Orm, 1}, {PbrSlot::Environment, 2}}),
+        ProfileId::Wc3Reforged, stock.context, diagnostics);
+
+    const std::vector<u32> ids = slotTextures(exported);
+    REQUIRE(ids.size() == mdx_core::kHdPositionalSlotCount);
+    CHECK(stock.nameOf(ids[5]) == "ReplaceableTextures/EnvironmentMap.blp");
+}
+
+TEST_CASE("wem a colour-only material goes out as SD on HD", "[wem][materials][mdx]") {
+    // A `.m3` effect plane and a `.m2` creature both arrive with a colour map
+    // and nothing else, and the HD shader has nothing to say about one: it
+    // would light the surface through a flat normal and a mid roughness, which
+    // is a plastic sheen over art whose lighting is already painted in.
+    // Warcraft III has a shader for exactly this inside a Reforged model.
+    for (const u32 version : {1000u, 1200u}) {
+        StockContext stock(version);
+        Diagnostics diagnostics;
+        const mdx::Material exported =
+            mdx_core::ExportMaterial(makePbr({{PbrSlot::BaseColor, 3}}), ProfileId::Wc3Reforged,
+                                     stock.context, diagnostics);
+
+        CHECK(exported.shader == "Shader_SD_FixedFunction");
+        REQUIRE(exported.layers.size() == 1);
+        CHECK(exported.layers[0].shader == Layer::ShaderType::SDOnHD);
+        CHECK_FALSE(exported.layers[0].is_hd);
+        CHECK(slotTextures(exported) == std::vector<u32>{3});
+        // Nothing was interned: an SD pass has no slots to fill.
+        CHECK(stock.textures.empty());
+    }
+}
+
+TEST_CASE("wem an emissive that is the colour map is still colour-only", "[wem][materials][mdx]") {
+    // How a self-lit surface comes out of a derive: one map, bound twice. There
+    // is nothing in the second binding an HD material could say that the first
+    // does not.
+    StockContext stock(1200);
+    Diagnostics diagnostics;
+    const mdx::Material same = mdx_core::ExportMaterial(
+        makePbr({{PbrSlot::BaseColor, 4}, {PbrSlot::Emissive, 4}}), ProfileId::Wc3Reforged,
+        stock.context, diagnostics);
+    CHECK(same.shader == "Shader_SD_FixedFunction");
+    REQUIRE(same.layers.size() == 1);
+
+    // An emissive map of its own is a different surface, and the HD shader is
+    // the only one that can draw it.
+    StockContext other(1200);
+    const mdx::Material distinct = mdx_core::ExportMaterial(
+        makePbr({{PbrSlot::BaseColor, 4}, {PbrSlot::Emissive, 5}}), ProfileId::Wc3Reforged,
+        other.context, diagnostics);
+    CHECK(distinct.shader == "Shader_HD_DefaultUnit");
+    REQUIRE(distinct.layers.size() == 1);
+    CHECK(slotTextures(distinct).size() == mdx_core::kHdPositionalSlotCount);
+    CHECK(other.nameOf(slotTextures(distinct)[3]) == "document");
+}
+
+TEST_CASE("wem without a sink an absent slot still writes no texture", "[wem][materials][mdx]") {
+    // The hand-built context a test makes has nowhere to intern to, and there
+    // is no answer but `-1` then. Stated so the fallback is a decision rather
+    // than something a caller discovers.
+    Diagnostics diagnostics;
+    const mdx::Material exported = mdx_core::ExportMaterial(
+        makePbr({{PbrSlot::BaseColor, 0}, {PbrSlot::Orm, 1}}), ProfileId::Wc3Reforged,
+        makeContext(1200), diagnostics);
+    const std::vector<u32> ids = slotTextures(exported);
+    REQUIRE(ids.size() == mdx_core::kHdPositionalSlotCount);
+    CHECK(ids[3] == mdx_core::kNoTexture);
 }
 
 // ============================================================================

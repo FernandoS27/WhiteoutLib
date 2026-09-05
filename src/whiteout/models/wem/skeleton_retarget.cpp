@@ -784,6 +784,16 @@ void ToPivotRelative(Model& model, std::vector<Clip*>& clips, const ElementRef& 
                 if (section.rigidNode.has_value() && *section.rigidNode < remap.size()) {
                     section.rigidNode = remap[*section.rigidNode];
                 }
+                // The fifth referencer, and the one that is a bag key rather
+                // than a field (`kSectionVisibilityNode`). Missing it left a
+                // StarCraft II gate pointing at whatever node the inserted
+                // helpers had pushed into its slot, which gates nothing.
+                const i64 gate = section.native.value(kSectionVisibilityNode, -1);
+                if (gate >= 0 && gate != kSectionAlwaysDrawn &&
+                    static_cast<std::size_t>(gate) < remap.size()) {
+                    section.native.set(kSectionVisibilityNode,
+                                       static_cast<i64>(remap[static_cast<std::size_t>(gate)]));
+                }
             }
         }
         for (AnimChannel& channel : model.animChannels.channels) {

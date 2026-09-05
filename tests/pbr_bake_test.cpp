@@ -40,9 +40,14 @@ f32 srgbToLinear(f32 value) {
     return value <= 0.04045f ? value / 12.92f : std::pow((value + 0.055f) / 1.055f, 2.4f);
 }
 
-f32 smoothstep(f32 edge0, f32 edge1, f32 x) {
-    const f32 t = std::clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
-    return t * t * (3.0f - 2.0f * t);
+/// A channel of a baked map as the number it stands for.
+f32 unitOf(const Texture& texture, Channel channel) {
+    return static_cast<f32>(channelOf(texture, channel)) / 255.0f;
+}
+
+/// A channel of a baked *colour* map, back in linear light.
+f32 linearOf(const Texture& texture, Channel channel) {
+    return srgbToLinear(unitOf(texture, channel));
 }
 
 } // namespace
@@ -55,89 +60,202 @@ TEST_CASE("an absent recipe bakes nothing", "[pbr_bake]") {
 TEST_CASE("the neutral: no specular, no gloss, no masks", "[pbr_bake]") {
     const Texture specular = solid(0, 0, 0, 255);
     pbr::OrmRecipe recipe;
-    recipe.specular.texture = &specular;
+    recipe.reflectance.specular.texture = &specular;
 
     const std::optional<Texture> orm = pbr::BakeOrm(recipe);
     REQUIRE(orm.has_value());
-    // Occlusion defaults to unoccluded, metalness to none, and a black
-    // specular is the roughest a surface gets: 0.1 + 0.8 * 1 = 0.9.
+    // Occlusion defaults to unoccluded and a black specular reflects nothing,
+    // so there is no metalness to pay for. The roughness is the material's own
+    // highlight width and has nothing to do with the map being black: exponent
+    // 20 is what the engine substitutes for an unauthored zero.
     CHECK(channelOf(*orm, Channel::R) == 255);
-    CHECK(channelOf(*orm, Channel::G) == 230); // round(0.9 * 255)
+    CHECK(static_cast<i32>(channelOf(*orm, Channel::G)) ==
+          static_cast<i32>(std::lround(pbr::RoughnessFromExponent(20.0f) * 255.0f)));
     CHECK(channelOf(*orm, Channel::B) == 0);
     CHECK(channelOf(*orm, Channel::A) == 0);
 }
 
-TEST_CASE("gloss is roughness backwards", "[pbr_bake]") {
-    const Texture specular = solid(0, 0, 0, 255);
-    // A gloss map authored in green, which is how `Adept_Golden_Gloss.dds`
-    // ships -- the channel select is not decoration.
-    const Texture gloss = solid(0, 200, 0, 0);
+TEST_CASE("the roughness is the exponent's, not the map's", "[pbr_bake]") {
+    // The bug this replaces read the roughness off how bright the specular map
+    // was, which pinned every StarCraft II surface near 0.88 -- a surface with
+    // no highlight for a normal map to move. Two maps, one exponent: the
+    // roughness must not move.
+    const Texture dim = solid(20, 20, 20, 255);
+    const Texture bright = solid(220, 220, 220, 255);
 
     pbr::OrmRecipe recipe;
-    recipe.specular.texture = &specular;
-    recipe.gloss.texture = &gloss;
-    recipe.gloss.channel = Channel::G;
-    recipe.gloss.invert = true;
+    recipe.reflectance.exponent = 80.0f;
+    recipe.reflectance.specular.texture = &dim;
+    const std::optional<Texture> a = pbr::BakeOrm(recipe);
+    recipe.reflectance.specular.texture = &bright;
+    const std::optional<Texture> b = pbr::BakeOrm(recipe);
+    REQUIRE(a.has_value());
+    REQUIRE(b.has_value());
+    CHECK(channelOf(*a, Channel::G) == channelOf(*b, Channel::G));
+
+    // And two exponents, one map: it must.
+    recipe.reflectance.exponent = 20.0f;
+    const std::optional<Texture> rough = pbr::BakeOrm(recipe);
+    REQUIRE(rough.has_value());
+    CHECK(channelOf(*rough, Channel::G) > channelOf(*b, Channel::G));
+    CHECK(static_cast<i32>(channelOf(*b, Channel::G)) ==
+          static_cast<i32>(std::lround(pbr::RoughnessFromExponent(80.0f) * 255.0f)));
+}
+
+TEST_CASE("a gloss layer scales the exponent, squared", "[pbr_bake]") {
+    // `psmaterial.fx:579` does `specPower *= g*g`. A gloss map is a
+    // specularity multiplier, not a smoothness -- reading it as `1 - g` makes
+    // the glossiest texels the roughest, which is backwards twice over.
+    const Texture specular = solid(0, 0, 0, 255);
+    const Texture gloss = solid(0, 0, 0, 128); // the shader reads the alpha
+
+    pbr::OrmRecipe recipe;
+    recipe.reflectance.exponent = 80.0f;
+    recipe.reflectance.specular.texture = &specular;
+    recipe.reflectance.exponentScale.texture = &gloss;
+    recipe.reflectance.exponentScale.channel = Channel::A;
 
     const std::optional<Texture> orm = pbr::BakeOrm(recipe);
     REQUIRE(orm.has_value());
-    CHECK(channelOf(*orm, Channel::G) == 55); // 255 - 200
-    // Reading the wrong channel would give 255 (red is 0, so 1 - 0).
-    CHECK(channelOf(*orm, Channel::G) != 255);
+    const f32 g = 128.0f / 255.0f;
+    CHECK(static_cast<i32>(channelOf(*orm, Channel::G)) ==
+          Catch::Approx(std::lround(pbr::RoughnessFromExponent(80.0f * g * g) * 255.0f)).margin(1));
+    // A quarter of the exponent is rougher than the material's own, and much
+    // rougher than `1 - g` would have made it.
+    CHECK(channelOf(*orm, Channel::G) >
+          static_cast<u8>(std::lround(pbr::RoughnessFromExponent(80.0f) * 255.0f)));
 }
 
-TEST_CASE("a bright coloured specular is metal, a dim grey one is not", "[pbr_bake]") {
-    const Texture gold = solid(220, 170, 80, 255);
-    const Texture dimGrey = solid(30, 30, 30, 255);
+TEST_CASE("the metal split gives back exactly what it takes", "[pbr_bake]") {
+    // Reforged spends the albedo on the two lobes and has no dielectric F0:
+    // `diffuseAlbedo = (1-m)*albedo`, `F0 = m*albedo`. The pair of bakes has to
+    // solve both at once or the model comes back darker than it went in.
+    const Texture diffuse = solid(96, 96, 96, 255);
+    const Texture specular = solid(150, 150, 150, 255);
 
-    pbr::OrmRecipe recipe;
-    recipe.specular.texture = &gold;
-    const std::optional<Texture> metal = pbr::BakeOrm(recipe);
-    recipe.specular.texture = &dimGrey;
-    const std::optional<Texture> dielectric = pbr::BakeOrm(recipe);
+    pbr::SpecularReflectance reflectance;
+    reflectance.exponent = 40.0f;
+    reflectance.specular.texture = &specular;
 
-    REQUIRE(metal.has_value());
-    REQUIRE(dielectric.has_value());
-    CHECK(channelOf(*metal, Channel::B) > 240);
-    CHECK(channelOf(*dielectric, Channel::B) == 0);
+    pbr::OrmRecipe orm;
+    orm.reflectance = reflectance;
+    orm.baseColor.texture = &diffuse;
+    pbr::BaseColorRecipe base;
+    base.reflectance = reflectance;
+    base.baseColor.texture = &diffuse;
+
+    const std::optional<Texture> map = pbr::BakeOrm(orm);
+    const std::optional<Texture> albedo = pbr::BakeBaseColor(base);
+    REQUIRE(map.has_value());
+    REQUIRE(albedo.has_value());
+
+    const f32 sourceDiffuse = srgbToLinear(96.0f / 255.0f);
+    const f32 f0 = srgbToLinear(150.0f / 255.0f) * pbr::ReflectanceScale(40.0f, true);
+    const f32 metal = unitOf(*map, Channel::B);
+    const f32 written = linearOf(*albedo, Channel::R);
+
+    CHECK(written == Catch::Approx(sourceDiffuse + f0).margin(0.004f));
+    CHECK((1.0f - metal) * written == Catch::Approx(sourceDiffuse).margin(0.006f));
+    CHECK(metal * written == Catch::Approx(f0).margin(0.006f));
+    // And the albedo went UP. A converter that only writes the metalness takes
+    // this out of the diffuse and gives nothing back.
+    CHECK(channelOf(*albedo, Channel::R) > 96);
 }
 
 TEST_CASE("the specular is measured linear, not encoded", "[pbr_bake]") {
-    // 0.30 encoded is 0.073 linear -- just under the 0.08 evidence floor. A
-    // bake that measured the byte would call this a conductor.
-    const u8 encoded = static_cast<u8>(std::lround(0.30f * 255.0f));
-    const Texture greyish = solid(encoded, encoded, encoded, 255);
+    const Texture greyish = solid(128, 128, 128, 255);
+    const Texture diffuse = solid(96, 96, 96, 255);
 
     pbr::OrmRecipe recipe;
-    recipe.specular.texture = &greyish;
-    recipe.specular.srgb = true;
+    recipe.reflectance.specular.texture = &greyish;
+    recipe.baseColor.texture = &diffuse;
+    recipe.reflectance.specular.srgb = true;
     const std::optional<Texture> linear = pbr::BakeOrm(recipe);
-
-    recipe.specular.srgb = false;
+    recipe.reflectance.specular.srgb = false;
     const std::optional<Texture> asEncoded = pbr::BakeOrm(recipe);
 
     REQUIRE(linear.has_value());
     REQUIRE(asEncoded.has_value());
-    CHECK(channelOf(*linear, Channel::B) == 0);
-    CHECK(channelOf(*asEncoded, Channel::B) > 0);
+    // 0.502 encoded is 0.216 linear: reading the byte more than doubles the
+    // reflectance the source states.
+    CHECK(channelOf(*asEncoded, Channel::B) > channelOf(*linear, Channel::B));
+    const f32 f0 = srgbToLinear(128.0f / 255.0f) * pbr::ReflectanceScale(20.0f, true);
+    const f32 albedo = srgbToLinear(96.0f / 255.0f);
+    CHECK(unitOf(*linear, Channel::B) == Catch::Approx(f0 / (f0 + albedo)).margin(0.004f));
 }
 
-TEST_CASE("the environment mask halves the metalness", "[pbr_bake]") {
-    const Texture gold = solid(220, 170, 80, 255);
-    const Texture masked = solid(255, 0, 0, 0);
+TEST_CASE("a splat of alpha is read encoded, because an sRGB view leaves it so",
+          "[pbr_bake]") {
+    // `SpecularMode::AlphaOnly` reads the layer's alpha, and an sRGB view
+    // gamma-decodes RGB and never alpha. Decoding it here would understate the
+    // reflectance by the same factor that once tilted every DXT5nm normal.
+    const Texture specular = solid(0, 0, 0, 128);
+    const Texture diffuse = solid(96, 96, 96, 255);
 
     pbr::OrmRecipe recipe;
-    recipe.specular.texture = &gold;
-    const std::optional<Texture> unmasked = pbr::BakeOrm(recipe);
-    recipe.environmentMask.texture = &masked;
-    recipe.environmentMask.channel = Channel::R;
-    const std::optional<Texture> reflective = pbr::BakeOrm(recipe);
+    recipe.reflectance.specular.texture = &specular;
+    recipe.reflectance.specular.splat = Channel::A;
+    recipe.baseColor.texture = &diffuse;
 
-    REQUIRE(unmasked.has_value());
-    REQUIRE(reflective.has_value());
-    const f32 ratio = static_cast<f32>(channelOf(*reflective, Channel::B)) /
-                      static_cast<f32>(channelOf(*unmasked, Channel::B));
-    CHECK(ratio == Catch::Approx(0.5f).margin(0.01f));
+    const std::optional<Texture> orm = pbr::BakeOrm(recipe);
+    REQUIRE(orm.has_value());
+    const f32 f0 = (128.0f / 255.0f) * pbr::ReflectanceScale(20.0f, true);
+    const f32 albedo = srgbToLinear(96.0f / 255.0f);
+    CHECK(unitOf(*orm, Channel::B) == Catch::Approx(f0 / (f0 + albedo)).margin(0.004f));
+}
+
+TEST_CASE("the layer's own tint is part of the reflectance", "[pbr_bake]") {
+    // A specular layer authored at x2 reflects twice as much, and the
+    // environment layer that ships with the golden Adept carries its whole look
+    // in an `add`. Dropping either is dropping the number the shader multiplies.
+    const Texture specular = solid(128, 128, 128, 255);
+    const Texture diffuse = solid(96, 96, 96, 255);
+
+    pbr::OrmRecipe recipe;
+    recipe.reflectance.specular.texture = &specular;
+    recipe.baseColor.texture = &diffuse;
+    const std::optional<Texture> plain = pbr::BakeOrm(recipe);
+
+    recipe.reflectance.specular.scale[0] = 2.0f;
+    recipe.reflectance.specular.scale[1] = 2.0f;
+    recipe.reflectance.specular.scale[2] = 2.0f;
+    const std::optional<Texture> tinted = pbr::BakeOrm(recipe);
+
+    recipe.reflectance.specular.scale[0] = 1.0f;
+    recipe.reflectance.specular.scale[1] = 1.0f;
+    recipe.reflectance.specular.scale[2] = 1.0f;
+    recipe.reflectance.factor = 2.0f; // hdrSpecularMultiplier, the same lever
+    const std::optional<Texture> boosted = pbr::BakeOrm(recipe);
+
+    REQUIRE(plain.has_value());
+    REQUIRE(tinted.has_value());
+    REQUIRE(boosted.has_value());
+    CHECK(channelOf(*tinted, Channel::B) > channelOf(*plain, Channel::B));
+    CHECK(channelOf(*tinted, Channel::B) == channelOf(*boosted, Channel::B));
+}
+
+TEST_CASE("a StarCraft II specular white is a tenth of a mirror", "[pbr_bake]") {
+    // The calibration the whole crossing rests on, and the reason it needs no
+    // tuned constant: the engine's own energy dim is very nearly proportional
+    // to the exponent, so it cancels the (n+8)/8pi normalisation and the scale
+    // comes out flat across every exponent shipped content uses.
+    CHECK(pbr::ReflectanceScale(20.0f, true) == Catch::Approx(0.078f).margin(0.01f));
+    CHECK(pbr::ReflectanceScale(40.0f, true) == Catch::Approx(0.095f).margin(0.01f));
+    CHECK(pbr::ReflectanceScale(80.0f, true) == Catch::Approx(0.092f).margin(0.01f));
+    // Without the dim the same sample is a near-mirror, which is what the 76
+    // materials in 13,091 that set `SimulateRoughness` are asking for.
+    CHECK(pbr::ReflectanceScale(20.0f, false) > 0.8f);
+}
+
+TEST_CASE("the roughness curve is the lobe-width match", "[pbr_bake]") {
+    for (f32 n : {1.0f, 20.0f, 40.0f, 80.0f, 512.0f}) {
+        CHECK(pbr::RoughnessFromExponent(n) ==
+              Catch::Approx(std::pow(2.0f / (n + 2.0f), 0.25f)).margin(1e-5f));
+    }
+    // 20 is 72.7% of the corpus and 0.55 is where it lands -- against the 0.88
+    // the old brightness fallback produced for the same material.
+    CHECK(pbr::RoughnessFromExponent(20.0f) == Catch::Approx(0.549f).margin(0.002f));
+    CHECK(pbr::RoughnessFromExponent(80.0f) < pbr::RoughnessFromExponent(20.0f));
 }
 
 TEST_CASE("the team mask lands in alpha, from the channel the layer names", "[pbr_bake]") {
@@ -145,19 +263,18 @@ TEST_CASE("the team mask lands in alpha, from the channel the layer names", "[pb
     const Texture team = solid(10, 20, 200, 40);
 
     pbr::OrmRecipe recipe;
-    recipe.specular.texture = &specular;
+    recipe.reflectance.specular.texture = &specular;
     recipe.teamMask.texture = &team;
     recipe.teamMask.channel = Channel::B; // `Adept_Golden`'s spelling
 
     // Blue is 200 and red is 10, so reading the wrong channel is the difference
-    // between a team-coloured texel and a plain one. The value written is
-    // coverage rather than the sample -- see the binary cases below.
+    // between a team-coloured texel and a plain one.
     const std::optional<Texture> orm = pbr::BakeOrm(recipe);
     REQUIRE(orm.has_value());
-    CHECK(channelOf(*orm, Channel::A) == 255);
+    CHECK(channelOf(*orm, Channel::A) == 200);
 
     recipe.teamMask.channel = Channel::R;
-    CHECK(channelOf(*pbr::BakeOrm(recipe), Channel::A) == 0);
+    CHECK(channelOf(*pbr::BakeOrm(recipe), Channel::A) == 10);
 }
 
 TEST_CASE("occlusion rides red", "[pbr_bake]") {
@@ -165,7 +282,7 @@ TEST_CASE("occlusion rides red", "[pbr_bake]") {
     const Texture occlusion = solid(90, 0, 0, 0);
 
     pbr::OrmRecipe recipe;
-    recipe.specular.texture = &specular;
+    recipe.reflectance.specular.texture = &specular;
     recipe.occlusion.texture = &occlusion;
     recipe.occlusion.channel = Channel::R;
 
@@ -176,76 +293,42 @@ TEST_CASE("occlusion rides red", "[pbr_bake]") {
 
 TEST_CASE("the output takes the largest source's size", "[pbr_bake]") {
     const Texture big = solid(0, 0, 0, 255, 64);
-    const Texture small = solid(0, 128, 0, 0, 8);
+    const Texture small = solid(0, 0, 0, 128, 8);
 
     pbr::OrmRecipe recipe;
-    recipe.specular.texture = &big;
-    recipe.gloss.texture = &small;
-    recipe.gloss.channel = Channel::G;
-    recipe.gloss.invert = true;
+    recipe.reflectance.specular.texture = &big;
+    recipe.reflectance.exponentScale.texture = &small;
+    recipe.reflectance.exponentScale.channel = Channel::A;
 
     const std::optional<Texture> orm = pbr::BakeOrm(recipe);
     REQUIRE(orm.has_value());
     CHECK(orm->width() == 64);
     CHECK(orm->height() == 64);
     // The 8x8 gloss was resampled up rather than cropping the 64x64 specular.
-    CHECK(channelOf(*orm, Channel::G) == 127);
-}
-
-TEST_CASE("the roughness fallback matches the stated curve", "[pbr_bake]") {
-    for (u8 level : {u8(0), u8(40), u8(120), u8(200), u8(255)}) {
-        const Texture specular = solid(level, level, level, 255);
-        pbr::OrmRecipe recipe;
-        recipe.specular.texture = &specular;
-        const std::optional<Texture> orm = pbr::BakeOrm(recipe);
-        REQUIRE(orm.has_value());
-
-        const f32 lin = srgbToLinear(static_cast<f32>(level) / 255.0f);
-        const f32 expected = 0.1f + 0.8f * std::pow(std::max(0.0f, 1.0f - lin), 0.7f);
-        CHECK(static_cast<i32>(channelOf(*orm, Channel::G)) ==
-              static_cast<i32>(std::lround(expected * 255.0f)));
-
-        const f32 evidence = smoothstep(0.08f, 0.30f, lin) * 0.25f; // grey: no colour evidence
-        CHECK(static_cast<i32>(channelOf(*orm, Channel::B)) ==
-              static_cast<i32>(std::lround(evidence * 255.0f)));
-    }
+    const f32 g = 128.0f / 255.0f;
+    CHECK(static_cast<i32>(channelOf(*orm, Channel::G)) ==
+          Catch::Approx(std::lround(pbr::RoughnessFromExponent(20.0f * g * g) * 255.0f)).margin(1));
 }
 
 TEST_CASE("a DXT5nm normal moves x out of alpha", "[pbr_bake]") {
     // x = 0.8 in alpha, y = 0.3 in green, and red/blue carrying the padding
-    // DXT5nm leaves behind.
+    // DXT5nm leaves there. A converter that copied rgb would take the padding.
     const Texture source = solid(255, 77, 255, 204);
-
-    const std::optional<Texture> restated =
+    const std::optional<Texture> moved =
         pbr::ConvertNormalXInAlpha(source, pbr::NormalRestatement{});
-    REQUIRE(restated.has_value());
-    CHECK(channelOf(*restated, Channel::R) == 204); // x, from alpha
-    CHECK(channelOf(*restated, Channel::G) == 77);  // y, unchanged
-    CHECK(restated->kind() == TextureKind::Normal);
-    CHECK_FALSE(restated->isSrgb());
-
-    // z is reconstructed rather than left at the source's blue, so a mip
-    // filter has a whole vector to renormalise.
-    const f32 x = 2.0f * (204.0f / 255.0f) - 1.0f;
-    const f32 y = 2.0f * (77.0f / 255.0f) - 1.0f;
-    const f32 z = std::sqrt(std::max(0.0f, 1.0f - x * x - y * y));
-    CHECK(static_cast<i32>(channelOf(*restated, Channel::B)) ==
-          Catch::Approx(std::lround((z + 1.0f) * 0.5f * 255.0f)).margin(1));
+    REQUIRE(moved.has_value());
+    CHECK(channelOf(*moved, Channel::R) == 204);
+    CHECK(channelOf(*moved, Channel::G) == 77);
+    CHECK(channelOf(*moved, Channel::A) == 255);
 }
 
 TEST_CASE("swapping x and y is the other", "[pbr_bake]") {
     const Texture source = solid(255, 77, 255, 204);
-    const std::optional<Texture> plain =
-        pbr::ConvertNormalXInAlpha(source, pbr::NormalRestatement{});
-    const std::optional<Texture> swapped =
+    const std::optional<Texture> moved =
         pbr::ConvertNormalXInAlpha(source, pbr::NormalRestatement{true, false});
-    REQUIRE(plain.has_value());
-    REQUIRE(swapped.has_value());
-    CHECK(channelOf(*swapped, Channel::R) == channelOf(*plain, Channel::G));
-    CHECK(channelOf(*swapped, Channel::G) == channelOf(*plain, Channel::R));
-    // z is reconstructed from the components as written, so swapping two
-    // magnitudes leaves it alone.
-    CHECK(channelOf(*swapped, Channel::B) == channelOf(*plain, Channel::B));
+    REQUIRE(moved.has_value());
+    CHECK(channelOf(*moved, Channel::R) == 77);
+    CHECK(channelOf(*moved, Channel::G) == 204);
 }
 
 TEST_CASE("the two team masks are combined by max", "[pbr_bake]") {
@@ -256,16 +339,16 @@ TEST_CASE("the two team masks are combined by max", "[pbr_bake]") {
     const Texture fromLayer = solid(0, 0, 160, 0);   // 0.627
 
     pbr::OrmRecipe recipe;
-    recipe.specular.texture = &specular;
+    recipe.reflectance.specular.texture = &specular;
     recipe.teamMask.texture = &fromDiffuse;
     recipe.teamMask.channel = Channel::A;
     recipe.teamMask.invert = true;
 
-    CHECK(channelOf(*pbr::BakeOrm(recipe), Channel::A) == 0);
+    CHECK(channelOf(*pbr::BakeOrm(recipe), Channel::A) == 55);
 
     recipe.teamMaskAlt.texture = &fromLayer;
     recipe.teamMaskAlt.channel = Channel::B;
-    CHECK(channelOf(*pbr::BakeOrm(recipe), Channel::A) == 255);
+    CHECK(channelOf(*pbr::BakeOrm(recipe), Channel::A) == 160);
 }
 
 TEST_CASE("inverting y is the one thing the restatement chooses", "[pbr_bake]") {
@@ -289,34 +372,31 @@ TEST_CASE("the base colour is lightened where the team mask selects", "[pbr_bake
     // going to replace it -- and Warcraft III multiplies instead, so the albedo
     // has to become the identity of a modulate where the mask is 1.
     const Texture diffuse = solid(26, 26, 26, 64); // a = 0.25, so the mask is 0.75
-    pbr::TeamBaseColorRecipe recipe;
+    pbr::BaseColorRecipe recipe;
     recipe.baseColor.texture = &diffuse;
     recipe.teamMask.texture = &diffuse;
     recipe.teamMask.channel = Channel::A;
     recipe.teamMask.invert = true;
 
-    const std::optional<Texture> base = pbr::BakeTeamBaseColor(recipe);
+    const std::optional<Texture> base = pbr::BakeBaseColor(recipe);
     REQUIRE(base.has_value());
 
     // lerp(white, diffuse, a) in LINEAR, then re-encoded.
     const f32 keep = 64.0f / 255.0f;
     const f32 expected = 1.0f + (srgbToLinear(26.0f / 255.0f) - 1.0f) * keep;
-    const f32 encoded = expected <= 0.0031308f ? expected * 12.92f
-                                               : 1.055f * std::pow(expected, 1.0f / 2.4f) - 0.055f;
-    CHECK(static_cast<i32>(channelOf(*base, Channel::R)) ==
-          Catch::Approx(std::lround(encoded * 255.0f)).margin(1));
+    CHECK(linearOf(*base, Channel::R) == Catch::Approx(expected).margin(0.004f));
     // The alpha was the mask, and Warcraft III reads that channel as coverage.
     CHECK(channelOf(*base, Channel::A) == 255);
 }
 
 TEST_CASE("a fully masked texel goes white, an unmasked one is untouched", "[pbr_bake]") {
     const Texture diffuse = solid(40, 80, 120, 255);
-    pbr::TeamBaseColorRecipe recipe;
+    pbr::BaseColorRecipe recipe;
     recipe.baseColor.texture = &diffuse;
 
-    SECTION("mask 0 leaves the art alone") {
+    SECTION("mask 0 and no specular leaves the art alone") {
         recipe.teamMask.constant = 0.0f;
-        const std::optional<Texture> base = pbr::BakeTeamBaseColor(recipe);
+        const std::optional<Texture> base = pbr::BakeBaseColor(recipe);
         REQUIRE(base.has_value());
         CHECK(static_cast<i32>(channelOf(*base, Channel::R)) == Catch::Approx(40).margin(1));
         CHECK(static_cast<i32>(channelOf(*base, Channel::G)) == Catch::Approx(80).margin(1));
@@ -325,7 +405,7 @@ TEST_CASE("a fully masked texel goes white, an unmasked one is untouched", "[pbr
     SECTION("mask 1 is white, so the runtime swatch supplies the colour outright") {
         const Texture mask = solid(255, 255, 255, 255);
         recipe.teamMask.texture = &mask;
-        const std::optional<Texture> base = pbr::BakeTeamBaseColor(recipe);
+        const std::optional<Texture> base = pbr::BakeBaseColor(recipe);
         REQUIRE(base.has_value());
         CHECK(channelOf(*base, Channel::R) == 255);
         CHECK(channelOf(*base, Channel::G) == 255);
@@ -334,27 +414,8 @@ TEST_CASE("a fully masked texel goes white, an unmasked one is untouched", "[pbr
 }
 
 TEST_CASE("no base colour is nothing to rewrite", "[pbr_bake]") {
-    pbr::TeamBaseColorRecipe recipe;
-    REQUIRE_FALSE(pbr::BakeTeamBaseColor(recipe).has_value());
-}
-
-TEST_CASE("the team mask comes out binary, not as the weight it went in as", "[pbr_bake]") {
-    // Warcraft III's team mask is coverage: over a shipped footman's five ORMs
-    // the alpha is 88-100% at 0..15 and 7-11% at 240..255, with about 1% in
-    // between. Every source states a blend weight instead, so the bake decides.
-    const Texture specular = solid(0, 0, 0, 255);
-    const Texture diffuse = solid(26, 26, 26, 128); // dark art, a = 0.50
-
-    pbr::OrmRecipe recipe;
-    recipe.specular.texture = &specular;
-    recipe.teamMask.texture = &diffuse;
-    recipe.teamMask.channel = Channel::A;
-    recipe.teamMask.invert = true;
-    recipe.baseColor.texture = &diffuse;
-
-    const std::optional<Texture> orm = pbr::BakeOrm(recipe);
-    REQUIRE(orm.has_value());
-    CHECK(channelOf(*orm, Channel::A) == 255);
+    pbr::BaseColorRecipe recipe;
+    REQUIRE_FALSE(pbr::BakeBaseColor(recipe).has_value());
 }
 
 TEST_CASE("what decides the mask is how dark the paint under it is", "[pbr_bake]") {
@@ -367,46 +428,45 @@ TEST_CASE("what decides the mask is how dark the paint under it is", "[pbr_bake]
     const Texture light = solid(230, 230, 230, 200); // the same weight over 0.777
 
     pbr::OrmRecipe recipe;
-    recipe.specular.texture = &specular;
+    recipe.reflectance.specular.texture = &specular;
     recipe.teamMask.channel = Channel::A;
     recipe.teamMask.invert = true;
 
-    SECTION("a fifth of a dark texel is the team's") {
+    SECTION("a fifth of a dark texel is nearly all the team's") {
         recipe.teamMask.texture = &dark;
         recipe.baseColor.texture = &dark;
         const std::optional<Texture> orm = pbr::BakeOrm(recipe);
         REQUIRE(orm.has_value());
-        CHECK(channelOf(*orm, Channel::A) == 255);
+        CHECK(channelOf(*orm, Channel::A) > 230);
     }
-    SECTION("a fifth of a light one is not") {
+    SECTION("a fifth of a light one is barely any of it") {
         recipe.teamMask.texture = &light;
         recipe.baseColor.texture = &light;
         const std::optional<Texture> orm = pbr::BakeOrm(recipe);
         REQUIRE(orm.has_value());
-        CHECK(channelOf(*orm, Channel::A) == 0);
+        CHECK(channelOf(*orm, Channel::A) < 100);
     }
 }
 
-TEST_CASE("with no albedo to judge against, half the weight is the line", "[pbr_bake]") {
+TEST_CASE("with no albedo to judge against, the weight goes through as it came",
+          "[pbr_bake]") {
+    // The sharpening is a judgement about the paint under the mask, so without
+    // the paint there is nothing to judge and the source's own weight stands.
     const Texture specular = solid(0, 0, 0, 255);
-    const Texture belowHalf = solid(0, 0, 0, 200); // weight 0.216
-    const Texture aboveHalf = solid(0, 0, 0, 64);  // weight 0.749
+    const Texture weighted = solid(0, 0, 0, 200); // weight 0.216
 
     pbr::OrmRecipe recipe;
-    recipe.specular.texture = &specular;
+    recipe.reflectance.specular.texture = &specular;
+    recipe.teamMask.texture = &weighted;
     recipe.teamMask.channel = Channel::A;
     recipe.teamMask.invert = true;
 
-    recipe.teamMask.texture = &belowHalf;
-    CHECK(channelOf(*pbr::BakeOrm(recipe), Channel::A) == 0);
-    recipe.teamMask.texture = &aboveHalf;
-    CHECK(channelOf(*pbr::BakeOrm(recipe), Channel::A) == 255);
+    CHECK(channelOf(*pbr::BakeOrm(recipe), Channel::A) == 55);
 }
 
-TEST_CASE("the shading a binary mask cannot hold stays in the base colour", "[pbr_bake]") {
-    // Two texels the mask calls equally team-coloured, whose source weights
-    // differ: the ORM cannot tell them apart and must not try, and the albedo
-    // has to carry the difference or the tint comes out flat.
+TEST_CASE("the shading a mask cannot hold stays in the base colour", "[pbr_bake]") {
+    // Two texels the mask calls team-coloured, whose source weights differ: the
+    // albedo has to carry the difference or the tint comes out flat.
     Texture diffuse = Texture::create2D(PixelFormat::RGBA8, 2, 1, 1);
     const std::span<u8> pixels = diffuse.mipData(0);
     for (std::size_t i = 0; i < 2; ++i) {
@@ -415,13 +475,13 @@ TEST_CASE("the shading a binary mask cannot hold stays in the base colour", "[pb
     pixels[3] = 0;   // a = 0, all team
     pixels[7] = 128; // a = 0.5, half
 
-    pbr::TeamBaseColorRecipe recipe;
+    pbr::BaseColorRecipe recipe;
     recipe.baseColor.texture = &diffuse;
     recipe.teamMask.texture = &diffuse;
     recipe.teamMask.channel = Channel::A;
     recipe.teamMask.invert = true;
 
-    const std::optional<Texture> base = pbr::BakeTeamBaseColor(recipe);
+    const std::optional<Texture> base = pbr::BakeBaseColor(recipe);
     REQUIRE(base.has_value());
     const std::span<const u8> out = base->mipData(0);
     CHECK(out[0] == 255);
@@ -436,7 +496,7 @@ TEST_CASE("the base colour never decides the map's size", "[pbr_bake]") {
     const Texture diffuse = solid(26, 26, 26, 128, 16);
 
     pbr::OrmRecipe recipe;
-    recipe.specular.texture = &specular;
+    recipe.reflectance.specular.texture = &specular;
     recipe.baseColor.texture = &diffuse;
 
     const std::optional<Texture> orm = pbr::BakeOrm(recipe);

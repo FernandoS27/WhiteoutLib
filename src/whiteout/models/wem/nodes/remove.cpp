@@ -291,6 +291,30 @@ NodeRemaps CompactNodes(NodeTree& tree, NodeReferencers referencers, Diagnostics
                       ElementRef(ElementKind::Mesh, m));
         }
 
+        // The section's visibility gate, which is a node index in the shared
+        // bag rather than a field (`kSectionVisibilityNode`). A gate whose node
+        // is gone becomes the source's own "always drawn": the geoset it names
+        // still exists, and drawing it is the answer that loses least.
+        for (u32 s = 0; s < mesh.sections.size(); ++s) {
+            MeshSection& section = mesh.sections[s];
+            const i64 gate = section.native.value(kSectionVisibilityNode, -1);
+            if (gate < 0 || gate == kSectionAlwaysDrawn) {
+                continue;
+            }
+            const u32 fresh = static_cast<std::size_t>(gate) < remaps.nodes.size()
+                                  ? remaps.nodes[static_cast<std::size_t>(gate)]
+                                  : kInvalidNode;
+            if (fresh == kInvalidNode) {
+                out.info(DiagCode::DanglingNodeReference,
+                         "a section's visibility gate names a node that no longer exists; "
+                         "the section is drawn unconditionally",
+                         ElementRef(ElementKind::Section, s));
+                section.native.set(kSectionVisibilityNode, kSectionAlwaysDrawn);
+            } else {
+                section.native.set(kSectionVisibilityNode, static_cast<i64>(fresh));
+            }
+        }
+
         // MeshSection::rigidNode
         for (u32 s = 0; s < mesh.sections.size(); ++s) {
             MeshSection& section = mesh.sections[s];

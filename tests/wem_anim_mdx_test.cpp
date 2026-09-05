@@ -433,6 +433,123 @@ TEST_CASE("wem mdx export writes the clips back onto the timeline", "[wem][anim]
     CHECK(track.interpolationType == mdx::InterpolationType::Linear);
 }
 
+// ============================================================================
+// Visibility gates
+// ============================================================================
+
+namespace {
+
+/// A document from `makeModel`, with its one section gated on the root bone and
+/// that bone's visibility declared at @p rest.
+Document makeGatedDocument(f32 rest, u32* channelOut) {
+    Document document = convert(makeModel());
+    REQUIRE(document.models.size() == 1u);
+    Model& model = document.models[0];
+    REQUIRE(model.meshes.size() == 1u);
+    REQUIRE_FALSE(model.meshes[0].sections.empty());
+    REQUIRE_FALSE(model.nodes.empty());
+
+    // Exactly what an M3 import leaves behind on a gated batch.
+    model.meshes[0].sections[0].native.set(kSectionVisibilityNode, 0);
+
+    AnimChannel gate;
+    gate.id = 900;
+    gate.target.kind = TrackTarget::Kind::Node;
+    gate.target.node = 0;
+    gate.target.channel = Channel::Visibility;
+    gate.valueType = geom::AttrType::F32;
+    gate.initValue.resize(sizeof(f32));
+    std::memcpy(gate.initValue.data(), &rest, sizeof(f32));
+    model.animChannels.add(gate);
+    *channelOut = gate.id;
+    return document;
+}
+
+} // namespace
+
+TEST_CASE("wem mdx a section's visibility gate becomes a geoset animation",
+          "[wem][anim][mdx]") {
+    // M3 hides a BONE, not a geoset: a batch names the bone whose visibility
+    // flag gates its draw. Warcraft III's only per-geoset visibility is a geoset
+    // animation's alpha, so the gate has to be resolved on the way out or the
+    // geoset draws unconditionally -- which is a Murky exported holding a shark
+    // he only holds while riding one.
+    u32 channel = 0;
+    Document document = makeGatedDocument(0.0f, &channel);
+
+    // "Stand" says visible; "Walk" says nothing at all.
+    bool keyed = false;
+    for (Clip& clip : document.clips) {
+        if (clip.name != "Stand") {
+            continue;
+        }
+        SubTrackContainer container;
+        SubTrack track;
+        track.channel = channel;
+        // Deliberately linear: the source says so on 18,778 of StarCraft II's
+        // 18,778 gates, and the export is expected to overrule it.
+        track.interp = Interpolation::Linear;
+        track.times = {0.0f};
+        track.values.resize(sizeof(f32));
+        const f32 visible = 1.0f;
+        std::memcpy(track.values.data(), &visible, sizeof(f32));
+        container.subTracks.push_back(std::move(track));
+        clip.containers.push_back(std::move(container));
+        keyed = true;
+    }
+    REQUIRE(keyed);
+
+    MdxConverter converter;
+    const Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->geosetAnimations.size() == 1u);
+    const mdx::GeosetAnimation& animation = exported->geosetAnimations[0];
+    CHECK(animation.geosetId == 0u);
+    REQUIRE(animation.alphaTracks.isUsed);
+
+    // A flag crosses as a flag. Linear between 0 and 1 is a fade, and the
+    // engine that wrote this has no midpoint to fade through.
+    CHECK(animation.alphaTracks.interpolationType == mdx::InterpolationType::None);
+
+    // Two keys: the one "Stand" carries, and one at "Walk"'s start holding the
+    // rest value -- MDX has one timeline where M3 had a clock per sequence, so
+    // without it "Stand"'s answer would still be in force during "Walk".
+    REQUIRE(animation.alphaTracks.timestamps.size() == 2u);
+    CHECK(animation.alphaTracks.timestamps[0] == 0u);
+    CHECK(animation.alphaTracks.timestamps[1] == 2000u);
+    REQUIRE(animation.alphaTracks.keys_data.size() == 2u);
+    CHECK(animation.alphaTracks.keys_data[0] == Catch::Approx(1.0f));
+    CHECK(animation.alphaTracks.keys_data[1] == Catch::Approx(0.0f));
+}
+
+TEST_CASE("wem mdx a gate no clip drives is the rest value, once", "[wem][anim][mdx]") {
+    // 2,813 of StarCraft II's 18,199 animated gates are keyed by no sequence at
+    // all: the AnimRef states the answer and nothing ever changes it. A static
+    // alpha of zero is the same thing a hidden section becomes.
+    u32 channel = 0;
+    const Document document = makeGatedDocument(0.0f, &channel);
+
+    MdxConverter converter;
+    const Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->geosetAnimations.size() == 1u);
+    CHECK(exported->geosetAnimations[0].geosetId == 0u);
+    CHECK(exported->geosetAnimations[0].alpha == Catch::Approx(0.0f));
+    CHECK_FALSE(exported->geosetAnimations[0].alphaTracks.isUsed);
+}
+
+TEST_CASE("wem mdx a gate that rests visible writes nothing", "[wem][anim][mdx]") {
+    // The other two thirds. A geoset that draws is what a geoset does, and a
+    // record saying so is a record for nothing to read.
+    u32 channel = 0;
+    const Document document = makeGatedDocument(1.0f, &channel);
+
+    MdxConverter converter;
+    const Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic);
+    REQUIRE(exported.ok());
+    CHECK(exported->geosetAnimations.empty());
+}
+
 TEST_CASE("wem mdx a sequence's own extent survives the round trip", "[wem][anim][mdx]") {
     // A per-sequence bound is the one bound WEM stores rather than recomputes:
     // it is the union over the *posed* model across the clip, so recovering it

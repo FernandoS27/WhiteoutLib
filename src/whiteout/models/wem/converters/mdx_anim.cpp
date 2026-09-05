@@ -721,9 +721,11 @@ public:
 
     void run() {
         buildWindows();
+        buildVisibilityGates();
         for (const AnimChannel& channel : model_.animChannels.channels) {
             emitChannel(channel);
         }
+        emitStandingVisibilityGates();
         emitStandingUvTransforms();
         emitEvents();
     }
@@ -734,6 +736,7 @@ private:
     struct Window {
         u32 clip = kInvalidIndex;
         u32 start = 0; ///< Milliseconds. Meaningless for a global-sequence clip.
+        u32 end = 0;   ///< Milliseconds, inclusive. Same.
         u32 globalSequenceId = mdx::Track<f32>::kNoGlobalSequence;
     };
 
@@ -801,6 +804,7 @@ private:
 
             nextFree = std::max(nextFree, sequence.intervalEnd + 1000u);
             window.start = sequence.intervalStart;
+            window.end = sequence.intervalEnd;
             windows_.push_back(window);
             out_.sequences.push_back(std::move(sequence));
         }
@@ -932,6 +936,16 @@ private:
                 Emit(merged, out_.cameras[slot.index].positionTracks);
             }
             return;
+        }
+
+        // A section whose draw M3 gates on this bone becomes a geoset
+        // animation, which is where a bone's visibility ends up in a format
+        // that has no per-bone one.
+        if (channel.target.channel == Channel::Visibility) {
+            if (VisibilityGate* gate = gateFor(wemNode)) {
+                emitGate(*gate, channel, merged);
+                return;
+            }
         }
 
         if (mdx::Node* node = nodeRecord(wemNode)) {
@@ -1212,6 +1226,160 @@ private:
             return;
         default:
             break;
+        }
+    }
+
+    // ---- visibility gates ---------------------------------------------------
+    //
+    // M3 does not hide a geoset, it hides a BONE: a batch names one
+    // (`visibilityBone`, section 5.5) and the submit loop skips the batch while
+    // that bone's visibility flag is clear. Warcraft III has no such thing --
+    // its one per-geoset visibility is a geoset animation's alpha -- so the gate
+    // has to be resolved on the way out, from the bone the section names onto
+    // the geosets that section became.
+    //
+    // It is not a rare shape: 18,778 of StarCraft II's 75,031 shipped batches
+    // are gated and 6,901 of Heroes' 36,712, and 37% of those gates are clear at
+    // rest. Left unresolved every one of them draws, which is why a Murky
+    // exported with a shark and a conch shell hanging off him.
+
+    /// One gated section, resolved to the geosets it became.
+    struct VisibilityGate {
+        u32 node = kInvalidNode;
+        std::vector<u32> geosets;
+        bool driven = false; ///< A clip keyed it, so the rest value is not the answer.
+    };
+
+    VisibilityGate* gateFor(u32 node) {
+        for (VisibilityGate& gate : gates_) {
+            if (gate.node == node) {
+                return &gate;
+            }
+        }
+        return nullptr;
+    }
+
+    void buildVisibilityGates() {
+        for (std::size_t m = 0; m < model_.meshes.size() && m < context_.geosetsOfMesh.size();
+             ++m) {
+            if (m >= context_.sectionOfGeoset.size()) {
+                break;
+            }
+            const Mesh& mesh = model_.meshes[m];
+            const std::vector<u32>& geosets = context_.geosetsOfMesh[m];
+            const std::vector<u32>& sections = context_.sectionOfGeoset[m];
+            for (std::size_t g = 0; g < geosets.size() && g < sections.size(); ++g) {
+                if (sections[g] >= mesh.sections.size()) {
+                    continue;
+                }
+                // Never drawn beats drawn-while-visible: a gate track written
+                // here would overrule the static alpha of zero the hidden
+                // section already earned, because a used track wins over the
+                // record's own alpha.
+                if (hasFlag(mesh.sections[sections[g]].flags, SectionFlags::Hidden)) {
+                    continue;
+                }
+                // 0xFFFF is the source's own "always drawn"; the key is absent
+                // on every section no M3 import wrote.
+                const i64 node =
+                    mesh.sections[sections[g]].native.value(kSectionVisibilityNode, -1);
+                if (node < 0 || node == kSectionAlwaysDrawn ||
+                    node >= static_cast<i64>(model_.nodes.size())) {
+                    continue;
+                }
+                VisibilityGate* gate = gateFor(static_cast<u32>(node));
+                if (gate == nullptr) {
+                    VisibilityGate created;
+                    created.node = static_cast<u32>(node);
+                    gates_.push_back(std::move(created));
+                    gate = &gates_.back();
+                }
+                gate->geosets.push_back(geosets[g]);
+            }
+        }
+    }
+
+    /// The channel that drives @p node's visibility, for its rest value.
+    const AnimChannel* visibilityChannelOf(u32 node) const {
+        for (const AnimChannel& channel : model_.animChannels.channels) {
+            if (channel.target.kind == TrackTarget::Kind::Node && channel.target.node == node &&
+                channel.target.channel == Channel::Visibility) {
+                return &channel;
+            }
+        }
+        return nullptr;
+    }
+
+    /// A visibility flag written as a geoset alpha.
+    ///
+    /// Always as a **step**, whatever the source's AnimRef says: the step bit is
+    /// set on 0 of StarCraft II's 18,778 gates and on 31 of Heroes' 6,901, and a
+    /// linear ramp between 0 and 1 is a fade. The engine has no midpoint to fade
+    /// through -- it samples these through the override blender, where the first
+    /// contributor wins outright -- so a flag crosses as a flag.
+    ///
+    /// **A sequence that keys nothing gets a key anyway**, holding the rest
+    /// value, because that is what such a sequence samples in M3 and MDX has one
+    /// timeline where it had many: without it the previous sequence's answer
+    /// leaks into the next. Only 6,068 of StarCraft II's 18,199 animated gates
+    /// are keyed in every one of their model's sequences; 9,318 in some of them.
+    void emitGate(VisibilityGate& gate, const AnimChannel& channel, const MergedTrack& merged) {
+        gate.driven = true;
+
+        f32 rest = 1.0f;
+        if (channel.hasInitValue()) {
+            std::memcpy(&rest, channel.initValue.data(), sizeof(f32));
+        }
+        u8 restBytes[sizeof(f32)];
+        std::memcpy(restBytes, &rest, sizeof(f32));
+
+        MergedTrack stepped = merged;
+        stepped.interp = Interpolation::Step;
+        if (merged.globalSequenceId == kNoGlobalSequence) {
+            for (const Window& window : windows_) {
+                if (window.globalSequenceId != kNoGlobalSequence) {
+                    continue;
+                }
+                const bool keyed =
+                    std::any_of(merged.times.begin(), merged.times.end(),
+                                [&](u32 t) { return t >= window.start && t <= window.end; });
+                if (!keyed) {
+                    stepped.add(window.start, restBytes);
+                }
+            }
+            stepped.finish();
+        }
+
+        for (const u32 geoset : gate.geosets) {
+            if (geoset < out_.geosets.size()) {
+                Emit(stepped, geosetAnimationFor(geoset).alphaTracks);
+            }
+        }
+    }
+
+    /// A gate no clip ever drove: its rest value is the whole answer, and a
+    /// static alpha of zero is how MDX says "this geoset does not draw" -- the
+    /// same thing a hidden section becomes. 2,813 of StarCraft II's gates are
+    /// keyed by no sequence at all.
+    void emitStandingVisibilityGates() {
+        for (const VisibilityGate& gate : gates_) {
+            if (gate.driven) {
+                continue;
+            }
+            const AnimChannel* channel = visibilityChannelOf(gate.node);
+            if (channel == nullptr || !channel->hasInitValue()) {
+                continue;
+            }
+            f32 rest = 1.0f;
+            std::memcpy(&rest, channel->initValue.data(), sizeof(f32));
+            if (rest != 0.0f) {
+                continue;
+            }
+            for (const u32 geoset : gate.geosets) {
+                if (geoset < out_.geosets.size()) {
+                    geosetAnimationFor(geoset).alpha = 0.0f;
+                }
+            }
         }
     }
 
@@ -1523,6 +1691,7 @@ private:
     mdx::Model& out_;
     Diagnostics& diagnostics_;
     std::vector<Window> windows_;
+    std::vector<VisibilityGate> gates_;
 };
 
 } // namespace
