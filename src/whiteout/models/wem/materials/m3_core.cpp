@@ -857,6 +857,49 @@ void exportCombiners(const CombinersBody& body, const CommonMaterial& common,
         seed = 0;
     }
 
+    const bool blendsAlpha = common.blend == BlendMode::AlphaKey ||
+                             common.blend == BlendMode::Transparent ||
+                             common.blend == BlendMode::AlphaBlend ||
+                             common.blend == BlendMode::AdditiveAlpha ||
+                             common.blend == BlendMode::PremultipliedAlpha;
+
+    // A mask that multiplies the chain's alpha lands in the two slots the
+    // engine composes (`cFinal.a = mask1.a * mask2.a`). Shared by the
+    // alpha-only branch below and the emissive stages further down; first
+    // free slot wins, and a third mask reports rather than overwriting —
+    // the D3 bake merges the static ones upstream so three fit in two
+    // (D3_TO_SC2_DESIGN.md §3).
+    const auto plantAlphaMask = [&](const CombinerStage& stage, std::size_t i) {
+        std::optional<m3::TextureLayer>* slot = !standard.alphaLayer1.has_value()
+                                                    ? &standard.alphaLayer1
+                                                : !standard.alphaLayer2.has_value()
+                                                    ? &standard.alphaLayer2
+                                                    : nullptr;
+        if (slot == nullptr) {
+            out.warn(DiagCode::LayerDropped,
+                     "combiner stage " + number(i) +
+                         "'s alpha mask found both alpha slots taken",
+                     ElementRef(), profile);
+            return;
+        }
+        *slot = layerFrom(stage.input, context);
+        (*slot)->colorType = m3::ColorChannelSelect::Alpha;
+        record(slot == &standard.alphaLayer1 ? StandardLayer::Alpha1 : StandardLayer::Alpha2, i);
+    };
+
+    // The blended-or-keyed mask — the composite path's rule with the chain's
+    // own refinement: `Opaque` in a combiner name says the seed contributes
+    // no alpha, so only a seed whose alpha op multiplies carries the
+    // texture's mask; the rest blend by the batch alpha alone. Planted FIRST
+    // so the seed's mask keeps the first slot and the stage masks fill the
+    // second, whatever order the chain lists them in.
+    if (blendsAlpha && seed < body.stages.size() &&
+        body.stages[seed].alpha == CombinerOp::Mod && body.stages[seed].input.hasTexture()) {
+        standard.alphaLayer1 = layerFrom(body.stages[seed].input, context);
+        standard.alphaLayer1->colorType = m3::ColorChannelSelect::Alpha;
+        record(StandardLayer::Alpha1, seed);
+    }
+
     bool emissiveAdds = false;
     for (std::size_t i = 0; i < body.stages.size(); ++i) {
         const CombinerStage& stage = body.stages[i];
@@ -867,8 +910,16 @@ void exportCombiners(const CombinersBody& body, const CommonMaterial& common,
         }
         // `Pass` is the identity: a stage that touches alpha alone, or a fold
         // the chain table cannot spell (`_3s`, where the mask reaches a third
-        // unit rather than 1).
+        // unit rather than 1). An alpha-only MULTIPLY is Diablo III's mask
+        // stage (types 12/14/19), and it used to vanish with the colour
+        // identity — Imperius's wings drew as solid sheets with the masks
+        // gone. Mod2x stays unexpressed for Kil'jaeden's reason (the
+        // un-doubled mask halves the effect); the D3 bake folds those in
+        // with their true gain instead.
         if (stage.rgb == CombinerOp::Pass) {
+            if (blendsAlpha && stage.alpha == CombinerOp::Mod && stage.input.hasTexture()) {
+                plantAlphaMask(stage, i);
+            }
             continue;
         }
         // The `_Alpha` masked fold, `rgb * lerp(t*N, 1, t0.a)`, and the two
@@ -999,18 +1050,13 @@ void exportCombiners(const CombinersBody& body, const CommonMaterial& common,
         if (*op == m3::LayerBlendOp::Add || *op == m3::LayerBlendOp::Lerp) {
             (*slot)->colorType = m3::ColorChannelSelect::RGBA;
         }
-        // A stage whose ALPHA op multiplies also masks the draw; the second
-        // alpha slot is the product's home (cFinal.a = mask1.a * mask2.a).
+        // A stage whose ALPHA op multiplies also masks the draw; the alpha
+        // slots are the product's home (cFinal.a = mask1.a * mask2.a).
         // NOT Mod2x: its mask saturates (c.a * t1.a * 2), and carrying it
         // without the doubling halved Kil'jaeden's fire — measured 8.8 -> 23.1
         // — so the doubled mask stays unexpressed, like the op's colour side.
-        if (stage.alpha == CombinerOp::Mod && stage.input.hasTexture() &&
-            !standard.alphaLayer2.has_value() &&
-            (common.blend == BlendMode::AlphaKey || common.blend == BlendMode::Transparent ||
-             common.blend == BlendMode::AlphaBlend ||
-             common.blend == BlendMode::AdditiveAlpha)) {
-            standard.alphaLayer2 = layerFrom(stage.input, context);
-            standard.alphaLayer2->colorType = m3::ColorChannelSelect::Alpha;
+        if (blendsAlpha && stage.alpha == CombinerOp::Mod && stage.input.hasTexture()) {
+            plantAlphaMask(stage, i);
         }
     }
     if (emissiveAdds) {
@@ -1019,18 +1065,134 @@ void exportCombiners(const CombinersBody& body, const CommonMaterial& common,
         // composite path, met from the other side.
         standard.hdrEmissiveMultiplier = 1.0f;
     }
+}
 
-    // The blended-or-keyed mask — the composite path's rule with the chain's
-    // own refinement: `Opaque` in a combiner name says the seed contributes
-    // no alpha, so only a seed whose alpha op multiplies carries the
-    // texture's mask; the rest blend by the batch alpha alone.
-    const bool blendsAlpha = common.blend == BlendMode::AlphaKey ||
-                             common.blend == BlendMode::Transparent ||
-                             common.blend == BlendMode::AlphaBlend ||
-                             common.blend == BlendMode::AdditiveAlpha;
-    if (blendsAlpha && seed < body.stages.size() &&
-        body.stages[seed].alpha == CombinerOp::Mod && standard.diffuseLayer.has_value() &&
-        !standard.diffuseLayer->texturePath.empty() && !standard.alphaLayer1.has_value()) {
+/// A Diablo III slot map onto the fixed slots — D3_TO_SC2_DESIGN.md §2.
+///
+/// `LegacySlot` is this generation's own vocabulary, so most of the table is a
+/// rename. The three rules that are not renames each cost a rendered frame:
+///
+/// * **A zero-factor environment is dropped.** Every shipped Diablo III
+///   material carries the type-4 entry with `environmentFactor` 0 and the D3
+///   shading model has no environment term at all — crossing it live under the
+///   default `Mod` op multiplied the lit colour by `env * 0`, which was the
+///   black-armour frame. The MDX exporter's rule, ported.
+/// * **The specular strength lives in the MAP.** `flShininess` is 0.0 on 99.4%
+///   of shipped materials and `vSpecular` ~1.0 on 99.0% — taking the factor
+///   with no map is `pow(x, 0) = 1`, a hemisphere-wide highlight on every
+///   surface. No map means no specular; the exponent is the global
+///   `SpecularPower` (the D3 renderer's 24), never `flShininess`.
+/// * **The glow ADDS.** `scene_opaque_glow` adds the map outside the albedo;
+///   `actor2` adds it inside, and the two differ only where the albedo is
+///   dark. The default `emissiveBlendMode` is Mod, which multiplies the lit
+///   colour by a mostly-black map — the Sorceress-silhouette trap.
+void exportLegacy(const LegacyDeferredBody& body, const CommonMaterial& common,
+                  const Context& context, ProfileId profile, m3::StandardMaterial& standard,
+                  Diagnostics& out, std::vector<u32>* layerOrdinals) {
+    const auto record = [&](StandardLayer slot, std::size_t ordinal) {
+        if (layerOrdinals != nullptr) {
+            (*layerOrdinals)[static_cast<std::size_t>(slot)] = static_cast<u32>(ordinal);
+        }
+    };
+
+    standard.specularExponent = 24.0f;
+    standard.hdrSpecularMultiplier = 0.0f;
+    standard.hdrEmissiveMultiplier = 0.0f;
+    standard.hdrEnvironmentConstant = 0.0f;
+
+    for (std::size_t ordinal = 0; ordinal < body.slots.size(); ++ordinal) {
+        const LegacySlot slot = body.slots[ordinal].first;
+        const TextureInput& input = body.slots[ordinal].second;
+        switch (slot) {
+        case LegacySlot::Diffuse:
+            // `diffuseFactor` (matDiffuse) is deliberately NOT folded into the
+            // layer colour, though the D3 albedo genuinely contains it: the D3
+            // rig is engineered hot to compensate (ambient SUMS, the vertex
+            // colour at x2, the irradiance x2), and shipped bodies carry a
+            // ~0.6 neutral grey there. Folding the dim half without the rig's
+            // hot half rendered every character at two-thirds brightness with
+            // the hue already right — the composite path never folded it
+            // either, and pixel ratios (g/r, b/r) match native without it.
+            standard.diffuseLayer = layerFrom(input, context);
+            record(StandardLayer::Diffuse, ordinal);
+            break;
+        case LegacySlot::Normal:
+            standard.normalLayer = layerFrom(input, context);
+            record(StandardLayer::Normal, ordinal);
+            break;
+        case LegacySlot::Specular:
+            standard.specularLayer = layerFrom(input, context);
+            record(StandardLayer::Specular, ordinal);
+            standard.specularMode = m3::SpecularMode::RGB;
+            standard.hdrSpecularMultiplier =
+                body.specularFactor.x > 0.0f ? body.specularFactor.x : 1.0f;
+            break;
+        case LegacySlot::Emissive:
+            standard.emissiveLayer1 = layerFrom(input, context);
+            record(StandardLayer::Emissive1, ordinal);
+            standard.emissiveBlendMode1 = m3::LayerBlendOp::AddNoAlpha;
+            standard.hdrEmissiveMultiplier = 1.0f;
+            break;
+        case LegacySlot::Environment:
+            if (body.environmentFactor <= 0.0f) {
+                out.info(DiagCode::LayerDropped,
+                         "the environment entry rides a zero factor, and the source shading "
+                         "model never sampled it",
+                         ElementRef(), profile);
+                break;
+            }
+            standard.environmentLayer = layerFrom(input, context);
+            record(StandardLayer::Environment, ordinal);
+            standard.layerBlendMode = m3::LayerBlendOp::Add;
+            standard.hdrEnvironmentConstant = body.environmentFactor;
+            break;
+        case LegacySlot::Lightmap:
+            // A baked lighting term multiplies the lit result on both sides.
+            // No `StandardLayer` ordinal names it — it never was a composite
+            // channel — so a UV animation on it cannot be reported; shipped
+            // lightmaps carry none.
+            standard.lightMapLayer = layerFrom(input, context);
+            break;
+        case LegacySlot::Detail:
+            // MEASURED WRONG as a decal, twice over: the fold is
+            // `lerp(diffuse, t25, t25.a·k)` and `k` is RUNTIME STATE resting
+            // at zero — the Barbarian's type 25 is the gore overlay, shared
+            // by every body material, and crossing it at full alpha painted
+            // the whole body its grey. The reference renderer never samples
+            // the slot either, so the crossing has no oracle until someone
+            // traces which programs read it and from what constant `k` comes
+            // (`feedback_trace_the_read_not_the_write`). It stays in the
+            // native block.
+            out.info(DiagCode::LayerDropped,
+                     "the detail layer stays unexpressed (its blend factor is runtime "
+                     "state resting at zero)",
+                     ElementRef(), profile);
+            break;
+        case LegacySlot::Gloss:
+            standard.glossLayer = layerFrom(input, context);
+            break;
+        case LegacySlot::AmbientOcclusion:
+            standard.ambientOcclusionLayer = layerFrom(input, context);
+            record(StandardLayer::AmbientOcclusion, ordinal);
+            break;
+        case LegacySlot::Height:
+            standard.heightLayer = layerFrom(input, context);
+            break;
+        default:
+            out.warn(DiagCode::LayerDropped,
+                     std::string("legacy slot '") + ToString(slot) + "' has no M3 slot",
+                     ElementRef(), profile);
+            break;
+        }
+    }
+
+    // A keyed or blended surface tests the COMPOSED alpha (`cFinal.a =
+    // mask1.a * mask2.a`), so the diffuse's own alpha must become a mask or
+    // nothing is ever cut — the composite path's rule, verbatim.
+    if (!standard.alphaLayer1.has_value() &&
+        (common.blend == BlendMode::AlphaKey || common.blend == BlendMode::Transparent ||
+         common.blend == BlendMode::AlphaBlend || common.blend == BlendMode::AdditiveAlpha) &&
+        standard.diffuseLayer.has_value() && !standard.diffuseLayer->texturePath.empty()) {
         standard.alphaLayer1 = *standard.diffuseLayer;
         standard.alphaLayer1->colorType = m3::ColorChannelSelect::Alpha;
     }
@@ -1134,6 +1296,24 @@ m3::MaterialMap ExportMaterial(const Material& material, ProfileId profile, cons
     m3::StandardMaterial standard;
     standard.name = material.name;
     standard.blendMode = blendFor(common.blend);
+    // Diablo III's `_pma` family splits on the PROGRAM's mode, not the blend
+    // factors — both modes ship the same pair and differ only in the alpha the
+    // program writes (`TAG_VS_PMA_FUNC`, 0xA002B, on the pass). Mode 1
+    // composites `C·a + dst·(1−a)` — plain AlphaBlend of the straight colour
+    // this export writes — and mode 2 ends `C·a + dst`, which is AlphaAdd.
+    // The generic mapping (`Add`, ONE·ONE) dropped the alpha weighting on
+    // both, so a faded ghost drew at full strength (D3_TO_SC2_DESIGN.md §3).
+    if (common.blend == BlendMode::PremultipliedAlpha) {
+        standard.blendMode = m3::BlendMode::AlphaBlend;
+        if (const auto* d3 = std::get_if<native::D3Material>(&material.Native());
+            d3 != nullptr && material.NativeIsAuthoritative() && !d3->opaquePasses.empty()) {
+            for (const native::D3ShaderTagValue& tag : d3->opaquePasses.front().shaderParams) {
+                if (tag.tagId == 0xA002Bu && tag.value == 2u) {
+                    standard.blendMode = m3::BlendMode::AlphaAdd;
+                }
+            }
+        }
+    }
     standard.priority = common.priorityPlane;
     standard.alphaTestThreshold =
         (std::min)(255u, static_cast<u32>(common.alphaTestThreshold * 256.0f + 0.5f));
@@ -1317,6 +1497,8 @@ m3::MaterialMap ExportMaterial(const Material& material, ProfileId profile, cons
         standard.hdrEmissiveMultiplier = 0.0f;
         standard.hdrEnvironmentConstant = 0.0f;
         exportCombiners(*chain, common, context, profile, standard, out, layerOrdinals);
+    } else if (const LegacyDeferredBody* legacy = common.legacy()) {
+        exportLegacy(*legacy, common, context, profile, standard, out, layerOrdinals);
     } else {
         out.warn(DiagCode::LossyKindConversion,
                  std::string("an M3 export flattens a ") + ToString(common.kind()) +

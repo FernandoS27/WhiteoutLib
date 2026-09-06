@@ -387,6 +387,12 @@ enum class LegacySlot : u8 {
     AmbientOcclusion,
     Height,
     Lightmap,
+    /// A second base map lerped over the diffuse by its own alpha — Diablo
+    /// III's texture type 25 (`actor2_opaque_glow_skin`:
+    /// `lerp(diffuse, t25, t25.a·k)`, on 3,992 of 6,920 shipped variants) and
+    /// M3's decal layer, which folds the same way. Appended because the enum
+    /// is a byte on disk.
+    Detail,
     Count
 };
 

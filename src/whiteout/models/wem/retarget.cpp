@@ -117,11 +117,12 @@ std::optional<SurfaceChannel> channelOf(LegacySlot slot) {
         return SurfaceChannel::Environment;
     case LegacySlot::AmbientOcclusion:
         return SurfaceChannel::AmbientOcclusion;
-    // Gloss, Height and Lightmap are the legacy-only slots no channel feeds —
-    // the direction `Flatten` cannot invert.
+    // Gloss, Height, Lightmap and Detail are the legacy-only slots no channel
+    // feeds — the direction `Flatten` cannot invert.
     case LegacySlot::Gloss:
     case LegacySlot::Height:
     case LegacySlot::Lightmap:
+    case LegacySlot::Detail:
     case LegacySlot::Count:
         break;
     }
@@ -836,7 +837,9 @@ DeriveResult DeriveProfile(Document& document, ProfileId from, ProfileId to,
         if (targetDesc.supportsLooks) {
             derived.looks = source->looks;
         } else {
-            keptLook = options.keepLook < source->looks.size() ? options.keepLook : 0;
+            const u32 wanted =
+                options.keepLook == kInvalidIndex ? source->defaultLook : options.keepLook;
+            keptLook = wanted < source->looks.size() ? wanted : 0;
             derived.looks.looks.push_back(source->looks.looks[keptLook]);
             for (std::size_t look = 0; look < source->looks.size(); ++look) {
                 if (look == keptLook) {

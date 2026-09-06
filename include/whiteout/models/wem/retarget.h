@@ -68,8 +68,10 @@ struct RetargetOptions {
     bool keepSharedNative = true;
 
     /// The look that survives when the target profile has none. The rest are
-    /// reported, not silently dropped.
-    u32 keepLook = 0;
+    /// reported, not silently dropped. `kInvalidIndex` — the default — keeps
+    /// the SOURCE SET'S own `defaultLook`: a Diablo III actor derives wearing
+    /// what it wears, not whatever look the file happens to list first.
+    u32 keepLook = kInvalidIndex;
 };
 
 struct DeriveResult {

@@ -150,15 +150,20 @@ const std::array<ProfileDesc, static_cast<std::size_t>(ProfileId::Count)>& descs
         // intact for the M3 exporter's own crossing (WOW_TO_SC2_DESIGN.md §3)
         // -- squeezed through `toComposite` first, every stage landed on the
         // Color channel and the mod-family seconds had no slot to go into.
+        // LegacyDeferred is accepted for the same reason from the other side
+        // (D3_TO_SC2_DESIGN.md §2): the kind IS this generation's slot
+        // vocabulary, and the Composite squeeze had no channel for the
+        // lightmap, gloss or height slots the StandardMaterial has names for.
         makeDesc(ProfileId::Sc2, "sc2", "StarCraft II", "m3", CoordSpace::Sc2, 100.0f, 4, 5, 256,
-                 IndexWidth::U16, false, true, modes(kM3BlendModes), kComposite | kCombiners,
-                 NativeKind::M3, false, false, RigConvention::ExplicitBind),
+                 IndexWidth::U16, false, true, modes(kM3BlendModes),
+                 kComposite | kCombiners | kLegacy, NativeKind::M3, false, false,
+                 RigConvention::ExplicitBind),
 
         // Heroes of the Storm. Same container and space; the difference is the
         // version range and therefore the available material kinds (MADD at v30).
         makeDesc(ProfileId::Heroes, "heroes", "Heroes of the Storm", "m3", CoordSpace::Sc2, 100.0f,
                  4, 5, 256, IndexWidth::U16, false, true, modes(kM3BlendModes),
-                 kComposite | kCombiners, NativeKind::M3, false, false,
+                 kComposite | kCombiners | kLegacy, NativeKind::M3, false, false,
                  RigConvention::ExplicitBind),
 
         // Diablo III. Three influences on disk, a packed vertex colour pair, and the

@@ -129,6 +129,8 @@ const char* ToString(LegacySlot slot) {
         return "height";
     case LegacySlot::Lightmap:
         return "lightmap";
+    case LegacySlot::Detail:
+        return "detail";
     case LegacySlot::Count:
         break;
     }
@@ -345,6 +347,7 @@ ColorSpace AutoColorSpaceFor(LegacySlot slot) {
     case LegacySlot::Emissive:
     case LegacySlot::Environment:
     case LegacySlot::Lightmap:
+    case LegacySlot::Detail:
         return ColorSpace::Srgb;
     case LegacySlot::Normal:
     case LegacySlot::Gloss:

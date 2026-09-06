@@ -135,12 +135,17 @@ TEST_CASE("wem profile common kinds match the 7.2.6 table", "[wem][profile]") {
     // Wow: Combiners — stage order and combine ops are the material.
     CHECK(kinds(wem::ProfileId::Wow) == wem::MaterialKindBit(MaterialKind::Combiners));
 
-    // Sc2 / Heroes: Composite, and Combiners — a WoW or Diablo III derive
-    // keeps its chain for the M3 exporter's own crossing (WOW_TO_SC2_DESIGN.md).
+    // Sc2 / Heroes: Composite, plus the two imported kinds the M3 exporter
+    // crosses directly — Combiners (a WoW chain, WOW_TO_SC2_DESIGN.md) and
+    // LegacyDeferred (a Diablo III slot map, D3_TO_SC2_DESIGN.md §2). Squeezed
+    // through toComposite instead, a chain lost its stage ops and a slot map
+    // lost the lightmap/gloss/height slots the StandardMaterial has names for.
     CHECK(kinds(wem::ProfileId::Sc2) == (wem::MaterialKindBit(MaterialKind::Composite) |
-                                         wem::MaterialKindBit(MaterialKind::Combiners)));
+                                         wem::MaterialKindBit(MaterialKind::Combiners) |
+                                         wem::MaterialKindBit(MaterialKind::LegacyDeferred)));
     CHECK(kinds(wem::ProfileId::Heroes) == (wem::MaterialKindBit(MaterialKind::Composite) |
-                                            wem::MaterialKindBit(MaterialKind::Combiners)));
+                                            wem::MaterialKindBit(MaterialKind::Combiners) |
+                                            wem::MaterialKindBit(MaterialKind::LegacyDeferred)));
 
     // Diablo3: Combiners when a Legacy stage block exists; else LegacyDeferred.
     CHECK(HasMaterialKind(kinds(wem::ProfileId::Diablo3), MaterialKind::Combiners));

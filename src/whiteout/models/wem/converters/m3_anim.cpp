@@ -1647,68 +1647,67 @@ private:
             return;
         }
 
-        // Which StandardLayer that ordinal is — the inverse of the map the
-        // re-import just produced.
+        // EVERY StandardLayer that ordinal became — the inverse of the map the
+        // re-import just produced, and it is one-to-many: one chain stage
+        // routinely lands in two slots (a Diablo III flame is emissive1 AND
+        // alpha1), and wiring only the first scrolled the colour against a
+        // frozen mask — Imperius's wings slid into red sheets.
         const std::vector<u32>& ordinals = materialOrdinals_[ref.slot];
-        std::size_t layerSlot = ordinals.size();
-        for (std::size_t s = 0; s < ordinals.size(); ++s) {
-            if (ordinals[s] == ordinal) {
-                layerSlot = s;
-                break;
-            }
-        }
-        if (layerSlot >= ordinals.size()) {
-            return;
-        }
         const std::size_t index = out_.materialMaps[ref.slot].materialIndex;
         if (index >= out_.standardMaterials.size()) {
             return;
         }
-        // The element alpha: a weight on the base stage fades the whole draw,
-        // and M3 never reads the diffuse layer's alpha as coverage — the
-        // track rides a carrier alpha layer instead.
-        if (channel.target.kind == TrackTarget::Kind::MaterialLayer &&
-            channel.target.channel == Channel::Alpha &&
-            static_cast<m3_core::StandardLayer>(layerSlot) == m3_core::StandardLayer::Diffuse) {
-            wireAlphaCarrier(out_.standardMaterials[index], channel, track);
-            return;
-        }
-        std::optional<m3::TextureLayer>& layer = m3_core::MutableLayerOf(
-            out_.standardMaterials[index], static_cast<m3_core::StandardLayer>(layerSlot));
-        if (!layer.has_value()) {
-            return;
-        }
-
-        if (channel.target.kind == TrackTarget::Kind::MaterialLayer) {
-            switch (channel.target.channel) {
-            case Channel::Alpha:
-                Wire(layer->mapAlpha, exportId(channel.id), track.interp);
-                return;
-            case Channel::Color:
-                Wire(layer->color, exportId(channel.id), track.interp);
-                return;
-            case Channel::TextureIndex:
-                Wire(layer->currentFrame, exportId(channel.id), track.interp);
-                return;
-            case Channel::Weight:
-                Wire(layer->rgbMultiply, exportId(channel.id), track.interp);
-                return;
-            default:
-                return;
+        for (std::size_t layerSlot = 0; layerSlot < ordinals.size(); ++layerSlot) {
+            if (ordinals[layerSlot] != ordinal) {
+                continue;
             }
-        }
-        switch (channel.target.channel) {
-        case Channel::UvTranslate:
-            Wire(layer->uvOffset, exportId(channel.id), track.interp);
-            return;
-        case Channel::UvRotate:
-            Wire(layer->uvAngle, exportId(channel.id), track.interp);
-            return;
-        case Channel::UvScale:
-            Wire(layer->uvTiling, exportId(channel.id), track.interp);
-            return;
-        default:
-            return;
+            // The element alpha: a weight on the base stage fades the whole
+            // draw, and M3 never reads the diffuse layer's alpha as coverage —
+            // the track rides a carrier alpha layer instead.
+            if (channel.target.kind == TrackTarget::Kind::MaterialLayer &&
+                channel.target.channel == Channel::Alpha &&
+                static_cast<m3_core::StandardLayer>(layerSlot) ==
+                    m3_core::StandardLayer::Diffuse) {
+                wireAlphaCarrier(out_.standardMaterials[index], channel, track);
+                continue;
+            }
+            std::optional<m3::TextureLayer>& layer = m3_core::MutableLayerOf(
+                out_.standardMaterials[index], static_cast<m3_core::StandardLayer>(layerSlot));
+            if (!layer.has_value()) {
+                continue;
+            }
+
+            if (channel.target.kind == TrackTarget::Kind::MaterialLayer) {
+                switch (channel.target.channel) {
+                case Channel::Alpha:
+                    Wire(layer->mapAlpha, exportId(channel.id), track.interp);
+                    continue;
+                case Channel::Color:
+                    Wire(layer->color, exportId(channel.id), track.interp);
+                    continue;
+                case Channel::TextureIndex:
+                    Wire(layer->currentFrame, exportId(channel.id), track.interp);
+                    continue;
+                case Channel::Weight:
+                    Wire(layer->rgbMultiply, exportId(channel.id), track.interp);
+                    continue;
+                default:
+                    continue;
+                }
+            }
+            switch (channel.target.channel) {
+            case Channel::UvTranslate:
+                Wire(layer->uvOffset, exportId(channel.id), track.interp);
+                continue;
+            case Channel::UvRotate:
+                Wire(layer->uvAngle, exportId(channel.id), track.interp);
+                continue;
+            case Channel::UvScale:
+                Wire(layer->uvTiling, exportId(channel.id), track.interp);
+                continue;
+            default:
+                continue;
+            }
         }
     }
 

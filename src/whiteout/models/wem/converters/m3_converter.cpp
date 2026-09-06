@@ -927,8 +927,13 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                                             static_cast<u32>(context.texturesByPath.size()));
     }
     // One map entry per slot, so a batch's `materialIndex` is the slot index.
+    // Resolved at the set's DEFAULT look, not look 0: a Diablo III document
+    // carries one material per (slot, look) and the converter was told which
+    // look this export wears (`D3ImportOptions::materialLook` set it).
+    const ProfileMaterialSet* exportSet = model.setFor(profile);
+    const u32 exportLook = exportSet != nullptr ? exportSet->defaultLook : 0u;
     for (std::size_t slot = 0; slot < model.materialSlots.size(); ++slot) {
-        const Material* material = Resolve(model, static_cast<u32>(slot), profile);
+        const Material* material = Resolve(model, static_cast<u32>(slot), profile, exportLook);
         if (material == nullptr) {
             out.materialMaps.push_back(m3::MaterialMap{});
             animContext.materialOrdinals.emplace_back();
@@ -1019,6 +1024,29 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         const std::vector<std::array<f32, 4>> boneWeights = render.vertices.getBoneWeights();
 
         for (const geom::RenderRange& range : render.ranges) {
+            // What this export must NOT draw (D3_TO_SC2_DESIGN.md §4). A
+            // cross-profile `Hidden` section is a variant that is not worn,
+            // and it cannot ride `RegionFlag::Hidden` — StarCraft II reads
+            // that bit as the cloth-pair marker, never as "do not draw", so a
+            // flagged region draws anyway. Only an m3-native section (its bag
+            // carries the verbatim `regionFlags`) keeps emitting under the
+            // flag, because there the bit really is the pair marker the round
+            // trip must preserve. The second rule is Diablo III's per-look
+            // bit: `MaterialFlags::Invisible` is the material saying this
+            // piece is not worn under the export's look.
+            if (range.section < mesh.sections.size()) {
+                const MeshSection& skipTest = mesh.sections[range.section];
+                if (hasFlag(skipTest.flags, SectionFlags::Hidden) &&
+                    skipTest.native.find("regionFlags") == nullptr) {
+                    continue;
+                }
+            }
+            if (const Material* bound =
+                    Resolve(model, range.materialSlot, profile, exportLook);
+                bound != nullptr &&
+                hasFlag(bound->Common().flags, MaterialFlags::Invisible)) {
+                continue;
+            }
             m3::Region region;
             region.index = static_cast<u32>(division.regions.size());
             region.firstVertex = static_cast<u32>(writtenVertices);

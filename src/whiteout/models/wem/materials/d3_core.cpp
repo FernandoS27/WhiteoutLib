@@ -157,6 +157,11 @@ LegacySlot SlotOfType(i32 type) {
         return LegacySlot::Specular;
     case 6:
         return LegacySlot::Emissive;
+    // A second base map lerped over the diffuse by its own alpha
+    // (`actor2_opaque_glow_skin`: `lerp(diffuse, t25, t25.a·k)`), on 3,992 of
+    // 6,920 shipped variants — the largest population this table ever dropped.
+    case 25:
+        return LegacySlot::Detail;
     default:
         return LegacySlot::Count;
     }
@@ -544,6 +549,20 @@ Material ImportVariant(const d3n::SubObjectAppearance& variant, const std::strin
             stage.rgb = rgb != nullptr ? DecodeCombine(rgb->value, where, out) : CombinerOp::Pass;
             stage.alpha =
                 alpha != nullptr ? DecodeCombine(alpha->value, where, out) : CombinerOp::Pass;
+            // A stage with no texture samples the white constant, so a decoded
+            // REPLACE would make white the register -- the vertex-colour
+            // argument forms (codes 40/42/8x, the light's own entry points)
+            // land exactly there, and every consumer applies the light at the
+            // material level already. The identity is the one reading that
+            // invents no term (D3_TO_SC2_DESIGN.md §3).
+            if (entryOfType == nullptr) {
+                if (stage.rgb == CombinerOp::Opaque) {
+                    stage.rgb = CombinerOp::Pass;
+                }
+                if (stage.alpha == CombinerOp::Opaque) {
+                    stage.alpha = CombinerOp::Pass;
+                }
+            }
             body.stages.push_back(std::move(stage));
         }
         common.body = std::move(body);
