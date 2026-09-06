@@ -90,6 +90,16 @@ struct ScalarInput {
     bool invert = false;
     f32 constant = 0.0f;
 
+    /// StarCraft II's per-layer pipeline, in the shader's own order
+    /// (`ComputeLayerColorInternal`): channel select, `* alphaFactor`, invert,
+    /// `* rgbMultiply + rgbAdd` — and the multiply-add applies to alpha too.
+    /// @ref scale is the alphaFactor (before @ref invert); @ref postScale and
+    /// @ref bias are the multiply-add (after it). The defaults are the
+    /// identity, so a caller with no layer pipeline reads the raw channel.
+    f32 scale = 1.0f;
+    f32 postScale = 1.0f;
+    f32 bias = 0.0f;
+
     bool present() const {
         return texture != nullptr;
     }
@@ -165,7 +175,32 @@ struct SpecularReflectance {
     /// It is a normalisation, so it belongs in the reflectance and not in the
     /// lobe; see @ref ReflectanceScale.
     bool energyConserving = true;
+
+    /// The envio layer, restated as reflectance — 26,894 shipped materials
+    /// carry one, and in Reforged the probe reflection's amplitude is
+    /// `F0*lut.x + lut.y`, so a real reflection CAN cross: as an F0 bump.
+    ///
+    /// @ref envReflectance is the whole per-material scale — the mean linear
+    /// luminance of the env map times the layer's tint (which carries
+    /// `hdrEnvironmentConstant`) times the calibration constant — and
+    /// @ref envMask is the per-texel EnvioMask term (absent reads its
+    /// constant; a maskless envio reflects everywhere, which is what
+    /// `ApplyEnv` does too). Zero reflectance disables the whole term.
+    ScalarInput envMask{nullptr, Channel::A, false, 1.0f};
+    f32 envReflectance = 0.0f;
+
+    /// What lobe width the reflection reads as, where the mask is live. The
+    /// source samples its env map UNBLURRED (mip 0 in the renderer), which is
+    /// a sharp mirror; the flat material roughness would smear it away. The
+    /// baked roughness is `min(material, this)` wherever the masked env term
+    /// is significant — the one legitimate per-texel width variation.
+    f32 envRoughnessCap = 1.0f;
 };
+
+/// How a decal layer folds into the albedo — M3's `layerBlendMode`, the ops
+/// `CombineLayerColor` actually implements. `AddScaled` is the plain `Add`
+/// (rgb weighted by the sample's alpha); `Add` is `AddNoAlpha`.
+enum class DecalOp : u8 { Mod, Mod2x, AddScaled, Add, Lerp };
 
 /**
  * @brief What one occlusion/roughness/metalness map is made of.
@@ -209,6 +244,12 @@ struct OrmRecipe {
     /// 2048 colour map that happens to carry the mask in its alpha.
     ColorInput baseColor;
 
+    /// The decal, folded into @ref baseColor by @ref decalOp before anything
+    /// else reads it — the same composite @ref BakeBaseColor writes, because
+    /// the two bakes must split the same albedo. Absent is no decal.
+    ColorInput decal;
+    DecalOp decalOp = DecalOp::Mod;
+
     /// The output size. 0 takes the largest present source, which is what keeps
     /// a 2048 specular map from being resampled down to a 512 gloss.
     u32 width = 0;
@@ -232,6 +273,33 @@ struct BaseColorRecipe {
 
     /// A second team mask, combined with @ref teamMask by **max**.
     ScalarInput teamMaskAlt;
+
+    /// Per-texel coverage — StarCraft II's two alpha-mask layers, multiplied
+    /// (`cFinal.a = mask1.a * mask2.a`, psmaterial.fx:380). Absent is 1 —
+    /// opaque — which is also what it must be: the source never read the
+    /// diffuse alpha as coverage (that channel is the team mask there), so an
+    /// output alpha that is not composed from these is a leak, not data.
+    ScalarInput coverage1{nullptr, Channel::A, false, 1.0f};
+
+    /// The second mask, multiplied into @ref coverage1.
+    ScalarInput coverage2{nullptr, Channel::A, false, 1.0f};
+
+    /// The decal, folded into @ref baseColor by @ref decalOp before the team
+    /// lerp and the metal gain — where `CombineLayerColor` folds it. The slot
+    /// map holds one base colour, so the decal crosses as PIXELS or not at
+    /// all; the Marine's chest insignia was the standing casualty.
+    ColorInput decal;
+    DecalOp decalOp = DecalOp::Mod;
+
+    /// The source's alpha-test cut-off, in [0,1], for a target whose own test
+    /// is FIXED. Warcraft III's `Transparent` filter tests at 0.75 whatever
+    /// the source tested at, so a composed coverage written as-is is over-cut
+    /// wherever the source threshold was lower. Non-zero makes the bake write
+    /// the test's RESULT instead — 255 where `coverage >= cutoff`, else 0 —
+    /// which reproduces the source's compare exactly under any fixed ref.
+    /// Zero (the default) writes the coverage continuously, which is right
+    /// for a blending target.
+    f32 coverageCutoff = 0.0f;
 
     /// What the metalness will take back out. Absent leaves the albedo alone,
     /// which is only right for a caller that is also writing metalness 0.
@@ -257,23 +325,40 @@ struct BaseColorRecipe {
 f32 RoughnessFromExponent(f32 exponent);
 
 /**
+ * @brief The Blinn-Phong exponent a GGX roughness stands in for — the exact
+ *        inverse of @ref RoughnessFromExponent (`n = 2/r^4 - 2`, the fourth
+ *        power because the map stores sqrt(alpha) and `ggxNDF` squares what
+ *        it is handed). The reverse crossing (Reforged -> StarCraft II)
+ *        recovers `specularExponent` with it.
+ */
+f32 ExponentFromRoughness(f32 roughness);
+
+/**
  * @brief What one unit of authored specular is worth as an F0.
  *
- * A Blinn-Phong lobe reflects `specColor * dim * pow(NdotH, n)`, and the
- * energy-preserving normalisation for that lobe is `(n + 8) / (8*pi)`. Equating
- * the two gives the reflectance an authored sample stands for:
+ * A Blinn-Phong lobe reflects `specColor * dim * pow(NdotH, n)`. The scale
+ * equates the two engines at the highlight's PEAK — Reforged's trailing
+ * `PI * accum` multiplies the specular too, so its rendered direct lobe is
+ * `pi*D*F*V`, whose peak is `(n+2)/8 * F0` under the matched width
+ * `alpha^2 = 2/(n+2)` — giving
  *
  * ```
- * F0 = specColor * factor * dim(n) * 8*pi / (n + 8)
+ * F0 = specColor * factor * dim(n) * 8 / (n + 2)
  * ```
  *
  * where `dim` is StarCraft II's own `FakeEnergyConservingSpec` polynomial
  * (`psmaterial.fx:203`), itself very nearly proportional to `n` — which is why
- * the whole scale comes out **flat across the shipped exponents**: 0.078 at 20,
- * 0.095 at 40, 0.092 at 80. A StarCraft II specular map's white is a little
- * under a tenth of a mirror, and it is that calibration, not a tuned constant,
- * that keeps the converted metalness in the same range shipped Reforged art
- * uses (mean 0.22 over 3,092 maps).
+ * the whole scale comes out **flat across the shipped exponents**: 0.032 at
+ * 20, 0.032 at 40, 0.031 at 80. A StarCraft II specular white is about a
+ * thirtieth of a mirror.
+ *
+ * Peak-referenced rather than energy-referenced because the gray-sphere
+ * harness measured it: the energy form (`8*pi/(n+8)`) rendered the exported
+ * highlight at 1.8x native peak and 3.5-4.5x native integrated energy, and
+ * the geometric mean of those errors equals the ratio between the two
+ * references, `pi*(n+2)/(n+8)`, to within 11% at every shipped exponent.
+ * GGX's fatter tail means one constant cannot match both peak and energy;
+ * this one balances them (~0.75x peak, ~1.5x energy against native).
  */
 f32 ReflectanceScale(f32 exponent, bool energyConserving);
 
@@ -369,15 +454,34 @@ std::optional<Texture> BakeOrm(const OrmRecipe& recipe);
  * linear light and re-encoded into the space @ref ColorInput::srgb names,
  * because that is where the engine's own lerp happens.
  *
- * The result is opaque. StarCraft II never read the diffuse alpha as coverage
- * — its alpha-mask layers are the coverage — and Warcraft III does, so leaving
- * a team mask there would make every team-coloured texel of an alpha-tested
- * surface a hole.
+ * The alpha is the composed coverage. StarCraft II never read the diffuse
+ * alpha as coverage — its alpha-mask layers are the coverage, and Warcraft III
+ * reads `albedo.w` — so the output alpha is `coverage1 * coverage2` and nothing
+ * else. With no masks in the recipe that is opaque, which keeps a team mask
+ * from becoming holes; with them it is the cutout the source actually drew,
+ * which no unbaked export could carry at all (the mask lives in its own
+ * texture there, and Reforged has no slot for it).
  *
  * @return The rewritten albedo as RGBA8, or `std::nullopt` if the base colour
  *         is absent or empty.
  */
 std::optional<Texture> BakeBaseColor(const BaseColorRecipe& recipe);
+
+/**
+ * @brief Sum two additive emissive layers into one map.
+ *
+ * StarCraft II folds both emissive layers into one accumulator before
+ * `fEmissiveMultiplier`; Reforged has one emissive slot. When both layers are
+ * textured and additive the composite is a plain (alpha-weighted) add, and
+ * only baked pixels can say it. `weightByAlpha` is per layer: M3's `Add` op
+ * contributes `rgb * a`, `AddNoAlpha` contributes `rgb`.
+ *
+ * The output is sized to the larger source, sRGB like its inputs, alpha 255.
+ *
+ * @return The summed map, or `std::nullopt` when neither input has a texture.
+ */
+std::optional<Texture> BakeEmissiveSum(const ColorInput& first, bool firstWeightByAlpha,
+                                       const ColorInput& second, bool secondWeightByAlpha);
 
 /**
  * @brief How a restated normal's two components are laid out.

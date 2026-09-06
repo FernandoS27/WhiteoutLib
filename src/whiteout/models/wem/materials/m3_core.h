@@ -76,6 +76,11 @@ struct Context {
     /// that arrives unasked-for is indistinguishable from data.
     bool approximateShaderGraphs = false;
 
+    /// The document's texture table, when the caller has one. The export
+    /// fold reads `replaceableId` off it — a Warcraft III team layer is a
+    /// replaceable texture, and nothing else says so.
+    const std::vector<TextureRef>* textureRefs = nullptr;
+
     /// The document index for @p path. Trailing NULs are dropped first: a
     /// shipped `.m3` string carries its terminator inside the `std::string`,
     /// because the `Reference` count includes it, so two spellings of one path
@@ -103,6 +108,10 @@ enum class StandardLayer : u8 {
     EnvironmentMask,
     Normal,
     AmbientOcclusion,
+    // Appended after the original nine so every ordinal recorded before the
+    // alpha masks became a channel keeps its meaning.
+    Alpha1,
+    Alpha2,
     Count
 };
 

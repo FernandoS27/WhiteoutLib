@@ -21,11 +21,11 @@ std::string number(u64 value) {
 // ── layer -> channel ────────────────────────────────────────────────────────
 
 // Which named `StandardMaterial` layer lands on which channel is decided in
-// `importStandard`, in declaration order. `Gloss`, `Height`, `Lightmap`, the
-// normal-blend pair and the two alpha masks have no `SurfaceChannel` at all —
-// that asymmetry is why `Flatten` (§7.2.3) is one-directional — so they are
-// reported as dropped and stay in the native block, which is what the block is
-// for.
+// `importStandard`, in declaration order. `Gloss`, `Height`, `Lightmap` and the
+// normal-blend pair have no `SurfaceChannel` at all — that asymmetry is why
+// `Flatten` (§7.2.3) is one-directional — so they are reported as dropped and
+// stay in the native block, which is what the block is for. The two alpha
+// masks are `Coverage`: they are what the engine blends and alpha-tests by.
 
 /// A shipped `.m3` string carries its terminator inside the `std::string` -- the
 /// `Reference` count includes it -- so an unused layer's path is one NUL byte
@@ -119,9 +119,13 @@ BlendMode blendFor(m3::BlendMode mode) {
 
 m3::BlendMode blendFor(BlendMode mode) {
     switch (mode) {
-    case BlendMode::AlphaBlend:
-    case BlendMode::Transparent:
+    // An alpha KEY is `Opaque` plus the threshold in M3 — the test is a render
+    // state there, not a blend — so the threshold field carries it back and
+    // the blend stays opaque. `Transparent` (WC3's key) says the same thing.
     case BlendMode::AlphaKey:
+    case BlendMode::Transparent:
+        return m3::BlendMode::Opaque;
+    case BlendMode::AlphaBlend:
         return m3::BlendMode::AlphaBlend;
     case BlendMode::Additive:
     case BlendMode::BlendAdd:
@@ -293,6 +297,14 @@ void importStandard(const m3::StandardMaterial& source, const Context& context,
     // M3 stores the cut-off as 0..255; `CommonMaterial` normalises, so a
     // consumer never has to know which convention a material came from.
     common.alphaTestThreshold = static_cast<f32>(source.alphaTestThreshold) / 255.0f;
+    // StarCraft II spells "alpha test" as an Opaque blend plus a threshold —
+    // the test is a render state beside the blend, not a blend mode. WEM's
+    // vocabulary names that surface `AlphaKey`, and it is what makes a `.mdx`
+    // export choose FilterMode::Transparent: left as Opaque, the exported
+    // cutout is never tested and the holes never appear.
+    if (common.blend == BlendMode::Opaque && source.alphaTestThreshold > 0) {
+        common.blend = BlendMode::AlphaKey;
+    }
 
     if (hasFlag(source.flags, m3::MaterialFlag::TwoSided)) {
         common.cull = CullMode::None;
@@ -337,18 +349,18 @@ void importStandard(const m3::StandardMaterial& source, const Context& context,
                 out, StandardLayer::Normal, ordinals);
     appendLayer(source.ambientOcclusionLayer, SurfaceChannel::AmbientOcclusion, CompositeOp::Set,
                 context, body, common, out, StandardLayer::AmbientOcclusion, ordinals);
+    // The alpha masks ARE the surface's coverage -- `cFinal.a = mask1.a *
+    // mask2.a * alphaFactor` (psmaterial.fx:380), the diffuse alpha being the
+    // team mask -- and 104,869 of 176,955 shipped materials carry one. Appended
+    // last so every ordinal above predates them.
+    appendLayer(source.alphaLayer1, SurfaceChannel::Coverage, CompositeOp::Set, context, body,
+                common, out, StandardLayer::Alpha1, ordinals);
+    appendLayer(source.alphaLayer2, SurfaceChannel::Coverage, CompositeOp::Modulate, context, body,
+                common, out, StandardLayer::Alpha2, ordinals);
 
     reportDropped(source.glossLayer, "glossLayer", "gloss is a LegacySlot, not a channel", out);
     reportDropped(source.heightLayer, "heightLayer", "parallax is not a surface channel", out);
     reportDropped(source.lightMapLayer, "lightMapLayer", "baked light is not a channel", out);
-    reportDropped(source.alphaLayer1, "alphaLayer1",
-                  "an alpha mask modulates, it is not a "
-                  "channel",
-                  out);
-    reportDropped(source.alphaLayer2, "alphaLayer2",
-                  "an alpha mask modulates, it is not a "
-                  "channel",
-                  out);
     reportDropped(source.normalBlend1Layer, "normalBlend1Layer",
                   "normal blending has no "
                   "channel",
@@ -438,6 +450,10 @@ const std::optional<m3::TextureLayer>& LayerOf(const m3::StandardMaterial& mater
         return material.environmentMaskLayer;
     case StandardLayer::Normal:
         return material.normalLayer;
+    case StandardLayer::Alpha1:
+        return material.alphaLayer1;
+    case StandardLayer::Alpha2:
+        return material.alphaLayer2;
     case StandardLayer::AmbientOcclusion:
     case StandardLayer::Count:
         break;
@@ -727,6 +743,8 @@ std::optional<m3::TextureLayer>* slotFor(SurfaceChannel channel, m3::StandardMat
         return &dst.ambientOcclusionLayer;
     case SurfaceChannel::Environment:
         return &dst.environmentLayer;
+    case SurfaceChannel::Coverage:
+        return &dst.alphaLayer1;
     default:
         return nullptr;
     }
@@ -753,6 +771,10 @@ m3::TextureLayer layerFrom(const TextureInput& input, const Context& context) {
     layer.uvOffset.initValue = Vector2f(input.uvTransform.m[0][2], input.uvTransform.m[1][2]);
     layer.uvTiling.initValue = Vector2f(input.uvTransform.m[0][0], input.uvTransform.m[1][1]);
     layer.mapAlpha.initValue = input.weight;
+    // The multiply rests at ONE. The struct's default is zero, and a zero
+    // multiply is a black layer in the real engine — the same trap the MADD
+    // restore hit (`reference_madd_restore_defaults`).
+    layer.rgbMultiply.initValue = 1.0f;
     if (input.wrapU == WrapMode::Repeat) {
         layer.flags |= m3::TextureLayerFlag::UVWrapX;
     }
@@ -760,6 +782,15 @@ m3::TextureLayer layerFrom(const TextureInput& input, const Context& context) {
         layer.flags |= m3::TextureLayerFlag::UVWrapY;
     }
     return layer;
+}
+
+/// Whether @p input's texture is Warcraft III replaceable @p id — the team
+/// colour (1) or the team glow (2). Nothing but the texture table says so.
+bool isReplaceable(const TextureInput& input, const Context& context, u32 id) {
+    if (context.textureRefs == nullptr || input.texture >= context.textureRefs->size()) {
+        return false;
+    }
+    return (*context.textureRefs)[input.texture].replaceableId == id;
 }
 
 } // namespace
@@ -857,7 +888,8 @@ m3::MaterialMap ExportMaterial(const Material& material, ProfileId profile, cons
     standard.name = material.name;
     standard.blendMode = blendFor(common.blend);
     standard.priority = common.priorityPlane;
-    standard.alphaTestThreshold = static_cast<u32>(common.alphaTestThreshold * 255.0f);
+    standard.alphaTestThreshold =
+        (std::min)(255u, static_cast<u32>(common.alphaTestThreshold * 256.0f + 0.5f));
     if (common.cull == CullMode::None) {
         standard.flags |= m3::MaterialFlag::TwoSided;
     }
@@ -873,19 +905,95 @@ m3::MaterialMap ExportMaterial(const Material& material, ProfileId profile, cons
         standard.hdrSpecularMultiplier = body->specularFactor.x;
         standard.hdrEmissiveMultiplier = body->emissiveFactor.x;
         standard.hdrEnvironmentConstant = body->environmentFactor;
+
+        // ---- the two Warcraft III team conventions, the oracle's way ------
+        //
+        // Blizzard's own conversions (`mods/war3.sc2mod`) settle both:
+        //
+        // * A replaceable-1 layer UNDER a keyed diffuse becomes ONE diffuse
+        //   layer with the RGBA select — the texture's alpha rides along and
+        //   the standard shader shows the team colour where it is low, which
+        //   is exactly WC3's under-layer. The alpha crosses UNINVERTED
+        //   (measured: `war3_footman.dds` alpha == the BLP's, texel for
+        //   texel). No coverage layer: the same alpha is the team mask.
+        // * A replaceable-2 layer (team glow) becomes an ADDITIVE emissive
+        //   whose op is `TeamColorEmissiveAdd` with a RED channel select —
+        //   the texture is the mask and the team colour supplies the RGB.
+        bool teamDiffuse = false;
+        for (std::size_t i = 0; i < body->layers.size(); ++i) {
+            const CompositeLayer& layer = body->layers[i];
+            if (layer.target != SurfaceChannel::Color ||
+                !isReplaceable(layer.input, context, 1)) {
+                continue;
+            }
+            for (std::size_t j = i + 1; j < body->layers.size(); ++j) {
+                const CompositeLayer& over = body->layers[j];
+                if (over.target == SurfaceChannel::Color && over.input.hasTexture() &&
+                    (over.op == CompositeOp::AlphaKey || over.op == CompositeOp::AlphaBlend)) {
+                    teamDiffuse = true;
+                    break;
+                }
+            }
+            break;
+        }
+
         for (const CompositeLayer& layer : body->layers) {
+            // The team under-layer itself never lands in a slot — the RGBA
+            // select on the real diffuse says everything it said. Its
+            // unshaded-ness belonged to it alone, so it must not leave the
+            // whole material unlit.
+            if (teamDiffuse && layer.target == SurfaceChannel::Color &&
+                isReplaceable(layer.input, context, 1)) {
+                standard.flags &= ~m3::MaterialFlag::Unshaded;
+                continue;
+            }
+            // The team glow.
+            if (layer.target == SurfaceChannel::Color &&
+                isReplaceable(layer.input, context, 2)) {
+                if (!standard.emissiveLayer1.has_value()) {
+                    standard.emissiveLayer1 = layerFrom(layer.input, context);
+                    standard.emissiveLayer1->colorType = m3::ColorChannelSelect::Red;
+                    standard.emissiveBlendMode1 = m3::LayerBlendOp::TeamColorEmissiveAdd;
+                }
+                continue;
+            }
             std::optional<m3::TextureLayer>* slot = slotFor(layer.target, standard);
             if (slot == nullptr) {
                 continue;
             }
             if (slot->has_value()) {
-                // A second layer on a channel that has one slot. `emissiveLayer2`
-                // is the only place M3 has room for one, so everything else
-                // reports rather than overwriting what is already there.
+                // A second layer on a channel that has one slot. An additive
+                // second COLOUR layer is a glow in Warcraft III terms, and the
+                // emissive slot is where Blizzard's own conversions put it;
+                // everything else reports rather than overwriting.
+                if (layer.target == SurfaceChannel::Color &&
+                    (layer.op == CompositeOp::Add || layer.op == CompositeOp::AddAlpha) &&
+                    !standard.emissiveLayer1.has_value()) {
+                    standard.emissiveLayer1 = layerFrom(layer.input, context);
+                    standard.emissiveBlendMode1 = blendOpFor(layer.op);
+                    continue;
+                }
                 if (layer.target == SurfaceChannel::Emissive &&
                     !standard.emissiveLayer2.has_value()) {
                     standard.emissiveLayer2 = layerFrom(layer.input, context);
                     standard.emissiveBlendMode2 = blendOpFor(layer.op);
+                    continue;
+                }
+                if (layer.target == SurfaceChannel::Coverage &&
+                    !standard.alphaLayer2.has_value()) {
+                    standard.alphaLayer2 = layerFrom(layer.input, context);
+                    standard.alphaLayer2->colorType = m3::ColorChannelSelect::Alpha;
+                    continue;
+                }
+                // The keyed diffuse over a team layer replaces the team
+                // texture in the diffuse slot and turns the RGBA select on.
+                if (teamDiffuse && layer.target == SurfaceChannel::Color &&
+                    (layer.op == CompositeOp::AlphaKey || layer.op == CompositeOp::AlphaBlend)) {
+                    *slot = layerFrom(layer.input, context);
+                    (*slot)->colorType = m3::ColorChannelSelect::RGBA;
+                    // The alpha is the team mask here, not coverage; the test
+                    // would cut the team regions out.
+                    standard.alphaTestThreshold = 0;
                     continue;
                 }
                 out.warn(DiagCode::LayerDropped,
@@ -895,9 +1003,46 @@ m3::MaterialMap ExportMaterial(const Material& material, ProfileId profile, cons
                 continue;
             }
             *slot = layerFrom(layer.input, context);
+            if (layer.target == SurfaceChannel::Coverage) {
+                (*slot)->colorType = m3::ColorChannelSelect::Alpha;
+            }
+            // The emissive slot's op rides a separate field, and its DEFAULT
+            // is Mod -- an emissive left there MULTIPLIES the lit colour, and
+            // a mostly-black glow map multiplied the Sorceress to a
+            // silhouette. Record the op on the first fill, not only when the
+            // slot spills to emissiveLayer2.
+            if (layer.target == SurfaceChannel::Emissive) {
+                standard.emissiveBlendMode1 = blendOpFor(layer.op);
+            }
+            // With the team under-layer skipped the keyed diffuse lands here,
+            // in the EMPTY slot -- same treatment as the occupied branch: the
+            // RGBA select says team, the test would cut the team regions out,
+            // and its op is the stack's meeting with the team layer, not a
+            // decal op.
+            if (teamDiffuse && layer.target == SurfaceChannel::Color &&
+                (layer.op == CompositeOp::AlphaKey || layer.op == CompositeOp::AlphaBlend)) {
+                (*slot)->colorType = m3::ColorChannelSelect::RGBA;
+                standard.alphaTestThreshold = 0;
+                continue;
+            }
             if (layer.target == SurfaceChannel::Color && layer.op != CompositeOp::Set) {
                 standard.layerBlendMode = blendOpFor(layer.op);
             }
+        }
+
+        // A keyed or blended material with no mask stated: StarCraft II tests
+        // and blends by the COMPOSED alpha (`cFinal.a = mask1.a * mask2.a`),
+        // so without an alpha layer nothing is ever cut. The diffuse's own
+        // alpha is the mask — Opaque + threshold 192 + an Alpha select on the
+        // diffuse's texture is, texel for texel, Blizzard's own spelling of a
+        // Warcraft III Transparent filter. A team material stays out: its
+        // alpha is the team mask.
+        if (!teamDiffuse && !standard.alphaLayer1.has_value() &&
+            (common.blend == BlendMode::AlphaKey || common.blend == BlendMode::Transparent ||
+             common.blend == BlendMode::AlphaBlend) &&
+            standard.diffuseLayer.has_value() && !standard.diffuseLayer->texturePath.empty()) {
+            standard.alphaLayer1 = *standard.diffuseLayer;
+            standard.alphaLayer1->colorType = m3::ColorChannelSelect::Alpha;
         }
     } else {
         out.warn(DiagCode::LossyKindConversion,

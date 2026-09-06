@@ -195,6 +195,16 @@ TextureLayer neutralLayer() {
     TextureLayer layer;
     layer.mapAlpha.initValue = 1.0f;
     layer.rgbMultiply.initValue = 1.0f;
+    // The UV transform's scale, which `applyUV` only reaches when the record
+    // carries a `UVTransform` property -- most do not, and NO shader graph
+    // does. Zero is not "do not scale", it composes an all-zero matrix, and a
+    // renderer that takes it literally samples texel (0,0) for every pixel of
+    // the layer: a Hogger and a Deathwing came out flat black, the colour of
+    // their atlas's top-left corner. Measured the same way as the two above,
+    // 965509 of the 1039144 shipped `MAT_` layers in the Heroes corpus tile at
+    // exactly (1,1) and 48032 leave it at (0,0), so one is both the neutral
+    // value and what the silence has always meant.
+    layer.uvTiling.initValue = {1.0f, 1.0f};
     return layer;
 }
 

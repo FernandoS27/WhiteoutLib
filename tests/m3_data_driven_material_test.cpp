@@ -252,6 +252,13 @@ TEST_CASE("M3 data-driven material -> standard material", "[m3][corpus][madd]") 
                     failures.push_back(path.filename().string() +
                                        ": textureless layer not marked Color");
                 }
+                // A record that names no UV transform still tiles at 1: zero
+                // composes an all-zero matrix and collapses the layer onto one
+                // texel. `applyUV` returns early on such a record, so this is
+                // `neutralLayer`'s value being kept rather than one it read.
+                if ((layer.uvTiling.initValue.x == 0.0f || layer.uvTiling.initValue.y == 0.0f) &&
+                    failures.size() < 20)
+                    failures.push_back(path.filename().string() + ": layer tiles at zero");
             }
         }
     }
@@ -369,6 +376,15 @@ TEST_CASE("M3 data-driven material -> approximated standard material", "[m3][cor
                     madd.texturePaths.end())
                     fail(path.filename().string() + ": approximated texture '" + tex +
                          "' is not in this record's texturePaths");
+                // The UV transform's scale, which no shader graph states. Zero
+                // composes an all-zero matrix, so a consumer that multiplies by
+                // it samples one texel for the whole layer -- which drew a
+                // Hogger and a Deathwing flat black. `neutralLayer` states the
+                // 1 the silence has always meant.
+                const Vector2f& tiling = (*slot)->uvTiling.initValue;
+                if (tiling.x == 0.0f || tiling.y == 0.0f)
+                    fail(path.filename().string() + ": approximated " + name +
+                         " layer tiles at zero");
             }
             if (here == 0)
                 fail(path.filename().string() + ": converted but produced no layer");

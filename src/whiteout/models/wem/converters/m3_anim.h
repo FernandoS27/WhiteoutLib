@@ -39,6 +39,7 @@
  * which this comment says once.
  */
 
+#include <map>
 #include <vector>
 
 #include <whiteout/models/m3/structures.h>
@@ -91,6 +92,24 @@ struct ExportContext {
     ProfileId profile = ProfileId::Sc2;
     /// Parallel to `Model::nodes`.
     std::vector<NodeSlot> nodeSlots;
+
+    /// Section-visibility gate bones. A Warcraft III geoset animation hides a
+    /// whole SECTION, and the `.m3` spelling of that is a bone whose animated
+    /// visibility gates the batch (`Batch::boneCount` -- Blizzard's own
+    /// conversions gate the Footman's gore exactly this way). `toM3` allocates
+    /// one bone per gated visibility channel and records it here; the anim
+    /// export then wires the channel's SDFG stream to that bone's AnimRef.
+    std::map<u32 /*channel id*/, u32 /*bone index*/> sectionGateBones;
+
+    /// The FADES: a section alpha that is not a binary step cannot gate a
+    /// batch, so it rides the material instead -- a Color-flag alpha layer
+    /// whose `mapAlpha` carries the keys (float, the same Sdr3 stream the
+    /// channel already writes; Blizzard's own conversions animate exactly
+    /// these layers). `toM3` plants the carrier layer and records which
+    /// standard material and slot (1 = alphaLayer1, 2 = alphaLayer2) it
+    /// took; the anim export wires the AnimRef.
+    std::map<u32 /*channel id*/, std::pair<u32 /*standard material*/, u8 /*slot*/>>
+        sectionAlphaLayers;
 };
 
 /// Writes `document`'s clips back onto `out` as SEQS / STG_ / STC_ and the SD

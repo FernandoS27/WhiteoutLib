@@ -115,19 +115,75 @@ void colorAt(const ColorInput& input, const Plane& plane, f32 u, f32 v, f32 out[
     }
 }
 
+/// Like `colorAt`, but hands back the sample's ALPHA too (raw — an sRGB view
+/// never decodes alpha), for the ops that weight by it.
+f32 colorWithAlphaAt(const ColorInput& input, const Plane& plane, f32 u, f32 v, f32 out[3]) {
+    colorAt(input, plane, u, v, out);
+    if (!input.present() || plane.empty()) {
+        return 1.0f;
+    }
+    f32 texel[4];
+    sample(plane, u, v, texel);
+    return texel[3];
+}
+
+/// `CombineLayerColor`, the albedo half: fold @p decal into @p albedo in
+/// linear light. The op vocabulary is M3's `layerBlendMode`.
+void foldDecal(const ColorInput& decal, const Plane& plane, DecalOp op, f32 u, f32 v,
+               f32 albedo[3]) {
+    if (!decal.present() || plane.empty()) {
+        return;
+    }
+    f32 d[3];
+    const f32 a = colorWithAlphaAt(decal, plane, u, v, d);
+    switch (op) {
+    case DecalOp::Mod:
+        for (i32 c = 0; c < 3; ++c) {
+            albedo[c] *= d[c];
+        }
+        break;
+    case DecalOp::Mod2x:
+        for (i32 c = 0; c < 3; ++c) {
+            albedo[c] *= d[c] * 2.0f;
+        }
+        break;
+    case DecalOp::AddScaled:
+        for (i32 c = 0; c < 3; ++c) {
+            albedo[c] += d[c] * a;
+        }
+        break;
+    case DecalOp::Add:
+        for (i32 c = 0; c < 3; ++c) {
+            albedo[c] += d[c];
+        }
+        break;
+    case DecalOp::Lerp:
+        for (i32 c = 0; c < 3; ++c) {
+            albedo[c] += (d[c] - albedo[c]) * a;
+        }
+        break;
+    }
+}
+
 u8 quantise(f32 value) {
     return static_cast<u8>(std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f));
 }
 
-/// A scalar term, resolved against its plane or its constant.
+/// A scalar term, resolved against its plane or its constant, then run through
+/// the layer pipeline in the source shader's order: `* scale`, invert,
+/// `* postScale + bias`.
 f32 scalarAt(const ScalarInput& input, const Plane& plane, f32 u, f32 v) {
-    if (!input.present() || plane.empty()) {
-        return input.invert ? 1.0f - input.constant : input.constant;
+    f32 value = input.constant;
+    if (input.present() && !plane.empty()) {
+        f32 texel[4];
+        sample(plane, u, v, texel);
+        value = texel[static_cast<u32>(input.channel)];
     }
-    f32 texel[4];
-    sample(plane, u, v, texel);
-    const f32 value = texel[static_cast<u32>(input.channel)];
-    return input.invert ? 1.0f - value : value;
+    value *= input.scale;
+    if (input.invert) {
+        value = 1.0f - value;
+    }
+    return value * input.postScale + input.bias;
 }
 
 /// The union of the two team mechanisms. One material can carry both, and a
@@ -153,6 +209,8 @@ void teamAlbedoAt(const f32 albedo[3], f32 team, f32 out[3]) {
 struct Reflectance {
     f32 f0[3] = {0.0f, 0.0f, 0.0f};
     f32 exponent = 20.0f;
+    /// The envio term's per-texel value, for the roughness cap.
+    f32 env = 0.0f;
 };
 
 /// How much brighter the albedo has to be for `(1 - m) * albedo` to come back
@@ -189,20 +247,30 @@ MetalSplit metalSplit(f32 albedoLum, f32 specLum) {
 }
 
 Reflectance reflectanceAt(const SpecularReflectance& source, const Plane& specular,
-                          const Plane& exponentScale, f32 u, f32 v) {
+                          const Plane& exponentScale, const Plane& envMask, f32 u, f32 v) {
     Reflectance out;
     const f32 g = scalarAt(source.exponentScale, exponentScale, u, v);
     out.exponent = std::max(1.0f, source.exponent * g * g);
-    if (!source.specular.present() && source.specular.constant[0] == 0.0f &&
-        source.specular.constant[1] == 0.0f && source.specular.constant[2] == 0.0f &&
-        source.specular.bias == 0.0f) {
-        return out;
+    const bool anySpecular = source.specular.present() ||
+                             source.specular.constant[0] != 0.0f ||
+                             source.specular.constant[1] != 0.0f ||
+                             source.specular.constant[2] != 0.0f || source.specular.bias != 0.0f;
+    if (anySpecular) {
+        f32 spec[3];
+        colorAt(source.specular, specular, u, v, spec);
+        const f32 scale = source.factor * ReflectanceScale(out.exponent, source.energyConserving);
+        for (i32 c = 0; c < 3; ++c) {
+            out.f0[c] = std::max(0.0f, spec[c]) * scale;
+        }
     }
-    f32 spec[3];
-    colorAt(source.specular, specular, u, v, spec);
-    const f32 scale = source.factor * ReflectanceScale(out.exponent, source.energyConserving);
-    for (i32 c = 0; c < 3; ++c) {
-        out.f0[c] = std::max(0.0f, spec[c]) * scale;
+    // The envio layer, as an F0 bump. Grey on purpose: Reforged reads
+    // F0 = m * albedo, so a hue here could not survive anyway.
+    if (source.envReflectance > 0.0f) {
+        out.env = source.envReflectance *
+                  std::clamp(scalarAt(source.envMask, envMask, u, v), 0.0f, 1.0f);
+        for (i32 c = 0; c < 3; ++c) {
+            out.f0[c] += out.env;
+        }
     }
     return out;
 }
@@ -216,6 +284,15 @@ f32 RoughnessFromExponent(f32 exponent) {
     return std::clamp(std::pow(2.0f / (n + 2.0f), 0.25f), 0.0f, 1.0f);
 }
 
+f32 ExponentFromRoughness(f32 roughness) {
+    // Clamped at the rough end so a painted-white roughness cannot demand an
+    // exponent below Blinn-Phong's floor, and at the glossy end so a black
+    // texel does not explode the exponent past anything a `.m3` states.
+    const f32 r = std::clamp(roughness, 0.05f, 1.0f);
+    const f32 alpha2 = r * r * r * r;
+    return std::clamp(2.0f / alpha2 - 2.0f, 1.0f, 4096.0f);
+}
+
 f32 ReflectanceScale(f32 exponent, bool energyConserving) {
     const f32 n = std::max(1.0f, exponent);
     f32 dim = 1.0f;
@@ -225,29 +302,56 @@ f32 ReflectanceScale(f32 exponent, bool energyConserving) {
         const f32 p = std::clamp(n, 1.0f, 512.0f);
         dim = std::clamp(-0.000004444f * p * p + 0.004333f * p + 0.0020834f, 0.0f, 1.0f);
     }
-    const f32 normalisation = 8.0f * std::numbers::pi_v<f32> / (n + 8.0f);
+    // Peak-referenced, not energy-referenced, and that is a MEASUREMENT.
+    // Reforged's `finalColor = PI * accum` multiplies the specular too, so the
+    // rendered direct lobe is pi*D*F*V and at its peak pi*D*V = (n+2)/8 under
+    // the matched width alpha^2 = 2/(n+2). The gray-sphere harness (a white-
+    // specular sphere at n = 20/40/80 through both pipelines, 2026-09-05) put
+    // the old energy calibration (8*pi/(n+8)) at 1.8/1.8/1.5x native at the
+    // highlight's peak and 3.5/4.2/4.5x integrated; the geometric mean of the
+    // two errors — 2.53/2.76/2.60 — is the ratio between the two references,
+    // pi*(n+2)/(n+8), to within 11%. Dividing by it lands the peak at ~0.75x
+    // and the energy at ~1.5x, balanced about 1 with one constant.
+    const f32 normalisation = 8.0f / (n + 2.0f);
     return dim * normalisation;
 }
 
 std::optional<Texture> BakeOrm(const OrmRecipe& recipe) {
     const Plane specular = decode(recipe.reflectance.specular.texture);
     const Plane exponentScale = decode(recipe.reflectance.exponentScale.texture);
+    const Plane envMask = decode(recipe.reflectance.envMask.texture);
     const Plane occlusion = decode(recipe.occlusion.texture);
     const Plane teamMask = decode(recipe.teamMask.texture);
     const Plane teamMaskAlt = decode(recipe.teamMaskAlt.texture);
     const Plane baseColor = decode(recipe.baseColor.texture);
+    const Plane decal = decode(recipe.decal.texture);
 
     u32 width = recipe.width;
     u32 height = recipe.height;
     if (width == 0 || height == 0) {
         for (const Plane* plane :
-             {&specular, &exponentScale, &occlusion, &teamMask, &teamMaskAlt}) {
+             {&specular, &exponentScale, &envMask, &occlusion, &teamMask, &teamMaskAlt}) {
             width = std::max(width, plane->width);
             height = std::max(height, plane->height);
         }
     }
     if (width == 0 || height == 0) {
-        return std::nullopt;
+        // No material map names a size — but a CONSTANT term can still need a
+        // map. The live case is a whole-surface `TeamColor*Add` (an RGB-select
+        // team layer is a constant 1): with no ORM at all the runtime reads
+        // the stock map's alpha of 0 and the unit is tinted nowhere. Four
+        // texels say a constant. The base colour still never decides a size —
+        // that rule is about not upscaling to the 2048 colour map.
+        const bool constantSignal =
+            recipe.teamMask.constant > 0.0f || recipe.teamMaskAlt.constant > 0.0f ||
+            recipe.reflectance.specular.constant[0] > 0.0f ||
+            recipe.reflectance.specular.constant[1] > 0.0f ||
+            recipe.reflectance.specular.constant[2] > 0.0f ||
+            recipe.reflectance.specular.bias > 0.0f;
+        if (!constantSignal) {
+            return std::nullopt;
+        }
+        width = height = 4;
     }
 
     Texture out = Texture::create2D(PixelFormat::RGBA8, width, height, 1);
@@ -268,14 +372,19 @@ std::optional<Texture> BakeOrm(const OrmRecipe& recipe) {
             const f32 u = (static_cast<f32>(x) + 0.5f) / static_cast<f32>(width);
 
             const Reflectance reflectance =
-                reflectanceAt(recipe.reflectance, specular, exponentScale, u, v);
+                reflectanceAt(recipe.reflectance, specular, exponentScale, envMask, u, v);
 
             // The roughness is the material's own highlight width, not a
             // measurement of the map: StarCraft II varies the highlight's
             // strength per texel and its width only where a gloss layer says
             // so. Reading the map instead pinned every StarCraft II surface at
-            // 0.88 and left nothing for a normal map to move.
-            const f32 roughness = RoughnessFromExponent(reflectance.exponent);
+            // 0.88 and left nothing for a normal map to move. The envio cap is
+            // the one exception — a live reflection reads sharper than the
+            // material's flat width, exactly where its mask says so.
+            f32 roughness = RoughnessFromExponent(reflectance.exponent);
+            if (reflectance.env > 1e-3f) {
+                roughness = std::min(roughness, recipe.reflectance.envRoughnessCap);
+            }
 
             f32 share = teamAt(recipe.teamMask, teamMask, recipe.teamMaskAlt, teamMaskAlt, u, v);
 
@@ -289,6 +398,7 @@ std::optional<Texture> BakeOrm(const OrmRecipe& recipe) {
             if (recipe.baseColor.present() && !baseColor.empty()) {
                 f32 albedo[3];
                 colorAt(recipe.baseColor, baseColor, u, v, albedo);
+                foldDecal(recipe.decal, decal, recipe.decalOp, u, v, albedo);
                 f32 teamAlbedo[3];
                 teamAlbedoAt(albedo, share, teamAlbedo);
                 metallic = metalSplit(std::max(0.0f, luminance(teamAlbedo)), specLum).metallic;
@@ -323,14 +433,34 @@ std::optional<Texture> BakeBaseColor(const BaseColorRecipe& recipe) {
     }
     const Plane teamMask = decode(recipe.teamMask.texture);
     const Plane teamMaskAlt = decode(recipe.teamMaskAlt.texture);
+    const Plane decal = decode(recipe.decal.texture);
+    const Plane coverage1 = decode(recipe.coverage1.texture);
+    const Plane coverage2 = decode(recipe.coverage2.texture);
     const Plane specular = decode(recipe.reflectance.specular.texture);
     const Plane exponentScale = decode(recipe.reflectance.exponentScale.texture);
+    const Plane envMask = decode(recipe.reflectance.envMask.texture);
 
-    const u32 width = baseColor.width;
-    const u32 height = baseColor.height;
+    // The cutout can out-resolve the paint: a coverage mask bigger than the
+    // base colour would come back quantised to the albedo's grid, and a fixed
+    // alpha test then cuts in blocks. The output follows the largest source.
+    u32 width = baseColor.width;
+    u32 height = baseColor.height;
+    for (const Plane* plane : {&coverage1, &coverage2}) {
+        width = std::max(width, plane->width);
+        height = std::max(height, plane->height);
+    }
     Texture out = Texture::create2D(PixelFormat::RGBA8, width, height, 1);
     out.setSrgb(recipe.baseColor.srgb);
-    out.setKind(TextureKind::Diffuse);
+    // Per-channel kinds, because the alpha is not colour: a cutout's mips must
+    // preserve COVERAGE under the runtime's alpha test — a box-filtered binary
+    // alpha converges on 127, which fails Warcraft III's fixed 0.75 ref at
+    // every distant mip and erases the model from afar.
+    out.setKind(TextureKind::Multikind);
+    out.setChannelKind(Channel::R, TextureKind::Diffuse);
+    out.setChannelKind(Channel::G, TextureKind::Diffuse);
+    out.setChannelKind(Channel::B, TextureKind::Diffuse);
+    out.setChannelKind(Channel::A, recipe.coverageCutoff > 0.0f ? TextureKind::BinaryMask
+                                                                : TextureKind::AlphaMask);
 
     const std::span<u8> pixels = out.mipData(0);
     for (u32 y = 0; y < height; ++y) {
@@ -342,6 +472,7 @@ std::optional<Texture> BakeBaseColor(const BaseColorRecipe& recipe) {
 
             f32 albedo[3];
             colorAt(recipe.baseColor, baseColor, u, v, albedo);
+            foldDecal(recipe.decal, decal, recipe.decalOp, u, v, albedo);
             f32 mixed[3];
             teamAlbedoAt(albedo, team, mixed);
 
@@ -349,7 +480,7 @@ std::optional<Texture> BakeBaseColor(const BaseColorRecipe& recipe) {
             // again, so the diffuse response is unchanged and the highlight is
             // paid for out of the raise rather than out of the surface.
             const Reflectance reflectance =
-                reflectanceAt(recipe.reflectance, specular, exponentScale, u, v);
+                reflectanceAt(recipe.reflectance, specular, exponentScale, envMask, u, v);
             const MetalSplit split =
                 metalSplit(std::max(0.0f, luminance(mixed)), luminance(reflectance.f0));
 
@@ -361,6 +492,53 @@ std::optional<Texture> BakeBaseColor(const BaseColorRecipe& recipe) {
                 pixels[offset + static_cast<std::size_t>(c)] =
                     quantise(recipe.baseColor.srgb ? linearToSrgb(std::clamp(value, 0.0f, 1.0f))
                                                    : std::clamp(value, 0.0f, 1.0f));
+            }
+            // The composed coverage — the source's own `mask1.a * mask2.a`,
+            // never the diffuse alpha, which is the team mask on every source
+            // this reads. Both defaults are 1, so a maskless recipe is opaque.
+            f32 coverage = scalarAt(recipe.coverage1, coverage1, u, v) *
+                           scalarAt(recipe.coverage2, coverage2, u, v);
+            if (recipe.coverageCutoff > 0.0f) {
+                // An alpha-KEYED surface wants the test's result, not its
+                // input: the target's own ref is fixed and need not agree.
+                coverage = coverage >= recipe.coverageCutoff ? 1.0f : 0.0f;
+            }
+            pixels[offset + 3] = quantise(coverage);
+        }
+    }
+    return out;
+}
+
+std::optional<Texture> BakeEmissiveSum(const ColorInput& first, bool firstWeightByAlpha,
+                                       const ColorInput& second, bool secondWeightByAlpha) {
+    const Plane a = decode(first.texture);
+    const Plane b = decode(second.texture);
+    const u32 width = std::max(a.width, b.width);
+    const u32 height = std::max(a.height, b.height);
+    if (width == 0 || height == 0) {
+        return std::nullopt;
+    }
+    Texture out = Texture::create2D(PixelFormat::RGBA8, width, height, 1);
+    out.setSrgb(first.srgb || second.srgb);
+    out.setKind(TextureKind::Emissive);
+    const bool srgb = first.srgb || second.srgb;
+    const std::span<u8> pixels = out.mipData(0);
+    for (u32 y = 0; y < height; ++y) {
+        const f32 v = (static_cast<f32>(y) + 0.5f) / static_cast<f32>(height);
+        for (u32 x = 0; x < width; ++x) {
+            const f32 u = (static_cast<f32>(x) + 0.5f) / static_cast<f32>(width);
+            f32 ca[3];
+            const f32 aa = colorWithAlphaAt(first, a, u, v, ca);
+            f32 cb[3];
+            const f32 ab = colorWithAlphaAt(second, b, u, v, cb);
+            const f32 wa = firstWeightByAlpha ? aa : 1.0f;
+            const f32 wb = secondWeightByAlpha ? ab : 1.0f;
+            const std::size_t offset =
+                (static_cast<std::size_t>(y) * width + static_cast<std::size_t>(x)) * 4;
+            for (i32 c = 0; c < 3; ++c) {
+                const f32 value = std::clamp(ca[c] * wa + cb[c] * wb, 0.0f, 1.0f);
+                pixels[offset + static_cast<std::size_t>(c)] =
+                    quantise(srgb ? linearToSrgb(value) : value);
             }
             pixels[offset + 3] = 255;
         }

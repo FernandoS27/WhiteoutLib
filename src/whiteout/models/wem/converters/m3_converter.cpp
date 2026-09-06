@@ -698,23 +698,133 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     animContext.nodeSlots.assign(model.nodes.size(), m3_anim::ExportContext::NodeSlot{});
 
     // --- bones and the records that hang off them ---------------------------
+    //
+    // Which nodes become `BONE` records. An `.m3` has one node vocabulary --
+    // the bone -- so every transform-bearing node crosses as one: a HELPER is
+    // an articulation joint that merely does not skin (Warcraft III rigs
+    // interleave them as parents of half the skeleton, and Blizzard's own
+    // Warcraft III conversions write them all as bones -- the Footman's 47),
+    // and an attachment, light or camera that carries a rest offset needs a
+    // bone to keep it on. The identity-transform carrier nodes the m3 import
+    // itself creates for ATT_/LITE/CAM_ stay boneless, so an m3 round trip
+    // does not grow a bone per pass.
     std::vector<u32> boneOf(model.nodes.size(), 0xFFFFu);
+    const auto identityLocal = [](const Node& node) {
+        const Vector3f& t = node.local.translation;
+        const Quaternion& r = node.local.rotation;
+        const Vector3f& sc = node.local.scale;
+        constexpr f32 e = 1e-6f;
+        return std::fabs(t.x) < e && std::fabs(t.y) < e && std::fabs(t.z) < e &&
+               std::fabs(r.x) < e && std::fabs(r.y) < e && std::fabs(r.z) < e &&
+               std::fabs(std::fabs(r.w) - 1.0f) < e && std::fabs(sc.x - 1.0f) < e &&
+               std::fabs(sc.y - 1.0f) < e && std::fabs(sc.z - 1.0f) < e;
+    };
+    // Parents before children -- the format's contract, not a preference: the
+    // engine (and this build's renderer, built from its decompile) resolves
+    // the hierarchy in ONE linear pass and reads a forward parent reference
+    // as a root, so a child stored before its parent re-roots at the origin
+    // with its whole subtree. The document keeps its source order and MDX
+    // promises nothing (`SEAltarOfStars` parents node 5 to node 35), so the
+    // bone indices are assigned in breadth-first order instead; siblings keep
+    // their source order.
+    std::vector<u32> topological;
+    topological.reserve(model.nodes.size());
+    // Only when the source order actually violates the contract: a shipped
+    // `.m3` is already parents-first and keeps its exact order (a batch's
+    // visibility-gate bone is an index into that order), so reordering one
+    // would be churn with a hostage.
+    bool ordered = true;
+    for (u32 n = 0; n < model.nodes.size() && ordered; ++n) {
+        const u32 parent = model.nodes.nodes[n].parent;
+        ordered = parent == kInvalidNode || parent < n;
+    }
+    if (ordered) {
+        for (u32 n = 0; n < model.nodes.size(); ++n) {
+            topological.push_back(n);
+        }
+    } else {
+        std::vector<std::vector<u32>> children(model.nodes.size());
+        for (u32 n = 0; n < model.nodes.size(); ++n) {
+            const u32 parent = model.nodes.nodes[n].parent;
+            if (parent == kInvalidNode || parent >= model.nodes.size()) {
+                topological.push_back(n);
+            } else {
+                children[parent].push_back(n);
+            }
+        }
+        for (std::size_t head = 0; head < topological.size(); ++head) {
+            for (u32 child : children[topological[head]]) {
+                topological.push_back(child);
+            }
+        }
+        // A parent cycle is a damaged document; the stragglers still get
+        // bones (as roots) rather than vanishing.
+        if (topological.size() < model.nodes.size()) {
+            std::vector<bool> seen(model.nodes.size(), false);
+            for (u32 n : topological) {
+                seen[n] = true;
+            }
+            for (u32 n = 0; n < model.nodes.size(); ++n) {
+                if (!seen[n]) {
+                    topological.push_back(n);
+                }
+            }
+        }
+    }
+    if (!ordered) {
+        diagnostics.info(DiagCode::RigConventionChanged,
+                         "bones reordered parents-first (the engine resolves the "
+                         "hierarchy in one pass)",
+                         ElementRef(ElementKind::Document, 0), profile);
+    }
+    for (const u32 n : topological) {
+        const Node& node = model.nodes.nodes[n];
+        bool carries = false;
+        switch (node.kind) {
+        case NodeKind::Bone:
+        case NodeKind::Helper:
+            carries = true;
+            break;
+        case NodeKind::Attachment:
+        case NodeKind::Light:
+        case NodeKind::Camera:
+            carries = !identityLocal(node);
+            break;
+        default:
+            break;
+        }
+        if (carries) {
+            boneOf[n] = static_cast<u32>(out.bones.size());
+            out.bones.emplace_back();
+        }
+    }
+    // The nearest ancestor that owns a bone -- a parent that stayed boneless
+    // (an event node, say) must not re-root its children.
+    const auto nearestBone = [&](std::size_t n) -> u32 {
+        for (u32 p = model.nodes.nodes[n].parent; p != kInvalidNode;
+             p = model.nodes.nodes[p].parent) {
+            if (p < boneOf.size() && boneOf[p] != 0xFFFFu) {
+                return boneOf[p];
+            }
+        }
+        return 0xFFFFu;
+    };
     for (std::size_t n = 0; n < model.nodes.size(); ++n) {
-        if (model.nodes.nodes[n].kind != NodeKind::Bone) {
+        if (boneOf[n] == 0xFFFFu) {
             continue;
         }
         const Node& node = model.nodes.nodes[n];
-        boneOf[n] = static_cast<u32>(out.bones.size());
-        animContext.nodeSlots[n] = {m3_anim::ExportContext::Slot::Bone,
-                                    static_cast<u32>(out.bones.size())};
+        // Transform tracks flow to the bone. A light keeps its Light slot (its
+        // colour and falloff are the tracks an m3 light can state) and a
+        // camera its Camera slot; both are assigned below.
+        if (node.kind != NodeKind::Light && node.kind != NodeKind::Camera) {
+            animContext.nodeSlots[n] = {m3_anim::ExportContext::Slot::Bone, boneOf[n]};
+        }
         m3::Bone bone;
         bone.name = node.name;
         bone.flags = FromNodeFlags(node.flags, static_cast<u32>(node.native.value("m3FlagBits")));
-        bone.parentIndex = 0xFFFFu;
-        if (node.parent != kInvalidNode && node.parent < boneOf.size() &&
-            boneOf[node.parent] != 0xFFFFu) {
-            bone.parentIndex = static_cast<u16>(boneOf[node.parent]);
-        }
+        const u32 parentBone = nearestBone(n);
+        bone.parentIndex = parentBone == 0xFFFFu ? u16(0xFFFFu) : static_cast<u16>(parentBone);
         bone.position.initValue = Unrebase(node.local.translation);
         const Quaternion& rotation = node.local.rotation;
         bone.rotation.initValue = Quaternion{rotation.y, -rotation.x, rotation.z, rotation.w};
@@ -722,7 +832,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         // The batch gate reads this and nothing else when no clip drives it.
         bone.visibility.initValue =
             VisibilityRest(model, static_cast<u32>(n)) > 0.5f ? 1u : 0u;
-        out.bones.push_back(std::move(bone));
+        out.bones[boneOf[n]] = std::move(bone);
 
         // IREF, one matrix per bone and in the same order. `poseMatrixOf`
         // answers with the stored matrix when the document carries one and
@@ -732,21 +842,26 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         // as identity and the skin explodes.
         m3::InitialReference reference;
         reference.matrix = UnrebaseMatrix(model.nodes.inverseBindMatrix(static_cast<u32>(n)));
-        out.initialReference.push_back(reference);
+        out.initialReference.resize(out.bones.size());
+        out.initialReference[boneOf[n]] = reference;
     }
     out.skinBoneCount = static_cast<u32>(out.bones.size());
 
     for (std::size_t n = 0; n < model.nodes.size(); ++n) {
         const Node& node = model.nodes.nodes[n];
-        const u32 parentBone =
-            node.parent != kInvalidNode && node.parent < boneOf.size() ? boneOf[node.parent] : 0u;
+        // The node's own bone when the pass above gave it one (it carries a
+        // rest offset), the nearest ancestor's otherwise.
+        const u32 carrier = boneOf[n] != 0xFFFFu ? boneOf[n] : nearestBone(n);
+        const u32 parentBone = carrier;
         switch (node.kind) {
         case NodeKind::Attachment: {
             m3::AttachmentPoint point;
             point.name = node.name;
             point.boneIndex = parentBone == 0xFFFFu ? 0u : parentBone;
-            animContext.nodeSlots[n] = {m3_anim::ExportContext::Slot::Attachment,
-                                        static_cast<u32>(out.attachmentPoints.size())};
+            if (boneOf[n] == 0xFFFFu) {
+                animContext.nodeSlots[n] = {m3_anim::ExportContext::Slot::Attachment,
+                                            static_cast<u32>(out.attachmentPoints.size())};
+            }
             out.attachmentPoints.push_back(std::move(point));
             break;
         }
@@ -806,6 +921,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     // --- materials ----------------------------------------------------------
     m3_core::Context context;
     context.modelVersion = targetVersion;
+    context.textureRefs = &document.textures;
     for (const TextureRef& ref : document.textures) {
         context.texturesByPath.emplace_back(ref.path,
                                             static_cast<u32>(context.texturesByPath.size()));
@@ -826,9 +942,15 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
 
     // --- geometry -----------------------------------------------------------
     //
-    // One division per mesh. Every division writes into the model's single
-    // vertex buffer, so the regions' `firstVertex` runs are the concatenation
-    // of the meshes'.
+    // One division for the whole model, one region per mesh section. The game
+    // (and this build's renderer) draws `divisions[0]` and nothing after it,
+    // so a division per mesh silently dropped every mesh but the first the
+    // moment a document carried more than one -- which a shipped `.m3` never
+    // does (one division is the format's own shape; Blizzard's own Warcraft
+    // III conversions put seven regions in one division) but every
+    // cross-profile document did. Every region writes into the model's single
+    // vertex buffer, so their `firstVertex` runs are the concatenation of the
+    // meshes'.
     geom::RenderMeshDesc desc;
     desc.attributes = {
         {geom::names::kPosition, utils::AttributeClass::Position, utils::AttributeEncoding::Float32,
@@ -872,13 +994,13 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
 
     M3VertexEncoder encoder(uvCount, hasColor);
     std::size_t writtenVertices = 0;
+    m3::MeshDivision division;
 
     for (std::size_t m = 0; m < model.meshes.size(); ++m) {
         const Mesh& mesh = model.meshes[m];
         const geom::RenderMesh render = geom::BuildRenderMesh(mesh, desc);
         diagnostics.append(render.diagnostics);
 
-        m3::MeshDivision division;
         const std::vector<Vector3f> positions = render.vertices.getPositions();
         const std::vector<Vector3f> normals = render.vertices.getNormals();
         const std::vector<Vector4f> tangents = render.vertices.getTangents();
@@ -1029,12 +1151,128 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                     mesh.sections[range.section].native.value(kSectionVisibilityNode,
                                                              kSectionAlwaysDrawn));
             }
+            // A section with a keyed visibility and no stored gate -- a
+            // Warcraft III geoset animation -- gets a dedicated gate bone: the
+            // batch gates on a BONE's visibility and nothing else, and hanging
+            // the keys on a skinned bone would hide its subtree instead of the
+            // draw. The bone is a root with an identity rest, appended after
+            // `skinBoneCount` because it skins nothing; the anim export wires
+            // its AnimRef to the channel's own stream (`sectionGateBones`).
+            if (batch.boneCount == static_cast<u16>(kSectionAlwaysDrawn)) {
+                // A Warcraft III geoset "visibility" arrives as a Section
+                // ALPHA channel (GEOA is an alpha track). Only a binary,
+                // step-interpolated one is a gate; a fade needs a layer alpha
+                // and drawing it un-faded beats hiding it outright.
+                const auto binaryStep = [&document](u32 channelId) {
+                    bool any = false;
+                    for (const Clip& clip : document.clips) {
+                        for (const SubTrackContainer& container : clip.containers) {
+                            for (const SubTrack& track : container.subTracks) {
+                                if (track.channel != channelId) {
+                                    continue;
+                                }
+                                any = true;
+                                if (track.interp != Interpolation::Step) {
+                                    return false;
+                                }
+                                const f32* values =
+                                    reinterpret_cast<const f32*>(track.values.data());
+                                const std::size_t count = track.values.size() / sizeof(f32);
+                                for (std::size_t k = 0; k < count; ++k) {
+                                    if (values[k] > 0.01f && values[k] < 0.99f) {
+                                        return false;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    return any;
+                };
+                const AnimChannel* vis = nullptr;
+                const AnimChannel* fade = nullptr;
+                for (const AnimChannel& entry : model.animChannels.channels) {
+                    if (entry.target.kind != TrackTarget::Kind::Section ||
+                        entry.target.mesh != static_cast<u32>(m) ||
+                        entry.target.sub != range.section) {
+                        continue;
+                    }
+                    if (entry.target.channel == Channel::Visibility ||
+                        (entry.target.channel == Channel::Alpha && binaryStep(entry.id))) {
+                        vis = &entry;
+                        break;
+                    }
+                    if (entry.target.channel == Channel::Alpha) {
+                        fade = &entry;
+                    }
+                }
+                // A fade cannot gate -- it rides the material as a Color-flag
+                // alpha layer whose mapAlpha carries the keys (the layer the
+                // oracle's own conversions animate). The construction smoke
+                // over the Barracks is the canonical case: alpha 0 through
+                // every Stand, easing in only while building.
+                if (vis == nullptr && fade != nullptr &&
+                    range.materialSlot < out.materialMaps.size() &&
+                    out.materialMaps[range.materialSlot].materialType ==
+                        m3::MaterialType::Standard &&
+                    animContext.sectionAlphaLayers.find(fade->id) ==
+                        animContext.sectionAlphaLayers.end()) {
+                    const u32 matIndex = out.materialMaps[range.materialSlot].materialIndex;
+                    if (matIndex < out.standardMaterials.size()) {
+                        m3::StandardMaterial& mat = out.standardMaterials[matIndex];
+                        std::optional<m3::TextureLayer>* carrierSlot =
+                            !mat.alphaLayer1.has_value() ? &mat.alphaLayer1
+                            : !mat.alphaLayer2.has_value() ? &mat.alphaLayer2
+                                                           : nullptr;
+                        if (carrierSlot != nullptr) {
+                            m3::TextureLayer carrier;
+                            carrier.flags = m3::TextureLayerFlag::Color;
+                            carrier.color.initValue = m3::ColorBGRA{255, 255, 255, 255};
+                            carrier.rgbMultiply.initValue = 1.0f;
+                            f32 rest = 1.0f;
+                            if (fade->hasInitValue() &&
+                                fade->initValue.size() >= sizeof(f32)) {
+                                std::memcpy(&rest, fade->initValue.data(), sizeof(f32));
+                            }
+                            carrier.mapAlpha.initValue = rest;
+                            *carrierSlot = std::move(carrier);
+                            animContext.sectionAlphaLayers.emplace(
+                                fade->id,
+                                std::make_pair(matIndex,
+                                               carrierSlot == &mat.alphaLayer1 ? u8(1) : u8(2)));
+                        }
+                    }
+                }
+                if (vis != nullptr) {
+                    auto gate = animContext.sectionGateBones.find(vis->id);
+                    if (gate == animContext.sectionGateBones.end()) {
+                        m3::Bone bone;
+                        bone.name = mesh.name.empty()
+                                        ? "section_vis_" + std::to_string(m)
+                                        : mesh.name + "_vis";
+                        bone.parentIndex = 0xFFFFu;
+                        bone.rotation.initValue = Quaternion{0, 0, 0, 1};
+                        bone.scale.initValue = Vector3f{1, 1, 1};
+                        f32 rest = 1.0f;
+                        if (vis->hasInitValue() &&
+                            vis->initValue.size() >= sizeof(f32)) {
+                            std::memcpy(&rest, vis->initValue.data(), sizeof(f32));
+                        }
+                        bone.visibility.initValue = rest != 0.0f ? 1u : 0u;
+                        const u32 index = static_cast<u32>(out.bones.size());
+                        out.bones.push_back(std::move(bone));
+                        m3::InitialReference reference;
+                        reference.matrix = Matrix44f::identity();
+                        out.initialReference.push_back(reference);
+                        gate = animContext.sectionGateBones.emplace(vis->id, index).first;
+                    }
+                    batch.boneCount = static_cast<u16>(gate->second);
+                }
+            }
             division.regions.push_back(std::move(region));
             division.batches.push_back(batch);
         }
-
-        out.divisions.push_back(std::move(division));
     }
+    out.divisions.push_back(std::move(division));
 
     // The declaration the source stated, with only the bits this converter can
     // actually account for rewritten.

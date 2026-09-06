@@ -51,6 +51,8 @@ const char* ToString(SurfaceChannel channel) {
         return "ambient_occlusion";
     case SurfaceChannel::Environment:
         return "environment";
+    case SurfaceChannel::Coverage:
+        return "coverage";
     case SurfaceChannel::Count:
         break;
     }
@@ -325,6 +327,7 @@ ColorSpace AutoColorSpaceFor(SurfaceChannel channel) {
         return ColorSpace::Srgb;
     case SurfaceChannel::Normal:
     case SurfaceChannel::AmbientOcclusion:
+    case SurfaceChannel::Coverage:
     case SurfaceChannel::Count:
         break;
     }
@@ -391,7 +394,7 @@ ColorSpace ResolvedColorSpace(const TextureInput& input, PbrSlot slot) {
 
 namespace {
 
-LegacySlot legacySlotFor(SurfaceChannel channel) {
+std::optional<LegacySlot> legacySlotFor(SurfaceChannel channel) {
     switch (channel) {
     case SurfaceChannel::Color:
         return LegacySlot::Diffuse;
@@ -404,10 +407,14 @@ LegacySlot legacySlotFor(SurfaceChannel channel) {
     case SurfaceChannel::AmbientOcclusion:
         return LegacySlot::AmbientOcclusion;
     case SurfaceChannel::Environment:
+        return LegacySlot::Environment;
+    // Per-texel opacity has no slot in a slot map, so a stack that carries a
+    // coverage layer is not degenerate and `Flatten` refuses it.
+    case SurfaceChannel::Coverage:
     case SurfaceChannel::Count:
         break;
     }
-    return LegacySlot::Environment;
+    return std::nullopt;
 }
 
 } // namespace
@@ -427,8 +434,12 @@ std::optional<LegacyDeferredBody> Flatten(const CompositeBody& composite) {
         if (seen[channel] || layer.op != CompositeOp::Set) {
             return std::nullopt;
         }
+        const std::optional<LegacySlot> slot = legacySlotFor(layer.target);
+        if (!slot.has_value()) {
+            return std::nullopt;
+        }
         seen[channel] = true;
-        out.set(legacySlotFor(layer.target), layer.input);
+        out.set(*slot, layer.input);
     }
 
     out.diffuseFactor = composite.diffuseFactor;

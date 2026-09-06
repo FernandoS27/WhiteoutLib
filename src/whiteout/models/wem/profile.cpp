@@ -28,10 +28,12 @@ constexpr BlendMode kM2BlendModes[] = {
     BlendMode::Additive, BlendMode::Modulate, BlendMode::Modulate2x, BlendMode::BlendAdd,
 };
 
-/// M3 BlendMode 0..5.
+/// M3 BlendMode 0..5 — plus `AlphaKey`, which M3 spells as an Opaque blend
+/// with a non-zero `alphaTestThreshold` (the test is a render state beside the
+/// blend there, not a blend mode).
 constexpr BlendMode kM3BlendModes[] = {
-    BlendMode::Opaque,        BlendMode::AlphaBlend, BlendMode::Additive,
-    BlendMode::AdditiveAlpha, BlendMode::Modulate,   BlendMode::Modulate2x,
+    BlendMode::Opaque,   BlendMode::AlphaKey, BlendMode::AlphaBlend,  BlendMode::Additive,
+    BlendMode::AdditiveAlpha, BlendMode::Modulate, BlendMode::Modulate2x,
 };
 
 /// Diablo III. Provisional until P6 pins the RenderPass blend enum — which is

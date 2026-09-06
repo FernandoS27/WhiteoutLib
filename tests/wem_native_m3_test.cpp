@@ -116,7 +116,12 @@ TEST_CASE("wem a layer with no surface channel is reported, not silently lost",
     const Material imported = m3_core::ImportMaterial(
         model, mapEntry(m3::MaterialType::Standard, 0), ProfileId::Sc2, makeContext(), diagnostics);
 
-    CHECK(diagnostics.countOf(DiagCode::LayerDropped) == 3);
+    // Gloss and height. The alpha mask is not on this list any more: it is the
+    // surface's coverage, and it lands on `SurfaceChannel::Coverage`.
+    CHECK(diagnostics.countOf(DiagCode::LayerDropped) == 2);
+    const CompositeBody* body = imported.Common().composite();
+    REQUIRE(body != nullptr);
+    CHECK(body->layersOf(SurfaceChannel::Coverage).size() == 1);
     // Reported, and still there: the native block is what makes the report a
     // note rather than a loss.
     const auto& block = std::get<native::M3Material>(imported.Native());

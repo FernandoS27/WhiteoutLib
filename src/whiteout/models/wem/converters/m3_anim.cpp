@@ -472,6 +472,7 @@ private:
             clip.native.set("sequenceId", static_cast<i64>(sequence.id));
             clip.native.set("m3SeqFlags", static_cast<i64>(static_cast<u32>(sequence.flags)));
             clip.native.set("m3Frequency", static_cast<i64>(sequence.frequency));
+            clip.native.set("m3MoveSpeed", static_cast<i64>(sequence.moveSpeed));
             clip.native.set("blendTime", static_cast<i64>(sequence.blendTime));
             clip.native.set("startFrame", static_cast<i64>(sequence.startFrame));
             // The sequence's own bound: the posed model over this clip, which
@@ -624,6 +625,7 @@ u32 Merge(const m3::Model& external, Document& document, u32 model, Diagnostics&
         // in the other file.
         clip.native.set("m3SeqFlags", static_cast<i64>(static_cast<u32>(sequence.flags)));
         clip.native.set("m3Frequency", static_cast<i64>(sequence.frequency));
+        clip.native.set("m3MoveSpeed", static_cast<i64>(sequence.moveSpeed));
         clip.native.set("blendTime", static_cast<i64>(sequence.blendTime));
         clip.native.set("startFrame", static_cast<i64>(sequence.startFrame));
         clip.native.set("external", static_cast<i64>(1));
@@ -793,7 +795,7 @@ private:
     /// where every keyed visibility in shipped content lives) and a real scalar
     /// to SDR3. Which it is, is a property of the channel — `Visibility` is the
     /// only F32 the import read out of SDFG.
-    static Stream StreamFor(const AnimChannel& channel) {
+    Stream StreamFor(const AnimChannel& channel) const {
         switch (channel.valueType) {
         case geom::AttrType::F32x2:
             return Stream::Sd2v;
@@ -806,7 +808,16 @@ private:
         case geom::AttrType::U32:
             return Stream::Sdu3;
         case geom::AttrType::F32:
-            return channel.target.channel == Channel::Visibility ? Stream::Sdfg : Stream::Sdr3;
+            if (channel.target.channel == Channel::Visibility) {
+                return Stream::Sdfg;
+            }
+            // A section channel a gate bone reads is a visibility in alpha's
+            // clothing; the flag stream is the slot its AnimRef joins.
+            if (channel.target.kind == TrackTarget::Kind::Section &&
+                context_.sectionGateBones.count(channel.id) != 0) {
+                return Stream::Sdfg;
+            }
+            return Stream::Sdr3;
         default:
             return Stream::None;
         }
@@ -839,7 +850,11 @@ private:
                 static_cast<m3::SequenceFlag>(static_cast<u32>(sequence.flags) |
                                               static_cast<u32>(m3::SequenceFlag::AlwaysGlobal));
         }
-        sequence.frequency = static_cast<u32>(clip.native.value("m3Frequency", 0));
+        const i64 rarity = clip.native.value("rarity", 0);
+        sequence.frequency =
+            static_cast<u32>(clip.native.value("m3Frequency", rarity != 0 ? rarity : 100));
+        sequence.moveSpeed = static_cast<f32>(
+            clip.native.value("m3MoveSpeed", clip.native.value("moveSpeed", 0)));
         sequence.blendTime = static_cast<u32>(clip.native.value("blendTime", 0));
         const i32 origin = static_cast<i32>(clip.native.value("startFrame", 0));
         sequence.startFrame = static_cast<u32>(origin);
@@ -883,11 +898,11 @@ private:
                                   ElementRef(ElementKind::Track, channel->id), profile());
                 continue;
             }
-            const u32 animRef = writeStream(stc, *channel, track, origin);
+            const u32 animRef = writeStream(stc, *channel, track, origin, clip.duration);
             if (animRef == kInvalidIndex) {
                 continue;
             }
-            stc.animIds.push_back(channel->id);
+            stc.animIds.push_back(exportId(channel->id));
             stc.animRefs.push_back(animRef);
             wireAnimRef(*channel, track);
         }
@@ -917,23 +932,52 @@ private:
 
     /// Fills the typed block and returns `(slot << 16) | block`.
     u32 writeStream(m3::SubTrackContainer& stc, const AnimChannel& channel, const SubTrack& track,
-                    i32 origin) {
+                    i32 origin, f32 duration) {
         const Stream stream = StreamFor(channel);
         if (stream == Stream::None) {
             return kInvalidIndex;
         }
-        const std::size_t count = track.times.size();
         const std::size_t size = geom::AttrTypeSize(channel.valueType);
         const std::size_t stride = ValuesPerKey(track.interp) * size;
 
+        // The MDX slicer keeps one bracketing key past each edge of a clip so
+        // the wem player can interpolate the edge spans. A SEQS timeline
+        // cannot say that: a key before the clip becomes the value in effect
+        // at its start (the LAST such key, held at the origin), and a key
+        // past its end is dropped -- the sampler then answers the last
+        // in-range key, which is the hold the global timeline plays. Left
+        // in, an out-of-window key sits at a timestamp the sequence never
+        // reaches and a whole channel reads as its bracket value: the
+        // Grunt's every geoset gated itself invisible on a key 139 seconds
+        // past `Stand 01`.
+        std::vector<std::size_t> kept;
+        std::ptrdiff_t entry = -1;
+        const f32 slack = duration > 0 ? duration : track.times.empty() ? 0 : track.times.back();
+        for (std::size_t k = 0; k < track.times.size(); ++k) {
+            const f32 time = track.times[k];
+            if (time <= 0.0f) {
+                entry = static_cast<std::ptrdiff_t>(k);
+            } else if (time <= slack + 1e-4f) {
+                kept.push_back(k);
+            }
+        }
+        if (entry >= 0) {
+            kept.insert(kept.begin(), static_cast<std::size_t>(entry));
+        }
+        if (kept.empty()) {
+            return kInvalidIndex;
+        }
+        const std::size_t count = kept.size();
+
         std::vector<i32> stamps;
         stamps.reserve(count);
-        for (f32 time : track.times) {
+        for (std::size_t k : kept) {
+            const f32 time = track.times[k] < 0.0f ? 0.0f : track.times[k];
             stamps.push_back(origin + Ticks(time));
         }
         const auto endFrame = stamps.empty() ? 0 : static_cast<u32>(stamps.back());
 
-        const auto read = [&](std::size_t k) { return track.values.data() + k * stride; };
+        const auto read = [&](std::size_t k) { return track.values.data() + kept[k] * stride; };
 
         u32 block = 0;
         switch (stream) {
@@ -1076,6 +1120,29 @@ private:
 
     // ---- the AnimRefs the STC's ids have to match ---------------------------
 
+    /// The id a channel crosses into the `.m3` under. `animId == 0` means "not
+    /// animated" to every consumer of the format, so a channel that arrived
+    /// with id 0 -- a document whose importer numbers channels from zero, as
+    /// MDX's does -- would join every DEFAULTED AnimRef in the file to its
+    /// keys: all 49 of a Footman's bones posed by the one track that drew id
+    /// 0, a pile of parts at the origin. Remapped here, at the boundary;
+    /// every nonzero id crosses verbatim (an `.m3` round trip keeps its
+    /// hashes).
+    u32 exportId(u32 channelId) const {
+        if (channelId != 0) {
+            return channelId;
+        }
+        if (zeroRemap_ == 0) {
+            u32 next = 1;
+            for (const AnimChannel& entry : model_.animChannels.channels) {
+                next = (std::max)(next, entry.id + 1);
+            }
+            zeroRemap_ = next;
+        }
+        return zeroRemap_;
+    }
+    mutable u32 zeroRemap_ = 0;
+
     /// `flags` bit 4 is step; `interpType` stays 0 because the row lies at
     /// runtime and the import never read it.
     template <class T>
@@ -1093,6 +1160,31 @@ private:
         case TrackTarget::Kind::MaterialFeature:
             wireMaterial(channel, track);
             return;
+        case TrackTarget::Kind::Section: {
+            // The stream is already in the STC under this channel's id; the
+            // gate bone's AnimRef is the one reader (see ExportContext).
+            // Warcraft III spells section visibility as an ALPHA track, so
+            // both spellings reach the gate.
+            if (channel.target.channel != Channel::Visibility &&
+                channel.target.channel != Channel::Alpha) {
+                return;
+            }
+            const auto gate = context_.sectionGateBones.find(channel.id);
+            if (gate != context_.sectionGateBones.end() && gate->second < out_.bones.size()) {
+                Wire(out_.bones[gate->second].visibility, exportId(channel.id), track.interp);
+            }
+            const auto fade = context_.sectionAlphaLayers.find(channel.id);
+            if (fade != context_.sectionAlphaLayers.end() &&
+                fade->second.first < out_.standardMaterials.size()) {
+                m3::StandardMaterial& mat = out_.standardMaterials[fade->second.first];
+                std::optional<m3::TextureLayer>& slot =
+                    fade->second.second == 1 ? mat.alphaLayer1 : mat.alphaLayer2;
+                if (slot.has_value()) {
+                    Wire(slot->mapAlpha, exportId(channel.id), track.interp);
+                }
+            }
+            return;
+        }
         default:
             return;
         }
@@ -1108,16 +1200,16 @@ private:
             m3::Bone& bone = out_.bones[slot.index];
             switch (channel.target.channel) {
             case Channel::Translation:
-                Wire(bone.position, channel.id, track.interp);
+                Wire(bone.position, exportId(channel.id), track.interp);
                 return;
             case Channel::Rotation:
-                Wire(bone.rotation, channel.id, track.interp);
+                Wire(bone.rotation, exportId(channel.id), track.interp);
                 return;
             case Channel::Scale:
-                Wire(bone.scale, channel.id, track.interp);
+                Wire(bone.scale, exportId(channel.id), track.interp);
                 return;
             case Channel::Visibility:
-                Wire(bone.visibility, channel.id, track.interp);
+                Wire(bone.visibility, exportId(channel.id), track.interp);
                 return;
             default:
                 return;
@@ -1127,13 +1219,13 @@ private:
             m3::Light& light = out_.lights[slot.index];
             switch (channel.target.channel) {
             case Channel::Color:
-                Wire(light.diffuseColor, channel.id, track.interp);
+                Wire(light.diffuseColor, exportId(channel.id), track.interp);
                 return;
             case Channel::Intensity:
-                Wire(light.intensityMultiplier, channel.id, track.interp);
+                Wire(light.intensityMultiplier, exportId(channel.id), track.interp);
                 return;
             case Channel::AttenuationStart:
-                Wire(light.attenuationStart, channel.id, track.interp);
+                Wire(light.attenuationStart, exportId(channel.id), track.interp);
                 return;
             default:
                 return;
@@ -1196,16 +1288,16 @@ private:
         if (channel.target.kind == TrackTarget::Kind::MaterialLayer) {
             switch (channel.target.channel) {
             case Channel::Alpha:
-                Wire(layer->mapAlpha, channel.id, track.interp);
+                Wire(layer->mapAlpha, exportId(channel.id), track.interp);
                 return;
             case Channel::Color:
-                Wire(layer->color, channel.id, track.interp);
+                Wire(layer->color, exportId(channel.id), track.interp);
                 return;
             case Channel::TextureIndex:
-                Wire(layer->currentFrame, channel.id, track.interp);
+                Wire(layer->currentFrame, exportId(channel.id), track.interp);
                 return;
             case Channel::Weight:
-                Wire(layer->rgbMultiply, channel.id, track.interp);
+                Wire(layer->rgbMultiply, exportId(channel.id), track.interp);
                 return;
             default:
                 return;
@@ -1213,13 +1305,13 @@ private:
         }
         switch (channel.target.channel) {
         case Channel::UvTranslate:
-            Wire(layer->uvOffset, channel.id, track.interp);
+            Wire(layer->uvOffset, exportId(channel.id), track.interp);
             return;
         case Channel::UvRotate:
-            Wire(layer->uvAngle, channel.id, track.interp);
+            Wire(layer->uvAngle, exportId(channel.id), track.interp);
             return;
         case Channel::UvScale:
-            Wire(layer->uvTiling, channel.id, track.interp);
+            Wire(layer->uvTiling, exportId(channel.id), track.interp);
             return;
         default:
             return;

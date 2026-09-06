@@ -167,6 +167,7 @@ std::optional<LegacySlot> legacyOf(PbrSlot slot) {
     case SurfaceChannel::AmbientOcclusion:
         return LegacySlot::AmbientOcclusion;
     case SurfaceChannel::Specular:
+    case SurfaceChannel::Coverage:
     case SurfaceChannel::Count:
         break;
     }
@@ -186,8 +187,10 @@ std::optional<PbrSlot> pbrOf(SurfaceChannel channel) {
     case SurfaceChannel::AmbientOcclusion:
         return PbrSlot::AmbientOcclusion;
     // A spec/gloss term has no PBR slot; roughness is not its inverse in any way
-    // this layer could compute.
+    // this layer could compute. Coverage has none either: Reforged reads it off
+    // the base colour's alpha, which only a texture bake can compose.
     case SurfaceChannel::Specular:
+    case SurfaceChannel::Coverage:
     case SurfaceChannel::Count:
         break;
     }
@@ -246,6 +249,13 @@ CombinerOp combinerOpOf(CompositeOp op, const KindContext& ctx) {
 
 /// The first layer targeting each channel, in body order. What the two slot-map
 /// kinds can hold of an ordered stack; everything after the first is reported.
+///
+/// One channel gets an op filter: an emissive layer folded by Modulate,
+/// Modulate2x or AlphaBlend is a LIGHT GATE, not glow — StarCraft II routes
+/// those ops onto the lit result (`model_main_shading.slang`), and the fold
+/// contract agrees (modulating the zero emissive default contributes nothing).
+/// Handing one to a slot map turns a darkening mask into an additive glow;
+/// 5,337 shipped materials do this. The first ADDITIVE emissive wins instead.
 std::vector<std::pair<SurfaceChannel, const TextureInput*>> firstPerChannel(
     const CompositeBody& body, const KindContext& ctx) {
     std::vector<std::pair<SurfaceChannel, const TextureInput*>> out;
@@ -253,6 +263,12 @@ std::vector<std::pair<SurfaceChannel, const TextureInput*>> firstPerChannel(
     for (const CompositeLayer& layer : body.layers) {
         const std::size_t channel = static_cast<std::size_t>(layer.target);
         if (channel >= static_cast<std::size_t>(SurfaceChannel::Count)) {
+            continue;
+        }
+        if (layer.target == SurfaceChannel::Emissive &&
+            (layer.op == CompositeOp::Modulate || layer.op == CompositeOp::Modulate2x ||
+             layer.op == CompositeOp::AlphaBlend)) {
+            ctx.dropped("a modulate-op 'emissive' layer (a light gate, not glow)");
             continue;
         }
         if (taken[channel]) {
@@ -427,6 +443,9 @@ LegacyDeferredBody toLegacy(const CommonMaterial& source, const KindContext& ctx
                 break;
             case SurfaceChannel::AmbientOcclusion:
                 out.set(LegacySlot::AmbientOcclusion, *entry.second);
+                break;
+            case SurfaceChannel::Coverage:
+                ctx.dropped("a 'coverage' layer (a slot map has no per-texel opacity)");
                 break;
             case SurfaceChannel::Count:
                 break;

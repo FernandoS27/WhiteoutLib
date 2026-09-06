@@ -234,17 +234,15 @@ TEST_CASE("the layer's own tint is part of the reflectance", "[pbr_bake]") {
     CHECK(channelOf(*tinted, Channel::B) == channelOf(*boosted, Channel::B));
 }
 
-TEST_CASE("a StarCraft II specular white is a tenth of a mirror", "[pbr_bake]") {
-    // The calibration the whole crossing rests on, and the reason it needs no
-    // tuned constant: the engine's own energy dim is very nearly proportional
-    // to the exponent, so it cancels the (n+8)/8pi normalisation and the scale
-    // comes out flat across every exponent shipped content uses.
-    CHECK(pbr::ReflectanceScale(20.0f, true) == Catch::Approx(0.078f).margin(0.01f));
-    CHECK(pbr::ReflectanceScale(40.0f, true) == Catch::Approx(0.095f).margin(0.01f));
-    CHECK(pbr::ReflectanceScale(80.0f, true) == Catch::Approx(0.092f).margin(0.01f));
-    // Without the dim the same sample is a near-mirror, which is what the 76
-    // materials in 13,091 that set `SimulateRoughness` are asking for.
-    CHECK(pbr::ReflectanceScale(20.0f, false) > 0.8f);
+TEST_CASE("a StarCraft II specular white is a thirtieth of a mirror", "[pbr_bake]") {
+    // dim(n) * 8 / (n + 2): peak-referenced against Reforged's pi-scaled lobe
+    // (the gray-sphere measurement), and nearly flat across the three shipped
+    // exponents because FakeEnergyConservingSpec is itself ~linear in n.
+    CHECK(pbr::ReflectanceScale(20.0f, true) == Catch::Approx(0.0316f).margin(0.002f));
+    CHECK(pbr::ReflectanceScale(40.0f, true) == Catch::Approx(0.0321f).margin(0.002f));
+    CHECK(pbr::ReflectanceScale(80.0f, true) == Catch::Approx(0.0313f).margin(0.002f));
+    // Without the dim the scale is the raw peak match.
+    CHECK(pbr::ReflectanceScale(20.0f, false) == Catch::Approx(8.0f / 22.0f).margin(0.001f));
 }
 
 TEST_CASE("the roughness curve is the lobe-width match", "[pbr_bake]") {
@@ -503,4 +501,64 @@ TEST_CASE("the base colour never decides the map's size", "[pbr_bake]") {
     REQUIRE(orm.has_value());
     CHECK(orm->width() == 4);
     CHECK(orm->height() == 4);
+}
+
+TEST_CASE("the base colour's alpha is the composed coverage, not the source's",
+          "[pbr_bake]") {
+    // The diffuse alpha is the TEAM MASK on every source this reads, and the
+    // real coverage is the alpha-mask layers: `cFinal.a = mask1.a * mask2.a`.
+    pbr::BaseColorRecipe recipe;
+    const Texture diffuse = solid(120, 90, 60, 30); // alpha 30 = team weight
+    recipe.baseColor.texture = &diffuse;
+
+    // No masks: opaque, whatever the diffuse alpha held.
+    std::optional<Texture> baked = pbr::BakeBaseColor(recipe);
+    REQUIRE(baked.has_value());
+    CHECK(channelOf(*baked, Channel::A) == 255);
+
+    // Two masks multiply: 0.8 * 0.5 = 0.4.
+    const Texture mask1 = solid(0, 0, 0, 204);
+    const Texture mask2 = solid(0, 0, 0, 128);
+    recipe.coverage1.texture = &mask1;
+    recipe.coverage1.channel = Channel::A;
+    recipe.coverage2.texture = &mask2;
+    recipe.coverage2.channel = Channel::A;
+    baked = pbr::BakeBaseColor(recipe);
+    REQUIRE(baked.has_value());
+    CHECK(static_cast<int>(channelOf(*baked, Channel::A)) ==
+          Catch::Approx(102).margin(2));
+}
+
+TEST_CASE("a mask authored in green is read from green", "[pbr_bake]") {
+    // 28,418 shipped masks select Green; the splat puts that channel in the
+    // layer's alpha and the coverage read follows it.
+    pbr::BaseColorRecipe recipe;
+    const Texture diffuse = solid(200, 200, 200, 255);
+    recipe.baseColor.texture = &diffuse;
+    const Texture mask = solid(10, 64, 250, 255);
+    recipe.coverage1.texture = &mask;
+    recipe.coverage1.channel = Channel::G;
+    const std::optional<Texture> baked = pbr::BakeBaseColor(recipe);
+    REQUIRE(baked.has_value());
+    CHECK(channelOf(*baked, Channel::A) == 64);
+}
+
+TEST_CASE("the scalar pipeline runs in the shader's order", "[pbr_bake]") {
+    // ComputeLayerColorInternal: channel select, * alphaFactor, invert,
+    // * rgbMultiply + rgbAdd. scale sits BEFORE the invert and postScale
+    // after, and the order is observable: (1 - 0.5*0.5) * 0.5 = 0.375, where
+    // any other placement of the two multiplies lands elsewhere.
+    pbr::BaseColorRecipe recipe;
+    const Texture diffuse = solid(200, 200, 200, 255);
+    recipe.baseColor.texture = &diffuse;
+    const Texture mask = solid(0, 0, 0, 128);
+    recipe.coverage1.texture = &mask;
+    recipe.coverage1.channel = Channel::A;
+    recipe.coverage1.scale = 0.5f;
+    recipe.coverage1.invert = true;
+    recipe.coverage1.postScale = 0.5f;
+    const std::optional<Texture> baked = pbr::BakeBaseColor(recipe);
+    REQUIRE(baked.has_value());
+    CHECK(static_cast<int>(channelOf(*baked, Channel::A)) ==
+          Catch::Approx(96).margin(2));
 }

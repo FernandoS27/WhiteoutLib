@@ -310,13 +310,23 @@ void addFresnel(const Layer& layer, u32 ordinal, CommonMaterial& common) {
 
 // ── import: the classic stack ───────────────────────────────────────────────
 
+/// The texture an SD layer actually samples. **In memory the id lives in the
+/// sub-texture array**: `Parser::upgradeModel` moves `textureId` into
+/// `subTextures[0]` and zeroes it, so reading the field straight gave texture
+/// 0 for every layer of every classic material -- the same Arthas trap
+/// `exportFromNative` documents, alive on the import side. Every replaceable
+/// (team colour, team glow) vanished this way: they are never texture 0.
+u32 sdTextureId(const Layer& layer) {
+    return layer.subTextures.empty() ? layer.textureId : layer.subTextures.front().textureId;
+}
+
 void importComposite(const std::vector<const Layer*>& layers, const Context& context,
                      CommonMaterial& common, Diagnostics& out) {
     CompositeBody body;
     for (std::size_t i = 0; i < layers.size(); ++i) {
         const Layer& layer = *layers[i];
         CompositeLayer entry;
-        entry.input = inputFor(layer, layer.textureId, context, static_cast<u32>(i), out);
+        entry.input = inputFor(layer, sdTextureId(layer), context, static_cast<u32>(i), out);
         entry.target = SurfaceChannel::Color;
         // The first layer is the stack's meeting with the scene, not an op.
         entry.op = i == 0 ? CompositeOp::Set : compositeOpFor(layer.filterMode);
@@ -332,7 +342,7 @@ void importCombiners(const std::vector<const Layer*>& layers, const Context& con
     for (std::size_t i = 0; i < layers.size(); ++i) {
         const Layer& layer = *layers[i];
         CombinerStage stage;
-        stage.input = inputFor(layer, layer.textureId, context, static_cast<u32>(i), out);
+        stage.input = inputFor(layer, sdTextureId(layer), context, static_cast<u32>(i), out);
         stage.rgb = CombinerOp::Opaque;
         if (i != 0) {
             collapsibleOp(layer.filterMode, stage.rgb);
@@ -757,10 +767,20 @@ void exportComposite(const CompositeBody& body, const CommonMaterial& common,
         // moment a slot map arrived, because a converted one holds exactly one
         // layer per channel and so carries `Set` on every one of them. Diablo
         // III's environment map was drawn opaque over his own diffuse.
-        pushLayer(std::move(layer),
-                  entry.target == SurfaceChannel::Color ? filterModeFor(entry.op)
-                                                        : Layer::FilterMode::Additive,
-                  common.blend, dst, layerOfOrdinal, static_cast<u32>(i));
+        //
+        // The exception is a MODULATE-family op: a Mod/Mod2x/Lerp emissive is a
+        // light gate — StarCraft II multiplies it into the LIT RESULT — and
+        // Warcraft III can say exactly that as a modulate (or blend) pass.
+        // Written additive, a darkening mask became a glow.
+        Layer::FilterMode passMode = Layer::FilterMode::Additive;
+        if (entry.target == SurfaceChannel::Color) {
+            passMode = filterModeFor(entry.op);
+        } else if (entry.op == CompositeOp::Modulate || entry.op == CompositeOp::Modulate2x ||
+                   entry.op == CompositeOp::AlphaBlend) {
+            passMode = filterModeFor(entry.op);
+        }
+        pushLayer(std::move(layer), passMode, common.blend, dst, layerOfOrdinal,
+                  static_cast<u32>(i));
     }
 }
 
@@ -960,6 +980,20 @@ void exportPbr(const PbrDeferredBody& body, const CommonMaterial& common, const 
             std::max({body.emissiveFactor.x, body.emissiveFactor.y, body.emissiveFactor.z});
     }
 
+    // The fresnel overlay — the one representable per-material view-dependent
+    // effect, and `importPbr` already reads these three fields back into a
+    // feature. Only a WHOLE-MATERIAL feature is written out: a per-layer one
+    // (the M3 import's) indexes the source stack, not this slot map, and its
+    // default white colour says nothing a rim should show. A converter that
+    // wants a rim to survive puts one whole-material feature here.
+    if (const MaterialFeature* feature = common.feature(FeatureKind::Fresnel)) {
+        if (const auto* fresnel = std::get_if<FresnelFeature>(&feature->payload)) {
+            layer.fresnelColor = fresnel->color;
+            layer.fresnelOpacity = std::clamp(fresnel->outMax, 0.0f, 1.0f);
+            layer.fresnelTeamColor = std::clamp(fresnel->teamColor, 0.0f, 1.0f);
+        }
+    }
+
     // --- every slot names a texture -----------------------------------------
     //
     // Not one of the 12,893 six-slot HD layers in `war3.w3mod` leaves a slot
@@ -994,6 +1028,11 @@ void exportPbr(const PbrDeferredBody& body, const CommonMaterial& common, const 
         // Every slot, in `SlotType` order: a consumer is entitled to read this
         // array positionally -- `MdxModelAdapter` does -- and a short array
         // would hand it the environment map as a normal map.
+        // An HD layer has ONE coordId and one alpha for all six slots. The
+        // base colour's win — it is the map the mesh was unwrapped for — and
+        // a slot that disagrees is reported instead of silently electing
+        // whichever slot the loop visited last.
+        const TextureInput* lead = textured(Layer::SlotType::DiffuseMap);
         for (u32 index = 0; index < static_cast<u32>(kHdPositionalSlotCount); ++index) {
             const auto type = static_cast<Layer::SlotType>(index);
             const TextureInput* input = textured(type);
@@ -1001,10 +1040,20 @@ void exportPbr(const PbrDeferredBody& body, const CommonMaterial& common, const 
             sub.textureId = textureIdFor(type);
             sub.slot = type;
             layer.subTextures.push_back(std::move(sub));
-            if (input != nullptr) {
-                layer.coordId = input->uvSet;
-                layer.alpha = input->weight;
+            if (input != nullptr && lead == nullptr) {
+                lead = input;
             }
+            if (input != nullptr && lead != nullptr && input->uvSet != lead->uvSet) {
+                out.warn(DiagCode::LossyKindConversion,
+                         std::string("HD slot ") + ToString(pbrSlotFor(type)) +
+                             " samples uv set " + number(input->uvSet) +
+                             " but the layer carries uv set " + number(lead->uvSet) +
+                             "; an HD layer has one coordId");
+            }
+        }
+        if (lead != nullptr) {
+            layer.coordId = lead->uvSet;
+            layer.alpha = lead->weight;
         }
         for (const auto& [slot, input] : body.slots) {
             if (slotTypeFor(slot) == Layer::SlotType::Unknown) {

@@ -19,6 +19,8 @@
 
 #include <whiteout/models/wem/converters.h>
 
+#include "wem_material_fixture.h"
+
 using namespace whiteout;
 using namespace whiteout::models::wem;
 
@@ -267,6 +269,48 @@ TEST_CASE("wem m3 a region states the scale its UVs decode at",
           Catch::Approx(static_cast<f32>(kRawU) * 0.941076f / 32767.0f + 0.941076f));
     CHECK(stated.y ==
           Catch::Approx(static_cast<f32>(kRawV) * 0.941076f / 32767.0f + 0.941076f));
+}
+
+TEST_CASE("wem m3 the alpha masks are the coverage channel",
+          "[wem][convert][m3][coverage]") {
+    // `cFinal.a = mask1.a * mask2.a * alphaFactor` -- the alpha-mask layers are
+    // what StarCraft II blends and alpha-tests by (the diffuse alpha is the
+    // team mask), and 104,869 of 176,955 shipped materials carry one. They
+    // used to be reported as dropped.
+    m3::Model model = makeModel(30);
+    m3::StandardMaterial& material = model.standardMaterials[0];
+    material.blendMode = m3::BlendMode::AlphaBlend;
+    m3::TextureLayer mask;
+    mask.texturePath = "assets/textures/fade.dds";
+    mask.colorType = m3::ColorChannelSelect::Green;
+    material.alphaLayer1 = mask;
+    m3::TextureLayer mask2;
+    mask2.texturePath = "assets/textures/cut.dds";
+    mask2.colorType = m3::ColorChannelSelect::Alpha;
+    material.alphaLayer2 = mask2;
+
+    const M3Converter converter;
+    Result<Document> imported = converter.fromM3(model, ProfileId::Heroes);
+    REQUIRE(imported.ok());
+    const Material& mat = imported->models[0].profileSets[0].materials[0];
+    const CompositeBody* body = mat.Common().composite();
+    REQUIRE(body != nullptr);
+    const std::vector<u32> coverage = body->layersOf(SurfaceChannel::Coverage);
+    REQUIRE(coverage.size() == 2);
+    // The fold is a product: the first mask seeds the channel, the second
+    // multiplies into it.
+    CHECK(body->layers[coverage[0]].op == CompositeOp::Set);
+    CHECK(body->layers[coverage[1]].op == CompositeOp::Modulate);
+
+    // And they go back into the slots they came from.
+    Result<m3::Model> written = converter.toM3(*imported, ProfileId::Heroes, 30);
+    REQUIRE(written.ok());
+    REQUIRE(written->standardMaterials.size() == 1);
+    const m3::StandardMaterial& out = written->standardMaterials[0];
+    REQUIRE(out.alphaLayer1.has_value());
+    REQUIRE(out.alphaLayer2.has_value());
+    CHECK(out.alphaLayer1->texturePath.substr(0, 23) == "assets/textures/fade.dd");
+    CHECK(out.alphaLayer2->texturePath.substr(0, 22) == "assets/textures/cut.dd");
 }
 
 TEST_CASE("wem m3 interns texture paths as it imports", "[wem][convert][m3][textures]") {
@@ -627,4 +671,154 @@ TEST_CASE("wem m3 carries the vertex declaration it was given", "[wem][convert][
         }
     }
     CHECK(matched == 4);
+}
+
+// ── the Warcraft III crossings, against Blizzard's own answer key ────────────
+//
+// `mods/war3.sc2mod` (3,004 shipped conversions) settles each of these:
+// see WC3_TO_SC2_DESIGN.md §1.
+
+namespace {
+
+/// A one-slot Sc2 document around @p material, with texture @p replaceable
+/// marked as that Warcraft III replaceable id.
+Document wc3Document(Material material, u32 replaceableTexture = 0, u32 replaceableId = 0) {
+    Document document = wemfix::makeDocument(ProfileId::Sc2);
+    Model& model = document.models[0];
+    model.materialSlots = {"body"};
+    model.meshes.clear();
+    model.meshes.push_back(wemfix::makeMesh({"body"}));
+    for (MeshSection& section : model.meshes[0].sections) {
+        section.profiles = ProfileBit(ProfileId::Sc2);
+    }
+    std::vector<Material> materials;
+    materials.push_back(std::move(material));
+    model.profileSets.clear();
+    model.profileSets.push_back(wemfix::makeSet(ProfileId::Sc2, std::move(materials)));
+    if (replaceableId != 0 && replaceableTexture < document.textures.size()) {
+        document.textures[replaceableTexture].replaceableId = replaceableId;
+        document.textures[replaceableTexture].path.clear();
+        document.textures[replaceableTexture].key = TexturePath{""};
+    }
+    return document;
+}
+
+const m3::StandardMaterial& firstMaterial(const Result<m3::Model>& written) {
+    REQUIRE(written.ok());
+    REQUIRE_FALSE(written->standardMaterials.empty());
+    return written->standardMaterials[0];
+}
+
+} // namespace
+
+TEST_CASE("wem m3 a warcraft team stack folds to the RGBA select",
+          "[wem][convert][m3][team]") {
+    // Replaceable 1 UNDER a keyed diffuse: Blizzard's conversions write ONE
+    // diffuse with the RGBA select (texture alpha = team mask, uninverted)
+    // and no alpha test -- the test would cut the team regions out.
+    Material material;
+    material.name = "team";
+    CompositeBody body;
+    CompositeLayer team;
+    team.input = wemfix::makeInput(1);
+    team.target = SurfaceChannel::Color;
+    team.op = CompositeOp::Set;
+    body.layers.push_back(team);
+    CompositeLayer diffuse;
+    diffuse.input = wemfix::makeInput(0);
+    diffuse.target = SurfaceChannel::Color;
+    diffuse.op = CompositeOp::AlphaKey;
+    body.layers.push_back(diffuse);
+    material.InitCommon().body = std::move(body);
+    material.MutableCommon().blend = BlendMode::AlphaKey;
+    material.MutableCommon().alphaTestThreshold = 0.75f;
+
+    Document document = wc3Document(std::move(material), 1, 1);
+    const M3Converter converter;
+    Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    const m3::StandardMaterial& out = firstMaterial(written);
+    REQUIRE(out.diffuseLayer.has_value());
+    CHECK(out.diffuseLayer->texturePath == "tex0.dds");
+    CHECK(out.diffuseLayer->colorType == m3::ColorChannelSelect::RGBA);
+    CHECK(out.alphaTestThreshold == 0);
+    CHECK_FALSE(out.alphaLayer1.has_value());
+}
+
+TEST_CASE("wem m3 a team glow layer is the team emissive op",
+          "[wem][convert][m3][team]") {
+    // Replaceable 2, additive: the oracle's `TeamGlow` material -- an
+    // emissive whose op is TeamColorEmissiveAdd with a RED select; the
+    // texture is the mask, the team colour supplies the RGB.
+    Material material;
+    material.name = "glow";
+    CompositeBody body;
+    CompositeLayer glow;
+    glow.input = wemfix::makeInput(2);
+    glow.target = SurfaceChannel::Color;
+    glow.op = CompositeOp::Set;
+    body.layers.push_back(glow);
+    material.InitCommon().body = std::move(body);
+    material.MutableCommon().blend = BlendMode::Additive;
+
+    Document document = wc3Document(std::move(material), 2, 2);
+    const M3Converter converter;
+    Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    const m3::StandardMaterial& out = firstMaterial(written);
+    CHECK_FALSE(out.diffuseLayer.has_value());
+    REQUIRE(out.emissiveLayer1.has_value());
+    CHECK(out.emissiveBlendMode1 == m3::LayerBlendOp::TeamColorEmissiveAdd);
+    CHECK(out.emissiveLayer1->colorType == m3::ColorChannelSelect::Red);
+}
+
+TEST_CASE("wem m3 a keyed material states its own coverage",
+          "[wem][convert][m3][coverage]") {
+    // StarCraft II tests the COMPOSED alpha; without a mask nothing is ever
+    // cut. Opaque + threshold 192 + an Alpha select on the diffuse's own
+    // texture is, texel for texel, the oracle's spelling of a Warcraft III
+    // Transparent filter (192 = 0.75 * 256 -- truncating through 255 gives
+    // the off-by-one 191).
+    Material material = wemfix::makeComposite("cut");
+    material.MutableCommon().blend = BlendMode::AlphaKey;
+    material.MutableCommon().alphaTestThreshold = 0.75f;
+
+    Document document = wc3Document(std::move(material));
+    const M3Converter converter;
+    Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    const m3::StandardMaterial& out = firstMaterial(written);
+    CHECK(out.alphaTestThreshold == 192);
+    REQUIRE(out.alphaLayer1.has_value());
+    CHECK(out.alphaLayer1->texturePath == "tex0.dds");
+    CHECK(out.alphaLayer1->colorType == m3::ColorChannelSelect::Alpha);
+    REQUIRE(out.diffuseLayer.has_value());
+    // The multiply rests at one -- the struct's zero is a black layer.
+    CHECK(out.diffuseLayer->rgbMultiply.initValue == Catch::Approx(1.0f));
+}
+
+TEST_CASE("wem m3 an additive second colour layer is a glow",
+          "[wem][convert][m3][layers]") {
+    // A second colour PASS has no slot of its own; Blizzard's conversions put
+    // an additive one in the emissive slot (638 materials) and never stack
+    // batches (0 of 3,004 models).
+    Material material;
+    material.name = "shine";
+    CompositeBody body;
+    CompositeLayer base;
+    base.input = wemfix::makeInput(0);
+    base.target = SurfaceChannel::Color;
+    base.op = CompositeOp::Set;
+    body.layers.push_back(base);
+    CompositeLayer sheen;
+    sheen.input = wemfix::makeInput(3);
+    sheen.target = SurfaceChannel::Color;
+    sheen.op = CompositeOp::Add;
+    body.layers.push_back(sheen);
+    material.InitCommon().body = std::move(body);
+
+    Document document = wc3Document(std::move(material));
+    const M3Converter converter;
+    Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    const m3::StandardMaterial& out = firstMaterial(written);
+    REQUIRE(out.emissiveLayer1.has_value());
+    CHECK(out.emissiveLayer1->texturePath == "tex3.dds");
+    CHECK(out.emissiveBlendMode1 == m3::LayerBlendOp::AddNoAlpha);
 }

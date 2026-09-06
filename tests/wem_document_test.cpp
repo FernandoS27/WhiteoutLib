@@ -314,11 +314,21 @@ TEST_CASE("wem profile limits are checked at the profile level", "[wem][document
 
     SECTION("a blend mode the format cannot write") {
         Document document = makeDocument(ProfileId::Sc2);
-        // M3 has no alpha-key mode; the exporter would have to approximate.
-        document.models[0].profileSets[0].materials[0].InitCommon().blend = BlendMode::AlphaKey;
+        // M2's blend-add has no M3 spelling. (AlphaKey, which this section
+        // used to use, DOES have one now: an Opaque blend plus the alpha-test
+        // threshold — the test is a render state there, not a blend mode.)
+        document.models[0].profileSets[0].materials[0].InitCommon().blend = BlendMode::BlendAdd;
         const Diagnostics report = Validate(document, ValidateLevel::Profile);
         CHECK(errorCodes(report) == "");
         CHECK(report.countOf(DiagCode::LossyBlendMode) == 1u);
+    }
+
+    SECTION("alpha key is writable where the test is a render state") {
+        Document document = makeDocument(ProfileId::Sc2);
+        document.models[0].profileSets[0].materials[0].InitCommon().blend = BlendMode::AlphaKey;
+        const Diagnostics report = Validate(document, ValidateLevel::Profile);
+        CHECK(errorCodes(report) == "");
+        CHECK(report.countOf(DiagCode::LossyBlendMode) == 0u);
     }
 
     SECTION("more uv sets than the profile has") {

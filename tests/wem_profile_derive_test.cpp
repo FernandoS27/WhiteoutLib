@@ -160,6 +160,43 @@ TEST_CASE("wem composite becomes pbr when that is all the target takes", "[wem][
     CHECK(derived->Common().pbr()->find(PbrSlot::Normal)->texture == 9u);
 }
 
+TEST_CASE("wem a modulate-op emissive is a light gate, not glow", "[wem][derive]") {
+    // StarCraft II routes Mod/Mod2x/Lerp emissive ops onto the LIT RESULT
+    // (5,337 shipped materials); handing one to a slot map turns a darkening
+    // mask into an additive glow. The first ADDITIVE emissive wins instead.
+    Material material;
+    material.name = "gated";
+    CompositeBody body;
+    CompositeLayer diffuse;
+    diffuse.input = makeInput(0);
+    diffuse.target = SurfaceChannel::Color;
+    body.layers.push_back(diffuse);
+    CompositeLayer gate;
+    gate.input = makeInput(1);
+    gate.target = SurfaceChannel::Emissive;
+    gate.op = CompositeOp::Modulate;
+    body.layers.push_back(gate);
+    CompositeLayer glow;
+    glow.input = makeInput(2);
+    glow.target = SurfaceChannel::Emissive;
+    glow.op = CompositeOp::AddAlpha;
+    body.layers.push_back(glow);
+    material.InitCommon().body = std::move(body);
+
+    Document document = documentWith(ProfileId::Sc2, {std::move(material)});
+    const DeriveResult result = DeriveProfile(document, ProfileId::Sc2, ProfileId::Wc3Reforged);
+    REQUIRE(result.ok);
+
+    const Material* derived = Resolve(document.models[0], 0, ProfileId::Wc3Reforged);
+    REQUIRE(derived != nullptr);
+    const PbrDeferredBody* pbr = derived->Common().pbr();
+    REQUIRE(pbr != nullptr);
+    const TextureInput* emissive = pbr->find(PbrSlot::Emissive);
+    REQUIRE(emissive != nullptr);
+    // The additive layer, not the gate.
+    CHECK(emissive->texture == 2u);
+}
+
 TEST_CASE("wem combiner stages become an ordered stack", "[wem][derive]") {
     Document document = documentWith(ProfileId::Wow, {makeCombiners("m", 4, CombinerOp::Mod2x)});
     const DeriveResult result = DeriveProfile(document, ProfileId::Wow, ProfileId::Sc2);

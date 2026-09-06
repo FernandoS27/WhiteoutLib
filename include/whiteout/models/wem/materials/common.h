@@ -200,6 +200,12 @@ enum class SurfaceChannel : u8 {
     /// M3's env layer family. Sampled per `TextureInput::mapping`
     /// (`EnvSphere` / `EnvCube`), scaled by `CompositeBody::environmentFactor`.
     Environment,
+    /// Per-texel opacity — M3's alpha-mask layers, which are what StarCraft II
+    /// blends and alpha-tests by (`cFinal.a = mask1.a * mask2.a * alphaFactor`;
+    /// the diffuse alpha is the team mask there, never coverage). The fold
+    /// reads each sample's **alpha** and multiplies; a channel-select mask is
+    /// the native block's detail, like every other layer's select.
+    Coverage,
     Count
 };
 
