@@ -305,9 +305,10 @@ TEST_CASE("wem a section nothing draws is reported", "[wem][document][validate]"
 TEST_CASE("wem profile limits are checked at the profile level", "[wem][document][validate]") {
     SECTION("a kind the profile's exporter does not accept") {
         Document document = makeDocument(ProfileId::Sc2);
-        // SC2 takes Composite only.
+        // SC2 takes Composite and Combiners (the latter so a WoW derive keeps
+        // its chain); a Legacy stage block is Diablo III's and stays out.
         document.models[0].profileSets[0].materials[0].InitCommon().setKind(
-            MaterialKind::Combiners);
+            MaterialKind::LegacyDeferred);
         CHECK(errorCodes(Validate(document, ValidateLevel::Profile)) ==
               "UnsupportedMaterialKindx1");
     }

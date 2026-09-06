@@ -18,6 +18,8 @@ constexpr CombinerOp kAdd = CombinerOp::Add;
 constexpr CombinerOp kAddA = CombinerOp::AddAlpha;
 constexpr CombinerOp kFade = CombinerOp::Fade;
 constexpr CombinerOp kPass = CombinerOp::Pass;
+constexpr CombinerOp kMaskMod = CombinerOp::MaskedMod;
+constexpr CombinerOp kMaskMod2x = CombinerOp::MaskedMod2x;
 
 /// The pixel column of `s_modelShaderEffect`. WEM wants ops, not shader ids, so
 /// the vertex column — which only says which UV source feeds each unit — is not
@@ -172,19 +174,13 @@ constexpr Chain kChains[static_cast<std::size_t>(PS::Count)] = {
     // 11 Combiners_Mod_Opaque             c*t0*t1                   | c.a*t0.a
     {2, {kSeed, kMod}, {kMod, kPass}, nullptr},
     // 12 Combiners_Opaque_Mod2xNA_Alpha   c*t0*lerp(t1*2,1,t0.a)    | c.a
-    {2,
-     {kSeed, kPass},
-     {kPass, kPass},
-     "unit 1 is a mod2x masked by unit 0's alpha, and no MDX pass reads another pass's alpha"},
+    {2, {kSeed, kMaskMod2x}, {kPass, kPass}, nullptr},
     // 13 Combiners_Opaque_AddAlpha        c*t0 + t1*t1.a            | c.a
     {2, {kSeed, kAddA}, {kPass, kPass}, nullptr},
     // 14 Combiners_Opaque_AddAlpha_Alpha  c*t0 + t1*t1.a*t0.a       | c.a
     {2, {kSeed, kAddA}, {kPass, kPass}, "the add is scaled by unit 0's alpha as well"},
     // 15 Combiners_Opaque_Mod2xNA_Alpha_Add   ... + t2*t2.a         | c.a
-    {3,
-     {kSeed, kPass, kAddA},
-     {kPass, kPass, kPass},
-     "unit 1 is a mod2x masked by unit 0's alpha, and no MDX pass reads another pass's alpha"},
+    {3, {kSeed, kMaskMod2x, kAddA}, {kPass, kPass, kPass}, nullptr},
     // 16 Combiners_Mod_AddAlpha           c*t0 + t1*t1.a            | c.a*t0.a
     {2, {kSeed, kAddA}, {kMod, kPass}, nullptr},
     // 17 Combiners_Mod_AddAlpha_Alpha     c*t0 + t1*t1.a*t0.a       | c.a*(t0.a + t1.a*t1.a)
@@ -201,10 +197,7 @@ constexpr Chain kChains[static_cast<std::size_t>(PS::Count)] = {
     // 21 Combiners_Mod_Add_Alpha          c*t0 + t1                 | c.a*t0.a + t1.a
     {2, {kSeed, kAdd}, {kMod, kAdd}, nullptr},
     // 22 Combiners_Opaque_ModNA_Alpha     c*t0*lerp(t1,1,t0.a)      | c.a
-    {2,
-     {kSeed, kPass},
-     {kPass, kPass},
-     "unit 1 is a modulate masked by unit 0's alpha, and no MDX pass reads another pass's alpha"},
+    {2, {kSeed, kMaskMod}, {kPass, kPass}, nullptr},
     // 23 Combiners_Mod_AddAlpha_Wgt       c*t0 + t1*t1.a*w          | c.a*t0.a
     {2, {kSeed, kAddA}, {kMod, kPass}, "the add is also scaled by a batch weight"},
     // 24 Combiners_Opaque_Mod_Add_Wgt     c*lerp(t0,t1,t1.a) + t0*w | c.a
@@ -217,20 +210,16 @@ constexpr Chain kChains[static_cast<std::size_t>(PS::Count)] = {
     // 25 Combiners_Opaque_Mod2xNA_Alpha_UnshAlpha
     //    lerp(c*t0*lerp(t1*2,1,t0.a), t0, glow*t2.a)                | c.a
     {3,
-     {kSeed, kPass, kPass},
+     {kSeed, kMaskMod2x, kPass},
      {kPass, kPass, kPass},
-     "unit 1 is a mod2x masked by unit 0's alpha, and unit 2's alpha fades the whole fold back "
-     "to the unshaded base"},
+     "unit 2's alpha fades the whole fold back to the unshaded base"},
     // 26 Combiners_Mod_Dual_Crossfade     c*lerp(lerp(t0,t1,a),t2,b) | c.a*(the same)
     {3,
      {kSeed, kFade, kFade},
      {kMod, kFade, kFade},
      "a crossfade by two batch weights, not a fold; MDX blends by the sampled alpha instead"},
     // 27 Combiners_Opaque_Mod2xNA_Alpha_Alpha  lerp(c*t0*mask, t2, t2.a) | c.a
-    {3,
-     {kSeed, kPass, kFade},
-     {kPass, kPass, kPass},
-     "unit 1 is a mod2x masked by unit 0's alpha, and no MDX pass reads another pass's alpha"},
+    {3, {kSeed, kMaskMod2x, kFade}, {kPass, kPass, kPass}, nullptr},
     // 28 Combiners_Mod_Masked_Dual_Crossfade   the crossfade, masked by t3.a
     {4,
      {kSeed, kFade, kFade, kPass},
@@ -255,6 +244,54 @@ constexpr Chain kChains[static_cast<std::size_t>(PS::Count)] = {
      "unit 1 is a mod2x masked by unit 0's alpha, and unit 2 is what the mask reaches instead"},
     // 36 Combiners_Mod_Mod_Depth          c*t0*t1                   | c.a*t0.a*t1.a
     {2, {kSeed, kMod}, {kMod, kMod}, "a depth-driven edge fade"},
+};
+
+/// The vertex column of `s_modelShaderEffect` (12.1.0.69404 @ 0x14443E9F0),
+/// row-aligned with `kExplicitEffects`, each shader name reduced to its
+/// per-unit sources: `Diffuse_T1_Env_T1` is {T1, Env, T1}. Rows 30/31 pair
+/// with the unnamed vertex shaders 14/15; three explicit-UV units is the
+/// best available guess for a pixel shader that reads three samplers.
+constexpr M2UvSource kT1 = M2UvSource::T1;
+constexpr M2UvSource kT2 = M2UvSource::T2;
+constexpr M2UvSource kEnv = M2UvSource::Env;
+
+constexpr UvSources kVertexSources[kNumShaderEffects] = {
+    {2, {kT1, kEnv}, false},          // 0  Diffuse_T1_Env
+    {2, {kT1, kEnv}, false},          // 1  Diffuse_T1_Env
+    {2, {kT1, kEnv}, false},          // 2  Diffuse_T1_Env
+    {3, {kT1, kEnv, kT1}, false},     // 3  Diffuse_T1_Env_T1
+    {2, {kT1, kEnv}, false},          // 4  Diffuse_T1_Env
+    {2, {kT1, kT1}, false},           // 5  Diffuse_T1_T1
+    {2, {kT1, kT1}, false},           // 6  Diffuse_T1_T1
+    {2, {kT1, kEnv}, false},          // 7  Diffuse_T1_Env
+    {2, {kT1, kEnv}, false},          // 8  Diffuse_T1_Env
+    {3, {kT1, kEnv, kT1}, false},     // 9  Diffuse_T1_Env_T1
+    {2, {kT1, kT1}, false},           // 10 Diffuse_T1_T1
+    {2, {kT1, kEnv}, false},          // 11 Diffuse_T1_Env
+    {2, {kT1, kEnv}, false},          // 12 Diffuse_T1_Env
+    {2, {kT1, kEnv}, false},          // 13 Diffuse_T1_Env
+    {2, {kT1, kT1}, false},           // 14 Diffuse_T1_T1
+    {2, {kT1, kT2}, false},           // 15 Diffuse_T1_T2
+    {2, {kT1, kEnv}, false},          // 16 Diffuse_T1_Env
+    {3, {kT1, kEnv, kT1}, false},     // 17 Diffuse_T1_Env_T1
+    {3, {kT1, kT1, kT1}, false},      // 18 Diffuse_T1_T1_T1
+    {1, {kT1}, true},                 // 19 Diffuse_EdgeFade_T1
+    {3, {kT1, kEnv, kT2}, false},     // 20 Diffuse_T1_Env_T2
+    {2, {kT1, kT2}, true},            // 21 Diffuse_EdgeFade_T1_T2
+    {4, {kT1, kT1, kT1, kT2}, false}, // 22 Diffuse_T1_T1_T1_T2
+    {2, {kT1, kT1}, false},           // 23 Diffuse_T1_T1
+    {3, {kT1, kEnv, kT2}, false},     // 24 Diffuse_T1_Env_T2
+    {1, {kEnv}, true},                // 25 Diffuse_EdgeFade_Env
+    {3, {kT1, kT2, kT1}, false},      // 26 Diffuse_T1_T2_T1
+    {2, {kT1, kT2}, false},           // 27 Diffuse_T1_T2
+    {3, {kT1, kT2, kT1}, false},      // 28 Diffuse_T1_T2_T1
+    {2, {kT1, kT1}, false},           // 29 Diffuse_T1_T1
+    {3, {kT1, kT1, kT1}, false},      // 30 Unnamed_14
+    {3, {kT1, kT1, kT1}, false},      // 31 Unnamed_15
+    {1, {kT1}, false},                // 32 Diffuse_T1
+    {2, {kT1, kT2}, true},            // 33 Diffuse_EdgeFade_T1_T2
+    {1, {kT1}, true},                 // 34 Diffuse_EdgeFade_T1
+    {2, {kT1, kT2}, true},            // 35 Diffuse_EdgeFade_T1_T2
 };
 
 } // namespace
@@ -286,6 +323,37 @@ M2PixelShader PixelShaderFor(u32 textureCount, u16 shaderId, bool& outOfTable) {
 Chain ChainOf(M2PixelShader shader) {
     const auto index = static_cast<std::size_t>(shader);
     return index < static_cast<std::size_t>(PS::Count) ? kChains[index] : Chain{};
+}
+
+UvSources UvSourcesFor(u32 textureCount, u16 shaderId) {
+    if (IsExplicitCombo(shaderId)) {
+        const u32 row = shaderId & 0x7FFFu;
+        if (row < kNumShaderEffects) {
+            return kVertexSources[row];
+        }
+    }
+    // The bit-field path -- the client's legacy vertex selection, mirrored
+    // from the 12.1 binary: bit 0x80 makes unit 0 env, bit 0x8 makes unit 1
+    // env, bit 0x4000 reads the second UV set instead of the first.
+    UvSources out;
+    if (textureCount <= 1) {
+        out.count = 1;
+        out.unit[0] = (shaderId & 0x80u) != 0
+                          ? M2UvSource::Env
+                          : ((shaderId & 0x4000u) != 0 ? M2UvSource::T2 : M2UvSource::T1);
+        return out;
+    }
+    out.count = 2;
+    if ((shaderId & 0x80u) != 0) {
+        out.unit[0] = M2UvSource::Env;
+        out.unit[1] = (shaderId & 0x8u) != 0 ? M2UvSource::Env : M2UvSource::T1;
+    } else {
+        out.unit[0] = M2UvSource::T1;
+        out.unit[1] = (shaderId & 0x8u) != 0
+                          ? M2UvSource::Env
+                          : ((shaderId & 0x4000u) != 0 ? M2UvSource::T2 : M2UvSource::T1);
+    }
+    return out;
 }
 
 } // namespace m2_core

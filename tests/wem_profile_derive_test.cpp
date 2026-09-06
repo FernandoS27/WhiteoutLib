@@ -197,30 +197,40 @@ TEST_CASE("wem a modulate-op emissive is a light gate, not glow", "[wem][derive]
     CHECK(emissive->texture == 2u);
 }
 
-TEST_CASE("wem combiner stages become an ordered stack", "[wem][derive]") {
+TEST_CASE("wem a combiner chain survives an Sc2 derive", "[wem][derive]") {
+    // Sc2 accepts the kind since the M3 exporter grew its own crossing
+    // (WOW_TO_SC2_DESIGN.md §3): squeezed through `toComposite`, every stage
+    // landed on the Color channel and the mod-family seconds had no slot to
+    // project back into.
     Document document = documentWith(ProfileId::Wow, {makeCombiners("m", 4, CombinerOp::Mod2x)});
     const DeriveResult result = DeriveProfile(document, ProfileId::Wow, ProfileId::Sc2);
     REQUIRE(result.ok);
 
-    const CompositeBody* body =
-        Resolve(document.models[0], 0, ProfileId::Sc2)->Common().composite();
+    const CombinersBody* body =
+        Resolve(document.models[0], 0, ProfileId::Sc2)->Common().combiners();
     REQUIRE(body != nullptr);
-    REQUIRE(body->layers.size() == 2u);
-    // Stage 0 seeds the register, which is what `Set` means on a channel.
-    CHECK(body->layers[0].op == CompositeOp::Set);
-    CHECK(body->layers[0].input.texture == 4u);
-    CHECK(body->layers[1].op == CompositeOp::Modulate2x);
-    CHECK(body->layers[1].target == SurfaceChannel::Color);
+    REQUIRE(body->stages.size() == 2u);
+    CHECK(body->stages[0].input.texture == 4u);
+    CHECK(body->stages[1].rgb == CombinerOp::Mod2x);
+    CHECK(result.diagnostics.countOf(DiagCode::LossyKindConversion) == 0u);
 }
 
 TEST_CASE("wem an op with no equivalent is approximated and named", "[wem][derive]") {
-    Document document = documentWith(ProfileId::Wow, {makeCombiners("m", 0, CombinerOp::Decal)});
-    const DeriveResult result = DeriveProfile(document, ProfileId::Wow, ProfileId::Sc2);
+    // The conversion that approximates now runs in the OTHER direction: Wow
+    // takes only Combiners, and a composite AlphaKey op has no combiner
+    // spelling — the key lives on the header.
+    Material material = makeComposite("m", 1);
+    material.InitCommon().composite()->layers[1].op = CompositeOp::AlphaKey;
+    Document document = documentWith(ProfileId::Sc2, {std::move(material)});
+    const DeriveResult result = DeriveProfile(document, ProfileId::Sc2, ProfileId::Wow);
     REQUIRE(result.ok);
     // The kind note plus the op note — two different losses, both counted.
     CHECK(result.diagnostics.countOf(DiagCode::LossyKindConversion) == 2u);
-    CHECK(Resolve(document.models[0], 0, ProfileId::Sc2)->Common().composite()->layers[1].op ==
-          CompositeOp::AlphaBlend);
+    const CombinersBody* body =
+        Resolve(document.models[0], 0, ProfileId::Wow)->Common().combiners();
+    REQUIRE(body != nullptr);
+    REQUIRE(body->stages.size() == 2u);
+    CHECK(body->stages[1].rgb == CombinerOp::Opaque);
 }
 
 TEST_CASE("wem a pbr-only slot has nowhere to go in a classic stack", "[wem][derive]") {

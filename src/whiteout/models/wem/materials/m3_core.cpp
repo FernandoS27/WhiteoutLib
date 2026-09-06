@@ -754,11 +754,14 @@ m3::TextureLayer layerFrom(const TextureInput& input, const Context& context) {
     m3::TextureLayer layer;
     layer.texturePath = context.toPath(input.texture);
     switch (input.mapping) {
+    // The Reflect variants: WoW's env texgen and WC3's SphereEnvMap are both
+    // classic reflection-vector sphere maps, and the non-reflect forms aim
+    // the lookup along the normal instead -- a sheen that never moves.
     case UVMappingMode::EnvCube:
-        layer.uvMapping = m3::UVMappingMode::CubicEnvio;
+        layer.uvMapping = m3::UVMappingMode::ReflectCubicEnvio;
         break;
     case UVMappingMode::EnvSphere:
-        layer.uvMapping = m3::UVMappingMode::SphericalEnvio;
+        layer.uvMapping = m3::UVMappingMode::ReflectSphericalEnvio;
         break;
     default:
         layer.uvMapping = static_cast<m3::UVMappingMode>(
@@ -793,10 +796,254 @@ bool isReplaceable(const TextureInput& input, const Context& context, u32 id) {
     return (*context.textureRefs)[input.texture].replaceableId == id;
 }
 
+/// The slot a composite channel's FIRST layer projects onto — `slotFor`'s twin
+/// in the ordinal vocabulary, for the map `ExportMaterial` reports.
+StandardLayer standardLayerFor(SurfaceChannel channel) {
+    switch (channel) {
+    case SurfaceChannel::Color:
+        return StandardLayer::Diffuse;
+    case SurfaceChannel::Emissive:
+        return StandardLayer::Emissive1;
+    case SurfaceChannel::Specular:
+        return StandardLayer::Specular;
+    case SurfaceChannel::Normal:
+        return StandardLayer::Normal;
+    case SurfaceChannel::AmbientOcclusion:
+        return StandardLayer::AmbientOcclusion;
+    case SurfaceChannel::Environment:
+        return StandardLayer::Environment;
+    case SurfaceChannel::Coverage:
+        return StandardLayer::Alpha1;
+    default:
+        return StandardLayer::Count;
+    }
+}
+
+/// A WoW combiner chain onto the fixed slots — WOW_TO_SC2_DESIGN.md §3.
+///
+/// The SC2 shader makes the crossing near-exact: a Mod/Mod2x emissive layer
+/// folds multiplicatively into the LIT colour (psmaterial.fx:240-276), which
+/// is what a mid-chain modulate stage is — WoW runs its combiners on the lit
+/// vertex colour, and scalar lighting distributes over the product. The Add
+/// family accumulates unlit there, which is WoW's Add/AddAlpha. Env-mapped
+/// stages take the environment slot (ApplyEnv, psmaterial.fx:281-338), whose
+/// op is the material's `layerBlendMode`.
+void exportCombiners(const CombinersBody& body, const CommonMaterial& common,
+                     const Context& context, ProfileId profile, m3::StandardMaterial& standard,
+                     Diagnostics& out, std::vector<u32>* layerOrdinals) {
+    const auto record = [&](StandardLayer slot, std::size_t ordinal) {
+        if (layerOrdinals != nullptr) {
+            (*layerOrdinals)[static_cast<std::size_t>(slot)] = static_cast<u32>(ordinal);
+        }
+    };
+    const auto isEnv = [](const CombinerStage& stage) {
+        return stage.input.mapping == UVMappingMode::EnvSphere ||
+               stage.input.mapping == UVMappingMode::EnvCube;
+    };
+
+    // The diffuse seed: the first surface-mapped stage. WoW's env-first
+    // vertex shaders (`Diffuse_Env_T1`) fold with the mod family, where the
+    // product commutes, so the surface stage can take the lit slot and the
+    // env stage its own. An all-env chain (`Diffuse_Env`, the spectral look)
+    // seeds with the env stage itself and keeps its spherical mapping.
+    std::size_t seed = body.stages.size();
+    for (std::size_t i = 0; i < body.stages.size(); ++i) {
+        if (!isEnv(body.stages[i])) {
+            seed = i;
+            break;
+        }
+    }
+    if (seed == body.stages.size() && !body.stages.empty()) {
+        seed = 0;
+    }
+
+    bool emissiveAdds = false;
+    for (std::size_t i = 0; i < body.stages.size(); ++i) {
+        const CombinerStage& stage = body.stages[i];
+        if (i == seed) {
+            standard.diffuseLayer = layerFrom(stage.input, context);
+            record(StandardLayer::Diffuse, i);
+            continue;
+        }
+        // `Pass` is the identity: a stage that touches alpha alone, or a fold
+        // the chain table cannot spell (`_3s`, where the mask reaches a third
+        // unit rather than 1).
+        if (stage.rgb == CombinerOp::Pass) {
+            continue;
+        }
+        // The `_Alpha` masked fold, `rgb * lerp(t*N, 1, t0.a)`, and the two
+        // slots that can spell it: the environment layer under ApplyEnv's
+        // ADD op (`color + env * mask`), with the SEED's alpha — inverted —
+        // as the environment mask. Term for term: where t0.a = 1 the mask
+        // closes and the lit colour passes untouched (exactly the native
+        // fold); where it opens, `env * N * (1 - t0.a)` adds over the base.
+        // The approximation is the open-mask term — native has
+        // `lit(t0) * (t0.a + t1 * N * (1 - t0.a))` — but Add keeps the
+        // surface's own colour under the glow, which is what the eye reads.
+        // The LERP op was measured first and is WRONG: replacing the base
+        // painted taurenprimalist's golden plates with the raw env sprite
+        // (silver) and mixed its grey into every semi-open fur texel (the
+        // "inverted colours" report). Keeping the old collapse-to-Pass
+        // dropped the whole sheen — the black armor plates. A masked stage
+        // that is NOT env-mapped has no slot that can read the seed's alpha
+        // and stays unexpressed, like before.
+        if (stage.rgb == CombinerOp::MaskedMod || stage.rgb == CombinerOp::MaskedMod2x) {
+            const bool maskable = seed < body.stages.size() && body.stages[seed].input.hasTexture();
+            if (!isEnv(stage) || standard.environmentLayer.has_value() || !maskable) {
+                out.info(DiagCode::LossyKindConversion,
+                         "a masked fold outside the environment slot stays unexpressed",
+                         ElementRef(), profile);
+                continue;
+            }
+            standard.environmentLayer = layerFrom(stage.input, context);
+            record(StandardLayer::Environment, i);
+            standard.layerBlendMode = m3::LayerBlendOp::Add;
+            standard.hdrEnvironmentConstant =
+                stage.rgb == CombinerOp::MaskedMod2x ? 2.0f : 1.0f;
+            standard.environmentMaskLayer = layerFrom(body.stages[seed].input, context);
+            standard.environmentMaskLayer->colorType = m3::ColorChannelSelect::Alpha;
+            standard.environmentMaskLayer->flags |= m3::TextureLayerFlag::ColorInvert;
+            continue;
+        }
+        if (isEnv(stage)) {
+            if (standard.environmentLayer.has_value()) {
+                out.warn(DiagCode::LayerDropped,
+                         "a second environment-mapped stage has no M3 slot to go into",
+                         ElementRef(), profile);
+                continue;
+            }
+            standard.environmentLayer = layerFrom(stage.input, context);
+            record(StandardLayer::Environment, i);
+            // ApplyEnv knows Mod, Add and Lerp; a Mod2x rides the environment
+            // constant, which the engine folds into the layer tint.
+            f32 constant = 1.0f;
+            switch (stage.rgb) {
+            case CombinerOp::Mod2x:
+                constant = 2.0f;
+                standard.layerBlendMode = m3::LayerBlendOp::Mod;
+                break;
+            case CombinerOp::Add:
+            case CombinerOp::AddAlpha:
+                standard.layerBlendMode = m3::LayerBlendOp::Add;
+                break;
+            case CombinerOp::Decal:
+            case CombinerOp::Fade:
+                standard.layerBlendMode = m3::LayerBlendOp::Lerp;
+                break;
+            default: // Opaque / Mod — the fold is a multiply either way.
+                standard.layerBlendMode = m3::LayerBlendOp::Mod;
+                break;
+            }
+            // A chain the env stage SEEDED folds against whatever became the
+            // diffuse. The product commutes for the mod family; an additive
+            // seed does not, and saying so beats silently reordering it.
+            if (i < seed &&
+                (stage.rgb == CombinerOp::Add || stage.rgb == CombinerOp::AddAlpha)) {
+                out.info(DiagCode::LossyKindConversion,
+                         "an additive env seed folds as Mod against the surface stage",
+                         ElementRef(), profile);
+                standard.layerBlendMode = m3::LayerBlendOp::Mod;
+            }
+            // ApplyEnv's mask defaults to the env layer's own alpha, and the
+            // RGB select forces that alpha to 1 — an alpha-weighted env stage
+            // needs RGBA to stay masked.
+            if (stage.rgb == CombinerOp::AddAlpha || stage.rgb == CombinerOp::Decal ||
+                stage.rgb == CombinerOp::Fade) {
+                standard.environmentLayer->colorType = m3::ColorChannelSelect::RGBA;
+            }
+            standard.hdrEnvironmentConstant = constant;
+            continue;
+        }
+        // The two emissive slots, in chain order.
+        std::optional<m3::TextureLayer>* slot = nullptr;
+        m3::LayerBlendOp* op = nullptr;
+        if (!standard.emissiveLayer1.has_value()) {
+            slot = &standard.emissiveLayer1;
+            op = &standard.emissiveBlendMode1;
+            record(StandardLayer::Emissive1, i);
+        } else if (!standard.emissiveLayer2.has_value()) {
+            slot = &standard.emissiveLayer2;
+            op = &standard.emissiveBlendMode2;
+            record(StandardLayer::Emissive2, i);
+        } else {
+            out.warn(DiagCode::LayerDropped,
+                     "combiner stage " + number(i) + " found both emissive slots taken",
+                     ElementRef(), profile);
+            continue;
+        }
+        *slot = layerFrom(stage.input, context);
+        switch (stage.rgb) {
+        case CombinerOp::Mod2x:
+            *op = m3::LayerBlendOp::Mod2x;
+            break;
+        case CombinerOp::Add:
+            *op = m3::LayerBlendOp::AddNoAlpha;
+            emissiveAdds = true;
+            break;
+        case CombinerOp::AddAlpha:
+            *op = m3::LayerBlendOp::Add;
+            emissiveAdds = true;
+            break;
+        case CombinerOp::Decal:
+        case CombinerOp::Fade:
+            *op = m3::LayerBlendOp::Lerp;
+            break;
+        default: // Opaque / Mod — "Opaque" only says the unit adds no ALPHA.
+            *op = m3::LayerBlendOp::Mod;
+            break;
+        }
+        // The RGB select forces the sampled alpha to 1 (psmateriallayer.fx,
+        // verbatim in the renderer), so an alpha-weighted op must carry the
+        // texture's own alpha through the RGBA select — without it the Earth
+        // Spirit's tiny glow spots added their cream base over the whole body.
+        if (*op == m3::LayerBlendOp::Add || *op == m3::LayerBlendOp::Lerp) {
+            (*slot)->colorType = m3::ColorChannelSelect::RGBA;
+        }
+        // A stage whose ALPHA op multiplies also masks the draw; the second
+        // alpha slot is the product's home (cFinal.a = mask1.a * mask2.a).
+        // NOT Mod2x: its mask saturates (c.a * t1.a * 2), and carrying it
+        // without the doubling halved Kil'jaeden's fire — measured 8.8 -> 23.1
+        // — so the doubled mask stays unexpressed, like the op's colour side.
+        if (stage.alpha == CombinerOp::Mod && stage.input.hasTexture() &&
+            !standard.alphaLayer2.has_value() &&
+            (common.blend == BlendMode::AlphaKey || common.blend == BlendMode::Transparent ||
+             common.blend == BlendMode::AlphaBlend ||
+             common.blend == BlendMode::AdditiveAlpha)) {
+            standard.alphaLayer2 = layerFrom(stage.input, context);
+            standard.alphaLayer2->colorType = m3::ColorChannelSelect::Alpha;
+        }
+    }
+    if (emissiveAdds) {
+        // WoW's adds are unscaled, and the multiplier's struct default of
+        // zero is a black glow — the Sorceress-silhouette trap from the
+        // composite path, met from the other side.
+        standard.hdrEmissiveMultiplier = 1.0f;
+    }
+
+    // The blended-or-keyed mask — the composite path's rule with the chain's
+    // own refinement: `Opaque` in a combiner name says the seed contributes
+    // no alpha, so only a seed whose alpha op multiplies carries the
+    // texture's mask; the rest blend by the batch alpha alone.
+    const bool blendsAlpha = common.blend == BlendMode::AlphaKey ||
+                             common.blend == BlendMode::Transparent ||
+                             common.blend == BlendMode::AlphaBlend ||
+                             common.blend == BlendMode::AdditiveAlpha;
+    if (blendsAlpha && seed < body.stages.size() &&
+        body.stages[seed].alpha == CombinerOp::Mod && standard.diffuseLayer.has_value() &&
+        !standard.diffuseLayer->texturePath.empty() && !standard.alphaLayer1.has_value()) {
+        standard.alphaLayer1 = *standard.diffuseLayer;
+        standard.alphaLayer1->colorType = m3::ColorChannelSelect::Alpha;
+    }
+}
+
 } // namespace
 
 m3::MaterialMap ExportMaterial(const Material& material, ProfileId profile, const Context& context,
-                               m3::Model& model, Diagnostics& out) {
+                               m3::Model& model, Diagnostics& out,
+                               std::vector<u32>* layerOrdinals) {
+    if (layerOrdinals != nullptr) {
+        layerOrdinals->assign(static_cast<std::size_t>(StandardLayer::Count), kInvalidIndex);
+    }
     // §7.1: a native block that is not stale IS the answer.
     if (material.hasNative() && material.sync() != NativeSync::CommonEdited &&
         material.nativeKind() == NativeKind::M3) {
@@ -937,7 +1184,13 @@ m3::MaterialMap ExportMaterial(const Material& material, ProfileId profile, cons
             break;
         }
 
-        for (const CompositeLayer& layer : body->layers) {
+        const auto record = [&](StandardLayer slot, std::size_t ordinal) {
+            if (layerOrdinals != nullptr) {
+                (*layerOrdinals)[static_cast<std::size_t>(slot)] = static_cast<u32>(ordinal);
+            }
+        };
+        for (std::size_t ordinal = 0; ordinal < body->layers.size(); ++ordinal) {
+            const CompositeLayer& layer = body->layers[ordinal];
             // The team under-layer itself never lands in a slot — the RGBA
             // select on the real diffuse says everything it said. Its
             // unshaded-ness belonged to it alone, so it must not leave the
@@ -954,6 +1207,7 @@ m3::MaterialMap ExportMaterial(const Material& material, ProfileId profile, cons
                     standard.emissiveLayer1 = layerFrom(layer.input, context);
                     standard.emissiveLayer1->colorType = m3::ColorChannelSelect::Red;
                     standard.emissiveBlendMode1 = m3::LayerBlendOp::TeamColorEmissiveAdd;
+                    record(StandardLayer::Emissive1, ordinal);
                 }
                 continue;
             }
@@ -971,18 +1225,21 @@ m3::MaterialMap ExportMaterial(const Material& material, ProfileId profile, cons
                     !standard.emissiveLayer1.has_value()) {
                     standard.emissiveLayer1 = layerFrom(layer.input, context);
                     standard.emissiveBlendMode1 = blendOpFor(layer.op);
+                    record(StandardLayer::Emissive1, ordinal);
                     continue;
                 }
                 if (layer.target == SurfaceChannel::Emissive &&
                     !standard.emissiveLayer2.has_value()) {
                     standard.emissiveLayer2 = layerFrom(layer.input, context);
                     standard.emissiveBlendMode2 = blendOpFor(layer.op);
+                    record(StandardLayer::Emissive2, ordinal);
                     continue;
                 }
                 if (layer.target == SurfaceChannel::Coverage &&
                     !standard.alphaLayer2.has_value()) {
                     standard.alphaLayer2 = layerFrom(layer.input, context);
                     standard.alphaLayer2->colorType = m3::ColorChannelSelect::Alpha;
+                    record(StandardLayer::Alpha2, ordinal);
                     continue;
                 }
                 // The keyed diffuse over a team layer replaces the team
@@ -991,6 +1248,7 @@ m3::MaterialMap ExportMaterial(const Material& material, ProfileId profile, cons
                     (layer.op == CompositeOp::AlphaKey || layer.op == CompositeOp::AlphaBlend)) {
                     *slot = layerFrom(layer.input, context);
                     (*slot)->colorType = m3::ColorChannelSelect::RGBA;
+                    record(StandardLayer::Diffuse, ordinal);
                     // The alpha is the team mask here, not coverage; the test
                     // would cut the team regions out.
                     standard.alphaTestThreshold = 0;
@@ -1003,6 +1261,7 @@ m3::MaterialMap ExportMaterial(const Material& material, ProfileId profile, cons
                 continue;
             }
             *slot = layerFrom(layer.input, context);
+            record(standardLayerFor(layer.target), ordinal);
             if (layer.target == SurfaceChannel::Coverage) {
                 (*slot)->colorType = m3::ColorChannelSelect::Alpha;
             }
@@ -1044,6 +1303,20 @@ m3::MaterialMap ExportMaterial(const Material& material, ProfileId profile, cons
             standard.alphaLayer1 = *standard.diffuseLayer;
             standard.alphaLayer1->colorType = m3::ColorChannelSelect::Alpha;
         }
+    } else if (const CombinersBody* chain = common.combiners()) {
+        // WoW fades a plain-additive batch through the COLOUR product (the
+        // element alpha multiplies what draws, `reference_m2_element_alpha`),
+        // so its ONE,ONE add still fades. M3's Add ignores alpha outright;
+        // AlphaAdd is the blend that lets the mask carry the fade, and with
+        // no mask present the composed alpha is 1 and the two are identical.
+        if (common.blend == BlendMode::Additive) {
+            standard.blendMode = m3::BlendMode::AlphaAdd;
+        }
+        standard.specularExponent = 20.0f;
+        standard.hdrSpecularMultiplier = 0.0f;
+        standard.hdrEmissiveMultiplier = 0.0f;
+        standard.hdrEnvironmentConstant = 0.0f;
+        exportCombiners(*chain, common, context, profile, standard, out, layerOrdinals);
     } else {
         out.warn(DiagCode::LossyKindConversion,
                  std::string("an M3 export flattens a ") + ToString(common.kind()) +

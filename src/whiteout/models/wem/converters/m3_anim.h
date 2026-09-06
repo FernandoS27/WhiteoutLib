@@ -110,6 +110,14 @@ struct ExportContext {
     /// took; the anim export wires the AnimRef.
     std::map<u32 /*channel id*/, std::pair<u32 /*standard material*/, u8 /*slot*/>>
         sectionAlphaLayers;
+
+    /// Per exported material map entry: the source-body ordinal each
+    /// `m3_core::StandardLayer` took, as `ExportMaterial` reported it
+    /// (`kInvalidIndex` where none). An empty entry falls back to recovering
+    /// the map by re-importing what was written — exact only while slot
+    /// enumeration order matches the body's ordinal order, which a combiner
+    /// chain seeded by an env-mapped stage breaks.
+    std::vector<std::vector<u32>> materialOrdinals;
 };
 
 /// Writes `document`'s clips back onto `out` as SEQS / STG_ / STC_ and the SD

@@ -184,7 +184,15 @@ private:
         // sequence and M3's SEQS flag 0x2 are all a loop the model runs itself.
         clip.flags = ClipFlags::AutoPlay | ClipFlags::WorldClocked;
         clip.native.set("globalSequenceId", static_cast<i64>(globalSequenceId));
-        clip.containers.push_back(baseContainer());
+        // Concurrent, unlike the sequence clips' opaque base: a global
+        // sequence plays over whatever animation is active, so its container
+        // must abstain on the channels it does not key — opaque, it loses
+        // the equal-priority tie to the full-body play and its channels
+        // freeze at rest (see m2_anim's twin; StarCraft II ships every
+        // AlwaysGlobal container runsConcurrent=1).
+        SubTrackContainer container = baseContainer();
+        container.concurrent = true;
+        clip.containers.push_back(std::move(container));
 
         const u32 index = static_cast<u32>(clips_.size());
         clips_.push_back(std::move(clip));

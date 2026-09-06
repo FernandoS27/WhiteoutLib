@@ -146,15 +146,20 @@ const std::array<ProfileDesc, static_cast<std::size_t>(ProfileId::Count)>& descs
                  NativeKind::M2, /*looks*/ true, false),
 
         // StarCraft II. Five UV sets; the 256-entry bone palette is the M3 ceiling.
+        // Combiners is accepted so a WoW or Diablo III derive keeps its chain
+        // intact for the M3 exporter's own crossing (WOW_TO_SC2_DESIGN.md §3)
+        // -- squeezed through `toComposite` first, every stage landed on the
+        // Color channel and the mod-family seconds had no slot to go into.
         makeDesc(ProfileId::Sc2, "sc2", "StarCraft II", "m3", CoordSpace::Sc2, 100.0f, 4, 5, 256,
-                 IndexWidth::U16, false, true, modes(kM3BlendModes), kComposite, NativeKind::M3,
-                 false, false, RigConvention::ExplicitBind),
+                 IndexWidth::U16, false, true, modes(kM3BlendModes), kComposite | kCombiners,
+                 NativeKind::M3, false, false, RigConvention::ExplicitBind),
 
         // Heroes of the Storm. Same container and space; the difference is the
         // version range and therefore the available material kinds (MADD at v30).
         makeDesc(ProfileId::Heroes, "heroes", "Heroes of the Storm", "m3", CoordSpace::Sc2, 100.0f,
-                 4, 5, 256, IndexWidth::U16, false, true, modes(kM3BlendModes), kComposite,
-                 NativeKind::M3, false, false, RigConvention::ExplicitBind),
+                 4, 5, 256, IndexWidth::U16, false, true, modes(kM3BlendModes),
+                 kComposite | kCombiners, NativeKind::M3, false, false,
+                 RigConvention::ExplicitBind),
 
         // Diablo III. Three influences on disk, a packed vertex colour pair, and the
         // only profile with actors today. A Legacy stage block makes a material

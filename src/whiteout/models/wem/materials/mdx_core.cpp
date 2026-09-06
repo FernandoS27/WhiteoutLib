@@ -808,6 +808,11 @@ std::optional<Layer::FilterMode> passModeFor(CombinerOp op) {
     case CombinerOp::Fade:
         return Layer::FilterMode::Blend;
     case CombinerOp::Pass:
+    // The masked fold reads the SEED pass's alpha, which no MDX pass can:
+    // exactly the identity the chain table used to spell as `Pass` before the
+    // op existed for targets that can express it.
+    case CombinerOp::MaskedMod:
+    case CombinerOp::MaskedMod2x:
     case CombinerOp::Count:
         break;
     }
@@ -824,6 +829,13 @@ void exportCombiners(const CombinersBody& body, const CommonMaterial& common,
     // solid plates while that was hard-coded.
     for (std::size_t i = 0; i < body.stages.size(); ++i) {
         const CombinerStage& stage = body.stages[i];
+        if (stage.rgb == CombinerOp::MaskedMod || stage.rgb == CombinerOp::MaskedMod2x) {
+            out.info(DiagCode::LossyKindConversion,
+                     "combiner stage " + number(i) +
+                         " modulates under the seed's alpha mask, which no MDX pass reads",
+                     layerRef(static_cast<u32>(i)));
+            continue;
+        }
         std::optional<Layer::FilterMode> mode = passModeFor(stage.rgb);
         if (!mode.has_value()) {
             // `Pass` on a stage the chain has already seeded contributes nothing
@@ -843,6 +855,30 @@ void exportCombiners(const CombinersBody& body, const CommonMaterial& common,
                 continue;
             }
             mode = Layer::FilterMode::None;
+        }
+        // A Modulate LAYER multiplies the framebuffer. Over a base that draws
+        // its own colour into it — opaque, keyed, blended, or one that itself
+        // multiplies — that framebuffer is (mostly) the chain's colour, which
+        // is what the stage means. Over an ADDITIVE base the framebuffer is
+        // still the untouched scene: the tauren primalist's flame chain
+        // (AddAlpha then Mod) repainted the whole model red through its own
+        // flame planes. Nor does the product have a two-pass spelling there —
+        // adding both factors washed the same fire to white, and swapping the
+        // moving factor into the base pass dragged the whole texture atlas
+        // through the plane (the SEED's alpha is the sparse mask that keeps
+        // the coverage honest; the mod stage is dense overlay detail). The
+        // seed stays, the mod stage drops.
+        if (!dst.layers.empty() &&
+            (*mode == Layer::FilterMode::Modulate || *mode == Layer::FilterMode::Modulate2x)) {
+            const Layer::FilterMode base = filterModeFor(common.blend);
+            if (base == Layer::FilterMode::Additive || base == Layer::FilterMode::AddAlpha) {
+                out.warn(DiagCode::LayerDropped,
+                         "combiner stage " + number(i) +
+                             " modulates an additive base, and a Modulate pass would "
+                             "multiply the scene instead",
+                         layerRef(static_cast<u32>(i)));
+                continue;
+            }
         }
         Layer layer;
         layer.textureId = context.toMdx(stage.input.texture);

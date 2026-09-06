@@ -152,8 +152,8 @@ enum class BlendMode : u32 {
     Opaque,             ///< MDX None(0), M2 Opaque(0), M3 Opaque(0)
     AlphaKey,           ///< M2 AlphaKey(1)
     AlphaBlend,         ///< MDX Blend(2), M2 Alpha(2), M3 AlphaBlend(1)
-    Additive,           ///< MDX Additive(3), M2 Add(4), M3 Add(2)
-    AdditiveAlpha,      ///< MDX AddAlpha(4), M2 NoAlphaAdd(3), M3 AlphaAdd(3)
+    Additive,           ///< MDX Additive(3), M2 NoAlphaAdd(3), M3 Add(2) — ONE,ONE
+    AdditiveAlpha,      ///< MDX AddAlpha(4), M2 Add(4), M3 AlphaAdd(3) — SRC_ALPHA,ONE
     Modulate,           ///< MDX Modulate(5), M2 Mod(5), M3 Mod(4)
     Modulate2x,         ///< MDX Modulate2x(6), M2 Mod2x(6), M3 Mod2x(5)
     BlendAdd,           ///< M2 BlendAdd(7)

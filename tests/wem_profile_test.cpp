@@ -135,9 +135,12 @@ TEST_CASE("wem profile common kinds match the 7.2.6 table", "[wem][profile]") {
     // Wow: Combiners — stage order and combine ops are the material.
     CHECK(kinds(wem::ProfileId::Wow) == wem::MaterialKindBit(MaterialKind::Combiners));
 
-    // Sc2 / Heroes: Composite.
-    CHECK(kinds(wem::ProfileId::Sc2) == wem::MaterialKindBit(MaterialKind::Composite));
-    CHECK(kinds(wem::ProfileId::Heroes) == wem::MaterialKindBit(MaterialKind::Composite));
+    // Sc2 / Heroes: Composite, and Combiners — a WoW or Diablo III derive
+    // keeps its chain for the M3 exporter's own crossing (WOW_TO_SC2_DESIGN.md).
+    CHECK(kinds(wem::ProfileId::Sc2) == (wem::MaterialKindBit(MaterialKind::Composite) |
+                                         wem::MaterialKindBit(MaterialKind::Combiners)));
+    CHECK(kinds(wem::ProfileId::Heroes) == (wem::MaterialKindBit(MaterialKind::Composite) |
+                                            wem::MaterialKindBit(MaterialKind::Combiners)));
 
     // Diablo3: Combiners when a Legacy stage block exists; else LegacyDeferred.
     CHECK(HasMaterialKind(kinds(wem::ProfileId::Diablo3), MaterialKind::Combiners));
@@ -178,8 +181,11 @@ TEST_CASE("wem profile blend mode sets", "[wem][profile]") {
     CHECK_FALSE(m2.acceptsBlendMode(wem::BlendMode::Transparent));
 
     const auto& m3 = wem::Profile(wem::ProfileId::Sc2);
-    CHECK(m3.blendModes.size() == 6); // M3 BlendMode 0..5
-    CHECK_FALSE(m3.acceptsBlendMode(wem::BlendMode::AlphaKey));
+    // M3 BlendMode 0..5, plus AlphaKey: no M3 blend spells it, but the
+    // exporter writes Opaque + alphaTestThreshold, so a derive must not
+    // report it lost.
+    CHECK(m3.blendModes.size() == 7);
+    CHECK(m3.acceptsBlendMode(wem::BlendMode::AlphaKey));
 
     // Generic accepts everything WEM can name, so a derive never fails on blend.
     const auto& generic = wem::Profile(wem::ProfileId::Generic);

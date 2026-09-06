@@ -144,9 +144,19 @@ std::vector<Material> ImportMaterials(const m3::Model& model, ProfileId profile,
 /// The inverse. With a native block present and not `CommonEdited` (§7.1) this
 /// writes the block's own body back into @p model and returns the map entry that
 /// names it; otherwise it projects the common material onto a `StandardMaterial`,
-/// which is the only M3 kind a generic body can become.
+/// which is the only M3 kind a generic body can become. A `Combiners` body gets
+/// its own crossing (WOW_TO_SC2_DESIGN.md §3): the chain's seed is the diffuse,
+/// env-mapped stages take the environment slot, and the later stages take the
+/// two emissive slots -- whose Mod family the SC2 shader folds multiplicatively
+/// into the LIT colour, which is exactly what a mid-chain modulate stage is.
+///
+/// @p layerOrdinals mirrors `ImportMaterial`'s: when given it is resized to
+/// `StandardLayer::Count` and filled with the source-body ordinal each slot
+/// took, `kInvalidIndex` elsewhere. The native fast paths leave it all-invalid
+/// -- their AnimRefs cross inside the block and need no rewiring.
 m3::MaterialMap ExportMaterial(const Material& material, ProfileId profile, const Context& context,
-                               m3::Model& model, Diagnostics& out);
+                               m3::Model& model, Diagnostics& out,
+                               std::vector<u32>* layerOrdinals = nullptr);
 
 } // namespace m3_core
 } // namespace wem

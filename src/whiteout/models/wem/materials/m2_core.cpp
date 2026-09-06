@@ -31,10 +31,15 @@ BlendMode blendFor(u16 blendingMode) {
         return BlendMode::AlphaKey;
     case native::M2BlendingMode::Alpha:
         return BlendMode::AlphaBlend;
+    // The additive pair, by FACTORS, not names: NoAlphaAdd is ONE,ONE (the
+    // plain add every other format spells "Additive") and Add is
+    // SRC_ALPHA,ONE (the alpha-weighted one). Read by name they cross
+    // swapped, and every faded effect plane -- a weight near zero riding an
+    // M2 Add batch -- drew at full strength in the target format.
     case native::M2BlendingMode::NoAlphaAdd:
-        return BlendMode::AdditiveAlpha;
-    case native::M2BlendingMode::Add:
         return BlendMode::Additive;
+    case native::M2BlendingMode::Add:
+        return BlendMode::AdditiveAlpha;
     case native::M2BlendingMode::Mod:
         return BlendMode::Modulate;
     case native::M2BlendingMode::Mod2x:
@@ -57,10 +62,10 @@ u16 blendingModeFor(BlendMode blend) {
         mode = native::M2BlendingMode::Alpha;
         break;
     case BlendMode::AdditiveAlpha:
-        mode = native::M2BlendingMode::NoAlphaAdd;
+        mode = native::M2BlendingMode::Add;
         break;
     case BlendMode::Additive:
-        mode = native::M2BlendingMode::Add;
+        mode = native::M2BlendingMode::NoAlphaAdd;
         break;
     case BlendMode::Modulate:
         mode = native::M2BlendingMode::Mod;
@@ -147,6 +152,12 @@ Material ImportBatch(const m2::Model& model, const m2::Batch& batch, const Conte
         block.renderFlags = record.flags;
         block.blendingMode = record.blendingMode;
         common.blend = blendFor(record.blendingMode);
+        // WoW's alpha-key test is a >= 128/255 (the renderer's kM2AlphaKeyRef,
+        // from the client). Without a stated threshold the m3 crossing wrote
+        // a cutout that tested nothing and drew its planes as solid quads.
+        if (common.blend == BlendMode::AlphaKey) {
+            common.alphaTestThreshold = 128.0f / 255.0f;
+        }
 
         const auto flags = static_cast<native::M2MaterialFlag>(record.flags);
         if (hasFlag(flags, native::M2MaterialFlag::TwoSided)) {
@@ -224,6 +235,17 @@ Material ImportBatch(const m2::Model& model, const m2::Batch& batch, const Conte
     CombinersBody body;
     const u32 stages = chain.stageCount < block.units.size() ? chain.stageCount
                                                              : static_cast<u32>(block.units.size());
+    // The vertex column is where WoW says which UV source feeds each unit --
+    // `textureCoordCombos` (the raw `uvSet` kept on the native block) is empty
+    // on every post-Cataclysm model, so reading it left every stage explicit
+    // and dropped the env sheen from every cross-profile export.
+    const UvSources sources = UvSourcesFor(batch.textureCount, batch.shaderId);
+    if (sources.edgeFade) {
+        out.info(DiagCode::LossyKindConversion,
+                 "the batch's vertex shader edge-fades by view angle, which no combiner "
+                 "stage expresses",
+                 ElementRef(), ProfileId::Wow);
+    }
     for (u32 i = 0; i < stages; ++i) {
         CombinerStage stage;
         stage.input.texture = context.toDocument(block.units[i].texture);
@@ -234,6 +256,20 @@ Material ImportBatch(const m2::Model& model, const m2::Batch& batch, const Conte
                      ElementRef(ElementKind::Layer, i), ProfileId::Wow);
         }
         stage.input.uvSet = block.units[i].uvSet;
+        if (i < sources.count) {
+            switch (sources.unit[i]) {
+            case M2UvSource::T1:
+                stage.input.uvSet = 0;
+                break;
+            case M2UvSource::T2:
+                stage.input.uvSet = 1;
+                break;
+            case M2UvSource::Env:
+                stage.input.uvSet = 0;
+                stage.input.mapping = UVMappingMode::EnvSphere;
+                break;
+            }
+        }
         stage.rgb = chain.rgb[i];
         stage.alpha = chain.alpha[i];
         // `M2TextureUnit::weight` is an index into `textureWeights`, not a

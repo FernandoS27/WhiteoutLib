@@ -99,6 +99,10 @@ const char* ToString(CombinerOp op) {
         return "pass";
     case CombinerOp::AddAlpha:
         return "add_alpha";
+    case CombinerOp::MaskedMod:
+        return "masked_mod";
+    case CombinerOp::MaskedMod2x:
+        return "masked_mod2x";
     case CombinerOp::Count:
         break;
     }

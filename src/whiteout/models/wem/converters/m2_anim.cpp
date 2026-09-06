@@ -218,7 +218,17 @@ private:
         clip.looping = true;
         clip.flags = ClipFlags::AutoPlay | ClipFlags::WorldClocked;
         clip.native.set("globalLoop", static_cast<i64>(index));
-        clip.containers.push_back(baseContainer());
+        // Concurrent, unlike a sequence clip's container: a global-sequence
+        // track plays over whatever sequence is active — that is what
+        // "global" means in the client — so the container must abstain on
+        // every channel it does not key. Opaque, it loses the equal-priority
+        // tie to the newer full-body play and every channel it drives
+        // freezes at rest (Kil'jaeden's fire scrolls stood still); native
+        // StarCraft II ships the same thing as runsConcurrent=1 on every
+        // AlwaysGlobal container in the corpus.
+        SubTrackContainer container = baseContainer();
+        container.concurrent = true;
+        clip.containers.push_back(std::move(container));
 
         const u32 slot = static_cast<u32>(clips_.size());
         clips_.push_back(std::move(clip));

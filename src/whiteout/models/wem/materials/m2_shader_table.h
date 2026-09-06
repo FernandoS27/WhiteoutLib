@@ -119,6 +119,29 @@ M2PixelShader PixelShaderFor(u32 textureCount, u16 shaderId, bool& outOfTable);
 /// The chain for a pixel shader.
 Chain ChainOf(M2PixelShader shader);
 
+/// Where a texture unit's coordinates come from -- the VERTEX column of
+/// `s_modelShaderEffect`, reduced to what `TextureInput` can carry. WoW spells
+/// environment mapping in the vertex shader a batch selects (`Diffuse_T1_Env`
+/// = unit 0 explicit UV 0, unit 1 env sphere), never in `textureCoordCombos`
+/// -- that table is empty on every post-Cataclysm model, which is why
+/// `ImportBatch` left every stage `ExplicitUV` and the env sheen vanished
+/// from every cross-profile export.
+enum class M2UvSource : u8 { T1 = 0, T2, Env };
+
+struct UvSources {
+    u8 count = 1;
+    M2UvSource unit[4] = {M2UvSource::T1, M2UvSource::T1, M2UvSource::T1, M2UvSource::T1};
+    /// `Diffuse_EdgeFade_*` -- a view-angle alpha falloff no stage op or UV
+    /// source expresses; the unit still reads the source stated here.
+    bool edgeFade = false;
+};
+
+/// The UV source per unit -- the same selection rules as `PixelShaderFor`
+/// (explicit combo row, else the bit-field path), vertex column. An
+/// out-of-table explicit row falls to the bit-field answer; the caller already
+/// diagnosed that through `PixelShaderFor`.
+UvSources UvSourcesFor(u32 textureCount, u16 shaderId);
+
 } // namespace m2_core
 } // namespace wem
 } // namespace models

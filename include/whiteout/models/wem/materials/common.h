@@ -301,7 +301,28 @@ struct CompositeBody {
 /// family), `CompositeOp` has carried the twin since revision 3, and Warcraft
 /// III draws it as `FilterMode::AddAlpha`. Folding it onto `Add` added a glow
 /// mask at full strength over the whole surface.
-enum class CombinerOp : u8 { Opaque = 0, Mod, Mod2x, Add, Decal, Fade, Pass, AddAlpha, Count };
+///
+/// The `Masked` pair (appended for the same on-disk reason) is the `_NA_Alpha`
+/// masked fold, `rgb * lerp(sample * N, 1, seedAlpha)`: the stage modulates
+/// only where the SEED stage's alpha opens the mask, which is how WoW paints
+/// an env sheen over armor whose base map saturates its alpha everywhere else.
+/// The op contributes no alpha of its own. Targets that cannot read the seed's
+/// alpha (an MDX pass, a composite layer) drop the stage — the identity is
+/// what the old collapse onto `Pass` got right and keeping the modulate got
+/// measurably wrong.
+enum class CombinerOp : u8 {
+    Opaque = 0,
+    Mod,
+    Mod2x,
+    Add,
+    Decal,
+    Fade,
+    Pass,
+    AddAlpha,
+    MaskedMod,
+    MaskedMod2x,
+    Count
+};
 
 const char* ToString(CombinerOp op);
 

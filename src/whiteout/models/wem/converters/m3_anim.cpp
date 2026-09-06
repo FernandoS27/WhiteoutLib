@@ -4,8 +4,12 @@
 #include "m3_anim.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
+#include <map>
+#include <set>
 #include <string>
+#include <tuple>
 
 #include <whiteout/models/wem/anim/clip.h>
 
@@ -759,6 +763,121 @@ m3::ColorBGRA FromRgba(const Vector4f& value) {
     return color;
 }
 
+// ---- UV-animation conversion (M2/WC3 -> the layer's own transform) ---------
+
+constexpr f32 kPi = 3.14159265358979323846f;
+
+/// Whether @p channel keys a `UvAnimation` feature in a SOURCE convention: a
+/// three-float translate, a quaternion rotate, a three-float scale -- M2 and
+/// MDX's spelling. An `.m3`-sourced channel already keys the layer's native
+/// pair/triple (F32x2 offset, F32x3 angle, F32x2 tiling) and crosses verbatim.
+/// The source spellings cannot: the value would land in the wrong SD stream
+/// for the layer's AnimRef, and the two conventions disagree about the PIVOT
+/// -- WoW and Warcraft III rotate and scale about (0.5, 0.5), the M3 layer
+/// transform composes about the origin -- so the group has to convert as one
+/// transform (`convertUvTracks`).
+bool NeedsUvConversion(const AnimChannel& channel) {
+    if (channel.target.kind != TrackTarget::Kind::MaterialFeature) {
+        return false;
+    }
+    switch (channel.target.channel) {
+    case Channel::UvTranslate:
+    case Channel::UvScale:
+        return channel.valueType == geom::AttrType::F32x3;
+    case Channel::UvRotate:
+        return channel.valueType == geom::AttrType::Quat;
+    default:
+        return false;
+    }
+}
+
+/// Key @p key of @p track as @p comps floats -- the value element only. A
+/// Hermite or Bezier key stores tangents beside it, and no M3 stream carries
+/// tangents; `writeStream` already drops them for every channel it writes.
+void UvKeyValue(const SubTrack& track, u32 comps, std::size_t key, f32* out) {
+    const std::size_t stride = static_cast<std::size_t>(ValuesPerKey(track.interp)) * comps;
+    std::memcpy(out, track.values.data() + key * stride * sizeof(f32),
+                static_cast<std::size_t>(comps) * sizeof(f32));
+}
+
+/// @p track at @p time: held at the edges, stepped when the track steps,
+/// componentwise lerp otherwise -- with the sign flip that keeps a quaternion
+/// pair on the short arc.
+void UvSampleAt(const SubTrack& track, u32 comps, bool quat, f32 time, f32* out) {
+    const std::vector<f32>& times = track.times;
+    const auto it = std::lower_bound(times.begin(), times.end(), time);
+    if (it == times.begin()) {
+        UvKeyValue(track, comps, 0, out);
+        return;
+    }
+    if (it == times.end()) {
+        UvKeyValue(track, comps, times.size() - 1, out);
+        return;
+    }
+    const std::size_t hi = static_cast<std::size_t>(it - times.begin());
+    if (track.interp == Interpolation::Step) {
+        UvKeyValue(track, comps, *it == time ? hi : hi - 1, out);
+        return;
+    }
+    f32 a[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    f32 b[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    UvKeyValue(track, comps, hi - 1, a);
+    UvKeyValue(track, comps, hi, b);
+    const f32 span = times[hi] - times[hi - 1];
+    const f32 w = span > 0.0f ? (time - times[hi - 1]) / span : 1.0f;
+    f32 sign = 1.0f;
+    if (quat) {
+        f32 dot = 0.0f;
+        for (u32 c = 0; c < comps; ++c) {
+            dot += a[c] * b[c];
+        }
+        sign = dot < 0.0f ? -1.0f : 1.0f;
+    }
+    for (u32 c = 0; c < comps; ++c) {
+        out[c] = a[c] + (b[c] * sign - a[c]) * w;
+    }
+    if (quat) {
+        f32 len = 0.0f;
+        for (u32 c = 0; c < comps; ++c) {
+            len += out[c] * out[c];
+        }
+        if (len > 1e-12f) {
+            const f32 inv = 1.0f / std::sqrt(len);
+            for (u32 c = 0; c < comps; ++c) {
+                out[c] *= inv;
+            }
+        } else {
+            out[3] = 1.0f;
+        }
+    }
+}
+
+/// One instant of the M2/WC3 texture transform, restated in the M3 layer's
+/// vocabulary. The source flattens to `uv' = ((uv + t - 0.5) . S . R) + 0.5`
+/// (CM2Model::AnimateTextureTransformMT; Warcraft III's takes the same
+/// shape), whose column-form linear block is a rotation times the scale --
+/// so the angle and tiling read off it directly, and the whole pivot
+/// arithmetic lands in the offset, which is the only place M3's
+/// origin-pivoted compose (`M3ComposeUvTransform`) can carry it.
+void UvCompose(const f32 t[3], const f32 q[4], const f32 s[3], f32& angle, Vector2f& tiling,
+               Vector2f& offset) {
+    const f32 xx = q[0] * q[0];
+    const f32 yy = q[1] * q[1];
+    const f32 zz = q[2] * q[2];
+    const f32 xy = q[0] * q[1];
+    const f32 wz = q[3] * q[2];
+    const f32 m00 = s[0] * (1.0f - 2.0f * (yy + zz));
+    const f32 m01 = s[1] * 2.0f * (xy - wz);
+    const f32 m10 = s[0] * 2.0f * (xy + wz);
+    const f32 m11 = s[1] * (1.0f - 2.0f * (xx + zz));
+    angle = std::atan2(m10, m00);
+    const f32 c = std::cos(angle);
+    const f32 sn = std::sin(angle);
+    tiling = Vector2f{c * m00 + sn * m10, c * m11 - sn * m01};
+    offset = Vector2f{m00 * (t[0] - 0.5f) + m01 * (t[1] - 0.5f) + 0.5f,
+                      m10 * (t[0] - 0.5f) + m11 * (t[1] - 0.5f) + 0.5f};
+}
+
 class Exporter {
 public:
     Exporter(const Document& document, u32 modelIndex, const ExportContext& context, m3::Model& out,
@@ -811,10 +930,11 @@ private:
             if (channel.target.channel == Channel::Visibility) {
                 return Stream::Sdfg;
             }
-            // A section channel a gate bone reads is a visibility in alpha's
-            // clothing; the flag stream is the slot its AnimRef joins.
-            if (channel.target.kind == TrackTarget::Kind::Section &&
-                context_.sectionGateBones.count(channel.id) != 0) {
+            // A channel a gate bone reads is a visibility in alpha's
+            // clothing, whatever its target kind — a section fade or a
+            // material element alpha alike; the flag stream is the slot its
+            // AnimRef joins.
+            if (context_.sectionGateBones.count(channel.id) != 0) {
                 return Stream::Sdfg;
             }
             return Stream::Sdr3;
@@ -834,6 +954,193 @@ private:
         return channel.target.kind == TrackTarget::Kind::Node &&
                channel.target.channel == Channel::Rotation;
     }
+
+    /// A sub-track re-emitted in the layer's own vocabulary, under the
+    /// channel copy it is written and wired as.
+    struct ConvertedTrack {
+        AnimChannel channel;
+        SubTrack track;
+    };
+
+    /// One synthesized uvOffset id per feature, so the keys every clip emits
+    /// join the single AnimRef the layer carries. Minted past the table's
+    /// ids, and past the one `exportId`'s zero remap takes.
+    u32 synthUvId(const std::tuple<u32, u32, u32>& key) {
+        const auto found = synthUvIds_.find(key);
+        if (found != synthUvIds_.end()) {
+            return found->second;
+        }
+        if (nextSynthUvId_ == 0) {
+            nextSynthUvId_ = model_.animChannels.nextFreeId() + 1;
+        }
+        const u32 id = nextSynthUvId_++;
+        synthUvIds_.emplace(key, id);
+        return id;
+    }
+
+    /// The container's convertible UV feature channels (`NeedsUvConversion`),
+    /// regrouped per feature into offset / angle / tiling tracks. The group
+    /// converts as ONE transform: the angle is the quaternion's in-plane
+    /// rotation unwrapped across keys, the tiling is the scale, and the
+    /// offset is the composed translation over the union of the group's key
+    /// times -- rotation and scale keys move it too, because the source's
+    /// (0.5, 0.5) pivot has nowhere else to land. A rotation or scale with no
+    /// translation channel synthesizes the offset track under `synthUvId`.
+    ///
+    /// Ids the caller must not also write land in @p consumed.
+    std::vector<ConvertedTrack> convertUvTracks(const SubTrackContainer& source,
+                                                std::set<u32>& consumed) {
+        struct Group {
+            const AnimChannel* channel[3] = {nullptr, nullptr, nullptr};
+            const SubTrack* track[3] = {nullptr, nullptr, nullptr};
+        };
+        std::map<std::tuple<u32, u32, u32>, Group> groups;
+        for (const SubTrack& track : source.subTracks) {
+            const AnimChannel* channel = model_.animChannels.find(track.channel);
+            if (channel == nullptr || !NeedsUvConversion(*channel) ||
+                channel->target.material.profile != profile() ||
+                !track.wellSized(channel->valueType)) {
+                continue;
+            }
+            const int part = channel->target.channel == Channel::UvTranslate ? 0
+                             : channel->target.channel == Channel::UvRotate  ? 1
+                                                                             : 2;
+            Group& group = groups[std::make_tuple(channel->target.material.slot,
+                                                  channel->target.material.look,
+                                                  channel->target.sub)];
+            group.channel[part] = channel;
+            group.track[part] = &track;
+            consumed.insert(channel->id);
+        }
+
+        std::vector<ConvertedTrack> out;
+        const auto pushF32 = [](std::vector<u8>& values, std::initializer_list<f32> parts) {
+            for (const f32 part : parts) {
+                const u8* bytes = reinterpret_cast<const u8*>(&part);
+                values.insert(values.end(), bytes, bytes + sizeof(f32));
+            }
+        };
+        for (const auto& entry : groups) {
+            const Group& group = entry.second;
+            const SubTrack* trans = group.track[0];
+            const SubTrack* rot = group.track[1];
+            const SubTrack* scale = group.track[2];
+
+            // Angle: at the rotation's own keys, unwrapped so a spin that
+            // crosses +-pi keeps turning instead of snapping back around.
+            if (rot != nullptr) {
+                ConvertedTrack converted;
+                converted.channel = *group.channel[1];
+                converted.channel.valueType = geom::AttrType::F32x3;
+                converted.channel.initValue.clear();
+                converted.track.channel = converted.channel.id;
+                converted.track.interp = rot->interp == Interpolation::Step
+                                             ? Interpolation::Step
+                                             : Interpolation::Linear;
+                f32 previous = 0.0f;
+                for (std::size_t k = 0; k < rot->times.size(); ++k) {
+                    f32 q[4];
+                    UvKeyValue(*rot, 4, k, q);
+                    constexpr f32 kZero[3] = {0.0f, 0.0f, 0.0f};
+                    constexpr f32 kUnit[3] = {1.0f, 1.0f, 1.0f};
+                    f32 angle = 0.0f;
+                    Vector2f tiling{};
+                    Vector2f offset{};
+                    UvCompose(kZero, q, kUnit, angle, tiling, offset);
+                    if (k > 0) {
+                        while (angle - previous > kPi) {
+                            angle -= 2.0f * kPi;
+                        }
+                        while (previous - angle > kPi) {
+                            angle += 2.0f * kPi;
+                        }
+                    }
+                    previous = angle;
+                    converted.track.times.push_back(rot->times[k]);
+                    pushF32(converted.track.values, {0.0f, 0.0f, angle});
+                }
+                out.push_back(std::move(converted));
+            }
+
+            // Tiling: the scale, at its own keys.
+            if (scale != nullptr) {
+                ConvertedTrack converted;
+                converted.channel = *group.channel[2];
+                converted.channel.valueType = geom::AttrType::F32x2;
+                converted.channel.initValue.clear();
+                converted.track.channel = converted.channel.id;
+                converted.track.interp = scale->interp == Interpolation::Step
+                                             ? Interpolation::Step
+                                             : Interpolation::Linear;
+                for (std::size_t k = 0; k < scale->times.size(); ++k) {
+                    f32 v[3];
+                    UvKeyValue(*scale, 3, k, v);
+                    converted.track.times.push_back(scale->times[k]);
+                    pushF32(converted.track.values, {v[0], v[1]});
+                }
+                out.push_back(std::move(converted));
+            }
+
+            // Offset: the composed translation, over the union of the
+            // group's key times.
+            std::vector<f32> times;
+            for (const SubTrack* track : {trans, rot, scale}) {
+                if (track != nullptr) {
+                    times.insert(times.end(), track->times.begin(), track->times.end());
+                }
+            }
+            if (times.empty()) {
+                continue;
+            }
+            std::sort(times.begin(), times.end());
+            times.erase(std::unique(times.begin(), times.end(),
+                                    [](f32 a, f32 b) { return std::fabs(a - b) < 1e-5f; }),
+                        times.end());
+
+            ConvertedTrack converted;
+            if (trans != nullptr) {
+                converted.channel = *group.channel[0];
+            } else {
+                converted.channel = rot != nullptr ? *group.channel[1] : *group.channel[2];
+                converted.channel.id = synthUvId(entry.first);
+                converted.channel.target.channel = Channel::UvTranslate;
+            }
+            converted.channel.valueType = geom::AttrType::F32x2;
+            converted.channel.initValue.clear();
+            converted.track.channel = converted.channel.id;
+            const auto stepped = [](const SubTrack* track) {
+                return track == nullptr || track->interp == Interpolation::Step;
+            };
+            converted.track.interp = stepped(trans) && stepped(rot) && stepped(scale)
+                                         ? Interpolation::Step
+                                         : Interpolation::Linear;
+            for (const f32 time : times) {
+                f32 t[3] = {0.0f, 0.0f, 0.0f};
+                f32 q[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+                f32 v[3] = {1.0f, 1.0f, 1.0f};
+                if (trans != nullptr) {
+                    UvSampleAt(*trans, 3, false, time, t);
+                }
+                if (rot != nullptr) {
+                    UvSampleAt(*rot, 4, true, time, q);
+                }
+                if (scale != nullptr) {
+                    UvSampleAt(*scale, 3, false, time, v);
+                }
+                f32 angle = 0.0f;
+                Vector2f tiling{};
+                Vector2f offset{};
+                UvCompose(t, q, v, angle, tiling, offset);
+                converted.track.times.push_back(time);
+                pushF32(converted.track.values, {offset.x, offset.y});
+            }
+            out.push_back(std::move(converted));
+        }
+        return out;
+    }
+
+    std::map<std::tuple<u32, u32, u32>, u32> synthUvIds_;
+    u32 nextSynthUvId_ = 0;
 
     void buildClip(const Clip& clip) {
         m3::Sequence sequence;
@@ -886,9 +1193,25 @@ private:
         stc.padding = 0;
         stc.unknown = 0;
 
+        // Source-convention UV feature channels become the layer's own
+        // offset/angle/tiling tracks; the originals must not ALSO be
+        // written, or the STC carries a quaternion no Vector2 AnimRef reads.
+        std::set<u32> convertedIds;
+        const std::vector<ConvertedTrack> convertedUv = convertUvTracks(source, convertedIds);
+
         for (const SubTrack& track : source.subTracks) {
             const AnimChannel* channel = model_.animChannels.find(track.channel);
             if (channel == nullptr) {
+                continue;
+            }
+            // A material channel of another profile is the source's spelling
+            // of a track the derive twinned for this one: nothing wires it,
+            // so writing it would only orphan a stream in the STC.
+            if (IsMaterialTarget(channel->target.kind) &&
+                channel->target.material.profile != profile()) {
+                continue;
+            }
+            if (convertedIds.count(channel->id) != 0) {
                 continue;
             }
             if (!track.wellSized(channel->valueType)) {
@@ -905,6 +1228,16 @@ private:
             stc.animIds.push_back(exportId(channel->id));
             stc.animRefs.push_back(animRef);
             wireAnimRef(*channel, track);
+        }
+
+        for (const ConvertedTrack& entry : convertedUv) {
+            const u32 animRef = writeStream(stc, entry.channel, entry.track, origin, clip.duration);
+            if (animRef == kInvalidIndex) {
+                continue;
+            }
+            stc.animIds.push_back(exportId(entry.channel.id));
+            stc.animRefs.push_back(animRef);
+            wireAnimRef(entry.channel, entry.track);
         }
 
         // Events are the slot-0 stream, and they belong to the CLIP rather than
@@ -1241,6 +1574,13 @@ private:
         m3_core::Context context;
         Diagnostics ignored;
         for (std::size_t m = 0; m < out_.materialMaps.size(); ++m) {
+            // The export's own report is exact; the re-import below is the
+            // guess it replaces, kept for native-block materials that never
+            // fill one.
+            if (m < context_.materialOrdinals.size() && !context_.materialOrdinals[m].empty()) {
+                materialOrdinals_[m] = context_.materialOrdinals[m];
+                continue;
+            }
             if (out_.materialMaps[m].materialType != m3::MaterialType::Standard) {
                 continue;
             }
@@ -1253,6 +1593,51 @@ private:
         const MaterialChannelRef& ref = channel.target.material;
         if (ref.profile != profile() || ref.slot >= materialOrdinals_.size() ||
             ref.slot >= out_.materialMaps.size()) {
+            return;
+        }
+        // A binary material alpha gates its batches through a gate bone
+        // (`toM3` plants one exactly as it does for a section visibility --
+        // WoW's element-alpha hide idiom targets the MATERIAL). The bone's
+        // AnimRef still has to be wired here, because the channel arrives as
+        // a MaterialLayer target, never a Section one.
+        const auto gate = context_.sectionGateBones.find(channel.id);
+        if (gate != context_.sectionGateBones.end() && gate->second < out_.bones.size()) {
+            Wire(out_.bones[gate->second].visibility, exportId(channel.id), track.interp);
+        }
+        // WoW's whole-batch tint and fade (`M2Color` times the unit-0 weight
+        // — the element-alpha product) target the material, not a stage. M3
+        // has no whole-material alpha; the spelling Blizzard's own
+        // conversions use is a Color-flag alpha layer whose `mapAlpha`
+        // carries the keys — the same carrier the section fades ride.
+        if (channel.target.kind == TrackTarget::Kind::MaterialLayer &&
+            channel.target.sub == kWholeMaterial) {
+            if (out_.materialMaps[ref.slot].materialType != m3::MaterialType::Standard) {
+                return;
+            }
+            const std::size_t index = out_.materialMaps[ref.slot].materialIndex;
+            if (index >= out_.standardMaterials.size()) {
+                return;
+            }
+            m3::StandardMaterial& mat = out_.standardMaterials[index];
+            if (channel.target.channel == Channel::Alpha) {
+                wireAlphaCarrier(mat, channel, track);
+            } else if (channel.target.channel == Channel::Color &&
+                       mat.diffuseLayer.has_value()) {
+                // The rest crosses into the layer's initValue — a static
+                // `M2Color` is most of them (the Earth Spirit's near-black
+                // body is a WHITE texture under a dark constant tint), and a
+                // consumer that samples no layer tracks reads only this.
+                if (colorSeeded_.insert(channel.id).second &&
+                    track.values.size() >= sizeof(f32) * 3) {
+                    f32 rest[3] = {1.0f, 1.0f, 1.0f};
+                    std::memcpy(rest, track.values.data(), sizeof(rest));
+                    m3::ColorBGRA& c = mat.diffuseLayer->color.initValue;
+                    c.r = static_cast<u8>((std::min)(rest[0], 1.0f) * 255.0f);
+                    c.g = static_cast<u8>((std::min)(rest[1], 1.0f) * 255.0f);
+                    c.b = static_cast<u8>((std::min)(rest[2], 1.0f) * 255.0f);
+                }
+                Wire(mat.diffuseLayer->color, exportId(channel.id), track.interp);
+            }
             return;
         }
         const u32 ordinal = channel.target.kind == TrackTarget::Kind::MaterialLayer
@@ -1277,6 +1662,15 @@ private:
         }
         const std::size_t index = out_.materialMaps[ref.slot].materialIndex;
         if (index >= out_.standardMaterials.size()) {
+            return;
+        }
+        // The element alpha: a weight on the base stage fades the whole draw,
+        // and M3 never reads the diffuse layer's alpha as coverage — the
+        // track rides a carrier alpha layer instead.
+        if (channel.target.kind == TrackTarget::Kind::MaterialLayer &&
+            channel.target.channel == Channel::Alpha &&
+            static_cast<m3_core::StandardLayer>(layerSlot) == m3_core::StandardLayer::Diffuse) {
+            wireAlphaCarrier(out_.standardMaterials[index], channel, track);
             return;
         }
         std::optional<m3::TextureLayer>& layer = m3_core::MutableLayerOf(
@@ -1318,6 +1712,54 @@ private:
         }
     }
 
+    /// A fade with no stage of its own rides a Color-flag carrier in the
+    /// first free alpha slot (`cFinal.a = mask1.a * mask2.a`, so two carriers
+    /// multiply — which is exactly WoW's colour-times-weight product).
+    ///
+    /// Once per channel — `wireAnimRef` runs per subtrack per clip, and the
+    /// first version of this planted one carrier per clip until the slots ran
+    /// out. A channel a gate bone already reads plants nothing: the gate is
+    /// the binary spelling, and its stream is flags, not scalars.
+    void wireAlphaCarrier(m3::StandardMaterial& mat, const AnimChannel& channel,
+                          const SubTrack& track) {
+        if (context_.sectionGateBones.count(channel.id) != 0) {
+            return;
+        }
+        if (alphaCarriers_.count(channel.id) != 0) {
+            return;
+        }
+        std::optional<m3::TextureLayer>* slot = nullptr;
+        if (!mat.alphaLayer1.has_value()) {
+            slot = &mat.alphaLayer1;
+        } else if (!mat.alphaLayer2.has_value()) {
+            slot = &mat.alphaLayer2;
+        }
+        if (slot == nullptr) {
+            diagnostics_.warn(DiagCode::AnimTrackDropped,
+                              "a material alpha track found both alpha layers taken",
+                              ElementRef(ElementKind::Channel, channel.id), context_.profile);
+            return;
+        }
+        m3::TextureLayer carrier;
+        carrier.flags = m3::TextureLayerFlag::Color;
+        carrier.color.initValue = m3::ColorBGRA{255, 255, 255, 255};
+        carrier.rgbMultiply.initValue = 1.0f;
+        // The rest is the first key when the channel states nothing — the
+        // native WoW draw path reads exactly that (`FirstValue`), so a plane
+        // shipped at weight 0.3 stays at 0.3 for a consumer that does not
+        // sample layer tracks.
+        f32 rest = 1.0f;
+        if (channel.hasInitValue() && channel.initValue.size() >= sizeof(f32)) {
+            std::memcpy(&rest, channel.initValue.data(), sizeof(f32));
+        } else if (track.values.size() >= sizeof(f32)) {
+            std::memcpy(&rest, track.values.data(), sizeof(f32));
+        }
+        carrier.mapAlpha.initValue = rest;
+        *slot = std::move(carrier);
+        Wire((*slot)->mapAlpha, exportId(channel.id), track.interp);
+        alphaCarriers_.emplace(channel.id, 0u);
+    }
+
     u32 featureLayer(const MaterialChannelRef& ref, u32 featureId) const {
         const Material* material = Resolve(model_, ref.slot, ref.profile, ref.look);
         if (material == nullptr) {
@@ -1338,6 +1780,10 @@ private:
     m3::Model& out_;
     Diagnostics& diagnostics_;
     std::vector<std::vector<u32>> materialOrdinals_;
+    /// Channels that already planted a carrier alpha layer (`wireAlphaCarrier`).
+    std::map<u32, u32> alphaCarriers_;
+    /// Whole-material colour channels whose rest already seeded the diffuse.
+    std::set<u32> colorSeeded_;
 };
 
 } // namespace

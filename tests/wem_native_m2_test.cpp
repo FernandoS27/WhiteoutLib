@@ -347,12 +347,13 @@ TEST_CASE("wem no unit of an M2 chain replaces the one before it", "[wem][materi
     CHECK(body->stages[1].alpha == CombinerOp::Pass);
 }
 
-TEST_CASE("wem a stage masked by unit 0's alpha does not draw", "[wem][materials][m2]") {
+TEST_CASE("wem a stage masked by unit 0's alpha keeps the mask", "[wem][materials][m2]") {
     // Explicit combo row 0 is `Combiners_Opaque_Mod2xNA_Alpha`:
-    // `c*t0 * lerp(t1*2, 1, t0.a)`. The mask is the BASE map's alpha, and where
-    // that is opaque — most of a shipped base map — the second unit contributes
-    // nothing at all. No MDX pass reads another pass's alpha, so the stage is
-    // the identity and the row says which modifier it lost.
+    // `c*t0 * lerp(t1*2, 1, t0.a)`. The mask is the BASE map's alpha, and the
+    // vocabulary spells the whole fold as `MaskedMod2x` — targets that cannot
+    // read the seed's alpha (an MDX pass, a composite layer) drop the stage
+    // themselves, which is the identity the old collapse-to-`Pass` hard-coded
+    // for everyone.
     m2::Model model = makeModel();
     Diagnostics diagnostics;
     const Material imported =
@@ -361,9 +362,8 @@ TEST_CASE("wem a stage masked by unit 0's alpha does not draw", "[wem][materials
     REQUIRE(body != nullptr);
     REQUIRE(body->stages.size() == 2u);
     CHECK(body->stages[0].rgb == CombinerOp::Opaque);
-    CHECK(body->stages[1].rgb == CombinerOp::Pass);
-    // The row's `unexpressed`, alongside the batch-flag note `makeBatch` earns.
-    CHECK(diagnostics.countOf(DiagCode::LossyKindConversion) >= 1u);
+    CHECK(body->stages[1].rgb == CombinerOp::MaskedMod2x);
+    CHECK(body->stages[1].alpha == CombinerOp::Pass);
 }
 
 TEST_CASE("wem an add scaled by its own alpha is its own op", "[wem][materials][m2]") {

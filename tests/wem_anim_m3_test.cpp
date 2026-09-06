@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <whiteout/models/m3/parser.h>
@@ -23,6 +24,7 @@
 #include <whiteout/models/wem/validate.h>
 
 #include "wem_corpus_files.h"
+#include "wem_material_fixture.h"
 
 using namespace whiteout;
 using namespace whiteout::models::wem;
@@ -478,4 +480,183 @@ TEST_CASE("wem m3 animation survives the corpus", "[wem][anim][m3][corpus]") {
     // import agrees with the file either way.
     CHECK((steppedRefs == 0u) == (stepped == 0u));
     CHECK((globalSequences == 0u) == (autoPlay == 0u));
+}
+
+// ============================================================================
+// The UV-animation crossing (WOW_TO_SC2_DESIGN.md): a source-convention
+// feature channel (M2/MDX's three-float translate, quaternion rotate) becomes
+// the layer's own offset/angle streams. Two things a green export cannot show:
+// the values must land in the stream the layer's Vector2/Vector3 AnimRef
+// reads (SD2V/SD3V, never SD3V/SD4Q), and the source's (0.5, 0.5) pivot must
+// land in the OFFSET -- M3 composes about the origin.
+// ============================================================================
+
+namespace {
+
+void pushFloats(std::vector<u8>& values, std::initializer_list<f32> parts) {
+    for (const f32 part : parts) {
+        const u8* bytes = reinterpret_cast<const u8*>(&part);
+        values.insert(values.end(), bytes, bytes + sizeof(f32));
+    }
+}
+
+/// A UvAnimation feature on layer 0 of slot @p slot's material, plus one
+/// channel of @p kind targeting it, keyed in @p clip.
+u32 addUvChannel(Document& document, u32 slot, u32 featureId, Channel kind,
+                 geom::AttrType type, std::vector<f32> times, std::vector<u8> values) {
+    Model& model = document.models[0];
+    Material& material = model.profileSets[0].materials[slot];
+    bool hasFeature = false;
+    for (const MaterialFeature& feature : material.MutableCommon().features) {
+        hasFeature = hasFeature || feature.id == featureId;
+    }
+    if (!hasFeature) {
+        MaterialFeature feature;
+        feature.id = featureId;
+        feature.layer = 0;
+        feature.payload = UvAnimationFeature{};
+        material.MutableCommon().features.push_back(feature);
+    }
+
+    AnimChannel channel;
+    // Never 0: id 0 is legal WEM but the exporter remaps it at the boundary
+    // ("not animated" to every `.m3` consumer), which is not this case's story.
+    channel.id = (std::max)(1u, model.animChannels.nextFreeId());
+    channel.target.kind = TrackTarget::Kind::MaterialFeature;
+    channel.target.material.profile = ProfileId::Sc2;
+    channel.target.material.slot = slot;
+    channel.target.material.look = 0;
+    channel.target.sub = featureId;
+    channel.target.channel = kind;
+    channel.valueType = type;
+    model.animChannels.add(channel);
+
+    SubTrack track;
+    track.channel = channel.id;
+    track.interp = kind == Channel::UvRotate ? Interpolation::Slerp : Interpolation::Linear;
+    track.times = std::move(times);
+    track.values = std::move(values);
+    document.clips[0].containers[0].subTracks.push_back(std::move(track));
+    return channel.id;
+}
+
+/// The one STC entry for @p animId: REQUIREs it exists, returns its animRef.
+u32 stcRefFor(const m3::Model& model, u32 animId) {
+    for (const m3::SubTrackContainer& stc : model.subTrackCollections) {
+        for (std::size_t i = 0; i < stc.animIds.size(); ++i) {
+            if (stc.animIds[i] == animId && i < stc.animRefs.size()) {
+                return stc.animRefs[i];
+            }
+        }
+    }
+    FAIL("animId " << animId << " is in no STC");
+    return 0;
+}
+
+const m3::SubTrackContainer& stcHolding(const m3::Model& model, u32 animId) {
+    for (const m3::SubTrackContainer& stc : model.subTrackCollections) {
+        for (const u32 id : stc.animIds) {
+            if (id == animId) {
+                return stc;
+            }
+        }
+    }
+    FAIL("animId " << animId << " is in no STC");
+    return model.subTrackCollections[0];
+}
+
+} // namespace
+
+TEST_CASE("wem m3 a three-float UV translate becomes the offset stream",
+          "[wem][anim][m3][uv]") {
+    Document document = wemfix::makeDocument(ProfileId::Sc2);
+    Clip clip;
+    clip.name = "Stand";
+    clip.model = 0;
+    clip.duration = 1.0f;
+    clip.containers.push_back(SubTrackContainer{});
+    document.clips.push_back(std::move(clip));
+
+    std::vector<u8> keys;
+    pushFloats(keys, {0.0f, 0.0f, 0.0f});
+    pushFloats(keys, {0.25f, 0.5f, 0.0f});
+    const u32 id = addUvChannel(document, 0, 7, Channel::UvTranslate, geom::AttrType::F32x3,
+                                {0.0f, 1.0f}, std::move(keys));
+
+    const M3Converter converter;
+    Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+
+    const auto& material =
+        written->standardMaterials[written->materialMaps[0].materialIndex];
+    REQUIRE(material.diffuseLayer.has_value());
+    CHECK(material.diffuseLayer->uvOffset.animId == id);
+
+    // SD2V -- slot 1. Landing in SD3V is the defect this case exists for: the
+    // layer's AnimRef is a Vector2 and a Vector3 stream never joins it.
+    const u32 ref = stcRefFor(*written, id);
+    REQUIRE((ref >> 16) == 1u);
+    const auto& stc = stcHolding(*written, id);
+    const auto& block = stc.sd2v[ref & 0xFFFFu];
+    REQUIRE(block.keys.size() == 2u);
+    CHECK(block.keys[0].x == 0.0f);
+    CHECK(block.keys[1].x == Catch::Approx(0.25f));
+    CHECK(block.keys[1].y == Catch::Approx(0.5f));
+}
+
+TEST_CASE("wem m3 a UV rotation crosses as the angle plus the pivot's offset",
+          "[wem][anim][m3][uv]") {
+    Document document = wemfix::makeDocument(ProfileId::Sc2);
+    Clip clip;
+    clip.name = "Stand";
+    clip.model = 0;
+    clip.duration = 1.0f;
+    clip.containers.push_back(SubTrackContainer{});
+    document.clips.push_back(std::move(clip));
+
+    // Identity, then 90 degrees about z -- the only axis a UV plane has.
+    const f32 half = 0.70710678f;
+    std::vector<u8> keys;
+    pushFloats(keys, {0.0f, 0.0f, 0.0f, 1.0f});
+    pushFloats(keys, {0.0f, 0.0f, half, half});
+    const u32 id = addUvChannel(document, 0, 7, Channel::UvRotate, geom::AttrType::Quat,
+                                {0.0f, 1.0f}, std::move(keys));
+
+    const M3Converter converter;
+    Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+
+    const auto& material =
+        written->standardMaterials[written->materialMaps[0].materialIndex];
+    REQUIRE(material.diffuseLayer.has_value());
+    CHECK(material.diffuseLayer->uvAngle.animId == id);
+
+    // The angle: SD3V, radians in z.
+    const u32 angleRef = stcRefFor(*written, id);
+    REQUIRE((angleRef >> 16) == 2u);
+    const auto& angles = stcHolding(*written, id).sd3v[angleRef & 0xFFFFu];
+    REQUIRE(angles.keys.size() == 2u);
+    CHECK(angles.keys[0].z == Catch::Approx(0.0f).margin(1e-5f));
+    CHECK(angles.keys[1].z == Catch::Approx(1.5707963f));
+
+    // The pivot: WoW rotates about (0.5, 0.5) and M3 about the origin, so a
+    // rotation with no translation channel still animates the offset --
+    // synthesized under its own id. At 90 degrees the pivot term is
+    // (I - R) * (0.5, 0.5) = (1, 0).
+    const u32 offsetId = material.diffuseLayer->uvOffset.animId;
+    REQUIRE(offsetId != 0u);
+    CHECK(offsetId != id);
+    const u32 offsetRef = stcRefFor(*written, offsetId);
+    REQUIRE((offsetRef >> 16) == 1u);
+    const auto& offsets = stcHolding(*written, offsetId).sd2v[offsetRef & 0xFFFFu];
+    REQUIRE(offsets.keys.size() == 2u);
+    CHECK(offsets.keys[0].x == Catch::Approx(0.0f).margin(1e-5f));
+    CHECK(offsets.keys[0].y == Catch::Approx(0.0f).margin(1e-5f));
+    CHECK(offsets.keys[1].x == Catch::Approx(1.0f));
+    CHECK(offsets.keys[1].y == Catch::Approx(0.0f).margin(1e-5f));
+
+    // The quaternion itself must be gone: nothing in the file reads SD4Q here.
+    for (const m3::SubTrackContainer& stc : written->subTrackCollections) {
+        CHECK(stc.sd4q.empty());
+    }
 }

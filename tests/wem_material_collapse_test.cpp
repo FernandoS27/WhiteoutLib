@@ -379,9 +379,14 @@ TEST_CASE("wem a chain's base layer takes the material's blend", "[wem][material
     const mdx::Material exported = mdx_core::ExportMaterial(
         makeChain({CombinerOp::Opaque, CombinerOp::Mod}, BlendMode::AdditiveAlpha),
         ProfileId::Wc3Classic, makeContext(), diagnostics);
-    REQUIRE(exported.layers.size() == 2);
+    // One layer, not two: over an additive base the framebuffer is the scene,
+    // not the chain, and a Modulate pass would multiply the world through the
+    // planes (the tauren primalist's fire) — while adding both factors washed
+    // the same fire to white. The static mod stage drops; only a stage that
+    // carries the UV animation may take the base pass over instead.
+    REQUIRE(exported.layers.size() == 1);
     CHECK(exported.layers[0].filterMode == Layer::FilterMode::AddAlpha);
-    CHECK(exported.layers[1].filterMode == Layer::FilterMode::Modulate);
+    CHECK(diagnostics.byCode(DiagCode::LayerDropped).size() == 1);
 }
 
 TEST_CASE("wem a mid-chain replace restarts the stack", "[wem][materials][mdx]") {
@@ -414,12 +419,36 @@ TEST_CASE("wem a passing stage draws only when it is the base", "[wem][materials
     const mdx::Material exported = mdx_core::ExportMaterial(
         makeChain({CombinerOp::Pass, CombinerOp::Mod, CombinerOp::Pass}, BlendMode::AdditiveAlpha),
         ProfileId::Wc3Classic, makeContext(), diagnostics);
-    REQUIRE(exported.layers.size() == 2);
+    // One layer: the static mod stage over the additive base drops (the same
+    // statement the "base layer takes the material's blend" case makes), and
+    // the trailing pass drops as before.
+    REQUIRE(exported.layers.size() == 1);
     CHECK(exported.layers[0].textureId == 0);
     CHECK(exported.layers[0].filterMode == Layer::FilterMode::AddAlpha);
-    CHECK(exported.layers[1].textureId == 1);
-    CHECK(exported.layers[1].filterMode == Layer::FilterMode::Modulate);
-    CHECK(diagnostics.byCode(DiagCode::LayerDropped).size() == 1);
+    CHECK(diagnostics.byCode(DiagCode::LayerDropped).size() == 2);
+}
+
+TEST_CASE("wem an animated mod stage over an additive base still drops",
+          "[wem][materials][mdx]") {
+    // The tauren primalist's fire: `Opaque, Mod` under AdditiveAlpha, both
+    // stages the same flame sheet, the SECOND carrying the UV scroll. The
+    // product `t0*t1` has no honest MDX spelling: a Modulate pass multiplies
+    // the scene, adding both factors washes the fire to white, and swapping
+    // the moving factor into the base pass drags the whole atlas through the
+    // plane — the seed's alpha is the sparse mask that keeps the coverage
+    // honest. So the seed draws and the mod stage drops, animation and all.
+    Material material = makeChain({CombinerOp::Opaque, CombinerOp::Mod}, BlendMode::AdditiveAlpha);
+    material.MutableCommon().features.push_back(MaterialFeature{1, 1, UvAnimationFeature{}});
+
+    Diagnostics diagnostics;
+    std::vector<u32> ordinals;
+    const mdx::Material exported = mdx_core::ExportMaterial(material, ProfileId::Wc3Classic,
+                                                            makeContext(), diagnostics, &ordinals);
+    REQUIRE(exported.layers.size() == 1);
+    CHECK(exported.layers[0].filterMode == Layer::FilterMode::AddAlpha);
+    CHECK(exported.layers[0].textureId == 0);
+    REQUIRE(ordinals.size() >= 2);
+    CHECK(ordinals[1] == kInvalidIndex);
 }
 
 TEST_CASE("wem an invisible material draws nothing", "[wem][materials][mdx]") {

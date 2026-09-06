@@ -217,7 +217,11 @@ CompositeOp compositeOpOf(CombinerOp op, const KindContext& ctx) {
         return CompositeOp::AlphaBlend;
     // `Pass` never reaches here: a stage that does not touch the channel is not
     // a layer of it, so the caller drops it rather than folding an identity.
+    // The masked folds never reach here either — a composite layer cannot read
+    // the seed's alpha, so the caller drops them the same way.
     case CombinerOp::Pass:
+    case CombinerOp::MaskedMod:
+    case CombinerOp::MaskedMod2x:
     case CombinerOp::Count:
         break;
     }
@@ -288,8 +292,13 @@ CompositeBody toComposite(const CommonMaterial& source, const KindContext& ctx) 
         out.emissiveFactor = combiners->emissiveFactor;
         for (const CombinerStage& stage : combiners->stages) {
             // A stage whose colour op is `Pass` touches alpha alone, and a
-            // composite stack has no alpha-only layer to put it in.
-            if (stage.rgb == CombinerOp::Pass) {
+            // composite stack has no alpha-only layer to put it in. A masked
+            // fold reads the seed's alpha, which no composite layer can.
+            if (stage.rgb == CombinerOp::Pass || stage.rgb == CombinerOp::MaskedMod ||
+                stage.rgb == CombinerOp::MaskedMod2x) {
+                if (stage.rgb != CombinerOp::Pass) {
+                    ctx.dropped("a masked fold (no composite layer reads the seed's alpha)");
+                }
                 continue;
             }
             CompositeLayer layer;

@@ -931,13 +931,16 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         const Material* material = Resolve(model, static_cast<u32>(slot), profile);
         if (material == nullptr) {
             out.materialMaps.push_back(m3::MaterialMap{});
+            animContext.materialOrdinals.emplace_back();
             diagnostics.warn(DiagCode::SlotNotBound,
                              "slot " + model.materialSlots[slot] + " has no material",
                              ElementRef(ElementKind::Slot, slot), profile);
             continue;
         }
-        out.materialMaps.push_back(
-            m3_core::ExportMaterial(*material, profile, context, out, diagnostics));
+        std::vector<u32> slotOrdinals;
+        out.materialMaps.push_back(m3_core::ExportMaterial(*material, profile, context, out,
+                                                           diagnostics, &slotOrdinals));
+        animContext.materialOrdinals.push_back(std::move(slotOrdinals));
     }
 
     // --- geometry -----------------------------------------------------------
@@ -1172,12 +1175,15 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                                     continue;
                                 }
                                 any = true;
-                                if (track.interp != Interpolation::Step) {
-                                    return false;
-                                }
                                 const f32* values =
                                     reinterpret_cast<const f32*>(track.values.data());
                                 const std::size_t count = track.values.size() / sizeof(f32);
+                                // A one-key track steps by definition -- the
+                                // WoW hide idiom is one zero key, tagged with
+                                // whatever interp the file happened to carry.
+                                if (track.interp != Interpolation::Step && count > 1) {
+                                    return false;
+                                }
                                 for (std::size_t k = 0; k < count; ++k) {
                                     if (values[k] > 0.01f && values[k] < 0.99f) {
                                         return false;
@@ -1203,6 +1209,53 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                     }
                     if (entry.target.channel == Channel::Alpha) {
                         fade = &entry;
+                    }
+                }
+                if (vis == nullptr) {
+                    // WoW hides a batch through its MATERIAL: the element
+                    // alpha (`M2Color` times the unit-0 weight, the shipped
+                    // one-zero-key idiom) targets the material slot, not the
+                    // section. A binary one is the same statement a geoset
+                    // visibility makes, and the gate bone is the spelling
+                    // retail's submission skip (and this build's renderer)
+                    // actually reads; a fade keeps riding the carrier alpha
+                    // layer the anim export plants. Only a channel that ever
+                    // REACHES zero gates -- a constant-one weight is most
+                    // batches, and a gate bone per batch would be noise.
+                    const auto everZero = [&document](u32 channelId) {
+                        for (const Clip& clip : document.clips) {
+                            for (const SubTrackContainer& container : clip.containers) {
+                                for (const SubTrack& track : container.subTracks) {
+                                    if (track.channel != channelId) {
+                                        continue;
+                                    }
+                                    const f32* values =
+                                        reinterpret_cast<const f32*>(track.values.data());
+                                    const std::size_t count = track.values.size() / sizeof(f32);
+                                    for (std::size_t k = 0; k < count; ++k) {
+                                        if (values[k] <= 0.01f) {
+                                            return true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        return false;
+                    };
+                    for (const AnimChannel& entry : model.animChannels.channels) {
+                        if (entry.target.kind != TrackTarget::Kind::MaterialLayer ||
+                            entry.target.material.profile != profile ||
+                            entry.target.material.slot != range.materialSlot ||
+                            entry.target.channel != Channel::Alpha) {
+                            continue;
+                        }
+                        if (entry.target.sub != kWholeMaterial && entry.target.sub != 0) {
+                            continue;
+                        }
+                        if (binaryStep(entry.id) && everZero(entry.id)) {
+                            vis = &entry;
+                            break;
+                        }
                     }
                 }
                 // A fade cannot gate -- it rides the material as a Color-flag
