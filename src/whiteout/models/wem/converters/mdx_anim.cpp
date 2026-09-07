@@ -137,7 +137,7 @@ private:
             clip.looping = !mdx::hasFlag(sequence.flags, mdx::Sequence::Flag::NonLooping);
             clip.native.set("intervalStart", static_cast<i64>(sequence.intervalStart));
             clip.native.set("intervalEnd", static_cast<i64>(sequence.intervalEnd));
-            clip.native.set("moveSpeed", sequence.moveSpeed);
+            SetClipMoveSpeed(clip, sequence.moveSpeed);
             clip.native.set("rarity", sequence.rarity);
             clip.native.set("syncPoint", static_cast<i64>(sequence.syncPoint));
             // The sequence's own extent, which is the one bound WEM stores
@@ -799,7 +799,7 @@ private:
             if (!clip.looping) {
                 sequence.flags = mdx::Sequence::Flag::NonLooping;
             }
-            sequence.moveSpeed = static_cast<f32>(clip.native.value("moveSpeed", 0));
+            sequence.moveSpeed = ClipMoveSpeed(clip);
             sequence.rarity = static_cast<f32>(clip.native.value("rarity", 0));
             sequence.syncPoint = static_cast<u32>(clip.native.value("syncPoint", 0));
             // The clip's own extent when it has one, and the model's when it

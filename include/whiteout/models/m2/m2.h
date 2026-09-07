@@ -1,6 +1,7 @@
 
 #pragma once
 
+#include "animation_names.h"
 #include "bone_file.h"
 #include "parser.h"
 #include "phys_file.h"

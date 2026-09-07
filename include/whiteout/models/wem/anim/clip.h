@@ -260,6 +260,20 @@ struct Clip {
     }
 };
 
+/**
+ * @brief One clip's travel speed, in document units per second — MDX's
+ *        `MoveSpeed`, `.m2`'s `movespeed` and M3's `moveSpeed`, which mean the
+ *        same thing and so share one native key.
+ *
+ * Held in thousandths because the bag stores `i64` and the games disagree on
+ * how big a unit is: Warcraft III walks at 270 and World of Warcraft at 2.5,
+ * and 2.5 kept as a whole number is 2. Zero when the source stated no travel.
+ */
+f32 ClipMoveSpeed(const Clip& clip);
+
+/// @brief Stores @p speed on @p clip; see @ref ClipMoveSpeed.
+void SetClipMoveSpeed(Clip& clip, f32 speed);
+
 // ============================================================================
 // AnimSet
 // ============================================================================

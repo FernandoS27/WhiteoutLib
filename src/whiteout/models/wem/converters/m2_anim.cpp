@@ -7,9 +7,10 @@
 #include <string>
 #include <variant>
 
+#include <whiteout/models/m2/animation_names.h>
 #include <whiteout/models/wem/anim/clip.h>
-#include "../../m2/legacy.h"
 #include <whiteout/models/wem/native/m2_tables.h>
+#include "../../m2/legacy.h"
 
 namespace whiteout {
 namespace models {
@@ -175,15 +176,18 @@ private:
         for (std::size_t i = 0; i < source_.sequences.size(); ++i) {
             const m2::Sequence& sequence = source_.sequences[i];
             Clip clip;
-            clip.name = "sequence_" + std::to_string(sequence.id) + "_" +
-                        std::to_string(sequence.variationIndex);
+            // The client's AnimationData name, not the id: an `.m2` sequence
+            // carries no name of its own, and every format this document can
+            // be written to has one. `sequence_28_0` is what "the names were
+            // lost" looks like on the other side of a conversion.
+            clip.name = m2::sequenceName(sequence.id, sequence.variationIndex);
             clip.model = modelIndex_;
             clip.duration = Seconds(static_cast<f32>(sequence.duration));
             clip.looping = m2::hasFlag(sequence.flags, m2::SequenceFlag::Looping);
             clip.native.set("animationId", static_cast<i64>(sequence.id));
             clip.native.set("variationIndex", static_cast<i64>(sequence.variationIndex));
             clip.native.set("m2SeqFlags", static_cast<i64>(static_cast<u32>(sequence.flags)));
-            clip.native.set("movespeed", sequence.movespeed);
+            SetClipMoveSpeed(clip, sequence.movespeed);
             clip.native.set("m2Frequency", static_cast<i64>(sequence.frequency));
             clip.native.set("blendTimeIn", static_cast<i64>(sequence.blendTimeIn));
             clip.native.set("blendTimeOut", static_cast<i64>(sequence.blendTimeOut));
@@ -712,7 +716,7 @@ private:
             sequence.id = static_cast<u16>(clip.native.value("animationId", 0));
             sequence.variationIndex = static_cast<u16>(clip.native.value("variationIndex", 0));
             sequence.duration = MillisecondsOf(clip.duration);
-            sequence.movespeed = static_cast<f32>(clip.native.value("movespeed", 0));
+            sequence.movespeed = ClipMoveSpeed(clip);
             sequence.flags = static_cast<m2::SequenceFlag>(clip.native.value("m2SeqFlags", 0));
             if (clip.looping) {
                 sequence.flags = sequence.flags | m2::SequenceFlag::Looping;

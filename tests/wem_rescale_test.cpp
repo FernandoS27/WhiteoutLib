@@ -246,6 +246,21 @@ TEST_CASE("wem a rescale moves every length in the document", "[wem][rescale]") 
     CHECK_THAT(document.unitScale, WithinAbs(0.01f, 1e-6f));
 }
 
+TEST_CASE("wem a rescale carries a clip's move speed", "[wem][rescale]") {
+    Document document = makeRescaleDocument();
+    SetClipMoveSpeed(document.clips[0], 2.5f);
+
+    REQUIRE(RescaleDocument(document, 100.0f).ok);
+    // A length per second, and the second is not a length: the model and the
+    // speed it walks at have to move together or its feet slide.
+    CHECK(ClipMoveSpeed(document.clips[0]) == 250.0f);
+
+    // A clip whose source stated no travel does not acquire one here.
+    Document silent = makeRescaleDocument();
+    REQUIRE(RescaleDocument(silent, 100.0f).ok);
+    CHECK(silent.clips[0].native.empty());
+}
+
 TEST_CASE("wem a rescale leaves rotation and scale alone", "[wem][rescale]") {
     // The half a size check cannot see. A rescale that multiplied the whole
     // `Transform` would leave the model the right size and every joint at the

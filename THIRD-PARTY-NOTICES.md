@@ -131,3 +131,47 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+---
+
+## wow.export
+
+`kAnimationNames` in `src/whiteout/models/m2/animation_names.cpp` names ids
+806..1775 from wow.export's `ANIM_NAMES` (`src/js/3D/AnimMapper.js`). Ids
+0..805 are our own dump of the 6.0.1 client's `s_animationNames`, which the two
+lists agree on entry for entry. No client past 6.0.1 ships the names — retail's
+`animationdata.db2` has no string column and its executable holds none — so the
+higher ids have no first-party source. wow.export is neither a build-time nor a
+runtime dependency; only that table was copied.
+
+- **Repository:** <https://github.com/Kruithne/wow.export>
+- **Authors:** Kruithne <kruithne@gmail.com>, Marlamin <marlamin@marlamin.com>
+- **License:** MIT
+- **Taken from:** version 0.2.19
+
+### License Text
+
+```
+MIT License
+
+Copyright (c) Kruithne <kruithne@gmail.com>
+Copyright (c) Marlamin <marlamin@marlamin.com>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

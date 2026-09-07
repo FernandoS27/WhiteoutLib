@@ -161,6 +161,85 @@ TEST_CASE("wem m2 a sequence is a clip and its inner array is the sub-track", "[
     CHECK(trackIn(document.clips[1], channel->id)->times[1] == 0.4f);
 }
 
+TEST_CASE("wem m2 a clip is named for its animation id", "[wem][anim][m2]") {
+    m2::Model model = makeModel();
+    // A third sequence: the same animation as the first, one variation along.
+    m2::Sequence standAlt;
+    standAlt.id = 0;
+    standAlt.variationIndex = 1;
+    standAlt.duration = 1000;
+    model.sequences.push_back(standAlt);
+    // The first id past 6.0.1's own table, and the last id retail has - one is
+    // named, the other is past the end of every list there is.
+    m2::Sequence modern;
+    modern.id = 806;
+    modern.duration = 500;
+    model.sequences.push_back(modern);
+    m2::Sequence unnamed;
+    unnamed.id = 1865;
+    unnamed.duration = 500;
+    model.sequences.push_back(unnamed);
+
+    const Document document = convert(model);
+    REQUIRE(document.clips.size() == 5u);
+    // An `.m2` sequence has no name of its own — it has an AnimationData id,
+    // and the client's table is what turns it back into one. Everything this
+    // document can be written to names its sequences, so a clip that kept only
+    // the number is a name lost at the far end of every conversion.
+    CHECK(document.clips[0].name == "Stand");
+    CHECK(document.clips[1].name == "Walk");
+    // Variations share an id and differ only by index, so the index is part of
+    // the name or a list of them reads as one entry repeated.
+    CHECK(document.clips[2].name == "Stand - 1");
+    CHECK(document.clips[3].name == "MountChopper");
+    // A number beats nothing: an id nothing names still has to be told apart
+    // from the next one along.
+    CHECK(document.clips[4].name == "Anim1865");
+    // The id itself still rides the native bag: that, not the name, is what the
+    // writer reads back.
+    CHECK(document.clips[2].native.value("animationId", -1) == 0);
+    CHECK(document.clips[2].native.value("variationIndex", -1) == 1);
+}
+
+TEST_CASE("wem m2 a sequence's move speed keeps its fraction", "[wem][anim][m2]") {
+    m2::Model model = makeModel();
+    model.sequences[1].movespeed = 2.5f; // A walk, in yards a second.
+
+    Document document = convert(model);
+    REQUIRE(document.clips.size() == 2u);
+    CHECK(ClipMoveSpeed(document.clips[1]) == 2.5f);
+
+    // And back. WoW's speeds are small fractions where Warcraft III's are whole
+    // numbers in the hundreds, so a bag entry that held only the integer part
+    // turned every walk in the game into a 2.
+    const M2Converter converter;
+    Result<m2::Model> back = converter.toM2(document, ProfileId::Wow);
+    REQUIRE(back.ok());
+    REQUIRE(back.value->sequences.size() == 2u);
+    CHECK(back.value->sequences[1].movespeed == 2.5f);
+}
+
+TEST_CASE("wem m2 a move speed reaches Warcraft III in Warcraft III's units",
+          "[wem][anim][m2][mdx]") {
+    m2::Model model = makeModel();
+    model.sequences[1].movespeed = 2.5f;
+
+    Document document = convert(model);
+    // A speed is a length per second and the second does not change, so it
+    // rides the geometry's factor: 100x larger and 100x faster, or the walk
+    // cycle slides. 2.5 yards a second is 250 Warcraft III units a second,
+    // which is the band the game's own sequences are written in.
+    REQUIRE(
+        RescaleDocument(document, RescaleFactorBetween(ProfileId::Wow, ProfileId::Wc3Classic)).ok);
+    REQUIRE(DeriveProfile(document, ProfileId::Wow, ProfileId::Wc3Classic).ok);
+
+    MdxConverter mdx;
+    Result<mdx::Model> out = mdx.toMdx(document, ProfileId::Wc3Classic);
+    REQUIRE(out.ok());
+    REQUIRE(out.value->sequences.size() == 2u);
+    CHECK(out.value->sequences[1].moveSpeed == 250.0f);
+}
+
 TEST_CASE("wem m2 a global loop becomes an auto-play clip", "[wem][anim][m2]") {
     m2::Model model = makeModel();
     model.globalLoops.push_back(m2::GlobalSequence{3000});

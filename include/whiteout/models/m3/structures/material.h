@@ -104,16 +104,21 @@ struct StandardMaterial {
     MaterialAdditionalFlag additionalFlags = MaterialAdditionalFlag::None; ///< Additional flags
     MaterialFlag flags = MaterialFlag::None; ///< Material rendering flags
     BlendMode blendMode = BlendMode::Opaque; ///< Alpha blend mode
-    i32 priority;                            ///< Render priority (lower = earlier)
-    u32 rttChannels;                         ///< RTT channel mask
-    f32 specularExponent;                    ///< Specular highlight exponent
-    f32 depthBlendFalloff;                   ///< Depth blend falloff distance
-    u32 alphaTestThreshold;                  ///< Alpha test cut-off value
-    f32 hdrSpecularMultiplier;               ///< HDR specular multiplier
-    f32 hdrEmissiveMultiplier;               ///< HDR emissive multiplier
-    f32 hdrEnvironmentConstant;              ///< HDR environment constant (v20)
-    f32 hdrEnvironmentDiffuse;               ///< HDR environment diffuse (v20)
-    f32 hdrEnvironmentSpecular;              ///< HDR environment specular (v20)
+    // Zeroed rather than left indeterminate: the parser fills every one of
+    // these, but toStandardMaterial() builds a record from scratch, and a
+    // default-initialised StandardMaterial handed straight to the renderer or
+    // the writer otherwise carries stack junk -- an alphaTestThreshold of
+    // 32765 turns an opaque surface into an alpha-keyed one.
+    i32 priority = 0;                 ///< Render priority (lower = earlier)
+    u32 rttChannels = 0;              ///< RTT channel mask
+    f32 specularExponent = 0.0f;      ///< Specular highlight exponent
+    f32 depthBlendFalloff = 0.0f;     ///< Depth blend falloff distance
+    u32 alphaTestThreshold = 0;       ///< Alpha test cut-off value
+    f32 hdrSpecularMultiplier = 0.0f; ///< HDR specular multiplier
+    f32 hdrEmissiveMultiplier = 0.0f; ///< HDR emissive multiplier
+    f32 hdrEnvironmentConstant = 0.0f;  ///< HDR environment constant (v20)
+    f32 hdrEnvironmentDiffuse = 0.0f;   ///< HDR environment diffuse (v20)
+    f32 hdrEnvironmentSpecular = 0.0f;  ///< HDR environment specular (v20)
     // Texture layers (13-18 depending on version)
     std::optional<TextureLayer> diffuseLayer;            ///< Diffuse / albedo texture
     std::optional<TextureLayer> decalLayer;              ///< Decal overlay texture

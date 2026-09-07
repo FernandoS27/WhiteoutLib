@@ -476,7 +476,7 @@ private:
             clip.native.set("sequenceId", static_cast<i64>(sequence.id));
             clip.native.set("m3SeqFlags", static_cast<i64>(static_cast<u32>(sequence.flags)));
             clip.native.set("m3Frequency", static_cast<i64>(sequence.frequency));
-            clip.native.set("m3MoveSpeed", static_cast<i64>(sequence.moveSpeed));
+            SetClipMoveSpeed(clip, sequence.moveSpeed);
             clip.native.set("blendTime", static_cast<i64>(sequence.blendTime));
             clip.native.set("startFrame", static_cast<i64>(sequence.startFrame));
             // The sequence's own bound: the posed model over this clip, which
@@ -629,7 +629,7 @@ u32 Merge(const m3::Model& external, Document& document, u32 model, Diagnostics&
         // in the other file.
         clip.native.set("m3SeqFlags", static_cast<i64>(static_cast<u32>(sequence.flags)));
         clip.native.set("m3Frequency", static_cast<i64>(sequence.frequency));
-        clip.native.set("m3MoveSpeed", static_cast<i64>(sequence.moveSpeed));
+        SetClipMoveSpeed(clip, sequence.moveSpeed);
         clip.native.set("blendTime", static_cast<i64>(sequence.blendTime));
         clip.native.set("startFrame", static_cast<i64>(sequence.startFrame));
         clip.native.set("external", static_cast<i64>(1));
@@ -1160,8 +1160,7 @@ private:
         const i64 rarity = clip.native.value("rarity", 0);
         sequence.frequency =
             static_cast<u32>(clip.native.value("m3Frequency", rarity != 0 ? rarity : 100));
-        sequence.moveSpeed = static_cast<f32>(
-            clip.native.value("m3MoveSpeed", clip.native.value("moveSpeed", 0)));
+        sequence.moveSpeed = ClipMoveSpeed(clip);
         sequence.blendTime = static_cast<u32>(clip.native.value("blendTime", 0));
         const i32 origin = static_cast<i32>(clip.native.value("startFrame", 0));
         sequence.startFrame = static_cast<u32>(origin);

@@ -193,6 +193,12 @@ RescaleResult RescaleDocument(Document& document, f32 factor) {
 
     for (Clip& clip : document.clips) {
         scale(clip.bounds, factor);
+        // A move speed is a length per second and the second does not change,
+        // so it rides the same factor the geometry does: a model restated 100x
+        // larger walks 100x faster, or its feet slide.
+        if (const f32 speed = ClipMoveSpeed(clip); speed != 0.0f) {
+            SetClipMoveSpeed(clip, speed * factor);
+        }
         if (clip.model >= document.models.size()) {
             continue;
         }
