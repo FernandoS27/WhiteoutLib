@@ -19,6 +19,7 @@
 #include <span>
 #include <vector>
 
+#include "../gltf/gltf.h"
 #include "../m2/structures.h"
 #include "../m3/structures.h"
 #include "../mdx/structures.h"
@@ -145,7 +146,61 @@ public:
     Result<u32> mergeAnimation(Document& document, u32 model, const m3::Model& external) const;
 };
 
-/// Registers the three built-in converters. Called by `ConverterRegistry`'s
+// ============================================================================
+// GltfConverter
+// ============================================================================
+
+/// What `toGltf` may leave out. Rescaling is **not** here — a caller that wants
+/// another scale runs `RescaleDocument` on a staged copy first, the same
+/// division of labour as the MDX and M3 export drivers.
+struct GltfWriteOptions {
+    /// Drop meshes above the base level of detail, matching the other exporters.
+    bool baseLodOnly = true;
+    /// Parent a model referenced by an `AttachmentPayload` under its attach
+    /// point — how a D3 actor's child models ride along (§7).
+    bool bakeChildModels = true;
+};
+
+/**
+ * @brief glTF 2.0 / GLB — the first crossing outside the Blizzard family
+ *        (GLTF_DESIGN).
+ *
+ * glTF is not a game, so it brings **no profile of its own**: import produces a
+ * `Generic`-profile document with a `PBRDeferred` set (`NativeSync::Absent`,
+ * there being no native block to record), and export accepts any profile the
+ * document carries, lowering that set to metallic-roughness with declared loss.
+ * `profiles()` therefore answers `{Generic}` — the first converter ever to
+ * serve it, which §6.1 designed it for; "`Generic` is a source, never a
+ * `DeriveProfile` target" is untouched.
+ *
+ * The basis change (Blizzard +X-forward/+Z-up ⇄ glTF +Z-forward/+Y-up) is a
+ * pure cyclic permutation baked into the data at this boundary; neither
+ * `CoordSpace` enum grows a value for it.
+ */
+class GltfConverter final : public FormatConverter {
+public:
+    std::string formatId() const override;
+    std::string formatName() const override;
+    std::span<const ProfileId> profiles() const override;
+    bool supportsImport() const override;
+    bool supportsExport() const override;
+    u32 defaultExportVersion() const override;
+
+    /// Sniffs the GLB magic; anything else is taken as `.gltf` JSON text.
+    Result<Document> importFromBytes(std::span<const u8> data) const override;
+
+    /// A self-contained `.glb`: images stay URI references (the library never
+    /// sees a pixel — embedding is the app driver's job), geometry is the BIN
+    /// chunk.
+    Result<std::vector<u8>> exportToBytes(const Document& document, ProfileId profile,
+                                          u32 version = 0) const override;
+
+    Result<Document> fromGltf(const gltf::Asset& source) const;
+    Result<gltf::Asset> toGltf(const Document& document, ProfileId profile,
+                               const GltfWriteOptions& options = {}) const;
+};
+
+/// Registers the built-in converters. Called by `ConverterRegistry`'s
 /// constructor; exposed so a host that builds its own registry can reuse it.
 void RegisterBuiltinConverters(ConverterRegistry& registry);
 

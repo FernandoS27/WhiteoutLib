@@ -77,6 +77,9 @@ void RegisterBuiltinConverters(ConverterRegistry& registry) {
     registry.registerConverter(std::make_shared<M2Converter>());
     registry.registerConverter(std::make_shared<M3Converter>());
     registry.registerConverter(std::make_shared<D3Converter>());
+    // Registered last on purpose: `findForProfile` prefers earlier entries, and
+    // glTF listing `Generic` must never shadow a game converter's answer.
+    registry.registerConverter(std::make_shared<GltfConverter>());
 }
 
 ConverterRegistry::ConverterRegistry() : pImpl(std::make_unique<Impl>()) {

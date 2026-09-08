@@ -384,9 +384,19 @@ NodeImport ImportNodes(const mdx::Model& source) {
         // See the file comment: the rest pose is the pivot, so the local
         // translation is the pivot difference and the rotation and scale are
         // identity; the tracks are the channel table's (§10.8).
+        //
+        // The parent's pivot comes from `pending`, which is complete, not from
+        // the half-built tree: bones convert before helpers, so a bone whose
+        // parent is a helper is a FORWARD reference — reading the growing tree
+        // gave those nodes an absolute local (their parent pivot as zero),
+        // which every consumer of `local` (glTF export, retargets) inherited
+        // while the pivot-composing mdx evaluator hid it.
         Vector3f parentPivot{0, 0, 0};
-        if (node.parent != kInvalidNode && node.parent < out.tree.size()) {
-            parentPivot = out.tree.nodes[node.parent].pivot;
+        if (node.parent != kInvalidNode && node.parent < pending.size()) {
+            const mdx::Node& parentNode = *pending[node.parent].source;
+            if (parentNode.objectId < source.pivotPoints.size()) {
+                parentPivot = source.pivotPoints[parentNode.objectId];
+            }
         }
         node.local.translation =
             Vector3f{node.pivot.x - parentPivot.x, node.pivot.y - parentPivot.y,

@@ -403,6 +403,12 @@ add_library(whiteout_lib
     src/whiteout/models/m3/binary_parse_visitor.cpp
     src/whiteout/models/m3/binary_writer_visitor.cpp
 
+    # glTF
+    src/whiteout/models/gltf/json.cpp
+    src/whiteout/models/gltf/gltf.cpp
+    src/whiteout/models/gltf/parser.cpp
+    src/whiteout/models/gltf/writer.cpp
+
     # WEM
     src/whiteout/models/wem/diagnostics.cpp
     src/whiteout/models/wem/profile.cpp
@@ -431,6 +437,7 @@ add_library(whiteout_lib
     src/whiteout/models/wem/materials/m2_core.cpp
     src/whiteout/models/wem/materials/m3_core.cpp
     src/whiteout/models/wem/materials/d3_core.cpp
+    src/whiteout/models/wem/materials/gltf_core.cpp
     src/whiteout/models/wem/model.cpp
     src/whiteout/models/wem/retarget.cpp
     src/whiteout/models/wem/skeleton_retarget.cpp
@@ -449,6 +456,8 @@ add_library(whiteout_lib
     src/whiteout/models/wem/converters/m3_anim.cpp
     src/whiteout/models/wem/converters/d3_converter.cpp
     src/whiteout/models/wem/converters/d3_anim.cpp
+    src/whiteout/models/wem/converters/gltf_converter.cpp
+    src/whiteout/models/wem/converters/gltf_anim.cpp
 
     # Textures
     src/whiteout/textures/texture.cpp
