@@ -1611,11 +1611,17 @@ private:
     mutable u32 zeroRemap_ = 0;
 
     /// `flags` bit 4 is step; `interpType` stays 0 because the row lies at
-    /// runtime and the import never read it.
+    /// runtime and the import never read it. One AnimRef serves every
+    /// sequence, so the bit stands only while EVERY clip's track holds -- a
+    /// clip that moves clears it for good, whichever order they are wired.
     template <class T>
-    static void Wire(m3::AnimRef<T>& ref, u32 animId, Interpolation interp) {
+    void Wire(m3::AnimRef<T>& ref, u32 animId, Interpolation interp) {
         ref.animId = animId;
-        ref.flags = static_cast<u16>(interp == Interpolation::Step ? 0x10u : 0x0u);
+        if (interp != Interpolation::Step) {
+            moving_.insert(animId);
+        }
+        ref.flags = static_cast<u16>(
+            interp == Interpolation::Step && moving_.count(animId) == 0 ? 0x10u : 0x0u);
     }
 
     void wireAnimRef(const AnimChannel& channel, const SubTrack& track) {
@@ -1973,6 +1979,8 @@ private:
     std::set<std::pair<u32, u32>> alphaCarriers_;
     /// Whole-material colour channels whose rest already seeded the diffuse.
     std::set<u32> colorSeeded_;
+    /// Channels some clip interpolates, so no clip may leave them stepped.
+    std::set<u32> moving_;
 };
 
 } // namespace

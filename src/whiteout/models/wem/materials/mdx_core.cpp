@@ -220,10 +220,22 @@ TextureInput inputFor(const Layer& layer, u32 mdxTextureId, const Context& conte
     if (hasFlag(layer.shadingFlags, Layer::ShadingFlag::SphereEnvMap)) {
         input.mapping = UVMappingMode::EnvSphere;
     }
-    input.wrapU = hasFlag(layer.shadingFlags, Layer::ShadingFlag::WrapWidth) ? WrapMode::Repeat
-                                                                             : WrapMode::Clamp;
-    input.wrapV = hasFlag(layer.shadingFlags, Layer::ShadingFlag::WrapHeight) ? WrapMode::Repeat
-                                                                              : WrapMode::Clamp;
+    // The address mode is the TEXTURE's word (`TEXS` 0x1 wrap U, 0x2 wrap V):
+    // the game's adapter and ours read `tex.flags & 0x3` and nothing off the
+    // layer, whose own bits every Reforged file leaves clear while its
+    // textures wrap. Only a context without a table falls back to the layer.
+    u32 wrap = static_cast<u32>(layer.shadingFlags) & 0xCu;
+    if (context.textureRefs != nullptr) {
+        wrap = input.texture < context.textureRefs->size()
+                   ? ((*context.textureRefs)[input.texture].flags & 0x3u) << 2u
+                   : 0u;
+    }
+    input.wrapU = (wrap & static_cast<u32>(Layer::ShadingFlag::WrapWidth)) != 0
+                      ? WrapMode::Repeat
+                      : WrapMode::Clamp;
+    input.wrapV = (wrap & static_cast<u32>(Layer::ShadingFlag::WrapHeight)) != 0
+                      ? WrapMode::Repeat
+                      : WrapMode::Clamp;
     return input;
 }
 
@@ -295,9 +307,11 @@ void addFresnel(const Layer& layer, u32 ordinal, CommonMaterial& common) {
     }
     FresnelFeature fresnel;
     fresnel.color = layer.fresnelColor;
-    // MDX carries no exponent, and `fresnelOpacity` is the effect's strength —
-    // an output ceiling, which is what `outMax` is (§7.2.5).
-    fresnel.exponent = 1.0f;
+    // MDX carries no exponent because the shader's is fixed: Reforged's overlay
+    // is `opacity * (1 - n.v)^2` (fresnel_overlay.slang), so the square is the
+    // feature's exponent, and `fresnelOpacity` is the effect's strength -- an
+    // output ceiling, which is what `outMax` is (§7.2.5).
+    fresnel.exponent = 2.0f;
     fresnel.outMin = 0.0f;
     fresnel.outMax = layer.fresnelOpacity;
     fresnel.teamColor = layer.fresnelTeamColor;

@@ -478,8 +478,11 @@ void CollectSlots(const AnimChannelTable& table, const SubTrackContainer& contai
 
 /// Whether @p slot holds a curve that changes between its keys. A slot with no
 /// track is constant, which is step-compatible.
-bool StepLike(const ChannelSlot& slot) {
-    return slot.track == nullptr || slot.interp == Interpolation::Step;
+/// Whether @p slot holds the source still between its keys: a keyed track that
+/// steps. An absent slot is CONSTANT, not held -- the rewritten curve moves
+/// there with whatever the present slots do.
+bool Steps(const ChannelSlot& slot) {
+    return slot.track != nullptr && slot.interp == Interpolation::Step;
 }
 
 /**
@@ -493,11 +496,21 @@ bool StepLike(const ChannelSlot& slot) {
  * `B`'s own translation rides the source's linear part.
  */
 Interpolation InterpFor(const ChannelSlot slots[3], Channel channel) {
-    const bool linearHeld = StepLike(slots[1]) && StepLike(slots[2]);
-    const bool held = channel == Channel::Translation
-                          ? linearHeld && StepLike(slots[0])
-                          : linearHeld;
-    if (held) {
+    // Held only where a keyed source holds and none moves. Counting an absent
+    // slot as held wrote every unkeyed channel of every clip as a step, and an
+    // `.mdx` has one interpolation per track: a bone that rested through
+    // `Stand` was then held through `Walk` too, key by key -- the Thor's
+    // tremor.
+    bool keyed = false;
+    bool moving = false;
+    for (int c = channel == Channel::Translation ? 0 : 1; c < 3; ++c) {
+        if (slots[c].track == nullptr) {
+            continue;
+        }
+        keyed = true;
+        moving = moving || !Steps(slots[c]);
+    }
+    if (keyed && !moving) {
         return Interpolation::Step;
     }
     return channel == Channel::Rotation ? Interpolation::Slerp : Interpolation::Linear;

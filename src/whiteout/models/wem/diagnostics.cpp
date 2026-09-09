@@ -63,6 +63,7 @@ constexpr const char* kDiagCodeNames[] = {
     "FlipbookDropped",
     "CompositeEmitted",
     "PassOrderFolded",
+    "FresnelFolded",
 
     "ProfileNotCarried",
     "ProfileCoverageIncomplete",

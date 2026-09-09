@@ -562,3 +562,61 @@ TEST_CASE("the scalar pipeline runs in the shader's order", "[pbr_bake]") {
     CHECK(static_cast<int>(channelOf(*baked, Channel::A)) ==
           Catch::Approx(96).margin(2));
 }
+
+TEST_CASE("the team crossing reproduces Reforged's blend, shade for shade", "[pbr_bake]") {
+    // Reforged: lerp(base, teamHue * peak, sqrt(w)) -- multi_layer.slang with a
+    // team colour at least as bright as the texel. StarCraft II: lerp(team,
+    // diffuse, a). The texel the crossing writes has to make the second equal
+    // the first, channel for channel, at every weight.
+    const f32 team[3] = {1.0f, 0.02f, 0.03f}; // the stock red swatch, linear
+    const f32 texels[4][3] = {
+        {0.5f, 0.5f, 0.5f}, {0.8f, 0.4f, 0.2f}, {0.1f, 0.3f, 0.9f}, {1.0f, 1.0f, 1.0f}};
+    for (const f32* base : texels) {
+        for (const f32 weight : {0.0f, 0.25f, 0.6f, 1.0f}) {
+            f32 out[3];
+            const f32 alpha = pbr::TeamReplaceFromBlend(base, weight, false, out);
+            f32 peak = 0.0f;
+            for (int c = 0; c < 3; ++c) {
+                peak = base[c] > peak ? base[c] : peak;
+            }
+            const f32 onset = std::sqrt(weight);
+            for (int c = 0; c < 3; ++c) {
+                const f32 reforged = base[c] + onset * (team[c] * peak - base[c]);
+                const f32 sc2 = team[c] + alpha * (out[c] - team[c]);
+                CHECK(sc2 == Catch::Approx(reforged).margin(1e-5f));
+            }
+        }
+    }
+}
+
+TEST_CASE("under a whole mask the team's share is the art's brightness", "[pbr_bake]") {
+    // A white texel is all the team's; a half-grey one is half the team's over
+    // black, the shade Reforged shows; black stays black -- Reforged cannot
+    // tint what has no brightness, and a plate there would be a new defect.
+    f32 out[3];
+    const f32 white[3] = {1.0f, 1.0f, 1.0f};
+    CHECK(pbr::TeamReplaceFromBlend(white, 1.0f, false, out) == Catch::Approx(0.0f));
+    const f32 grey[3] = {0.5f, 0.5f, 0.5f};
+    CHECK(pbr::TeamReplaceFromBlend(grey, 1.0f, false, out) == Catch::Approx(0.5f));
+    CHECK(out[0] == Catch::Approx(0.0f));
+    const f32 black[3] = {0.0f, 0.0f, 0.0f};
+    CHECK(pbr::TeamReplaceFromBlend(black, 1.0f, false, out) == Catch::Approx(1.0f));
+    CHECK(out[1] == Catch::Approx(0.0f));
+}
+
+TEST_CASE("an unmasked texel crosses untouched, in the space it came in", "[pbr_bake]") {
+    const f32 painted[3] = {0.6f, 0.3f, 0.1f};
+    f32 out[3];
+    CHECK(pbr::TeamReplaceFromBlend(painted, 0.0f, true, out) == Catch::Approx(1.0f));
+    for (int c = 0; c < 3; ++c) {
+        CHECK(out[c] == Catch::Approx(painted[c]).margin(1e-4f));
+    }
+}
+
+TEST_CASE("the team's share is measured in linear light, not in the byte", "[pbr_bake]") {
+    // Encoded 0.5 is linear 0.214, and that is the peak both engines blend.
+    const f32 grey[3] = {0.5f, 0.5f, 0.5f};
+    f32 out[3];
+    CHECK(pbr::TeamReplaceFromBlend(grey, 1.0f, true, out) ==
+          Catch::Approx(1.0f - srgbToLinear(0.5f)).margin(1e-4f));
+}

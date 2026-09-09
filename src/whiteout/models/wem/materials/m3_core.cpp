@@ -252,6 +252,12 @@ void addFresnel(const m3::TextureLayer& layer, u32 ordinal, CommonMaterial& comm
     // routinely run max < min, which only means the ramp is inverted.
     fresnel.outMin = layer.fresnelMin;
     fresnel.outMax = layer.fresnelMax;
+    // Inverted runs `1 - term` through the same ramp, which is the Standard
+    // ramp with its ends swapped: `(1-t)(max-min)+min == t(min-max)+max`. One
+    // spelling in WEM; the export writes Standard.
+    if (layer.fresnelMode == m3::FresnelMode::Inverted) {
+        std::swap(fresnel.outMin, fresnel.outMax);
+    }
 
     MaterialFeature feature;
     feature.id = NextFeatureId(common.features);
@@ -1428,6 +1434,32 @@ void weightLayer(m3::TextureLayer& layer, f32 weight) {
     layer.color.initValue.a = static_cast<u8>(std::clamp(weight, 0.0f, 1.0f) * 255.0f + 0.5f);
 }
 
+/// A solid-colour carrier in @p rgb: the rim overlay's two halves.
+m3::TextureLayer tintCarrier(const Vector3f& rgb, f32 alpha) {
+    const auto byte = [](f32 v) {
+        return static_cast<u8>(std::clamp(v, 0.0f, 1.0f) * 255.0f + 0.5f);
+    };
+    m3::TextureLayer layer = carrierLayer(alpha);
+    layer.color.initValue.r = byte(rgb.x);
+    layer.color.initValue.g = byte(rgb.y);
+    layer.color.initValue.b = byte(rgb.z);
+    return layer;
+}
+
+/// `(1 - |n.v|)^exponent` remapped onto [from, to]: the layer's min/max are the
+/// ramp's ends, not a clamp on the term (`fresnelExponentBiasScale`).
+void fresnelRamp(m3::TextureLayer& layer, f32 exponent, f32 from, f32 to) {
+    layer.fresnelMode = m3::FresnelMode::Standard;
+    layer.fresnelExponent = exponent;
+    layer.fresnelMin = from;
+    layer.fresnelMax = to;
+    // The view-vector transform stays off (flag 0x4000 clear); its fields are
+    // written at their identity rather than whatever the stack held.
+    layer.fresnelTranslation = Vector3f{0.0f, 0.0f, 0.0f};
+    layer.fresnelMask = Vector3f{1.0f, 1.0f, 1.0f};
+    layer.fresnelRotation = Vector2f{0.0f, 0.0f};
+}
+
 bool modFamily(m3::LayerBlendOp op) {
     return op == m3::LayerBlendOp::Mod || op == m3::LayerBlendOp::Mod2x ||
            op == m3::LayerBlendOp::Lerp;
@@ -2058,6 +2090,104 @@ void placeExtras(Section& s, const CompositeBody& body, const Context& context,
     }
 }
 
+/// The material's fresnel features. One naming a layer this section placed is
+/// that layer's own term -- the import's inverse. A whole-material one, or any
+/// on a Warcraft III stack (its engine has only the overlay), is Reforged's
+/// rim, `lerp(lit, tint, opacity * (1 - n.v)^2)`, spelled as two solid
+/// carriers: a Mod that dims the lit colour by `1 - w` and an alpha-free add
+/// of `tint * w`. Retail multiplies the lit colour by a Mod-family emissive1
+/// (psmaterial.fx:240) but sends a Mod emissive2 to the add accumulator once
+/// emissive1 added, so beside an emissive map the dim takes the decal -- the
+/// albedo before lighting, the specular undimmed. The add slots' sum is scaled
+/// by the HDR multiplier, so the tint is written under it.
+void placeFresnel(Section& s, const CompositeBody* body, const CommonMaterial& common,
+                  const Context& context, ProfileId profile, Diagnostics& out) {
+    using Op = m3::LayerBlendOp;
+    m3::StandardMaterial& m = s.standard;
+    const f32 hdr = body != nullptr ? (std::max)(1.0f, body->emissiveFactor.x) : 1.0f;
+    for (const MaterialFeature& feature : common.features) {
+        const FresnelFeature* fresnel = feature.fresnel();
+        if (fresnel == nullptr) {
+            continue;
+        }
+        const f32 exponent = fresnel->exponent > 0.0f ? fresnel->exponent : 1.0f;
+        if (feature.layer != kWholeMaterial && !context.warcraftPasses) {
+            bool placed = false;
+            for (std::size_t k = 0; k < s.ordinals.size() && !placed; ++k) {
+                std::optional<m3::TextureLayer>& slot =
+                    MutableLayerOf(m, static_cast<StandardLayer>(k));
+                if (s.ordinals[k] == feature.layer && slot.has_value()) {
+                    fresnelRamp(*slot, exponent, fresnel->outMin, fresnel->outMax);
+                    placed = true;
+                }
+            }
+            if (!placed) {
+                out.info(DiagCode::FeatureDropped,
+                         "a fresnel feature names layer " + number(feature.layer) +
+                             ", which no slot carries",
+                         ElementRef(ElementKind::Layer, feature.layer), profile);
+            }
+            continue;
+        }
+
+        const f32 low = std::clamp(fresnel->outMin, 0.0f, 1.0f);
+        const f32 high = std::clamp(fresnel->outMax, 0.0f, 1.0f);
+        if (low <= 0.0f && high <= 0.0f) {
+            continue;
+        }
+        if (fresnel->teamColor > 0.0f) {
+            out.info(DiagCode::FeatureDropped,
+                     "the rim's team share has no StarCraft II carrier; the authored tint stands",
+                     ElementRef(), profile);
+        }
+        m3::TextureLayer dim = tintCarrier(Vector3f{1.0f, 1.0f, 1.0f}, 1.0f);
+        fresnelRamp(dim, exponent, 1.0f - low, 1.0f - high);
+        m3::TextureLayer rim = tintCarrier(
+            Vector3f{fresnel->color.x / hdr, fresnel->color.y / hdr, fresnel->color.z / hdr},
+            1.0f);
+        fresnelRamp(rim, exponent, low, high);
+
+        const bool emis1Free = !m.emissiveLayer1.has_value();
+        const bool emis2Free = !m.emissiveLayer2.has_value();
+        if (emis1Free && emis2Free) {
+            m.emissiveLayer1 = dim;
+            m.emissiveBlendMode1 = Op::Mod;
+            ++s.emisMod;
+            m.emissiveLayer2 = rim;
+            m.emissiveBlendMode2 = Op::AddNoAlpha;
+            ++s.emisAdd;
+        } else if (!m.decalLayer.has_value() && (emis1Free || emis2Free)) {
+            m.decalLayer = dim;
+            m.layerBlendMode = Op::Mod;
+            s.hasDecal = true;
+            s.decalOp = Op::Mod;
+            (emis1Free ? m.emissiveLayer1 : m.emissiveLayer2) = rim;
+            (emis1Free ? m.emissiveBlendMode1 : m.emissiveBlendMode2) = Op::AddNoAlpha;
+            ++s.emisAdd;
+        } else if (emis1Free || (emis2Free && modFamily(m.emissiveBlendMode1))) {
+            // One slot on the lit colour: a lerp toward the tint by the term
+            // dims exactly and brings the tint at the term squared.
+            rim.color.initValue.a = 255;
+            (emis1Free ? m.emissiveLayer1 : m.emissiveLayer2) = rim;
+            (emis1Free ? m.emissiveBlendMode1 : m.emissiveBlendMode2) = Op::Lerp;
+            ++s.emisMod;
+            out.info(DiagCode::FresnelFolded,
+                     "the rim overlay is one lerp: its tint arrives at the term squared",
+                     ElementRef(), profile);
+        } else if (emis2Free) {
+            m.emissiveLayer2 = rim;
+            m.emissiveBlendMode2 = Op::AddNoAlpha;
+            ++s.emisAdd;
+            out.info(DiagCode::FresnelFolded,
+                     "the rim overlay adds over an undimmed base: no slot was left for the dim",
+                     ElementRef(), profile);
+        } else {
+            out.warn(DiagCode::FeatureDropped, "the rim overlay found no free emissive slot",
+                     ElementRef(), profile);
+        }
+    }
+}
+
 /// The header fields every section shares, the multipliers, the base's own
 /// coverage and static alpha.
 void finish(Section& s, const CompositeBody* body, const CommonMaterial& common,
@@ -2093,6 +2223,17 @@ void finish(Section& s, const CompositeBody* body, const CommonMaterial& common,
         m.alphaLayer1 = *m.diffuseLayer;
         m.alphaLayer1->colorType = m3::ColorChannelSelect::Alpha;
         m.alphaLayer1->mapAlpha.initValue = 1.0f; // the static weight rides its own carrier
+    }
+    // An explicit coverage layer answers what the team select gave up: the
+    // engine tests and blends by the mask's alpha, not the diffuse's, so the
+    // header's own blend and threshold stand again.
+    if (s.teamDiffuse && !s.toggle && m.alphaLayer1.has_value() &&
+        m.blendMode == m3::BlendMode::Opaque && m.alphaTestThreshold == 0) {
+        m.blendMode = blendFor(common.blend);
+        if (m.blendMode == m3::BlendMode::Opaque) {
+            m.alphaTestThreshold =
+                (std::min)(255u, static_cast<u32>(common.alphaTestThreshold * 256.0f + 0.5f));
+        }
     }
 
     // The base pass's static alpha: a Color-flag carrier whose multiply is the
@@ -2194,8 +2335,11 @@ m3::MaterialMap exportPasses(std::vector<Pass> passes, const CompositeBody* body
             apply(s, passes[i], r, context, profile, out, sections.empty() ? report : nullptr);
             ++i;
         }
-        if (sections.empty() && body != nullptr) {
-            placeExtras(s, *body, context, profile, out);
+        if (sections.empty()) {
+            if (body != nullptr) {
+                placeExtras(s, *body, context, profile, out);
+            }
+            placeFresnel(s, body, common, context, profile, out);
         }
         finish(s, body, common, material.name, profile, out);
         sections.push_back(std::move(s));
@@ -2206,6 +2350,7 @@ m3::MaterialMap exportPasses(std::vector<Pass> passes, const CompositeBody* body
         if (body != nullptr) {
             placeExtras(s, *body, context, profile, out);
         }
+        placeFresnel(s, body, common, context, profile, out);
         finish(s, body, common, material.name, profile, out);
         sections.push_back(std::move(s));
     }

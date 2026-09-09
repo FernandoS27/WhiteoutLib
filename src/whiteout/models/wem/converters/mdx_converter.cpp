@@ -614,6 +614,7 @@ Result<Document> MdxConverter::fromMdx(const mdx::Model& source) const {
         context.textureIndexMap.push_back(static_cast<u32>(document.textures.size()));
         document.textures.push_back(std::move(ref));
     }
+    context.textureRefs = &document.textures;
 
     Model model;
     model.name = source.modelName;

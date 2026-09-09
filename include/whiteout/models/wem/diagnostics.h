@@ -105,6 +105,7 @@ enum class DiagCode : u16 {
     FlipbookDropped,      ///< A texture-id track (KMTF) kept only its first frame.
     CompositeEmitted,     ///< The stack needed N > 1 materials; a CMP_ carries them.
     PassOrderFolded,      ///< A blend or modulate pass folded BEFORE an additive one it followed.
+    FresnelFolded,        ///< A rim overlay folded approximately: one lerp, or an undimmed base.
 
     // --- profiles (§6) --------------------------------------------------------
     ProfileNotCarried,         ///< Export asked for a profile the document does not have.

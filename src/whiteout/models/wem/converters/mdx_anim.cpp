@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <deque>
 #include <optional>
 #include <string>
 #include <utility>
@@ -695,8 +696,77 @@ struct MergedTrack {
         used = !times.empty();
     }
 
+    /// A key the export made up rather than found -- a window edge -- sized
+    /// for `valuesPerKey`, its tangents zero. Stable addresses, so `keys` may
+    /// point into it.
+    const u8* own(std::vector<u8> value) {
+        value.resize(valuesPerKey * valueSize, 0);
+        synthesized.push_back(std::move(value));
+        return synthesized.back().data();
+    }
+
     std::vector<std::pair<u32, const u8*>> pending;
+    std::deque<std::vector<u8>> synthesized;
 };
+
+/// @p track's value at @p time (seconds) the way its source plays it: the
+/// first key held before it and the last past it, stepped or lerped between
+/// (a quaternion the short way round, a tangent stream on its values alone).
+std::vector<u8> SampleValue(const SubTrack& track, geom::AttrType type, f32 time) {
+    const std::size_t size = geom::AttrTypeSize(type);
+    const std::size_t stride = ValuesPerKey(track.interp) * size;
+    const auto at = [&](std::size_t key) { return track.values.data() + key * stride; };
+
+    std::size_t after = 0;
+    while (after < track.times.size() && track.times[after] <= time) {
+        ++after;
+    }
+    if (after == 0) {
+        return std::vector<u8>(at(0), at(0) + size);
+    }
+    const std::size_t before = after - 1;
+    if (after >= track.times.size() || track.interp == Interpolation::Step) {
+        return std::vector<u8>(at(before), at(before) + size);
+    }
+    const f32 span = track.times[after] - track.times[before];
+    const f32 alpha = span > 0.0f ? (time - track.times[before]) / span : 0.0f;
+    std::vector<u8> out(at(before), at(before) + size);
+    switch (type) {
+    case geom::AttrType::F32:
+    case geom::AttrType::F32x2:
+    case geom::AttrType::F32x3:
+    case geom::AttrType::F32x4: {
+        for (std::size_t i = 0; i < size / sizeof(f32); ++i) {
+            f32 a = 0, b = 0;
+            std::memcpy(&a, at(before) + i * sizeof(f32), sizeof(f32));
+            std::memcpy(&b, at(after) + i * sizeof(f32), sizeof(f32));
+            const f32 v = a + (b - a) * alpha;
+            std::memcpy(out.data() + i * sizeof(f32), &v, sizeof(f32));
+        }
+        break;
+    }
+    case geom::AttrType::Quat: {
+        f32 a[4], b[4], v[4];
+        std::memcpy(a, at(before), sizeof(a));
+        std::memcpy(b, at(after), sizeof(b));
+        const f32 sign = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3] < 0.0f ? -1.0f : 1.0f;
+        f32 length = 0.0f;
+        for (int i = 0; i < 4; ++i) {
+            v[i] = a[i] + (sign * b[i] - a[i]) * alpha;
+            length += v[i] * v[i];
+        }
+        length = std::sqrt(length);
+        for (int i = 0; i < 4; ++i) {
+            v[i] = length > 0.0f ? v[i] / length : v[i];
+        }
+        std::memcpy(out.data(), v, sizeof(v));
+        break;
+    }
+    default:
+        break;
+    }
+    return out;
+}
 
 /// Writes a merged track into `dst`, decoding `T` out of the raw value bytes.
 template <class T>
@@ -822,8 +892,13 @@ private:
     MergedTrack gather(const AnimChannel& channel) const {
         MergedTrack merged;
         merged.valueSize = geom::AttrTypeSize(channel.valueType);
-        bool first = true;
 
+        struct Part {
+            const Window* window;
+            const Clip* clip;
+            const SubTrack* track;
+        };
+        std::vector<Part> parts;
         for (const Window& window : windows_) {
             const Clip& clip = document_.clips[window.clip];
             for (const SubTrackContainer& container : clip.containers) {
@@ -838,57 +913,99 @@ private:
                                       ElementRef(ElementKind::Track, channel.id), profile_);
                     continue;
                 }
-                if (first) {
-                    merged.interp = track->interp;
-                    merged.valuesPerKey = ValuesPerKey(track->interp);
-                    merged.globalSequenceId = window.globalSequenceId;
-                    first = false;
-                } else if (track->interp != merged.interp) {
-                    // One MDX track has one interpolation type, so two clips
-                    // that disagree cannot both be written. The first wins and
-                    // the rest are named.
-                    diagnostics_.warn(DiagCode::AnimTrackApproximated,
-                                      "clip '" + clip.name + "' interpolates a shared channel as " +
-                                          ToString(track->interp) + "; written as " +
-                                          ToString(merged.interp),
-                                      ElementRef(ElementKind::Track, channel.id), profile_);
-                }
+                parts.push_back(Part{&window, &clip, track});
+            }
+        }
+        if (parts.empty()) {
+            return merged;
+        }
 
-                const u32 stride = merged.valuesPerKey * static_cast<u32>(merged.valueSize);
-                const bool global = window.globalSequenceId != kNoGlobalSequence;
-                const u32 start = global ? 0u : window.start;
-                for (std::size_t k = 0; k < track->times.size(); ++k) {
-                    // Back onto the timeline. A bracket key's time is negative
-                    // or past the clip, which is exactly what puts it back where
-                    // the neighbouring window's key already is.
-                    const f32 absolute = track->times[k] * kMilliseconds + static_cast<f32>(start);
-                    const u32 time = absolute <= 0.0f ? 0u : static_cast<u32>(absolute + 0.5f);
-                    merged.add(time, track->values.data() + k * stride);
-                }
+        // One MDX track has one interpolation type, so clips that disagree
+        // cannot all be written. The first clip that MOVES between its keys
+        // names it: a step written over a ramp turns every key into a jolt,
+        // where a ramp written over a step only softens a hold -- and "the
+        // first clip wins" held most of the Thor through every sequence it
+        // moved in, because a bone at rest in `Stand` stepped there. A
+        // tangent stream survives only when every clip carries one. The rest
+        // are named.
+        merged.interp = parts.front().track->interp;
+        for (const Part& part : parts) {
+            if (part.track->interp != Interpolation::Step) {
+                merged.interp = part.track->interp;
+                break;
+            }
+        }
+        for (const Part& part : parts) {
+            if (ValuesPerKey(part.track->interp) < ValuesPerKey(merged.interp)) {
+                merged.interp = Interpolation::Linear;
+                break;
+            }
+        }
+        merged.valuesPerKey = ValuesPerKey(merged.interp);
+        merged.globalSequenceId = parts.front().window->globalSequenceId;
+        for (const Part& part : parts) {
+            if (MdxInterp(part.track->interp) != MdxInterp(merged.interp)) {
+                diagnostics_.warn(DiagCode::AnimTrackApproximated,
+                                  "clip '" + part.clip->name +
+                                      "' interpolates a shared channel as " +
+                                      ToString(part.track->interp) + "; written as " +
+                                      ToString(merged.interp),
+                                  ElementRef(ElementKind::Track, channel.id), profile_);
+            }
+        }
 
-                // Warcraft III has no default: a window's first key is what
-                // plays from its start, and past the last key the engine
-                // interpolates back to the first across the loop. Every other
-                // source holds outside its keys, so a clip that did not come
-                // from an `.mdx` gets its first and last key restated at the
-                // window's two edges -- the start and end key every Warcraft
-                // III track has to have. An `.mdx` clip's keys already say
-                // what its engine plays and are left alone.
-                const bool warcraft = clip.native.value("intervalStart", -1) >= 0 ||
-                                      clip.native.value("globalSequenceId", -1) >= 0;
-                if (!warcraft) {
-                    const u32 end = global ? Milliseconds(clip.duration) : window.end;
-                    const auto minmax =
-                        std::minmax_element(track->times.begin(), track->times.end());
-                    if (*minmax.first > 1e-4f) {
-                        merged.add(start, track->values.data() +
-                                              (minmax.first - track->times.begin()) * stride);
-                    }
-                    if (*minmax.second < clip.duration - 1e-4f) {
-                        merged.add(end, track->values.data() +
-                                            (minmax.second - track->times.begin()) * stride);
-                    }
+        for (const Part& part : parts) {
+            const Window& window = *part.window;
+            const Clip& clip = *part.clip;
+            const SubTrack& track = *part.track;
+            const u32 stride = ValuesPerKey(track.interp) * static_cast<u32>(merged.valueSize);
+            const bool global = window.globalSequenceId != kNoGlobalSequence;
+            const u32 start = global ? 0u : window.start;
+            const u32 end = global ? Milliseconds(clip.duration) : window.end;
+            const auto at = [&](std::size_t k) { return track.values.data() + k * stride; };
+
+            if (clip.native.value("intervalStart", -1) >= 0 ||
+                clip.native.value("globalSequenceId", -1) >= 0) {
+                // An `.mdx` clip's keys already say what its engine plays,
+                // bracket keys included: a bracket key's time is negative or
+                // past the clip, which is exactly what puts it back where the
+                // neighbouring window's key already is.
+                for (std::size_t k = 0; k < track.times.size(); ++k) {
+                    const f32 absolute =
+                        track.times[k] * kMillisecondsPerSecond + static_cast<f32>(start);
+                    merged.add(absolute <= 0.0f ? 0u : static_cast<u32>(absolute + 0.5f), at(k));
                 }
+                continue;
+            }
+
+            // Any other source holds outside its keys and plays nothing past
+            // its clip. Warcraft III reads every key inside a window as that
+            // window's and has no default before the first or after the last,
+            // so it gets the keys inside the window plus the value the source
+            // shows at each edge the track does not key -- the start and end
+            // key every Warcraft III track has to have. A key past the clip
+            // is dropped: on the one timeline it lands in the next window and
+            // plays there (the Thor's `Attack` keys ran six seconds past its
+            // 3.7 s clip, through `Morph`).
+            bool keyedStart = false;
+            bool keyedEnd = false;
+            for (std::size_t k = 0; k < track.times.size(); ++k) {
+                const f32 t = track.times[k];
+                if (t < -1e-4f || t > clip.duration + 1e-4f) {
+                    continue;
+                }
+                const u32 time = std::clamp(
+                    start + static_cast<u32>(std::max(t, 0.0f) * kMillisecondsPerSecond + 0.5f),
+                    start, end);
+                keyedStart = keyedStart || time == start;
+                keyedEnd = keyedEnd || time == end;
+                merged.add(time, at(k));
+            }
+            if (!keyedStart) {
+                merged.add(start, merged.own(SampleValue(track, channel.valueType, 0.0f)));
+            }
+            if (!keyedEnd) {
+                merged.add(end, merged.own(SampleValue(track, channel.valueType, clip.duration)));
             }
         }
         merged.finish();

@@ -468,6 +468,46 @@ std::optional<Texture> BakeOrm(const OrmRecipe& recipe);
 std::optional<Texture> BakeBaseColor(const BaseColorRecipe& recipe);
 
 /**
+ * @brief Rewrite one Reforged team texel so StarCraft II's *replaced* team
+ *        tint reproduces Reforged's *blended* one — the team half of
+ *        @ref BakeBaseColor run the other way.
+ *
+ * Reforged neither modulates nor replaces. Its multi-layer material blends
+ * hue and brightness apart (`effects/multi_layer.slang`): the hue moves to
+ * the team's by `sqrt(w)`, and the brightness — the peak channel — stays the
+ * art's own unless the team colour is darker. For a team colour at least as
+ * bright as the texel, which every stock swatch but the browns and greys is,
+ *
+ * ```
+ * blended = lerp(base, teamHue * peak, sqrt(w)),    peak = max(base.rgb)
+ * ```
+ *
+ * StarCraft II replaces — `lerp(team, diffuse, a)` (`psmateriallayer.fx`) —
+ * a flat plate wherever `a` is low, and writing the mask over as `1 - w` is
+ * exactly what "the team colour has no shading" looks like. Matching the two
+ * term by term,
+ *
+ * ```
+ * 1 - a   = sqrt(w) * peak
+ * diffuse = (1 - sqrt(w)) * base / a
+ * ```
+ *
+ * so the team's share is the art's brightness, and the shading painted under
+ * the mask comes through as shades of the team colour, which is what Reforged
+ * shows. A texel Reforged cannot tint — black under the mask — crosses as no
+ * team at all, which is what it shows too. Both blends happen in linear
+ * light, so the solve does; @p srgb names the space @p albedo is in and @p out
+ * is written in, as @ref ColorInput::srgb does.
+ *
+ * @param albedo  The base colour texel.
+ * @param weight  Reforged's blend weight (ORM.w, the team mask): high = team.
+ * @param srgb    Whether @p albedo is encoded, and @p out is to be.
+ * @param out     The texel StarCraft II reads.
+ * @return The alpha to write @p out under — StarCraft II's mask, low = team.
+ */
+f32 TeamReplaceFromBlend(const f32 albedo[3], f32 weight, bool srgb, f32 out[3]);
+
+/**
  * @brief Sum two additive emissive layers into one map.
  *
  * StarCraft II folds both emissive layers into one accumulator before

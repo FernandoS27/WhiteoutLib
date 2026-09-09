@@ -296,6 +296,25 @@ TEST_CASE("wem mdx a texture states the address mode its layers ask for",
     CHECK(kept->textures[0].flags == mdx::Texture::Flag::WrapWidth);
 }
 
+TEST_CASE("wem mdx the address mode is the texture's word, not the layer's",
+          "[wem][convert][mdx][textures]") {
+    // Warcraft III reads `TEXS`'s flag word and nothing off the layer. Every
+    // Reforged file wraps its textures (0x3) and leaves the layer bits clear,
+    // which a layer read turned into a clamp: a banshee whose skirt runs to
+    // u = -1 sampled one edge column across half its body.
+    mdx::Model model = makeModel();
+    model.textures[0].flags = mdx::Texture::Flag::WrapWidth;
+    const MdxConverter converter;
+    Result<Document> imported = converter.fromMdx(model);
+    REQUIRE(imported.ok());
+    const CompositeBody* body =
+        imported->models[0].profileSets[0].materials[0].Common().composite();
+    REQUIRE(body != nullptr);
+    REQUIRE_FALSE(body->layers.empty());
+    CHECK(body->layers[0].input.wrapU == WrapMode::Repeat);
+    CHECK(body->layers[0].input.wrapV == WrapMode::Clamp);
+}
+
 TEST_CASE("wem mdx a hidden section becomes a static alpha of zero",
           "[wem][convert][mdx][geometry]") {
     Document document = makeSectionedDocument(3);

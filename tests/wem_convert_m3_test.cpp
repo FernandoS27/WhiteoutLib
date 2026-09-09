@@ -1290,3 +1290,147 @@ TEST_CASE("wem m3 a sphere-mapped pass is the environment layer", "[wem][convert
     CHECK(out.environmentMaskLayer->color.initValue.r == 128);
     CHECK(written.diagnostics.countOf(DiagCode::LitEnvFolded) == 0);
 }
+
+TEST_CASE("wem m3 a coverage layer restores the test a team stack dropped",
+          "[wem][convert][m3][coverage][team]") {
+    // The RGBA select spends the diffuse alpha on the team mask, so the fold
+    // clears the test rather than cut the team regions out. An explicit
+    // coverage layer -- the Reforged base colour, whose alpha is the cutout --
+    // is what the engine tests by, and the header's own test stands again.
+    Material material;
+    material.name = "ghost";
+    CompositeBody body;
+    body.layers.push_back(colorLayer(1, CompositeOp::Set));
+    body.layers.push_back(colorLayer(0, CompositeOp::AlphaBlend));
+    CompositeLayer coverage;
+    coverage.input = wemfix::makeInput(2);
+    coverage.target = SurfaceChannel::Coverage;
+    coverage.op = CompositeOp::Set;
+    body.layers.push_back(coverage);
+    material.InitCommon().body = std::move(body);
+    const M3Converter converter;
+
+    SECTION("keyed") {
+        material.MutableCommon().blend = BlendMode::AlphaKey;
+        material.MutableCommon().alphaTestThreshold = 0.75f;
+        Document document = wc3Document(std::move(material), 1, 1);
+        Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+        const m3::StandardMaterial& out = firstMaterial(written);
+        REQUIRE(out.diffuseLayer.has_value());
+        CHECK(out.diffuseLayer->colorType == m3::ColorChannelSelect::RGBA);
+        CHECK(out.blendMode == m3::BlendMode::Opaque);
+        CHECK(out.alphaTestThreshold == 192);
+        REQUIRE(out.alphaLayer1.has_value());
+        CHECK(out.alphaLayer1->texturePath == "tex2.dds");
+        CHECK(out.alphaLayer1->colorType == m3::ColorChannelSelect::Alpha);
+    }
+    SECTION("blended") {
+        material.MutableCommon().blend = BlendMode::AlphaBlend;
+        Document document = wc3Document(std::move(material), 1, 1);
+        Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+        const m3::StandardMaterial& out = firstMaterial(written);
+        CHECK(out.blendMode == m3::BlendMode::AlphaBlend);
+        CHECK(out.alphaTestThreshold == 0);
+        REQUIRE(out.alphaLayer1.has_value());
+        CHECK(out.alphaLayer1->texturePath == "tex2.dds");
+    }
+}
+
+TEST_CASE("wem m3 a whole-material fresnel is a rim over the lit colour",
+          "[wem][convert][m3][fresnel]") {
+    // Reforged's overlay is `lerp(lit, tint, opacity * (1 - n.v)^2)`. Two solid
+    // carriers spell it exactly: a Mod emissive1 dims the lit colour by `1 - w`
+    // (its ramp runs from 1 down to 1 - opacity) and an alpha-free add in
+    // emissive2 brings `tint * w`.
+    Material material = wemfix::makeComposite("rim");
+    FresnelFeature rim;
+    rim.color = Vector3f{0.5f, 0.79f, 1.0f};
+    rim.exponent = 2.0f;
+    rim.outMin = 0.0f;
+    rim.outMax = 0.85f;
+    MaterialFeature feature;
+    feature.id = 1;
+    feature.layer = kWholeMaterial;
+    feature.payload = rim;
+    material.MutableCommon().features.push_back(feature);
+    const M3Converter converter;
+
+    SECTION("both emissive slots free") {
+        Document document = wc3Document(std::move(material));
+        Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+        const m3::StandardMaterial& out = firstMaterial(written);
+        REQUIRE(out.emissiveLayer1.has_value());
+        CHECK(hasFlag(out.emissiveLayer1->flags, m3::TextureLayerFlag::Color));
+        CHECK(out.emissiveBlendMode1 == m3::LayerBlendOp::Mod);
+        CHECK(out.emissiveLayer1->fresnelMode == m3::FresnelMode::Standard);
+        CHECK(out.emissiveLayer1->fresnelExponent == Catch::Approx(2.0f));
+        CHECK(out.emissiveLayer1->fresnelMin == Catch::Approx(1.0f));
+        CHECK(out.emissiveLayer1->fresnelMax == Catch::Approx(0.15f));
+        CHECK(out.emissiveLayer1->color.initValue.r == 255);
+        REQUIRE(out.emissiveLayer2.has_value());
+        CHECK(out.emissiveBlendMode2 == m3::LayerBlendOp::AddNoAlpha);
+        CHECK(out.emissiveLayer2->fresnelMode == m3::FresnelMode::Standard);
+        CHECK(out.emissiveLayer2->fresnelMin == Catch::Approx(0.0f));
+        CHECK(out.emissiveLayer2->fresnelMax == Catch::Approx(0.85f));
+        CHECK(out.emissiveLayer2->color.initValue.r == 128);
+        CHECK(out.emissiveLayer2->color.initValue.g == 201);
+        CHECK(out.emissiveLayer2->color.initValue.b == 255);
+        CHECK_FALSE(out.decalLayer.has_value());
+        CHECK(written.diagnostics.countOf(DiagCode::FresnelFolded) == 0);
+    }
+    SECTION("beside an emissive map the dim takes the decal") {
+        CompositeBody* body = material.MutableCommon().composite();
+        REQUIRE(body != nullptr);
+        CompositeLayer glow;
+        glow.input = wemfix::makeInput(3);
+        glow.target = SurfaceChannel::Emissive;
+        glow.op = CompositeOp::Add;
+        body->layers.push_back(glow);
+        body->emissiveFactor = Vector4f{2.0f, 0.0f, 0.0f, 1.0f};
+        Document document = wc3Document(std::move(material));
+        Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+        const m3::StandardMaterial& out = firstMaterial(written);
+        REQUIRE(out.emissiveLayer1.has_value());
+        CHECK(out.emissiveLayer1->texturePath == "tex3.dds");
+        REQUIRE(out.decalLayer.has_value());
+        CHECK(out.layerBlendMode == m3::LayerBlendOp::Mod);
+        CHECK(out.decalLayer->fresnelMin == Catch::Approx(1.0f));
+        CHECK(out.decalLayer->fresnelMax == Catch::Approx(0.15f));
+        REQUIRE(out.emissiveLayer2.has_value());
+        CHECK(out.emissiveBlendMode2 == m3::LayerBlendOp::AddNoAlpha);
+        // The add slots' sum is scaled by the HDR multiplier of 2, so the tint
+        // is written at half.
+        CHECK(out.emissiveLayer2->color.initValue.r == 64);
+        CHECK(out.emissiveLayer2->color.initValue.b == 128);
+        CHECK(written.diagnostics.countOf(DiagCode::FresnelFolded) == 0);
+    }
+}
+
+TEST_CASE("wem m3 a layer's own fresnel survives an edit", "[wem][convert][m3][fresnel]") {
+    // Inverted runs `1 - term` through the ramp -- the Standard ramp with its
+    // ends swapped -- so WEM keeps one spelling and the export writes Standard.
+    m3::Model model = makeModel(29);
+    m3::TextureLayer& diffuse = *model.standardMaterials[0].diffuseLayer;
+    diffuse.fresnelMode = m3::FresnelMode::Inverted;
+    diffuse.fresnelExponent = 3.0f;
+    diffuse.fresnelMin = 0.2f;
+    diffuse.fresnelMax = 0.9f;
+    const M3Converter converter;
+    Result<Document> imported = converter.fromM3(model, ProfileId::Sc2);
+    REQUIRE(imported.ok());
+    Material& mat = imported->models[0].profileSets[0].materials[0];
+    const MaterialFeature* feature = mat.Common().feature(FeatureKind::Fresnel, 0);
+    REQUIRE(feature != nullptr);
+    REQUIRE(feature->fresnel() != nullptr);
+    CHECK(feature->fresnel()->outMin == Catch::Approx(0.9f));
+    CHECK(feature->fresnel()->outMax == Catch::Approx(0.2f));
+
+    mat.MutableCommon(); // an edit: the fold answers, not the native block
+    Result<m3::Model> written = converter.toM3(*imported, ProfileId::Sc2, 29);
+    const m3::StandardMaterial& out = firstMaterial(written);
+    REQUIRE(out.diffuseLayer.has_value());
+    CHECK(out.diffuseLayer->fresnelMode == m3::FresnelMode::Standard);
+    CHECK(out.diffuseLayer->fresnelExponent == Catch::Approx(3.0f));
+    CHECK(out.diffuseLayer->fresnelMin == Catch::Approx(0.9f));
+    CHECK(out.diffuseLayer->fresnelMax == Catch::Approx(0.2f));
+}

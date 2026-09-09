@@ -506,3 +506,37 @@ TEST_CASE("the node convention survives a save and load") {
     CHECK(pivotLike.inferredRig() == RigConvention::PivotRelative);
     CHECK(document.models[0].nodes.inferredRig() == RigConvention::ExplicitBind);
 }
+
+TEST_CASE("skeleton retarget does not step a channel the source never keyed") {
+    // The head keys its translation only. Its rewritten rotation and scale are
+    // constant in this clip, and a constant is not a hold: written as a step,
+    // the one MDX interpolation the channel gets would then hold it through
+    // every clip where it moves.
+    Document after = MakeExplicitRig(Vector3f{1.5f, 1.5f, 1.5f});
+    REQUIRE(RetargetSkeleton(after, ProfileId::Wc3Classic).ok);
+    const Model& model = after.models[0];
+    const SubTrackContainer& container = after.clips[0].containers[0];
+    const auto interpOf = [&](u32 node, Channel channel) {
+        const AnimChannel* entry = FindChannel(model.animChannels, node, channel);
+        REQUIRE(entry != nullptr);
+        const SubTrack* track = container.find(entry->id);
+        REQUIRE(track != nullptr);
+        return track->interp;
+    };
+    CHECK(interpOf(2, Channel::Rotation) == Interpolation::Slerp);
+    CHECK(interpOf(2, Channel::Scale) == Interpolation::Linear);
+    CHECK(interpOf(2, Channel::Translation) == Interpolation::Linear);
+
+    // A source that does hold is still written held.
+    Document held = MakeExplicitRig(Vector3f{1.5f, 1.5f, 1.5f});
+    for (SubTrack& track : held.clips[0].containers[0].subTracks) {
+        track.interp = Interpolation::Step;
+    }
+    REQUIRE(RetargetSkeleton(held, ProfileId::Wc3Classic).ok);
+    const AnimChannel* spine =
+        FindChannel(held.models[0].animChannels, 1, Channel::Rotation);
+    REQUIRE(spine != nullptr);
+    const SubTrack* spineTrack = held.clips[0].containers[0].find(spine->id);
+    REQUIRE(spineTrack != nullptr);
+    CHECK(spineTrack->interp == Interpolation::Step);
+}

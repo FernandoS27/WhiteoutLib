@@ -509,6 +509,28 @@ std::optional<Texture> BakeBaseColor(const BaseColorRecipe& recipe) {
     return out;
 }
 
+f32 TeamReplaceFromBlend(const f32 albedo[3], f32 weight, bool srgb, f32 out[3]) {
+    f32 base[3];
+    f32 peak = 0.0f;
+    for (i32 c = 0; c < 3; ++c) {
+        base[c] = std::clamp(albedo[c], 0.0f, 1.0f);
+        if (srgb) {
+            base[c] = srgbToLinear(base[c]);
+        }
+        peak = std::max(peak, base[c]);
+    }
+    // The hue's ramp is sqrt(w); the brightness under it is the art's own.
+    const f32 onset = std::sqrt(std::clamp(weight, 0.0f, 1.0f));
+    const f32 alpha = 1.0f - onset * peak;
+    for (i32 c = 0; c < 3; ++c) {
+        // Under a whole share the art is never seen; it stays as it came.
+        f32 value = alpha > 1e-4f ? (1.0f - onset) * base[c] / alpha : base[c];
+        value = std::clamp(value, 0.0f, 1.0f);
+        out[c] = srgb ? linearToSrgb(value) : value;
+    }
+    return alpha;
+}
+
 std::optional<Texture> BakeEmissiveSum(const ColorInput& first, bool firstWeightByAlpha,
                                        const ColorInput& second, bool secondWeightByAlpha) {
     const Plane a = decode(first.texture);

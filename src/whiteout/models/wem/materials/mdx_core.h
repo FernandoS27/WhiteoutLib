@@ -91,6 +91,11 @@ struct Context {
     /// The document texture index for @p mdxTextureId, or `kInvalidIndex`.
     u32 toDocument(u32 mdxTextureId) const;
 
+    /// The document's texture table, when the caller has one: Warcraft III
+    /// states the address mode on the TEXTURE (`TEXS`'s flag word, kept in
+    /// `TextureRef::flags`), and the import reads it there.
+    const std::vector<TextureRef>* textureRefs = nullptr;
+
     /// The inverse, for export. Linear in the table — the map is one entry per
     /// `.mdx` texture, which is dozens, and a second index would be a second
     /// thing to keep in step.

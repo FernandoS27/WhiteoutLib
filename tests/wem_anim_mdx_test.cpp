@@ -635,6 +635,61 @@ TEST_CASE("wem mdx export keys both edges of a window its track does not reach",
     CHECK(track.keys_data[3].z == Catch::Approx(5.0f));
 }
 
+TEST_CASE("wem mdx export drops a clip's keys past its window and samples the edge",
+          "[wem][anim][mdx]") {
+    // A source that is not an .mdx plays nothing past its clip, and on the one
+    // timeline a key past the window lands inside the next sequence and plays
+    // there. What the window's end gets instead is the value the source shows
+    // at it.
+    mdx::Model model = makeModel();
+    model.bones[0].node.translationTracks = makeTrack<Vector3f>(
+        mdx::InterpolationType::Linear, {500, 1500}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 10}});
+    Document document = convert(model);
+    REQUIRE_FALSE(document.clips.empty());
+    document.clips.resize(1);
+    document.clips[0].native = NativeBag{};
+    // The slicer kept the key past the window as a bracket; the clip is 1 s.
+    REQUIRE(document.clips[0].duration == Catch::Approx(1.0f));
+
+    MdxConverter converter;
+    const Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic);
+    REQUIRE(exported.ok());
+    const u32 start = exported->sequences[0].intervalStart;
+    const u32 end = exported->sequences[0].intervalEnd;
+    const mdx::Track<Vector3f>& track = exported->bones[0].node.translationTracks;
+    REQUIRE(track.timestamps.size() == 3u);
+    CHECK(track.timestamps[0] == start);
+    CHECK(track.timestamps[1] == start + 500u);
+    CHECK(track.timestamps[2] == end);
+    // Before its first key the source holds it; at the end it is half way to
+    // the key the window never reaches.
+    CHECK(track.keys_data[0].z == Catch::Approx(0.0f));
+    CHECK(track.keys_data[2].z == Catch::Approx(5.0f));
+}
+
+TEST_CASE("wem mdx export lets the moving clip name a shared track's interpolation",
+          "[wem][anim][mdx]") {
+    // One MDX track has one interpolation. A step written over a ramp turns
+    // every key into a jolt; a ramp written over a step only softens a hold.
+    mdx::Model model = makeModel();
+    model.bones[0].node.translationTracks =
+        makeTrack<Vector3f>(mdx::InterpolationType::Linear, {0, 1000, 2000, 3000},
+                            {Vector3f{0, 0, 0}, Vector3f{0, 0, 1}, Vector3f{0, 0, 2},
+                             Vector3f{0, 0, 3}});
+    Document document = convert(model);
+    REQUIRE(document.clips.size() >= 2u);
+    for (SubTrack& track : document.clips[0].containers[0].subTracks) {
+        track.interp = Interpolation::Step;
+    }
+
+    MdxConverter converter;
+    const Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic);
+    REQUIRE(exported.ok());
+    CHECK(exported->bones[0].node.translationTracks.interpolationType ==
+          mdx::InterpolationType::Linear);
+    CHECK(exported.diagnostics.countOf(DiagCode::AnimTrackApproximated) == 1u);
+}
+
 // ============================================================================
 // The corpus arm
 // ============================================================================
