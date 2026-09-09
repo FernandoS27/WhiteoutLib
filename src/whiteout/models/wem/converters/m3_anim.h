@@ -108,8 +108,15 @@ struct ExportContext {
     /// these layers). `toM3` plants the carrier layer and records which
     /// standard material and slot (1 = alphaLayer1, 2 = alphaLayer2) it
     /// took; the anim export wires the AnimRef.
-    std::map<u32 /*channel id*/, std::pair<u32 /*standard material*/, u8 /*slot*/>>
+    /// One carrier per standard material the section draws with -- a
+    /// composite slot has one per section.
+    std::map<u32 /*channel id*/, std::vector<std::pair<u32 /*standard material*/, u8 /*slot*/>>>
         sectionAlphaLayers;
+
+    /// The live/dead coverage switch (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5.3
+    /// R6b): per slot, the ordinal whose alpha track drives the first
+    /// section's `alphaLayer1.rgbAdd` instead of a carrier.
+    std::map<u32 /*slot*/, u32 /*ordinal*/> coverageSwitches;
 
     /// Per exported material map entry: the source-body ordinal each
     /// `m3_core::StandardLayer` took, as `ExportMaterial` reported it

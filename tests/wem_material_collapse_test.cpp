@@ -210,8 +210,16 @@ TEST_CASE("wem a stack mixing shaded and unshaded layers diagnoses", "[wem][mate
     source.layers[1].shadingFlags |= Layer::ShadingFlag::Unshaded;
 
     Diagnostics diagnostics;
-    mdx_core::ImportMaterial(source, ProfileId::Wc3Classic, makeContext(), diagnostics);
+    const Material imported =
+        mdx_core::ImportMaterial(source, ProfileId::Wc3Classic, makeContext(), diagnostics);
     CHECK(diagnostics.countOf(DiagCode::MixedShadedUnshadedStack) == 1);
+    // The layer's own decision survives as a feature, which is what lets the
+    // StarCraft II fold pick that pass's home by its shading.
+    const MaterialFeature* kept = imported.Common().feature(FeatureKind::LayerShading, 1);
+    REQUIRE(kept != nullptr);
+    REQUIRE(kept->layerShading() != nullptr);
+    CHECK(kept->layerShading()->unlit);
+    CHECK(imported.Common().feature(FeatureKind::LayerShading, 0) == nullptr);
 }
 
 // ============================================================================

@@ -722,6 +722,84 @@ i32 Ticks(f32 seconds) {
     return static_cast<i32>(seconds * 1000.0f + (seconds < 0.0f ? -0.5f : 0.5f));
 }
 
+/// Whether @p clip is played Warcraft III's way: only the keys inside the
+/// window count, and the spans outside them -- before the first key, after
+/// the last -- are ONE segment from the last key back to the first
+/// (`FindBracket`: `t = pos / ((first - last) + length)`). A sequence window
+/// and a global sequence both are.
+bool WarcraftWindow(const Clip& clip) {
+    return clip.native.value("intervalStart", -1) >= 0 ||
+           clip.native.value("globalSequenceId", -1) >= 0;
+}
+
+/// The value a Warcraft III track shows at fraction @p t of its wrap segment
+/// from @p last back to @p first, as @p size bytes of @p type. A step track
+/// holds the last key across it; a quaternion takes the short way round.
+std::vector<u8> WrapValue(geom::AttrType type, Interpolation interp, const u8* last,
+                          const u8* first, f32 t, std::size_t size) {
+    std::vector<u8> out(last, last + size);
+    if (interp == Interpolation::Step) {
+        return out;
+    }
+    switch (type) {
+    case geom::AttrType::F32:
+    case geom::AttrType::F32x2:
+    case geom::AttrType::F32x3:
+    case geom::AttrType::F32x4: {
+        const std::size_t n = size / sizeof(f32);
+        for (std::size_t i = 0; i < n; ++i) {
+            f32 a = 0, b = 0;
+            std::memcpy(&a, last + i * sizeof(f32), sizeof(f32));
+            std::memcpy(&b, first + i * sizeof(f32), sizeof(f32));
+            const f32 v = a + (b - a) * t;
+            std::memcpy(out.data() + i * sizeof(f32), &v, sizeof(f32));
+        }
+        return out;
+    }
+    case geom::AttrType::Quat: {
+        Quaternion a{}, b{};
+        std::memcpy(&a, last, sizeof(a));
+        std::memcpy(&b, first, sizeof(b));
+        const f32 sign = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w < 0.0f ? -1.0f : 1.0f;
+        Quaternion v{a.x + (sign * b.x - a.x) * t, a.y + (sign * b.y - a.y) * t,
+                     a.z + (sign * b.z - a.z) * t, a.w + (sign * b.w - a.w) * t};
+        const f32 length = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z + v.w * v.w);
+        if (length > 0.0f) {
+            v = Quaternion{v.x / length, v.y / length, v.z / length, v.w / length};
+        }
+        std::memcpy(out.data(), &v, sizeof(v));
+        return out;
+    }
+    default:
+        return out;
+    }
+}
+
+/// Keeps a quaternion stream in one hemisphere: every key is flipped onto the
+/// side of the one before it, and the first onto the side of @p reference
+/// where there is one. Retail's `M3Anim_EvalTrackQuat` lerps the four
+/// components as stored -- no slerp, no sign test -- so a stream whose keys
+/// alternate q, -q (which the Warcraft III Max exporter writes, and which
+/// WC3's own slerp absorbs) passes near zero between every pair of keys: the
+/// bone shrinks and swings at key rate, a tremor. Blizzard's own War3_*.m3
+/// conversions carry no such pair.
+void AlignHemispheres(std::vector<Quaternion>& keys, const Quaternion* reference) {
+    const auto flipOnto = [](const Quaternion& onto, Quaternion& q) {
+        if (onto.x * q.x + onto.y * q.y + onto.z * q.z + onto.w * q.w < 0.0f) {
+            q = Quaternion{-q.x, -q.y, -q.z, -q.w};
+        }
+    };
+    if (keys.empty()) {
+        return;
+    }
+    if (reference != nullptr) {
+        flipOnto(*reference, keys.front());
+    }
+    for (std::size_t k = 1; k < keys.size(); ++k) {
+        flipOnto(keys[k - 1], keys[k]);
+    }
+}
+
 /// The inverse of `Rebase` — WEM's canonical basis back into SC2's.
 Vector3f Unrebase(const Vector3f& v) {
     return Vector3f{v.y, -v.x, v.z};
@@ -1197,6 +1275,7 @@ private:
         // written, or the STC carries a quaternion no Vector2 AnimRef reads.
         std::set<u32> convertedIds;
         const std::vector<ConvertedTrack> convertedUv = convertUvTracks(source, convertedIds);
+        const bool warcraft = WarcraftWindow(clip);
 
         for (const SubTrack& track : source.subTracks) {
             const AnimChannel* channel = model_.animChannels.find(track.channel);
@@ -1220,7 +1299,8 @@ private:
                                   ElementRef(ElementKind::Track, channel->id), profile());
                 continue;
             }
-            const u32 animRef = writeStream(stc, *channel, track, origin, clip.duration);
+            const u32 animRef =
+                writeStream(stc, *channel, track, origin, clip.duration, warcraft);
             if (animRef == kInvalidIndex) {
                 continue;
             }
@@ -1230,7 +1310,8 @@ private:
         }
 
         for (const ConvertedTrack& entry : convertedUv) {
-            const u32 animRef = writeStream(stc, entry.channel, entry.track, origin, clip.duration);
+            const u32 animRef =
+                writeStream(stc, entry.channel, entry.track, origin, clip.duration, warcraft);
             if (animRef == kInvalidIndex) {
                 continue;
             }
@@ -1262,16 +1343,20 @@ private:
         return context_.profile;
     }
 
-    /// Fills the typed block and returns `(slot << 16) | block`.
+    /// Fills the typed block and returns `(slot << 16) | block`. @p warcraft
+    /// says the clip is a Warcraft III window (`WarcraftWindow`).
     u32 writeStream(m3::SubTrackContainer& stc, const AnimChannel& channel, const SubTrack& track,
-                    i32 origin, f32 duration) {
+                    i32 origin, f32 duration, bool warcraft) {
         const Stream stream = StreamFor(channel);
         if (stream == Stream::None) {
             return kInvalidIndex;
         }
         const std::size_t size = geom::AttrTypeSize(channel.valueType);
         const std::size_t stride = ValuesPerKey(track.interp) * size;
+        const auto at = [&](std::size_t key) { return track.values.data() + key * stride; };
 
+        // Which keys the sequence plays.
+        //
         // The MDX slicer keeps one bracketing key past each edge of a clip so
         // the wem player can interpolate the edge spans. A SEQS timeline
         // cannot say that: a key before the clip becomes the value in effect
@@ -1282,34 +1367,76 @@ private:
         // reaches and a whole channel reads as its bracket value: the
         // Grunt's every geoset gated itself invisible on a key 139 seconds
         // past `Stand 01`.
+        //
+        // A Warcraft III window is stricter still. Its engine reads only the
+        // keys inside the window -- the bracket keys are keys it never sees --
+        // and plays the span after the last one, and the span before the
+        // first, as one segment from the last key back to the first. M3 holds
+        // before its first key and wraps a looping track on its own last
+        // stamp, so a track that does not reach an edge gets a key there
+        // carrying the value the engine shows at it: the start and end key
+        // Warcraft III has on every track, restated for a format that has
+        // defaults. A track with no key inside the window is not written;
+        // the engine answers its rest value, and so does the AnimRef's own.
         std::vector<std::size_t> kept;
         std::ptrdiff_t entry = -1;
         const f32 slack = duration > 0 ? duration : track.times.empty() ? 0 : track.times.back();
         for (std::size_t k = 0; k < track.times.size(); ++k) {
             const f32 time = track.times[k];
-            if (time <= 0.0f) {
+            if (time < -1e-4f) {
                 entry = static_cast<std::ptrdiff_t>(k);
             } else if (time <= slack + 1e-4f) {
                 kept.push_back(k);
             }
         }
-        if (entry >= 0) {
+        if (entry >= 0 && !warcraft && (kept.empty() || Ticks(track.times[kept.front()]) > 0)) {
             kept.insert(kept.begin(), static_cast<std::size_t>(entry));
         }
         if (kept.empty()) {
             return kInvalidIndex;
         }
-        const std::size_t count = kept.size();
+
+        std::vector<u8> wrap;
+        bool wrapStart = false;
+        bool wrapEnd = false;
+        if (warcraft && kept.size() >= 2 && duration > 0.0f) {
+            const f32 firstTime = track.times[kept.front()];
+            const f32 lastTime = track.times[kept.back()];
+            wrapStart = Ticks(firstTime) > 0;
+            wrapEnd = Ticks(lastTime) < Ticks(duration);
+            if (wrapStart || wrapEnd) {
+                // The same point of the wrap segment either way: the sequence
+                // end IS its start, one loop on.
+                const f32 segment = (firstTime - lastTime) + duration;
+                const f32 t = segment > 0.0f
+                                  ? std::clamp((duration - lastTime) / segment, 0.0f, 1.0f)
+                                  : 0.0f;
+                wrap = WrapValue(channel.valueType, track.interp, at(kept.back()),
+                                 at(kept.front()), t, size);
+            }
+        }
 
         std::vector<i32> stamps;
-        stamps.reserve(count);
+        std::vector<const u8*> values;
+        stamps.reserve(kept.size() + 2);
+        values.reserve(kept.size() + 2);
+        if (wrapStart) {
+            stamps.push_back(origin);
+            values.push_back(wrap.data());
+        }
         for (std::size_t k : kept) {
             const f32 time = track.times[k] < 0.0f ? 0.0f : track.times[k];
             stamps.push_back(origin + Ticks(time));
+            values.push_back(at(k));
         }
-        const auto endFrame = stamps.empty() ? 0 : static_cast<u32>(stamps.back());
+        if (wrapEnd) {
+            stamps.push_back(origin + Ticks(duration));
+            values.push_back(wrap.data());
+        }
+        const std::size_t count = stamps.size();
+        const auto endFrame = static_cast<u32>(stamps.back());
 
-        const auto read = [&](std::size_t k) { return track.values.data() + kept[k] * stride; };
+        const auto read = [&](std::size_t k) { return values[k]; };
 
         u32 block = 0;
         switch (stream) {
@@ -1353,6 +1480,14 @@ private:
                 std::memcpy(&value, read(k), sizeof(value));
                 entry.keys.push_back(rebase ? UnrebaseRotation(value) : value);
             }
+            Quaternion rest{};
+            const bool hasRest =
+                channel.valueType == geom::AttrType::Quat && channel.hasInitValue();
+            if (hasRest) {
+                std::memcpy(&rest, channel.initValue.data(), sizeof(rest));
+                rest = rebase ? UnrebaseRotation(rest) : rest;
+            }
+            AlignHemispheres(entry.keys, hasRest ? &rest : nullptr);
             block = static_cast<u32>(stc.sd4q.size());
             stc.sd4q.push_back(std::move(entry));
             break;
@@ -1506,13 +1641,17 @@ private:
                 Wire(out_.bones[gate->second].visibility, exportId(channel.id), track.interp);
             }
             const auto fade = context_.sectionAlphaLayers.find(channel.id);
-            if (fade != context_.sectionAlphaLayers.end() &&
-                fade->second.first < out_.standardMaterials.size()) {
-                m3::StandardMaterial& mat = out_.standardMaterials[fade->second.first];
-                std::optional<m3::TextureLayer>& slot =
-                    fade->second.second == 1 ? mat.alphaLayer1 : mat.alphaLayer2;
-                if (slot.has_value()) {
-                    Wire(slot->mapAlpha, exportId(channel.id), track.interp);
+            if (fade != context_.sectionAlphaLayers.end()) {
+                for (const auto& [matIndex, which] : fade->second) {
+                    if (matIndex >= out_.standardMaterials.size()) {
+                        continue;
+                    }
+                    m3::StandardMaterial& mat = out_.standardMaterials[matIndex];
+                    std::optional<m3::TextureLayer>& slot =
+                        which == 1 ? mat.alphaLayer1 : mat.alphaLayer2;
+                    if (slot.has_value()) {
+                        Wire(slot->mapAlpha, exportId(channel.id), track.interp);
+                    }
                 }
             }
             return;
@@ -1610,32 +1749,27 @@ private:
         // carries the keys — the same carrier the section fades ride.
         if (channel.target.kind == TrackTarget::Kind::MaterialLayer &&
             channel.target.sub == kWholeMaterial) {
-            if (out_.materialMaps[ref.slot].materialType != m3::MaterialType::Standard) {
-                return;
-            }
-            const std::size_t index = out_.materialMaps[ref.slot].materialIndex;
-            if (index >= out_.standardMaterials.size()) {
-                return;
-            }
-            m3::StandardMaterial& mat = out_.standardMaterials[index];
-            if (channel.target.channel == Channel::Alpha) {
-                wireAlphaCarrier(mat, channel, track);
-            } else if (channel.target.channel == Channel::Color &&
-                       mat.diffuseLayer.has_value()) {
-                // The rest crosses into the layer's initValue — a static
-                // `M2Color` is most of them (the Earth Spirit's near-black
-                // body is a WHITE texture under a dark constant tint), and a
-                // consumer that samples no layer tracks reads only this.
-                if (colorSeeded_.insert(channel.id).second &&
-                    track.values.size() >= sizeof(f32) * 3) {
-                    f32 rest[3] = {1.0f, 1.0f, 1.0f};
-                    std::memcpy(rest, track.values.data(), sizeof(rest));
-                    m3::ColorBGRA& c = mat.diffuseLayer->color.initValue;
-                    c.r = static_cast<u8>((std::min)(rest[0], 1.0f) * 255.0f);
-                    c.g = static_cast<u8>((std::min)(rest[1], 1.0f) * 255.0f);
-                    c.b = static_cast<u8>((std::min)(rest[2], 1.0f) * 255.0f);
+            for (const SectionRef& section : sectionsOf(ref.slot)) {
+                m3::StandardMaterial& mat = out_.standardMaterials[section.standard];
+                if (channel.target.channel == Channel::Alpha) {
+                    wireAlphaCarrier(mat, section.standard, channel, track);
+                } else if (channel.target.channel == Channel::Color &&
+                           mat.diffuseLayer.has_value()) {
+                    // The rest crosses into the layer's initValue — a static
+                    // `M2Color` is most of them (the Earth Spirit's near-black
+                    // body is a WHITE texture under a dark constant tint), and
+                    // a consumer that samples no layer tracks reads only this.
+                    if (colorSeeded_.insert(channel.id).second &&
+                        track.values.size() >= sizeof(f32) * 3) {
+                        f32 rest[3] = {1.0f, 1.0f, 1.0f};
+                        std::memcpy(rest, track.values.data(), sizeof(rest));
+                        m3::ColorBGRA& c = mat.diffuseLayer->color.initValue;
+                        c.r = static_cast<u8>((std::min)(rest[0], 1.0f) * 255.0f);
+                        c.g = static_cast<u8>((std::min)(rest[1], 1.0f) * 255.0f);
+                        c.b = static_cast<u8>((std::min)(rest[2], 1.0f) * 255.0f);
+                    }
+                    Wire(mat.diffuseLayer->color, exportId(channel.id), track.interp);
                 }
-                Wire(mat.diffuseLayer->color, exportId(channel.id), track.interp);
             }
             return;
         }
@@ -1650,28 +1784,37 @@ private:
         // re-import just produced, and it is one-to-many: one chain stage
         // routinely lands in two slots (a Diablo III flame is emissive1 AND
         // alpha1), and wiring only the first scrolled the colour against a
-        // frozen mask — Imperius's wings slid into red sheets.
+        // frozen mask — Imperius's wings slid into red sheets. A composite
+        // slot's map is section-major, `StandardLayer::Count` per section.
         const std::vector<u32>& ordinals = materialOrdinals_[ref.slot];
-        const std::size_t index = out_.materialMaps[ref.slot].materialIndex;
-        if (index >= out_.standardMaterials.size()) {
-            return;
-        }
-        for (std::size_t layerSlot = 0; layerSlot < ordinals.size(); ++layerSlot) {
-            if (ordinals[layerSlot] != ordinal) {
+        const std::size_t count = static_cast<std::size_t>(m3_core::StandardLayer::Count);
+        const auto coverageSwitch = context_.coverageSwitches.find(ref.slot);
+        for (const SectionRef& section : sectionsOf(ref.slot)) {
+        m3::StandardMaterial& mat = out_.standardMaterials[section.standard];
+        for (std::size_t layerSlot = 0;
+             layerSlot < count && section.ordinalBase + layerSlot < ordinals.size(); ++layerSlot) {
+            if (ordinals[section.ordinalBase + layerSlot] != ordinal) {
                 continue;
             }
             // The element alpha: a weight on the base stage fades the whole
             // draw, and M3 never reads the diffuse layer's alpha as coverage —
-            // the track rides a carrier alpha layer instead.
+            // the track rides a carrier alpha layer instead. Unless the fold
+            // made it the live/dead coverage switch: then it drives the
+            // coverage layer's add (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5.3 R6b).
             if (channel.target.kind == TrackTarget::Kind::MaterialLayer &&
                 channel.target.channel == Channel::Alpha &&
                 static_cast<m3_core::StandardLayer>(layerSlot) ==
                     m3_core::StandardLayer::Diffuse) {
-                wireAlphaCarrier(out_.standardMaterials[index], channel, track);
+                if (section.ordinalBase == 0 && coverageSwitch != context_.coverageSwitches.end() &&
+                    coverageSwitch->second == ordinal && mat.alphaLayer1.has_value()) {
+                    Wire(mat.alphaLayer1->rgbAdd, exportId(channel.id), track.interp);
+                    continue;
+                }
+                wireAlphaCarrier(mat, section.standard, channel, track);
                 continue;
             }
-            std::optional<m3::TextureLayer>& layer = m3_core::MutableLayerOf(
-                out_.standardMaterials[index], static_cast<m3_core::StandardLayer>(layerSlot));
+            std::optional<m3::TextureLayer>& layer =
+                m3_core::MutableLayerOf(mat, static_cast<m3_core::StandardLayer>(layerSlot));
             if (!layer.has_value()) {
                 continue;
             }
@@ -1708,6 +1851,41 @@ private:
                 continue;
             }
         }
+        }
+    }
+
+    /// One standard material the slot draws with, and where its ordinals start
+    /// in the slot's section-major map.
+    struct SectionRef {
+        u32 standard = 0;
+        std::size_t ordinalBase = 0;
+    };
+
+    /// The standard materials behind a slot: one, or a composite's sections.
+    std::vector<SectionRef> sectionsOf(u32 slot) const {
+        std::vector<SectionRef> result;
+        if (slot >= out_.materialMaps.size()) {
+            return result;
+        }
+        const m3::MaterialMap& map = out_.materialMaps[slot];
+        const std::size_t count = static_cast<std::size_t>(m3_core::StandardLayer::Count);
+        if (map.materialType == m3::MaterialType::Standard) {
+            if (map.materialIndex < out_.standardMaterials.size()) {
+                result.push_back({map.materialIndex, 0});
+            }
+        } else if (map.materialType == m3::MaterialType::Composite &&
+                   map.materialIndex < out_.compositeMaterials.size()) {
+            const auto& sections = out_.compositeMaterials[map.materialIndex].sections;
+            for (std::size_t k = 0; k < sections.size(); ++k) {
+                const u32 mapIndex = sections[k].materialIndex;
+                if (mapIndex < out_.materialMaps.size() &&
+                    out_.materialMaps[mapIndex].materialType == m3::MaterialType::Standard &&
+                    out_.materialMaps[mapIndex].materialIndex < out_.standardMaterials.size()) {
+                    result.push_back({out_.materialMaps[mapIndex].materialIndex, k * count});
+                }
+            }
+        }
+        return result;
     }
 
     /// A fade with no stage of its own rides a Color-flag carrier in the
@@ -1718,18 +1896,29 @@ private:
     /// first version of this planted one carrier per clip until the slots ran
     /// out. A channel a gate bone already reads plants nothing: the gate is
     /// the binary spelling, and its stream is flags, not scalars.
-    void wireAlphaCarrier(m3::StandardMaterial& mat, const AnimChannel& channel,
+    void wireAlphaCarrier(m3::StandardMaterial& mat, u32 standardIndex, const AnimChannel& channel,
                           const SubTrack& track) {
         if (context_.sectionGateBones.count(channel.id) != 0) {
             return;
         }
-        if (alphaCarriers_.count(channel.id) != 0) {
+        if (!alphaCarriers_.emplace(channel.id, standardIndex).second) {
             return;
         }
+        // A free slot, or a Color-flag carrier the material fold planted for
+        // a static alpha whose `mapAlpha` nothing drives yet: the multiply is
+        // the weight, the track rides the map alpha, and the two multiply.
+        const auto shareable = [](const std::optional<m3::TextureLayer>& l) {
+            return l.has_value() && hasFlag(l->flags, m3::TextureLayerFlag::Color) &&
+                   !l->mapAlpha.isAnimated();
+        };
         std::optional<m3::TextureLayer>* slot = nullptr;
         if (!mat.alphaLayer1.has_value()) {
             slot = &mat.alphaLayer1;
         } else if (!mat.alphaLayer2.has_value()) {
+            slot = &mat.alphaLayer2;
+        } else if (shareable(mat.alphaLayer1)) {
+            slot = &mat.alphaLayer1;
+        } else if (shareable(mat.alphaLayer2)) {
             slot = &mat.alphaLayer2;
         }
         if (slot == nullptr) {
@@ -1738,10 +1927,6 @@ private:
                               ElementRef(ElementKind::Channel, channel.id), context_.profile);
             return;
         }
-        m3::TextureLayer carrier;
-        carrier.flags = m3::TextureLayerFlag::Color;
-        carrier.color.initValue = m3::ColorBGRA{255, 255, 255, 255};
-        carrier.rgbMultiply.initValue = 1.0f;
         // The rest is the first key when the channel states nothing — the
         // native WoW draw path reads exactly that (`FirstValue`), so a plane
         // shipped at weight 0.3 stays at 0.3 for a consumer that does not
@@ -1752,10 +1937,15 @@ private:
         } else if (track.values.size() >= sizeof(f32)) {
             std::memcpy(&rest, track.values.data(), sizeof(f32));
         }
-        carrier.mapAlpha.initValue = rest;
-        *slot = std::move(carrier);
+        if (!slot->has_value()) {
+            m3::TextureLayer carrier;
+            carrier.flags = m3::TextureLayerFlag::Color;
+            carrier.color.initValue = m3::ColorBGRA{255, 255, 255, 255};
+            carrier.rgbMultiply.initValue = 1.0f;
+            *slot = std::move(carrier);
+        }
+        (*slot)->mapAlpha.initValue = rest;
         Wire((*slot)->mapAlpha, exportId(channel.id), track.interp);
-        alphaCarriers_.emplace(channel.id, 0u);
     }
 
     u32 featureLayer(const MaterialChannelRef& ref, u32 featureId) const {
@@ -1778,8 +1968,9 @@ private:
     m3::Model& out_;
     Diagnostics& diagnostics_;
     std::vector<std::vector<u32>> materialOrdinals_;
-    /// Channels that already planted a carrier alpha layer (`wireAlphaCarrier`).
-    std::map<u32, u32> alphaCarriers_;
+    /// (channel, standard material) pairs that already have a carrier alpha
+    /// layer (`wireAlphaCarrier`) -- a composite slot plants one per section.
+    std::set<std::pair<u32, u32>> alphaCarriers_;
     /// Whole-material colour channels whose rest already seeded the diffuse.
     std::set<u32> colorSeeded_;
 };

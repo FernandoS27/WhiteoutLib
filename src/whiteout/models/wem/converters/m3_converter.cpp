@@ -667,7 +667,7 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
 // ============================================================================
 
 Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
-                                    u32 targetVersion) const {
+                                    u32 targetVersion, const M3ExportSettings& settings) const {
     Result<m3::Model> result;
     if (!checkExportProfile(document, profile, result.diagnostics)) {
         return result;
@@ -922,6 +922,17 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     m3_core::Context context;
     context.modelVersion = targetVersion;
     context.textureRefs = &document.textures;
+    // The pass fold's inputs (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5): whether the
+    // stacks are Warcraft III's, what the caller learned about the textures'
+    // alpha, and where a composite's section entries may go -- after the slots.
+    context.warcraftPasses = document.defaultProfile == ProfileId::Wc3Classic ||
+                             document.defaultProfile == ProfileId::Wc3Reforged;
+    context.exactPasses = settings.exactPasses;
+    if (!settings.textureAlphaClasses.empty()) {
+        context.textureAlphaClasses = &settings.textureAlphaClasses;
+    }
+    context.compositeSections = true;
+    context.materialMapBase = static_cast<u32>(model.materialSlots.size());
     for (const TextureRef& ref : document.textures) {
         context.texturesByPath.emplace_back(ref.path,
                                             static_cast<u32>(context.texturesByPath.size()));
@@ -942,11 +953,40 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                              ElementRef(ElementKind::Slot, slot), profile);
             continue;
         }
+        // Which of the material's passes carry an alpha or texture-id track:
+        // the fold's coverage switch and flipbook rules read them.
+        m3_core::ExportHints hints;
+        for (const AnimChannel& entry : model.animChannels.channels) {
+            if (entry.target.kind != TrackTarget::Kind::MaterialLayer ||
+                entry.target.material.profile != profile ||
+                entry.target.material.slot != static_cast<u32>(slot) ||
+                entry.target.sub == kWholeMaterial || entry.target.sub >= 64) {
+                continue;
+            }
+            if (entry.target.channel == Channel::Alpha) {
+                hints.alphaTrackedOrdinals |= u64{1} << entry.target.sub;
+            } else if (entry.target.channel == Channel::TextureIndex) {
+                hints.textureIndexTrackedOrdinals |= u64{1} << entry.target.sub;
+            }
+        }
         std::vector<u32> slotOrdinals;
+        m3_core::ExportReport report;
         out.materialMaps.push_back(m3_core::ExportMaterial(*material, profile, context, out,
-                                                           diagnostics, &slotOrdinals));
+                                                           diagnostics, &slotOrdinals, &hints,
+                                                           &report));
         animContext.materialOrdinals.push_back(std::move(slotOrdinals));
+        if (report.coverageSwitchOrdinal != kInvalidIndex) {
+            animContext.coverageSwitches.emplace(static_cast<u32>(slot),
+                                                 report.coverageSwitchOrdinal);
+        }
     }
+    // A composite's sections name map entries of their own; they go after the
+    // slots so a batch's `materialIndex` stays the slot index.
+    for (const m3::MaterialMap& trailing : context.trailingMaps) {
+        out.materialMaps.push_back(trailing);
+        animContext.materialOrdinals.emplace_back();
+    }
+    context.trailingMaps.clear();
 
     // --- geometry -----------------------------------------------------------
     //
@@ -1293,34 +1333,68 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                 // every Stand, easing in only while building.
                 if (vis == nullptr && fade != nullptr &&
                     range.materialSlot < out.materialMaps.size() &&
-                    out.materialMaps[range.materialSlot].materialType ==
-                        m3::MaterialType::Standard &&
                     animContext.sectionAlphaLayers.find(fade->id) ==
                         animContext.sectionAlphaLayers.end()) {
-                    const u32 matIndex = out.materialMaps[range.materialSlot].materialIndex;
-                    if (matIndex < out.standardMaterials.size()) {
+                    // Every standard material the slot draws with -- one, or
+                    // a composite's sections: a geoset fade fades every pass.
+                    std::vector<u32> targets;
+                    const m3::MaterialMap& map = out.materialMaps[range.materialSlot];
+                    if (map.materialType == m3::MaterialType::Standard) {
+                        targets.push_back(map.materialIndex);
+                    } else if (map.materialType == m3::MaterialType::Composite &&
+                               map.materialIndex < out.compositeMaterials.size()) {
+                        for (const m3::CompositeSection& section :
+                             out.compositeMaterials[map.materialIndex].sections) {
+                            if (section.materialIndex < out.materialMaps.size() &&
+                                out.materialMaps[section.materialIndex].materialType ==
+                                    m3::MaterialType::Standard) {
+                                targets.push_back(
+                                    out.materialMaps[section.materialIndex].materialIndex);
+                            }
+                        }
+                    }
+                    f32 rest = 1.0f;
+                    if (fade->hasInitValue() && fade->initValue.size() >= sizeof(f32)) {
+                        std::memcpy(&rest, fade->initValue.data(), sizeof(f32));
+                    }
+                    for (const u32 matIndex : targets) {
+                        if (matIndex >= out.standardMaterials.size()) {
+                            continue;
+                        }
                         m3::StandardMaterial& mat = out.standardMaterials[matIndex];
-                        std::optional<m3::TextureLayer>* carrierSlot =
-                            !mat.alphaLayer1.has_value() ? &mat.alphaLayer1
-                            : !mat.alphaLayer2.has_value() ? &mat.alphaLayer2
-                                                           : nullptr;
-                        if (carrierSlot != nullptr) {
+                        // A free slot, or a Color-flag carrier the material
+                        // fold planted for a static alpha: its multiply is
+                        // the weight and its `mapAlpha` is free, so the two
+                        // weights share the layer and multiply.
+                        const auto shareable = [](const std::optional<m3::TextureLayer>& l) {
+                            return l.has_value() &&
+                                   hasFlag(l->flags, m3::TextureLayerFlag::Color) &&
+                                   !l->mapAlpha.isAnimated();
+                        };
+                        u8 which = 0;
+                        if (!mat.alphaLayer1.has_value()) {
+                            which = 1;
+                        } else if (!mat.alphaLayer2.has_value()) {
+                            which = 2;
+                        } else if (shareable(mat.alphaLayer1)) {
+                            which = 1;
+                        } else if (shareable(mat.alphaLayer2)) {
+                            which = 2;
+                        }
+                        if (which == 0) {
+                            continue;
+                        }
+                        std::optional<m3::TextureLayer>& carrierSlot =
+                            which == 1 ? mat.alphaLayer1 : mat.alphaLayer2;
+                        if (!carrierSlot.has_value()) {
                             m3::TextureLayer carrier;
                             carrier.flags = m3::TextureLayerFlag::Color;
                             carrier.color.initValue = m3::ColorBGRA{255, 255, 255, 255};
                             carrier.rgbMultiply.initValue = 1.0f;
-                            f32 rest = 1.0f;
-                            if (fade->hasInitValue() &&
-                                fade->initValue.size() >= sizeof(f32)) {
-                                std::memcpy(&rest, fade->initValue.data(), sizeof(f32));
-                            }
-                            carrier.mapAlpha.initValue = rest;
-                            *carrierSlot = std::move(carrier);
-                            animContext.sectionAlphaLayers.emplace(
-                                fade->id,
-                                std::make_pair(matIndex,
-                                               carrierSlot == &mat.alphaLayer1 ? u8(1) : u8(2)));
+                            carrierSlot = std::move(carrier);
                         }
+                        carrierSlot->mapAlpha.initValue = rest;
+                        animContext.sectionAlphaLayers[fade->id].emplace_back(matIndex, which);
                     }
                 }
                 if (vis != nullptr) {

@@ -2382,8 +2382,8 @@ struct RIB {
     }
 
     // Shape
-    u32                 emitterShape;
-    RibbonType          ribbonType;         // RibbonType enum (see below)
+    RibbonType          ribbonType;         // cross-section shape (see below); feeds b_iRibbonType
+    u32                 cullMethod;         // 0 = time-based (lifetime), 1 = length-based (maxLength)
     f32                 divisions;
     u32                 edges;
     f32                 innerRadius;
@@ -2451,8 +2451,8 @@ struct RIB {
 | 0x800 | simulateInit | Simulate on init |
 | 0x1000 | useLengthAndTime | Use length and time |
 | 0x2000 | accurateGPUTangents | Accurate GPU tangents |
-| 0x4000 | yawFromSpeed | Derive yaw from speed |
-| 0x8000 | useLocator | Use locator node |
+| 0x4000 | dualCollision | Runtime-verified: routes collision through the terrain+objects path (0x02/0x04 select the surfaces); without it only 0x02/terrain collides |
+| 0x8000 | swapYawPitch | Runtime-verified: swaps the yaw/pitch argument order in emission-direction and spline-rotation construction (v6− stored pitch→yaw, v8+ yaw→pitch) |
 
 **RIB_ Additional Flags** (`additionalFlags` field, v8+):
 
@@ -2472,14 +2472,16 @@ struct RIB {
 | 2 | Cylinder | Cylindrical cross-section |
 | 3 | Star | Star-shaped cross-section |
 
-**Spline Ribbon** (SRIB, 272 bytes):
+**Spline Ribbon** (SRIB, 272 bytes). Runtime-verified: the record holds FOUR
+vectors, not two + an AnimRef — the loader's per-record AnimRef fixup skips
+offset 0x18 entirely, and the simulation reads 0x18/0x24 as raw vec3s:
 ```cpp
 struct SplineRibbon {
-    Vector3f        emissionOffset;
-    Vector3f        emissionVector;
-    AnimRef<f32>    velocity;
-    u32             reserved;             // always 0 (padding/reserved)
-    u32             boneIndex;
+    Vector3f        emissionOffset;       // 0x00 Bezier C0: start point, emitter-local
+    Vector3f        emissionVector;       // 0x0C start tangent direction
+    Vector3f        endTangent;           // 0x18 end tangent direction
+    Vector3f        endOffset;            // 0x24 end point, in boneIndex node space
+    u32             boneIndex;            // 0x30
     AnimRef<f32>    velocityBaseFactor;
     AnimRef<f32>    velocityEndFactor;
     u32             yawType;
@@ -2493,8 +2495,8 @@ struct SplineRibbon {
     AnimRef<f32>    velocityFrequency;
     AnimRef<f32>    yaw;
     AnimRef<f32>    pitch;
-    f32             emissionVectorNormFactor; // precomputed ≈ 0.01/|emissionVector|
-    f32             velocityNormFactor;      // precomputed ≈ 0.01/velocity.initValue
+    f32             emissionVectorNormFactor; // precomputed ≈ 0.01/|emissionVector|; scales the RIB_ speed wave on the start tangent
+    f32             velocityNormFactor;      // precomputed ≈ 0.01/|endTangent|; scales the SRIB velocity wave on the end tangent
 };
 ```
 
@@ -2511,7 +2513,8 @@ from the retail client (`base71061`): the loader parses `RIB_` (v9) as a
 | 0x008 (8) | `additionalFlags` | `&8` = world-space (segment dragging / local-space force eval) |
 | 0x0B0–0x0B8 (176–184) | `gravityX/Y/gravity` | per-segment acceleration (Simulate_Type4) |
 | 0x160 (352) | `drag` | `dragCoeff = drag·dt` velocity damping |
-| 0x194 (404) | `ribbonType` | cross-section shape (0=Billboard,1=Planar,2=Cylinder,3=Star); loop gate |
+| 0x190 (400) | `ribbonType` | cross-section shape (0=Billboard,1=Planar,2=Cylinder,3=Star) → `b_iRibbonType` |
+| 0x194 (404) | `cullMethod` | 0 = time-based (lifetime), 1 = length-based (maxLength); selects emit-period divisor, simTech 2, `b_clampTail` |
 | 0x198 (408) | `divisions` | emission-rate density (segments/unit) |
 | 0x1A4 (420) | `maxLength` (AnimRef) | arc-length sample → segment re-spacing |
 | 0x1B8 (440) | `splineRibbons` (Ref&lt;SRIB&gt;) | spline-ribbon control data |
@@ -5286,7 +5289,11 @@ not feed back into the simulation. The parameters are:
 - `noiseCoherence` — speed at which the noise pattern scrolls over time.
 - `noiseEdge` — mutes noise near the emitter. A value of 0 means full noise from
   birth; 0.5 means segments do not reach full amplitude until halfway through
-  their lifetime.
+  their lifetime. Runtime-verified: amplitude is scaled by `t / noiseEdge` while
+  `t < noiseEdge` (t = normalized position along the ribbon), and for **spline
+  ribbons only** additionally by `(1−t) / noiseEdge` near the far end, so a
+  spline's noise fades at both ends. The three axis channels sample a shared
+  noise field at `(t·noiseFrequency, noiseCoherence·headU, {0, 0.33, 0.66})`.
 
 Note that because noise is applied post-tangent-generation, high amplitudes can
 skew lighting normals. Enable `flags & AccurateGPUTangents` to regenerate
@@ -5459,11 +5466,11 @@ Bezier curve:
 
 ```slang
 struct SplineRibbon {
-    float3      emissionOffset;       // local-space offset from the bone
-    float3      emissionVector;       // tangent direction at this point
-    AnimRef     velocity;             // speed along the spline at this point
-    uint        reserved;             // always 0 (padding/reserved)
-    uint        boneIndex;            // the bone this control point follows
+    float3      emissionOffset;       // 0x00 Bezier C0: start point (emitter-local)
+    float3      emissionVector;       // 0x0C start tangent direction
+    float3      endTangent;           // 0x18 end tangent direction (runtime-verified: raw vec3, not an AnimRef)
+    float3      endOffset;            // 0x24 end point, in boneIndex node space
+    uint        boneIndex;            // 0x30 the bone the END of the curve follows
     AnimRef     velocityBaseFactor;   // velocity weight near the base
     AnimRef     velocityEndFactor;    // velocity weight near the end
     // Overlay groups — procedural noise layered on top of base values
@@ -5483,49 +5490,45 @@ struct SplineRibbon {
 };
 ```
 
-A spline ribbon with two control points produces a single cubic Bezier
-segment; additional `SRIB` entries create a piecewise Bezier (one segment per
-consecutive pair).
+**Runtime-verified (CRibbon_Simulate_Spline, both 4.8 and 5.0): one `SRIB`
+record describes one complete cubic Bezier, and only `splineRibbons[0]` is
+ever read** — `CRibbon` binds `splineData = splineRibbons.ptr[0]` at init and
+never indexes further records. Multi-record piecewise curves do not exist in
+the engine.
 
 #### F.3.3 Curve evaluation
 
-The Art Tools description ("follows a bezier curve between the start and end
-points") implies a cubic Bezier where each `SRIB` provides a point **P** and
-a tangent **T**:
+The engine builds the four cubic control points in emitter-local space each
+frame:
 
 ```
-P0 = bone[srib[0].boneIndex].worldPos + srib[0].emissionOffset
-T0 = srib[0].emissionVector * resolve(srib[0].velocity)
-        * resolve(srib[0].velocityBaseFactor)
-P1 = bone[srib[1].boneIndex].worldPos + srib[1].emissionOffset
-T1 = srib[1].emissionVector * resolve(srib[1].velocity)
-        * resolve(srib[1].velocityEndFactor)
+M  = inverse(emitterWorld) · nodeWorld(srib.boneIndex) · R(sribYaw, sribPitch)
+
+C0 = srib.emissionOffset
+C1 = C0 + R(ribYaw, ribPitch) · srib.emissionVector
+          · (resolve(srib.velocityBaseFactor)
+             + speedWave · srib.emissionVectorNormFactor)
+C3 = M · srib.endOffset
+C2 = C3 + M · srib.endTangent
+          · (resolve(srib.velocityEndFactor)
+             + velocityWave · srib.velocityNormFactor)
+
+B(t) = (1-t)^3·C0 + 3t(1-t)^2·C1 + 3t^2(1-t)·C2 + t^3·C3
 ```
 
-The four cubic control points are then:
+where `R(yaw, pitch)` is a full Euler rotation matrix (degrees → radians;
+`RIB_ flags & 0x8000` swaps which angle is yaw vs pitch), `ribYaw/ribPitch`
+come from the parent `RIB_`'s `initialYaw`/`initialPitch` (or their overlay
+waves when `yawType`/`pitchType` are set), and `sribYaw/sribPitch` from the
+`SRIB`'s own `yaw`/`pitch` AnimRefs (or its overlay waves). The RIB_-level
+`speedType` wave modulates the start tangent, the SRIB-level `velocityType`
+wave the end tangent. Overlay waves evaluate as
+`amplitude · wave(type, frequency · overlayTime + overlayPhase)`.
 
-```
-C0 = P0
-C1 = P0 + T0
-C2 = P1 - T1
-C3 = P1
-```
-
-Subdivide the resulting $B(t) = (1-t)^3 C_0 + 3(1-t)^2 t \cdot C_1 + 3(1-t) t^2 \cdot C_2 + t^3 C_3$
-into `divisions` equally-spaced rings. This gives you the same segment-ring
-array used for standard ribbon rendering (§F.2.10), minus the per-segment
-physics step.
-
-Apply yaw and pitch overlays to rotate the tangent direction at each control
-point before computing `T0` / `T1`:
-
-```slang
-float yawDeg   = resolve(srib.yaw)
-             + evalOverlay(srib.yawType, srib.yawAmplitude, srib.yawFrequency, t);
-float pitchDeg = resolve(srib.pitch)
-             + evalOverlay(srib.pitchType, srib.pitchAmplitude, srib.pitchFrequency, t);
-// Rotate emissionVector by yaw around local X, pitch around local Y
-```
+The CPU spline path evaluates B(t) at exactly **32 samples, t = i/31**
+(allocated once at init — `divisions` does not change the CPU sample count);
+the GPU path (`simTechnique == 1`) uses a cached static 32-step template with
+8 batch slots and evaluates the curve in the vertex shader.
 
 #### F.3.4 Lifespan model
 
@@ -5578,17 +5581,20 @@ Only **gravity** is documented as functional:
 | `massSizeMultiplier` | Stub — no effect. |
 
 Gravity is applied to the control-point positions (not to individual curve
-samples). In practice this means:
+samples). Runtime-verified: it is **not** a velocity integration — each of the
+four control points keeps a persistent sag offset that grows quadratically
+with the ribbon's age (`CRibbon.dtAccumulator`):
 
 ```slang
-for (int i = 0; i < controlPointCount; i++) {
-    controlPoints[i].velocity.z -= gravity * dt;
-    controlPoints[i].position   += controlPoints[i].velocity * dt;
-}
+float3 accel = rotateIntoEmitterLocal(float3(gravityX, gravityY, gravity));
+accel += forceFieldAcceleration(controlPoint);      // FOR_ channels
+sagOffset[i] += accel * age * age;                  // age = seconds since spawn
+controlPoints[i] = target[i] + sagOffset[i];
 ```
 
-The result nudges the Bezier endpoints downward over time, producing a
-naturally sagging arc.
+Note the full 3-component gravity vector applies here (unlike standard
+non-legacy ribbons, which only use the z component), producing a naturally
+sagging arc.
 
 #### F.3.7 Noise
 

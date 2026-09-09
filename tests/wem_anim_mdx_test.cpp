@@ -603,6 +603,38 @@ TEST_CASE("wem mdx export re-times a clip that never had a window", "[wem][anim]
     CHECK(exported.diagnostics.countOf(DiagCode::AnimClipRetimed) == 1u);
 }
 
+TEST_CASE("wem mdx export keys both edges of a window its track does not reach",
+          "[wem][anim][mdx]") {
+    // Warcraft III has no default value: a window plays its first key from its
+    // start, and past the last key the engine wraps back toward the first.
+    // Every other format holds outside its keys, so a clip that did not come
+    // from an .mdx gets its first and last key restated at the two edges.
+    mdx::Model model = makeModel();
+    model.bones[0].node.translationTracks = makeTrack<Vector3f>(
+        mdx::InterpolationType::Linear, {200, 800}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 5}});
+    Document document = convert(model);
+    REQUIRE_FALSE(document.clips.empty());
+    const f32 duration = document.clips[0].duration;
+    document.clips[0].native = NativeBag{};
+
+    MdxConverter converter;
+    const Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic);
+    REQUIRE(exported.ok());
+    REQUIRE_FALSE(exported->sequences.empty());
+    const u32 start = exported->sequences[0].intervalStart;
+    const u32 end = exported->sequences[0].intervalEnd;
+    CHECK(end - start == static_cast<u32>(duration * 1000.0f + 0.5f));
+
+    const mdx::Track<Vector3f>& track = exported->bones[0].node.translationTracks;
+    REQUIRE(track.timestamps.size() == 4u);
+    CHECK(track.timestamps[0] == start);
+    CHECK(track.timestamps[1] == start + 200u);
+    CHECK(track.timestamps[2] == start + 800u);
+    CHECK(track.timestamps[3] == end);
+    CHECK(track.keys_data[0].z == Catch::Approx(0.0f));
+    CHECK(track.keys_data[3].z == Catch::Approx(5.0f));
+}
+
 // ============================================================================
 // The corpus arm
 // ============================================================================

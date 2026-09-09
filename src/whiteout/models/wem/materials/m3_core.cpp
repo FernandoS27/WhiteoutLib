@@ -5,6 +5,7 @@
 
 #include "../native/m3_copy.h"
 
+#include <algorithm>
 #include <string>
 
 namespace whiteout {
@@ -394,6 +395,112 @@ void importBestEffort(const char* kindName,
                  "truth stays native");
 }
 
+/// A CMP_ whose sections are each one pass -- what `ExportMaterial` writes for
+/// a Warcraft III stack no single material could carry -- comes back as that
+/// stack: one Color layer per section, its op the section's own blend, the
+/// header the first section's, and a `LayerShading` feature where a section's
+/// flags differ from it. Anything richer (a section with a decal, a second
+/// emissive, an environment layer, a diffuse AND an emissive) is not one pass
+/// and is refused, so the caller keeps the empty body and the warning.
+bool importCompositeSections(const m3::Model& model, const m3::CompositeMaterial& source,
+                             const Context& context, CommonMaterial& common, Diagnostics& out) {
+    if (source.sections.empty()) {
+        return false;
+    }
+    CompositeBody body;
+    for (std::size_t k = 0; k < source.sections.size(); ++k) {
+        const u32 mapIndex = source.sections[k].materialIndex;
+        if (mapIndex >= model.materialMaps.size()) {
+            return false;
+        }
+        const m3::MaterialMap& entry = model.materialMaps[mapIndex];
+        if (entry.materialType != m3::MaterialType::Standard ||
+            entry.materialIndex >= model.standardMaterials.size()) {
+            return false;
+        }
+        const m3::StandardMaterial& standard = model.standardMaterials[entry.materialIndex];
+        const auto active = [](const std::optional<m3::TextureLayer>& layer) {
+            return layer.has_value() && LayerActive(*layer);
+        };
+        const bool hasDiffuse = active(standard.diffuseLayer);
+        const bool hasEmissive = active(standard.emissiveLayer1);
+        if (hasDiffuse == hasEmissive || active(standard.decalLayer) ||
+            active(standard.emissiveLayer2) || active(standard.environmentLayer)) {
+            return false;
+        }
+        const m3::TextureLayer& layer = hasDiffuse ? *standard.diffuseLayer : *standard.emissiveLayer1;
+        CompositeLayer pass;
+        pass.input = inputFor(layer, context, static_cast<u32>(k), out);
+        pass.target = SurfaceChannel::Color;
+        const bool unlit = hasFlag(standard.flags, m3::MaterialFlag::Unshaded);
+        const bool twoSided = hasFlag(standard.flags, m3::MaterialFlag::TwoSided);
+        const bool unfogged = hasFlag(standard.flags, m3::MaterialFlag::Unfogged);
+        if (k == 0) {
+            pass.op = CompositeOp::Set;
+            common.blend = blendFor(standard.blendMode);
+            if (common.blend == BlendMode::Opaque && standard.alphaTestThreshold > 0) {
+                common.blend = BlendMode::AlphaKey;
+            }
+            common.alphaTestThreshold = static_cast<f32>(standard.alphaTestThreshold) / 255.0f;
+            common.priorityPlane = standard.priority;
+            if (twoSided) {
+                common.cull = CullMode::None;
+            }
+            if (unfogged) {
+                common.flags |= MaterialFlags::Unfogged;
+            }
+            if (unlit) {
+                common.flags |= MaterialFlags::Unlit;
+            }
+            body.specularExponent = standard.specularExponent;
+            body.emissiveFactor = Vector4f(standard.hdrEmissiveMultiplier,
+                                           standard.hdrEmissiveMultiplier,
+                                           standard.hdrEmissiveMultiplier, 1.0f);
+        } else {
+            switch (standard.blendMode) {
+            case m3::BlendMode::AlphaBlend:
+                pass.op = CompositeOp::AlphaBlend;
+                break;
+            case m3::BlendMode::AlphaAdd:
+                pass.op = CompositeOp::AddAlpha;
+                break;
+            case m3::BlendMode::Add:
+                pass.op = CompositeOp::Add;
+                break;
+            case m3::BlendMode::Mod:
+                pass.op = CompositeOp::Modulate;
+                break;
+            case m3::BlendMode::Mod2x:
+                pass.op = CompositeOp::Modulate2x;
+                break;
+            default:
+                pass.op = standard.alphaTestThreshold > 0 ? CompositeOp::AlphaKey
+                                                          : CompositeOp::Set;
+                break;
+            }
+            if (unlit != hasFlag(common.flags, MaterialFlags::Unlit) ||
+                twoSided != (common.cull == CullMode::None) ||
+                unfogged != hasFlag(common.flags, MaterialFlags::Unfogged)) {
+                LayerShadingFeature shading;
+                shading.unlit = unlit;
+                shading.twoSided = twoSided;
+                shading.unfogged = unfogged;
+                MaterialFeature feature;
+                feature.id = NextFeatureId(common.features);
+                feature.layer = static_cast<u32>(k);
+                feature.payload = shading;
+                common.features.push_back(feature);
+            }
+        }
+        body.layers.push_back(std::move(pass));
+    }
+    common.body = std::move(body);
+    out.info(DiagCode::LossyKindConversion,
+             "an M3 CMP_ of " + number(source.sections.size()) +
+                 " single-pass sections reads as a layer stack of as many passes");
+    return true;
+}
+
 } // namespace
 
 // ============================================================================
@@ -527,13 +634,18 @@ Material ImportMaterial(const m3::Model& model, const m3::MaterialMap& entry, Pr
         result.name = source.name;
         // A weighted blend of references to whole *other materials* — the name
         // collides with WEM's `Composite` kind and means something else
-        // entirely (§7.2.1). There is nothing to project: the sections name
-        // materials, not textures.
-        common.body = CompositeBody{};
-        out.warn(DiagCode::LossyKindConversion,
-                 "an M3 CMP_ material blends " + number(source.sections.size()) +
-                     " other materials by weight; that is not a layer stack and has no common "
-                     "projection");
+        // entirely (§7.2.1). One shape of it IS a layer stack, drawn a section
+        // per pass (`reference_m3_composite_is_multipass`): the one the export
+        // writes for a Warcraft III stack, which reads back as that stack.
+        // Anything else has nothing to project: the sections name materials,
+        // not textures.
+        if (!importCompositeSections(model, source, context, common, out)) {
+            common.body = CompositeBody{};
+            out.warn(DiagCode::LossyKindConversion,
+                     "an M3 CMP_ material blends " + number(source.sections.size()) +
+                         " other materials by weight; that is not a layer stack and has no "
+                         "common projection");
+        }
         native::M3Composite mirror;
         CopyToNative(source, mirror);
         block.body = std::move(mirror);
@@ -725,31 +837,6 @@ m3::MaterialMap pushStandard(m3::StandardMaterial standard, m3::Model& model) {
     return entry;
 }
 
-/// The one layer slot a common channel maps back onto. `Composite` is a stack
-/// over channels and `StandardMaterial` is a fixed set of named slots, so the
-/// projection back keeps the FIRST layer of each channel and reports the rest:
-/// two diffuse layers folded with an op have one slot to go back into.
-std::optional<m3::TextureLayer>* slotFor(SurfaceChannel channel, m3::StandardMaterial& dst) {
-    switch (channel) {
-    case SurfaceChannel::Color:
-        return &dst.diffuseLayer;
-    case SurfaceChannel::Emissive:
-        return &dst.emissiveLayer1;
-    case SurfaceChannel::Specular:
-        return &dst.specularLayer;
-    case SurfaceChannel::Normal:
-        return &dst.normalLayer;
-    case SurfaceChannel::AmbientOcclusion:
-        return &dst.ambientOcclusionLayer;
-    case SurfaceChannel::Environment:
-        return &dst.environmentLayer;
-    case SurfaceChannel::Coverage:
-        return &dst.alphaLayer1;
-    default:
-        return nullptr;
-    }
-}
-
 m3::TextureLayer layerFrom(const TextureInput& input, const Context& context) {
     m3::TextureLayer layer;
     layer.texturePath = context.toPath(input.texture);
@@ -794,29 +881,6 @@ bool isReplaceable(const TextureInput& input, const Context& context, u32 id) {
         return false;
     }
     return (*context.textureRefs)[input.texture].replaceableId == id;
-}
-
-/// The slot a composite channel's FIRST layer projects onto — `slotFor`'s twin
-/// in the ordinal vocabulary, for the map `ExportMaterial` reports.
-StandardLayer standardLayerFor(SurfaceChannel channel) {
-    switch (channel) {
-    case SurfaceChannel::Color:
-        return StandardLayer::Diffuse;
-    case SurfaceChannel::Emissive:
-        return StandardLayer::Emissive1;
-    case SurfaceChannel::Specular:
-        return StandardLayer::Specular;
-    case SurfaceChannel::Normal:
-        return StandardLayer::Normal;
-    case SurfaceChannel::AmbientOcclusion:
-        return StandardLayer::AmbientOcclusion;
-    case SurfaceChannel::Environment:
-        return StandardLayer::Environment;
-    case SurfaceChannel::Coverage:
-        return StandardLayer::Alpha1;
-    default:
-        return StandardLayer::Count;
-    }
 }
 
 /// A WoW combiner chain onto the fixed slots — WOW_TO_SC2_DESIGN.md §3.
@@ -1198,11 +1262,1005 @@ void exportLegacy(const LegacyDeferredBody& body, const CommonMaterial& common,
     }
 }
 
+// ── the Warcraft III pass fold (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5) ────────
+//
+// A Warcraft III material is an ordered list of whole-geoset passes; a
+// StandardMaterial is a fixed pipeline -- diffuse, decal, LIGHT, emissive1 and
+// emissive2 (whose Mod-family ops fold straight into the lit colour, in slot
+// order), the Add-family emissive sum, the environment layer. Each stage is
+// the home of one kind of pass, and a pass's SHADING flag, not its filter,
+// picks between the pre-lighting home (the decal) and the post-lighting ones
+// (the emissive slots). A second material -- a CMP_ section -- opens only when
+// no stage can take a pass the way Warcraft III drew it; `exactPasses` widens
+// "cannot" to "cannot exactly". Measured over the shipped art this is one
+// material for every official material and 71 composites in 1,116 community
+// ones (design §5.7).
+
+struct Pass {
+    u32 ordinal = 0;
+    TextureInput input;
+    CompositeOp op = CompositeOp::Set;
+    bool team = false; ///< replaceable 1 -- the team colour plate
+    bool glow = false; ///< replaceable 2 -- the team glow
+    bool unlit = false;
+    bool twoSided = false;
+    bool unfogged = false;
+    bool noDepthTest = false;
+    bool noDepthWrite = false;
+    bool alphaTracked = false;
+    bool frameTracked = false;
+    TextureAlphaClass alpha = TextureAlphaClass::Unknown;
+
+    bool additive() const {
+        return op == CompositeOp::Add || op == CompositeOp::AddAlpha;
+    }
+    bool blendLike() const {
+        return op == CompositeOp::AlphaKey || op == CompositeOp::AlphaBlend;
+    }
+    bool modulate() const {
+        return op == CompositeOp::Modulate || op == CompositeOp::Modulate2x;
+    }
+    bool env() const {
+        return input.mapping == UVMappingMode::EnvSphere ||
+               input.mapping == UVMappingMode::EnvCube;
+    }
+    /// Whether the pass's own alpha ever leaves 1: a track, or a static weight.
+    bool fades() const {
+        return alphaTracked || input.weight < 0.999f;
+    }
+};
+
+TextureAlphaClass alphaClassOf(const TextureInput& input, const Context& context) {
+    if (context.textureAlphaClasses == nullptr ||
+        input.texture >= context.textureAlphaClasses->size()) {
+        return TextureAlphaClass::Unknown;
+    }
+    return static_cast<TextureAlphaClass>((*context.textureAlphaClasses)[input.texture]);
+}
+
+Pass passOf(u32 ordinal, const TextureInput& input, CompositeOp op, const CommonMaterial& common,
+            const Context& context, const ExportHints* hints) {
+    Pass pass;
+    pass.ordinal = ordinal;
+    pass.input = input;
+    pass.op = op;
+    pass.team = isReplaceable(input, context, 1);
+    pass.glow = isReplaceable(input, context, 2);
+    pass.alpha = alphaClassOf(input, context);
+    if (hints != nullptr && ordinal < 64) {
+        pass.alphaTracked = ((hints->alphaTrackedOrdinals >> ordinal) & 1u) != 0;
+        pass.frameTracked = ((hints->textureIndexTrackedOrdinals >> ordinal) & 1u) != 0;
+    }
+    // The header's decision, then the layer's own where it kept one.
+    pass.unlit = hasFlag(common.flags, MaterialFlags::Unlit);
+    pass.twoSided = common.cull == CullMode::None;
+    pass.unfogged = hasFlag(common.flags, MaterialFlags::Unfogged);
+    pass.noDepthTest = !common.depth.test;
+    pass.noDepthWrite = !common.depth.write;
+    if (const MaterialFeature* feature = common.feature(FeatureKind::LayerShading, ordinal)) {
+        if (const LayerShadingFeature* shading = feature->layerShading()) {
+            pass.unlit = shading->unlit;
+            pass.twoSided = shading->twoSided;
+            pass.unfogged = shading->unfogged;
+            pass.noDepthTest = shading->noDepthTest;
+            pass.noDepthWrite = shading->noDepthWrite;
+        }
+    }
+    return pass;
+}
+
+/// The Color-channel layers of a composite body, in order. Every other channel
+/// is a slot the first section takes afterwards (`placeExtras`).
+std::vector<Pass> passesOf(const CompositeBody& body, const CommonMaterial& common,
+                           const Context& context, const ExportHints* hints) {
+    std::vector<Pass> passes;
+    for (std::size_t i = 0; i < body.layers.size(); ++i) {
+        const CompositeLayer& layer = body.layers[i];
+        if (layer.target != SurfaceChannel::Color) {
+            continue;
+        }
+        passes.push_back(
+            passOf(static_cast<u32>(i), layer.input, layer.op, common, context, hints));
+    }
+    return passes;
+}
+
+/// A collapsed Warcraft III stack (§7.2.2: an opaque pass under modulate or
+/// additive ones) is a combiner chain in WEM and a pass list here.
+std::vector<Pass> passesOf(const CombinersBody& body, const CommonMaterial& common,
+                           const Context& context, const ExportHints* hints) {
+    std::vector<Pass> passes;
+    for (std::size_t i = 0; i < body.stages.size(); ++i) {
+        const CombinerStage& stage = body.stages[i];
+        CompositeOp op = CompositeOp::Set;
+        switch (stage.rgb) {
+        case CombinerOp::Opaque:
+            op = CompositeOp::Set;
+            break;
+        case CombinerOp::Mod:
+            op = CompositeOp::Modulate;
+            break;
+        case CombinerOp::Mod2x:
+            op = CompositeOp::Modulate2x;
+            break;
+        case CombinerOp::Add:
+            op = CompositeOp::Add;
+            break;
+        case CombinerOp::AddAlpha:
+            op = CompositeOp::AddAlpha;
+            break;
+        case CombinerOp::Decal:
+        case CombinerOp::Fade:
+            op = CompositeOp::AlphaBlend;
+            break;
+        default:
+            continue; // Pass and the masked folds: nothing a Warcraft III stack spells
+        }
+        passes.push_back(passOf(static_cast<u32>(i), stage.input, i == 0 ? CompositeOp::Set : op,
+                                common, context, hints));
+    }
+    return passes;
+}
+
+/// A solid-colour layer: the fade carriers Blizzard's own conversions animate,
+/// the team-weight decal, the environment mask. `alpha` is what every op reads
+/// off it; `rgb` matters only to an op that reads the colour (the env mask
+/// under Add).
+m3::TextureLayer carrierLayer(f32 alpha, f32 rgb = 1.0f) {
+    const auto byte = [](f32 v) {
+        return static_cast<u8>(std::clamp(v, 0.0f, 1.0f) * 255.0f + 0.5f);
+    };
+    m3::TextureLayer layer;
+    layer.flags = m3::TextureLayerFlag::Color;
+    layer.color.initValue = m3::ColorBGRA{byte(rgb), byte(rgb), byte(rgb), byte(alpha)};
+    layer.rgbMultiply.initValue = 1.0f;
+    layer.mapAlpha.initValue = 1.0f;
+    return layer;
+}
+
+/// A pass's static alpha on the layer that carries the pass. Retail multiplies
+/// `mapAlpha` into the sampled alpha (`cResult.a *= z`, ComputeLayerColorInternal)
+/// and never reads a textured layer's `color`; this build's renderer folds
+/// `color.a` and never reads a textured layer's `mapAlpha`. Both are written so
+/// each engine applies the weight exactly once.
+void weightLayer(m3::TextureLayer& layer, f32 weight) {
+    layer.mapAlpha.initValue = weight;
+    layer.color.initValue.a = static_cast<u8>(std::clamp(weight, 0.0f, 1.0f) * 255.0f + 0.5f);
+}
+
+bool modFamily(m3::LayerBlendOp op) {
+    return op == m3::LayerBlendOp::Mod || op == m3::LayerBlendOp::Mod2x ||
+           op == m3::LayerBlendOp::Lerp;
+}
+
+/// A pass's own filter as a material blend, for a section whose base it is.
+m3::BlendMode blendForPass(CompositeOp op, u32& threshold) {
+    threshold = 0;
+    switch (op) {
+    case CompositeOp::AlphaKey:
+        threshold = 192; // 0.75 * 256, the Warcraft III key
+        return m3::BlendMode::Opaque;
+    case CompositeOp::AlphaBlend:
+        return m3::BlendMode::AlphaBlend;
+    case CompositeOp::Add:
+    case CompositeOp::AddAlpha:
+        return m3::BlendMode::AlphaAdd;
+    case CompositeOp::Modulate:
+        return m3::BlendMode::Mod;
+    case CompositeOp::Modulate2x:
+        return m3::BlendMode::Mod2x;
+    default:
+        return m3::BlendMode::Opaque;
+    }
+}
+
+/// One StandardMaterial being filled: a section of the answer.
+struct Section {
+    enum class Kind : u8 {
+        Opaque,       ///< the base covers its geoset: every fold onto it is exact
+        Partial,      ///< keyed or blended base: a later pass is confined to its coverage
+        Additive,     ///< an additive base with nothing additive after it
+        Modulate,     ///< a modulate base: nothing folds onto it
+        AdditiveOnly, ///< no diffuse; every pass an emissive, self-weighted (R3b)
+        Glow,         ///< the team glow (R4)
+    };
+    m3::StandardMaterial standard;
+    std::vector<u32> ordinals;
+    std::vector<u32> passOrdinals;
+    Kind kind = Kind::Opaque;
+    bool unlit = false;
+    bool twoSided = false;
+    bool unfogged = false;
+    bool teamDiffuse = false; ///< the RGBA select carries the team colour
+    bool hasDecal = false;
+    m3::LayerBlendOp decalOp = m3::LayerBlendOp::Mod;
+    u32 emisMod = 0;
+    u32 emisAdd = 0;
+    bool hasEnv = false;
+    u32 stage = 1;
+    bool baseFades = false;
+    f32 baseWeight = 1.0f;
+    u32 baseTexture = kInvalidIndex;
+    u32 baseOrdinal = kInvalidIndex;
+    TextureAlphaClass baseAlpha = TextureAlphaClass::Unknown;
+    bool toggle = false;
+
+    Section() : ordinals(static_cast<std::size_t>(StandardLayer::Count), kInvalidIndex) {}
+
+    bool emissiveFree() const {
+        return emisMod + emisAdd < 2;
+    }
+    void record(StandardLayer slot, u32 ordinal) {
+        ordinals[static_cast<std::size_t>(slot)] = ordinal;
+    }
+};
+
+enum class Home : u8 { Boundary, Emissive, Decal, Env, Toggle, TeamDecal };
+
+struct Placement {
+    Home home = Home::Boundary;
+    m3::LayerBlendOp op = m3::LayerBlendOp::Mod;
+    std::vector<DiagCode> approx;
+};
+
+/// Where @p p goes in @p s and what that costs -- or `Boundary`.
+Placement decide(const Section& s, const Pass& p, const Context& context) {
+    using Op = m3::LayerBlendOp;
+    Placement r;
+    const bool decalFree = !s.hasDecal;
+    const bool emisFree = s.emissiveFree();
+    const bool hasAdd = s.emisAdd > 0;
+    const bool hasMod = s.emisMod > 0;
+    // Only a Warcraft III stack picks a home by shading; a body that already
+    // had a decal slot (an edited .m3) means that slot.
+    const bool byShading = context.warcraftPasses;
+    const auto place = [&r](Home home, Op op) {
+        r.home = home;
+        r.op = op;
+    };
+    if (s.kind == Section::Kind::Modulate) {
+        return r;
+    }
+    if (s.kind == Section::Kind::Additive && !p.additive()) {
+        // One blend state cannot add and then replace: the base added to the
+        // frame, this pass would overwrite it (the Jackal Tank family).
+        return r;
+    }
+    // The material's fixed order puts the decal before lighting and the
+    // Add-family emissive sum after everything but the environment; a blend
+    // or modulate pass that FOLLOWED an additive one in Warcraft III can still
+    // fold, but the add is not blended down with the rest (`PassOrderFolded`).
+    // A Mod-family emissive must precede the Add-family ones in slot order,
+    // which `apply` arranges by shifting the add to the second slot.
+    const bool decalOrder = s.stage <= 2 || s.emisMod == 0;
+    if (p.op == CompositeOp::AlphaKey && s.passOrdinals.size() == 1 &&
+        s.kind == Section::Kind::Opaque && !s.teamDiffuse && s.baseFades && p.input.hasTexture() &&
+        p.input.texture == s.baseTexture && !s.standard.alphaLayer1.has_value() &&
+        s.standard.diffuseLayer.has_value()) {
+        // R6b: the same texture keyed over its own fading opaque pass is a
+        // coverage switch, not a colour stack.
+        place(Home::Toggle, Op::Mod);
+    } else if (p.glow) {
+        if (!emisFree) {
+            return r;
+        }
+        place(Home::Emissive, Op::TeamColorEmissiveAdd);
+    } else if (p.team) {
+        if (p.additive()) {
+            if (!emisFree) {
+                return r;
+            }
+            place(Home::Emissive, Op::TeamColorDiffuseAdd);
+        } else if (p.blendLike() &&
+                   (s.kind == Section::Kind::Opaque || s.kind == Section::Kind::Partial) &&
+                   decalFree && s.stage <= 2 && s.standard.diffuseLayer.has_value()) {
+            place(Home::TeamDecal, Op::TeamColorDiffuseAdd);
+        } else {
+            return r;
+        }
+    } else if (s.kind == Section::Kind::AdditiveOnly || s.kind == Section::Kind::Glow) {
+        if (!p.additive() || !emisFree) {
+            return r;
+        }
+        place(Home::Emissive, Op::Add);
+        if (!p.unlit && !s.unlit) {
+            r.approx.push_back(DiagCode::ShadedAdditiveFolded);
+        }
+    } else if (!byShading) {
+        // An additive colour layer is a glow and goes where Blizzard's own
+        // conversions put one; the rest is the source's decal.
+        const Op op = p.additive() ? (p.op == CompositeOp::Add ? Op::AddNoAlpha : Op::Add)
+                      : p.modulate() ? (p.op == CompositeOp::Modulate2x ? Op::Mod2x : Op::Mod)
+                                     : Op::Lerp;
+        if (p.additive() && emisFree) {
+            place(Home::Emissive, op);
+        } else if (decalFree && s.stage <= 2) {
+            place(Home::Decal, op);
+        } else if (emisFree && (!modFamily(op) || !hasAdd)) {
+            place(Home::Emissive, op);
+        } else {
+            return r;
+        }
+    } else if (p.env()) {
+        const Op op = p.additive() ? Op::Add : p.modulate() ? Op::Mod : Op::Lerp;
+        if (s.hasEnv || (s.hasDecal && s.decalOp != op)) {
+            return r;
+        }
+        place(Home::Env, op);
+        if (!p.unlit) {
+            r.approx.push_back(DiagCode::LitEnvFolded);
+        }
+    } else if (p.blendLike()) {
+        if (!p.unlit) {
+            if (decalFree && decalOrder) {
+                place(Home::Decal, Op::Lerp);
+            } else if (emisFree) {
+                place(Home::Emissive, Op::Lerp);
+                r.approx.push_back(DiagCode::UnlitFold);
+            } else {
+                return r;
+            }
+        } else {
+            if (emisFree) {
+                place(Home::Emissive, Op::Lerp);
+            } else if (decalFree && decalOrder) {
+                place(Home::Decal, Op::Lerp);
+                r.approx.push_back(DiagCode::LitFold);
+            } else {
+                return r;
+            }
+        }
+        if (p.op == CompositeOp::AlphaKey && p.alpha == TextureAlphaClass::Gradient) {
+            r.approx.push_back(DiagCode::SoftKey);
+        }
+    } else if (p.modulate()) {
+        const Op op = p.op == CompositeOp::Modulate2x ? Op::Mod2x : Op::Mod;
+        if (decalFree && decalOrder) {
+            place(Home::Decal, op);
+        } else if (emisFree) {
+            place(Home::Emissive, op);
+        } else {
+            return r;
+        }
+        if (!p.unlit) {
+            r.approx.push_back(DiagCode::DoubleLit);
+        }
+        if (p.alphaTracked) {
+            r.approx.push_back(DiagCode::ModAlphaFolded);
+        }
+    } else if (p.additive()) {
+        // Both Warcraft III additive filters are `rgb * a` at the blend, so
+        // both are the alpha-weighted `Add`.
+        if (p.unlit) {
+            if (emisFree) {
+                place(Home::Emissive, Op::Add);
+            } else if (s.unlit && decalFree && !hasMod) {
+                place(Home::Decal, Op::Add); // adds commute; an unlit material lights nothing
+            } else {
+                return r;
+            }
+        } else {
+            if (decalFree && !hasMod && !s.unlit) {
+                place(Home::Decal, Op::Add); // lighting is linear in albedo
+            } else if (emisFree) {
+                place(Home::Emissive, Op::Add);
+                r.approx.push_back(DiagCode::ShadedAdditiveFolded);
+            } else {
+                return r;
+            }
+        }
+    } else {
+        return r;
+    }
+    if (r.home != Home::Toggle) {
+        if (s.kind == Section::Kind::Partial ||
+            (s.kind == Section::Kind::Additive && s.baseAlpha != TextureAlphaClass::Opaque)) {
+            r.approx.push_back(DiagCode::CoverageClipped);
+        }
+        if (s.baseFades) {
+            r.approx.push_back(DiagCode::BaseFadeShared);
+        }
+        if ((r.home == Home::Decal && !p.additive() && s.stage > 2) ||
+            (r.home == Home::Emissive && modFamily(r.op) && hasAdd)) {
+            r.approx.push_back(DiagCode::PassOrderFolded);
+        }
+    }
+    if (p.twoSided != s.twoSided || p.unfogged != s.unfogged) {
+        r.approx.push_back(DiagCode::PassFlagsFolded);
+    }
+    if (context.exactPasses && !r.approx.empty()) {
+        r.home = Home::Boundary;
+    }
+    return r;
+}
+
+void reportPass(const Pass& p, const std::vector<DiagCode>& approx, ProfileId profile,
+                Diagnostics& out) {
+    const ElementRef where(ElementKind::Layer, p.ordinal);
+    if (p.noDepthTest || p.noDepthWrite) {
+        out.info(DiagCode::DepthFlagsDropped,
+                 "pass " + number(p.ordinal) +
+                     " asked for no depth test or write; no StarCraft II material says that",
+                 where, profile);
+    }
+    if (p.frameTracked) {
+        out.info(DiagCode::FlipbookDropped,
+                 "pass " + number(p.ordinal) + " keys its texture id; the first frame stays",
+                 where, profile);
+    }
+    for (const DiagCode code : approx) {
+        out.info(code, "pass " + number(p.ordinal) + " folded approximately: " + ToString(code),
+                 where, profile);
+    }
+}
+
+void apply(Section& s, const Pass& p, const Placement& r, const Context& context,
+           ProfileId profile, Diagnostics& out, ExportReport* report) {
+    using Op = m3::LayerBlendOp;
+    m3::StandardMaterial& m = s.standard;
+    const auto textured = [&](Op op) {
+        m3::TextureLayer layer = layerFrom(p.input, context);
+        if (op == Op::Add || op == Op::Lerp) {
+            // The RGB select forces the sampled alpha to 1; these ops weight by it.
+            layer.colorType = m3::ColorChannelSelect::RGBA;
+        }
+        weightLayer(layer, p.input.weight);
+        return layer;
+    };
+    switch (r.home) {
+    case Home::Emissive: {
+        if (modFamily(r.op) && m.emissiveLayer1.has_value() && !modFamily(m.emissiveBlendMode1) &&
+            !m.emissiveLayer2.has_value()) {
+            // The Mod-family slot must come first (retail's accumulator
+            // oddity); the add's sum is applied after both slots either way.
+            m.emissiveLayer2 = std::move(m.emissiveLayer1);
+            m.emissiveBlendMode2 = m.emissiveBlendMode1;
+            m.emissiveLayer1.reset();
+            s.ordinals[static_cast<std::size_t>(StandardLayer::Emissive2)] =
+                s.ordinals[static_cast<std::size_t>(StandardLayer::Emissive1)];
+            s.ordinals[static_cast<std::size_t>(StandardLayer::Emissive1)] = kInvalidIndex;
+        }
+        const bool first = !m.emissiveLayer1.has_value();
+        std::optional<m3::TextureLayer>& slot = first ? m.emissiveLayer1 : m.emissiveLayer2;
+        m3::LayerBlendOp& op = first ? m.emissiveBlendMode1 : m.emissiveBlendMode2;
+        if (p.glow) {
+            slot = layerFrom(p.input, context);
+            slot->colorType = m3::ColorChannelSelect::Red;
+            weightLayer(*slot, p.input.weight);
+        } else if (p.team) {
+            slot = carrierLayer(p.input.weight);
+        } else {
+            slot = textured(r.op);
+        }
+        op = r.op;
+        s.record(first ? StandardLayer::Emissive1 : StandardLayer::Emissive2, p.ordinal);
+        if (modFamily(r.op)) {
+            ++s.emisMod;
+            s.stage = (std::max)(s.stage, 3u);
+        } else {
+            ++s.emisAdd;
+            s.stage = (std::max)(s.stage, 4u);
+        }
+        break;
+    }
+    case Home::Decal:
+        m.decalLayer = textured(r.op);
+        m.layerBlendMode = r.op;
+        s.hasDecal = true;
+        s.decalOp = r.op;
+        s.record(StandardLayer::Decal, p.ordinal);
+        s.stage = (std::max)(s.stage, 2u);
+        break;
+    case Home::TeamDecal: {
+        // `lerp(base, team, w)`: the diffuse scaled by `1 - w` and the team
+        // colour added at `w` -- the tint alpha cannot do it, the RGBA lerp
+        // keys on the RAW sampled alpha.
+        const f32 w = std::clamp(p.input.weight, 0.0f, 1.0f);
+        if (w >= 0.999f) {
+            // The plate covers the base outright: solid team colour (R3).
+            m.diffuseLayer = layerFrom(p.input, context);
+            m.diffuseLayer->colorType = m3::ColorChannelSelect::RGBA;
+            m.alphaTestThreshold = 0;
+            s.teamDiffuse = true;
+            s.record(StandardLayer::Diffuse, p.ordinal);
+        } else {
+            // Never 0: this build's renderer reads a zero multiply as the
+            // unauthored sentinel (1).
+            m.diffuseLayer->rgbMultiply.initValue = (std::max)(1.0f - w, 0.002f);
+            m.decalLayer = carrierLayer(w);
+            m.layerBlendMode = Op::TeamColorDiffuseAdd;
+            s.hasDecal = true;
+            s.decalOp = Op::TeamColorDiffuseAdd;
+            s.record(StandardLayer::Decal, p.ordinal);
+        }
+        s.stage = (std::max)(s.stage, 2u);
+        break;
+    }
+    case Home::Env: {
+        m.environmentLayer = layerFrom(p.input, context);
+        if (r.op != Op::Mod) {
+            m.environmentLayer->colorType = m3::ColorChannelSelect::RGBA;
+        }
+        // ApplyEnv reads the mask's rgb under Add and its alpha under Lerp,
+        // times the env sample's alpha -- so the weight sits on all four.
+        m.environmentMaskLayer = carrierLayer(p.input.weight, p.input.weight);
+        m.layerBlendMode = r.op;
+        if (m.hdrEnvironmentConstant <= 0.0f) {
+            m.hdrEnvironmentConstant = 1.0f;
+        }
+        s.hasEnv = true;
+        s.record(StandardLayer::EnvironmentMask, p.ordinal);
+        s.stage = 5;
+        break;
+    }
+    case Home::Toggle:
+        // Alive the base pass covers the windows; dead it has faded and the
+        // keyed pass leaves holes. `a * 1 + rgbAdd`, clamped: an add of 1
+        // passes every texel, an add of 0 keys them. The base's alpha track
+        // drives the add (`ExportReport::coverageSwitchOrdinal`).
+        m.alphaLayer1 = *m.diffuseLayer;
+        m.alphaLayer1->colorType = m3::ColorChannelSelect::Alpha;
+        m.alphaLayer1->flags |= m3::TextureLayerFlag::ColorClamp;
+        m.alphaLayer1->mapAlpha.initValue = 1.0f;
+        m.alphaLayer1->rgbAdd.initValue = std::clamp(s.baseWeight, 0.0f, 1.0f);
+        m.alphaTestThreshold = 192;
+        s.toggle = true;
+        s.record(StandardLayer::Alpha1, p.ordinal);
+        if (report != nullptr) {
+            report->coverageSwitchOrdinal = s.baseOrdinal;
+        }
+        break;
+    case Home::Boundary:
+        break;
+    }
+    if (p.twoSided) {
+        // Promoted: drawing the base's back faces too is the lesser error.
+        m.flags |= m3::MaterialFlag::TwoSided;
+    }
+    reportPass(p, r.approx, profile, out);
+    s.passOrdinals.push_back(p.ordinal);
+}
+
+/// Opens a material on @p passes[i] -- and on i + 1 too for a team plate under
+/// a textured pass. Returns how many passes it took.
+std::size_t open(Section& s, const std::vector<Pass>& passes, std::size_t i,
+                 const CommonMaterial& common, const Context& context, ProfileId profile,
+                 Diagnostics& out) {
+    using Op = m3::LayerBlendOp;
+    const Pass& p = passes[i];
+    const Pass* next = i + 1 < passes.size() ? &passes[i + 1] : nullptr;
+    const bool nextTextured = next != nullptr && !next->team && !next->glow;
+    m3::StandardMaterial& m = s.standard;
+
+    u32 threshold = 0;
+    m3::BlendMode blend = m3::BlendMode::Opaque;
+    if (p.ordinal == 0) {
+        // The stack's own meeting with the scene: the header.
+        blend = blendFor(common.blend);
+        if (context.warcraftPasses && common.blend == BlendMode::Additive) {
+            blend = m3::BlendMode::AlphaAdd;
+        }
+        threshold = (std::min)(255u, static_cast<u32>(common.alphaTestThreshold * 256.0f + 0.5f));
+    } else {
+        blend = blendForPass(p.op, threshold);
+    }
+    s.unlit = p.unlit;
+    s.twoSided = p.twoSided;
+    s.unfogged = p.unfogged;
+    s.baseOrdinal = p.ordinal;
+    s.baseWeight = p.input.weight;
+    s.baseFades = p.fades();
+    s.baseTexture = p.input.texture;
+    s.baseAlpha = p.alpha;
+    std::size_t taken = 1;
+    const bool additiveBlend = blend == m3::BlendMode::AlphaAdd || blend == m3::BlendMode::Add;
+
+    if (p.glow) {
+        // R4. `Opaque` never reads the material alpha, so an opaque glow's
+        // static weight rides the layer; a blended one rides the carrier
+        // `finish` plants.
+        s.kind = Section::Kind::Glow;
+        m.emissiveLayer1 = layerFrom(p.input, context);
+        m.emissiveLayer1->colorType = m3::ColorChannelSelect::Red;
+        m.emissiveBlendMode1 = Op::TeamColorEmissiveAdd;
+        if (blend == m3::BlendMode::Opaque) {
+            weightLayer(*m.emissiveLayer1, p.input.weight);
+        }
+        s.record(StandardLayer::Emissive1, p.ordinal);
+        s.emisAdd = 1;
+        s.stage = 4;
+    } else if (p.team && nextTextured && (next->blendLike() || next->modulate())) {
+        // R2: the texture's alpha IS the team mask. Shading, sidedness and fog
+        // are the texture pass's; the plate's own vanish with it.
+        m.diffuseLayer = layerFrom(next->input, context);
+        m.diffuseLayer->colorType = m3::ColorChannelSelect::RGBA;
+        blend = m3::BlendMode::Opaque;
+        threshold = 0;
+        s.teamDiffuse = true;
+        s.kind = Section::Kind::Opaque;
+        s.unlit = next->unlit;
+        s.twoSided = next->twoSided;
+        s.unfogged = next->unfogged;
+        s.baseOrdinal = next->ordinal;
+        s.baseWeight = 1.0f;
+        s.baseFades = next->alphaTracked;
+        s.baseTexture = next->input.texture;
+        s.record(StandardLayer::Diffuse, next->ordinal);
+        if (p.unlit && !next->unlit) {
+            out.info(DiagCode::TeamPlateUnlit,
+                     "the unlit team plate is lit with the texture over it, as every one of "
+                     "Blizzard's own conversions has it",
+                     ElementRef(ElementKind::Layer, p.ordinal), profile);
+        }
+        if (next->frameTracked) {
+            reportPass(*next, {}, profile, out);
+        }
+        taken = 2;
+    } else if (p.team && nextTextured && next->additive()) {
+        // R3b, the ghosts: the plate is a team add, the texture follows.
+        s.kind = Section::Kind::AdditiveOnly;
+        blend = m3::BlendMode::AlphaAdd;
+        threshold = 0;
+        m.emissiveLayer1 = carrierLayer(p.input.weight);
+        m.emissiveBlendMode1 = Op::TeamColorDiffuseAdd;
+        s.record(StandardLayer::Emissive1, p.ordinal);
+        s.emisAdd = 1;
+        s.stage = 4;
+    } else if (p.team) {
+        // R3: solid team colour -- the RGBA select on whatever the plate's
+        // reference names (the driver hands it an alpha-0 stock).
+        m.diffuseLayer = layerFrom(p.input, context);
+        m.diffuseLayer->colorType = m3::ColorChannelSelect::RGBA;
+        threshold = 0;
+        s.teamDiffuse = true;
+        s.kind = Section::Kind::Opaque;
+        s.record(StandardLayer::Diffuse, p.ordinal);
+    } else if (additiveBlend && nextTextured && next->additive()) {
+        // R3b: no diffuse, every pass an emissive weighted by its own alpha --
+        // the diffuse spelling would weight the later passes by the base's.
+        s.kind = Section::Kind::AdditiveOnly;
+        blend = m3::BlendMode::AlphaAdd;
+        threshold = 0;
+        m.emissiveLayer1 = layerFrom(p.input, context);
+        m.emissiveLayer1->colorType = m3::ColorChannelSelect::RGBA;
+        weightLayer(*m.emissiveLayer1, p.input.weight);
+        m.emissiveBlendMode1 = Op::Add;
+        s.record(StandardLayer::Emissive1, p.ordinal);
+        s.emisAdd = 1;
+        s.stage = 4;
+    } else {
+        // R1.
+        m.diffuseLayer = layerFrom(p.input, context);
+        s.record(StandardLayer::Diffuse, p.ordinal);
+        switch (blend) {
+        case m3::BlendMode::Opaque:
+            s.kind = (threshold == 0 || p.alpha == TextureAlphaClass::Opaque)
+                         ? Section::Kind::Opaque
+                         : Section::Kind::Partial;
+            break;
+        case m3::BlendMode::AlphaBlend:
+            s.kind = p.alpha == TextureAlphaClass::Opaque ? Section::Kind::Opaque
+                                                           : Section::Kind::Partial;
+            break;
+        case m3::BlendMode::Add:
+        case m3::BlendMode::AlphaAdd:
+            s.kind = Section::Kind::Additive;
+            break;
+        default:
+            s.kind = Section::Kind::Modulate;
+            break;
+        }
+    }
+    m.blendMode = blend;
+    m.alphaTestThreshold = threshold;
+    if (s.unlit) {
+        m.flags |= m3::MaterialFlag::Unshaded;
+    }
+    if (s.twoSided) {
+        m.flags |= m3::MaterialFlag::TwoSided;
+    }
+    if (s.unfogged) {
+        m.flags |= m3::MaterialFlag::Unfogged;
+    }
+    reportPass(p, {}, profile, out);
+    s.passOrdinals.push_back(p.ordinal);
+    if (taken == 2) {
+        s.passOrdinals.push_back(next->ordinal);
+    }
+    return taken;
+}
+
+/// The channels that are slots rather than passes -- specular, normal, the
+/// masks, an explicit emissive or environment layer -- onto the first section.
+/// After the passes, so a stack's own emissive homes come first.
+void placeExtras(Section& s, const CompositeBody& body, const Context& context,
+                 ProfileId profile, Diagnostics& out) {
+    using Op = m3::LayerBlendOp;
+    m3::StandardMaterial& m = s.standard;
+    for (std::size_t i = 0; i < body.layers.size(); ++i) {
+        const CompositeLayer& layer = body.layers[i];
+        const u32 ordinal = static_cast<u32>(i);
+        std::optional<m3::TextureLayer>* slot = nullptr;
+        StandardLayer name = StandardLayer::Count;
+        switch (layer.target) {
+        case SurfaceChannel::Color:
+            continue;
+        case SurfaceChannel::Emissive: {
+            if (!s.emissiveFree()) {
+                break;
+            }
+            const bool first = !m.emissiveLayer1.has_value();
+            slot = first ? &m.emissiveLayer1 : &m.emissiveLayer2;
+            name = first ? StandardLayer::Emissive1 : StandardLayer::Emissive2;
+            *slot = layerFrom(layer.input, context);
+            // The op's DEFAULT is Mod -- an emissive left there multiplies the
+            // lit colour, and a mostly-black glow map multiplied the Sorceress
+            // to a silhouette. Written on the first fill, always.
+            const Op op = layer.op == CompositeOp::Set ? Op::AddNoAlpha : blendOpFor(layer.op);
+            (first ? m.emissiveBlendMode1 : m.emissiveBlendMode2) = op;
+            if (modFamily(op)) {
+                ++s.emisMod;
+            } else {
+                ++s.emisAdd;
+            }
+            s.record(name, ordinal);
+            continue;
+        }
+        case SurfaceChannel::Specular:
+            slot = &m.specularLayer;
+            name = StandardLayer::Specular;
+            break;
+        case SurfaceChannel::Normal:
+            slot = &m.normalLayer;
+            name = StandardLayer::Normal;
+            break;
+        case SurfaceChannel::AmbientOcclusion:
+            slot = &m.ambientOcclusionLayer;
+            name = StandardLayer::AmbientOcclusion;
+            break;
+        case SurfaceChannel::Coverage:
+            if (!m.alphaLayer1.has_value()) {
+                slot = &m.alphaLayer1;
+                name = StandardLayer::Alpha1;
+            } else if (!m.alphaLayer2.has_value()) {
+                slot = &m.alphaLayer2;
+                name = StandardLayer::Alpha2;
+            }
+            break;
+        case SurfaceChannel::Environment:
+            if (!m.environmentLayer.has_value()) {
+                slot = &m.environmentLayer;
+                name = StandardLayer::Environment;
+            } else if (!m.environmentMaskLayer.has_value() &&
+                       layer.op == CompositeOp::Modulate) {
+                slot = &m.environmentMaskLayer;
+                name = StandardLayer::EnvironmentMask;
+            }
+            break;
+        default:
+            break;
+        }
+        if (slot == nullptr || slot->has_value()) {
+            out.warn(DiagCode::LayerDropped,
+                     std::string("a second ") + ToString(layer.target) +
+                         " layer has no M3 slot to go back into",
+                     ElementRef(ElementKind::Layer, ordinal), profile);
+            continue;
+        }
+        *slot = layerFrom(layer.input, context);
+        if (layer.target == SurfaceChannel::Coverage) {
+            (*slot)->colorType = m3::ColorChannelSelect::Alpha;
+        }
+        if (name == StandardLayer::Environment) {
+            s.hasEnv = true;
+        }
+        s.record(name, ordinal);
+    }
+}
+
+/// The header fields every section shares, the multipliers, the base's own
+/// coverage and static alpha.
+void finish(Section& s, const CompositeBody* body, const CommonMaterial& common,
+            const std::string& name, ProfileId profile, Diagnostics& out) {
+    m3::StandardMaterial& m = s.standard;
+    m.name = name;
+    m.priority = common.priorityPlane;
+    m.specularExponent = body != nullptr ? body->specularExponent : 0.0f;
+    m.hdrSpecularMultiplier = body != nullptr ? body->specularFactor.x : 0.0f;
+    // Warcraft III adds its passes unscaled, and the field's zero is a black
+    // glow in the real engine (this build's renderer guards it, the game does
+    // not).
+    m.hdrEmissiveMultiplier =
+        body != nullptr ? (std::max)(1.0f, body->emissiveFactor.x) : 1.0f;
+    if (body != nullptr && body->environmentFactor > 0.0f) {
+        m.hdrEnvironmentConstant = body->environmentFactor;
+    } else if (s.hasEnv && m.hdrEnvironmentConstant <= 0.0f) {
+        m.hdrEnvironmentConstant = 1.0f;
+    }
+
+    // A keyed or blended material with no mask stated: StarCraft II tests and
+    // blends by the COMPOSED alpha (`cFinal.a = mask1.a * mask2.a`), so without
+    // an alpha layer nothing is ever cut. The diffuse's own alpha is the mask
+    // -- Opaque + threshold 192 + an Alpha select on the diffuse's texture is,
+    // texel for texel, Blizzard's spelling of a Warcraft III Transparent
+    // filter, and `rgb * a` under AlphaAdd is both its additive filters. A
+    // team material stays out: its alpha is the team mask.
+    const bool keyed = m.blendMode == m3::BlendMode::Opaque && m.alphaTestThreshold > 0;
+    const bool blends =
+        m.blendMode == m3::BlendMode::AlphaBlend || m.blendMode == m3::BlendMode::AlphaAdd;
+    if (!s.teamDiffuse && !s.toggle && !m.alphaLayer1.has_value() && (keyed || blends) &&
+        m.diffuseLayer.has_value() && !TrimNuls(m.diffuseLayer->texturePath).empty()) {
+        m.alphaLayer1 = *m.diffuseLayer;
+        m.alphaLayer1->colorType = m3::ColorChannelSelect::Alpha;
+        m.alphaLayer1->mapAlpha.initValue = 1.0f; // the static weight rides its own carrier
+    }
+
+    // The base pass's static alpha: a Color-flag carrier whose multiply is the
+    // weight -- retail multiplies rgba, so it scales the mask -- leaving its
+    // `mapAlpha` for a fade track to share. A fading opaque pass is promoted to
+    // a blend, as Warcraft III promotes it.
+    const f32 w = std::clamp(s.baseWeight, 0.0f, 1.0f);
+    const bool glowOnLayer = s.kind == Section::Kind::Glow && m.blendMode == m3::BlendMode::Opaque;
+    const bool modulates =
+        m.blendMode == m3::BlendMode::Mod || m.blendMode == m3::BlendMode::Mod2x;
+    if (w < 0.999f && !s.teamDiffuse && s.kind != Section::Kind::AdditiveOnly && !glowOnLayer &&
+        !modulates) {
+        if (m.blendMode == m3::BlendMode::Opaque) {
+            m.blendMode = m3::BlendMode::AlphaBlend;
+        }
+        std::optional<m3::TextureLayer>* slot = !m.alphaLayer1.has_value()   ? &m.alphaLayer1
+                                                : !m.alphaLayer2.has_value() ? &m.alphaLayer2
+                                                                             : nullptr;
+        if (slot != nullptr) {
+            *slot = carrierLayer(1.0f);
+            (*slot)->rgbMultiply.initValue = (std::max)(w, 0.002f);
+        } else {
+            out.warn(DiagCode::LayerDropped,
+                     "the base pass's static alpha found both alpha layers taken",
+                     ElementRef(ElementKind::Layer, s.baseOrdinal), profile);
+        }
+    }
+}
+
+/// The header of a material that has no colour pass at all -- a slot-only body.
+void headerFrom(const CommonMaterial& common, m3::StandardMaterial& m) {
+    m.blendMode = blendFor(common.blend);
+    m.alphaTestThreshold =
+        (std::min)(255u, static_cast<u32>(common.alphaTestThreshold * 256.0f + 0.5f));
+    if (common.cull == CullMode::None) {
+        m.flags |= m3::MaterialFlag::TwoSided;
+    }
+    if (hasFlag(common.flags, MaterialFlags::Unfogged)) {
+        m.flags |= m3::MaterialFlag::Unfogged;
+    }
+    if (hasFlag(common.flags, MaterialFlags::Unlit)) {
+        m.flags |= m3::MaterialFlag::Unshaded;
+    }
+}
+
+/// The fold: §5.0 normalise, then open a material and place passes into it
+/// until one cannot go, then open the next on that pass. One section is a
+/// StandardMaterial; more are a CMP_ over them, in pass order.
+m3::MaterialMap exportPasses(std::vector<Pass> passes, const CompositeBody* body,
+                             const Material& material, ProfileId profile, const Context& context,
+                             m3::Model& model, Diagnostics& out, std::vector<u32>* layerOrdinals,
+                             ExportReport* report) {
+    const CommonMaterial& common = material.Common();
+
+    // §5.0: a later opaque pass replaces everything below it; a team plate
+    // under an opaque-alpha texture never shows.
+    std::size_t base = 0;
+    for (std::size_t i = 1; i < passes.size(); ++i) {
+        if (passes[i].op == CompositeOp::Set && !passes[i].team && !passes[i].glow) {
+            base = i;
+        }
+    }
+    if (base > 0) {
+        out.info(DiagCode::LayerDropped,
+                 number(base) + " pass(es) under an opaque later pass never show; dropped",
+                 ElementRef(ElementKind::Layer, 0), profile);
+        passes.erase(passes.begin(), passes.begin() + static_cast<std::ptrdiff_t>(base));
+    }
+    if (passes.size() >= 2 && passes[0].team && !passes[1].team && !passes[1].glow &&
+        passes[1].blendLike() && passes[1].alpha == TextureAlphaClass::Opaque) {
+        out.info(DiagCode::TeamPlateCovered,
+                 "the team plate sits under a texture whose alpha is opaque; no texel shows it",
+                 ElementRef(ElementKind::Layer, passes[0].ordinal), profile);
+        passes.erase(passes.begin());
+        // The plate was the stack's opaque meeting with the scene; the texture
+        // over it, opaque itself, inherits that rather than blending with
+        // whatever is behind.
+        passes[0].op = CompositeOp::Set;
+    }
+
+    std::vector<Section> sections;
+    std::size_t i = 0;
+    while (i < passes.size()) {
+        Section s;
+        i += open(s, passes, i, common, context, profile, out);
+        while (i < passes.size()) {
+            const Placement r = decide(s, passes[i], context);
+            if (r.home == Home::Boundary) {
+                if (context.compositeSections) {
+                    break;
+                }
+                out.warn(DiagCode::LayerDropped,
+                         "pass " + number(passes[i].ordinal) +
+                             " has no home in a single material and the caller allows no composite",
+                         ElementRef(ElementKind::Layer, passes[i].ordinal), profile);
+                ++i;
+                continue;
+            }
+            apply(s, passes[i], r, context, profile, out, sections.empty() ? report : nullptr);
+            ++i;
+        }
+        if (sections.empty() && body != nullptr) {
+            placeExtras(s, *body, context, profile, out);
+        }
+        finish(s, body, common, material.name, profile, out);
+        sections.push_back(std::move(s));
+    }
+    if (sections.empty()) {
+        Section s;
+        headerFrom(common, s.standard);
+        if (body != nullptr) {
+            placeExtras(s, *body, context, profile, out);
+        }
+        finish(s, body, common, material.name, profile, out);
+        sections.push_back(std::move(s));
+    }
+
+    const std::size_t count = static_cast<std::size_t>(StandardLayer::Count);
+    if (sections.size() == 1) {
+        if (layerOrdinals != nullptr) {
+            *layerOrdinals = sections[0].ordinals;
+        }
+        const m3::MaterialMap entry = pushStandard(std::move(sections[0].standard), model);
+        if (report != nullptr) {
+            report->standardIndices.assign(1, entry.materialIndex);
+        }
+        return entry;
+    }
+
+    if (layerOrdinals != nullptr) {
+        layerOrdinals->assign(count * sections.size(), kInvalidIndex);
+    }
+    m3::CompositeMaterial composite;
+    composite.name = material.name;
+    composite.priority = common.priorityPlane;
+    for (std::size_t k = 0; k < sections.size(); ++k) {
+        const m3::MaterialMap entry = pushStandard(std::move(sections[k].standard), model);
+        if (report != nullptr) {
+            report->standardIndices.push_back(entry.materialIndex);
+        }
+        m3::CompositeSection section;
+        section.materialIndex =
+            context.materialMapBase + static_cast<u32>(context.trailingMaps.size());
+        section.mapMultiplier.initValue = 1.0f;
+        context.trailingMaps.push_back(entry);
+        composite.sections.push_back(section);
+        if (layerOrdinals != nullptr) {
+            std::copy(sections[k].ordinals.begin(), sections[k].ordinals.end(),
+                      layerOrdinals->begin() + static_cast<std::ptrdiff_t>(k * count));
+        }
+    }
+    out.info(DiagCode::CompositeEmitted,
+             "the stack needed " + number(sections.size()) +
+                 " materials; a composite draws them in pass order",
+             ElementRef(), profile);
+    m3::MaterialMap entry;
+    entry.materialType = m3::MaterialType::Composite;
+    entry.materialIndex = static_cast<u32>(model.compositeMaterials.size());
+    model.compositeMaterials.push_back(std::move(composite));
+    return entry;
+}
+
 } // namespace
 
 m3::MaterialMap ExportMaterial(const Material& material, ProfileId profile, const Context& context,
                                m3::Model& model, Diagnostics& out,
-                               std::vector<u32>* layerOrdinals) {
+                               std::vector<u32>* layerOrdinals, const ExportHints* hints,
+                               ExportReport* report) {
     if (layerOrdinals != nullptr) {
         layerOrdinals->assign(static_cast<std::size_t>(StandardLayer::Count), kInvalidIndex);
     }
@@ -1291,8 +2349,20 @@ m3::MaterialMap ExportMaterial(const Material& material, ProfileId profile, cons
     }
 
     // The fallback path: `StandardMaterial` is the only M3 kind a generic body
-    // can become, so everything projects onto it or reports.
+    // can become, so everything projects onto it or reports. A layer stack --
+    // a composite body, or a Warcraft III chain the import collapsed -- goes
+    // through the pass fold, which may answer with a composite of its own.
     const CommonMaterial& common = material.Common();
+    if (const CompositeBody* body = common.composite()) {
+        return exportPasses(passesOf(*body, common, context, hints), body, material, profile,
+                            context, model, out, layerOrdinals, report);
+    }
+    if (const CombinersBody* chain = common.combiners();
+        chain != nullptr && context.warcraftPasses) {
+        return exportPasses(passesOf(*chain, common, context, hints), nullptr, material, profile,
+                            context, model, out, layerOrdinals, report);
+    }
+
     m3::StandardMaterial standard;
     standard.name = material.name;
     standard.blendMode = blendFor(common.blend);
@@ -1327,163 +2397,7 @@ m3::MaterialMap ExportMaterial(const Material& material, ProfileId profile, cons
         standard.flags |= m3::MaterialFlag::Unshaded;
     }
 
-    if (const CompositeBody* body = common.composite()) {
-        standard.specularExponent = body->specularExponent;
-        standard.hdrSpecularMultiplier = body->specularFactor.x;
-        standard.hdrEmissiveMultiplier = body->emissiveFactor.x;
-        standard.hdrEnvironmentConstant = body->environmentFactor;
-
-        // ---- the two Warcraft III team conventions, the oracle's way ------
-        //
-        // Blizzard's own conversions (`mods/war3.sc2mod`) settle both:
-        //
-        // * A replaceable-1 layer UNDER a keyed diffuse becomes ONE diffuse
-        //   layer with the RGBA select — the texture's alpha rides along and
-        //   the standard shader shows the team colour where it is low, which
-        //   is exactly WC3's under-layer. The alpha crosses UNINVERTED
-        //   (measured: `war3_footman.dds` alpha == the BLP's, texel for
-        //   texel). No coverage layer: the same alpha is the team mask.
-        // * A replaceable-2 layer (team glow) becomes an ADDITIVE emissive
-        //   whose op is `TeamColorEmissiveAdd` with a RED channel select —
-        //   the texture is the mask and the team colour supplies the RGB.
-        bool teamDiffuse = false;
-        for (std::size_t i = 0; i < body->layers.size(); ++i) {
-            const CompositeLayer& layer = body->layers[i];
-            if (layer.target != SurfaceChannel::Color ||
-                !isReplaceable(layer.input, context, 1)) {
-                continue;
-            }
-            for (std::size_t j = i + 1; j < body->layers.size(); ++j) {
-                const CompositeLayer& over = body->layers[j];
-                if (over.target == SurfaceChannel::Color && over.input.hasTexture() &&
-                    (over.op == CompositeOp::AlphaKey || over.op == CompositeOp::AlphaBlend)) {
-                    teamDiffuse = true;
-                    break;
-                }
-            }
-            break;
-        }
-
-        const auto record = [&](StandardLayer slot, std::size_t ordinal) {
-            if (layerOrdinals != nullptr) {
-                (*layerOrdinals)[static_cast<std::size_t>(slot)] = static_cast<u32>(ordinal);
-            }
-        };
-        for (std::size_t ordinal = 0; ordinal < body->layers.size(); ++ordinal) {
-            const CompositeLayer& layer = body->layers[ordinal];
-            // The team under-layer itself never lands in a slot — the RGBA
-            // select on the real diffuse says everything it said. Its
-            // unshaded-ness belonged to it alone, so it must not leave the
-            // whole material unlit.
-            if (teamDiffuse && layer.target == SurfaceChannel::Color &&
-                isReplaceable(layer.input, context, 1)) {
-                standard.flags &= ~m3::MaterialFlag::Unshaded;
-                continue;
-            }
-            // The team glow.
-            if (layer.target == SurfaceChannel::Color &&
-                isReplaceable(layer.input, context, 2)) {
-                if (!standard.emissiveLayer1.has_value()) {
-                    standard.emissiveLayer1 = layerFrom(layer.input, context);
-                    standard.emissiveLayer1->colorType = m3::ColorChannelSelect::Red;
-                    standard.emissiveBlendMode1 = m3::LayerBlendOp::TeamColorEmissiveAdd;
-                    record(StandardLayer::Emissive1, ordinal);
-                }
-                continue;
-            }
-            std::optional<m3::TextureLayer>* slot = slotFor(layer.target, standard);
-            if (slot == nullptr) {
-                continue;
-            }
-            if (slot->has_value()) {
-                // A second layer on a channel that has one slot. An additive
-                // second COLOUR layer is a glow in Warcraft III terms, and the
-                // emissive slot is where Blizzard's own conversions put it;
-                // everything else reports rather than overwriting.
-                if (layer.target == SurfaceChannel::Color &&
-                    (layer.op == CompositeOp::Add || layer.op == CompositeOp::AddAlpha) &&
-                    !standard.emissiveLayer1.has_value()) {
-                    standard.emissiveLayer1 = layerFrom(layer.input, context);
-                    standard.emissiveBlendMode1 = blendOpFor(layer.op);
-                    record(StandardLayer::Emissive1, ordinal);
-                    continue;
-                }
-                if (layer.target == SurfaceChannel::Emissive &&
-                    !standard.emissiveLayer2.has_value()) {
-                    standard.emissiveLayer2 = layerFrom(layer.input, context);
-                    standard.emissiveBlendMode2 = blendOpFor(layer.op);
-                    record(StandardLayer::Emissive2, ordinal);
-                    continue;
-                }
-                if (layer.target == SurfaceChannel::Coverage &&
-                    !standard.alphaLayer2.has_value()) {
-                    standard.alphaLayer2 = layerFrom(layer.input, context);
-                    standard.alphaLayer2->colorType = m3::ColorChannelSelect::Alpha;
-                    record(StandardLayer::Alpha2, ordinal);
-                    continue;
-                }
-                // The keyed diffuse over a team layer replaces the team
-                // texture in the diffuse slot and turns the RGBA select on.
-                if (teamDiffuse && layer.target == SurfaceChannel::Color &&
-                    (layer.op == CompositeOp::AlphaKey || layer.op == CompositeOp::AlphaBlend)) {
-                    *slot = layerFrom(layer.input, context);
-                    (*slot)->colorType = m3::ColorChannelSelect::RGBA;
-                    record(StandardLayer::Diffuse, ordinal);
-                    // The alpha is the team mask here, not coverage; the test
-                    // would cut the team regions out.
-                    standard.alphaTestThreshold = 0;
-                    continue;
-                }
-                out.warn(DiagCode::LayerDropped,
-                         std::string("a second ") + ToString(layer.target) +
-                             " layer has no M3 slot to go back into",
-                         ElementRef(), profile);
-                continue;
-            }
-            *slot = layerFrom(layer.input, context);
-            record(standardLayerFor(layer.target), ordinal);
-            if (layer.target == SurfaceChannel::Coverage) {
-                (*slot)->colorType = m3::ColorChannelSelect::Alpha;
-            }
-            // The emissive slot's op rides a separate field, and its DEFAULT
-            // is Mod -- an emissive left there MULTIPLIES the lit colour, and
-            // a mostly-black glow map multiplied the Sorceress to a
-            // silhouette. Record the op on the first fill, not only when the
-            // slot spills to emissiveLayer2.
-            if (layer.target == SurfaceChannel::Emissive) {
-                standard.emissiveBlendMode1 = blendOpFor(layer.op);
-            }
-            // With the team under-layer skipped the keyed diffuse lands here,
-            // in the EMPTY slot -- same treatment as the occupied branch: the
-            // RGBA select says team, the test would cut the team regions out,
-            // and its op is the stack's meeting with the team layer, not a
-            // decal op.
-            if (teamDiffuse && layer.target == SurfaceChannel::Color &&
-                (layer.op == CompositeOp::AlphaKey || layer.op == CompositeOp::AlphaBlend)) {
-                (*slot)->colorType = m3::ColorChannelSelect::RGBA;
-                standard.alphaTestThreshold = 0;
-                continue;
-            }
-            if (layer.target == SurfaceChannel::Color && layer.op != CompositeOp::Set) {
-                standard.layerBlendMode = blendOpFor(layer.op);
-            }
-        }
-
-        // A keyed or blended material with no mask stated: StarCraft II tests
-        // and blends by the COMPOSED alpha (`cFinal.a = mask1.a * mask2.a`),
-        // so without an alpha layer nothing is ever cut. The diffuse's own
-        // alpha is the mask — Opaque + threshold 192 + an Alpha select on the
-        // diffuse's texture is, texel for texel, Blizzard's own spelling of a
-        // Warcraft III Transparent filter. A team material stays out: its
-        // alpha is the team mask.
-        if (!teamDiffuse && !standard.alphaLayer1.has_value() &&
-            (common.blend == BlendMode::AlphaKey || common.blend == BlendMode::Transparent ||
-             common.blend == BlendMode::AlphaBlend) &&
-            standard.diffuseLayer.has_value() && !standard.diffuseLayer->texturePath.empty()) {
-            standard.alphaLayer1 = *standard.diffuseLayer;
-            standard.alphaLayer1->colorType = m3::ColorChannelSelect::Alpha;
-        }
-    } else if (const CombinersBody* chain = common.combiners()) {
+    if (const CombinersBody* chain = common.combiners()) {
         // WoW fades a plain-additive batch through the COLOUR product (the
         // element alpha multiplies what draws, `reference_m2_element_alpha`),
         // so its ONE,ONE add still fades. M3's Add ignores alpha outright;
@@ -1506,7 +2420,11 @@ m3::MaterialMap ExportMaterial(const Material& material, ProfileId profile, cons
                  ElementRef(), profile);
     }
 
-    return pushStandard(std::move(standard), model);
+    const m3::MaterialMap entry = pushStandard(std::move(standard), model);
+    if (report != nullptr) {
+        report->standardIndices.assign(1, entry.materialIndex);
+    }
+    return entry;
 }
 
 } // namespace m3_core

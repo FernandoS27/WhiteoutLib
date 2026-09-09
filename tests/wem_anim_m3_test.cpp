@@ -660,3 +660,110 @@ TEST_CASE("wem m3 a UV rotation crosses as the angle plus the pivot's offset",
         CHECK(stc.sd4q.empty());
     }
 }
+
+// ============================================================================
+// What the retail sampler cannot absorb
+// ============================================================================
+
+namespace {
+
+f32 dotOf(const Quaternion& a, const Quaternion& b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+}
+
+SubTrack& subTrackOf(Clip& clip, u32 channel) {
+    for (SubTrack& track : clip.containers[0].subTracks) {
+        if (track.channel == channel) {
+            return track;
+        }
+    }
+    FAIL("channel " << channel << " has no sub-track");
+    return clip.containers[0].subTracks[0];
+}
+
+} // namespace
+
+TEST_CASE("wem m3 a quaternion stream is written in one hemisphere", "[wem][anim][m3]") {
+    // Retail lerps the four components as stored -- no slerp, no sign test --
+    // so keys that alternate q, -q (every Warcraft III Max export) pass near
+    // zero between each pair and the bone trembles at key rate. Written
+    // continuous, and the first key on the rest value's side.
+    const f32 c = 0.99619f;
+    const f32 s = 0.08715f; // ten degrees about z, spelled both ways
+    m3::Model model = makeModel();
+    model.bones[0].rotation = animated<Quaternion>(8, Quaternion{0, 0, 0, 1});
+    m3::AnimBlock<Quaternion> block;
+    block.timestamps = {0, 333, 667, 1000};
+    block.keys = {Quaternion{0, 0, -s, -c}, Quaternion{0, 0, s, c}, Quaternion{0, 0, -s, -c},
+                  Quaternion{0, 0, s, c}};
+    model.subTrackCollections[0].sd4q.push_back(std::move(block));
+    model.subTrackCollections[0].animIds.push_back(8);
+    model.subTrackCollections[0].animRefs.push_back(Ref(3, 0));
+
+    const Document document = convert(model);
+    const M3Converter converter;
+    Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+
+    const u32 ref = stcRefFor(*written, 8);
+    REQUIRE((ref >> 16) == 3u);
+    const auto& keys = stcHolding(*written, 8).sd4q[ref & 0xFFFFu].keys;
+    REQUIRE(keys.size() == 4u);
+    CHECK(dotOf(written->bones[0].rotation.initValue, keys[0]) > 0.0f);
+    for (std::size_t k = 1; k < keys.size(); ++k) {
+        CHECK(dotOf(keys[k - 1], keys[k]) > 0.0f);
+    }
+    // The rotation itself is untouched: q and -q are the same turn.
+    CHECK(std::fabs(keys[1].z) == Catch::Approx(s));
+    CHECK(std::fabs(keys[1].w) == Catch::Approx(c));
+}
+
+TEST_CASE("wem m3 a Warcraft window is keyed at both edges the way its engine plays them",
+          "[wem][anim][m3]") {
+    // Warcraft III reads only the keys inside a window and plays the span past
+    // the last key -- and the one before the first -- as a single segment
+    // back to the first key. M3 holds before its first key and loops a track
+    // on its own last stamp, so each edge the track does not reach gets the
+    // value the engine shows there; the slicer's bracket keys, which that
+    // engine never reads, go.
+    m3::Model model = makeModel();
+    keyTranslation(model, 7, {200, 800}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 10}});
+    Document document = convert(model);
+    Clip& clip = document.clips[0];
+    SubTrack& track = subTrackOf(clip, 7);
+    // One bracket key past each edge, the way the .mdx slicer leaves them.
+    // Everything rides z, the axis the basis change leaves alone.
+    track.times = {-0.1f, 0.2f, 0.8f, 1.1f};
+    track.values.clear();
+    for (const f32 z : {-3.0f, 0.0f, 10.0f, 13.0f}) {
+        const Vector3f v{0, 0, z};
+        const u8* bytes = reinterpret_cast<const u8*>(&v);
+        track.values.insert(track.values.end(), bytes, bytes + sizeof(v));
+    }
+
+    const M3Converter converter;
+    SECTION("a Warcraft window") {
+        clip.native.set("intervalStart", static_cast<i64>(0));
+        clip.native.set("intervalEnd", static_cast<i64>(1000));
+        Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+        REQUIRE(written.ok());
+        const u32 ref = stcRefFor(*written, 7);
+        const auto& block = stcHolding(*written, 7).sd3v[ref & 0xFFFFu];
+        REQUIRE(block.timestamps == std::vector<i32>{0, 200, 800, 1000});
+        // Half way from the last key back to the first: 200 ms into the
+        // 400 ms the wrap segment spans -- at the end, and at the start.
+        CHECK(block.keys[0].z == Catch::Approx(5.0f));
+        CHECK(block.keys[1].z == Catch::Approx(0.0f));
+        CHECK(block.keys[2].z == Catch::Approx(10.0f));
+        CHECK(block.keys[3].z == Catch::Approx(5.0f));
+    }
+    SECTION("any other clip holds the bracket before it and drops the one after") {
+        clip.native = NativeBag{};
+        Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+        REQUIRE(written.ok());
+        const u32 ref = stcRefFor(*written, 7);
+        const auto& block = stcHolding(*written, 7).sd3v[ref & 0xFFFFu];
+        REQUIRE(block.timestamps == std::vector<i32>{0, 200, 800});
+        CHECK(block.keys[0].z == Catch::Approx(-3.0f));
+    }
+}

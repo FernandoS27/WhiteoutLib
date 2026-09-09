@@ -45,6 +45,18 @@ namespace models {
 namespace wem {
 namespace m3_core {
 
+/// What a texture's alpha channel holds, when the caller decoded it. The
+/// Warcraft III fold reads it to tell a keyed base that covers its geoset from
+/// one that does not, and to drop a team plate no texel ever reveals
+/// (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5.0). `Unknown` is the conservative
+/// reading: a keyed or blended base is taken not to cover.
+enum class TextureAlphaClass : u8 {
+    Unknown = 0,
+    Opaque,   ///< every texel at or near 255
+    Keyed,    ///< texels at 0 or 255, nothing between
+    Gradient, ///< a soft mask
+};
+
 /// What the converter must supply that an `m3` material does not carry.
 struct Context {
     /// `MODL` version, 23..30+. Decides which material arrays exist at all, and
@@ -80,6 +92,33 @@ struct Context {
     /// fold reads `replaceableId` off it — a Warcraft III team layer is a
     /// replaceable texture, and nothing else says so.
     const std::vector<TextureRef>* textureRefs = nullptr;
+
+    // ---- the Warcraft III pass fold (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5) ----
+
+    /// The passes came from Warcraft III. Its engine draws Additive and
+    /// AddAlpha alike (SrcAlpha, One -- `bls_mat_params.cpp`), so the header's
+    /// `Additive` is `AlphaAdd` here; and a collapsed opaque-plus-additive
+    /// chain is one of its layer stacks, not a World of Warcraft combiner
+    /// chain, so it goes through the pass fold too.
+    bool warcraftPasses = false;
+
+    /// Open a composite section for every pass the one material can only
+    /// approximate, instead of folding it with a diagnostic (§5.4).
+    bool exactPasses = false;
+
+    /// Per `Document::textures` entry, a `TextureAlphaClass`; null when nobody
+    /// decoded them.
+    const std::vector<u8>* textureAlphaClasses = nullptr;
+
+    /// Whether the fold may answer a stack with N > 1 materials at all. A
+    /// composite's sections name `MaterialMap` entries, which the fold cannot
+    /// push itself without displacing the caller's slot-aligned ones: it
+    /// appends them to `trailingMaps`, numbered from `materialMapBase`, and the
+    /// caller pushes those after its own. Off, an unplaceable pass is dropped
+    /// with a `LayerDropped`.
+    bool compositeSections = false;
+    u32 materialMapBase = 0;
+    mutable std::vector<m3::MaterialMap> trailingMaps;
 
     /// The document index for @p path. Trailing NULs are dropped first: a
     /// shipped `.m3` string carries its terminator inside the `std::string`,
@@ -141,6 +180,23 @@ Material ImportMaterial(const m3::Model& model, const m3::MaterialMap& entry, Pr
 std::vector<Material> ImportMaterials(const m3::Model& model, ProfileId profile,
                                       const Context& context, Diagnostics& out);
 
+/// What the fold needs from the document's animation table about one material:
+/// the ordinals whose alpha or texture-id is keyed. Bit *i* is ordinal *i*.
+struct ExportHints {
+    u64 alphaTrackedOrdinals = 0;
+    u64 textureIndexTrackedOrdinals = 0;
+};
+
+/// What the fold decided that the animation export has to know.
+struct ExportReport {
+    /// `model.standardMaterials` indices written, in section order -- one for
+    /// a plain material, N for a composite.
+    std::vector<u32> standardIndices;
+    /// The live/dead coverage switch (§5.3 R6b): the ordinal whose alpha track
+    /// drives the first section's `alphaLayer1.rgbAdd`, or `kInvalidIndex`.
+    u32 coverageSwitchOrdinal = kInvalidIndex;
+};
+
 /// The inverse. With a native block present and not `CommonEdited` (§7.1) this
 /// writes the block's own body back into @p model and returns the map entry that
 /// names it; otherwise it projects the common material onto a `StandardMaterial`,
@@ -153,10 +209,14 @@ std::vector<Material> ImportMaterials(const m3::Model& model, ProfileId profile,
 /// @p layerOrdinals mirrors `ImportMaterial`'s: when given it is resized to
 /// `StandardLayer::Count` and filled with the source-body ordinal each slot
 /// took, `kInvalidIndex` elsewhere. The native fast paths leave it all-invalid
-/// -- their AnimRefs cross inside the block and need no rewiring.
+/// -- their AnimRefs cross inside the block and need no rewiring. A stack the
+/// fold answers with a composite fills `StandardLayer::Count` entries PER
+/// SECTION, section-major, and the returned entry is the composite's.
 m3::MaterialMap ExportMaterial(const Material& material, ProfileId profile, const Context& context,
                                m3::Model& model, Diagnostics& out,
-                               std::vector<u32>* layerOrdinals = nullptr);
+                               std::vector<u32>* layerOrdinals = nullptr,
+                               const ExportHints* hints = nullptr,
+                               ExportReport* report = nullptr);
 
 } // namespace m3_core
 } // namespace wem

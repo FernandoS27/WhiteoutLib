@@ -108,6 +108,17 @@ public:
  * (§6.2); the rebase is an axis permutation with determinant +1, so it is
  * bit-exact and preserves winding.
  */
+/// What a caller may tell `toM3` beyond the document
+/// (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5).
+struct M3ExportSettings {
+    /// Open a composite section for every pass the one material can only
+    /// approximate, instead of folding it with a diagnostic.
+    bool exactPasses = false;
+    /// Per `Document::textures` entry, an `m3_core::TextureAlphaClass` byte;
+    /// empty when nobody decoded the textures.
+    std::vector<u8> textureAlphaClasses;
+};
+
 class M3Converter final : public FormatConverter {
 public:
     std::string formatId() const override;
@@ -127,8 +138,8 @@ public:
     /// @p profileOverride of `ProfileId::Count` means "decide from the version".
     Result<Document> fromM3(const m3::Model& source,
                             ProfileId profileOverride = ProfileId::Count) const;
-    Result<m3::Model> toM3(const Document& document, ProfileId profile,
-                           u32 targetVersion = 30) const;
+    Result<m3::Model> toM3(const Document& document, ProfileId profile, u32 targetVersion = 30,
+                           const M3ExportSettings& settings = {}) const;
 
     /**
      * @brief Merges an external animation file (`.m3a`) into an imported model.

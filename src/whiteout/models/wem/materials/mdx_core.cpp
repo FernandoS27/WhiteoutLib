@@ -279,9 +279,10 @@ void applyHeader(const mdx::Material& material, const std::vector<const Layer*>&
         const bool unshaded = hasFlag(later, Layer::ShadingFlag::Unshaded) ||
                               hasFlag(later, Layer::ShadingFlag::Unlit);
         if (unshaded != firstUnshaded) {
-            out.warn(DiagCode::MixedShadedUnshadedStack,
+            out.info(DiagCode::MixedShadedUnshadedStack,
                      "layer " + number(i) + (unshaded ? " is unshaded" : " is shaded") +
-                         " and the first layer is not; WEM lights the assembled surface once",
+                         " and the first layer is not; WEM lights the assembled surface once and "
+                         "the layer's own decision rides a LayerShading feature",
                      layerRef(static_cast<u32>(i)));
             break;
         }
@@ -306,6 +307,39 @@ void addFresnel(const Layer& layer, u32 ordinal, CommonMaterial& common) {
     feature.layer = ordinal;
     feature.payload = fresnel;
     common.features.push_back(feature);
+}
+
+/// The per-layer shading bits the header cannot hold, as a `LayerShading`
+/// feature on every later layer that disagrees with it (features.h). Absolute
+/// values, so a reader needs no header to interpret them; only the layers that
+/// differ carry one, so a plain stack carries none.
+void attachLayerShading(const mdx::Material& material, const std::vector<const Layer*>& layers,
+                        CommonMaterial& common) {
+    const bool headerUnlit = hasFlag(common.flags, MaterialFlags::Unlit);
+    const bool headerTwoSided = common.cull == CullMode::None;
+    const bool headerUnfogged = hasFlag(common.flags, MaterialFlags::Unfogged);
+    const bool materialTwoSided = hasFlag(material.flags, mdx::Material::Flag::TwoSided);
+    const bool materialUnfogged = hasFlag(material.flags, mdx::Material::Flag::Unfogged);
+    for (std::size_t i = 1; i < layers.size(); ++i) {
+        const auto bits = layers[i]->shadingFlags;
+        LayerShadingFeature shading;
+        shading.unlit = hasFlag(bits, Layer::ShadingFlag::Unshaded) ||
+                        hasFlag(bits, Layer::ShadingFlag::Unlit);
+        shading.twoSided = materialTwoSided || hasFlag(bits, Layer::ShadingFlag::TwoSided);
+        shading.unfogged = materialUnfogged || hasFlag(bits, Layer::ShadingFlag::Unfogged);
+        shading.noDepthTest = hasFlag(bits, Layer::ShadingFlag::NoDepthTest);
+        shading.noDepthWrite = hasFlag(bits, Layer::ShadingFlag::NoDepthSet);
+        if (shading.unlit == headerUnlit && shading.twoSided == headerTwoSided &&
+            shading.unfogged == headerUnfogged && shading.noDepthTest == !common.depth.test &&
+            shading.noDepthWrite == !common.depth.write) {
+            continue;
+        }
+        MaterialFeature feature;
+        feature.id = NextFeatureId(common.features);
+        feature.layer = static_cast<u32>(i);
+        feature.payload = shading;
+        common.features.push_back(feature);
+    }
 }
 
 // ── import: the classic stack ───────────────────────────────────────────────
@@ -534,8 +568,10 @@ Material ImportMaterial(const mdx::Material& material, ProfileId profile, const 
         importPbr(layers, context, common, out, ordinalOfLayer);
     } else if (StackCollapses(layers)) {
         importCombiners(layers, context, common, out);
+        attachLayerShading(material, layers, common);
     } else {
         importComposite(layers, context, common, out);
+        attachLayerShading(material, layers, common);
         if (layers.size() > 1 && common.blend != BlendMode::Opaque) {
             // A later pass sees the scene where the fold sees the stack. WEM
             // stores the fold; the engine drew it the other way.
@@ -1245,6 +1281,26 @@ mdx::Material ExportMaterial(const Material& material, ProfileId profile, const 
         if (hasFlag(common.flags, MaterialFlags::Unfogged)) {
             layer.shadingFlags |= Layer::ShadingFlag::Unfogged;
         }
+    }
+    // A layer that kept its own decision (`LayerShadingFeature`) gets it back,
+    // over the header's.
+    for (const MaterialFeature& feature : common.features) {
+        const LayerShadingFeature* shading = feature.layerShading();
+        if (shading == nullptr || feature.layer >= ordinals.size() ||
+            ordinals[feature.layer] >= dst.layers.size()) {
+            continue;
+        }
+        Layer& layer = dst.layers[ordinals[feature.layer]];
+        const auto set = [&layer](Layer::ShadingFlag bit, bool on) {
+            const u32 bits = static_cast<u32>(layer.shadingFlags);
+            layer.shadingFlags = static_cast<Layer::ShadingFlag>(
+                on ? bits | static_cast<u32>(bit) : bits & ~static_cast<u32>(bit));
+        };
+        set(Layer::ShadingFlag::Unshaded, shading->unlit);
+        set(Layer::ShadingFlag::TwoSided, shading->twoSided);
+        set(Layer::ShadingFlag::Unfogged, shading->unfogged);
+        set(Layer::ShadingFlag::NoDepthTest, shading->noDepthTest);
+        set(Layer::ShadingFlag::NoDepthSet, shading->noDepthWrite);
     }
     return dst;
 }

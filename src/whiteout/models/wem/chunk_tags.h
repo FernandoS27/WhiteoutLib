@@ -319,6 +319,13 @@ struct ChunkTagTraits<UvAnimationFeature> {
 };
 
 template <>
+struct ChunkTagTraits<LayerShadingFeature> {
+    static constexpr u32 value = kTag("FLSH");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
 struct ChunkTagTraits<CompositeBody> {
     static constexpr u32 value = kTag("MKCP");
     static constexpr u32 max_version = 1;
@@ -493,6 +500,7 @@ inline constexpr u32 kKnownChunkTags[] = {
     ChunkTagTraits<MaterialFeature>::value,
     ChunkTagTraits<FresnelFeature>::value,
     ChunkTagTraits<UvAnimationFeature>::value,
+    ChunkTagTraits<LayerShadingFeature>::value,
     ChunkTagTraits<CompositeBody>::value,
     ChunkTagTraits<CompositeLayer>::value,
     ChunkTagTraits<CombinersBody>::value,

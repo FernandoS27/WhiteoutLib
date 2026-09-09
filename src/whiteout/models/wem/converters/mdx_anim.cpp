@@ -855,14 +855,39 @@ private:
                 }
 
                 const u32 stride = merged.valuesPerKey * static_cast<u32>(merged.valueSize);
+                const bool global = window.globalSequenceId != kNoGlobalSequence;
+                const u32 start = global ? 0u : window.start;
                 for (std::size_t k = 0; k < track->times.size(); ++k) {
                     // Back onto the timeline. A bracket key's time is negative
                     // or past the clip, which is exactly what puts it back where
                     // the neighbouring window's key already is.
-                    const f32 absolute =
-                        track->times[k] * kMilliseconds + static_cast<f32>(window.start);
+                    const f32 absolute = track->times[k] * kMilliseconds + static_cast<f32>(start);
                     const u32 time = absolute <= 0.0f ? 0u : static_cast<u32>(absolute + 0.5f);
                     merged.add(time, track->values.data() + k * stride);
+                }
+
+                // Warcraft III has no default: a window's first key is what
+                // plays from its start, and past the last key the engine
+                // interpolates back to the first across the loop. Every other
+                // source holds outside its keys, so a clip that did not come
+                // from an `.mdx` gets its first and last key restated at the
+                // window's two edges -- the start and end key every Warcraft
+                // III track has to have. An `.mdx` clip's keys already say
+                // what its engine plays and are left alone.
+                const bool warcraft = clip.native.value("intervalStart", -1) >= 0 ||
+                                      clip.native.value("globalSequenceId", -1) >= 0;
+                if (!warcraft) {
+                    const u32 end = global ? Milliseconds(clip.duration) : window.end;
+                    const auto minmax =
+                        std::minmax_element(track->times.begin(), track->times.end());
+                    if (*minmax.first > 1e-4f) {
+                        merged.add(start, track->values.data() +
+                                              (minmax.first - track->times.begin()) * stride);
+                    }
+                    if (*minmax.second < clip.duration - 1e-4f) {
+                        merged.add(end, track->values.data() +
+                                            (minmax.second - track->times.begin()) * stride);
+                    }
                 }
             }
         }

@@ -45,6 +45,7 @@ inline constexpr u32 kWholeMaterial = 0xFFFFFFFFu;
 enum class FeatureKind : u8 {
     Fresnel = 0,
     UvAnimation = 1,
+    LayerShading = 2,
     Count
     // Deliberately not designed yet: TeamColor, DepthFade, Refraction. Each needs
     // a profile that can express it on both sides before it earns a place.
@@ -111,7 +112,42 @@ struct UvAnimationFeature {
     }
 };
 
-using FeaturePayload = std::variant<FresnelFeature, UvAnimationFeature>;
+/**
+ * @brief How one PASS of a stack meets light, fog, depth and the back faces,
+ *        where that differs from the material's own header.
+ *
+ * Warcraft III states these per layer and WEM's header states them once for
+ * the assembled surface (`MaterialFlags::Unlit`, `CullMode`, `DepthState`), so
+ * a stack whose unlit team plate sits under a lit texture, or whose additive
+ * glow is unfogged over a fogged body, had nowhere to keep the difference but
+ * the native block -- which a derived profile drops. The values are absolute
+ * (the layer's own bits, not a delta), and a layer without the feature is lit,
+ * fogged, culled and depth-tested like the header says.
+ *
+ * The consumer contract holds: a renderer that ignores it lights the surface
+ * once, which is what the header always meant. The StarCraft II fold reads it
+ * to pick a pass's home -- an unlit pass goes to the post-lighting emissive
+ * slots, a lit one to the pre-lighting decal (WC3_SD_MATERIAL_TO_SC2_DESIGN.md
+ * §5.1).
+ */
+struct LayerShadingFeature {
+    bool unlit = false;
+    bool twoSided = false;
+    bool unfogged = false;
+    bool noDepthTest = false;
+    bool noDepthWrite = false;
+
+    template <class V>
+    void reflect(V& v) {
+        v.field("unlit", unlit);
+        v.field("twoSided", twoSided);
+        v.field("unfogged", unfogged);
+        v.field("noDepthTest", noDepthTest);
+        v.field("noDepthWrite", noDepthWrite);
+    }
+};
+
+using FeaturePayload = std::variant<FresnelFeature, UvAnimationFeature, LayerShadingFeature>;
 
 /// The payload alternative @p kind requires — the same redundancy as
 /// `NodeKind`/`NodePayload`, and validated the same way.
@@ -143,6 +179,9 @@ struct MaterialFeature {
         case FeatureKind::UvAnimation:
             v.chunk("uvAnimation", VariantAs<UvAnimationFeature>(payload));
             break;
+        case FeatureKind::LayerShading:
+            v.chunk("layerShading", VariantAs<LayerShadingFeature>(payload));
+            break;
         case FeatureKind::Count:
             break;
         }
@@ -167,6 +206,12 @@ struct MaterialFeature {
     }
     const UvAnimationFeature* uvAnimation() const {
         return std::get_if<UvAnimationFeature>(&payload);
+    }
+    LayerShadingFeature* layerShading() {
+        return std::get_if<LayerShadingFeature>(&payload);
+    }
+    const LayerShadingFeature* layerShading() const {
+        return std::get_if<LayerShadingFeature>(&payload);
     }
 };
 

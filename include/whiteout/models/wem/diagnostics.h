@@ -85,6 +85,26 @@ enum class DiagCode : u16 {
                                  ///< unpacked three, two features of a kind on one layer.
     LookBindingMalformed,        ///< `SlotBinding::byLook` is not sized to the `LookTable`.
     LookDropped,                 ///< A look the target profile has no table for (§6.6).
+    // The Warcraft III -> StarCraft II pass fold (WC3_SD_MATERIAL_TO_SC2_DESIGN.md
+    // §5): each names one way a pass was folded onto a single material
+    // approximately, or one thing the fold dropped. `exactPasses` turns every
+    // approximation into a composite section instead.
+    TeamPlateCovered,     ///< A team plate under an opaque-alpha texture never showed; dropped.
+    TeamPlateUnlit,       ///< The unlit team plate is lit with the texture over it (R2).
+    ShadedAdditiveFolded, ///< A lit additive pass went to an emissive slot, which is unlit.
+    PassFlagsFolded,      ///< A pass's two-sided / fog flag differs from the material's.
+    CoverageClipped,      ///< A later pass is confined to a keyed or blended base's coverage.
+    BaseFadeShared,       ///< The base pass's alpha fades every pass folded onto it.
+    LitFold,              ///< An unlit blend pass went to the decal, which is lit.
+    UnlitFold,            ///< A lit blend pass went to an emissive slot, which is unlit.
+    DoubleLit,            ///< A lit modulate pass (lit twice in WC3) folded once.
+    LitEnvFolded,         ///< A lit sphere-map pass went to the env layer, which is unlit.
+    SoftKey,              ///< A keyed pass over a base became a lerp by its gradient alpha.
+    ModAlphaFolded,       ///< A modulate pass's animated alpha has no exact layer home.
+    DepthFlagsDropped,    ///< NoDepthTest / NoDepthSet: no StarCraft II material says them.
+    FlipbookDropped,      ///< A texture-id track (KMTF) kept only its first frame.
+    CompositeEmitted,     ///< The stack needed N > 1 materials; a CMP_ carries them.
+    PassOrderFolded,      ///< A blend or modulate pass folded BEFORE an additive one it followed.
 
     // --- profiles (§6) --------------------------------------------------------
     ProfileNotCarried,         ///< Export asked for a profile the document does not have.

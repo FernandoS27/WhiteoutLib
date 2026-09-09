@@ -169,6 +169,8 @@ const char* ToString(FeatureKind kind) {
         return "fresnel";
     case FeatureKind::UvAnimation:
         return "uv_animation";
+    case FeatureKind::LayerShading:
+        return "layer_shading";
     case FeatureKind::Count:
         break;
     }

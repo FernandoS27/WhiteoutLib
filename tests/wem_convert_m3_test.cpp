@@ -709,6 +709,81 @@ const m3::StandardMaterial& firstMaterial(const Result<m3::Model>& written) {
     return written->standardMaterials[0];
 }
 
+/// The same document, authored in Warcraft III: the pass fold then picks a
+/// pass's home by its shading and reads both additive filters as the
+/// alpha-weighted add (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5).
+Document warcraftDocument(Material material, u32 replaceableTexture = 0,
+                          u32 replaceableId = 0) {
+    Document document = wc3Document(std::move(material), replaceableTexture, replaceableId);
+    document.declare(ProfileId::Wc3Classic);
+    document.defaultProfile = ProfileId::Wc3Classic;
+    return document;
+}
+
+CompositeLayer colorLayer(u32 texture, CompositeOp op, f32 weight = 1.0f) {
+    CompositeLayer layer;
+    layer.input = wemfix::makeInput(texture);
+    layer.input.weight = weight;
+    layer.target = SurfaceChannel::Color;
+    layer.op = op;
+    return layer;
+}
+
+Material stack(const char* name, std::vector<CompositeLayer> layers) {
+    Material material;
+    material.name = name;
+    CompositeBody body;
+    body.layers = std::move(layers);
+    material.InitCommon().body = std::move(body);
+    return material;
+}
+
+/// Pass @p ordinal keeps its own shading (a `LayerShading` feature).
+void shade(Material& material, u32 ordinal, bool unlit, bool twoSided = false) {
+    LayerShadingFeature shading;
+    shading.unlit = unlit;
+    shading.twoSided = twoSided;
+    MaterialFeature feature;
+    feature.id = NextFeatureId(material.Common().features);
+    feature.layer = ordinal;
+    feature.payload = shading;
+    material.MutableCommon().features.push_back(feature);
+}
+
+/// An alpha track on pass @p ordinal of slot 0, keyed @p keys over one second.
+u32 alphaTrack(Document& document, u32 ordinal, std::vector<f32> keys) {
+    Model& model = document.models.front();
+    AnimChannel channel;
+    channel.id = (std::max)(1u, model.animChannels.nextFreeId());
+    channel.target.kind = TrackTarget::Kind::MaterialLayer;
+    channel.target.material.profile = ProfileId::Sc2;
+    channel.target.material.slot = 0;
+    channel.target.material.look = 0;
+    channel.target.sub = ordinal;
+    channel.target.channel = Channel::Alpha;
+    channel.valueType = geom::AttrType::F32;
+    model.animChannels.add(channel);
+
+    if (document.clips.empty()) {
+        Clip clip;
+        clip.name = "Stand";
+        clip.model = 0;
+        clip.duration = 1.0f;
+        clip.containers.push_back(SubTrackContainer{});
+        document.clips.push_back(std::move(clip));
+    }
+    SubTrack track;
+    track.channel = channel.id;
+    track.interp = Interpolation::Linear;
+    for (std::size_t k = 0; k < keys.size(); ++k) {
+        track.times.push_back(static_cast<f32>(k) / static_cast<f32>((std::max)(keys.size(), std::size_t{2}) - 1));
+    }
+    track.values.resize(keys.size() * sizeof(f32));
+    std::memcpy(track.values.data(), keys.data(), track.values.size());
+    document.clips[0].containers[0].subTracks.push_back(std::move(track));
+    return channel.id;
+}
+
 } // namespace
 
 TEST_CASE("wem m3 a warcraft team stack folds to the RGBA select",
@@ -821,4 +896,397 @@ TEST_CASE("wem m3 an additive second colour layer is a glow",
     REQUIRE(out.emissiveLayer1.has_value());
     CHECK(out.emissiveLayer1->texturePath == "tex3.dds");
     CHECK(out.emissiveBlendMode1 == m3::LayerBlendOp::AddNoAlpha);
+}
+
+// ============================================================================
+// The pass fold (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5)
+// ============================================================================
+
+TEST_CASE("wem m3 a blend pass picks its home by shading", "[wem][convert][m3][fold]") {
+    // Unlit -> emissive Lerp, after lighting; lit -> decal Lerp, before it.
+    // Both exact; the first draft only had the decal.
+    for (const bool unlit : {true, false}) {
+        Material material = stack("trim", {colorLayer(0, CompositeOp::Set),
+                                           colorLayer(3, CompositeOp::AlphaBlend)});
+        shade(material, 1, unlit);
+        Document document = warcraftDocument(std::move(material));
+        const M3Converter converter;
+        Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+        const m3::StandardMaterial& out = firstMaterial(written);
+        if (unlit) {
+            REQUIRE(out.emissiveLayer1.has_value());
+            CHECK(out.emissiveLayer1->texturePath == "tex3.dds");
+            CHECK(out.emissiveBlendMode1 == m3::LayerBlendOp::Lerp);
+            CHECK(out.emissiveLayer1->colorType == m3::ColorChannelSelect::RGBA);
+            CHECK_FALSE(out.decalLayer.has_value());
+        } else {
+            REQUIRE(out.decalLayer.has_value());
+            CHECK(out.decalLayer->texturePath == "tex3.dds");
+            CHECK(out.layerBlendMode == m3::LayerBlendOp::Lerp);
+            CHECK_FALSE(out.emissiveLayer1.has_value());
+        }
+        CHECK(written->compositeMaterials.empty());
+        CHECK(written.diagnostics.countOf(DiagCode::UnlitFold) == 0);
+        CHECK(written.diagnostics.countOf(DiagCode::LitFold) == 0);
+    }
+}
+
+TEST_CASE("wem m3 a lit additive pass takes the decal", "[wem][convert][m3][fold]") {
+    // Lighting is linear in albedo, so `lit(base + t) = lit(base) + lit(t)`:
+    // the decal's Add is a shaded additive pass exactly. Over an UNLIT base
+    // the decal is unlit too, so it goes to an emissive and says so.
+    Material lit = stack("lava", {colorLayer(0, CompositeOp::Set),
+                                  colorLayer(3, CompositeOp::AddAlpha)});
+    Document document = warcraftDocument(std::move(lit));
+    const M3Converter converter;
+    Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    const m3::StandardMaterial& out = firstMaterial(written);
+    REQUIRE(out.decalLayer.has_value());
+    CHECK(out.layerBlendMode == m3::LayerBlendOp::Add);
+    CHECK(out.decalLayer->colorType == m3::ColorChannelSelect::RGBA);
+    CHECK_FALSE(out.emissiveLayer1.has_value());
+    CHECK(out.hdrEmissiveMultiplier == Catch::Approx(1.0f));
+
+    Material unlitBase = stack("lava", {colorLayer(0, CompositeOp::Set),
+                                        colorLayer(3, CompositeOp::AddAlpha)});
+    unlitBase.MutableCommon().flags |= MaterialFlags::Unlit;
+    shade(unlitBase, 1, false);
+    Document second = warcraftDocument(std::move(unlitBase));
+    Result<m3::Model> folded = converter.toM3(second, ProfileId::Sc2, 29);
+    const m3::StandardMaterial& approx = firstMaterial(folded);
+    REQUIRE(approx.emissiveLayer1.has_value());
+    CHECK(approx.emissiveBlendMode1 == m3::LayerBlendOp::Add);
+    CHECK(folded.diagnostics.countOf(DiagCode::ShadedAdditiveFolded) == 1);
+}
+
+TEST_CASE("wem m3 both warcraft additive filters are the alpha-weighted add",
+          "[wem][convert][m3][fold]") {
+    // The engine draws Additive and AddAlpha alike (SrcAlpha, One), so both
+    // are `Add` -- and the multiplier that scales the sum is written as 1,
+    // where its zero is a black glow in the real game.
+    Material material = stack("glow", {colorLayer(0, CompositeOp::Set),
+                                       colorLayer(3, CompositeOp::Add),
+                                       colorLayer(4, CompositeOp::AddAlpha)});
+    shade(material, 1, true);
+    shade(material, 2, true);
+    Document document = warcraftDocument(std::move(material));
+    const M3Converter converter;
+    Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    const m3::StandardMaterial& out = firstMaterial(written);
+    REQUIRE(out.emissiveLayer1.has_value());
+    REQUIRE(out.emissiveLayer2.has_value());
+    CHECK(out.emissiveBlendMode1 == m3::LayerBlendOp::Add);
+    CHECK(out.emissiveBlendMode2 == m3::LayerBlendOp::Add);
+    CHECK(out.emissiveLayer1->texturePath == "tex3.dds");
+    CHECK(out.emissiveLayer2->texturePath == "tex4.dds");
+    CHECK(out.hdrEmissiveMultiplier == Catch::Approx(1.0f));
+    CHECK(written->compositeMaterials.empty());
+}
+
+TEST_CASE("wem m3 an additive-only stack is emissive-only", "[wem][convert][m3][fold]") {
+    // No diffuse: every pass an emissive weighted by ITS OWN alpha, so the
+    // sum is Warcraft III's sum of passes -- the diffuse spelling would have
+    // weighted the second pass by the first's alpha.
+    Material material = stack("fx", {colorLayer(0, CompositeOp::Set),
+                                     colorLayer(3, CompositeOp::AddAlpha)});
+    material.MutableCommon().blend = BlendMode::AdditiveAlpha;
+    material.MutableCommon().flags |= MaterialFlags::Unlit;
+    Document document = warcraftDocument(std::move(material));
+    const M3Converter converter;
+    Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    const m3::StandardMaterial& out = firstMaterial(written);
+    CHECK_FALSE(out.diffuseLayer.has_value());
+    CHECK_FALSE(out.alphaLayer1.has_value());
+    CHECK(out.blendMode == m3::BlendMode::AlphaAdd);
+    REQUIRE(out.emissiveLayer1.has_value());
+    REQUIRE(out.emissiveLayer2.has_value());
+    CHECK(out.emissiveLayer1->texturePath == "tex0.dds");
+    CHECK(out.emissiveLayer2->texturePath == "tex3.dds");
+    CHECK(out.emissiveBlendMode1 == m3::LayerBlendOp::Add);
+    CHECK(out.emissiveBlendMode2 == m3::LayerBlendOp::Add);
+    CHECK(out.emissiveLayer1->colorType == m3::ColorChannelSelect::RGBA);
+
+    // The ghost heroes: a team plate drawn additive under an additive
+    // texture. The plate is a team add on a solid-colour carrier.
+    Material ghost = stack("ghost", {colorLayer(1, CompositeOp::Set),
+                                     colorLayer(3, CompositeOp::AddAlpha, 0.5f)});
+    ghost.MutableCommon().blend = BlendMode::Additive;
+    ghost.MutableCommon().flags |= MaterialFlags::Unlit;
+    Document haunted = warcraftDocument(std::move(ghost), 1, 1);
+    Result<m3::Model> spectral = converter.toM3(haunted, ProfileId::Sc2, 29);
+    const m3::StandardMaterial& spirit = firstMaterial(spectral);
+    CHECK_FALSE(spirit.diffuseLayer.has_value());
+    REQUIRE(spirit.emissiveLayer1.has_value());
+    CHECK(hasFlag(spirit.emissiveLayer1->flags, m3::TextureLayerFlag::Color));
+    CHECK(spirit.emissiveBlendMode1 == m3::LayerBlendOp::TeamColorDiffuseAdd);
+    REQUIRE(spirit.emissiveLayer2.has_value());
+    CHECK(spirit.emissiveBlendMode2 == m3::LayerBlendOp::Add);
+    // The pass's static alpha rides its layer, where retail reads `mapAlpha`
+    // and this build reads the tint alpha.
+    CHECK(spirit.emissiveLayer2->mapAlpha.initValue == Catch::Approx(0.5f));
+    CHECK(spirit.emissiveLayer2->color.initValue.a == 128);
+    CHECK(spirit.blendMode == m3::BlendMode::AlphaAdd);
+}
+
+TEST_CASE("wem m3 a later team plate is a weighted team add", "[wem][convert][m3][fold]") {
+    // `lerp(base, team, w)`: the diffuse at `1 - w`, the team colour added at
+    // `w` through a solid-colour decal. The RGBA lerp keys on the RAW sampled
+    // alpha, so no tint can do it.
+    Material material = stack("soldier", {colorLayer(0, CompositeOp::Set),
+                                          colorLayer(1, CompositeOp::AlphaBlend, 0.4f),
+                                          colorLayer(3, CompositeOp::Modulate)});
+    shade(material, 2, true);
+    Document document = warcraftDocument(std::move(material), 1, 1);
+    const M3Converter converter;
+    Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    const m3::StandardMaterial& out = firstMaterial(written);
+    REQUIRE(out.diffuseLayer.has_value());
+    CHECK(out.diffuseLayer->texturePath == "tex0.dds");
+    CHECK(out.diffuseLayer->rgbMultiply.initValue == Catch::Approx(0.6f));
+    REQUIRE(out.decalLayer.has_value());
+    CHECK(hasFlag(out.decalLayer->flags, m3::TextureLayerFlag::Color));
+    CHECK(out.decalLayer->color.initValue.a == 102);
+    CHECK(out.layerBlendMode == m3::LayerBlendOp::TeamColorDiffuseAdd);
+    // The modulate that follows takes an emissive slot (post-lighting, exact
+    // for an unlit pass): one material for three passes.
+    REQUIRE(out.emissiveLayer1.has_value());
+    CHECK(out.emissiveBlendMode1 == m3::LayerBlendOp::Mod);
+    CHECK(written->compositeMaterials.empty());
+
+    // At full weight the plate covers the base: solid team colour.
+    Material covered = stack("flag", {colorLayer(0, CompositeOp::Set),
+                                      colorLayer(1, CompositeOp::AlphaBlend, 1.0f)});
+    Document banner = warcraftDocument(std::move(covered), 1, 1);
+    Result<m3::Model> flag = converter.toM3(banner, ProfileId::Sc2, 29);
+    const m3::StandardMaterial& solid = firstMaterial(flag);
+    REQUIRE(solid.diffuseLayer.has_value());
+    CHECK(solid.diffuseLayer->colorType == m3::ColorChannelSelect::RGBA);
+    CHECK_FALSE(solid.decalLayer.has_value());
+}
+
+TEST_CASE("wem m3 the same texture keyed over its fading self is a coverage switch",
+          "[wem][convert][m3][fold]") {
+    // The city buildings: an opaque pass that fades out under a keyed pass
+    // of the same texels. Alive every texel passes the test (add 1, clamped);
+    // dead only the keyed ones do (add 0). The base's alpha track drives the
+    // add, not a carrier.
+    Material material = stack("ruin", {colorLayer(0, CompositeOp::Set),
+                                       colorLayer(0, CompositeOp::AlphaKey)});
+    shade(material, 1, false, true);
+    Document document = warcraftDocument(std::move(material));
+    alphaTrack(document, 0, {1.0f, 0.0f});
+    const M3Converter converter;
+    Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    const m3::StandardMaterial& out = firstMaterial(written);
+    CHECK(out.blendMode == m3::BlendMode::Opaque);
+    CHECK(out.alphaTestThreshold == 192);
+    REQUIRE(out.alphaLayer1.has_value());
+    CHECK(out.alphaLayer1->texturePath == "tex0.dds");
+    CHECK(out.alphaLayer1->colorType == m3::ColorChannelSelect::Alpha);
+    CHECK(hasFlag(out.alphaLayer1->flags, m3::TextureLayerFlag::ColorClamp));
+    CHECK(out.alphaLayer1->rgbAdd.initValue == Catch::Approx(1.0f));
+    CHECK(out.alphaLayer1->rgbAdd.animId != 0);
+    CHECK_FALSE(out.alphaLayer2.has_value());
+    CHECK(hasFlag(out.flags, m3::MaterialFlag::TwoSided));
+    CHECK(written.diagnostics.countOf(DiagCode::PassFlagsFolded) == 1);
+    CHECK(written.diagnostics.countOf(DiagCode::BaseFadeShared) == 0);
+    CHECK(written->compositeMaterials.empty());
+}
+
+TEST_CASE("wem m3 a blend after an additive emissive takes the first slot",
+          "[wem][convert][m3][fold]") {
+    // Retail's accumulator oddity: a Mod-family emissive2 after an Add-family
+    // emissive1 lands on the accumulator. The unlit blend takes slot 1 and the
+    // add moves to slot 2 -- the sum is applied after both either way -- and
+    // the fold says the add is no longer blended down. Its own section under
+    // exactPasses.
+    Material material = stack("order", {colorLayer(0, CompositeOp::Set),
+                                        colorLayer(3, CompositeOp::AddAlpha),
+                                        colorLayer(4, CompositeOp::AlphaBlend)});
+    shade(material, 1, true);
+    shade(material, 2, true);
+    Document document = warcraftDocument(std::move(material));
+    const M3Converter converter;
+    Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    const m3::StandardMaterial& out = firstMaterial(written);
+    REQUIRE(out.emissiveLayer1.has_value());
+    CHECK(out.emissiveLayer1->texturePath == "tex4.dds");
+    CHECK(out.emissiveBlendMode1 == m3::LayerBlendOp::Lerp);
+    REQUIRE(out.emissiveLayer2.has_value());
+    CHECK(out.emissiveLayer2->texturePath == "tex3.dds");
+    CHECK(out.emissiveBlendMode2 == m3::LayerBlendOp::Add);
+    CHECK_FALSE(out.decalLayer.has_value());
+    CHECK(written.diagnostics.countOf(DiagCode::PassOrderFolded) == 1);
+    CHECK(written->compositeMaterials.empty());
+
+    M3ExportSettings exact;
+    exact.exactPasses = true;
+    Result<m3::Model> split = converter.toM3(document, ProfileId::Sc2, 29, exact);
+    REQUIRE(split.ok());
+    REQUIRE(split->compositeMaterials.size() == 1);
+    CHECK(split->compositeMaterials[0].sections.size() == 2);
+    CHECK(split.diagnostics.countOf(DiagCode::CompositeEmitted) == 1);
+}
+
+TEST_CASE("wem m3 a stack no material can carry folds maximal runs into a composite",
+          "[wem][convert][m3][fold]") {
+    // The Jackal Tank turret: an additive base under a keyed pass (one blend
+    // state cannot add and then replace), a second keyed pass, an additive,
+    // and an unlit blend that takes the emissive slot ahead of the add. Two
+    // sections, not five; the sections' map entries follow the slots.
+    Material material = stack("turret", {colorLayer(0, CompositeOp::Set),
+                                         colorLayer(1, CompositeOp::AlphaKey),
+                                         colorLayer(2, CompositeOp::AlphaKey),
+                                         colorLayer(3, CompositeOp::AddAlpha),
+                                         colorLayer(4, CompositeOp::AlphaBlend)});
+    material.MutableCommon().blend = BlendMode::AdditiveAlpha;
+    shade(material, 3, true);
+    shade(material, 4, true);
+    Document document = warcraftDocument(std::move(material));
+    const M3Converter converter;
+    Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    REQUIRE(written->materialMaps.size() == 1 + 2);
+    CHECK(written->materialMaps[0].materialType == m3::MaterialType::Composite);
+    REQUIRE(written->compositeMaterials.size() == 1);
+    const m3::CompositeMaterial& composite = written->compositeMaterials[0];
+    REQUIRE(composite.sections.size() == 2);
+    REQUIRE(written->standardMaterials.size() == 2);
+    for (std::size_t k = 0; k < 2; ++k) {
+        const u32 map = composite.sections[k].materialIndex;
+        REQUIRE(map == 1 + k);
+        CHECK(written->materialMaps[map].materialType == m3::MaterialType::Standard);
+        CHECK(composite.sections[k].mapMultiplier.initValue == Catch::Approx(1.0f));
+    }
+    // Section 0: the additive base alone (AlphaAdd, its own alpha as coverage).
+    const m3::StandardMaterial& first = written->standardMaterials[0];
+    CHECK(first.blendMode == m3::BlendMode::AlphaAdd);
+    REQUIRE(first.diffuseLayer.has_value());
+    CHECK(first.diffuseLayer->texturePath == "tex0.dds");
+    // Section 1: keyed base + lit keyed decal + the unlit blend ahead of the
+    // unlit additive in the emissive slots.
+    const m3::StandardMaterial& second = written->standardMaterials[1];
+    CHECK(second.blendMode == m3::BlendMode::Opaque);
+    CHECK(second.alphaTestThreshold == 192);
+    REQUIRE(second.diffuseLayer.has_value());
+    CHECK(second.diffuseLayer->texturePath == "tex1.dds");
+    REQUIRE(second.decalLayer.has_value());
+    CHECK(second.decalLayer->texturePath == "tex2.dds");
+    REQUIRE(second.emissiveLayer1.has_value());
+    CHECK(second.emissiveLayer1->texturePath == "tex4.dds");
+    CHECK(second.emissiveBlendMode1 == m3::LayerBlendOp::Lerp);
+    REQUIRE(second.emissiveLayer2.has_value());
+    CHECK(second.emissiveLayer2->texturePath == "tex3.dds");
+    CHECK(second.emissiveBlendMode2 == m3::LayerBlendOp::Add);
+    CHECK(written.diagnostics.countOf(DiagCode::CompositeEmitted) == 1);
+
+    // Exact passes: every fold onto a keyed base is confined to its coverage,
+    // so each pass is its own section -- five draws, as Warcraft III drew it.
+    M3ExportSettings exact;
+    exact.exactPasses = true;
+    Result<m3::Model> split = converter.toM3(document, ProfileId::Sc2, 29, exact);
+    REQUIRE(split.ok());
+    REQUIRE(split->compositeMaterials.size() == 1);
+    CHECK(split->compositeMaterials[0].sections.size() == 5);
+}
+
+TEST_CASE("wem m3 a composite of single-pass sections reads back as the stack",
+          "[wem][convert][m3][fold]") {
+    // The import inverse: an additive base under a keyed pass goes out as two
+    // sections and comes back as two Color passes under the first's header.
+    Material material = stack("jackal", {colorLayer(0, CompositeOp::Set),
+                                         colorLayer(1, CompositeOp::AlphaKey)});
+    material.MutableCommon().blend = BlendMode::AdditiveAlpha;
+    Document document = warcraftDocument(std::move(material));
+    const M3Converter converter;
+    Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    REQUIRE(written->compositeMaterials.size() == 1);
+    REQUIRE(written->compositeMaterials[0].sections.size() == 2);
+
+    Result<Document> back = converter.fromM3(*written, ProfileId::Sc2);
+    REQUIRE(back.ok());
+    const Model& model = back->models.front();
+    const Material* imported = Resolve(model, 0, ProfileId::Sc2, 0);
+    REQUIRE(imported != nullptr);
+    const CompositeBody* body = imported->Common().composite();
+    REQUIRE(body != nullptr);
+    REQUIRE(body->layers.size() == 2);
+    CHECK(body->layers[0].op == CompositeOp::Set);
+    CHECK(body->layers[1].op == CompositeOp::AlphaKey);
+    CHECK(imported->Common().blend == BlendMode::AdditiveAlpha);
+}
+
+TEST_CASE("wem m3 a static pass alpha rides a carrier the fade can share",
+          "[wem][convert][m3][fold]") {
+    // A blended base at 0.66: its own alpha is the coverage layer, and the
+    // weight is a solid-colour carrier's multiply (retail multiplies rgba),
+    // with the carrier's map alpha free for a geoset fade to ride.
+    Material material = stack("banshee", {colorLayer(0, CompositeOp::Set, 0.66f)});
+    material.MutableCommon().blend = BlendMode::AlphaBlend;
+    Document document = warcraftDocument(std::move(material));
+    const M3Converter converter;
+    Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    const m3::StandardMaterial& out = firstMaterial(written);
+    CHECK(out.blendMode == m3::BlendMode::AlphaBlend);
+    REQUIRE(out.alphaLayer1.has_value());
+    CHECK(out.alphaLayer1->texturePath == "tex0.dds");
+    CHECK(out.alphaLayer1->mapAlpha.initValue == Catch::Approx(1.0f));
+    REQUIRE(out.alphaLayer2.has_value());
+    CHECK(hasFlag(out.alphaLayer2->flags, m3::TextureLayerFlag::Color));
+    CHECK(out.alphaLayer2->rgbMultiply.initValue == Catch::Approx(0.66f));
+
+    // An opaque glow at half strength: Opaque never reads the material alpha,
+    // so the weight rides the glow layer itself.
+    Material glow = stack("glow", {colorLayer(2, CompositeOp::Set, 0.5f)});
+    Document shine = warcraftDocument(std::move(glow), 2, 2);
+    Result<m3::Model> lit = converter.toM3(shine, ProfileId::Sc2, 29);
+    const m3::StandardMaterial& halo = firstMaterial(lit);
+    CHECK(halo.blendMode == m3::BlendMode::Opaque);
+    REQUIRE(halo.emissiveLayer1.has_value());
+    CHECK(halo.emissiveLayer1->mapAlpha.initValue == Catch::Approx(0.5f));
+    CHECK_FALSE(halo.alphaLayer1.has_value());
+}
+
+TEST_CASE("wem m3 a team plate under an opaque texture is dropped", "[wem][convert][m3][fold]") {
+    // Two official materials: no texel ever reveals the plate. With the
+    // texture's alpha class known the fold drops it and keeps the texture as
+    // a plain opaque diffuse.
+    Material material = stack("shipyard", {colorLayer(1, CompositeOp::Set),
+                                           colorLayer(0, CompositeOp::AlphaBlend)});
+    Document document = warcraftDocument(std::move(material), 1, 1);
+    M3ExportSettings settings;
+    settings.textureAlphaClasses.assign(document.textures.size(), 0);
+    settings.textureAlphaClasses[0] = 1; // opaque
+    const M3Converter converter;
+    Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29, settings);
+    const m3::StandardMaterial& out = firstMaterial(written);
+    REQUIRE(out.diffuseLayer.has_value());
+    CHECK(out.diffuseLayer->texturePath == "tex0.dds");
+    CHECK(out.diffuseLayer->colorType == m3::ColorChannelSelect::RGB);
+    CHECK(out.blendMode == m3::BlendMode::Opaque);
+    CHECK(written.diagnostics.countOf(DiagCode::TeamPlateCovered) == 1);
+}
+
+TEST_CASE("wem m3 a sphere-mapped pass is the environment layer", "[wem][convert][m3][fold]") {
+    // Applied after lighting and after the emissives, so an UNLIT sphere pass
+    // is exact; its static weight sits on a solid mask on all four channels.
+    CompositeLayer sheen = colorLayer(3, CompositeOp::AddAlpha, 0.5f);
+    sheen.input.mapping = UVMappingMode::EnvSphere;
+    Material material = stack("dump", {colorLayer(0, CompositeOp::Set), sheen});
+    shade(material, 1, true);
+    Document document = warcraftDocument(std::move(material));
+    const M3Converter converter;
+    Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    const m3::StandardMaterial& out = firstMaterial(written);
+    REQUIRE(out.environmentLayer.has_value());
+    CHECK(out.environmentLayer->texturePath == "tex3.dds");
+    CHECK(out.environmentLayer->uvMapping == m3::UVMappingMode::ReflectSphericalEnvio);
+    CHECK(out.layerBlendMode == m3::LayerBlendOp::Add);
+    CHECK(out.hdrEnvironmentConstant == Catch::Approx(1.0f));
+    REQUIRE(out.environmentMaskLayer.has_value());
+    CHECK(hasFlag(out.environmentMaskLayer->flags, m3::TextureLayerFlag::Color));
+    CHECK(out.environmentMaskLayer->color.initValue.a == 128);
+    CHECK(out.environmentMaskLayer->color.initValue.r == 128);
+    CHECK(written.diagnostics.countOf(DiagCode::LitEnvFolded) == 0);
 }
