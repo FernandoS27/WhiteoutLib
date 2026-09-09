@@ -6,6 +6,7 @@
 #include "../native/m3_copy.h"
 
 #include <algorithm>
+#include <cmath>
 #include <string>
 
 namespace whiteout {
@@ -230,14 +231,7 @@ TextureInput inputFor(const m3::TextureLayer& layer, const Context& context, u32
     const m3::ColorBGRA tint = layer.color.initValue;
     input.constant = Vector4f(static_cast<f32>(tint.r) / 255.0f, static_cast<f32>(tint.g) / 255.0f,
                               static_cast<f32>(tint.b) / 255.0f, static_cast<f32>(tint.a) / 255.0f);
-    input.uvTransform.m[0][2] = layer.uvOffset.initValue.x;
-    input.uvTransform.m[1][2] = layer.uvOffset.initValue.y;
-    if (layer.uvTiling.initValue.x != 0.0f) {
-        input.uvTransform.m[0][0] = layer.uvTiling.initValue.x;
-    }
-    if (layer.uvTiling.initValue.y != 0.0f) {
-        input.uvTransform.m[1][1] = layer.uvTiling.initValue.y;
-    }
+    input.uvTransform = UvTransformOf(layer);
     input.weight = layer.mapAlpha.initValue;
     return input;
 }
@@ -336,6 +330,7 @@ void importStandard(const m3::StandardMaterial& source, const Context& context,
     body.emissiveFactor = Vector4f(source.hdrEmissiveMultiplier, source.hdrEmissiveMultiplier,
                                    source.hdrEmissiveMultiplier, 1.0f);
     body.environmentFactor = source.hdrEnvironmentConstant;
+    body.simulateRoughness = hasFlag(source.flags, m3::MaterialFlag::SimulateRoughness);
 
     const CompositeOp layerOp = opFor(source.layerBlendMode);
     appendLayer(source.diffuseLayer, SurfaceChannel::Color, CompositeOp::Set, context, body, common,
@@ -365,7 +360,8 @@ void importStandard(const m3::StandardMaterial& source, const Context& context,
     appendLayer(source.alphaLayer2, SurfaceChannel::Coverage, CompositeOp::Modulate, context, body,
                 common, out, StandardLayer::Alpha2, ordinals);
 
-    reportDropped(source.glossLayer, "glossLayer", "gloss is a LegacySlot, not a channel", out);
+    appendLayer(source.glossLayer, SurfaceChannel::Gloss, CompositeOp::Set, context, body, common,
+                out, StandardLayer::Gloss, ordinals);
     reportDropped(source.heightLayer, "heightLayer", "parallax is not a surface channel", out);
     reportDropped(source.lightMapLayer, "lightMapLayer", "baked light is not a channel", out);
     reportDropped(source.normalBlend1Layer, "normalBlend1Layer",
@@ -567,6 +563,8 @@ const std::optional<m3::TextureLayer>& LayerOf(const m3::StandardMaterial& mater
         return material.alphaLayer1;
     case StandardLayer::Alpha2:
         return material.alphaLayer2;
+    case StandardLayer::Gloss:
+        return material.glossLayer;
     case StandardLayer::AmbientOcclusion:
     case StandardLayer::Count:
         break;
@@ -580,6 +578,53 @@ std::optional<m3::TextureLayer>& MutableLayerOf(m3::StandardMaterial& material,
     // and cast back: writing a second switch is how the two drift.
     return const_cast<std::optional<m3::TextureLayer>&>(
         LayerOf(const_cast<const m3::StandardMaterial&>(material), slot));
+}
+
+Matrix3x2f UvTransformOf(const m3::TextureLayer& layer) {
+    const f32 angle = layer.uvAngle.initValue.z;
+    const f32 c = std::cos(angle);
+    const f32 s = std::sin(angle);
+    // A tiling of zero is silence, not a scale of zero: 965509 of Heroes'
+    // 1039144 shipped layers tile at exactly one and 48032 leave the pair at
+    // the struct's zero, which composed literally samples one texel over the
+    // whole surface (`reference_m3_uv_and_fresnel`).
+    const f32 tx = layer.uvTiling.initValue.x != 0.0f ? layer.uvTiling.initValue.x : 1.0f;
+    const f32 ty = layer.uvTiling.initValue.y != 0.0f ? layer.uvTiling.initValue.y : 1.0f;
+
+    Matrix3x2f matrix;
+    matrix.m[0][0] = tx * c;
+    matrix.m[0][1] = -tx * s;
+    matrix.m[1][0] = ty * s;
+    matrix.m[1][1] = ty * c;
+    // The pivot and the offset, which the engine applies together: the offset
+    // sits beside the 0.5 INSIDE the pre-multiply, so it is subtracted.
+    const f32 px = 0.5f + layer.uvOffset.initValue.x;
+    const f32 py = 0.5f + layer.uvOffset.initValue.y;
+    matrix.m[0][2] = 0.5f - (matrix.m[0][0] * px + matrix.m[0][1] * py);
+    matrix.m[1][2] = 0.5f - (matrix.m[1][0] * px + matrix.m[1][1] * py);
+    return matrix;
+}
+
+void SetUvTransform(const Matrix3x2f& matrix, m3::TextureLayer& layer) {
+    // Row 0 is `tiling.x * (cos, -sin)`, so it names the angle; both tilings
+    // are then the projection of their row onto that angle, which is exact for
+    // a true `tiling * rotation` and the closest scale-and-turn for anything
+    // else.
+    const f32 angle = std::atan2(-matrix.m[0][1], matrix.m[0][0]);
+    const f32 c = std::cos(angle);
+    const f32 s = std::sin(angle);
+    const f32 tx = matrix.m[0][0] * c - matrix.m[0][1] * s;
+    const f32 ty = matrix.m[1][0] * s + matrix.m[1][1] * c;
+
+    layer.uvAngle.initValue = Vector3f(0.0f, 0.0f, angle);
+    layer.uvTiling.initValue = Vector2f(tx, ty);
+
+    // `matrix.translation = 0.5 - tiling * R * (0.5 + offset)`, read backwards.
+    const f32 vx = 0.5f - matrix.m[0][2];
+    const f32 vy = 0.5f - matrix.m[1][2];
+    const f32 wx = tx != 0.0f ? vx / tx : 0.0f;
+    const f32 wy = ty != 0.0f ? vy / ty : 0.0f;
+    layer.uvOffset.initValue = Vector2f(c * wx + s * wy - 0.5f, -s * wx + c * wy - 0.5f);
 }
 
 Material ImportMaterial(const m3::Model& model, const m3::MaterialMap& entry, ProfileId profile,
@@ -864,8 +909,7 @@ m3::TextureLayer layerFrom(const TextureInput& input, const Context& context) {
     layer.color.initValue = m3::ColorBGRA{
         static_cast<u8>(input.constant.z * 255.0f), static_cast<u8>(input.constant.y * 255.0f),
         static_cast<u8>(input.constant.x * 255.0f), static_cast<u8>(input.constant.w * 255.0f)};
-    layer.uvOffset.initValue = Vector2f(input.uvTransform.m[0][2], input.uvTransform.m[1][2]);
-    layer.uvTiling.initValue = Vector2f(input.uvTransform.m[0][0], input.uvTransform.m[1][1]);
+    SetUvTransform(input.uvTransform, layer);
     layer.mapAlpha.initValue = input.weight;
     // The multiply rests at ONE. The struct's default is zero, and a zero
     // multiply is a black layer in the real engine — the same trap the MADD
@@ -2050,6 +2094,10 @@ void placeExtras(Section& s, const CompositeBody& body, const Context& context,
             slot = &m.ambientOcclusionLayer;
             name = StandardLayer::AmbientOcclusion;
             break;
+        case SurfaceChannel::Gloss:
+            slot = &m.glossLayer;
+            name = StandardLayer::Gloss;
+            break;
         case SurfaceChannel::Coverage:
             if (!m.alphaLayer1.has_value()) {
                 slot = &m.alphaLayer1;
@@ -2063,6 +2111,18 @@ void placeExtras(Section& s, const CompositeBody& body, const Context& context,
             if (!m.environmentLayer.has_value()) {
                 slot = &m.environmentLayer;
                 name = StandardLayer::Environment;
+                // ApplyEnv's op is the decal's field (psmaterial.fx:332).
+                // With no decal to claim it the layer's own op names it --
+                // Add on 9,877 of 10,569 shipped env materials, where the
+                // struct's default Mod multiplies the lit colour by the
+                // reflection and blackens whatever the mask leaves out.
+                if (!s.hasDecal) {
+                    m.layerBlendMode =
+                        layer.op == CompositeOp::Modulate || layer.op == CompositeOp::Modulate2x
+                            ? Op::Mod
+                        : layer.op == CompositeOp::AlphaBlend ? Op::Lerp
+                                                              : Op::Add;
+                }
             } else if (!m.environmentMaskLayer.has_value() &&
                        layer.op == CompositeOp::Modulate) {
                 slot = &m.environmentMaskLayer;
@@ -2080,7 +2140,9 @@ void placeExtras(Section& s, const CompositeBody& body, const Context& context,
             continue;
         }
         *slot = layerFrom(layer.input, context);
-        if (layer.target == SurfaceChannel::Coverage) {
+        // Both read one scalar off the sample's alpha: the coverage by
+        // definition, the gloss because MaterialSpecularity squares `.a`.
+        if (layer.target == SurfaceChannel::Coverage || layer.target == SurfaceChannel::Gloss) {
             (*slot)->colorType = m3::ColorChannelSelect::Alpha;
         }
         if (name == StandardLayer::Environment) {
@@ -2156,7 +2218,12 @@ void placeFresnel(Section& s, const CompositeBody* body, const CommonMaterial& c
             m.emissiveLayer2 = rim;
             m.emissiveBlendMode2 = Op::AddNoAlpha;
             ++s.emisAdd;
-        } else if (!m.decalLayer.has_value() && (emis1Free || emis2Free)) {
+        } else if (!m.decalLayer.has_value() && (emis1Free || emis2Free) &&
+                   (!s.hasEnv || m.layerBlendMode == Op::Mod)) {
+            // The decal's op is the reflection's too (ApplyEnv reads the
+            // same field), so an additive reflection keeps the dim off the
+            // decal: the banshee's Mod dim multiplied her whole colour by an
+            // F0 mask that is black on cloth.
             m.decalLayer = dim;
             m.layerBlendMode = Op::Mod;
             s.hasDecal = true;
@@ -2206,6 +2273,9 @@ void finish(Section& s, const CompositeBody* body, const CommonMaterial& common,
         m.hdrEnvironmentConstant = body->environmentFactor;
     } else if (s.hasEnv && m.hdrEnvironmentConstant <= 0.0f) {
         m.hdrEnvironmentConstant = 1.0f;
+    }
+    if (body != nullptr && body->simulateRoughness) {
+        m.flags |= m3::MaterialFlag::SimulateRoughness;
     }
 
     // A keyed or blended material with no mask stated: StarCraft II tests and

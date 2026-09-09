@@ -206,6 +206,12 @@ enum class SurfaceChannel : u8 {
     /// reads each sample's **alpha** and multiplies; a channel-select mask is
     /// the native block's detail, like every other layer's select.
     Coverage,
+    /// A specularity scale: M3's gloss (SpecularExponent) layer, whose
+    /// sample's ALPHA squared scales `CompositeBody::specularExponent` per
+    /// texel (psmaterial.fx MaterialSpecularity) and, under
+    /// `simulateRoughness`, sets how blurred the environment reflection
+    /// reads. Diablo III's `LegacySlot::Gloss`. Appended: a byte on disk.
+    Gloss,
     Count
 };
 
@@ -265,6 +271,13 @@ struct CompositeBody {
     Vector4f specularFactor{0, 0, 0, 1};
     f32 specularExponent = 0;
     f32 environmentFactor = 0;
+    /// StarCraft II's SimulateRoughness: the `Gloss` layer is a roughness.
+    /// The engine drops its fake energy-conserving specular dim and, at
+    /// Medium quality and above, biases the environment cube's mip by
+    /// `1 - gloss`, so a rough texel reflects a blur and a glossy one a
+    /// mirror (`MaterialFlag::SimulateRoughness`; the StarTools "Simulate
+    /// Roughness" guide). `MKCP` v2.
+    bool simulateRoughness = false;
 
     /// The layers targeting @p channel, in order. Convenience for the fold.
 
@@ -276,6 +289,7 @@ struct CompositeBody {
         v.field("specularFactor", specularFactor);
         v.field("specularExponent", specularExponent);
         v.field("environmentFactor", environmentFactor);
+        v.since(2).field("simulateRoughness", simulateRoughness);
     }
 
     std::vector<u32> layersOf(SurfaceChannel channel) const;

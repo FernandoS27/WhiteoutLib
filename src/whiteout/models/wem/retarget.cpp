@@ -117,9 +117,10 @@ std::optional<SurfaceChannel> channelOf(LegacySlot slot) {
         return SurfaceChannel::Environment;
     case LegacySlot::AmbientOcclusion:
         return SurfaceChannel::AmbientOcclusion;
-    // Gloss, Height, Lightmap and Detail are the legacy-only slots no channel
-    // feeds — the direction `Flatten` cannot invert.
     case LegacySlot::Gloss:
+        return SurfaceChannel::Gloss;
+    // Height, Lightmap and Detail are the legacy-only slots no channel feeds —
+    // the direction `Flatten` cannot invert.
     case LegacySlot::Height:
     case LegacySlot::Lightmap:
     case LegacySlot::Detail:
@@ -169,6 +170,7 @@ std::optional<LegacySlot> legacyOf(PbrSlot slot) {
         return LegacySlot::AmbientOcclusion;
     case SurfaceChannel::Specular:
     case SurfaceChannel::Coverage:
+    case SurfaceChannel::Gloss:
     case SurfaceChannel::Count:
         break;
     }
@@ -192,6 +194,7 @@ std::optional<PbrSlot> pbrOf(SurfaceChannel channel) {
     // the base colour's alpha, which only a texture bake can compose.
     case SurfaceChannel::Specular:
     case SurfaceChannel::Coverage:
+    case SurfaceChannel::Gloss:
     case SurfaceChannel::Count:
         break;
     }
@@ -453,6 +456,9 @@ LegacyDeferredBody toLegacy(const CommonMaterial& source, const KindContext& ctx
                 break;
             case SurfaceChannel::AmbientOcclusion:
                 out.set(LegacySlot::AmbientOcclusion, *entry.second);
+                break;
+            case SurfaceChannel::Gloss:
+                out.set(LegacySlot::Gloss, *entry.second);
                 break;
             case SurfaceChannel::Coverage:
                 ctx.dropped("a 'coverage' layer (a slot map has no per-texel opacity)");

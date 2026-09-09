@@ -53,6 +53,8 @@ const char* ToString(SurfaceChannel channel) {
         return "environment";
     case SurfaceChannel::Coverage:
         return "coverage";
+    case SurfaceChannel::Gloss:
+        return "gloss";
     case SurfaceChannel::Count:
         break;
     }
@@ -336,6 +338,7 @@ ColorSpace AutoColorSpaceFor(SurfaceChannel channel) {
     case SurfaceChannel::Normal:
     case SurfaceChannel::AmbientOcclusion:
     case SurfaceChannel::Coverage:
+    case SurfaceChannel::Gloss:
     case SurfaceChannel::Count:
         break;
     }
@@ -417,6 +420,8 @@ std::optional<LegacySlot> legacySlotFor(SurfaceChannel channel) {
         return LegacySlot::AmbientOcclusion;
     case SurfaceChannel::Environment:
         return LegacySlot::Environment;
+    case SurfaceChannel::Gloss:
+        return LegacySlot::Gloss;
     // Per-texel opacity has no slot in a slot map, so a stack that carries a
     // coverage layer is not degenerate and `Flatten` refuses it.
     case SurfaceChannel::Coverage:

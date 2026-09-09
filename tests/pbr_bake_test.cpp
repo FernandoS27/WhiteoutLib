@@ -620,3 +620,144 @@ TEST_CASE("the team's share is measured in linear light, not in the byte", "[pbr
     CHECK(pbr::TeamReplaceFromBlend(grey, 1.0f, true, out) ==
           Catch::Approx(1.0f - srgbToLinear(0.5f)).margin(1e-4f));
 }
+
+TEST_CASE("a gloss texel is one minus the roughness", "[pbr_bake]") {
+    CHECK(pbr::GlossFromRoughness(0.0f) == Catch::Approx(1.0f));
+    CHECK(pbr::GlossFromRoughness(1.0f) == Catch::Approx(0.0f));
+    CHECK(pbr::GlossFromRoughness(0.3f) == Catch::Approx(0.7f));
+    CHECK(pbr::GlossFromRoughness(2.0f) == Catch::Approx(0.0f));
+}
+
+TEST_CASE("the gloss ceiling lands the chosen texel on its own exponent", "[pbr_bake]") {
+    for (const f32 r : {0.3f, 0.38f, 0.5f, 0.65f}) {
+        const f32 g = pbr::GlossFromRoughness(r);
+        CHECK(pbr::GlossCeilingExponent(r) * g * g ==
+              Catch::Approx(pbr::ExponentFromRoughness(r)).margin(0.01f));
+    }
+    // A mirror-like texel asks past what StarCraft II authors; 2048 is the
+    // glossiest shipped ceiling.
+    CHECK(pbr::GlossCeilingExponent(0.05f) == Catch::Approx(2048.0f));
+}
+
+TEST_CASE("under simulate roughness the gloss is one minus the roughness", "[pbr_bake]") {
+    // The StarTools recipe: exponent 512, the gloss in the spec map's alpha,
+    // read as a perceptual gloss the engine blurs the reflection by — so the
+    // written roughness is `1 - g`, not the exponent scaled by g².
+    const Texture specular = solid(128, 128, 128, 255);
+    const Texture chalk = solid(0, 0, 0, 64);
+    pbr::OrmRecipe recipe;
+    recipe.reflectance.specular.texture = &specular;
+    recipe.reflectance.exponent = 512.0f;
+    recipe.reflectance.simulateRoughness = true;
+    recipe.reflectance.exponentScale.texture = &chalk;
+    recipe.reflectance.exponentScale.channel = Channel::A;
+
+    SECTION("a chalk texel is rough by exactly its gloss") {
+        const std::optional<Texture> orm = pbr::BakeOrm(recipe);
+        REQUIRE(orm.has_value());
+        CHECK(static_cast<i32>(channelOf(*orm, Channel::G)) ==
+              static_cast<i32>(std::lround((1.0f - 64.0f / 255.0f) * 255.0f)));
+    }
+    SECTION("a mirror texel is roughness zero") {
+        const Texture mirror = solid(0, 0, 0, 255);
+        recipe.reflectance.exponentScale.texture = &mirror;
+        const std::optional<Texture> orm = pbr::BakeOrm(recipe);
+        REQUIRE(orm.has_value());
+        CHECK(channelOf(*orm, Channel::G) == 0);
+    }
+    SECTION("without the flag the same texel scales the exponent") {
+        recipe.reflectance.simulateRoughness = false;
+        const std::optional<Texture> orm = pbr::BakeOrm(recipe);
+        REQUIRE(orm.has_value());
+        const f32 g = 64.0f / 255.0f;
+        CHECK(static_cast<i32>(channelOf(*orm, Channel::G)) ==
+              static_cast<i32>(std::lround(pbr::RoughnessFromExponent(512.0f * g * g) * 255.0f)));
+    }
+    SECTION("without a gloss layer the flag leaves the exponent in charge") {
+        recipe.reflectance.exponentScale.texture = nullptr;
+        const std::optional<Texture> orm = pbr::BakeOrm(recipe);
+        REQUIRE(orm.has_value());
+        CHECK(static_cast<i32>(channelOf(*orm, Channel::G)) ==
+              static_cast<i32>(std::lround(pbr::RoughnessFromExponent(512.0f) * 255.0f)));
+    }
+}
+
+TEST_CASE("a modulated reflection is a metal in the albedo's colour", "[pbr_bake]") {
+    // `lit * cube * mask`: the league skins' chrome is nothing but a
+    // reflection in the surface's own colour, so it crosses as metalness 1
+    // with the reflectance as the albedo — and a black texel stays black,
+    // where an additive term would have made it a grey mirror.
+    const Texture red = solid(255, 0, 0, 255);
+    const Texture black = solid(0, 0, 0, 255);
+    pbr::OrmRecipe recipe;
+    recipe.reflectance.envReflectance = 0.5f;
+    recipe.reflectance.envModulates = true;
+    recipe.baseColor.texture = &red;
+
+    SECTION("a modulated red is a metal") {
+        const std::optional<Texture> orm = pbr::BakeOrm(recipe);
+        REQUIRE(orm.has_value());
+        CHECK(channelOf(*orm, Channel::B) == 255);
+    }
+    SECTION("black reflects nothing when modulated") {
+        recipe.baseColor.texture = &black;
+        const std::optional<Texture> orm = pbr::BakeOrm(recipe);
+        REQUIRE(orm.has_value());
+        CHECK(channelOf(*orm, Channel::B) == 0);
+    }
+    SECTION("and everything when added") {
+        recipe.baseColor.texture = &black;
+        recipe.reflectance.envModulates = false;
+        const std::optional<Texture> orm = pbr::BakeOrm(recipe);
+        REQUIRE(orm.has_value());
+        CHECK(channelOf(*orm, Channel::B) == 255);
+    }
+    SECTION("the base colour is the reflectance itself") {
+        pbr::BaseColorRecipe base;
+        base.baseColor.texture = &red;
+        base.reflectance = recipe.reflectance;
+        const std::optional<Texture> albedo = pbr::BakeBaseColor(base);
+        REQUIRE(albedo.has_value());
+        // albedo * 0.5 in linear light, re-encoded.
+        CHECK(std::abs(linearOf(*albedo, Channel::R) - 0.5f) < 0.01f);
+        CHECK(channelOf(*albedo, Channel::G) == 0);
+    }
+}
+
+TEST_CASE("an RGB envio mask reads its decoded luminance", "[pbr_bake]") {
+    // `ApplyEnv` multiplies the reflection by `cMaskValue.rgb`, sampled
+    // through the spec map's sRGB view; the hue cannot survive Reforged's
+    // `F0 = m * albedo`, so the bake keeps its luminance — decoded, which is
+    // what makes a mid-grey mask a fifth and not a half.
+    const Texture grey = solid(128, 128, 128, 255);
+    const Texture white = solid(255, 255, 255, 255);
+    pbr::OrmRecipe recipe;
+    recipe.reflectance.envReflectance = 1.0f;
+    recipe.reflectance.envMask.texture = &grey;
+    recipe.reflectance.envMask.srgb = true;
+    recipe.reflectance.envMask.luminance = true;
+    recipe.baseColor.texture = &white;
+
+    SECTION("decoded") {
+        const std::optional<Texture> orm = pbr::BakeOrm(recipe);
+        REQUIRE(orm.has_value());
+        const f32 mask = srgbToLinear(128.0f / 255.0f);
+        CHECK(std::abs(unitOf(*orm, Channel::B) - mask / (1.0f + mask)) < 0.01f);
+    }
+    SECTION("the byte, when the map is data") {
+        recipe.reflectance.envMask.srgb = false;
+        const std::optional<Texture> orm = pbr::BakeOrm(recipe);
+        REQUIRE(orm.has_value());
+        const f32 mask = 128.0f / 255.0f;
+        CHECK(std::abs(unitOf(*orm, Channel::B) - mask / (1.0f + mask)) < 0.01f);
+    }
+    SECTION("an RGBA select weighs the colour by its alpha") {
+        const Texture half = solid(255, 255, 255, 128);
+        recipe.reflectance.envMask.texture = &half;
+        recipe.reflectance.envMask.alphaWeighted = true;
+        const std::optional<Texture> orm = pbr::BakeOrm(recipe);
+        REQUIRE(orm.has_value());
+        const f32 mask = 128.0f / 255.0f;
+        CHECK(std::abs(unitOf(*orm, Channel::B) - mask / (1.0f + mask)) < 0.01f);
+    }
+}

@@ -434,6 +434,148 @@ TEST_CASE("wem mdx export writes the clips back onto the timeline", "[wem][anim]
 }
 
 // ============================================================================
+// UV state, the way StarCraft II says it
+// ============================================================================
+
+namespace {
+
+/// @p document's material 0 with a `UvAnimation` feature on layer 0, and one
+/// channel of @p kind targeting it in the `.m3` spelling: a two-float offset, a
+/// three-float euler angle, a two-float tiling.
+u32 addM3UvChannel(Document& document, Channel kind, geom::AttrType type,
+                   std::vector<f32> times, std::vector<f32> values) {
+    Model& model = document.models[0];
+    ProfileMaterialSet* set = model.setFor(ProfileId::Wc3Classic);
+    REQUIRE(set != nullptr);
+    REQUIRE_FALSE(set->materials.empty());
+    CommonMaterial& common = set->materials[0].MutableCommon();
+
+    u32 featureId = kInvalidIndex;
+    for (const MaterialFeature& feature : common.features) {
+        if (feature.kind() == FeatureKind::UvAnimation) {
+            featureId = feature.id;
+        }
+    }
+    if (featureId == kInvalidIndex) {
+        MaterialFeature feature;
+        feature.id = NextFeatureId(common.features);
+        feature.layer = 0;
+        feature.payload = UvAnimationFeature{};
+        featureId = feature.id;
+        common.features.push_back(feature);
+    }
+
+    AnimChannel channel;
+    channel.id = (std::max)(1u, model.animChannels.nextFreeId());
+    channel.target.kind = TrackTarget::Kind::MaterialFeature;
+    channel.target.material.profile = ProfileId::Wc3Classic;
+    channel.target.material.slot = 0;
+    channel.target.material.look = 0;
+    channel.target.sub = featureId;
+    channel.target.channel = kind;
+    channel.valueType = type;
+    model.animChannels.add(channel);
+
+    SubTrack track;
+    track.channel = channel.id;
+    track.interp = Interpolation::Linear;
+    track.times = std::move(times);
+    track.values.resize(values.size() * sizeof(f32));
+    std::memcpy(track.values.data(), values.data(), track.values.size());
+    document.clips[0].containers[0].subTracks.push_back(std::move(track));
+    return channel.id;
+}
+
+} // namespace
+
+TEST_CASE("wem mdx a StarCraft II UV channel is restated, not reinterpreted",
+          "[wem][anim][mdx][uv]") {
+    // An `.m3` layer keys a Vector2 offset, a Vector3 of euler angles and a
+    // Vector2 tiling; a `TextureAnimation` keys a Vector3, a quaternion and a
+    // Vector3. Written straight through, `Emit` decoded each key as whatever
+    // the destination holds and read four bytes past its end -- a Heroes
+    // crystal exported the quaternion (0, 6.28, 0, -7.9e11).
+    mdx::Model source = makeModel();
+    source.bones[0].node.translationTracks = makeTrack<Vector3f>(
+        mdx::InterpolationType::Linear, {0, 1000}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 5}});
+    Document document = convert(source);
+    REQUIRE_FALSE(document.clips.empty());
+    REQUIRE_FALSE(document.clips[0].containers.empty());
+
+    addM3UvChannel(document, Channel::UvTranslate, geom::AttrType::F32x2, {0.0f, 1.0f},
+                   {0.0f, 0.0f, 0.25f, -0.5f});
+    addM3UvChannel(document, Channel::UvRotate, geom::AttrType::F32x3, {0.0f},
+                   {0.0f, 0.0f, 1.5707963f});
+    addM3UvChannel(document, Channel::UvScale, geom::AttrType::F32x2, {0.0f}, {2.0f, 3.0f});
+
+    MdxConverter converter;
+    const Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->textureAnimations.size() == 1u);
+    const mdx::TextureAnimation& animation = exported->textureAnimations[0];
+
+    // The translation: both engines apply it in source space inside the
+    // (0.5, 0.5) pivot, StarCraft II subtracting where Warcraft III adds, so it
+    // is the offset negated -- and its third component is a real zero rather
+    // than whatever followed the key in memory.
+    REQUIRE(animation.translationTracks.isUsed);
+    REQUIRE(animation.translationTracks.keys_data.size() == 2u);
+    CHECK(animation.translationTracks.keys_data[1].x == Catch::Approx(-0.25f));
+    CHECK(animation.translationTracks.keys_data[1].y == Catch::Approx(0.5f));
+    CHECK(animation.translationTracks.keys_data[1].z == 0.0f);
+
+    // The rotation: `uvAngle.z` radians as a unit quaternion about z.
+    REQUIRE(animation.rotationTracks.isUsed);
+    REQUIRE(animation.rotationTracks.keys_data.size() == 1u);
+    const Quaternion& turn = animation.rotationTracks.keys_data[0];
+    CHECK(turn.x == Catch::Approx(0.0f).margin(1e-5f));
+    CHECK(turn.y == Catch::Approx(0.0f).margin(1e-5f));
+    CHECK(turn.z == Catch::Approx(0.70710678f));
+    CHECK(turn.w == Catch::Approx(0.70710678f));
+
+    // The tiling: widened, with the z MDX ignores left at one.
+    REQUIRE(animation.scalingTracks.isUsed);
+    REQUIRE(animation.scalingTracks.keys_data.size() == 1u);
+    CHECK(animation.scalingTracks.keys_data[0].x == Catch::Approx(2.0f));
+    CHECK(animation.scalingTracks.keys_data[0].y == Catch::Approx(3.0f));
+    CHECK(animation.scalingTracks.keys_data[0].z == Catch::Approx(1.0f));
+}
+
+TEST_CASE("wem mdx a standing UV transform keeps its turn", "[wem][anim][mdx][uv]") {
+    // The static half of the same crossing: 5981 StarCraft II layers and 15218
+    // Heroes ones set a `uvAngle` and nothing else, and it reaches MDX only as
+    // a one-key rotation track.
+    Document document = convert(makeModel());
+    ProfileMaterialSet* set = document.models[0].setFor(ProfileId::Wc3Classic);
+    REQUIRE(set != nullptr);
+    TextureInput* input = set->materials[0].MutableCommon().inputAt(0);
+    REQUIRE(input != nullptr);
+    // A quarter turn about the texture centre, and the translation column that
+    // pivot leaves behind: R * (uv - 0.5) + 0.5.
+    input->uvTransform.m[0][0] = 0.0f;
+    input->uvTransform.m[0][1] = -1.0f;
+    input->uvTransform.m[1][0] = 1.0f;
+    input->uvTransform.m[1][1] = 0.0f;
+    input->uvTransform.m[0][2] = 1.0f;
+    input->uvTransform.m[1][2] = 0.0f;
+
+    MdxConverter converter;
+    const Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->textureAnimations.size() == 1u);
+    const mdx::TextureAnimation& animation = exported->textureAnimations[0];
+
+    REQUIRE(animation.rotationTracks.isUsed);
+    REQUIRE(animation.rotationTracks.keys_data.size() == 1u);
+    CHECK(animation.rotationTracks.keys_data[0].z == Catch::Approx(0.70710678f));
+    CHECK(animation.rotationTracks.keys_data[0].w == Catch::Approx(0.70710678f));
+    // The pivot is the engine's own, so the translation stays at rest: a turn
+    // about the centre needs no help from the KTAT.
+    CHECK_FALSE(animation.translationTracks.isUsed);
+    CHECK_FALSE(animation.scalingTracks.isUsed);
+}
+
+// ============================================================================
 // Visibility gates
 // ============================================================================
 

@@ -65,6 +65,7 @@ target_include_directories(apng_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 whiteout_add_test(quantize_test quantize_test.cpp)
 whiteout_add_test(texture_array_test texture_array_test.cpp)
 whiteout_add_test(pbr_bake_test pbr_bake_test.cpp)
+whiteout_add_test(environment_map_test environment_map_test.cpp)
 
 # Model Tests
 whiteout_add_test(m3_upgrade_corpus_test m3_upgrade_corpus_test.cpp)

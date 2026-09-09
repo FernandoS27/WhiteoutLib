@@ -768,6 +768,74 @@ std::vector<u8> SampleValue(const SubTrack& track, geom::AttrType type, f32 time
     return out;
 }
 
+/// Whether @p channel says its UV state the way an `.m3` layer does rather than
+/// the way a `TextureAnimation` does: a two-float offset, a three-float euler
+/// angle, a two-float tiling against MDX's Vector3 / quaternion / Vector3.
+bool IsM3UvSpelling(const AnimChannel& channel) {
+    if (channel.target.channel == Channel::UvRotate) {
+        return channel.valueType != geom::AttrType::Quat;
+    }
+    return channel.valueType != geom::AttrType::F32x3;
+}
+
+/// One such channel restated in MDX's spelling.
+///
+/// Both engines turn and scale a layer's UV about the texture centre and both
+/// apply the translation in source space ahead of that, but StarCraft II
+/// SUBTRACTS its offset where Warcraft III adds it (`M3ComposeUvTransform`
+/// against Reforged's `AnimateTextureMap`), so the translation is the offset
+/// negated -- exactly, whatever the turn and the tiling. The rotation is
+/// `uvAngle.z` about z, the only euler angle a 2x4 UV matrix keeps, and the
+/// third component of either vector pair is the one MDX ignores.
+///
+/// Without this the merged bytes reached `Emit` unread and were decoded as
+/// whatever the destination track holds: a two-float offset as a `Vector3f`
+/// and a three-float angle as a `Quaternion`, both four bytes past the end of
+/// the key. A Heroes crystal exported a texture rotation of
+/// (0, 6.28, 0, -7.9e11) -- degenerate, and unnormalisable -- and every
+/// crossed scroll left its last key with a junk z.
+MergedTrack MdxUvTrack(const MergedTrack& source, const AnimChannel& channel) {
+    MergedTrack out;
+    out.used = source.used;
+    // No `.m3` stream carries tangents, so a converted track is never smooth;
+    // a source that says otherwise loses them rather than pairing a quaternion
+    // with an euler tangent.
+    out.interp = ValuesPerKey(source.interp) > 1 ? Interpolation::Linear : source.interp;
+    out.globalSequenceId = source.globalSequenceId;
+    out.times = source.times;
+    out.valuesPerKey = 1;
+    out.valueSize = channel.target.channel == Channel::UvRotate ? sizeof(Quaternion)
+                                                                : sizeof(Vector3f);
+    const std::size_t comps =
+        std::min<std::size_t>(geom::AttrTypeSize(channel.valueType) / sizeof(f32), 4);
+    for (const u8* key : source.keys) {
+        f32 in[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        std::memcpy(in, key, comps * sizeof(f32));
+        f32 written[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        switch (channel.target.channel) {
+        case Channel::UvTranslate:
+            written[0] = -in[0];
+            written[1] = -in[1];
+            break;
+        case Channel::UvRotate: {
+            const f32 half = in[2] * 0.5f;
+            written[2] = std::sin(half);
+            written[3] = std::cos(half);
+            break;
+        }
+        default:
+            written[0] = in[0];
+            written[1] = in[1];
+            written[2] = 1.0f;
+            break;
+        }
+        std::vector<u8> value(out.valueSize, 0);
+        std::memcpy(value.data(), written, out.valueSize);
+        out.keys.push_back(out.own(std::move(value)));
+    }
+    return out;
+}
+
 /// Writes a merged track into `dst`, decoding `T` out of the raw value bytes.
 template <class T>
 void Emit(const MergedTrack& merged, mdx::Track<T>& dst) {
@@ -1364,15 +1432,21 @@ private:
             out_.textureAnimations.emplace_back();
         }
         mdx::TextureAnimation& animation = out_.textureAnimations[layer->textureAnimationId];
+        // An `.m3`-sourced channel keys the layer's own offset/angle/tiling and
+        // has to be restated; one that already came from a `TextureAnimation`
+        // is written as it stands.
+        const bool restate = IsM3UvSpelling(channel);
+        const MergedTrack converted = restate ? MdxUvTrack(merged, channel) : MergedTrack{};
+        const MergedTrack& uv = restate ? converted : merged;
         switch (channel.target.channel) {
         case Channel::UvTranslate:
-            Emit(merged, animation.translationTracks);
+            Emit(uv, animation.translationTracks);
             return;
         case Channel::UvRotate:
-            Emit(merged, animation.rotationTracks);
+            Emit(uv, animation.rotationTracks);
             return;
         case Channel::UvScale:
-            Emit(merged, animation.scalingTracks);
+            Emit(uv, animation.scalingTracks);
             return;
         default:
             break;
@@ -1578,25 +1652,33 @@ private:
 
     // ---- UV motion that is not keyed ----------------------------------------
 
-    /// A texture matrix MDX can hold: a scale and an offset, no shear.
+    /// A texture matrix MDX can hold: a turn and a scale about the texture
+    /// centre, and a translation applied ahead of both.
     struct UvState {
         Vector2f scale{1, 1};
-        Vector2f offset{0, 0};
+        f32 angle = 0;         ///< Radians, counter-clockwise about z.
+        Vector2f column{0, 0}; ///< The affine's own translation column.
     };
 
     /// `TextureInput::uvTransform` read as one, or nothing when it shears.
     ///
-    /// MDX's texture matrix is a scale, a rotation about the texture centre and
-    /// an offset -- `AnimateTextureMap` builds nothing else -- so a transform
-    /// with off-diagonal terms has no MDX spelling and is reported rather than
-    /// quietly squared off.
+    /// `AnimateTextureMap` composes `uv' = R * S * (uv + T - 0.5) + 0.5`, so
+    /// each COLUMN of the linear block carries one axis' scale and both name
+    /// the same angle. A matrix whose columns disagree -- a shear, or
+    /// StarCraft II's own `S * R` under a tiling that differs per axis -- has
+    /// no MDX spelling and is reported rather than quietly squared off.
     static std::optional<UvState> standingUv(const Matrix3x2f& matrix) {
-        if (matrix.m[0][1] != 0.0f || matrix.m[1][0] != 0.0f) {
+        UvState state;
+        state.angle = std::atan2(matrix.m[1][0], matrix.m[0][0]);
+        const f32 c = std::cos(state.angle);
+        const f32 s = std::sin(state.angle);
+        state.scale = Vector2f{matrix.m[0][0] * c + matrix.m[1][0] * s,
+                               matrix.m[1][1] * c - matrix.m[0][1] * s};
+        if (std::fabs(matrix.m[0][1] + state.scale.y * s) > 1e-3f ||
+            std::fabs(matrix.m[1][1] - state.scale.y * c) > 1e-3f) {
             return std::nullopt;
         }
-        UvState state;
-        state.scale = Vector2f{matrix.m[0][0], matrix.m[1][1]};
-        state.offset = Vector2f{matrix.m[0][2], matrix.m[1][2]};
+        state.column = Vector2f{matrix.m[0][2], matrix.m[1][2]};
         return state;
     }
 
@@ -1628,17 +1710,23 @@ private:
         return static_cast<u32>(out_.globalSequences.size() - 1);
     }
 
-    /// MDX's translation for a wanted UV offset under a scale.
+    /// MDX's `KTAT` value for a wanted translation COLUMN under @p state's
+    /// turn and scale.
     ///
-    /// The engine reads the track as `uv' = ((uv + T - 0.5) * S) + 0.5`, so the
-    /// offset a layer actually gets is `(T - 0.5) * S + 0.5`, and this is that
-    /// read backwards. At `S == 1` it is the offset itself, which is what every
-    /// tool that treats the track as a plain scroll assumes.
-    static Vector3f translationFor(const Vector2f& offset, const Vector2f& scale) {
-        const auto axis = [](f32 want, f32 s) {
-            return s != 0.0f ? (want - 0.5f) / s + 0.5f : want;
-        };
-        return Vector3f{axis(offset.x, scale.x), axis(offset.y, scale.y), 0.0f};
+    /// The engine reads the track as `uv' = R * S * (uv + T - 0.5) + 0.5`, so
+    /// the column a layer actually gets is `R * S * (T - 0.5) + 0.5`, and this
+    /// is that read backwards. Unturned and unscaled it is the column itself,
+    /// which is what every tool that treats the track as a plain scroll
+    /// assumes.
+    static Vector3f translationFor(const UvState& state, const Vector2f& column) {
+        const f32 c = std::cos(state.angle);
+        const f32 s = std::sin(state.angle);
+        const f32 vx = column.x - 0.5f;
+        const f32 vy = column.y - 0.5f;
+        const f32 wx = c * vx + s * vy;
+        const f32 wy = -s * vx + c * vy;
+        return Vector3f{state.scale.x != 0.0f ? wx / state.scale.x + 0.5f : column.x,
+                        state.scale.y != 0.0f ? wy / state.scale.y + 0.5f : column.y, 0.0f};
     }
 
     /// The period over which @p rate covers a whole number of UV tiles on every
@@ -1706,15 +1794,31 @@ private:
     void emitOneUvAnimation(mdx::Layer& layer, const UvState& standing,
                             const UvAnimationFeature* rate, u32 slot, u32 ordinal) {
         mdx::TextureAnimation animation;
-        const Vector3f start = translationFor(standing.offset, standing.scale);
+        const Vector3f start = translationFor(standing, standing.column);
+        // A turn puts a cosine of 6e-17 through every term, so "at rest" is a
+        // tolerance and not an equality -- a quarter turn's translation lands
+        // on 3e-17 and would otherwise write a track that says nothing.
+        constexpr f32 kRest = 1e-6f;
 
-        if (standing.scale.x != 1.0f || standing.scale.y != 1.0f) {
+        if (std::fabs(standing.scale.x - 1.0f) > kRest ||
+            std::fabs(standing.scale.y - 1.0f) > kRest) {
             animation.scalingTracks.isUsed = true;
             animation.scalingTracks.interpolationType = mdx::InterpolationType::None;
             animation.scalingTracks.timestamps = {0};
             animation.scalingTracks.keys_data = {
                 Vector3f{standing.scale.x, standing.scale.y, 1.0f}};
             animation.scalingTracks.keyCount = 1;
+        }
+        // A standing turn: 5981 StarCraft II layers and 15218 Heroes ones set
+        // one, and MDX has nowhere but a one-key rotation track to keep it.
+        if (std::fabs(standing.angle) > kRest) {
+            const f32 half = standing.angle * 0.5f;
+            animation.rotationTracks.isUsed = true;
+            animation.rotationTracks.interpolationType = mdx::InterpolationType::None;
+            animation.rotationTracks.timestamps = {0};
+            animation.rotationTracks.keys_data = {
+                Quaternion{0.0f, 0.0f, std::sin(half), std::cos(half)}};
+            animation.rotationTracks.keyCount = 1;
         }
 
         u32 globalSequence = kNoGlobalSequence;
@@ -1733,23 +1837,23 @@ private:
                 globalSequence = globalSequenceOf(milliseconds);
                 const Vector2f travelled{std::round(rate->scrollRate.x * period),
                                          std::round(rate->scrollRate.y * period)};
-                const Vector2f end{standing.offset.x + travelled.x,
-                                   standing.offset.y + travelled.y};
+                const Vector2f end{standing.column.x + travelled.x,
+                                   standing.column.y + travelled.y};
                 animation.translationTracks.isUsed = true;
                 animation.translationTracks.interpolationType = mdx::InterpolationType::Linear;
                 animation.translationTracks.globalSequenceId = globalSequence;
                 animation.translationTracks.timestamps = {0, milliseconds};
                 animation.translationTracks.keys_data = {start,
-                                                         translationFor(end, standing.scale)};
+                                                         translationFor(standing, end)};
                 animation.translationTracks.keyCount = 2;
             }
             if (rate->rotateRate != 0.0f) {
-                emitUvRotation(animation, rate->rotateRate, globalSequence);
+                emitUvRotation(animation, rate->rotateRate, standing.angle, globalSequence);
             }
         }
 
         if (!animation.translationTracks.isUsed &&
-            (standing.offset.x != 0.0f || standing.offset.y != 0.0f)) {
+            (std::fabs(start.x) > kRest || std::fabs(start.y) > kRest)) {
             animation.translationTracks.isUsed = true;
             animation.translationTracks.interpolationType = mdx::InterpolationType::None;
             animation.translationTracks.timestamps = {0};
@@ -1770,7 +1874,7 @@ private:
     /// The turn shares whatever period the scroll chose, so it is rounded to a
     /// whole number of turns within it -- a rate off by the same fraction as a
     /// scrolling axis, and for the same reason.
-    void emitUvRotation(mdx::TextureAnimation& animation, f32 radiansPerSecond,
+    void emitUvRotation(mdx::TextureAnimation& animation, f32 radiansPerSecond, f32 standingAngle,
                         u32 globalSequence) {
         constexpr f32 kTwoPi = 6.283185307179586f;
         if (globalSequence == kNoGlobalSequence) {
@@ -1788,7 +1892,7 @@ private:
         animation.rotationTracks.keys_data.clear();
         for (u32 step = 0; step <= 4; ++step) {
             const f32 fraction = static_cast<f32>(step) / 4.0f;
-            const f32 half = total * fraction * 0.5f;
+            const f32 half = (standingAngle + total * fraction) * 0.5f;
             animation.rotationTracks.timestamps.push_back(
                 static_cast<u32>(static_cast<f32>(milliseconds) * fraction));
             animation.rotationTracks.keys_data.push_back(

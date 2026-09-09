@@ -462,6 +462,7 @@ add_library(whiteout_lib
     # Textures
     src/whiteout/textures/texture.cpp
     src/whiteout/textures/pbr_bake.cpp
+    src/whiteout/textures/environment_map.cpp
     src/whiteout/textures/dds/parser.cpp
     src/whiteout/textures/dds/writer.cpp
     src/whiteout/textures/blp/parser.cpp

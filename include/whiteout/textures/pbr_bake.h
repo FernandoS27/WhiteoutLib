@@ -100,6 +100,16 @@ struct ScalarInput {
     f32 postScale = 1.0f;
     f32 bias = 0.0f;
 
+    /// The plane is display-referred: its RGB is decoded before the read. An
+    /// sRGB view never decodes alpha, so @ref Channel::A stays the byte.
+    bool srgb = false;
+    /// Read the luminance of the three colour channels instead of one — what
+    /// an RGB-select envio mask contributes (`cEnv * cMaskValue.rgb`), once
+    /// its hue is lost to Reforged's `F0 = m * albedo`.
+    bool luminance = false;
+    /// Multiply the read by the sample's alpha — an RGBA select's `rgb * a`.
+    bool alphaWeighted = false;
+
     bool present() const {
         return texture != nullptr;
     }
@@ -193,8 +203,36 @@ struct SpecularReflectance {
     /// source samples its env map UNBLURRED (mip 0 in the renderer), which is
     /// a sharp mirror; the flat material roughness would smear it away. The
     /// baked roughness is `min(material, this)` wherever the masked env term
-    /// is significant — the one legitimate per-texel width variation.
+    /// is significant — the one legitimate per-texel width variation, until
+    /// @ref simulateRoughness makes the gloss layer one.
     f32 envRoughnessCap = 1.0f;
+
+    /// The material sets `SimulateRoughness` — StarCraft II's own PBR
+    /// styling (the StarTools guide): the spec map doubles as the envio
+    /// mask, the gloss layer's alpha is a PERCEPTUAL gloss (255 mirror, 32
+    /// chalk) the engine blurs the reflection by (`mip = (1 - gloss) *
+    /// range`), and the fake energy dim is off. With a gloss layer present
+    /// the baked roughness is `1 - gloss` per texel — Reforged picks its
+    /// reflection mip by the perceptual roughness, so that reproduces the
+    /// blur exactly, and it is what the artist's scale meant: 32 is chalk,
+    /// where the exponent it scales (2048 * g²) still says a mid highlight.
+    /// The direct lobe's F0 stays the exponent's own: matching the source's
+    /// narrower Blinn peak at the perceptual width would drive F0 past 1 on
+    /// every rough texel (a Heroes texel at gloss 0.26 is exponent 35 and
+    /// roughness 0.74 at once), so the amplitude survives and the width
+    /// follows the gloss. Without a gloss layer the exponent still decides.
+    /// Heroes of the Storm ships 4,972 such materials and StarCraft II 1,801.
+    bool simulateRoughness = false;
+
+    /// The envio op is `Mod` — `lit * cube * tint * mask` (`ApplyEnv`), the
+    /// StarCraft II league skins' chrome. That is nothing but a reflection in
+    /// the surface's own colour, which is what a metal is: the albedo becomes
+    /// `albedo * envReflectance * mask` and the metalness 1, so Reforged
+    /// shows the probe in that colour and no diffuse
+    /// — the source showed no un-modulated diffuse either, and a texel the
+    /// mask leaves at zero is black in both. The mean brightness matches by
+    /// the same exchange rate as an additive layer's.
+    bool envModulates = false;
 };
 
 /// How a decal layer folds into the albedo — M3's `layerBlendMode`, the ops
@@ -334,6 +372,31 @@ f32 RoughnessFromExponent(f32 exponent);
 f32 ExponentFromRoughness(f32 roughness);
 
 /**
+ * @brief The StarCraft II gloss texel a Reforged roughness becomes: `1 - r`.
+ *
+ * The engine reads a gloss layer twice. `MaterialSpecularity` squares its
+ * alpha into the exponent, and under `SimulateRoughness` the envio block
+ * biases the reflection cube's mip by `1 - gloss` (the StarTools guide: 255
+ * is a mirror, 128 "near a shiny skin", 32 "very rough like chalk").
+ * Reforged picks its reflection mip by the perceptual roughness itself
+ * (`ps_ibl.slang`: `mip = roughnessToMip(r) * mipEnd`), so `1 - r`
+ * reproduces the blur exactly; the highlight width it implies stays within
+ * a factor of two of the GGX-matched exponent over the roughness shipped
+ * metals occupy (0.3 to 0.5), and @ref GlossCeilingExponent makes it exact
+ * at one chosen texel.
+ */
+f32 GlossFromRoughness(f32 roughness);
+
+/**
+ * @brief The `specularExponent` to write beside a @ref GlossFromRoughness
+ *        layer: the ceiling the gloss scales down from, chosen so the texel
+ *        at @p roughness gets exactly `ExponentFromRoughness(roughness)`
+ *        once its `(1 - r)^2` is applied. Clamped to the range StarCraft II's
+ *        own gloss materials author (20 to 2048).
+ */
+f32 GlossCeilingExponent(f32 roughness);
+
+/**
  * @brief What one unit of authored specular is worth as an F0.
  *
  * A Blinn-Phong lobe reflects `specColor * dim * pow(NdotH, n)`. The scale
@@ -371,9 +434,13 @@ f32 ReflectanceScale(f32 exponent, bool energyConserving);
  * ```
  * n         = max(1, exponent * exponentScale^2)
  * roughness = RoughnessFromExponent(n)
+ *             (1 - exponentScale under simulateRoughness, n from that)
  *
  * F0        = linear(specular) * factor * ReflectanceScale(n, ...)
+ *             + envReflectance * envMask
  * metalness = luminance(F0) / (luminance(F0) + luminance(teamAlbedo))
+ *             (1 under envModulates, the albedo then being
+ *              teamAlbedo * envReflectance * envMask)
  * ```
  *
  * The roughness comes from the **exponent** and not from the specular map,

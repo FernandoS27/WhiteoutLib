@@ -177,7 +177,15 @@ f32 scalarAt(const ScalarInput& input, const Plane& plane, f32 u, f32 v) {
     if (input.present() && !plane.empty()) {
         f32 texel[4];
         sample(plane, u, v, texel);
-        value = texel[static_cast<u32>(input.channel)];
+        if (input.srgb) {
+            for (i32 c = 0; c < 3; ++c) {
+                texel[c] = srgbToLinear(texel[c]);
+            }
+        }
+        value = input.luminance ? luminance(texel) : texel[static_cast<u32>(input.channel)];
+        if (input.alphaWeighted) {
+            value *= texel[3];
+        }
     }
     value *= input.scale;
     if (input.invert) {
@@ -209,8 +217,11 @@ void teamAlbedoAt(const f32 albedo[3], f32 team, f32 out[3]) {
 struct Reflectance {
     f32 f0[3] = {0.0f, 0.0f, 0.0f};
     f32 exponent = 20.0f;
-    /// The envio term's per-texel value, for the roughness cap.
+    f32 roughness = 0.5f;
+    /// The envio term's per-texel value — already in @ref f0 unless
+    /// @ref envModulates, when it still wants the albedo's colour.
     f32 env = 0.0f;
+    bool envModulates = false;
 };
 
 /// How much brighter the albedo has to be for `(1 - m) * albedo` to come back
@@ -250,7 +261,15 @@ Reflectance reflectanceAt(const SpecularReflectance& source, const Plane& specul
                           const Plane& exponentScale, const Plane& envMask, f32 u, f32 v) {
     Reflectance out;
     const f32 g = scalarAt(source.exponentScale, exponentScale, u, v);
+    // Under SimulateRoughness the gloss is perceptual — the engine blurs the
+    // reflection by `1 - g` and Reforged picks its mip by the roughness — so
+    // the written width is `1 - g`. The F0 keeps the exponent's width: the
+    // source's highlight is narrower than its gloss says, and matching its
+    // peak at the perceptual width over-drives F0 past 1 on rough texels.
+    const bool perceptualGloss = source.simulateRoughness && source.exponentScale.present();
     out.exponent = std::max(1.0f, source.exponent * g * g);
+    out.roughness = perceptualGloss ? std::clamp(1.0f - g, 0.0f, 1.0f)
+                                    : RoughnessFromExponent(out.exponent);
     const bool anySpecular = source.specular.present() ||
                              source.specular.constant[0] != 0.0f ||
                              source.specular.constant[1] != 0.0f ||
@@ -264,15 +283,37 @@ Reflectance reflectanceAt(const SpecularReflectance& source, const Plane& specul
         }
     }
     // The envio layer, as an F0 bump. Grey on purpose: Reforged reads
-    // F0 = m * albedo, so a hue here could not survive anyway.
+    // F0 = m * albedo, so a hue here could not survive anyway. A modulated
+    // one waits for the albedo (`foldModulatedEnv`). The mask is not clamped
+    // above 1 — the league skins bias theirs past it, and a reflection
+    // brighter than its cube is what the source drew.
     if (source.envReflectance > 0.0f) {
-        out.env = source.envReflectance *
-                  std::clamp(scalarAt(source.envMask, envMask, u, v), 0.0f, 1.0f);
-        for (i32 c = 0; c < 3; ++c) {
-            out.f0[c] += out.env;
+        out.env = source.envReflectance * std::max(0.0f, scalarAt(source.envMask, envMask, u, v));
+        out.envModulates = source.envModulates;
+        if (!out.envModulates) {
+            for (i32 c = 0; c < 3; ++c) {
+                out.f0[c] += out.env;
+            }
+        }
+        // A live reflection reads sharper than the material's flat width,
+        // exactly where its mask says so — unless the gloss already graded it.
+        if (!perceptualGloss && out.env > 1e-3f) {
+            out.roughness = std::min(out.roughness, source.envRoughnessCap);
         }
     }
     return out;
+}
+
+/// `lit * cube * mask` is nothing but a reflection in the surface's own
+/// colour — a metal, whose albedo IS its reflectance. The lit colour the
+/// engine multiplies holds its direct specular too, but that term stays out:
+/// the league skins pair an exponent of 3 with an HDR multiplier of 5, a
+/// Blinn lobe no F0 below 1 can say, and folding it in only saturated the
+/// metal to white — the hue is the one thing a metal keeps.
+void modulatedAlbedo(const Reflectance& reflectance, const f32 albedo[3], f32 out[3]) {
+    for (i32 c = 0; c < 3; ++c) {
+        out[c] = std::max(0.0f, albedo[c]) * reflectance.env;
+    }
 }
 
 } // namespace
@@ -291,6 +332,15 @@ f32 ExponentFromRoughness(f32 roughness) {
     const f32 r = std::clamp(roughness, 0.05f, 1.0f);
     const f32 alpha2 = r * r * r * r;
     return std::clamp(2.0f / alpha2 - 2.0f, 1.0f, 4096.0f);
+}
+
+f32 GlossFromRoughness(f32 roughness) {
+    return 1.0f - std::clamp(roughness, 0.0f, 1.0f);
+}
+
+f32 GlossCeilingExponent(f32 roughness) {
+    const f32 gloss = std::max(GlossFromRoughness(roughness), 0.05f);
+    return std::clamp(ExponentFromRoughness(roughness) / (gloss * gloss), 20.0f, 2048.0f);
 }
 
 f32 ReflectanceScale(f32 exponent, bool energyConserving) {
@@ -347,7 +397,7 @@ std::optional<Texture> BakeOrm(const OrmRecipe& recipe) {
             recipe.reflectance.specular.constant[0] > 0.0f ||
             recipe.reflectance.specular.constant[1] > 0.0f ||
             recipe.reflectance.specular.constant[2] > 0.0f ||
-            recipe.reflectance.specular.bias > 0.0f;
+            recipe.reflectance.specular.bias > 0.0f || recipe.reflectance.envReflectance > 0.0f;
         if (!constantSignal) {
             return std::nullopt;
         }
@@ -378,13 +428,8 @@ std::optional<Texture> BakeOrm(const OrmRecipe& recipe) {
             // measurement of the map: StarCraft II varies the highlight's
             // strength per texel and its width only where a gloss layer says
             // so. Reading the map instead pinned every StarCraft II surface at
-            // 0.88 and left nothing for a normal map to move. The envio cap is
-            // the one exception — a live reflection reads sharper than the
-            // material's flat width, exactly where its mask says so.
-            f32 roughness = RoughnessFromExponent(reflectance.exponent);
-            if (reflectance.env > 1e-3f) {
-                roughness = std::min(roughness, recipe.reflectance.envRoughnessCap);
-            }
+            // 0.88 and left nothing for a normal map to move.
+            const f32 roughness = reflectance.roughness;
 
             f32 share = teamAt(recipe.teamMask, teamMask, recipe.teamMaskAlt, teamMaskAlt, u, v);
 
@@ -394,14 +439,21 @@ std::optional<Texture> BakeOrm(const OrmRecipe& recipe) {
             // `BakeBaseColor` puts that fraction back in, which is why the two
             // have to read the same team-lightened albedo.
             f32 metallic = 0.0f;
-            const f32 specLum = luminance(reflectance.f0);
             if (recipe.baseColor.present() && !baseColor.empty()) {
                 f32 albedo[3];
                 colorAt(recipe.baseColor, baseColor, u, v, albedo);
                 foldDecal(recipe.decal, decal, recipe.decalOp, u, v, albedo);
                 f32 teamAlbedo[3];
                 teamAlbedoAt(albedo, share, teamAlbedo);
-                metallic = metalSplit(std::max(0.0f, luminance(teamAlbedo)), specLum).metallic;
+                if (reflectance.envModulates) {
+                    f32 metal[3];
+                    modulatedAlbedo(reflectance, teamAlbedo, metal);
+                    metallic = luminance(metal) > 1e-6f ? 1.0f : 0.0f;
+                } else {
+                    metallic = metalSplit(std::max(0.0f, luminance(teamAlbedo)),
+                                          luminance(reflectance.f0))
+                                   .metallic;
+                }
 
                 // Warcraft III's team mask is coverage where StarCraft II's is
                 // a weight, so the crossing is a decision, and the term that
@@ -481,17 +533,24 @@ std::optional<Texture> BakeBaseColor(const BaseColorRecipe& recipe) {
             // paid for out of the raise rather than out of the surface.
             const Reflectance reflectance =
                 reflectanceAt(recipe.reflectance, specular, exponentScale, envMask, u, v);
-            const MetalSplit split =
-                metalSplit(std::max(0.0f, luminance(mixed)), luminance(reflectance.f0));
+            f32 written[3];
+            if (reflectance.envModulates) {
+                modulatedAlbedo(reflectance, mixed, written);
+            } else {
+                const MetalSplit split =
+                    metalSplit(std::max(0.0f, luminance(mixed)), luminance(reflectance.f0));
+                for (i32 c = 0; c < 3; ++c) {
+                    written[c] = split.gain > 0.0f ? mixed[c] * split.gain
+                                                   : mixed[c] + reflectance.f0[c];
+                }
+            }
 
             const std::size_t offset =
                 (static_cast<std::size_t>(y) * width + static_cast<std::size_t>(x)) * 4;
             for (i32 c = 0; c < 3; ++c) {
-                const f32 value = split.gain > 0.0f ? mixed[c] * split.gain
-                                                    : mixed[c] + reflectance.f0[c];
+                const f32 value = std::clamp(written[c], 0.0f, 1.0f);
                 pixels[offset + static_cast<std::size_t>(c)] =
-                    quantise(recipe.baseColor.srgb ? linearToSrgb(std::clamp(value, 0.0f, 1.0f))
-                                                   : std::clamp(value, 0.0f, 1.0f));
+                    quantise(recipe.baseColor.srgb ? linearToSrgb(value) : value);
             }
             // The composed coverage — the source's own `mask1.a * mask2.a`,
             // never the diffuse alpha, which is the team mask on every source

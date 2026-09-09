@@ -151,6 +151,7 @@ enum class StandardLayer : u8 {
     // alpha masks became a channel keeps its meaning.
     Alpha1,
     Alpha2,
+    Gloss, ///< Appended for the same reason, when gloss became a channel.
     Count
 };
 
@@ -161,6 +162,32 @@ const std::optional<m3::TextureLayer>& LayerOf(const m3::StandardMaterial& mater
 /// The same, for a material being written. Animation export needs to put an
 /// `AnimRef` back on the layer it came from.
 std::optional<m3::TextureLayer>& MutableLayerOf(m3::StandardMaterial& material, StandardLayer slot);
+
+/// The plain affine (`uv' = M * (u, v, 1)`) an `.m3` layer's UV fields mean.
+///
+/// StarCraft II composes them as a TRS about the texture centre with the offset
+/// applied in SOURCE space, ahead of the rotation and NEGATED (`sub_102ABBDE0`,
+/// `reference_sc2_uv_transform_compose`):
+///
+///     uv' = tiling * R(uvAngle.z) * (uv - 0.5 - uvOffset) + 0.5
+///
+/// `TextureInput::uvTransform` is the flat matrix that means, so the pivot and
+/// the sign are resolved here and nowhere else. Writing the raw fields into the
+/// matrix's diagonal and translation column -- which is what this replaced --
+/// made every crossed layer scroll backwards and dropped the rotation entirely.
+/// Only `uvAngle.z` reaches a 2D result; the other two euler angles touch the
+/// third coordinate the layer transform does not keep.
+Matrix3x2f UvTransformOf(const m3::TextureLayer& layer);
+
+/// The inverse, onto @p layer's `uvOffset` / `uvAngle` / `uvTiling`.
+///
+/// The linear block is `tiling * rotation`, so each ROW carries one axis'
+/// tiling and both name the same angle. A matrix whose rows disagree -- a
+/// shear, or Warcraft III's own `rotation * tiling` under a non-uniform scale
+/// -- has no `.m3` spelling; it is fitted to the angle row 0 names, which is
+/// exact for every matrix this converter produces from a rotation with a
+/// uniform tiling.
+void SetUvTransform(const Matrix3x2f& matrix, m3::TextureLayer& layer);
 
 /// One `MaterialMap` entry -> one `wem::Material`.
 ///

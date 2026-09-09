@@ -567,7 +567,7 @@ const m3::SubTrackContainer& stcHolding(const m3::Model& model, u32 animId) {
 
 } // namespace
 
-TEST_CASE("wem m3 a three-float UV translate becomes the offset stream",
+TEST_CASE("wem m3 a three-float UV translate becomes the offset stream, negated",
           "[wem][anim][m3][uv]") {
     Document document = wemfix::makeDocument(ProfileId::Sc2);
     Clip clip;
@@ -592,19 +592,24 @@ TEST_CASE("wem m3 a three-float UV translate becomes the offset stream",
     REQUIRE(material.diffuseLayer.has_value());
     CHECK(material.diffuseLayer->uvOffset.animId == id);
 
-    // SD2V -- slot 1. Landing in SD3V is the defect this case exists for: the
-    // layer's AnimRef is a Vector2 and a Vector3 stream never joins it.
+    // SD2V -- slot 1. Landing in SD3V is one of the two defects this case
+    // exists for: the layer's AnimRef is a Vector2 and a Vector3 stream never
+    // joins it.
     const u32 ref = stcRefFor(*written, id);
     REQUIRE((ref >> 16) == 1u);
     const auto& stc = stcHolding(*written, id);
     const auto& block = stc.sd2v[ref & 0xFFFFu];
     REQUIRE(block.keys.size() == 2u);
     CHECK(block.keys[0].x == 0.0f);
-    CHECK(block.keys[1].x == Catch::Approx(0.25f));
-    CHECK(block.keys[1].y == Catch::Approx(0.5f));
+    // The other: WoW and Warcraft III ADD the translation inside the (0.5,0.5)
+    // pivot and StarCraft II SUBTRACTS it inside the same one, so the offset is
+    // the source's own translation with its sign turned over. Written as it
+    // stood, every crossed layer scrolled backwards.
+    CHECK(block.keys[1].x == Catch::Approx(-0.25f));
+    CHECK(block.keys[1].y == Catch::Approx(-0.5f));
 }
 
-TEST_CASE("wem m3 a UV rotation crosses as the angle plus the pivot's offset",
+TEST_CASE("wem m3 a UV rotation crosses as the angle and moves no offset",
           "[wem][anim][m3][uv]") {
     Document document = wemfix::makeDocument(ProfileId::Sc2);
     Clip clip;
@@ -639,21 +644,11 @@ TEST_CASE("wem m3 a UV rotation crosses as the angle plus the pivot's offset",
     CHECK(angles.keys[0].z == Catch::Approx(0.0f).margin(1e-5f));
     CHECK(angles.keys[1].z == Catch::Approx(1.5707963f));
 
-    // The pivot: WoW rotates about (0.5, 0.5) and M3 about the origin, so a
-    // rotation with no translation channel still animates the offset --
-    // synthesized under its own id. At 90 degrees the pivot term is
-    // (I - R) * (0.5, 0.5) = (1, 0).
-    const u32 offsetId = material.diffuseLayer->uvOffset.animId;
-    REQUIRE(offsetId != 0u);
-    CHECK(offsetId != id);
-    const u32 offsetRef = stcRefFor(*written, offsetId);
-    REQUIRE((offsetRef >> 16) == 1u);
-    const auto& offsets = stcHolding(*written, offsetId).sd2v[offsetRef & 0xFFFFu];
-    REQUIRE(offsets.keys.size() == 2u);
-    CHECK(offsets.keys[0].x == Catch::Approx(0.0f).margin(1e-5f));
-    CHECK(offsets.keys[0].y == Catch::Approx(0.0f).margin(1e-5f));
-    CHECK(offsets.keys[1].x == Catch::Approx(1.0f));
-    CHECK(offsets.keys[1].y == Catch::Approx(0.0f).margin(1e-5f));
+    // The pivot: both engines turn about (0.5, 0.5), so a rotation with no
+    // translation channel leaves the offset exactly where it was. It used to
+    // synthesize an offset track carrying `(I - R) * (0.5, 0.5)` -- (1, 0) at a
+    // quarter turn -- which double-applied a pivot the layer already has.
+    CHECK(material.diffuseLayer->uvOffset.animId == 0u);
 
     // The quaternion itself must be gone: nothing in the file reads SD4Q here.
     for (const m3::SubTrackContainer& stc : written->subTrackCollections) {

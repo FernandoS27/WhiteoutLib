@@ -328,7 +328,7 @@ struct ChunkTagTraits<LayerShadingFeature> {
 template <>
 struct ChunkTagTraits<CompositeBody> {
     static constexpr u32 value = kTag("MKCP");
-    static constexpr u32 max_version = 1;
+    static constexpr u32 max_version = 2;
     static constexpr bool is_trivial = false;
 };
 

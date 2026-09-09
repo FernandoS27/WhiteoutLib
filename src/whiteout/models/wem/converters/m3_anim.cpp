@@ -850,10 +850,10 @@ constexpr f32 kPi = 3.14159265358979323846f;
 /// MDX's spelling. An `.m3`-sourced channel already keys the layer's native
 /// pair/triple (F32x2 offset, F32x3 angle, F32x2 tiling) and crosses verbatim.
 /// The source spellings cannot: the value would land in the wrong SD stream
-/// for the layer's AnimRef, and the two conventions disagree about the PIVOT
-/// -- WoW and Warcraft III rotate and scale about (0.5, 0.5), the M3 layer
-/// transform composes about the origin -- so the group has to convert as one
-/// transform (`convertUvTracks`).
+/// for the layer's AnimRef, and the two conventions disagree about the SIGN of
+/// the translation -- WoW and Warcraft III ADD it inside the (0.5, 0.5) pivot,
+/// StarCraft II SUBTRACTS it inside the same pivot -- so the group converts
+/// through `UvCompose` (`convertUvTracks`).
 bool NeedsUvConversion(const AnimChannel& channel) {
     if (channel.target.kind != TrackTarget::Kind::MaterialFeature) {
         return false;
@@ -878,65 +878,28 @@ void UvKeyValue(const SubTrack& track, u32 comps, std::size_t key, f32* out) {
                 static_cast<std::size_t>(comps) * sizeof(f32));
 }
 
-/// @p track at @p time: held at the edges, stepped when the track steps,
-/// componentwise lerp otherwise -- with the sign flip that keeps a quaternion
-/// pair on the short arc.
-void UvSampleAt(const SubTrack& track, u32 comps, bool quat, f32 time, f32* out) {
-    const std::vector<f32>& times = track.times;
-    const auto it = std::lower_bound(times.begin(), times.end(), time);
-    if (it == times.begin()) {
-        UvKeyValue(track, comps, 0, out);
-        return;
-    }
-    if (it == times.end()) {
-        UvKeyValue(track, comps, times.size() - 1, out);
-        return;
-    }
-    const std::size_t hi = static_cast<std::size_t>(it - times.begin());
-    if (track.interp == Interpolation::Step) {
-        UvKeyValue(track, comps, *it == time ? hi : hi - 1, out);
-        return;
-    }
-    f32 a[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-    f32 b[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-    UvKeyValue(track, comps, hi - 1, a);
-    UvKeyValue(track, comps, hi, b);
-    const f32 span = times[hi] - times[hi - 1];
-    const f32 w = span > 0.0f ? (time - times[hi - 1]) / span : 1.0f;
-    f32 sign = 1.0f;
-    if (quat) {
-        f32 dot = 0.0f;
-        for (u32 c = 0; c < comps; ++c) {
-            dot += a[c] * b[c];
-        }
-        sign = dot < 0.0f ? -1.0f : 1.0f;
-    }
-    for (u32 c = 0; c < comps; ++c) {
-        out[c] = a[c] + (b[c] * sign - a[c]) * w;
-    }
-    if (quat) {
-        f32 len = 0.0f;
-        for (u32 c = 0; c < comps; ++c) {
-            len += out[c] * out[c];
-        }
-        if (len > 1e-12f) {
-            const f32 inv = 1.0f / std::sqrt(len);
-            for (u32 c = 0; c < comps; ++c) {
-                out[c] *= inv;
-            }
-        } else {
-            out[3] = 1.0f;
-        }
-    }
-}
-
 /// One instant of the M2/WC3 texture transform, restated in the M3 layer's
-/// vocabulary. The source flattens to `uv' = ((uv + t - 0.5) . S . R) + 0.5`
-/// (CM2Model::AnimateTextureTransformMT; Warcraft III's takes the same
-/// shape), whose column-form linear block is a rotation times the scale --
-/// so the angle and tiling read off it directly, and the whole pivot
-/// arithmetic lands in the offset, which is the only place M3's
-/// origin-pivoted compose (`M3ComposeUvTransform`) can carry it.
+/// vocabulary.
+///
+/// The source flattens to `uv' = ((uv + t - 0.5) . S . R) + 0.5`
+/// (CM2Model::AnimateTextureTransformMT; Warcraft III's `AnimateTextureMap`
+/// takes the same shape), whose column-form linear block is a rotation times
+/// the scale -- so the angle and the tiling read off it directly. StarCraft II
+/// composes `uv' = tiling . R . (uv - 0.5 - offset) + 0.5` (`sub_102ABBDE0`,
+/// `M3ComposeUvTransform`): the SAME centre pivot with the translation on the
+/// same side of it, only negated. So the offset is the source's own
+/// translation with its sign turned over -- exactly, whatever the rotation and
+/// the scale, since both engines apply it in source space ahead of the linear
+/// block.
+///
+/// Composing the pivot into the offset, which is what this did while the M3
+/// transform was thought to be origin-pivoted, scrolled every crossed layer
+/// backwards: the Infernal's four flipbook tracks stepped through the mirrored
+/// cell of its 4x4 atlas and the Necropolis' ghosts slid the wrong way.
+///
+/// What does NOT cross is the ORDER -- Warcraft III scales then rotates and
+/// StarCraft II rotates then scales, which agree only under a uniform tiling.
+/// `convertUvTracks` reports the rest.
 void UvCompose(const f32 t[3], const f32 q[4], const f32 s[3], f32& angle, Vector2f& tiling,
                Vector2f& offset) {
     const f32 xx = q[0] * q[0];
@@ -952,8 +915,7 @@ void UvCompose(const f32 t[3], const f32 q[4], const f32 s[3], f32& angle, Vecto
     const f32 c = std::cos(angle);
     const f32 sn = std::sin(angle);
     tiling = Vector2f{c * m00 + sn * m10, c * m11 - sn * m01};
-    offset = Vector2f{m00 * (t[0] - 0.5f) + m01 * (t[1] - 0.5f) + 0.5f,
-                      m10 * (t[0] - 0.5f) + m11 * (t[1] - 0.5f) + 0.5f};
+    offset = Vector2f{-t[0], -t[1]};
 }
 
 class Exporter {
@@ -1040,30 +1002,13 @@ private:
         SubTrack track;
     };
 
-    /// One synthesized uvOffset id per feature, so the keys every clip emits
-    /// join the single AnimRef the layer carries. Minted past the table's
-    /// ids, and past the one `exportId`'s zero remap takes.
-    u32 synthUvId(const std::tuple<u32, u32, u32>& key) {
-        const auto found = synthUvIds_.find(key);
-        if (found != synthUvIds_.end()) {
-            return found->second;
-        }
-        if (nextSynthUvId_ == 0) {
-            nextSynthUvId_ = model_.animChannels.nextFreeId() + 1;
-        }
-        const u32 id = nextSynthUvId_++;
-        synthUvIds_.emplace(key, id);
-        return id;
-    }
-
     /// The container's convertible UV feature channels (`NeedsUvConversion`),
-    /// regrouped per feature into offset / angle / tiling tracks. The group
-    /// converts as ONE transform: the angle is the quaternion's in-plane
-    /// rotation unwrapped across keys, the tiling is the scale, and the
-    /// offset is the composed translation over the union of the group's key
-    /// times -- rotation and scale keys move it too, because the source's
-    /// (0.5, 0.5) pivot has nowhere else to land. A rotation or scale with no
-    /// translation channel synthesizes the offset track under `synthUvId`.
+    /// regrouped per feature into offset / angle / tiling tracks. Each becomes
+    /// the layer field it names: the angle is the quaternion's in-plane
+    /// rotation unwrapped across keys so a spin that crosses +-pi keeps
+    /// turning, the tiling is the scale, and the offset is the translation
+    /// negated (`UvCompose`) -- the pivot is the same on both sides, so it
+    /// needs no arithmetic and a turn on its own does not move the offset.
     ///
     /// Ids the caller must not also write land in @p consumed.
     std::vector<ConvertedTrack> convertUvTracks(const SubTrackContainer& source,
@@ -1103,6 +1048,27 @@ private:
             const SubTrack* trans = group.track[0];
             const SubTrack* rot = group.track[1];
             const SubTrack* scale = group.track[2];
+
+            // The one part that does not cross: WoW and Warcraft III scale
+            // then turn, StarCraft II turns then scales, and the two agree
+            // only where the tiling is uniform. 13 of the Warcraft III
+            // corpus' 213 moving texture animations pair a turn with an
+            // uneven scale; the fit below takes the angle and squares the
+            // tiling off to it.
+            if (rot != nullptr && scale != nullptr) {
+                for (std::size_t k = 0; k < scale->times.size(); ++k) {
+                    f32 v[3];
+                    UvKeyValue(*scale, 3, k, v);
+                    if (std::fabs(v[0] - v[1]) > 1e-4f) {
+                        diagnostics_.warn(
+                            DiagCode::AnimTrackApproximated,
+                            "a turning UV layer tiles its axes differently; StarCraft II "
+                            "scales AFTER the turn and has no spelling for it",
+                            ElementRef(ElementKind::Slot, std::get<0>(entry.first)), profile());
+                        break;
+                    }
+                }
+            }
 
             // Angle: at the rotation's own keys, unwrapped so a spin that
             // crosses +-pi keeps turning instead of snapping back around.
@@ -1159,66 +1125,31 @@ private:
                 out.push_back(std::move(converted));
             }
 
-            // Offset: the composed translation, over the union of the
-            // group's key times.
-            std::vector<f32> times;
-            for (const SubTrack* track : {trans, rot, scale}) {
-                if (track != nullptr) {
-                    times.insert(times.end(), track->times.begin(), track->times.end());
-                }
-            }
-            if (times.empty()) {
+            // Offset: the source's own translation, negated. Both engines
+            // apply it in source space ahead of the linear block, so a
+            // rotation or a scale key no longer moves it -- and a group with
+            // no translate track leaves the layer's AnimRef resting where the
+            // material import already put it.
+            if (trans == nullptr) {
                 continue;
             }
-            std::sort(times.begin(), times.end());
-            times.erase(std::unique(times.begin(), times.end(),
-                                    [](f32 a, f32 b) { return std::fabs(a - b) < 1e-5f; }),
-                        times.end());
-
             ConvertedTrack converted;
-            if (trans != nullptr) {
-                converted.channel = *group.channel[0];
-            } else {
-                converted.channel = rot != nullptr ? *group.channel[1] : *group.channel[2];
-                converted.channel.id = synthUvId(entry.first);
-                converted.channel.target.channel = Channel::UvTranslate;
-            }
+            converted.channel = *group.channel[0];
             converted.channel.valueType = geom::AttrType::F32x2;
             converted.channel.initValue.clear();
             converted.track.channel = converted.channel.id;
-            const auto stepped = [](const SubTrack* track) {
-                return track == nullptr || track->interp == Interpolation::Step;
-            };
-            converted.track.interp = stepped(trans) && stepped(rot) && stepped(scale)
-                                         ? Interpolation::Step
-                                         : Interpolation::Linear;
-            for (const f32 time : times) {
-                f32 t[3] = {0.0f, 0.0f, 0.0f};
-                f32 q[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-                f32 v[3] = {1.0f, 1.0f, 1.0f};
-                if (trans != nullptr) {
-                    UvSampleAt(*trans, 3, false, time, t);
-                }
-                if (rot != nullptr) {
-                    UvSampleAt(*rot, 4, true, time, q);
-                }
-                if (scale != nullptr) {
-                    UvSampleAt(*scale, 3, false, time, v);
-                }
-                f32 angle = 0.0f;
-                Vector2f tiling{};
-                Vector2f offset{};
-                UvCompose(t, q, v, angle, tiling, offset);
-                converted.track.times.push_back(time);
-                pushF32(converted.track.values, {offset.x, offset.y});
+            converted.track.interp =
+                trans->interp == Interpolation::Step ? Interpolation::Step : Interpolation::Linear;
+            for (std::size_t k = 0; k < trans->times.size(); ++k) {
+                f32 t[3];
+                UvKeyValue(*trans, 3, k, t);
+                converted.track.times.push_back(trans->times[k]);
+                pushF32(converted.track.values, {-t[0], -t[1]});
             }
             out.push_back(std::move(converted));
         }
         return out;
     }
-
-    std::map<std::tuple<u32, u32, u32>, u32> synthUvIds_;
-    u32 nextSynthUvId_ = 0;
 
     void buildClip(const Clip& clip) {
         m3::Sequence sequence;

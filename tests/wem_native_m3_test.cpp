@@ -9,9 +9,9 @@
 ///    what a region names, and each type has its own array. A converter that read
 ///    `standardMaterials[i]` directly would work on almost everything and then
 ///    quietly mis-read the first volume material it met.
-/// 2. **The layers with no channel are reported, not dropped in silence.** Gloss,
-///    height, lightmap, the normal-blend pair and the two alpha masks have no
-///    `SurfaceChannel`; they survive in the native block and say so.
+/// 2. **The layers with no channel are reported, not dropped in silence.**
+///    Height, lightmap and the normal-blend pair have no `SurfaceChannel`;
+///    they survive in the native block and say so.
 /// 3. **The nine non-standard kinds do not pretend.** A lens flare is not a layer
 ///    stack, and its common material must arrive with `LossyKindConversion` on it.
 
@@ -20,6 +20,7 @@
 #include <string>
 #include <vector>
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <whiteout/models/m3/parser.h>
@@ -116,12 +117,13 @@ TEST_CASE("wem a layer with no surface channel is reported, not silently lost",
     const Material imported = m3_core::ImportMaterial(
         model, mapEntry(m3::MaterialType::Standard, 0), ProfileId::Sc2, makeContext(), diagnostics);
 
-    // Gloss and height. The alpha mask is not on this list any more: it is the
-    // surface's coverage, and it lands on `SurfaceChannel::Coverage`.
-    CHECK(diagnostics.countOf(DiagCode::LayerDropped) == 2);
+    // Height alone. The alpha mask is the surface's coverage and the gloss its
+    // specularity scale; each lands on its own channel.
+    CHECK(diagnostics.countOf(DiagCode::LayerDropped) == 1);
     const CompositeBody* body = imported.Common().composite();
     REQUIRE(body != nullptr);
     CHECK(body->layersOf(SurfaceChannel::Coverage).size() == 1);
+    CHECK(body->layersOf(SurfaceChannel::Gloss).size() == 1);
     // Reported, and still there: the native block is what makes the report a
     // note rather than a loss.
     const auto& block = std::get<native::M3Material>(imported.Native());
@@ -270,6 +272,64 @@ TEST_CASE("wem an m3 material survives import-export-import", "[wem][materials][
     CHECK(a.glossLayer->texturePath == b.glossLayer->texturePath);
 }
 
+TEST_CASE("wem an m3 layer's UV transform is a pivoted TRS", "[wem][materials][m3][uv]") {
+    // StarCraft II composes `uv' = tiling * R(uvAngle.z) * (uv - 0.5 - offset)
+    // + 0.5` (`sub_102ABBDE0`), and `TextureInput::uvTransform` is the flat
+    // affine that means. Writing the three fields into the matrix's diagonal
+    // and translation column -- which is what this replaced -- said something
+    // else entirely: the offset came out positive, applied after the scale,
+    // and the angle was never written at all.
+    m3::TextureLayer layer = makeLayer("scroll.dds");
+
+    SECTION("a plain scroll is the offset negated") {
+        layer.uvOffset.initValue = Vector2f(0.25f, -0.5f);
+        const Matrix3x2f matrix = m3_core::UvTransformOf(layer);
+        // uv' = uv - offset: the linear block is the identity and the column
+        // is what the pivot leaves behind.
+        CHECK(matrix.m[0][0] == Catch::Approx(1.0f));
+        CHECK(matrix.m[1][1] == Catch::Approx(1.0f));
+        CHECK(matrix.m[0][2] == Catch::Approx(-0.25f));
+        CHECK(matrix.m[1][2] == Catch::Approx(0.5f));
+        const Vector2f moved = matrix.apply(Vector2f{0.5f, 0.5f});
+        CHECK(moved.x == Catch::Approx(0.25f));
+        CHECK(moved.y == Catch::Approx(1.0f));
+    }
+
+    SECTION("a turn is about the texture centre") {
+        layer.uvAngle.initValue = Vector3f(0.0f, 0.0f, 1.5707963f);
+        const Matrix3x2f matrix = m3_core::UvTransformOf(layer);
+        // The centre is the fixed point of a pure turn.
+        const Vector2f centre = matrix.apply(Vector2f{0.5f, 0.5f});
+        CHECK(centre.x == Catch::Approx(0.5f).margin(1e-5f));
+        CHECK(centre.y == Catch::Approx(0.5f).margin(1e-5f));
+        // …and the top-left corner lands where a quarter turn puts it.
+        const Vector2f corner = matrix.apply(Vector2f{0.0f, 0.0f});
+        CHECK(corner.x == Catch::Approx(1.0f).margin(1e-5f));
+        CHECK(corner.y == Catch::Approx(0.0f).margin(1e-5f));
+    }
+
+    SECTION("a tiling of zero is silence, not a scale of zero") {
+        layer.uvTiling.initValue = Vector2f(0.0f, 0.0f);
+        const Matrix3x2f matrix = m3_core::UvTransformOf(layer);
+        CHECK(matrix.isIdentity());
+    }
+
+    SECTION("all three return through the inverse") {
+        layer.uvOffset.initValue = Vector2f(0.125f, -0.75f);
+        layer.uvAngle.initValue = Vector3f(0.0f, 0.0f, -1.5707963f);
+        layer.uvTiling.initValue = Vector2f(2.0f, 2.0f);
+        const Matrix3x2f matrix = m3_core::UvTransformOf(layer);
+
+        m3::TextureLayer back = makeLayer("scroll.dds");
+        m3_core::SetUvTransform(matrix, back);
+        CHECK(back.uvOffset.initValue.x == Catch::Approx(0.125f));
+        CHECK(back.uvOffset.initValue.y == Catch::Approx(-0.75f));
+        CHECK(back.uvAngle.initValue.z == Catch::Approx(-1.5707963f));
+        CHECK(back.uvTiling.initValue.x == Catch::Approx(2.0f));
+        CHECK(back.uvTiling.initValue.y == Catch::Approx(2.0f));
+    }
+}
+
 TEST_CASE("wem the m3 copy halves declare no manual fields", "[wem][materials][m3]") {
     CHECK(native::kM3ManualFieldCount == 0);
 }
@@ -399,4 +459,94 @@ TEST_CASE("wem m3 corpus materials land in the kind 7.2.6 names", "[wem][corpus]
     // sweep can make — and it is the one that would catch a body accidentally
     // left as a slot map.
     CHECK(composites == materials);
+}
+
+TEST_CASE("wem a gloss layer and simulate-roughness fold back through the composite",
+          "[wem][materials][m3]") {
+    m3::Model model;
+    m3::StandardMaterial standard;
+    standard.name = "pbr";
+    standard.flags = m3::MaterialFlag::SimulateRoughness;
+    standard.layerBlendMode = m3::LayerBlendOp::Add;
+    standard.specularExponent = 512.0f;
+    standard.diffuseLayer = makeLayer("diffuse.dds");
+    standard.specularLayer = makeLayer("spec.dds");
+    standard.glossLayer = makeLayer("gloss.dds");
+    standard.environmentLayer = makeLayer("env.dds");
+    standard.environmentLayer->uvMapping = m3::UVMappingMode::ReflectCubicEnvio;
+    standard.environmentMaskLayer = makeLayer("spec.dds");
+    model.standardMaterials.push_back(standard);
+
+    Diagnostics diagnostics;
+    const m3_core::Context context = makeContext();
+    Material imported = m3_core::ImportMaterial(model, mapEntry(m3::MaterialType::Standard, 0),
+                                                ProfileId::Sc2, context, diagnostics);
+    const CompositeBody* body = imported.Common().composite();
+    REQUIRE(body != nullptr);
+    CHECK(body->simulateRoughness);
+    CHECK(body->layersOf(SurfaceChannel::Gloss).size() == 1);
+    CHECK(body->layersOf(SurfaceChannel::Environment).size() == 2);
+
+    // Edited, so the fold and not the native block answers the export.
+    imported.MutableCommon();
+    m3::Model rebuilt;
+    const m3::MaterialMap entry =
+        m3_core::ExportMaterial(imported, ProfileId::Sc2, context, rebuilt, diagnostics);
+    REQUIRE(entry.materialType == m3::MaterialType::Standard);
+    REQUIRE(rebuilt.standardMaterials.size() == 1);
+    const m3::StandardMaterial& out = rebuilt.standardMaterials[0];
+    CHECK((static_cast<u32>(out.flags) & static_cast<u32>(m3::MaterialFlag::SimulateRoughness)) !=
+          0);
+    REQUIRE(out.glossLayer.has_value());
+    CHECK(out.glossLayer->colorType == m3::ColorChannelSelect::Alpha);
+    REQUIRE(out.environmentLayer.has_value());
+    CHECK(out.environmentLayer->uvMapping == m3::UVMappingMode::ReflectCubicEnvio);
+    CHECK(out.environmentMaskLayer.has_value());
+    CHECK(out.layerBlendMode == m3::LayerBlendOp::Add);
+    CHECK(out.hdrEnvironmentConstant > 0.0f);
+}
+
+TEST_CASE("wem a rim beside an additive reflection leaves the shared op alone",
+          "[wem][materials][m3]") {
+    Material material;
+    CommonMaterial& common = material.MutableCommon();
+    const auto layer = [](u32 texture, SurfaceChannel target, CompositeOp op) {
+        CompositeLayer l;
+        l.input.texture = texture;
+        l.target = target;
+        l.op = op;
+        return l;
+    };
+    CompositeBody body;
+    body.layers.push_back(layer(0, SurfaceChannel::Color, CompositeOp::Set));
+    body.layers.push_back(layer(3, SurfaceChannel::Emissive, CompositeOp::Add));
+    CompositeLayer env = layer(5, SurfaceChannel::Environment, CompositeOp::Add);
+    env.input.mapping = UVMappingMode::EnvCube;
+    body.layers.push_back(env);
+    body.layers.push_back(layer(2, SurfaceChannel::Environment, CompositeOp::Modulate));
+    body.environmentFactor = 1.0f;
+    common.body = body;
+    MaterialFeature rim;
+    rim.id = NextFeatureId(common.features);
+    rim.layer = kWholeMaterial;
+    FresnelFeature fresnel;
+    fresnel.color = Vector3f{1.0f, 1.0f, 1.0f};
+    fresnel.outMin = 0.0f;
+    fresnel.outMax = 0.5f;
+    fresnel.exponent = 2.0f;
+    rim.payload = fresnel;
+    common.features.push_back(rim);
+
+    Diagnostics diagnostics;
+    m3::Model rebuilt;
+    const m3::MaterialMap entry =
+        m3_core::ExportMaterial(material, ProfileId::Sc2, makeContext(), rebuilt, diagnostics);
+    REQUIRE(entry.materialType == m3::MaterialType::Standard);
+    REQUIRE(rebuilt.standardMaterials.size() == 1);
+    const m3::StandardMaterial& out = rebuilt.standardMaterials[0];
+    // With the emissive slot taken by the map, the dim would have gone to the
+    // decal and turned the reflection's Add into a Mod over its own mask.
+    CHECK(out.environmentLayer.has_value());
+    CHECK(out.layerBlendMode == m3::LayerBlendOp::Add);
+    CHECK_FALSE(out.decalLayer.has_value());
 }
