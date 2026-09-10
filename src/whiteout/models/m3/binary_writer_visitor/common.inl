@@ -10,12 +10,28 @@ template <typename T>
 struct has_get_version<T, std::void_t<decltype(std::declval<T&>().getVersion())>>
     : std::true_type {};
 
+/// The version to stamp on @p value's index entry.
+///
+/// A chunk a parser stamped keeps what it was read with — that is the whole of
+/// "save it back the way it came". Only one a conversion invented arrives with
+/// nothing to say, and it gets the newest layout this writer can spell, capped
+/// at what both clients read: writing the -1 those used to carry made the file
+/// unloadable in either game, because the version validator rejects the whole
+/// model on any version above its descriptor table's.
+///
+/// `Engine::Both` rather than the export's own engine because the two differ on
+/// four tags only, and a converter that means one of them says so on the chunk
+/// itself (`m3_core::pushStandard`) — nothing reaches here still undecided.
 template <typename T>
 u32 getStructureVersion(const T& value) {
     if constexpr (has_get_version<T>::value) {
-        return value.getVersion();
+        const i32 stated = value.getVersion();
+        if (stated >= 0) {
+            return static_cast<u32>(stated);
+        }
     }
-    return ChunkTagTraits<T>::max_version;
+    return CurrentChunkVersion(ChunkTagTraits<T>::value, ChunkTagTraits<T>::max_version,
+                               Engine::Both);
 }
 
 } // namespace detail

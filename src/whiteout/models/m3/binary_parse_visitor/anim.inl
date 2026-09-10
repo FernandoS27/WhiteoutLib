@@ -27,7 +27,7 @@ void BinaryParseVisitor::visit(SubTrackContainer& value, u32 version) {
     value.runsConcurrent = reader.read<u16>();
     value.animPriority = reader.read<u16>();
     value.animationStateIndex = reader.read<u16>();
-    value.padding = reader.read<u16>();
+    value.animationStateIndexCopy = reader.read<u16>();
     visit(value.animIds);
     visit(value.animRefs);
     value.unknown = reader.read<u32>();

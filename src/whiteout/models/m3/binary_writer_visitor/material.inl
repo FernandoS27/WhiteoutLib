@@ -57,6 +57,18 @@ void BinaryWriterVisitor::visit(const TextureLayer& layer, u32 version) {
     }
 }
 
+/// Writes one of a `StandardMaterial`'s layer slots, empty ones included.
+///
+/// The client's material fixup walks every layer `Reference` a `MAT_` has
+/// without checking, and shipped content never leaves one null: 29,214 unused
+/// slots across the StarCraft II corpus each still carry a `LAYR`, with no
+/// texture path. Only a material this library *builds* has empty slots -- a
+/// parsed one already carries all of them -- so a shipped model round-trips
+/// byte for byte and a converted one stops handing the client a null layer.
+void BinaryWriterVisitor::visitLayerSlot(const std::optional<TextureLayer>& layer) {
+    visit(layer.has_value() ? layer : emptyLayer);
+}
+
 void BinaryWriterVisitor::visit(const StandardMaterial& material, u32 version) {
     visit(material.name);
     writer.write(material.additionalFlags);
@@ -75,27 +87,27 @@ void BinaryWriterVisitor::visit(const StandardMaterial& material, u32 version) {
         writer.write(material.hdrEnvironmentSpecular);
     }
 
-    visit(material.diffuseLayer);
-    visit(material.decalLayer);
-    visit(material.specularLayer);
+    visitLayerSlot(material.diffuseLayer);
+    visitLayerSlot(material.decalLayer);
+    visitLayerSlot(material.specularLayer);
     if (version >= 16) {
-        visit(material.glossLayer);
+        visitLayerSlot(material.glossLayer);
     }
-    visit(material.emissiveLayer1);
-    visit(material.emissiveLayer2);
-    visit(material.environmentLayer);
-    visit(material.environmentMaskLayer);
-    visit(material.alphaLayer1);
-    visit(material.alphaLayer2);
-    visit(material.normalLayer);
-    visit(material.heightLayer);
-    visit(material.lightMapLayer);
-    visit(material.ambientOcclusionLayer);
+    visitLayerSlot(material.emissiveLayer1);
+    visitLayerSlot(material.emissiveLayer2);
+    visitLayerSlot(material.environmentLayer);
+    visitLayerSlot(material.environmentMaskLayer);
+    visitLayerSlot(material.alphaLayer1);
+    visitLayerSlot(material.alphaLayer2);
+    visitLayerSlot(material.normalLayer);
+    visitLayerSlot(material.heightLayer);
+    visitLayerSlot(material.lightMapLayer);
+    visitLayerSlot(material.ambientOcclusionLayer);
     if (version >= 19) {
-        visit(material.normalBlend1MaskLayer);
-        visit(material.normalBlend2MaskLayer);
-        visit(material.normalBlend1Layer);
-        visit(material.normalBlend2Layer);
+        visitLayerSlot(material.normalBlend1MaskLayer);
+        visitLayerSlot(material.normalBlend2MaskLayer);
+        visitLayerSlot(material.normalBlend1Layer);
+        visitLayerSlot(material.normalBlend2Layer);
     }
 
     writer.write(material.materialClass);

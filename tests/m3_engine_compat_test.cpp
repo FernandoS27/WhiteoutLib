@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <iostream>
 #include <map>
@@ -56,7 +57,110 @@ std::vector<fs::path> hotsCorpus() {
     return files;
 }
 
+/// The library's own `makeTag`, which lives in a private header.
+constexpr u32 tagOf(const char (&str)[5]) {
+    return static_cast<u32>(static_cast<unsigned char>(str[0])) << 24 |
+           static_cast<u32>(static_cast<unsigned char>(str[1])) << 16 |
+           static_cast<u32>(static_cast<unsigned char>(str[2])) << 8 |
+           static_cast<u32>(static_cast<unsigned char>(str[3]));
+}
+
+/// Every version the index table of @p bytes states, keyed by chunk tag.
+///
+/// Read out of the file rather than off the model on purpose: the version a
+/// chunk is written at is the one thing a `Model` cannot be asked about, and
+/// it is the only field either client checks before parsing anything.
+std::map<std::string, std::vector<u32>> chunkVersions(const std::vector<u8>& bytes) {
+    u32 offset = 0;
+    u32 count = 0;
+    std::memcpy(&offset, bytes.data() + 4, sizeof(offset));
+    std::memcpy(&count, bytes.data() + 8, sizeof(count));
+
+    std::map<std::string, std::vector<u32>> out;
+    for (u32 i = 0; i < count; ++i) {
+        const u8* entry = bytes.data() + offset + i * 16;
+        const std::string tag(reinterpret_cast<const char*>(entry), 4);
+        u32 version = 0;
+        std::memcpy(&version, entry + 12, sizeof(version));
+        out[std::string(tag.rbegin(), tag.rend())].push_back(version);
+    }
+    return out;
+}
+
+/// Every `CHAR` chunk's payload, exactly as the index table delimits it.
+std::vector<std::string> charChunks(const std::vector<u8>& bytes) {
+    u32 offset = 0;
+    u32 count = 0;
+    std::memcpy(&offset, bytes.data() + 4, sizeof(offset));
+    std::memcpy(&count, bytes.data() + 8, sizeof(count));
+
+    std::vector<std::string> out;
+    for (u32 i = 0; i < count; ++i) {
+        const u8* entry = bytes.data() + offset + i * 16;
+        if (std::string(reinterpret_cast<const char*>(entry), 4) != "RAHC") {
+            continue;
+        }
+        u32 at = 0;
+        u32 length = 0;
+        std::memcpy(&at, entry + 4, sizeof(at));
+        std::memcpy(&length, entry + 8, sizeof(length));
+        out.emplace_back(reinterpret_cast<const char*>(bytes.data() + at), length);
+    }
+    return out;
+}
+
 } // namespace
+
+TEST_CASE("M3 a name ends inside the chunk that holds it", "[m3][compat][string]") {
+    // Both clients take a name by calling strlen on the chunk pointer, so the
+    // terminator is payload and the reference counts it. Every one of the
+    // 246,686 CHAR chunks in the shipped corpus ends in a NUL but one. This
+    // export wrote none at all, and the alignment fill after a string is 0xAA,
+    // so every name in every converted model ran off its chunk.
+    SECTION("a name we invented is terminated") {
+        Model model;
+        model.name = "footman";
+        Sequence sequence{};
+        sequence.name = "Stand";
+        model.sequences.push_back(sequence);
+        Bone bone{};
+        bone.name = "Bone_Root";
+        model.bones.push_back(bone);
+
+        const std::vector<std::string> chunks = charChunks(Writer().write(model));
+        REQUIRE(chunks.size() == 3);
+        for (const std::string& chunk : chunks) {
+            INFO(chunk);
+            REQUIRE_FALSE(chunk.empty());
+            CHECK(chunk.back() == '\0');
+            // Terminated once, and the reference counts exactly that.
+            CHECK(std::strlen(chunk.c_str()) + 1 == chunk.size());
+        }
+    }
+
+    SECTION("a name we read keeps the bytes it came with") {
+        const std::string base = test::findCorpusBase("Corpus");
+        if (base.empty()) {
+            SKIP("no corpus");
+        }
+        const fs::path path = fs::path(base) / "Sc2M3" / "Marine.m3";
+        if (!fs::is_regular_file(path)) {
+            SKIP("no Marine.m3");
+        }
+
+        Parser parser;
+        const Model model = parser.parse(path.string());
+        const std::vector<std::string> chunks = charChunks(Writer().write(model));
+        REQUIRE(chunks.size() > 100);
+        for (const std::string& chunk : chunks) {
+            INFO(chunk);
+            CHECK(chunk.back() == '\0');
+            // The reader keeps the terminator, so the writer must not add a
+            // second one: a round trip states the same length it read.
+            CHECK(std::strlen(chunk.c_str()) + 1 == chunk.size());
+        }
+    }
+}
 
 TEST_CASE("M3 engine support detection", "[m3][compat]") {
     SECTION("a v29 model with no divergent chunk loads on both") {
@@ -109,6 +213,100 @@ TEST_CASE("M3 engine support detection", "[m3][compat]") {
         CHECK(support.starcraft2OnlyReasons[0].find("MAT_") != std::string::npos);
         CHECK_FALSE(isHeroesOnly(model));
     }
+}
+
+TEST_CASE("M3 the version a chunk is written at turns on the client", "[m3][compat][version]") {
+    // Both descriptor tables were read out of the shipped clients
+    // (`sub_102C658F0` / `sub_102771E00`) and every value here is also the
+    // highest that tag reaches anywhere in the 56,139-file corpus.
+    SECTION("the three tags the two clients disagree about") {
+        CHECK(CurrentChunkVersion(tagOf("MODL"), 30, Engine::StarCraft2) == 29u);
+        CHECK(CurrentChunkVersion(tagOf("MODL"), 30, Engine::HeroesOfTheStorm) == 30u);
+        CHECK(CurrentChunkVersion(tagOf("MAT_"), 20, Engine::StarCraft2) == 20u);
+        CHECK(CurrentChunkVersion(tagOf("MAT_"), 20, Engine::HeroesOfTheStorm) == 19u);
+        CHECK(CurrentChunkVersion(tagOf("REF_"), 3, Engine::StarCraft2) == 2u);
+        CHECK(CurrentChunkVersion(tagOf("REF_"), 3, Engine::HeroesOfTheStorm) == 3u);
+    }
+
+    SECTION("Both is the lower of the two, which is what a file loadable on either states") {
+        CHECK(CurrentChunkVersion(tagOf("MODL"), 30, Engine::Both) == 29u);
+        CHECK(CurrentChunkVersion(tagOf("MAT_"), 20, Engine::Both) == 19u);
+        CHECK(CurrentChunkVersion(tagOf("REF_"), 3, Engine::Both) == 2u);
+    }
+
+    SECTION("every other tag is what this library can spell, whoever is asking") {
+        for (const Engine engine : {Engine::StarCraft2, Engine::HeroesOfTheStorm, Engine::Both}) {
+            CHECK(CurrentChunkVersion(tagOf("LAYR"), 26, engine) == 26u);
+            CHECK(CurrentChunkVersion(tagOf("PAR_"), 24, engine) == 24u);
+            CHECK(CurrentChunkVersion(tagOf("STC_"), 4, engine) == 4u);
+        }
+    }
+
+    SECTION("a library that cannot spell the newest layout is not pushed to it") {
+        CHECK(CurrentChunkVersion(tagOf("MAT_"), 15, Engine::StarCraft2) == 15u);
+    }
+}
+
+TEST_CASE("M3 an invented chunk is written at a version a client reads", "[m3][compat][version]") {
+    // Nothing below states a version — this is what a conversion hands the
+    // writer. Every one of these used to go out as 0xFFFFFFFF, and both
+    // clients abort the whole load on a version above their descriptor
+    // table's, so no model this library converted was loadable in either game.
+    Model model;
+    model.sequences.emplace_back();
+    model.bones.emplace_back();
+    StandardMaterial material{};
+    material.diffuseLayer.emplace();
+    model.standardMaterials.push_back(material);
+    model.materialMaps.push_back(mapTo(MaterialType::Standard, 0));
+
+    const std::vector<u8> bytes = Writer().write(model);
+    const std::map<std::string, std::vector<u32>> versions = chunkVersions(bytes);
+    REQUIRE_FALSE(versions.empty());
+
+    for (const auto& [tag, stated] : versions) {
+        INFO(tag);
+        CHECK(std::find(stated.begin(), stated.end(), 0xFFFFFFFFu) == stated.end());
+    }
+
+    // 11 in all 56,139 shipped models of both games, MD33 included.
+    REQUIRE(versions.count("MD34") == 1);
+    CHECK(versions.at("MD34").front() == ROOT_CHUNK_VERSION);
+    // Nobody named an engine, so both have to be able to read it.
+    CHECK(versions.at("MODL").front() == 29u);
+    CHECK(versions.at("MAT_").front() == 19u);
+    // The 107 descriptors that do not diverge are unaffected either way.
+    CHECK(versions.at("LAYR").front() == 26u);
+    CHECK(versions.at("SEQS").front() == 2u);
+    CHECK(versions.at("BONE").front() == 1u);
+
+    CHECK(checkEngineSupport(model).starcraft2);
+}
+
+TEST_CASE("M3 a parsed chunk keeps the version it was read with", "[m3][compat][version]") {
+    // The other half of the rule: a version we did not invent is not ours to
+    // raise. Marine.m3 is MODL v23 with MAT_ v15 and LAYR v22 — five versions
+    // behind what StarCraft II reads today, and it goes back out that way.
+    const std::string base = test::findCorpusBase("Corpus");
+    if (base.empty()) {
+        SKIP("no corpus");
+    }
+    const fs::path path = fs::path(base) / "Sc2M3" / "Marine.m3";
+    if (!fs::is_regular_file(path)) {
+        SKIP("no Marine.m3");
+    }
+
+    Parser parser;
+    const Model model = parser.parse(path.string());
+    const std::map<std::string, std::vector<u32>> versions =
+        chunkVersions(Writer().write(model));
+
+    CHECK(versions.at("MODL").front() == 23u);
+    CHECK(versions.at("MAT_").front() == 15u);
+    CHECK(versions.at("LAYR").front() == 22u);
+    CHECK(versions.at("REGN").front() == 3u);
+    // …except the root entry, which the writer states rather than reads.
+    CHECK(versions.at("MD34").front() == ROOT_CHUNK_VERSION);
 }
 
 TEST_CASE("M3 toStarCraft2 on synthetic models", "[m3][compat]") {

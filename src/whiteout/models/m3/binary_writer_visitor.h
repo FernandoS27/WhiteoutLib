@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <whiteout/models/m3/engine_compat.h>
 #include <whiteout/models/m3/structures.h>
 #include <whiteout/models/m3/types.h>
 #include "../../common/binary_writer.h"
@@ -100,6 +101,8 @@ protected:
     void visit(const std::string& str, u32 version);
     void visit(const std::string& str);
 
+    void visitLayerSlot(const std::optional<TextureLayer>& layer);
+
     void visitCharBlob(const std::vector<u8>& blob);
 
     void transferDeferredWrites(bool pre_order = true);
@@ -109,6 +112,10 @@ protected:
     std::deque<std::function<void()>> currentLevelWrites;
     std::deque<std::function<void()>> deferredWrites;
     std::vector<IndexEntry> indexTable;
+
+    // Stands in for a `MAT_` layer slot the model leaves empty. A member
+    // because the deferred chunk writes capture their container by reference.
+    const std::optional<TextureLayer> emptyLayer{TextureLayer{}};
 
     // Legacy PHSH chunks are reconstructed from the canonical fields at write
     // time; the containers must outlive the deferred chunk writes, which

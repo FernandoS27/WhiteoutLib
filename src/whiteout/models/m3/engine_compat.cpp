@@ -7,6 +7,8 @@
 
 #include <whiteout/models/m3/engine_compat.h>
 
+#include "tags.h"
+
 #include <algorithm>
 #include <string>
 #include <utility>
@@ -18,6 +20,11 @@ namespace m3 {
 namespace {
 
 constexpr u32 NO_DATA_DRIVEN_LINK = 0xFFFFFFFFu;
+
+/// The lower of the two engines' ceilings, for `Engine::Both`.
+constexpr i32 portable(i32 starcraft2, i32 heroes) {
+    return starcraft2 < heroes ? starcraft2 : heroes;
+}
 
 std::string count_of(std::size_t n, const char* singular, const char* plural) {
     return std::to_string(n) + ' ' + (n == 1 ? singular : plural);
@@ -31,6 +38,40 @@ std::string materialLabel(const DataDrivenMaterial& material, std::size_t index)
 }
 
 } // namespace
+
+u32 CurrentChunkVersion(u32 tag, u32 librarySupported, Engine engine) {
+    // 107 of the ~111 descriptors the two clients carry are byte-identical, so
+    // for everything but these three tags the newest layout this writer can
+    // spell is already the newest either engine reads. Both tables were read
+    // out of the shipped clients (`sub_102C658F0` / `sub_102771E00`) and every
+    // one of them is the highest version the corpus actually ships.
+    i32 starcraft2 = 0;
+    i32 heroes = 0;
+    switch (tag) {
+    case TAG_MODL:
+        starcraft2 = SC2_MAX_MODEL_VERSION;
+        heroes = HOTS_MAX_MODEL_VERSION;
+        break;
+    case TAG_MAT:
+        starcraft2 = SC2_MAX_STANDARD_MATERIAL_VERSION;
+        heroes = HOTS_MAX_STANDARD_MATERIAL_VERSION;
+        break;
+    case TAG_REF:
+        starcraft2 = SC2_MAX_REFLECTION_MATERIAL_VERSION;
+        heroes = HOTS_MAX_REFLECTION_MATERIAL_VERSION;
+        break;
+    default:
+        return librarySupported;
+    }
+
+    i32 ceiling = starcraft2;
+    if (engine == Engine::HeroesOfTheStorm) {
+        ceiling = heroes;
+    } else if (engine == Engine::Both) {
+        ceiling = portable(starcraft2, heroes);
+    }
+    return (std::min)(librarySupported, static_cast<u32>(ceiling));
+}
 
 EngineSupport checkEngineSupport(const Model& model) {
     EngineSupport out;

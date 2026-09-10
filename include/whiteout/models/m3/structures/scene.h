@@ -31,16 +31,16 @@ namespace m3 {
  */
 struct Light {
     LightType lightType;               ///< Light type (omni/spot/directional)
-    u16 boneIndex;                     ///< Index into BONE array
+    u16 boneIndex = 0;                 ///< Index into BONE array
     LightFlag flags = LightFlag::None; ///< Light flags (shadows, specular, AO, etc.)
-    u32 lodCut;                        ///< LOD cut-off level
-    u32 shadowLodCut;                  ///< Shadow LOD cut-off level
+    u32 lodCut = 0;                    ///< LOD cut-off level
+    u32 shadowLodCut = 0;              ///< Shadow LOD cut-off level
     AnimRef<Vector3f> diffuseColor;    ///< Animated diffuse color (RGB)
     AnimRef<f32> intensityMultiplier;  ///< Animated intensity multiplier
     AnimRef<Vector3f> specularColor;   ///< Animated specular color (RGB)
     AnimRef<f32> specularMultiplier;   ///< Animated specular multiplier
     AnimRef<f32> decay;                ///< Animated distance decay exponent
-    f32 attenuationEnd;                ///< Attenuation end distance
+    f32 attenuationEnd = 0.0f;         ///< Attenuation end distance
     AnimRef<f32> attenuationStart;     ///< Animated attenuation start distance
     AnimRef<f32> hotSpot;              ///< Animated spot inner cone angle
     AnimRef<f32> falloff;              ///< Animated spot outer cone falloff
@@ -54,11 +54,11 @@ struct Light {
  * depth-of-field parameters, and version-dependent bokeh settings.
  */
 struct Camera {
-    u32 boneIndex;                    ///< Index into BONE array
+    u32 boneIndex = 0;                ///< Index into BONE array
     std::string name;                 ///< Camera name (Ref<CHAR>)
     AnimRef<f32> fieldOfView;         ///< Animated FOV in radians (v2+)
-    u32 useVerticalFOV;               ///< Use vertical FOV (0 or 1, v2+)
-    u32 dofType;                      ///< DOF type (v5 only, default 3)
+    u32 useVerticalFOV = 0;           ///< Use vertical FOV (0 or 1, v2+)
+    u32 dofType = 0;                  ///< DOF type (v5 only, default 3)
     AnimRef<f32> farClip;             ///< Animated far clip plane (v3+)
     AnimRef<f32> nearClip;            ///< Animated near clip plane (v3+)
     AnimRef<f32> shadowClipDistance;  ///< Animated shadow clip distance (v2+)

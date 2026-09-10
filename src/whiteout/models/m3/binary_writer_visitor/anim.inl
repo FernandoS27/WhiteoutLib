@@ -26,7 +26,7 @@ void BinaryWriterVisitor::visit(const SubTrackContainer& container, u32 version)
     writer.write(container.runsConcurrent);
     writer.write(container.animPriority);
     writer.write(container.animationStateIndex);
-    writer.write(container.padding);
+    writer.write(container.animationStateIndexCopy);
     visit(container.animIds);
     visit(container.animRefs);
     writer.write(container.unknown);

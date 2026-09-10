@@ -4,6 +4,7 @@
 #include "m3_anim.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <map>
@@ -24,6 +25,48 @@ namespace {
 
 /// STC `animRefs[j]` packs the slot in the high half and the block index in the
 /// low one — the 13 typed `AnimBlock` arrays are addressed no other way.
+/// An `STS_` record's four link fields at rest: parent, next sibling and first
+/// child all -1, then a -1 `i16` and a zero `u16` (§7.4). Every shipped record
+/// carries exactly this.
+constexpr std::array<u8, 16> kAnimationStateLinks = {
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00,
+};
+
+/// The id the slot-0 event stream joins under. It is not free: across 2,044
+/// shipped models every slot-0 stream carries one of exactly two ids, and no
+/// model mixes them — 1,517 use this one, 527 the older `0x65BD3215`. An id the
+/// client does not know is an event stream it never finds, and `0` — what this
+/// export used to write — is the format's own "not animated" sentinel.
+constexpr u32 kEventStreamAnimId = 0x063F6D59u;
+
+/// Every animation ends with this event, and the rule has no exceptions: it is
+/// the last key of all 2,378 slot-0 blocks measured, and all 1,209 StarCraft II
+/// and 671 Heroes models carrying sequences have one per sequence -- always
+/// type 4, always bone 0xFFFF, keyed at the sequence's end frame. It is how the
+/// engine learns a clip is over, so a stream without it is a clip that never
+/// ends; 18 of this export's 27 had no slot-0 stream at all.
+constexpr char kSequenceEndEvent[] = "Evt_SeqEnd";
+constexpr u32 kSequenceEndType = 4u;
+constexpr u16 kNoBone = 0xFFFFu;
+
+/// The type a named event crosses under. `0` -- what a Warcraft III event
+/// object carries, having no type of its own -- appears in none of the 2,426
+/// shipped events; every one that is not the end marker is type 2.
+constexpr u32 kNamedEventType = 2u;
+
+/// The name a container crosses under. Formats with no container of their own
+/// (MDX, M2, Diablo III) all name theirs `base`, so every clip would export a
+/// container by the same name; retail qualifies each with its sequence
+/// (`Walk_full`, `Attack_full`). A container already named for its clip — an
+/// `.m3` making the round trip — keeps the name it came with.
+std::string containerName(const std::string& container, const std::string& clip) {
+    if (clip.empty() || container.rfind(clip, 0) == 0) {
+        return container;
+    }
+    return container.empty() ? clip : clip + "_" + container;
+}
+
 constexpr u32 SlotOf(u32 animRef) {
     return animRef >> 16;
 }
@@ -1154,8 +1197,15 @@ private:
     void buildClip(const Clip& clip) {
         m3::Sequence sequence;
         sequence.name = clip.name;
-        sequence.id = static_cast<i32>(clip.native.value("sequenceId", 0));
-        sequence.index = static_cast<i32>(out_.sequences.size());
+        // The four fields no shipped sequence varies: 3,109 of 3,109 `SEQS` v2
+        // records carry id and index -1, replay 1/1 and a 100ms blend. Only a
+        // source that stated its own is asked (an `.m3` keeps both in the bag);
+        // a conversion that invented 0 for all of them was stating "sequence
+        // zero, replay nothing, blend instantly".
+        sequence.id = static_cast<i32>(clip.native.value("sequenceId", -1));
+        sequence.index = -1;
+        sequence.replayStart = 1;
+        sequence.replayEnd = 1;
         sequence.flags = static_cast<m3::SequenceFlag>(clip.native.value("m3SeqFlags", 0));
         if (!clip.looping) {
             sequence.flags = static_cast<m3::SequenceFlag>(
@@ -1170,7 +1220,7 @@ private:
         sequence.frequency =
             static_cast<u32>(clip.native.value("m3Frequency", rarity != 0 ? rarity : 100));
         sequence.moveSpeed = ClipMoveSpeed(clip);
-        sequence.blendTime = static_cast<u32>(clip.native.value("blendTime", 0));
+        sequence.blendTime = static_cast<u32>(clip.native.value("blendTime", 100));
         const i32 origin = static_cast<i32>(clip.native.value("startFrame", 0));
         sequence.startFrame = static_cast<u32>(origin);
         sequence.endFrame = static_cast<u32>(origin + Ticks(clip.duration));
@@ -1178,7 +1228,9 @@ private:
 
         m3::AnimationGroup group;
         group.name = clip.name;
-        bool eventsPending = !clip.events.empty();
+        // Every clip owes a slot-0 stream, whether or not it carries events of
+        // its own, because the end marker lives in it.
+        bool eventsPending = true;
         for (const SubTrackContainer& container : clip.containers) {
             const u32 index = buildContainer(container, clip, origin, eventsPending);
             if (index != kInvalidIndex) {
@@ -1194,11 +1246,11 @@ private:
     u32 buildContainer(const SubTrackContainer& source, const Clip& clip, i32 origin,
                        bool takeEvents) {
         m3::SubTrackContainer stc;
-        stc.name = source.name;
+        stc.name = containerName(source.name, clip.name);
         stc.animPriority = static_cast<u16>(source.priority);
         stc.runsConcurrent = source.concurrent ? 1u : 0u;
         stc.animationStateIndex = static_cast<u16>(source.native.value("animationStateIndex", 0));
-        stc.padding = 0;
+        stc.animationStateIndexCopy = stc.animationStateIndex;
         stc.unknown = 0;
 
         // Source-convention UV feature channels become the layer's own
@@ -1255,10 +1307,10 @@ private:
         // to a container — so they go into the first container that is written
         // and not into every one of them, which is how a three-layer clip would
         // otherwise fire each of its events three times.
-        if (takeEvents && !clip.events.empty()) {
+        if (takeEvents) {
             const u32 animRef = writeEvents(stc, clip, origin);
             if (animRef != kInvalidIndex) {
-                stc.animIds.push_back(0);
+                stc.animIds.push_back(kEventStreamAnimId);
                 stc.animRefs.push_back(animRef);
             }
         }
@@ -1266,6 +1318,43 @@ private:
         if (stc.animRefs.empty()) {
             return kInvalidIndex;
         }
+
+        // `animIds` and `animRefs` are one lookup table in two arrays, and
+        // StarCraft II searches it: every shipped container keeps it sorted by
+        // id — 1,221 of 1,221 measured across 600 models. Ours came out in the
+        // order the channels happened to be written.
+        std::vector<std::size_t> order(stc.animIds.size());
+        for (std::size_t k = 0; k < order.size(); ++k) {
+            order[k] = k;
+        }
+        std::stable_sort(order.begin(), order.end(),
+                         [&](std::size_t a, std::size_t b) {
+                             return stc.animIds[a] < stc.animIds[b];
+                         });
+        std::vector<u32> ids;
+        std::vector<u32> refs;
+        ids.reserve(order.size());
+        refs.reserve(order.size());
+        for (const std::size_t k : order) {
+            ids.push_back(stc.animIds[k]);
+            refs.push_back(stc.animRefs[k]);
+        }
+        stc.animIds = std::move(ids);
+        stc.animRefs = std::move(refs);
+
+        // Every container names an animation state, and the index it named was
+        // whatever the source said with nothing behind it: this export wrote no
+        // `STS_` at all. The record is the same id list read a second way, one
+        // per container (972 of 1,002 shipped records are exactly their
+        // container's list), and its four link fields rest at "no parent, no
+        // sibling, no child".
+        m3::AnimationState state;
+        state.animIds = stc.animIds;
+        state.unknown = kAnimationStateLinks;
+        stc.animationStateIndex = static_cast<u16>(out_.animationStates.size());
+        stc.animationStateIndexCopy = stc.animationStateIndex;
+        out_.animationStates.push_back(std::move(state));
+
         out_.subTrackCollections.push_back(std::move(stc));
         return static_cast<u32>(out_.subTrackCollections.size() - 1);
     }
@@ -1490,9 +1579,15 @@ private:
     u32 writeEvents(m3::SubTrackContainer& stc, const Clip& clip, i32 origin) {
         m3::AnimBlock<m3::Event> entry;
         for (const ClipEvent& event : clip.events) {
+            // An `.m3` that made the round trip brings its own end marker back
+            // as a clip event; the one appended below replaces it rather than
+            // joining it, or the block would end with two.
+            if (event.name == kSequenceEndEvent) {
+                continue;
+            }
             m3::Event key{};
             key.name = event.name;
-            key.eventType = event.value;
+            key.eventType = event.value != 0 ? event.value : kNamedEventType;
             // The node is a bone here, because that is what an `.m3` event
             // names — the kind is not fixed across formats, and this is the one
             // that has to be a bone index.
@@ -1506,10 +1601,16 @@ private:
             entry.timestamps.push_back(origin + Ticks(event.time));
             entry.keys.push_back(std::move(key));
         }
-        if (entry.keys.empty()) {
-            return kInvalidIndex;
-        }
-        entry.flags = 0;
+        m3::Event end{};
+        end.name = kSequenceEndEvent;
+        end.eventType = kSequenceEndType;
+        end.boneIndex = kNoBone;
+        entry.timestamps.push_back(origin + Ticks(clip.duration));
+        entry.keys.push_back(std::move(end));
+
+        // A block of one key is flagged, and one of several is not: 2,317 of
+        // 2,317 single-key blocks carry 1 and all 61 longer ones carry 0.
+        entry.flags = entry.keys.size() == 1 ? 1u : 0u;
         entry.endFrame = static_cast<u32>(entry.timestamps.back());
         const u32 block = static_cast<u32>(stc.sdev.size());
         stc.sdev.push_back(std::move(entry));

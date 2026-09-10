@@ -17,6 +17,9 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 
+#include <whiteout/models/m3/engine_compat.h>
+#include <whiteout/models/m3/parser.h>
+#include <whiteout/models/m3/writer.h>
 #include <whiteout/models/wem/converters.h>
 
 #include "wem_material_fixture.h"
@@ -193,6 +196,204 @@ TEST_CASE("wem m3 skinning goes through the region's bone lookup", "[wem][conver
     // Slot 0 of the window, not bone 0.
     CHECK(influences[0].bone == 1);
     CHECK(influences[0].weight == 1.0f);
+}
+
+TEST_CASE("wem m3 every division states its bounding volume",
+          "[wem][convert][m3][version]") {
+    // A chunk the game reaches for unconditionally, and did not find. The
+    // Galaxy editor crashed importing a converted footman on it:
+    // ACCESS_VIOLATION reading from 0x2C, which is inside the `AnimRef<Extent>`
+    // of a `MSEC` record that was not there.
+    const M3Converter converter;
+    Result<Document> document = converter.fromM3(makeModel(29), ProfileId::Sc2);
+    REQUIRE(document.ok());
+    Result<m3::Model> written = converter.toM3(*document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+
+    SECTION("one record against node 0, holding the model's own bounds") {
+        REQUIRE_FALSE(written->divisions.empty());
+        REQUIRE(written->divisions[0].msec.size() == 1u);
+        const m3::MeshSection& section = written->divisions[0].msec[0];
+        CHECK(section.nodeIndex == 0u);
+        CHECK(section.bounds.initValue.min.x == Catch::Approx(written->bounds.min.x));
+        CHECK(section.bounds.initValue.max.z == Catch::Approx(written->bounds.max.z));
+        // The sphere is around the BOX, not the origin -- |(max - min) / 2| on
+        // all 377 shipped bounds measured, and a Warcraft III source states none.
+        const Vector3f half{(written->bounds.max.x - written->bounds.min.x) * 0.5f,
+                            (written->bounds.max.y - written->bounds.min.y) * 0.5f,
+                            (written->bounds.max.z - written->bounds.min.z) * 0.5f};
+        const f32 want = std::sqrt(half.x * half.x + half.y * half.y + half.z * half.z);
+        CHECK(written->bounds.radius == Catch::Approx(want));
+        CHECK(section.bounds.initValue.radius == Catch::Approx(want));
+    }
+
+}
+
+TEST_CASE("wem m3 a built record carries no stack junk into the file",
+          "[wem][convert][m3][version]") {
+    // The parser fills every field, so only a record a conversion BUILDS can
+    // reach the writer indeterminate -- and one did: halves of live heap
+    // pointers landed in `flipbookColumns`, `textureSource` and the fresnel
+    // fields of every exported layer. The editor truncates the column count to
+    // a byte and, when that came out zero, queued a shader parameter with no
+    // destination and wrote through the null next time round.
+    m3::TextureLayer layer;
+    CHECK(layer.flipbookRows == 0u);
+    CHECK(layer.flipbookColumns == 0u);
+    CHECK(layer.textureSource == 0u);
+    CHECK(layer.pocTexture == 0u);
+    CHECK(layer.uvSourceRelated == 0u);
+    CHECK(layer.fresnelExponent == 0.0f);
+    CHECK(layer.fresnelMin == 0.0f);
+    CHECK(layer.fresnelMax == 0.0f);
+
+    // And through the whole crossing, on the file the editor actually reads.
+    const M3Converter converter;
+    Result<Document> document = converter.fromM3(makeModel(29), ProfileId::Sc2);
+    REQUIRE(document.ok());
+    Result<m3::Model> written = converter.toM3(*document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    const std::vector<u8> bytes = m3::Writer().write(*written);
+    const m3::Model reparsed = m3::Parser().parse(bytes);
+    REQUIRE_FALSE(reparsed.standardMaterials.empty());
+    for (const m3::StandardMaterial& mat : reparsed.standardMaterials) {
+        REQUIRE(mat.diffuseLayer.has_value());
+        // A grid of zero is what an unused flipbook means; anything else here
+        // is a field nobody wrote.
+        CHECK(mat.diffuseLayer->flipbookColumns < 256u);
+        CHECK(mat.diffuseLayer->flipbookRows < 256u);
+        CHECK(mat.diffuseLayer->textureSource < 16u);
+    }
+}
+
+TEST_CASE("wem m3 an exported file leaves the client nothing null to walk",
+          "[wem][convert][m3][version]") {
+    // Two parallel arrays and eighteen layer slots the client walks without
+    // checking, and that shipped content therefore never leaves empty: 1,535 of
+    // 1,535 models with attachment points carry one addon entry per point (all
+    // 0xFFFF), 343 of 343 with cameras carry one per camera, and 29,214 unused
+    // layer slots across the StarCraft II corpus each still carry a `LAYR` with
+    // no texture path. A converted model filled none of them.
+    const M3Converter converter;
+    Result<Document> document = converter.fromM3(makeModel(29), ProfileId::Sc2);
+    REQUIRE(document.ok());
+    Result<m3::Model> written = converter.toM3(*document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+
+    SECTION("every scene object gets its addon entry") {
+        REQUIRE(written->attachmentPointAddons.size() == written->attachmentPoints.size());
+        REQUIRE(written->camerasAddons.size() == written->cameras.size());
+        for (const u16 addon : written->attachmentPointAddons) {
+            CHECK(addon == 0xFFFFu);
+        }
+        for (const u16 addon : written->camerasAddons) {
+            CHECK(addon == 0xFFFFu);
+        }
+    }
+
+    SECTION("every material layer slot reaches the file") {
+        // The fill is the writer's, not the converter's: everything upstream
+        // reads `has_value()` on a slot to mean the material carries that
+        // layer, so the model itself keeps saying which layers it has and only
+        // the bytes carry all eighteen.
+        REQUIRE_FALSE(written->standardMaterials.empty());
+        const std::vector<u8> bytes = m3::Writer().write(*written);
+        REQUIRE_FALSE(bytes.empty());
+        const m3::Model reparsed = m3::Parser().parse(bytes);
+        REQUIRE_FALSE(reparsed.standardMaterials.empty());
+
+        const m3::StandardMaterial& mat = reparsed.standardMaterials[0];
+        const std::optional<m3::TextureLayer> m3::StandardMaterial::*const slots[] = {
+            &m3::StandardMaterial::diffuseLayer,
+            &m3::StandardMaterial::decalLayer,
+            &m3::StandardMaterial::specularLayer,
+            &m3::StandardMaterial::glossLayer,
+            &m3::StandardMaterial::emissiveLayer1,
+            &m3::StandardMaterial::emissiveLayer2,
+            &m3::StandardMaterial::environmentLayer,
+            &m3::StandardMaterial::environmentMaskLayer,
+            &m3::StandardMaterial::alphaLayer1,
+            &m3::StandardMaterial::alphaLayer2,
+            &m3::StandardMaterial::normalLayer,
+            &m3::StandardMaterial::heightLayer,
+            &m3::StandardMaterial::lightMapLayer,
+            &m3::StandardMaterial::ambientOcclusionLayer,
+            &m3::StandardMaterial::normalBlend1MaskLayer,
+            &m3::StandardMaterial::normalBlend2MaskLayer,
+            &m3::StandardMaterial::normalBlend1Layer,
+            &m3::StandardMaterial::normalBlend2Layer,
+        };
+        for (const auto slot : slots) {
+            CHECK((mat.*slot).has_value());
+        }
+        // A slot the material does not use is still an empty layer, not one
+        // pointing at a texture it never had.
+        CHECK((reparsed.standardMaterials[0].normalBlend2Layer->texturePath.empty() ||
+               reparsed.standardMaterials[0].normalBlend2Layer->texturePath == std::string(1, ' ')));
+    }
+}
+
+TEST_CASE("wem m3 an exported chunk states the version its client reads",
+          "[wem][convert][m3][version]") {
+    // `MAT_` is the one chunk a conversion creates that the two engines
+    // disagree about: StarCraft II reads v20, Heroes caps at v19, and the three
+    // versions between them are the HDR environment multipliers this export
+    // fills. Stated on the record rather than left to the writer because the
+    // writer defaults to the version BOTH clients read -- which would drop them
+    // from a StarCraft II file too -- and because the renderer reads the
+    // version back off a model that was never written.
+    const M3Converter converter;
+    Result<Document> document = converter.fromM3(makeModel(29), ProfileId::Sc2);
+    REQUIRE(document.ok());
+
+    SECTION("StarCraft II takes MAT_ v20") {
+        Result<m3::Model> written = converter.toM3(*document, ProfileId::Sc2, 29);
+        REQUIRE(written.ok());
+        REQUIRE_FALSE(written->standardMaterials.empty());
+        CHECK(written->standardMaterials[0].getVersion() == 20);
+        CHECK(m3::checkEngineSupport(*written).starcraft2);
+    }
+
+    SECTION("Heroes of the Storm caps at v19") {
+        Result<Document> heroes = converter.fromM3(makeModel(30), ProfileId::Heroes);
+        REQUIRE(heroes.ok());
+        Result<m3::Model> written = converter.toM3(*heroes, ProfileId::Heroes, 30);
+        REQUIRE(written.ok());
+        REQUIRE_FALSE(written->standardMaterials.empty());
+        CHECK(written->standardMaterials[0].getVersion() == 19);
+        CHECK(m3::checkEngineSupport(*written).heroesOfTheStorm);
+    }
+
+    SECTION("Heroes is told what MAT_ v19 cannot hold") {
+        // The three versions between v19 and v20 are the HDR environment
+        // multipliers, and Heroes keeps the same quantities as properties of a
+        // MADD blob instead. Dropping them is right; dropping them quietly is
+        // not.
+        m3::Model source = makeModel(30);
+        source.standardMaterials[0].hdrEnvironmentConstant = 2.0f;
+        Result<Document> heroes = converter.fromM3(source, ProfileId::Heroes);
+        REQUIRE(heroes.ok());
+        Result<m3::Model> written = converter.toM3(*heroes, ProfileId::Heroes, 30);
+        REQUIRE(written.ok());
+        CHECK(written->standardMaterials[0].getVersion() == 19);
+
+        bool told = false;
+        for (const Diagnostic& d : written.diagnostics.byCode(DiagCode::FeatureDropped)) {
+            told = told || d.message.find("HDR environment multiplier") != std::string::npos;
+        }
+        CHECK(told);
+    }
+
+    SECTION("a region says it is the v5 record whose uvScale it filled") {
+        Result<m3::Model> written = converter.toM3(*document, ProfileId::Sc2, 29);
+        REQUIRE(written.ok());
+        REQUIRE_FALSE(written->divisions.empty());
+        REQUIRE_FALSE(written->divisions[0].regions.empty());
+        // Without this the renderer's `getVersion() >= 5` gate reads the stock
+        // 1/2048 pair instead of the one the encoder actually wrote.
+        CHECK(written->divisions[0].regions[0].getVersion() == 5);
+        CHECK(written->divisions[0].regions[0].uvScale == 16.0f);
+    }
 }
 
 TEST_CASE("wem m3 a gate bone keeps the visibility it rests at",

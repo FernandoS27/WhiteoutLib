@@ -140,6 +140,194 @@ TEST_CASE("wem m3 a sequence, its group and its containers map one to one", "[we
     CHECK(trackFor(document, 0, 7) != nullptr);
 }
 
+TEST_CASE("wem m3 a container's lookup table is one StarCraft II can search",
+          "[wem][anim][m3]") {
+    // `animIds` and `animRefs` are one table in two arrays, and the game
+    // searches it by id: 1,221 of 1,221 shipped containers keep it sorted, and
+    // ours came out in whatever order the channels were written (0 of the
+    // banshee's 10). The `STS_` beside it is that same list read a second way —
+    // every container named an `animationStateIndex` into an array this export
+    // never wrote at all.
+    // Three properties of the one bone, given ids in descending order so that
+    // "sorted" cannot be true by accident.
+    m3::Model model = makeModel();
+    keyTranslation(model, 11, {0, 1000}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 1}});
+
+    model.bones[0].scale = animated<Vector3f>(7, Vector3f{1, 1, 1});
+    m3::AnimBlock<Vector3f> grow;
+    grow.timestamps = {0, 1000};
+    grow.keys = {Vector3f{1, 1, 1}, Vector3f{2, 2, 2}};
+    model.subTrackCollections[0].sd3v.push_back(std::move(grow));
+    model.subTrackCollections[0].animIds.push_back(7);
+    model.subTrackCollections[0].animRefs.push_back(
+        Ref(2, static_cast<u32>(model.subTrackCollections[0].sd3v.size() - 1)));
+
+    model.bones[0].visibility = animated<u32>(3, 1u);
+    m3::AnimBlock<m3::Flag> blink;
+    blink.timestamps = {0, 500};
+    blink.keys = {m3::Flag{1}, m3::Flag{0}};
+    model.subTrackCollections[0].sdfg.push_back(std::move(blink));
+    model.subTrackCollections[0].animIds.push_back(3);
+    model.subTrackCollections[0].animRefs.push_back(Ref(11, 0));
+
+    const Document document = convert(model);
+    M3Converter converter;
+    const Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    REQUIRE_FALSE(written->subTrackCollections.empty());
+
+    CHECK(written->animationStates.size() == written->subTrackCollections.size());
+    // Sortedness says nothing about a one-entry table, and the three channels
+    // above are keyed out of id order on purpose.
+    std::size_t widest = 0;
+    for (const m3::SubTrackContainer& stc : written->subTrackCollections) {
+        widest = (std::max)(widest, stc.animIds.size());
+    }
+    CHECK(widest >= 3u);
+
+    for (const m3::SubTrackContainer& stc : written->subTrackCollections) {
+        INFO(stc.name);
+        CHECK(stc.animIds.size() == stc.animRefs.size());
+        CHECK(std::is_sorted(stc.animIds.begin(), stc.animIds.end()));
+
+        REQUIRE(stc.animationStateIndex < written->animationStates.size());
+        // The second u16 is not padding: 2,197 of 2,197 shipped containers
+        // repeat the index there, and this export left it at zero.
+        CHECK(stc.animationStateIndexCopy == stc.animationStateIndex);
+        const m3::AnimationState& state = written->animationStates[stc.animationStateIndex];
+        CHECK(state.animIds == stc.animIds);
+        // No parent, no sibling, no child — §7.4, and every shipped record.
+        CHECK(state.unknown[0] == 0xFFu);
+        CHECK(state.unknown[13] == 0xFFu);
+        CHECK(state.unknown[14] == 0x00u);
+    }
+}
+
+TEST_CASE("wem m3 an event stream joins under an id the client knows", "[wem][anim][m3]") {
+    // The slot-0 stream is reached by id like every other channel, and the id
+    // is not ours to choose: across 2,044 shipped models every slot-0 stream
+    // carries one of exactly two, and no model mixes them. This export wrote
+    // `0`, which the format reserves for "not animated" — so the events were
+    // in the file and unreachable, and every container's table began with an
+    // id below the smallest any shipped model uses.
+    m3::Model model = makeModel();
+    keyTranslation(model, 11, {0, 1000}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 1}});
+
+    Document document = convert(model);
+    REQUIRE_FALSE(document.clips.empty());
+    ClipEvent event;
+    event.time = 0.25f;
+    event.name = "Fire";
+    document.clips[0].events.push_back(event);
+
+    M3Converter converter;
+    const Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    REQUIRE_FALSE(written->subTrackCollections.empty());
+
+    bool carried = false;
+    for (const m3::SubTrackContainer& stc : written->subTrackCollections) {
+        for (std::size_t j = 0; j < stc.animIds.size(); ++j) {
+            // Nothing joins under the sentinel, whatever the slot.
+            CHECK(stc.animIds[j] != 0u);
+            if ((stc.animRefs[j] >> 16) == 0) {
+                CHECK(stc.animIds[j] == 0x063F6D59u);
+                carried = true;
+            }
+        }
+    }
+    CHECK(carried);
+}
+
+TEST_CASE("wem m3 every sequence ends with the event the engine waits for",
+          "[wem][anim][m3]") {
+    // All 1,209 StarCraft II and 671 Heroes models that carry sequences give
+    // every one an `Evt_SeqEnd`, and it is the last key of all 2,378 slot-0
+    // blocks measured -- always type 4, always bone 0xFFFF, keyed at the
+    // sequence's end frame. It is how the engine learns a clip is over. This
+    // export wrote none, and left the 18 of a footman's 27 sequences that
+    // carried no events of their own with no slot-0 stream at all.
+    m3::Model model = makeModel();
+    keyTranslation(model, 11, {0, 1000}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 1}});
+
+    Document document = convert(model);
+    REQUIRE_FALSE(document.clips.empty());
+    for (Clip& clip : document.clips) {
+        clip.events.clear(); // a clip with nothing of its own still owes one
+    }
+
+    M3Converter converter;
+    const Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    REQUIRE(written->subTrackCollections.size() == written->sequences.size());
+
+    for (std::size_t i = 0; i < written->subTrackCollections.size(); ++i) {
+        const m3::SubTrackContainer& stc = written->subTrackCollections[i];
+        REQUIRE(stc.sdev.size() == 1);
+        const m3::AnimBlock<m3::Event>& block = stc.sdev[0];
+        REQUIRE_FALSE(block.keys.empty());
+        CHECK(block.keys.back().name.rfind("Evt_SeqEnd", 0) == 0);
+        CHECK(block.keys.back().eventType == 4u);
+        CHECK(block.keys.back().boneIndex == 0xFFFFu);
+        CHECK(block.timestamps.back() ==
+              static_cast<i32>(written->sequences[i].endFrame));
+        // One key is flagged and several are not: 2,317 of 2,317 single-key
+        // blocks carry 1 and all 61 longer ones carry 0.
+        CHECK(block.flags == (block.keys.size() == 1 ? 1u : 0u));
+    }
+}
+
+TEST_CASE("wem m3 the end marker is replaced on a round trip, never doubled",
+          "[wem][anim][m3]") {
+    // The marker comes back as a clip event like any other, so an export that
+    // appends its own would grow one key per trip -- and the block's flag,
+    // which is 1 only while there is a single key, would flip with it.
+    m3::Model model = makeModel();
+    keyTranslation(model, 11, {0, 1000}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 1}});
+
+    M3Converter converter;
+    const Result<m3::Model> once = converter.toM3(convert(model), ProfileId::Sc2, 29);
+    REQUIRE(once.ok());
+    const Result<m3::Model> twice = converter.toM3(convert(*once), ProfileId::Sc2, 29);
+    REQUIRE(twice.ok());
+    REQUIRE(once->subTrackCollections.size() == twice->subTrackCollections.size());
+
+    for (std::size_t i = 0; i < twice->subTrackCollections.size(); ++i) {
+        REQUIRE(once->subTrackCollections[i].sdev.size() == 1);
+        REQUIRE(twice->subTrackCollections[i].sdev.size() == 1);
+        const m3::AnimBlock<m3::Event>& before = once->subTrackCollections[i].sdev[0];
+        const m3::AnimBlock<m3::Event>& after = twice->subTrackCollections[i].sdev[0];
+        CHECK(after.keys.size() == before.keys.size());
+        CHECK(after.flags == before.flags);
+        std::size_t markers = 0;
+        for (const m3::Event& key : after.keys) {
+            if (key.name.rfind("Evt_SeqEnd", 0) == 0) {
+                ++markers;
+            }
+        }
+        CHECK(markers == 1);
+    }
+}
+
+TEST_CASE("wem m3 a container is named for the clip it plays under", "[wem][anim][m3]") {
+    // Formats with no container of their own all name theirs `base`, so every
+    // sequence exported a container by the same name; retail qualifies each
+    // with its sequence and 784 of 794 shipped models keep them distinct.
+    m3::Model model = makeModel();
+    model.subTrackCollections[0].name = "base";
+    keyTranslation(model, 11, {0, 1000}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 1}});
+
+    Document document = convert(model);
+    REQUIRE_FALSE(document.clips.empty());
+    document.clips[0].containers[0].name = "base";
+
+    M3Converter converter;
+    const Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    REQUIRE_FALSE(written->subTrackCollections.empty());
+    CHECK(written->subTrackCollections[0].name == "Stand_base");
+}
+
 TEST_CASE("wem m3 a track steps on AnimRef flags bit 4", "[wem][anim][m3]") {
     // The whole point: `interpType` is a track-table row that lies at runtime,
     // and reading it juddered every `.m3a`-driven hero.

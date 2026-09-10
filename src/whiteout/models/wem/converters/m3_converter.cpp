@@ -31,6 +31,7 @@
  * global produces a model that parses, builds, and is wrong.
  */
 
+#include "whiteout/models/m3/engine_compat.h"
 #include "whiteout/models/m3/parser.h"
 #include "whiteout/models/m3/writer.h"
 #include "whiteout/models/wem/converters.h"
@@ -42,6 +43,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <string>
 
@@ -55,6 +57,13 @@ constexpr ProfileId kM3Profiles[] = {ProfileId::Sc2, ProfileId::Heroes};
 
 /// The first `MODL` version whose loader builds `MADD` (§7.2.6).
 constexpr u32 kHeroesModlVersion = 30;
+
+/// The animId every shipped model's `MSEC` bounds channel carries.
+constexpr u32 kModelBoundsAnimId = 0x001F9BD2;
+
+/// What MODL's attachment-point and camera addon arrays hold: 5,998 of 5,998
+/// shipped attachment addons and every camera one measured is 0xFFFF.
+constexpr u16 kNoAddon = 0xFFFFu;
 
 /// A shipped `.m3` string carries its terminator inside the `std::string` — the
 /// `Reference` count includes it — so anything comparing or storing one has to
@@ -119,6 +128,15 @@ m3::Extent FromExtent(const Extent& source) {
     out.min = Vector3f{std::min(a.x, b.x), std::min(a.y, b.y), std::min(a.z, b.z)};
     out.max = Vector3f{std::max(a.x, b.x), std::max(a.y, b.y), std::max(a.z, b.z)};
     out.radius = source.sphereRadius;
+    if (out.radius <= 0.0f) {
+        // A source that states no radius still needs one here: StarCraft II's
+        // is the sphere around the box, not around the origin. Measured on 377
+        // shipped bounds, every one is |(max - min) / 2| to within a thousandth
+        // (the 18 that read zero have a zero box).
+        const Vector3f half{(out.max.x - out.min.x) * 0.5f, (out.max.y - out.min.y) * 0.5f,
+                            (out.max.z - out.min.z) * 0.5f};
+        out.radius = std::sqrt(half.x * half.x + half.y * half.y + half.z * half.z);
+    }
     return out;
 }
 
@@ -676,7 +694,13 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
 
     Diagnostics& diagnostics = result.diagnostics;
     m3::Model out;
-    out.setVersion(static_cast<i32>(targetVersion));
+    // 0 means "whatever this profile's own game reads". The MODL version is the
+    // one chunk version the caller has always chosen, because it is also how
+    // `ProfileForVersion` decides which game a file came from.
+    out.setVersion(static_cast<i32>(targetVersion != 0 ? targetVersion
+                                    : profile == ProfileId::Heroes
+                                        ? kHeroesModlVersion
+                                        : static_cast<u32>(m3::SC2_MAX_MODEL_VERSION)));
     if (document.models.empty()) {
         result.value = std::move(out);
         return result;
@@ -1096,7 +1120,9 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             region.boneIndexPairs = 4;
             // `M3VertexEncoder` writes `uv * 2048`, so the pair that reads it
             // back is the stock one. Stated rather than left at the struct's
-            // uninitialised float, which a v5 reader would take literally.
+            // uninitialised float, which a v5 reader would take literally --
+            // and the region says it is a v5 record, or nothing reads them.
+            region.setVersion(5);
             region.uvScale = 16.0f;
             region.uvOffset = 0.0f;
             region.firstBoneLookup = static_cast<u16>(out.boneLookup.size());
@@ -1427,6 +1453,21 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             division.batches.push_back(batch);
         }
     }
+    // Every division states its bounding volume, and StarCraft II reads it
+    // without first asking whether there is one: an import with no `MSEC` at
+    // all crashes the Galaxy editor on a null array. 33,030 of the 33,060
+    // shipped models carry one, 32,714 of them exactly one record against node
+    // 0 — and 24,270 leave it unkeyed, which is what this writes. The animated
+    // refinement (a `BNDS` run per sequence behind an `SDMB`) is the part we
+    // have nothing to say about.
+    m3::MeshSection section;
+    section.nodeIndex = 0;
+    section.bounds.initValue = out.bounds;
+    // The bounds channel's id is a fixed one — every shipped model states it,
+    // keyed or not. Inert here (nothing keys it), but a reader that looks the
+    // channel up by id finds the one it expects.
+    section.bounds.animId = kModelBoundsAnimId;
+    division.msec.push_back(section);
     out.divisions.push_back(std::move(division));
 
     // The declaration the source stated, with only the bits this converter can
@@ -1456,6 +1497,14 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     // ordinal each layer became, and puts an AnimRef back on the record that
     // owns the property.
     m3_anim::Export(document, 0, animContext, out, diagnostics);
+
+    // The two parallel arrays MODL owes its scene objects. Every one of 1,535
+    // shipped models with attachment points carries one addon entry per point
+    // and every one of 343 with cameras carries one per camera -- always
+    // 0xFFFF, no exceptions in either game. We wrote neither, leaving a count-0
+    // Reference where the client walks an array in step with its owner.
+    out.attachmentPointAddons.assign(out.attachmentPoints.size(), kNoAddon);
+    out.camerasAddons.assign(out.cameras.size(), kNoAddon);
 
     result.value = std::move(out);
     return result;
@@ -1516,7 +1565,7 @@ Result<Document> M3Converter::importFromBytes(std::span<const u8> data) const {
 Result<std::vector<u8>> M3Converter::exportToBytes(const Document& document, ProfileId profile,
                                                    u32 version) const {
     Result<m3::Model> converted =
-        toM3(document, profile, version == 0 ? defaultExportVersion() : version);
+        toM3(document, profile, version);
     Result<std::vector<u8>> result;
     result.diagnostics = std::move(converted.diagnostics);
     if (!converted.ok()) {

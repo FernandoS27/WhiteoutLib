@@ -36,7 +36,7 @@ namespace m3 {
  */
 struct MaterialMap {
     MaterialType materialType; ///< Material type (1=standard, 2=displacement, etc.)
-    u32 materialIndex;         ///< Index into the typed material array
+    u32 materialIndex = 0;     ///< Index into the typed material array
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -48,8 +48,15 @@ struct MaterialMap {
  * embed multiple optional TextureLayer instances for diffuse, specular,
  * emissive, normal, and other texture slots.
  */
+/// Every field is initialised for the same reason `StandardMaterial`'s are:
+/// the parser fills all of them, but a conversion builds a layer from scratch
+/// (`layerFrom`) and a default-initialised one handed to the writer carries
+/// stack junk into the file. It did -- the halves of live heap pointers landed
+/// in `flipbookColumns`, `textureSource` and the fresnel fields of every
+/// exported layer, and the Galaxy editor crashed on the ones whose low byte
+/// came out zero (`reference_m3_layer_stack_junk`).
 struct TextureLayer {
-    u32 id;                                          ///< Layer identifier
+    u32 id = 0;                                      ///< Layer identifier
     std::string texturePath;                         ///< Texture file path (Ref<CHAR>)
     AnimRef<ColorBGRA> color;                        ///< Animated color tint
     TextureLayerFlag flags = TextureLayerFlag::None; ///< Layer flags (wrap, flipbook, video, etc.)
@@ -57,19 +64,19 @@ struct TextureLayer {
     ColorChannelSelect colorType = ColorChannelSelect::RGB; ///< Channel selection
     AnimRef<f32> rgbMultiply;                               ///< RGB multiply factor
     AnimRef<f32> rgbAdd;                                    ///< RGB additive factor
-    u32 pocTexture;                                         ///< POC texture reference
-    f32 noiseAmplitude;                                     ///< Noise amplitude (v24+)
-    f32 noiseFrequency;                                     ///< Noise frequency (v24+)
-    u32 textureSource;                                      ///< Texture source override
-    u32 aviFrameRate;                                       ///< AVI playback frame rate
-    u32 aviStart;                                           ///< AVI start frame
-    u32 aviStop;                                            ///< AVI stop frame
-    u32 aviLoop;                                            ///< AVI loop mode
-    u32 aviSync;                                            ///< AVI sync mode
+    u32 pocTexture = 0;                                     ///< POC texture reference
+    f32 noiseAmplitude = 0.0f;                              ///< Noise amplitude (v24+)
+    f32 noiseFrequency = 0.0f;                              ///< Noise frequency (v24+)
+    u32 textureSource = 0;                                  ///< Texture source override
+    u32 aviFrameRate = 0;                                   ///< AVI playback frame rate
+    u32 aviStart = 0;                                       ///< AVI start frame
+    u32 aviStop = 0;                                        ///< AVI stop frame
+    u32 aviLoop = 0;                                        ///< AVI loop mode
+    u32 aviSync = 0;                                        ///< AVI sync mode
     AnimRef<u32> aviPlay;                                   ///< AVI play control
     AnimRef<u32> aviRestart;                                ///< AVI restart control
-    u32 flipbookRows;                                       ///< Flipbook grid rows
-    u32 flipbookColumns;                                    ///< Flipbook grid columns
+    u32 flipbookRows = 0;                                   ///< Flipbook grid rows
+    u32 flipbookColumns = 0;                                ///< Flipbook grid columns
     AnimRef<u16> currentFrame;                              ///< Animated flipbook frame index
     AnimRef<Vector2f> uvOffset;                             ///< Animated UV offset
     AnimRef<Vector3f> uvAngle;                              ///< Animated UV rotation angles
@@ -79,15 +86,15 @@ struct TextureLayer {
     AnimRef<f32> mapAlpha;                                  ///< Animated map alpha
     AnimRef<Vector3f> triplanarOffset;                      ///< Tri-planar UV offset (v23+)
     AnimRef<Vector3f> triplanarScale;                       ///< Tri-planar UV scale (v23+)
-    u32 uvSourceRelated;                                    ///< UV source related field
+    u32 uvSourceRelated = 0;                                ///< UV source related field
     FresnelMode fresnelMode = FresnelMode::None;            ///< Fresnel effect mode
-    f32 fresnelExponent;                                    ///< Fresnel exponent (edge sharpness)
-    f32 fresnelMin;                                         ///< Fresnel minimum intensity
-    f32 fresnelMax;                                         ///< Fresnel maximum intensity
-    Vector3f fresnelTranslation;                            ///< Fresnel UV translation (v25+)
-    Vector3f fresnelMask;                                   ///< Fresnel mask vector (v25+)
-    Vector2f fresnelRotation;                               ///< Fresnel UV rotation (v25+)
-    u32 uvDensity; ///< UV density hint (v0–v25, absent in v26)
+    f32 fresnelExponent = 0.0f;                             ///< Fresnel exponent (edge sharpness)
+    f32 fresnelMin = 0.0f;                                  ///< Fresnel minimum intensity
+    f32 fresnelMax = 0.0f;                                  ///< Fresnel maximum intensity
+    Vector3f fresnelTranslation{};                          ///< Fresnel UV translation (v25+)
+    Vector3f fresnelMask{};                                 ///< Fresnel mask vector (v25+)
+    Vector2f fresnelRotation{};                             ///< Fresnel UV rotation (v25+)
+    u32 uvDensity = 0; ///< UV density hint (v0–v25, absent in v26)
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -157,12 +164,12 @@ struct StandardMaterial {
 /// @wem rename=M3Displacement
 struct DisplacementMaterial {
     std::string name;                        ///< Material name (Ref<CHAR>)
-    u32 unknown;                             ///< Unknown field
+    u32 unknown = 0;                         ///< Unknown field
     AnimRef<f32> strength;                   ///< Animated displacement strength
     std::optional<TextureLayer> normalMap;   ///< Normal / displacement direction map
     std::optional<TextureLayer> strengthMap; ///< Strength mask texture
     Flag flags; ///< @wem as=u32, member=value — Displacement material flags
-    u32 priority;                            ///< Render priority
+    u32 priority = 0;                        ///< Render priority
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -174,7 +181,7 @@ struct DisplacementMaterial {
  */
 /// @wem rename=M3CompositeSection
 struct CompositeSection {
-    u32 materialIndex;          ///< Index into MATM array
+    u32 materialIndex = 0;      ///< Index into MATM array
     AnimRef<f32> mapMultiplier; ///< Animated blend weight
     M3_DEFINE_VERSION_ACCESSORS()
 };
@@ -187,7 +194,7 @@ struct CompositeSection {
 /// @wem rename=M3Composite
 struct CompositeMaterial {
     std::string name;                       ///< Material name (Ref<CHAR>)
-    u32 priority;                           ///< Render priority
+    u32 priority = 0;                       ///< Render priority
     std::vector<CompositeSection> sections; ///< Sub-material sections (CMS_)
     M3_DEFINE_VERSION_ACCESSORS()
 };
@@ -201,7 +208,7 @@ struct CompositeMaterial {
 struct TerrainMaterial {
     std::string name;                       ///< Material name (Ref<CHAR>)
     std::optional<TextureLayer> terrainMap; ///< Terrain texture layer
-    u32 unknown;                            ///< Unknown field
+    u32 unknown = 0;                        ///< Unknown field
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -214,13 +221,13 @@ struct TerrainMaterial {
 /// @wem rename=M3Volume
 struct VolumeMaterial {
     std::string name;                      ///< Material name (Ref<CHAR>)
-    u32 blendMode;                         ///< Blend mode
+    u32 blendMode = 0;                     ///< Blend mode
     VolumeFalloffType falloffType;         ///< Density falloff type
     AnimRef<f32> density;                  ///< Animated density
     std::optional<TextureLayer> colorMap;  ///< Color map texture
     std::optional<TextureLayer> noiseMap1; ///< Noise map 1
     std::optional<TextureLayer> noiseMap2; ///< Noise map 2
-    u32 alphaThreshold;                    ///< Alpha test threshold
+    u32 alphaThreshold = 0;                ///< Alpha test threshold
     Flag flags; ///< @wem as=u32, member=value — Volume material flags
     M3_DEFINE_VERSION_ACCESSORS()
 };
@@ -237,12 +244,12 @@ struct HairMaterial {
     std::optional<TextureLayer> layerSpecShift; ///< Anisotropic specular shift map
     std::optional<TextureLayer> layerSpecNoise; ///< Specular noise / break-up map
     std::optional<TextureLayer> layerAO;        ///< Ambient occlusion map
-    f32 shiftPrimary;                           ///< Primary specular shift
-    f32 shiftSecondary;                         ///< Secondary specular shift
+    f32 shiftPrimary = 0.0f;                    ///< Primary specular shift
+    f32 shiftSecondary = 0.0f;                  ///< Secondary specular shift
     AnimRef<ColorBGRA> colorDiffuse;            ///< Animated diffuse tint
     AnimRef<ColorBGRA> colorSpec;               ///< Animated specular tint
-    f32 specExponent0;                          ///< Primary specular exponent
-    f32 specExponent1;                          ///< Secondary specular exponent
+    f32 specExponent0 = 0.0f;                   ///< Primary specular exponent
+    f32 specExponent1 = 0.0f;                   ///< Secondary specular exponent
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -267,7 +274,7 @@ struct VolumeNoiseMaterial {
     AnimRef<Vector3f> position;             ///< Animated volume position
     AnimRef<Vector3f> scale;                ///< Animated volume scale
     AnimRef<Vector3f> rotation;             ///< Animated volume rotation
-    u32 alphaThreshold;                     ///< Alpha test threshold
+    u32 alphaThreshold = 0;                 ///< Alpha test threshold
     VolumeNoiseMaterialFlag flags;          ///< Volume noise material flags
     M3_DEFINE_VERSION_ACCESSORS()
 };
@@ -281,7 +288,7 @@ struct VolumeNoiseMaterial {
 struct CreepMaterial {
     std::string name;                    ///< Material name (Ref<CHAR>)
     std::optional<TextureLayer> maskMap; ///< Creep mask texture
-    u32 creepLow;                        ///< Creep low parameter
+    u32 creepLow = 0;                    ///< Creep low parameter
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -309,7 +316,7 @@ struct STBMaterial {
 /// @wem rename=M3Reflection
 struct ReflectionMaterial {
     std::string name;                            ///< Material name (Ref<CHAR>)
-    u32 unknown;                                 ///< Unknown field
+    u32 unknown = 0;                             ///< Unknown field
     AnimRef<f32> reflectionStrength;             ///< Animated reflection strength (v2+)
     AnimRef<f32> displacementStrength;           ///< Animated displacement strength (v2+)
     AnimRef<f32> reflectionOffset;               ///< Animated reflection offset (v2+)
@@ -322,7 +329,9 @@ struct ReflectionMaterial {
     /// Index of the DataDrivenMaterial this was converted into, 0xFFFFFFFF if none (v3+).
     /// Written by the Heroes load-time conversion pass, not a material parameter;
     /// meaningless in a model that carries no MADD chunk. v3 exists only to hold it.
-    u32 unknown2;
+    /// Defaulted because an invented REF_ has no link to name, and a v3 record
+    /// that says anything else points the Heroes loader at a MADD index.
+    u32 unknown2 = 0xFFFFFFFFu;
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -334,15 +343,15 @@ struct ReflectionMaterial {
  */
 /// @wem rename=M3SubFlare
 struct SubFlare {
-    u32 index;            ///< Flare element index
-    f32 position;         ///< Position along the flare axis (0–1)
-    Vector2f sizeXY;      ///< Base size (width, height)
-    Vector2f scaleXY;     ///< Scale multiplier (width, height)
-    Vector2f fadeIn;      ///< Fade-in range (start, end)
-    Vector2f fadeOut;     ///< Fade-out range (start, end)
-    ColorBGRA colorAlpha; ///< Flare color and alpha
-    u32 faceCenter;       ///< Whether to face the flare center
-    Vector2f offset;      ///< Offset from flare center
+    u32 index = 0;        ///< Flare element index
+    f32 position = 0.0f;  ///< Position along the flare axis (0–1)
+    Vector2f sizeXY{};    ///< Base size (width, height)
+    Vector2f scaleXY{};   ///< Scale multiplier (width, height)
+    Vector2f fadeIn{};    ///< Fade-in range (start, end)
+    Vector2f fadeOut{};   ///< Fade-out range (start, end)
+    ColorBGRA colorAlpha{}; ///< Flare color and alpha
+    u32 faceCenter = 0;   ///< Whether to face the flare center
+    Vector2f offset{};    ///< Offset from flare center
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -358,9 +367,9 @@ struct LensFlare {
     std::optional<TextureLayer> flareMap; ///< Flare texture atlas
     std::optional<TextureLayer> maskMap;  ///< Flare mask texture
     std::vector<SubFlare> subFlares;      ///< Sub-flare elements (LFSB)
-    u32 columns;                          ///< Flipbook grid columns
-    u32 rows;                             ///< Flipbook grid rows
-    f32 distanceFade;                     ///< Distance fade start
+    u32 columns = 0;                      ///< Flipbook grid columns
+    u32 rows = 0;                         ///< Flipbook grid rows
+    f32 distanceFade = 0.0f;              ///< Distance fade start
     std::string libName;                  ///< Library name (Ref<CHAR>)
     AnimRef<f32> intensity;               ///< Animated intensity
     AnimRef<ColorBGRA> color;             ///< Animated color
@@ -395,7 +404,7 @@ enum class MaterialShaderType : u8 {
  * 48 = fresnel `{u32 FresnelMode, f32 exponent, min, max, rotation, mask}`.
  */
 struct DataDrivenProperty {
-    u32 nameHash;        ///< crc32 of the property name
+    u32 nameHash = 0;    ///< crc32 of the property name
     std::string name;    ///< Resolved name, empty when the hash is unknown
     std::vector<u8> data; ///< @bind array_with_view — Raw value bytes
     M3_DEFINE_VERSION_ACCESSORS()
@@ -405,7 +414,7 @@ struct DataDrivenProperty {
  * @brief One shader fragment of a data-driven material, with its properties
  */
 struct DataDrivenGroup {
-    u32 nameHash;                              ///< crc32 of the fragment name
+    u32 nameHash = 0;                          ///< crc32 of the fragment name
     std::string name;                          ///< Resolved name, empty when unknown
     std::vector<DataDrivenProperty> properties; ///< Properties, in stored order
     M3_DEFINE_VERSION_ACCESSORS()
@@ -465,22 +474,22 @@ struct DataDrivenMaterial {
     std::vector<u32> extraHashes;          ///< Secondary hash list (U32_, v2+)
     std::vector<u8> propertyBlob;          ///< @bind array_with_view — Property dictionary (Ref<CHAR>)
     std::vector<std::string> texturePaths; ///< Texture paths, indexed by the Tex* properties (SCHR)
-    f32 unknown108;                        ///< 1.0, 1.5 or 2.0 across the corpus
-    f32 unknown112;                        ///< 1.0 in every known record
-    f32 unknown116;
-    u32 effectNameHash;      ///< crc32 of the shader permutation name; 0 = compute it at load
-    u32 unknown124;
-    u32 padding128;          ///< Zero in every known record
-    i32 unknown132;
-    u32 unknown136;          ///< Packed bit field
-    u32 unknown140;
-    u32 unknown144;
-    u8 unknown148;
-    u8 alphaFresnelFlags;    ///< Derived cache the loader recomputes; do not trust over the blob
+    f32 unknown108 = 0.0f;                 ///< 1.0, 1.5 or 2.0 across the corpus
+    f32 unknown112 = 0.0f;                 ///< 1.0 in every known record
+    f32 unknown116 = 0.0f;
+    u32 effectNameHash = 0;  ///< crc32 of the shader permutation name; 0 = compute it at load
+    u32 unknown124 = 0;
+    u32 padding128 = 0;      ///< Zero in every known record
+    i32 unknown132 = 0;
+    u32 unknown136 = 0;      ///< Packed bit field
+    u32 unknown140 = 0;
+    u32 unknown144 = 0;
+    u8 unknown148 = 0;
+    u8 alphaFresnelFlags = 0;    ///< Derived cache the loader recomputes; do not trust over the blob
     MaterialShaderType shaderType; ///< Shader family prefix for the permutation name
-    u8 unknown151;
-    u32 effectNameHash2;     ///< Second permutation hash, 0xFFFFFFFF = none (v3+)
-    u32 effectNameHash3;     ///< Third permutation hash, 0xFFFFFFFF = none (v3+)
+    u8 unknown151 = 0;
+    u32 effectNameHash2 = 0; ///< Second permutation hash, 0xFFFFFFFF = none (v3+)
+    u32 effectNameHash3 = 0; ///< Third permutation hash, 0xFFFFFFFF = none (v3+)
 
     /** @brief Decode propertyBlob into fragment groups and named properties */
     DataDrivenProperties decodeProperties() const;

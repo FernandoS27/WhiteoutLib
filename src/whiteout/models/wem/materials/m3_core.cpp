@@ -3,6 +3,8 @@
 
 #include "m3_core.h"
 
+#include <whiteout/models/m3/engine_compat.h>
+
 #include "../native/m3_copy.h"
 
 #include <algorithm>
@@ -880,7 +882,25 @@ std::vector<Material> ImportMaterials(const m3::Model& model, ProfileId profile,
 namespace {
 
 /// Writes @p standard into @p model and returns the map entry naming it.
-m3::MaterialMap pushStandard(m3::StandardMaterial standard, m3::Model& model) {
+///
+/// `MAT_` is one of the four chunks the two engines disagree about, and the one
+/// a conversion actually creates: StarCraft II reads v20, Heroes caps at v19,
+/// and the three versions between them are the HDR environment multipliers this
+/// export fills. So the material states its own version — the writer's default
+/// is the version *both* clients read, which would drop those from a StarCraft
+/// II file too, and the renderer reads it back off the unwritten model.
+m3::MaterialMap pushStandard(m3::StandardMaterial standard, m3::Model& model, ProfileId profile,
+                             Diagnostics& out) {
+    standard.setVersion(profile == ProfileId::Heroes ? m3::HOTS_MAX_STANDARD_MATERIAL_VERSION
+                                                     : m3::SC2_MAX_STANDARD_MATERIAL_VERSION);
+    if (profile == ProfileId::Heroes && standard.hdrEnvironmentConstant > 0.0f) {
+        // Heroes keeps these as properties of a MADD blob instead, and this
+        // export writes typed materials. §18.2.
+        out.warn(DiagCode::FeatureDropped,
+                 "MAT_ v19 has no HDR environment multiplier, so this material's environment "
+                 "layer reaches Heroes of the Storm unscaled",
+                 ElementRef(), profile);
+    }
     m3::MaterialMap entry;
     entry.materialType = m3::MaterialType::Standard;
     entry.materialIndex = static_cast<u32>(model.standardMaterials.size());
@@ -2430,7 +2450,8 @@ m3::MaterialMap exportPasses(std::vector<Pass> passes, const CompositeBody* body
         if (layerOrdinals != nullptr) {
             *layerOrdinals = sections[0].ordinals;
         }
-        const m3::MaterialMap entry = pushStandard(std::move(sections[0].standard), model);
+        const m3::MaterialMap entry =
+            pushStandard(std::move(sections[0].standard), model, profile, out);
         if (report != nullptr) {
             report->standardIndices.assign(1, entry.materialIndex);
         }
@@ -2444,7 +2465,8 @@ m3::MaterialMap exportPasses(std::vector<Pass> passes, const CompositeBody* body
     composite.name = material.name;
     composite.priority = common.priorityPlane;
     for (std::size_t k = 0; k < sections.size(); ++k) {
-        const m3::MaterialMap entry = pushStandard(std::move(sections[k].standard), model);
+        const m3::MaterialMap entry =
+            pushStandard(std::move(sections[k].standard), model, profile, out);
         if (report != nullptr) {
             report->standardIndices.push_back(entry.materialIndex);
         }
@@ -2489,7 +2511,7 @@ m3::MaterialMap ExportMaterial(const Material& material, ProfileId profile, cons
         if (const auto* body = std::get_if<native::M3Standard>(&block.body)) {
             m3::StandardMaterial standard;
             CopyFromNative(*body, standard);
-            return pushStandard(std::move(standard), model);
+            return pushStandard(std::move(standard), model, profile, out);
         }
         if (const auto* body = std::get_if<native::M3DataDriven>(&block.body)) {
             m3::DataDrivenMaterial madd;
@@ -2635,7 +2657,7 @@ m3::MaterialMap ExportMaterial(const Material& material, ProfileId profile, cons
                  ElementRef(), profile);
     }
 
-    const m3::MaterialMap entry = pushStandard(std::move(standard), model);
+    const m3::MaterialMap entry = pushStandard(std::move(standard), model, profile, out);
     if (report != nullptr) {
         report->standardIndices.assign(1, entry.materialIndex);
     }

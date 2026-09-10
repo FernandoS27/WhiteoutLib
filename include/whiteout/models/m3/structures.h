@@ -60,15 +60,15 @@ struct Model {
         subTrackCollections;                     ///< Sub-track containers (STC_) with keyframe refs
     std::vector<AnimationGroup> animationGroups; ///< Animation groups (STG_)
     std::vector<BoneAnimationSet> boneAnimationSets; ///< Bone animation sets (BSET, always null)
-    u32 animationSplitCount;                         ///< Always 0
+    u32 animationSplitCount = 0;                     ///< Always 0
     std::vector<AnimationState> animationStates;     ///< Animation states (STS_)
     std::vector<Bone> bones;                         ///< Skeleton bones (BONE)
-    u32 skinBoneCount;                               ///< Number of bones affecting skin
+    u32 skinBoneCount = 0;                           ///< Number of bones affecting skin
     VertexBuffer vertices;                           ///< Vertex data blob (U8__) with format flags
     std::vector<MeshDivision> divisions;    ///< Mesh divisions (DIV_: faces, regions, batches)
     std::vector<u16> boneLookup;            ///< Bone index remap table (U16_)
-    Extent bounds;                          ///< Model bounding volume
-    Extent collisionBounds;                 ///< Collision bounding volume
+    Extent bounds{};                        ///< Model bounding volume
+    Extent collisionBounds{};               ///< Collision bounding volume
     std::vector<u16> collisionFaces;        ///< Collision triangle indices (U16_)
     std::vector<Vector3f> collisionVerts;   ///< Collision vertex positions (VEC3)
     std::vector<Vector3f> collisionNormals; ///< Collision face normals (VEC3)
@@ -130,7 +130,7 @@ struct Model {
     std::vector<u16> attachmentVolumesAddon1;          ///< Attachment volume addon 1 (U16_)
     std::vector<BillboardBehavior> billboardBehaviors; ///< Billboard behaviors (BBSC)
     std::vector<TrailingModel> trailingModels;         ///< Trailing models (TMD_, defunct)
-    u32 m3aAnimHash;                                   ///< Hash for .m3a animation file binding
+    u32 m3aAnimHash = 0;                               ///< Hash for .m3a animation file binding
     std::vector<u32> m3aAnimHashes;                    ///< Additional .m3a hashes (U32_)
     M3_DEFINE_VERSION_ACCESSORS()
 };

@@ -38,8 +38,8 @@ namespace m3 {
 struct ParticleEmitter {
 
     // Identification
-    u32 boneIndex;     ///< Index into BONE array
-    u32 materialIndex; ///< Index into MATM material map array
+    u32 boneIndex = 0; ///< Index into BONE array
+    u32 materialIndex = 0; ///< Index into MATM material map array
     ParticleAdditionalFlag additionalFlags =
         ParticleAdditionalFlag::None; ///< Additional flags (v17+)
 
@@ -148,7 +148,7 @@ struct ParticleEmitter {
     // Instance
     ParticleInstanceType instanceType = ParticleInstanceType::Billboard; ///< Visual type → shader b_iInstanceType
     f32 tailLength = 1.0f;       ///< Tail length for Tail/Trail types
-    Vector3f instanceAngle;      ///< Instance orientation angles
+    Vector3f instanceAngle{};    ///< Instance orientation angles
     f32 instanceDistance = 1.0f; ///< Instance distance (v17+)
 
     // Variation Channels (pitch, yaw, speed, size, alpha, color, rotation, horizontal, vertical)
@@ -249,7 +249,7 @@ struct ParticleEmitter {
 struct ParticleEmitterCopy {
     AnimRef<f32> emissionRate; ///< Overridden emission rate
     AnimRef<u16> squirtAmount; ///< Overridden squirt burst count
-    u32 boneIndex;             ///< Index into BONE array
+    u32 boneIndex = 0;         ///< Index into BONE array
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -261,20 +261,20 @@ struct ParticleEmitterCopy {
  * variation channels.
  */
 struct SplineRibbon {
-    Vector3f emissionOffset;             ///< Emission point offset from bone
-    Vector3f emissionVector;             ///< Emission direction vector
+    Vector3f emissionOffset{};           ///< Emission point offset from bone
+    Vector3f emissionVector{};           ///< Emission direction vector
     AnimRef<f32> velocity;               ///< Animated base velocity
     u32 reserved = 0;                    ///< Reserved (always 0)
     u32 boneIndex = 0;                   ///< Index into BONE array
     AnimRef<f32> velocityBaseFactor;     ///< Animated base velocity factor
     AnimRef<f32> velocityEndFactor;      ///< Animated end velocity factor
-    u32 yawType;                         ///< Yaw variation type
+    u32 yawType = 0;                     ///< Yaw variation type
     AnimRef<f32> yawAmplitude;           ///< Yaw variation amplitude
     AnimRef<f32> yawFrequency;           ///< Yaw variation frequency
-    u32 pitchType;                       ///< Pitch variation type
+    u32 pitchType = 0;                   ///< Pitch variation type
     AnimRef<f32> pitchAmplitude;         ///< Pitch variation amplitude
     AnimRef<f32> pitchFrequency;         ///< Pitch variation frequency
-    u32 velocityType;                    ///< Velocity variation type
+    u32 velocityType = 0;                ///< Velocity variation type
     AnimRef<f32> velocityAmplitude;      ///< Velocity variation amplitude
     AnimRef<f32> velocityFrequency;      ///< Velocity variation frequency
     AnimRef<f32> yaw;                    ///< Animated yaw angle
@@ -296,7 +296,7 @@ struct RibbonEmitter {
     // Identification
     u16 boneIndex = 0;         ///< Primary bone index
     u16 boneIndexFallback = 0; ///< Fallback bone index
-    u32 materialIndex;         ///< Index into MATM material map array
+    u32 materialIndex = 0;     ///< Index into MATM material map array
     RibbonAdditionalFlag additionalFlags = RibbonAdditionalFlag::None; ///< Additional flags (v8+)
 
     // Initial Velocity
@@ -315,19 +315,19 @@ struct RibbonEmitter {
     // Gravity
     f32 gravityX = 0.0f; ///< Gravity X component
     f32 gravityY = 0.0f; ///< Gravity Y component
-    f32 gravity;         ///< Gravity Z component
+    f32 gravity = 0.0f;  ///< Gravity Z component
 
     // Midpoint timing
-    f32 sizeMidTime;     ///< Size midpoint time (0–1)
-    f32 colorMidTime;    ///< Color midpoint time (0–1)
-    f32 alphaMidTime;    ///< Alpha midpoint time (0–1)
-    f32 rotationMidTime; ///< Rotation midpoint time (0–1)
+    f32 sizeMidTime = 0.0f;     ///< Size midpoint time (0–1)
+    f32 colorMidTime = 0.0f;    ///< Color midpoint time (0–1)
+    f32 alphaMidTime = 0.0f;    ///< Alpha midpoint time (0–1)
+    f32 rotationMidTime = 0.0f; ///< Rotation midpoint time (0–1)
 
     // Hold timing
-    f32 sizeMidHoldTime;     ///< Size hold time at midpoint
-    f32 colorMidHoldTime;    ///< Color hold time at midpoint
-    f32 alphaMidHoldTime;    ///< Alpha hold time at midpoint
-    f32 rotationMidHoldTime; ///< Rotation hold time at midpoint
+    f32 sizeMidHoldTime = 0.0f;     ///< Size hold time at midpoint
+    f32 colorMidHoldTime = 0.0f;    ///< Color hold time at midpoint
+    f32 alphaMidHoldTime = 0.0f;    ///< Alpha hold time at midpoint
+    f32 rotationMidHoldTime = 0.0f; ///< Rotation hold time at midpoint
 
     // Curves
     AnimRef<Vector3f> sizeAnimation;     ///< Size curve (start, mid, end)
@@ -337,10 +337,10 @@ struct RibbonEmitter {
     AnimRef<ColorBGRA> colorEnd;         ///< Color at death
 
     // Physics
-    f32 drag;                             ///< Air drag coefficient
-    f32 mass;                             ///< Segment mass
-    f32 massRandom;                       ///< Random mass variation
-    f32 massSizeMultiplier;               ///< Mass–size coupling
+    f32 drag = 0.0f;                      ///< Air drag coefficient
+    f32 mass = 0.0f;                      ///< Segment mass
+    f32 massRandom = 0.0f;                ///< Random mass variation
+    f32 massSizeMultiplier = 0.0f;        ///< Mass–size coupling
     u16 localForces = 0;                  ///< Local force channel bitmask
     u16 worldForces = 0;                  ///< World force channel bitmask
     u16 localForcesFallback = 0;          ///< Fallback local force channels
@@ -348,18 +348,18 @@ struct RibbonEmitter {
     f32 worldForcesMassMultiplier = 0.0f; ///< World force mass multiplier
 
     // Noise
-    f32 noiseAmplitude;      ///< Noise displacement amplitude
-    f32 noiseFrequency;      ///< Noise spatial frequency
-    f32 noiseCoherence;      ///< Noise temporal coherence
-    f32 noiseEdge;           ///< Noise edge sharpness
+    f32 noiseAmplitude = 0.0f;      ///< Noise displacement amplitude
+    f32 noiseFrequency = 0.0f;      ///< Noise spatial frequency
+    f32 noiseCoherence = 0.0f;      ///< Noise temporal coherence
+    f32 noiseEdge = 0.0f;    ///< Noise edge sharpness
     u32 indexPlusLength = 1; ///< Index + length
 
     // Ribbon shape
-    u32 emitterShape;                              ///< Emitter shape type
+    u32 emitterShape = 0;                          ///< Emitter shape type
     RibbonType ribbonType = RibbonType::Billboard; ///< Ribbon cross-section type
     f32 divisions = 0.0f;                          ///< Number of ribbon divisions
-    u32 edges;                                     ///< Number of cross-section edges
-    f32 innerRadius;                               ///< Inner radius
+    u32 edges = 0;                                 ///< Number of cross-section edges
+    f32 innerRadius = 0.0f;                        ///< Inner radius
     AnimRef<f32> maxLength;                        ///< Animated maximum ribbon length
 
     // References
@@ -374,25 +374,25 @@ struct RibbonEmitter {
     InterpolationMode colorSmoothing = InterpolationMode::Linear; ///< Color interpolation mode
 
     // Collision & LOD
-    f32 friction;  ///< Friction coefficient
-    f32 bounce;    ///< Bounce coefficient
-    u32 lodReduce; ///< LOD reduction level
-    u32 lodCut;    ///< LOD cut-off level
+    f32 friction = 0.0f;  ///< Friction coefficient
+    f32 bounce = 0.0f;    ///< Bounce coefficient
+    u32 lodReduce = 0; ///< LOD reduction level
+    u32 lodCut = 0;    ///< LOD cut-off level
 
     // Variation channels
-    u32 yawType;                 ///< Yaw variation type
+    u32 yawType = 0;             ///< Yaw variation type
     AnimRef<f32> yawAmplitude;   ///< Yaw variation amplitude
     AnimRef<f32> yawFrequency;   ///< Yaw variation frequency
-    u32 pitchType;               ///< Pitch variation type
+    u32 pitchType = 0;           ///< Pitch variation type
     AnimRef<f32> pitchAmplitude; ///< Pitch variation amplitude
     AnimRef<f32> pitchFrequency; ///< Pitch variation frequency
-    u32 speedType;               ///< Speed variation type
+    u32 speedType = 0;           ///< Speed variation type
     AnimRef<f32> speedAmplitude; ///< Speed variation amplitude
     AnimRef<f32> speedFrequency; ///< Speed variation frequency
-    u32 sizeType;                ///< Size variation type
+    u32 sizeType = 0;            ///< Size variation type
     AnimRef<f32> sizeAmplitude;  ///< Size variation amplitude
     AnimRef<f32> sizeFrequency;  ///< Size variation frequency
-    u32 alphaType;               ///< Alpha variation type
+    u32 alphaType = 0;           ///< Alpha variation type
     AnimRef<f32> alphaAmplitude; ///< Alpha variation amplitude
     AnimRef<f32> alphaFrequency; ///< Alpha variation frequency
 
@@ -416,8 +416,8 @@ struct RibbonEmitter {
  */
 struct Projector {
     ProjectionType projectionType;             ///< Projection type (ortho/perspective)
-    u32 bone;                                  ///< Index into BONE array
-    u32 materialReferenceIndex;                ///< Index into MATM material map
+    u32 bone = 0;                              ///< Index into BONE array
+    u32 materialReferenceIndex = 0;            ///< Index into MATM material map
     AnimRef<Vector3f> offset;                  ///< Animated position offset
     AnimRef<f32> pitch;                        ///< Animated pitch angle
     AnimRef<f32> yaw;                          ///< Animated yaw angle
@@ -432,21 +432,21 @@ struct Projector {
     AnimRef<f32> boxOffsetXRight;              ///< Animated box X right offset
     AnimRef<f32> boxOffsetYFront;              ///< Animated box Y front offset
     AnimRef<f32> boxOffsetYBack;               ///< Animated box Y back offset
-    f32 falloff;                               ///< Projection falloff distance
-    f32 alphaInit;                             ///< Alpha at creation
-    f32 alphaMid;                              ///< Alpha at midpoint
-    f32 alphaEnd;                              ///< Alpha at end
-    f32 lifetimeAttack;                        ///< Attack phase duration
-    f32 lifetimeAttackTo;                      ///< Attack target time
-    f32 lifetimeHold;                          ///< Hold phase duration
-    f32 lifetimeHoldTo;                        ///< Hold target time
-    f32 lifetimeDecay;                         ///< Decay phase duration
-    f32 lifetimeDecayTo;                       ///< Decay target time
-    f32 attenuationDistance;                   ///< Distance-based attenuation
+    f32 falloff = 0.0f;                        ///< Projection falloff distance
+    f32 alphaInit = 0.0f;                      ///< Alpha at creation
+    f32 alphaMid = 0.0f;                       ///< Alpha at midpoint
+    f32 alphaEnd = 0.0f;                       ///< Alpha at end
+    f32 lifetimeAttack = 0.0f;                 ///< Attack phase duration
+    f32 lifetimeAttackTo = 0.0f;               ///< Attack target time
+    f32 lifetimeHold = 0.0f;                   ///< Hold phase duration
+    f32 lifetimeHoldTo = 0.0f;                 ///< Hold target time
+    f32 lifetimeDecay = 0.0f;                  ///< Decay phase duration
+    f32 lifetimeDecayTo = 0.0f;                ///< Decay target time
+    f32 attenuationDistance = 0.0f;            ///< Distance-based attenuation
     AnimRef<u32> active;                       ///< Animated active state
-    u32 layer;                                 ///< Render layer
-    u32 lodReduce;                             ///< LOD reduction level
-    u32 lodCut;                                ///< LOD cut-off level
+    u32 layer = 0;                             ///< Render layer
+    u32 lodReduce = 0;                         ///< LOD reduction level
+    u32 lodCut = 0;                            ///< LOD cut-off level
     ProjectorFlag flags = ProjectorFlag::None; ///< Projector flags
     M3_DEFINE_VERSION_ACCESSORS()
 };

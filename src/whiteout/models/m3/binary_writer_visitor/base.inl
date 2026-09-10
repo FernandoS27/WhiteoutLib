@@ -33,7 +33,11 @@ void BinaryWriterVisitor::write(const Model& model) {
     indexTable.reserve(
         1024); // Avoid too many reallocations, as we will be adding entries one by one
 
-    indexTable.push_back({header.magic, 0, 1, 0}); // Placeholder for header reference entry
+    // Placeholder for the header reference entry. Its version is the one field
+    // of it a reader looks at, and it is 11 in every shipped model of either
+    // game, MD33 included — the zero this used to write is a version the
+    // validator accepts but the upgrade pass then walks over.
+    indexTable.push_back({header.magic, 0, 1, ROOT_CHUNK_VERSION});
     auto modelRefIndex = indexTable.size();
     indexTable.push_back({ChunkTagTraits<Model>::value, 0, 1,
                           detail::getStructureVersion(model)}); // Placeholder for model reference entry
@@ -202,19 +206,29 @@ void BinaryWriterVisitor::visit(const std::string& str) {
     auto ref_position = writer.getPosition();
     writer.write(ref);
     currentLevelWrites.push_back([this, ref_position, &str]() {
+        // Both clients read a name with strlen() straight off the chunk, so the
+        // terminator is part of the payload and is counted by the reference.
+        // A parsed string already carries one (the reader keeps it); one we
+        // invented does not.  246,685 of the 246,686 shipped CHAR chunks end in
+        // a NUL, so this is the rule, not a convention we are choosing.
+        const bool terminated = !str.empty() && str.back() == '\0';
+        const auto size = static_cast<u32>(str.size()) + (terminated ? 0u : 1u);
         auto new_entry_index = indexTable.size();
         auto version = detail::getStructureVersion(str);
         const auto currentOffset = writer.getPosition();
-        indexTable.push_back({ChunkTagTraits<char>::value, currentOffset,
-                              static_cast<u32>(str.size()), version});
+        indexTable.push_back({ChunkTagTraits<char>::value, currentOffset, size, version});
         auto& entry = indexTable[new_entry_index];
         writer.setPosition(ref_position);
         Reference ref = {};
-        ref.entries = static_cast<u32>(str.size());
+        ref.entries = size;
         ref.index = static_cast<u32>(new_entry_index);
         writer.write(ref);
         writer.setPosition(entry.offset);
-        writer.writeString(str);
+        if (terminated) {
+            writer.writeString(str);
+        } else {
+            writer.writeZString(str);
+        }
         writer.AlignTo(16, 0xAA);
     });
 }

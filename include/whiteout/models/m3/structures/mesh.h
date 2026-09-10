@@ -32,11 +32,11 @@ namespace m3 {
  * and flags controlling inheritance, billboard mode, and IK.
  */
 struct Bone {
-    u32 unknown;                     ///< Unknown field
+    u32 unknown = 0;                 ///< Unknown field
     std::string name;                ///< Bone name (Ref<CHAR>)
     BoneFlag flags = BoneFlag::None; ///< Bone flags (inherit, billboard, IK, skin)
-    u16 parentIndex;                 ///< Parent bone index (0xFFFF = root)
-    u16 padding;                     ///< Alignment padding
+    u16 parentIndex = 0;             ///< Parent bone index (0xFFFF = root)
+    u16 padding = 0;                 ///< Alignment padding
     AnimRef<Vector3f> position;      ///< Animated translation (36 bytes)
     AnimRef<Quaternion> rotation;    ///< Animated rotation (44 bytes)
     AnimRef<Vector3f> scale;         ///< Animated scale (36 bytes)
@@ -51,22 +51,22 @@ struct Bone {
  * with bone lookup info for skinning and UV scale/offset for texturing.
  */
 struct Region {
-    u32 index;                           ///< Region index
-    u32 unknown;                         ///< Unknown field
-    u32 firstVertex;                     ///< First vertex in the vertex buffer
-    u32 vertexCount;                     ///< Number of vertices
-    u32 firstIndex;                      ///< First index in the index buffer
-    u32 indexCount;                      ///< Number of indices (triangles × 3)
-    u16 unknown2;                        ///< Unknown field
-    u16 firstBoneLookup;                 ///< First entry in bone lookup table
-    u16 boneLookupCount;                 ///< Number of bone lookup entries
-    u16 padding;                         ///< Alignment padding
-    u8 boneWeightPairs;                  ///< Number of bone weight pairs per vertex
-    u8 boneIndexPairs;                   ///< Number of bone index pairs per vertex
-    u16 rootBone;                        ///< Root bone for this region
+    u32 index = 0;                       ///< Region index
+    u32 unknown = 0;                     ///< Unknown field
+    u32 firstVertex = 0;                 ///< First vertex in the vertex buffer
+    u32 vertexCount = 0;                 ///< Number of vertices
+    u32 firstIndex = 0;                  ///< First index in the index buffer
+    u32 indexCount = 0;                  ///< Number of indices (triangles × 3)
+    u16 unknown2 = 0;                    ///< Unknown field
+    u16 firstBoneLookup = 0;             ///< First entry in bone lookup table
+    u16 boneLookupCount = 0;             ///< Number of bone lookup entries
+    u16 padding = 0;                     ///< Alignment padding
+    u8 boneWeightPairs = 0;              ///< Number of bone weight pairs per vertex
+    u8 boneIndexPairs = 0;               ///< Number of bone index pairs per vertex
+    u16 rootBone = 0;                    ///< Root bone for this region
     RegionFlag flags = RegionFlag::None; ///< Region flags (hidden, cloth, etc.)
-    f32 uvScale;                         ///< UV coordinate scale factor
-    f32 uvOffset;                        ///< UV coordinate offset
+    f32 uvScale = 0.0f;                  ///< UV coordinate scale factor
+    f32 uvOffset = 0.0f;                 ///< UV coordinate offset
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -77,11 +77,11 @@ struct Region {
  * may reference the same region with different materials.
  */
 struct Batch {
-    u32 unknown;       ///< Unknown field
-    u16 regionIndex;   ///< Index into REGN array
-    u32 unknown2;      ///< Unknown field
-    u16 materialIndex; ///< Index into MATM material map array
-    u16 boneCount;     ///< Bone whose animated visibility gates this batch's draw
+    u32 unknown = 0;   ///< Unknown field
+    u16 regionIndex = 0;   ///< Index into REGN array
+    u32 unknown2 = 0;  ///< Unknown field
+    u16 materialIndex = 0; ///< Index into MATM material map array
+    u16 boneCount = 0; ///< Bone whose animated visibility gates this batch's draw
                        ///< (0xFFFF = always drawn). Misnamed — it is a bone index,
                        ///< not a count: the engine's submit loop reads it and skips
                        ///< the batch when that bone is invisible.
@@ -94,7 +94,7 @@ struct Batch {
  * Per-node animated bounding extent used for culling and LOD.
  */
 struct MeshSection {
-    u32 nodeIndex;          ///< Index into BONE array
+    u32 nodeIndex = 0;      ///< Index into BONE array
     AnimRef<Extent> bounds; ///< Animated bounding volume (76 bytes)
     M3_DEFINE_VERSION_ACCESSORS()
 };
@@ -110,7 +110,7 @@ struct MeshDivision {
     std::vector<Region> regions;   ///< Regions / submeshes (REGN)
     std::vector<Batch> batches;    ///< Draw call batches (BAT_)
     std::vector<MeshSection> msec; ///< Per-node mesh section bounds (MSEC)
-    u32 instances;                 ///< Instance count
+    u32 instances = 0;             ///< Instance count
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -121,7 +121,7 @@ struct MeshDivision {
  * vertices from model space into bone-local space for skinning.
  */
 struct InitialReference {
-    Matrix44f matrix; ///< 4×4 inverse bind-pose matrix
+    Matrix44f matrix = Matrix44f::identity(); ///< 4×4 inverse bind-pose matrix
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -132,9 +132,9 @@ struct InitialReference {
  * or other models to specific skeleton bones.
  */
 struct AttachmentPoint {
-    u32 unknown;      ///< Unknown field
+    u32 unknown = 0;  ///< Unknown field
     std::string name; ///< Attachment point name (Ref<CHAR>)
-    u32 boneIndex;    ///< Index into BONE array
+    u32 boneIndex = 0;    ///< Index into BONE array
     M3_DEFINE_VERSION_ACCESSORS()
 };
 

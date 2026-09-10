@@ -138,7 +138,11 @@ public:
     /// @p profileOverride of `ProfileId::Count` means "decide from the version".
     Result<Document> fromM3(const m3::Model& source,
                             ProfileId profileOverride = ProfileId::Count) const;
-    Result<m3::Model> toM3(const Document& document, ProfileId profile, u32 targetVersion = 30,
+    /// @p targetVersion of 0 means the newest MODL @p profile's own game reads:
+    /// v29 for StarCraft II, v30 for Heroes of the Storm. The two ranges are
+    /// the difference between the games — a v30 file is one StarCraft II
+    /// refuses, and `ProfileForVersion` reads it back as Heroes.
+    Result<m3::Model> toM3(const Document& document, ProfileId profile, u32 targetVersion = 0,
                            const M3ExportSettings& settings = {}) const;
 
     /**

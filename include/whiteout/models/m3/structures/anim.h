@@ -33,14 +33,14 @@ namespace m3 {
  */
 struct Event {
     std::string name;         ///< Event name (Ref<CHAR>)
-    u32 unknown;              ///< Unknown field
-    u16 boneIndex;            ///< Index into BONE array
-    u16 padding;              ///< Alignment padding
-    Matrix44f transform;      ///< 4×4 transform matrix
-    u32 eventType;            ///< Engine-specific event type code
+    u32 unknown = 0;          ///< Unknown field
+    u16 boneIndex = 0;        ///< Index into BONE array
+    u16 padding = 0;          ///< Alignment padding
+    Matrix44f transform = Matrix44f::identity();      ///< 4×4 transform matrix
+    u32 eventType = 0;        ///< Engine-specific event type code
     std::string optionString; ///< Optional parameter string (Ref<CHAR>)
-    u32 rttChannelIndex;      ///< RTT channel index
-    u32 extraParameter;       ///< Extra parameter (v2+)
+    u32 rttChannelIndex = 0;  ///< RTT channel index
+    u32 extraParameter = 0;   ///< Extra parameter (v2+)
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -51,22 +51,22 @@ struct Event {
  * looping flags, blend time, and bounding volume.
  */
 struct Sequence {
-    i32 id;                                  ///< Unique sequence identifier
-    i32 index;                               ///< Sequence index
+    i32 id = 0;                              ///< Unique sequence identifier
+    i32 index = 0;                           ///< Sequence index
     std::string name;                        ///< Sequence name (Ref<CHAR>)
-    u32 startFrame;                          ///< First frame (inclusive)
-    u32 endFrame;                            ///< Last frame (inclusive)
-    f32 moveSpeed;                           ///< Movement speed multiplier
+    u32 startFrame = 0;                      ///< First frame (inclusive)
+    u32 endFrame = 0;                        ///< Last frame (inclusive)
+    f32 moveSpeed = 0.0f;                    ///< Movement speed multiplier
     SequenceFlag flags = SequenceFlag::None; ///< Playback flags (loop, global, etc.)
-    u32 frequency;                           ///< Selection frequency / priority weight
-    u32 replayStart;                         ///< Replay region start frame
-    u32 replayEnd;                           ///< Replay region end frame
-    u32 blendTime;                           ///< Blend-in time (ms)
-    Extent bounds;                           ///< Animated bounding volume
+    u32 frequency = 0;                       ///< Selection frequency / priority weight
+    u32 replayStart = 0;                     ///< Replay region start frame
+    u32 replayEnd = 0;                       ///< Replay region end frame
+    u32 blendTime = 0;                       ///< Blend-in time (ms)
+    Extent bounds{};                         ///< Animated bounding volume
     std::vector<u8> animationSets;           ///< Animation set indices (U8__)
 
     struct {
-        u32 unknown; ///< v2: 4 bytes; v1: 8 bytes
+        u32 unknown = 0; ///< v2: 4 bytes; v1: 8 bytes
     } deprecated;    ///< v1 only — removed in v2
     M3_DEFINE_VERSION_ACCESSORS()
 };
@@ -80,13 +80,14 @@ struct Sequence {
  */
 struct SubTrackContainer {
     std::string name;          ///< Container name (Ref<CHAR>)
-    u16 runsConcurrent;        ///< Non-zero if runs concurrently
-    u16 animPriority;          ///< Animation priority level
-    u16 animationStateIndex;   ///< Parent STS_ index
-    u16 padding;               ///< Alignment padding
+    u16 runsConcurrent = 0;    ///< Non-zero if runs concurrently
+    u16 animPriority = 0;      ///< Animation priority level
+    u16 animationStateIndex = 0;   ///< Parent STS_ index
+    u16 animationStateIndexCopy = 0; ///< Second copy of the STS_ index; every one of the
+                                 ///< 2,197 shipped containers repeats the index here
     std::vector<u32> animIds;  ///< Animation IDs (U32_)
     std::vector<u32> animRefs; ///< Animation reference indices (U32_)
-    u32 unknown;               ///< Unknown field
+    u32 unknown = 0;           ///< Unknown field
     // 13 animation data block arrays (each contains AnimBlocks with typed keys)
     std::vector<AnimBlock<Event>> sdev;      ///< Slot 0: SDEV (Event keys)
     std::vector<AnimBlock<Vector2f>> sd2v;   ///< Slot 1: SD2V (Vector2f keys)
@@ -135,8 +136,8 @@ struct AnimationState {
  */
 struct BoneAnimationSet {
     Flag flags;                  ///< Flags
-    u16 animationSequenceIndex;  ///< Primary sequence index
-    u16 fallbackSequenceIndex;   ///< Fallback sequence index
+    u16 animationSequenceIndex = 0;  ///< Primary sequence index
+    u16 fallbackSequenceIndex = 0;   ///< Fallback sequence index
     std::string name;            ///< Set name (Ref<CHAR>)
     std::vector<u16> splitItems; ///< Split item indices (U16_)
     M3_DEFINE_VERSION_ACCESSORS()
