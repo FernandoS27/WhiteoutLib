@@ -590,6 +590,14 @@ f32 TeamReplaceFromBlend(const f32 albedo[3], f32 weight, bool srgb, f32 out[3])
     return alpha;
 }
 
+void DiffuseFromMetalness(const f32 albedo[3], f32 metalness, bool srgb, f32 out[3]) {
+    const f32 keep = 1.0f - std::clamp(metalness, 0.0f, 1.0f);
+    for (i32 c = 0; c < 3; ++c) {
+        const f32 value = std::clamp(albedo[c], 0.0f, 1.0f);
+        out[c] = srgb ? linearToSrgb(srgbToLinear(value) * keep) : value * keep;
+    }
+}
+
 std::optional<Texture> BakeEmissiveSum(const ColorInput& first, bool firstWeightByAlpha,
                                        const ColorInput& second, bool secondWeightByAlpha) {
     const Plane a = decode(first.texture);

@@ -127,6 +127,17 @@ struct ExportContext {
     std::vector<std::vector<u32>> materialOrdinals;
 };
 
+/// Derives `BONE.flags`' animation bits from the bound AnimRefs on each bone —
+/// `sub_141EAD8F0`, the Galaxy editor's own solver, transcribed. Bits are OR'd
+/// in, never assigned, so an `.m3` source keeps whatever it restored.
+///
+/// The editor runs this itself only while `MODL.flags` lacks
+/// `BoneAnimatedFlagSolved`, and it runs it BEFORE the pass that repairs
+/// `AnimRef.flags` — then latches the result. So a file that leaves both at
+/// zero has every bone marked un-animated for good, and the model stands in
+/// its bind pose whatever its tracks say, mesh and shadow alike.
+void SolveBoneAnimFlags(m3::Model& out);
+
 /// Writes `document`'s clips back onto `out` as SEQS / STG_ / STC_ and the SD
 /// blocks — the inverse of @ref Import.
 void Export(const Document& document, u32 model, const ExportContext& context, m3::Model& out,

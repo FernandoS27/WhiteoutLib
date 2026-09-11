@@ -935,6 +935,19 @@ m3::TextureLayer layerFrom(const TextureInput& input, const Context& context) {
     // multiply is a black layer in the real engine — the same trap the MADD
     // restore hit (`reference_madd_restore_defaults`).
     layer.rgbMultiply.initValue = 1.0f;
+    // The unused transforms as every sampled shipped textured layer states them
+    // (3,679 of 3,679): the tiling at (1, 1), the W tiling is one, and the
+    // tri-planar scale is one on three layers in four. The multiply's and the
+    // map alpha's nulls are the struct's.
+    layer.uvTiling.nullValue = Vector2f(1.0f, 1.0f);
+    layer.wTiling.initValue = 1.0f;
+    layer.wTiling.nullValue = 1.0f;
+    layer.triplanarScale.initValue = Vector3f{1.0f, 1.0f, 1.0f};
+    // Every one of the 7,726 shipped layers that names a texture states this pair,
+    // and the editor makes it the precondition for the clamp beside it:
+    // `b_iClamp = (flags & 0xC0) && (flags & ColorClamp)` (`sub_141F96390`). Without
+    // it the `Home::Toggle` alpha mask's `a * 1 + rgbAdd` went unsaturated.
+    layer.flags |= m3::TextureLayerFlag::ColorAdd | m3::TextureLayerFlag::ColorMultiply;
     if (input.wrapU == WrapMode::Repeat) {
         layer.flags |= m3::TextureLayerFlag::UVWrapX;
     }
@@ -1230,7 +1243,7 @@ void exportLegacy(const LegacyDeferredBody& body, const CommonMaterial& common,
     };
 
     standard.specularExponent = 24.0f;
-    standard.hdrSpecularMultiplier = 0.0f;
+    standard.hdrSpecularMultiplier = 1.0f; // the shipped floor; a specular slot overrides it
     standard.hdrEmissiveMultiplier = 0.0f;
     standard.hdrEnvironmentConstant = 0.0f;
 
@@ -2283,7 +2296,12 @@ void finish(Section& s, const CompositeBody* body, const CommonMaterial& common,
     m.name = name;
     m.priority = common.priorityPlane;
     m.specularExponent = body != nullptr ? body->specularExponent : 0.0f;
-    m.hdrSpecularMultiplier = body != nullptr ? body->specularFactor.x : 0.0f;
+    // At least one: 1,270 of 1,275 sampled shipped materials state it, 436 of
+    // them with no specular layer at all. The engine scales the light's
+    // specular by it CPU-side; this build's renderer guards a zero as one, the
+    // game does not.
+    const f32 specularMultiplier = body != nullptr ? body->specularFactor.x : 0.0f;
+    m.hdrSpecularMultiplier = specularMultiplier > 0.0f ? specularMultiplier : 1.0f;
     // Warcraft III adds its passes unscaled, and the field's zero is a black
     // glow in the real engine (this build's renderer guards it, the game does
     // not).
@@ -2314,9 +2332,11 @@ void finish(Section& s, const CompositeBody* body, const CommonMaterial& common,
         m.alphaLayer1->colorType = m3::ColorChannelSelect::Alpha;
         m.alphaLayer1->mapAlpha.initValue = 1.0f; // the static weight rides its own carrier
     }
-    // An explicit coverage layer answers what the team select gave up: the
-    // engine tests and blends by the mask's alpha, not the diffuse's, so the
-    // header's own blend and threshold stand again.
+    // An explicit coverage layer answers what the team select gave up, and the
+    // header's own blend and threshold stand again. `psmaterial.fx` tests by the
+    // mask, but the Galaxy editor was measured testing by the DIFFUSE's alpha, so
+    // the threshold only holds where the mask IS that alpha -- the Reforged driver
+    // bakes the cutout into its team diffuse and lowers the threshold to match.
     if (s.teamDiffuse && !s.toggle && m.alphaLayer1.has_value() &&
         m.blendMode == m3::BlendMode::Opaque && m.alphaTestThreshold == 0) {
         m.blendMode = blendFor(common.blend);
@@ -2644,7 +2664,7 @@ m3::MaterialMap ExportMaterial(const Material& material, ProfileId profile, cons
             standard.blendMode = m3::BlendMode::AlphaAdd;
         }
         standard.specularExponent = 20.0f;
-        standard.hdrSpecularMultiplier = 0.0f;
+        standard.hdrSpecularMultiplier = 1.0f; // the shipped floor
         standard.hdrEmissiveMultiplier = 0.0f;
         standard.hdrEnvironmentConstant = 0.0f;
         exportCombiners(*chain, common, context, profile, standard, out, layerOrdinals);

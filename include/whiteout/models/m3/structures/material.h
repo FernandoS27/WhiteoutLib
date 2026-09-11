@@ -35,7 +35,7 @@ namespace m3 {
  * to dispatch to the correct material vector.
  */
 struct MaterialMap {
-    MaterialType materialType; ///< Material type (1=standard, 2=displacement, etc.)
+    MaterialType materialType = MaterialType::Standard; ///< Material type (1=standard, 2=displacement, etc.)
     u32 materialIndex = 0;     ///< Index into the typed material array
     M3_DEFINE_VERSION_ACCESSORS()
 };
@@ -62,12 +62,25 @@ struct TextureLayer {
     TextureLayerFlag flags = TextureLayerFlag::None; ///< Layer flags (wrap, flipbook, video, etc.)
     UVMappingMode uvMapping = UVMappingMode::ExplicitUV0;   ///< UV mapping source
     ColorChannelSelect colorType = ColorChannelSelect::RGB; ///< Channel selection
-    AnimRef<f32> rgbMultiply;                               ///< RGB multiply factor
+    /// The multiply and the map alpha rest at ONE, on all 148 sampled shipped
+    /// solid-colour layers and every textured one. The game writes a layer
+    /// constant only when its init differs from its null or it animates, and
+    /// puts the null back after each draw, so a still layer reads whatever the
+    /// last layer in its slot left. A fade carrier left a zero alpha and hid
+    /// the footman's alpha-tested body (`reference_m3_layer_null_is_the_rest`).
+    AnimRef<f32> rgbMultiply{.nullValue = 1.0f};            ///< RGB multiply factor
     AnimRef<f32> rgbAdd;                                    ///< RGB additive factor
     u32 pocTexture = 0;                                     ///< POC texture reference
     f32 noiseAmplitude = 0.0f;                              ///< Noise amplitude (v24+)
     f32 noiseFrequency = 0.0f;                              ///< Noise frequency (v24+)
-    u32 textureSource = 0;                                  ///< Texture source override
+    /// Not zero: -1 on every one of the corpus's 23,988 shipped layers, because
+    /// the editor reads this as `b_iIsRTTTexture = textureSource != -1`
+    /// (`sub_141F96390`) and a render-target layer has its UVs remapped into the
+    /// target's sub-rect -- `uv * p_vRTTTextureOffsetScale.zw + .xy`, a constant
+    /// nothing fills for a layer that reads a file, so every texel of the model
+    /// samples uv (0,0). It is also one of the four terms that mark a layer ACTIVE,
+    /// so a zero here switched on all eighteen slots, empty ones included.
+    u32 textureSource = 0xFFFFFFFFu;                        ///< Texture source override
     u32 aviFrameRate = 0;                                   ///< AVI playback frame rate
     u32 aviStart = 0;                                       ///< AVI start frame
     u32 aviStop = 0;                                        ///< AVI stop frame
@@ -83,14 +96,18 @@ struct TextureLayer {
     AnimRef<Vector2f> uvTiling;                             ///< Animated UV tiling
     AnimRef<f32> wOffset;                                   ///< Animated W offset (3D textures)
     AnimRef<f32> wTiling;                                   ///< Animated W tiling (3D textures)
-    AnimRef<f32> mapAlpha;                                  ///< Animated map alpha
+    AnimRef<f32> mapAlpha{.nullValue = 1.0f};               ///< Animated map alpha; rests at one (above)
     AnimRef<Vector3f> triplanarOffset;                      ///< Tri-planar UV offset (v23+)
     AnimRef<Vector3f> triplanarScale;                       ///< Tri-planar UV scale (v23+)
-    u32 uvSourceRelated = 0;                                ///< UV source related field
+    /// -1, its own UVs: 1,033 of 1,033 sampled shipped diffuse layers, and the
+    /// editor reads the value as the tri-planar UV source (18, none, when -1).
+    u32 uvSourceRelated = 0xFFFFFFFFu;                      ///< Layer whose UV setup this one shares; -1 = own
     FresnelMode fresnelMode = FresnelMode::None;            ///< Fresnel effect mode
-    f32 fresnelExponent = 0.0f;                             ///< Fresnel exponent (edge sharpness)
+    // Off, but with the ramp every shipped layer states: 4 / 0 / 1 on 3,519
+    // of 3,679 sampled textured layers, mode None or not.
+    f32 fresnelExponent = 4.0f;                             ///< Fresnel exponent (edge sharpness)
     f32 fresnelMin = 0.0f;                                  ///< Fresnel minimum intensity
-    f32 fresnelMax = 0.0f;                                  ///< Fresnel maximum intensity
+    f32 fresnelMax = 1.0f;                                  ///< Fresnel maximum intensity
     Vector3f fresnelTranslation{};                          ///< Fresnel UV translation (v25+)
     Vector3f fresnelMask{};                                 ///< Fresnel mask vector (v25+)
     Vector2f fresnelRotation{};                             ///< Fresnel UV rotation (v25+)
@@ -109,7 +126,12 @@ struct TextureLayer {
 struct StandardMaterial {
     std::string name; ///< Material name (Ref<CHAR>)
     MaterialAdditionalFlag additionalFlags = MaterialAdditionalFlag::None; ///< Additional flags
-    MaterialFlag flags = MaterialFlag::None; ///< Material rendering flags
+    // GeometryVisible, not None: 35,492 of the corpus's 35,533 v20 materials
+    // set it and the 41 that do not are trigger volumes meant to be unseen. A
+    // parsed or restored material overwrites this, so only one BUILT from
+    // scratch keeps it -- and one built without it reaches the Galaxy editor
+    // as a model that loads, casts a shadow, and shows no mesh.
+    MaterialFlag flags = MaterialFlag::GeometryVisible; ///< Material rendering flags
     BlendMode blendMode = BlendMode::Opaque; ///< Alpha blend mode
     // Zeroed rather than left indeterminate: the parser fills every one of
     // these, but toStandardMaterial() builds a record from scratch, and a
@@ -146,9 +168,14 @@ struct StandardMaterial {
     std::optional<TextureLayer> normalBlend1Layer;       ///< Normal blend 1 map (v19+)
     std::optional<TextureLayer> normalBlend2Layer;       ///< Normal blend 2 map (v19+)
     MaterialClass materialClass = MaterialClass::Unit;   ///< Material class (unit, building, etc.)
-    LayerBlendOp layerBlendMode = LayerBlendOp::Mod;     ///< Layer blend operation
-    LayerBlendOp emissiveBlendMode1 = LayerBlendOp::Mod; ///< Emissive layer 1 blend mode
-    LayerBlendOp emissiveBlendMode2 = LayerBlendOp::Mod; ///< Emissive layer 2 blend mode
+    // Add, not Mod, on all three: over 7,519 shipped materials the decal blend is
+    // Add on 97.4%, emissive 1 on 96.8% (Add or its team-colour form) and emissive
+    // 2 on 98.5%. Add is also the harmless op for a slot nobody wrote, where Mod is
+    // the destructive one -- an unauthored Mod emissive MULTIPLIES the lit colour
+    // by the layer, and an empty layer is black.
+    LayerBlendOp layerBlendMode = LayerBlendOp::Add;     ///< Layer blend operation
+    LayerBlendOp emissiveBlendMode1 = LayerBlendOp::Add; ///< Emissive layer 1 blend mode
+    LayerBlendOp emissiveBlendMode2 = LayerBlendOp::Add; ///< Emissive layer 2 blend mode
     SpecularMode specularMode = SpecularMode::RGB;       ///< Specular computation mode
     AnimRef<f32> parallaxHeight;                         ///< Animated parallax height
     AnimRef<f32> motionBlurAmount;                       ///< Animated motion blur amount
@@ -222,7 +249,7 @@ struct TerrainMaterial {
 struct VolumeMaterial {
     std::string name;                      ///< Material name (Ref<CHAR>)
     u32 blendMode = 0;                     ///< Blend mode
-    VolumeFalloffType falloffType;         ///< Density falloff type
+    VolumeFalloffType falloffType = VolumeFalloffType::Linear;         ///< Density falloff type
     AnimRef<f32> density;                  ///< Animated density
     std::optional<TextureLayer> colorMap;  ///< Color map texture
     std::optional<TextureLayer> noiseMap1; ///< Noise map 1
@@ -262,8 +289,8 @@ struct HairMaterial {
 /// @wem rename=M3VolumeNoise
 struct VolumeNoiseMaterial {
     std::string name;                       ///< Material name (Ref<CHAR>)
-    VolumeFalloffType falloffType;          ///< Density falloff type
-    VolumeNoiseCameraMode drawTransparency; ///< Camera position mode (inside/outside)
+    VolumeFalloffType falloffType = VolumeFalloffType::Linear;          ///< Density falloff type
+    VolumeNoiseCameraMode drawTransparency = VolumeNoiseCameraMode::Outside; ///< Camera position mode (inside/outside)
     AnimRef<f32> density;                   ///< Animated density
     AnimRef<f32> nearPlane;                 ///< Animated near-plane clip
     AnimRef<f32> falloff;                   ///< Animated falloff distance
@@ -275,7 +302,7 @@ struct VolumeNoiseMaterial {
     AnimRef<Vector3f> scale;                ///< Animated volume scale
     AnimRef<Vector3f> rotation;             ///< Animated volume rotation
     u32 alphaThreshold = 0;                 ///< Alpha test threshold
-    VolumeNoiseMaterialFlag flags;          ///< Volume noise material flags
+    VolumeNoiseMaterialFlag flags = VolumeNoiseMaterialFlag::None;          ///< Volume noise material flags
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -325,7 +352,7 @@ struct ReflectionMaterial {
     std::optional<TextureLayer> reflectionMap;   ///< Reflection map texture
     std::optional<TextureLayer> displacementMap; ///< Displacement map texture
     std::optional<TextureLayer> blurMap;         ///< Blur map texture
-    ReflectionMaterialFlag flags;                ///< Reflection flags (v2+)
+    ReflectionMaterialFlag flags = ReflectionMaterialFlag::None;                ///< Reflection flags (v2+)
     /// Index of the DataDrivenMaterial this was converted into, 0xFFFFFFFF if none (v3+).
     /// Written by the Heroes load-time conversion pass, not a material parameter;
     /// meaningless in a model that carries no MADD chunk. v3 exists only to hold it.
@@ -486,7 +513,7 @@ struct DataDrivenMaterial {
     u32 unknown144 = 0;
     u8 unknown148 = 0;
     u8 alphaFresnelFlags = 0;    ///< Derived cache the loader recomputes; do not trust over the blob
-    MaterialShaderType shaderType; ///< Shader family prefix for the permutation name
+    MaterialShaderType shaderType = MaterialShaderType::Material; ///< Shader family prefix for the permutation name
     u8 unknown151 = 0;
     u32 effectNameHash2 = 0; ///< Second permutation hash, 0xFFFFFFFF = none (v3+)
     u32 effectNameHash3 = 0; ///< Third permutation hash, 0xFFFFFFFF = none (v3+)

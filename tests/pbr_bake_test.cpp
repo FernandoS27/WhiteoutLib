@@ -761,3 +761,21 @@ TEST_CASE("an RGB envio mask reads its decoded luminance", "[pbr_bake]") {
         CHECK(std::abs(unitOf(*orm, Channel::B) - mask / (1.0f + mask)) < 0.01f);
     }
 }
+
+TEST_CASE("a metal's diffuse is what the metal leaves, in linear light", "[pbr_bake]") {
+    const f32 albedo[3] = {0.8f, 0.5f, 0.2f};
+    f32 out[3];
+    pbr::DiffuseFromMetalness(albedo, 0.0f, true, out);
+    for (int c = 0; c < 3; ++c) {
+        CHECK(std::abs(out[c] - albedo[c]) < 1e-3f);
+    }
+    pbr::DiffuseFromMetalness(albedo, 1.0f, true, out);
+    for (int c = 0; c < 3; ++c) {
+        CHECK(std::abs(out[c]) < 1e-3f);
+    }
+    // Half a metal halves the LINEAR value -- well over half the encoded one.
+    pbr::DiffuseFromMetalness(albedo, 0.5f, true, out);
+    CHECK(std::abs(out[0] - 0.5855f) < 2e-3f);
+    pbr::DiffuseFromMetalness(albedo, 0.5f, false, out);
+    CHECK(std::abs(out[0] - 0.4f) < 1e-4f);
+}

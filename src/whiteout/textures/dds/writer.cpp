@@ -47,7 +47,9 @@ std::vector<u8> Writer::Impl::write(const Texture& texture) {
     header.flags = DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH | DDSD_PIXELFORMAT;
     header.height = texture.height();
     header.width = texture.width();
-    header.depth = texture.depth();
+    // A volume's field: every shipped StarCraft II .dds writes 0 here for a 2D
+    // texture, and the parser reads it only under DDSD_DEPTH.
+    header.depth = texture.type() == TextureType::Texture3D ? texture.depth() : 0;
 
     if (texture.mipCount() > 1) {
         header.flags |= DDSD_MIPMAPCOUNT;

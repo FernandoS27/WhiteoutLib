@@ -23,6 +23,13 @@ namespace m3_anim {
 
 namespace {
 
+/// What a bound AnimRef states in `flags`: bit 1 that an animId in this model's
+/// own tracks answers the property, bit 2 that the tracks were this model's and
+/// not an attached `.m3a`'s. All 15,633 bound bone refs measured over 1,169
+/// shipped self-animated models write exactly this and all 56,519 unbound ones
+/// write 0 -- there is no third value.
+constexpr u16 kAnimRefBound = 0x6;
+
 /// STC `animRefs[j]` packs the slot in the high half and the block index in the
 /// low one — the 13 typed `AnimBlock` arrays are addressed no other way.
 /// An `STS_` record's four link fields at rest: parent, next sibling and first
@@ -748,7 +755,8 @@ u32 Merge(const m3::Model& external, Document& document, u32 model, Diagnostics&
 // Three of the import's four traps apply unchanged and are handled here:
 //
 //   - **Interpolation is AnimRef flags bit 4**, so a `Step` channel sets it and
-//     nothing else does. `interpType` stays 0 — it is the row that lies.
+//     nothing else does — but `interpType` has to agree with it here, because
+//     the loader reads the file's value once and folds it into that same bit.
 //   - **A keyed discrete channel goes back to SDFG, slot 11.** The rule that
 //     picks it is the channel's own: visibility and dynamic state are flags,
 //     and the value stream WEM holds for them is 0-or-1.
@@ -1454,7 +1462,11 @@ private:
             values.push_back(wrap.data());
         }
         const std::size_t count = stamps.size();
-        const auto endFrame = static_cast<u32>(stamps.back());
+        // Every block ends where its sequence does -- 61,344 of 61,344 shipped
+        // blocks, the 1,550 single-key ones included -- never at its last key.
+        // Ended at its last key, each hidden Grunt geoset was one key of 0 at
+        // frame 0 ending at 0, and the Galaxy editor drew every one of them.
+        const auto endFrame = static_cast<u32>(origin + Ticks(duration));
 
         const auto read = [&](std::size_t k) { return values[k]; };
 
@@ -1642,18 +1654,27 @@ private:
     }
     mutable u32 zeroRemap_ = 0;
 
-    /// `flags` bit 4 is step; `interpType` stays 0 because the row lies at
-    /// runtime and the import never read it. One AnimRef serves every
-    /// sequence, so the bit stands only while EVERY clip's track holds -- a
-    /// clip that moves clears it for good, whichever order they are wired.
+    /// Binding an AnimRef is two statements, and this used to make neither.
+    ///
+    /// `flags` says the property IS answered by a track -- `kAnimRefBound`,
+    /// see SolveBoneAnimFlags for what reads it and why a zero here freezes
+    /// the whole model. `interpType` is the step half: the per-chunk load
+    /// fixup folds it in as `if (interpType == 0) flags |= 0x10` and then
+    /// overwrites the row with a track-table slot, which is why the import
+    /// must never read it back and why a bound ref never states bit 4 itself.
+    ///
+    /// One AnimRef serves every sequence, so the step stands only while EVERY
+    /// clip's track holds -- a clip that moves clears it for good, whichever
+    /// order they are wired.
     template <class T>
     void Wire(m3::AnimRef<T>& ref, u32 animId, Interpolation interp) {
         ref.animId = animId;
         if (interp != Interpolation::Step) {
             moving_.insert(animId);
         }
-        ref.flags = static_cast<u16>(
-            interp == Interpolation::Step && moving_.count(animId) == 0 ? 0x10u : 0x0u);
+        const bool step = interp == Interpolation::Step && moving_.count(animId) == 0;
+        ref.flags = kAnimRefBound;
+        ref.interpType = step ? u16(0) : u16(1);
     }
 
     void wireAnimRef(const AnimChannel& channel, const SubTrack& track) {
@@ -2017,12 +2038,50 @@ private:
 
 } // namespace
 
+void SolveBoneAnimFlags(m3::Model& out) {
+    // Bit 1 of `kAnimRefBound` alone: the solver asks only whether a track
+    // answers the property, never which model's tracks it was.
+    const auto bound = [](u16 flags) { return (flags & 0x2u) != 0; };
+    const std::size_t count = out.bones.size();
+    const auto ancestorHas = [&](std::size_t self, u32 mask) {
+        std::size_t p = out.bones[self].parentIndex;
+        for (std::size_t guard = 0; p != 0xFFFFu && p < count && guard < count; ++guard) {
+            if ((static_cast<u32>(out.bones[p].flags) & mask) != 0) {
+                return true;
+            }
+            p = out.bones[p].parentIndex;
+        }
+        return false;
+    };
+    for (std::size_t i = 0; i < count; ++i) {
+        m3::Bone& bone = out.bones[i];
+        u32 flags = static_cast<u32>(bone.flags);
+        if (bound(bone.position.flags) || bound(bone.rotation.flags) ||
+            bound(bone.scale.flags)) {
+            flags |= 0x2200u;
+        }
+        if (bound(bone.visibility.flags)) {
+            flags |= 0xC000u;
+        }
+        // Parents precede children, so their own inherited bits are already in
+        // by the time a child looks up the chain.
+        if (ancestorHas(i, 0x2200u)) {
+            flags |= 0x2000u;
+        }
+        if (ancestorHas(i, 0xC000u)) {
+            flags |= 0x8000u;
+        }
+        bone.flags = static_cast<m3::BoneFlag>(flags);
+    }
+}
+
 void Export(const Document& document, u32 model, const ExportContext& context, m3::Model& out,
             Diagnostics& diagnostics) {
     if (model >= document.models.size()) {
         return;
     }
     Exporter(document, model, context, out, diagnostics).run();
+    SolveBoneAnimFlags(out);
 }
 
 } // namespace m3_anim

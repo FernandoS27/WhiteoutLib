@@ -154,7 +154,12 @@ const std::array<ProfileDesc, static_cast<std::size_t>(ProfileId::Count)>& descs
         // (D3_TO_SC2_DESIGN.md §2): the kind IS this generation's slot
         // vocabulary, and the Composite squeeze had no channel for the
         // lightmap, gloss or height slots the StandardMaterial has names for.
-        makeDesc(ProfileId::Sc2, "sc2", "StarCraft II", "m3", CoordSpace::Sc2, 100.0f, 4, 5, 256,
+        // 63 bones a region, not 256: that is the ceiling across all 67,320 v5
+        // regions in the corpus -- 436 sit exactly on it and none goes past --
+        // and a draw whose palette overruns the vertex shader's matrix
+        // registers fails with D3DERR_INVALIDCALL, which the Galaxy editor
+        // answers by resetting the device every frame onto a black viewport.
+        makeDesc(ProfileId::Sc2, "sc2", "StarCraft II", "m3", CoordSpace::Sc2, 100.0f, 4, 5, 63,
                  IndexWidth::U16, false, true, modes(kM3BlendModes),
                  kComposite | kCombiners | kLegacy, NativeKind::M3, false, false,
                  RigConvention::ExplicitBind),
@@ -162,7 +167,7 @@ const std::array<ProfileDesc, static_cast<std::size_t>(ProfileId::Count)>& descs
         // Heroes of the Storm. Same container and space; the difference is the
         // version range and therefore the available material kinds (MADD at v30).
         makeDesc(ProfileId::Heroes, "heroes", "Heroes of the Storm", "m3", CoordSpace::Sc2, 100.0f,
-                 4, 5, 256, IndexWidth::U16, false, true, modes(kM3BlendModes),
+                 4, 5, 63, IndexWidth::U16, false, true, modes(kM3BlendModes),
                  kComposite | kCombiners | kLegacy, NativeKind::M3, false, false,
                  RigConvention::ExplicitBind),
 

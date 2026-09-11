@@ -30,7 +30,7 @@ namespace m3 {
  * intensity, decay, attenuation start/end, and spot-light hot-spot/falloff.
  */
 struct Light {
-    LightType lightType;               ///< Light type (omni/spot/directional)
+    LightType lightType = LightType::Omni;               ///< Light type (omni/spot/directional)
     u16 boneIndex = 0;                 ///< Index into BONE array
     LightFlag flags = LightFlag::None; ///< Light flags (shadows, specular, AO, etc.)
     u32 lodCut = 0;                    ///< LOD cut-off level

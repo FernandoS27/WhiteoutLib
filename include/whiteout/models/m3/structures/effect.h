@@ -415,7 +415,7 @@ struct RibbonEmitter {
  * attenuation distance.
  */
 struct Projector {
-    ProjectionType projectionType;             ///< Projection type (ortho/perspective)
+    ProjectionType projectionType = ProjectionType::Orthographic;             ///< Projection type (ortho/perspective)
     u32 bone = 0;                              ///< Index into BONE array
     u32 materialReferenceIndex = 0;            ///< Index into MATM material map
     AnimRef<Vector3f> offset;                  ///< Animated position offset

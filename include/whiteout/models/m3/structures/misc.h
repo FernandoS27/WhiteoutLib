@@ -33,7 +33,12 @@ namespace m3 {
  * or mesh) attached to a bone. Used for both tight and fuzzy hit testing.
  */
 struct HitTestShape {
-    HitTestShapeType shapeType;            ///< Shape type (box/sphere/capsule/cylinder/mesh)
+    /// Shape type (box/sphere/capsule/cylinder/mesh). Defaulted because a
+    /// conversion builds `MODL.tightHitTestObject` without ever assigning it,
+    /// and an indeterminate enum wrote junk shape types into every export
+    /// (`reference_m3_layer_stack_junk`, the same defect one field over).
+    /// Sphere is what 2,222 of 2,448 shipped models state.
+    HitTestShapeType shapeType = HitTestShapeType::Sphere;
     u16 boneIndex = 0;                     ///< Index into BONE array
     u16 padding = 0;                       ///< Alignment padding
     Matrix44f transform = Matrix44f::identity();                   ///< 4×4 shape transform
@@ -53,7 +58,7 @@ struct HitTestShape {
 struct AttachmentVolume {
     u32 bone1 = 0;                         ///< First bone index
     u32 bone2 = 0;                         ///< Second bone index
-    HitTestShapeType shapeType;            ///< Shape type
+    HitTestShapeType shapeType = HitTestShapeType::Sphere;            ///< Shape type
     u16 boneIndex = 0;                     ///< Primary bone index
     u16 padding = 0;                       ///< Alignment padding
     Matrix44f transform = Matrix44f::identity();                   ///< 4×4 volume transform

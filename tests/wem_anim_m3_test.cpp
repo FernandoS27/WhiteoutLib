@@ -10,6 +10,7 @@
 /// change applied to a key the same way it was applied to the rest pose, and an
 /// `.m3a` merge that joins on **animId** with no name matching at all.
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <iostream>
@@ -77,6 +78,18 @@ m3::Model makeModel() {
     bone.visibility = animated<u32>(0, 1u);
     model.bones.push_back(bone);
     return model;
+}
+
+/// A second bone under the first, animated by nothing of its own.
+void addChildBone(m3::Model& model) {
+    m3::Bone bone;
+    bone.name = std::string("Bone_Child");
+    bone.parentIndex = 0;
+    bone.position = animated<Vector3f>(0, Vector3f{0, 0, 1});
+    bone.rotation = animated<Quaternion>(0, Quaternion{0, 0, 0, 1});
+    bone.scale = animated<Vector3f>(0, Vector3f{1, 1, 1});
+    bone.visibility = animated<u32>(0, 1u);
+    model.bones.push_back(bone);
 }
 
 /// Gives the model's bone a keyed translation under animId @p id.
@@ -949,4 +962,176 @@ TEST_CASE("wem m3 a Warcraft window is keyed at both edges the way its engine pl
         REQUIRE(block.timestamps == std::vector<i32>{0, 200, 800});
         CHECK(block.keys[0].z == Catch::Approx(-3.0f));
     }
+}
+
+TEST_CASE("wem m3 a smooth track states a non-zero interpType", "[wem][anim][m3]") {
+    // The row lies at SAMPLE time -- the import is right to ignore it -- but
+    // the loader reads the file's value once on the way in, and every chunk's
+    // fixup folds it into the step bit the same way (BONE at 0x141EAB2B0, LAYR
+    // at 0x141EABA80, ...):
+    //
+    //     if (interpType == 0) flags |= 0x10;   // then interpType = -1
+    //
+    // So writing 0 on everything, as this did, stepped every track of every
+    // converted model however clear bit 4 was.
+    const M3Converter converter;
+
+    m3::Model source = makeModel();
+    keyTranslation(source, 7, {0, 1000}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 1}}, 0);
+    Result<m3::Model> written = converter.toM3(convert(source), ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    REQUIRE_FALSE(written->bones.empty());
+    CHECK((written->bones[0].position.flags & 0x10u) == 0u);
+    CHECK(written->bones[0].position.interpType != 0);
+
+    m3::Model stepped = makeModel();
+    keyTranslation(stepped, 7, {0, 1000}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 1}}, 0x10);
+    written = converter.toM3(convert(stepped), ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    REQUIRE_FALSE(written->bones.empty());
+    // A step may be spelt either way round -- the loader ORs them -- so this
+    // asks only that the track still steps once the file has been read.
+    const m3::AnimRef<Vector3f>& held = written->bones[0].position;
+    CHECK(((held.flags & 0x10u) != 0u || held.interpType == 0));
+}
+
+TEST_CASE("wem m3 every bone states the rest a sequence falls back to", "[wem][anim][m3]") {
+    // `nullValue` is what a property rests at in a sequence whose `STC_` does
+    // not name its `animId`. It is a constant per property: all 736,433 bones
+    // in the corpus state these four and no others. The struct's own default
+    // is zero -- a null rotation and a zero scale, which collapse whatever the
+    // bone skins the moment one clip leaves it out.
+    m3::Model source = makeModel();
+    keyTranslation(source, 7, {0, 1000}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 1}});
+
+    const M3Converter converter;
+    const Result<m3::Model> written = converter.toM3(convert(source), ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    REQUIRE_FALSE(written->bones.empty());
+    for (const m3::Bone& bone : written->bones) {
+        CHECK(bone.position.nullValue.x == 0.0f);
+        CHECK(bone.position.nullValue.y == 0.0f);
+        CHECK(bone.position.nullValue.z == 0.0f);
+        CHECK(bone.rotation.nullValue.x == 0.0f);
+        CHECK(bone.rotation.nullValue.y == 0.0f);
+        CHECK(bone.rotation.nullValue.z == 0.0f);
+        CHECK(bone.rotation.nullValue.w == 1.0f);
+        CHECK(bone.scale.nullValue.x == 1.0f);
+        CHECK(bone.scale.nullValue.y == 1.0f);
+        CHECK(bone.scale.nullValue.z == 1.0f);
+        CHECK(bone.visibility.nullValue == 1u);
+    }
+}
+
+TEST_CASE("wem m3 a bound AnimRef says it is bound", "[wem][anim][m3]") {
+    // Bit 1 of `AnimRef.flags` is what tells the engine a track answers this
+    // property and bit 2 latches that the track was this model's own. All
+    // 15,633 bound bone AnimRefs measured over 1,169 shipped self-animated
+    // models write 0x0006 and all 56,519 unbound ones write 0 -- no third
+    // value exists. The converter wrote 0 on every ref it bound.
+    m3::Model source = makeModel();
+    addChildBone(source);
+    keyTranslation(source, 7, {0, 1000}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 1}});
+
+    const M3Converter converter;
+    const Result<m3::Model> written = converter.toM3(convert(source), ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    REQUIRE(written->bones.size() >= 2);
+
+    u32 boundRefs = 0;
+    const auto states = [&](const auto& ref) {
+        if (ref.animId != 0) {
+            ++boundRefs;
+            CHECK(ref.flags == 0x6u);
+        } else {
+            CHECK(ref.flags == 0u);
+        }
+    };
+    for (const m3::Bone& bone : written->bones) {
+        states(bone.position);
+        states(bone.rotation);
+        states(bone.scale);
+        states(bone.visibility);
+    }
+    CHECK(boundRefs > 0);
+}
+
+TEST_CASE("wem m3 an animated bone is flagged animated, and so is what it carries",
+          "[wem][anim][m3]") {
+    // `sub_141EAD8F0`, the Galaxy editor's own solver: a bone with a bound SRT
+    // ref takes 0x2200, and any bone under one takes 0x2000. Transcribed here
+    // because the editor runs it BEFORE the pass that repairs `AnimRef.flags`
+    // and then latches the result in `MODL.flags` -- so a file that states
+    // neither leaves every bone marked un-animated for good and stands in its
+    // bind pose, mesh and shadow alike, whatever its tracks say.
+    m3::Model source = makeModel();
+    addChildBone(source);
+    keyTranslation(source, 7, {0, 1000}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 1}});
+
+    const M3Converter converter;
+    const Result<m3::Model> written = converter.toM3(convert(source), ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    REQUIRE(written->bones.size() >= 2);
+
+    CHECK((static_cast<u32>(written->bones[0].flags) & 0x2200u) == 0x2200u);
+    // The child animates only because its parent does, so it takes the
+    // inherited bit and not the "a track names me" one.
+    CHECK((static_cast<u32>(written->bones[1].flags) & 0x2000u) != 0u);
+    CHECK((static_cast<u32>(written->bones[1].flags) & 0x200u) == 0u);
+}
+
+TEST_CASE("wem m3 a built model latches only the work it actually did",
+          "[wem][anim][m3]") {
+    // `MODL.flags` bits are "already done, do not redo it" latches, and only 21
+    // of the corpus's 56,146 models leave the field at zero. The converter
+    // earns exactly three of them, and each claim is checked here beside it.
+    m3::Model source = makeModel();
+    keyTranslation(source, 7, {0, 1000}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 1}});
+
+    const M3Converter converter;
+    const Result<m3::Model> written = converter.toM3(convert(source), ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+
+    const u32 flags = static_cast<u32>(written->flags);
+    CHECK((flags & static_cast<u32>(m3::ModelFlag::TrackCollectionSorted)) != 0u);
+    CHECK((flags & static_cast<u32>(m3::ModelFlag::TrackAnimatedBaseFlagValid)) != 0u);
+    CHECK((flags & static_cast<u32>(m3::ModelFlag::BoneAnimatedFlagSolved)) != 0u);
+
+    // TrackCollectionSorted is a promise the engine binary-searches on.
+    for (const m3::SubTrackContainer& stc : written->subTrackCollections) {
+        CHECK(std::is_sorted(stc.animIds.begin(), stc.animIds.end()));
+    }
+}
+
+TEST_CASE("wem m3 every block ends where its sequence does", "[wem][anim][m3]") {
+    // 61,344 of 61,344 shipped blocks end at their sequence end, the 1,550
+    // single-key ones included. Ended at its last key instead, a geoset hidden
+    // by one key of 0 at frame 0 ended at 0 -- and the Galaxy editor drew it.
+    m3::Model model = makeModel();
+    model.bones[0].visibility = animated<u32>(9, 1u);
+    m3::AnimBlock<m3::Flag> hidden;
+    hidden.timestamps = {0};
+    hidden.keys = {m3::Flag{0}};
+    model.subTrackCollections[0].sdfg.push_back(std::move(hidden));
+    model.subTrackCollections[0].animIds.push_back(9);
+    model.subTrackCollections[0].animRefs.push_back(Ref(11, 0));
+    keyTranslation(model, 7, {0, 200, 800},
+                   {Vector3f{0, 0, 0}, Vector3f{0, 0, 1}, Vector3f{0, 0, 2}});
+
+    const M3Converter converter;
+    Result<m3::Model> written = converter.toM3(convert(model), ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    REQUIRE(written->sequences.size() == 1u);
+    const u32 end = written->sequences[0].endFrame;
+    CHECK(end == 1000u);
+
+    const u32 flagRef = stcRefFor(*written, 9);
+    const auto& flagBlock = stcHolding(*written, 9).sdfg[flagRef & 0xFFFFu];
+    REQUIRE(flagBlock.timestamps.size() == 1u);
+    CHECK(flagBlock.endFrame == end);
+
+    const u32 moveRef = stcRefFor(*written, 7);
+    const auto& moveBlock = stcHolding(*written, 7).sd3v[moveRef & 0xFFFFu];
+    CHECK(moveBlock.timestamps.back() == 800);
+    CHECK(moveBlock.endFrame == end);
 }

@@ -46,6 +46,7 @@
 #include <cmath>
 #include <cstring>
 #include <string>
+#include <utility>
 
 namespace whiteout {
 namespace models {
@@ -165,6 +166,41 @@ m3::BoneFlag FromNodeFlags(NodeFlags, u32 rawFallback) {
 
 std::string SlotName(std::size_t materialMapIndex) {
     return "material_" + std::to_string(materialMapIndex);
+}
+
+/// A vertex's bone weights as the bytes it stores: in proportion and summing to
+/// exactly 255, as 1,002,734 shipped vertices do against a few hundred in one
+/// file. Rounding each weight alone wrote a two-bone Warcraft III vertex 128 + 128.
+std::array<u8, 4> QuantizeWeights(const std::array<f32, 4>& weights, std::size_t count) {
+    std::array<u8, 4> out{0, 0, 0, 0};
+    f32 total = 0.0f;
+    for (std::size_t k = 0; k < count; ++k) {
+        total += weights[k];
+    }
+    if (count == 0 || total <= 0.0f) {
+        return out;
+    }
+    std::array<f32, 4> remainder{};
+    u32 assigned = 0;
+    for (std::size_t k = 0; k < count; ++k) {
+        const f32 exact = weights[k] / total * 255.0f;
+        out[k] = static_cast<u8>(std::floor(exact));
+        remainder[k] = exact - static_cast<f32>(out[k]);
+        assigned += out[k];
+    }
+    // What rounding down left goes to the largest remainders, the earlier slot on a tie.
+    while (assigned < 255) {
+        std::size_t best = 0;
+        for (std::size_t k = 1; k < count; ++k) {
+            if (remainder[k] > remainder[best]) {
+                best = k;
+            }
+        }
+        ++out[best];
+        remainder[best] -= 1.0f;
+        ++assigned;
+    }
+    return out;
 }
 
 /// One vertex of the `.m3` blob, as the parser reads it back.
@@ -709,9 +745,15 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     const Model& model = document.models.front();
     out.name = document.name.empty() ? model.name : document.name;
     out.bounds = FromExtent(model.bounds);
-    out.collisionBounds = out.bounds;
+    // `collisionBounds` goes with the collision mesh, and a model that carries
+    // no `collisionVerts` states no volume for it: all 2,448 shipped v29 models
+    // leave it zero, this converter emits no collision mesh, and copying the
+    // render bounds there claimed one that does not exist.
     const ProfileMaterialSet* set = model.setFor(profile);
-    if (set != nullptr) {
+    // Only when the bag actually carried it. A Warcraft III source reaches here
+    // with a StarCraft II set the material pass built and no `modelFlags` in
+    // it, and reading the absent key as 0 wiped the struct's own default.
+    if (set != nullptr && set->native.find("modelFlags") != nullptr) {
         out.flags = static_cast<m3::ModelFlag>(static_cast<u32>(set->native.value("modelFlags")));
     }
 
@@ -1111,78 +1153,23 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                 hasFlag(bound->Common().flags, MaterialFlags::Invisible)) {
                 continue;
             }
-            m3::Region region;
-            region.index = static_cast<u32>(division.regions.size());
-            region.firstVertex = static_cast<u32>(writtenVertices);
-            region.firstIndex = static_cast<u32>(division.faces.size());
-            region.indexCount = range.indexCount;
-            region.boneWeightPairs = 4;
-            region.boneIndexPairs = 4;
-            // `M3VertexEncoder` writes `uv * 2048`, so the pair that reads it
-            // back is the stock one. Stated rather than left at the struct's
-            // uninitialised float, which a v5 reader would take literally --
-            // and the region says it is a v5 record, or nothing reads them.
-            region.setVersion(5);
-            region.uvScale = 16.0f;
-            region.uvOffset = 0.0f;
-            region.firstBoneLookup = static_cast<u16>(out.boneLookup.size());
+            // A region carries ONE bone palette, and the vertex shader holds a
+            // fixed number of matrix registers for it: no shipped v5 region
+            // names more than 63 bones -- exactly 63 in 436 of the corpus's
+            // 67,320 regions and 64 in none of them -- and a draw whose palette
+            // overruns the registers fails with D3DERR_INVALIDCALL. The Galaxy
+            // editor answers that by queueing a device reset, so it recurs every
+            // frame and the viewport stays black with the model loaded and no
+            // complaint made about the model. A range whose skin needs more
+            // bones is split into as many regions as it takes; they share the
+            // material, so each gets its own batch naming it.
+            const u32 paletteLimit = Profile(profile).maxBonesPerPalette;
 
-            if (range.section < mesh.sections.size()) {
-                const MeshSection& section = mesh.sections[range.section];
-                region.rootBone = static_cast<u16>(section.native.value("rootBone"));
-                region.flags = static_cast<m3::RegionFlag>(static_cast<u32>(section.native.value(
-                    "regionFlags", hasFlag(section.flags, SectionFlags::Hidden)
-                                       ? static_cast<i64>(m3::RegionFlag::Hidden)
-                                       : 0)));
-            }
-
-            // A region owns its vertices. Its faces index them from its own
-            // `firstVertex`, and -- the reason it must own them -- a vertex's
-            // four bone indices are slots in *this* region's bone-lookup window,
-            // so the same vertex shared by two regions with different windows
-            // could not be encoded once. Regions therefore get disjoint slices
-            // of the model's one buffer, exactly as a shipped `.m3` has them,
-            // and a vertex two regions use is written into both.
-            std::vector<u32> window;
-            const auto slotFor = [&window](u32 bone) -> u8 {
-                for (std::size_t i = 0; i < window.size(); ++i) {
-                    if (window[i] == bone) {
-                        return static_cast<u8>(i);
-                    }
-                }
-                window.push_back(bone);
-                return static_cast<u8>(window.size() - 1);
-            };
-
-            // First use order, so the face indices below stay as close to the
-            // source's as a re-emitted buffer can be.
-            std::vector<u32> localOf(positions.size(), kInvalidIndex);
-            std::vector<u32> sourceOf;
-            for (u32 i = 0; i < range.indexCount; ++i) {
-                const u32 index = render.indices[range.firstIndex + i];
-                if (index >= localOf.size()) {
-                    diagnostics.warn(DiagCode::IndexOutOfRange,
-                                     "face corner past the mesh's vertex buffer",
-                                     ElementRef(ElementKind::Mesh, m), profile);
-                    division.faces.push_back(0);
-                    continue;
-                }
-                if (localOf[index] == kInvalidIndex) {
-                    localOf[index] = static_cast<u32>(sourceOf.size());
-                    sourceOf.push_back(index);
-                }
-                division.faces.push_back(static_cast<u16>(localOf[index]));
-            }
-            if (sourceOf.size() > 0x10000u) {
-                diagnostics.warn(DiagCode::IndexWidthExceeded,
-                                 "region needs " + std::to_string(sourceOf.size()) +
-                                     " vertices, past the u16 index a face corner is",
-                                 ElementRef(ElementKind::Mesh, m), profile);
-            }
-
-            for (u32 source : sourceOf) {
-                std::array<u8, 4> indices{0, 0, 0, 0};
-                std::array<u8, 4> weights{0, 0, 0, 0};
+            // The distinct bones one vertex skins to. A corner names at most
+            // four, so a triangle names at most twelve, and no profile states a
+            // cap under twelve -- one would be unsatisfiable.
+            const auto bonesOf = [&](u32 source, std::array<u32, 4>& slots) -> std::size_t {
+                std::size_t n = 0;
                 for (std::size_t k = 0; k < 4; ++k) {
                     if (source >= boneIndices.size() || source >= boneWeights.size() ||
                         boneWeights[source][k] <= 0.0f) {
@@ -1190,57 +1177,218 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                     }
                     const u32 node = boneIndices[source][k];
                     const u32 bone = node < boneOf.size() ? boneOf[node] : 0xFFFFu;
-                    if (bone == 0xFFFFu) {
+                    if (bone != 0xFFFFu &&
+                        std::find(slots.begin(), slots.begin() + n, bone) == slots.begin() + n) {
+                        slots[n++] = bone;
+                    }
+                }
+                return n;
+            };
+
+            // Whole triangles, in order, so every run is a contiguous slice of
+            // the face buffer -- which is all a region's `firstIndex` can state.
+            std::vector<std::pair<u32, u32>> runs;
+            {
+                const u32 corners = range.indexCount - range.indexCount % 3;
+                std::vector<u32> window;
+                std::vector<u32> adding;
+                u32 first = 0;
+                for (u32 i = 0; i < corners; i += 3) {
+                    // Twice at most: once against the running window, and again
+                    // against an empty one after the run is closed.
+                    for (int pass = 0; pass < 2; ++pass) {
+                        adding.clear();
+                        for (u32 c = 0; c < 3; ++c) {
+                            const u32 index = render.indices[range.firstIndex + i + c];
+                            std::array<u32, 4> slots{};
+                            const std::size_t n =
+                                index < positions.size() ? bonesOf(index, slots) : 0;
+                            for (std::size_t s = 0; s < n; ++s) {
+                                if (std::find(window.begin(), window.end(), slots[s]) ==
+                                        window.end() &&
+                                    std::find(adding.begin(), adding.end(), slots[s]) ==
+                                        adding.end()) {
+                                    adding.push_back(slots[s]);
+                                }
+                            }
+                        }
+                        if (window.empty() || paletteLimit == 0 ||
+                            window.size() + adding.size() <= paletteLimit) {
+                            break;
+                        }
+                        runs.emplace_back(first, i - first);
+                        first = i;
+                        window.clear();
+                    }
+                    window.insert(window.end(), adding.begin(), adding.end());
+                }
+                // The tail, and with it any corners a range short of a whole
+                // triangle left over: they stay on the last run, not dropped.
+                runs.emplace_back(first, range.indexCount - first);
+            }
+
+            const std::size_t firstRegion = division.regions.size();
+            for (const std::pair<u32, u32>& run : runs) {
+                m3::Region region;
+                region.index = static_cast<u32>(division.regions.size());
+                region.firstVertex = static_cast<u32>(writtenVertices);
+                region.firstIndex = static_cast<u32>(division.faces.size());
+                region.indexCount = run.second;
+                // `M3VertexEncoder` writes `uv * 2048`, so the pair that reads it
+                // back is the stock one. Stated rather than left at the struct's
+                // uninitialised float, which a v5 reader would take literally --
+                // and the region says it is a v5 record, or nothing reads them.
+                region.setVersion(5);
+                region.uvScale = 16.0f;
+                region.uvOffset = 0.0f;
+                region.firstBoneLookup = static_cast<u16>(out.boneLookup.size());
+
+                bool carriedRoot = false;
+                if (range.section < mesh.sections.size()) {
+                    const MeshSection& section = mesh.sections[range.section];
+                    carriedRoot = section.native.find("rootBone") != nullptr;
+                    region.rootBone = static_cast<u16>(section.native.value("rootBone"));
+                    region.flags = static_cast<m3::RegionFlag>(
+                        static_cast<u32>(section.native.value(
+                            "regionFlags", hasFlag(section.flags, SectionFlags::Hidden)
+                                               ? static_cast<i64>(m3::RegionFlag::Hidden)
+                                               : 0)));
+                }
+
+                // A region owns its vertices. Its faces index them from its own
+                // `firstVertex`, and -- the reason it must own them -- a vertex's
+                // four bone indices are slots in *this* region's bone-lookup
+                // window, so the same vertex shared by two regions with different
+                // windows could not be encoded once. Regions therefore get
+                // disjoint slices of the model's one buffer, exactly as a shipped
+                // `.m3` has them, and a vertex two regions use is written twice.
+                std::vector<u32> window;
+                const auto slotFor = [&window](u32 bone) -> u8 {
+                    for (std::size_t i = 0; i < window.size(); ++i) {
+                        if (window[i] == bone) {
+                            return static_cast<u8>(i);
+                        }
+                    }
+                    window.push_back(bone);
+                    return static_cast<u8>(window.size() - 1);
+                };
+
+                // First use order, so the face indices below stay as close to the
+                // source's as a re-emitted buffer can be.
+                std::vector<u32> localOf(positions.size(), kInvalidIndex);
+                std::vector<u32> sourceOf;
+                for (u32 i = 0; i < run.second; ++i) {
+                    const u32 index = render.indices[range.firstIndex + run.first + i];
+                    if (index >= localOf.size()) {
+                        diagnostics.warn(DiagCode::IndexOutOfRange,
+                                         "face corner past the mesh's vertex buffer",
+                                         ElementRef(ElementKind::Mesh, m), profile);
+                        division.faces.push_back(0);
                         continue;
                     }
-                    indices[k] = slotFor(bone);
-                    weights[k] = static_cast<u8>(
-                        std::clamp(boneWeights[source][k], 0.0f, 1.0f) * 255.0f + 0.5f);
-                }
-                // A mesh with no tangent layer -- one imported from a format that
-                // has none -- gets the neutral frame the format's own default is.
-                Vector4f tangent{1, 0, 0, 1};
-                if (source < tangents.size()) {
-                    const Vector3f axis = Unrebase(
-                        Vector3f{tangents[source].x, tangents[source].y, tangents[source].z});
-                    tangent = Vector4f{axis.x, axis.y, axis.z, tangents[source].w};
-                }
-                std::array<Vector2f, M3VertexEncoder::kMaxUvSets> uvs{};
-                for (std::size_t u = 0; u < uvCount; ++u) {
-                    if (source < uvSets[u].size()) {
-                        uvs[u] = uvSets[u][source];
+                    if (localOf[index] == kInvalidIndex) {
+                        localOf[index] = static_cast<u32>(sourceOf.size());
+                        sourceOf.push_back(index);
                     }
+                    division.faces.push_back(static_cast<u16>(localOf[index]));
                 }
-                std::array<u8, 4> color{255, 255, 255, 255};
-                if (source < colors.size()) {
-                    for (std::size_t c = 0; c < 4; ++c) {
-                        color[c] = static_cast<u8>(
-                            std::clamp(colors[source].data[c], 0.0f, 255.0f) + 0.5f);
-                    }
+                if (sourceOf.size() > 0x10000u) {
+                    diagnostics.warn(DiagCode::IndexWidthExceeded,
+                                     "region needs " + std::to_string(sourceOf.size()) +
+                                         " vertices, past the u16 index a face corner is",
+                                     ElementRef(ElementKind::Mesh, m), profile);
                 }
-                encoder.push(Unrebase(positions[source]),
-                             source < normals.size() ? Unrebase(normals[source])
-                                                     : Vector3f{0, 0, 1},
-                             tangent, uvs, color, indices, weights);
-            }
-            region.vertexCount = static_cast<u32>(sourceOf.size());
-            writtenVertices += sourceOf.size();
 
-            const u32 paletteLimit = Profile(profile).maxBonesPerPalette;
-            if (paletteLimit != 0 && window.size() > paletteLimit) {
-                diagnostics.warn(DiagCode::BonePaletteLimit,
-                                 "region needs " + std::to_string(window.size()) +
-                                     " bones, past the profile's " +
-                                     std::to_string(paletteLimit),
-                                 ElementRef(ElementKind::Mesh, m), profile);
+                bool rigid = true;
+                for (u32 source : sourceOf) {
+                    // Packed into the leading slots -- an influence on a node that is not
+                    // a bone leaves no gap -- so a one-bone vertex names its bone in slot 0.
+                    std::array<std::pair<f32, u8>, 4> influences{};
+                    std::size_t count = 0;
+                    for (std::size_t k = 0; k < 4; ++k) {
+                        if (source >= boneIndices.size() || source >= boneWeights.size() ||
+                            boneWeights[source][k] <= 0.0f) {
+                            continue;
+                        }
+                        const u32 node = boneIndices[source][k];
+                        const u32 bone = node < boneOf.size() ? boneOf[node] : 0xFFFFu;
+                        if (bone == 0xFFFFu) {
+                            continue;
+                        }
+                        influences[count++] = {std::clamp(boneWeights[source][k], 0.0f, 1.0f),
+                                               slotFor(bone)};
+                    }
+                    std::array<f32, 4> shares{0, 0, 0, 0};
+                    std::array<u8, 4> indices{0, 0, 0, 0};
+                    for (std::size_t k = 0; k < count; ++k) {
+                        shares[k] = influences[k].first;
+                        indices[k] = influences[k].second;
+                    }
+                    const std::array<u8, 4> weights = QuantizeWeights(shares, count);
+                    rigid = rigid && count <= 1;
+                    // A mesh with no tangent layer -- one imported from a format that
+                    // has none -- gets the neutral frame the format's own default is.
+                    Vector4f tangent{1, 0, 0, 1};
+                    if (source < tangents.size()) {
+                        const Vector3f axis = Unrebase(
+                            Vector3f{tangents[source].x, tangents[source].y, tangents[source].z});
+                        tangent = Vector4f{axis.x, axis.y, axis.z, tangents[source].w};
+                    }
+                    std::array<Vector2f, M3VertexEncoder::kMaxUvSets> uvs{};
+                    for (std::size_t u = 0; u < uvCount; ++u) {
+                        if (source < uvSets[u].size()) {
+                            uvs[u] = uvSets[u][source];
+                        }
+                    }
+                    std::array<u8, 4> color{255, 255, 255, 255};
+                    if (source < colors.size()) {
+                        for (std::size_t c = 0; c < 4; ++c) {
+                            color[c] = static_cast<u8>(
+                                std::clamp(colors[source].data[c], 0.0f, 255.0f) + 0.5f);
+                        }
+                    }
+                    encoder.push(Unrebase(positions[source]),
+                                 source < normals.size() ? Unrebase(normals[source])
+                                                         : Vector3f{0, 0, 1},
+                                 tangent, uvs, color, indices, weights);
+                }
+                region.vertexCount = static_cast<u32>(sourceOf.size());
+                // One weight pair where no vertex blends: all 730 shipped regions whose
+                // vertices each follow one bone say 1, blended ones 4.
+                region.boneWeightPairs = rigid ? 1 : 4;
+                // The index pairs follow the weight pairs: 829 of 840 shipped regions
+                // state the two equal, 1/1 rigid and 4/4 blended.
+                region.boneIndexPairs = region.boneWeightPairs;
+                writtenVertices += sourceOf.size();
+
+                // The split above is what keeps this quiet; it fires only for a
+                // profile whose cap a single triangle could already break.
+                if (paletteLimit != 0 && window.size() > paletteLimit) {
+                    diagnostics.warn(DiagCode::BonePaletteLimit,
+                                     "region needs " + std::to_string(window.size()) +
+                                         " bones, past the profile's " +
+                                         std::to_string(paletteLimit),
+                                     ElementRef(ElementKind::Mesh, m), profile);
+                }
+                for (u32 bone : window) {
+                    out.boneLookup.push_back(static_cast<u16>(bone));
+                }
+                region.boneLookupCount = static_cast<u16>(window.size());
+                // Every one of 840 shipped regions names its FIRST lookup bone here,
+                // rigid and blended alike; a source with no region record of its own
+                // (an .mdx) reached the engine naming bone 0 on all of them. A native
+                // record keeps what it carried.
+                if (!carriedRoot && !window.empty()) {
+                    region.rootBone = static_cast<u16>(window.front());
+                }
+                // 874 of 874 shipped regions repeat the lookup count here.
+                region.unknown2 = region.boneLookupCount;
+                division.regions.push_back(std::move(region));
             }
-            for (u32 bone : window) {
-                out.boneLookup.push_back(static_cast<u16>(bone));
-            }
-            region.boneLookupCount = static_cast<u16>(window.size());
+            const std::size_t regionCount = division.regions.size() - firstRegion;
 
             m3::Batch batch;
-            batch.regionIndex = static_cast<u16>(division.regions.size());
+            batch.regionIndex = static_cast<u16>(firstRegion);
             batch.materialIndex = static_cast<u16>(range.materialSlot);
             batch.boneCount = 0xFFFFu;
             if (range.section < mesh.sections.size()) {
@@ -1449,8 +1597,13 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                     batch.boneCount = static_cast<u16>(gate->second);
                 }
             }
-            division.regions.push_back(std::move(region));
-            division.batches.push_back(batch);
+            // One batch per region the range became: a split changed how many
+            // draws the material takes, not which material it is.
+            for (std::size_t r = 0; r < regionCount; ++r) {
+                m3::Batch copy = batch;
+                copy.regionIndex = static_cast<u16>(firstRegion + r);
+                division.batches.push_back(copy);
+            }
         }
     }
     // Every division states its bounding volume, and StarCraft II reads it
@@ -1468,7 +1621,28 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     // channel up by id finds the one it expects.
     section.bounds.animId = kModelBoundsAnimId;
     division.msec.push_back(section);
+    // A division states how many copies of itself the client draws, and 0 is
+    // not "one": 5,502 of 5,502 shipped divisions say 1, and the Galaxy editor
+    // reading a 0 builds no index buffer for the model -- it logs
+    // "Index buffer not set" once per batch per frame and fails the draw with
+    // D3DERR_INVALIDCALL, so the mesh is there, bound to nothing, and the
+    // viewport stays black.
+    division.instances = 1;
     out.divisions.push_back(std::move(division));
+
+    // Last, because the gate bones the material pass raises are bones too.
+    // `nullValue` is what a property rests at in a sequence whose `STC_` does
+    // not name its `animId`, and it is a constant per property: all 736,433
+    // bones in the corpus state these four and nothing else, so restating them
+    // over a parsed model changes nothing. The struct's own default is zero --
+    // a null rotation and a zero scale, which collapse whatever the bone skins
+    // the moment one clip leaves it out.
+    for (m3::Bone& bone : out.bones) {
+        bone.position.nullValue = Vector3f{0, 0, 0};
+        bone.rotation.nullValue = Quaternion{0, 0, 0, 1};
+        bone.scale.nullValue = Vector3f{1, 1, 1};
+        bone.visibility.nullValue = 1u;
+    }
 
     // The declaration the source stated, with only the bits this converter can
     // actually account for rewritten.
@@ -1480,9 +1654,15 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     constexpr m3::VertexFormatFlag kUvBit[M3VertexEncoder::kMaxUvSets] = {
         m3::VertexFormatFlag::UV1, m3::VertexFormatFlag::UV2, m3::VertexFormatFlag::UV3,
         m3::VertexFormatFlag::UV4, m3::VertexFormatFlag::UV5};
-    u32 vertexFlags = set != nullptr
-                          ? static_cast<u32>(set->native.value("vertexFlags", 0)) & ~kLayoutBits
-                          : 0u;
+    // What every shipped declaration states besides its layout: 0x01800061 is
+    // set in all 5,510 corpus models and 0 of them omit any of its bits, so a
+    // source with nothing to say about the format (anything but an `.m3`) is
+    // given it rather than left declaring only its UV sets.
+    constexpr u32 kBaseVertexFlags = 0x01800061u;
+    u32 vertexFlags = kBaseVertexFlags;
+    if (set != nullptr) {
+        vertexFlags |= static_cast<u32>(set->native.value("vertexFlags", 0)) & ~kLayoutBits;
+    }
     for (std::size_t u = 0; u < uvCount; ++u) {
         vertexFlags |= static_cast<u32>(kUvBit[u]);
     }

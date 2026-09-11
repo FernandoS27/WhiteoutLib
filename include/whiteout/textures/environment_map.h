@@ -10,6 +10,7 @@
 
 #include <whiteout/textures/texture.h>
 
+#include <array>
 #include <optional>
 
 namespace whiteout::textures::env {
@@ -28,5 +29,26 @@ namespace whiteout::textures::env {
  * @return Empty when @p panorama has no pixels or @p faceSize is 0.
  */
 std::optional<Texture> CubeFromPanorama(const Texture& panorama, u32 faceSize);
+
+/**
+ * @brief Re-express one cube of a cube map in another basis, every level kept.
+ *
+ * A pre-filtered probe carries its roughness blur in its mip chain, so a probe
+ * moved between engines keeps that chain: each output level is read from the
+ * same source level, never regenerated. @p sourceFromTarget maps a direction in
+ * the output cube's space to where the source stores it, row by row
+ * (`src[i] = m[3i] * d[0] + m[3i + 1] * d[1] + m[3i + 2] * d[2]`), and
+ * `faceOrder[k]` is the stored layer holding Direct3D face k, for containers
+ * that write the faces in another order. Nearest texel, which is exact when the
+ * basis is a signed axis permutation -- a change of up axis is one. DDS /
+ * Direct3D face order and orientation out, RGBA8, colour space kept.
+ *
+ * @param cubeIndex Which cube of a cube array; 0 for a plain cube.
+ * @return Empty when @p source is not a cube map, @p cubeIndex is past its
+ *         cubes, or @p faceOrder names a layer past 5.
+ */
+std::optional<Texture> CubeFromCube(const Texture& source, u32 cubeIndex,
+                                    const std::array<f32, 9>& sourceFromTarget,
+                                    const std::array<u32, 6>& faceOrder = {0, 1, 2, 3, 4, 5});
 
 } // namespace whiteout::textures::env

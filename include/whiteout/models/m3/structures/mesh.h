@@ -57,7 +57,7 @@ struct Region {
     u32 vertexCount = 0;                 ///< Number of vertices
     u32 firstIndex = 0;                  ///< First index in the index buffer
     u32 indexCount = 0;                  ///< Number of indices (triangles × 3)
-    u16 unknown2 = 0;                    ///< Unknown field
+    u16 unknown2 = 0;                    ///< Repeats boneLookupCount (874 of 874 shipped regions)
     u16 firstBoneLookup = 0;             ///< First entry in bone lookup table
     u16 boneLookupCount = 0;             ///< Number of bone lookup entries
     u16 padding = 0;                     ///< Alignment padding

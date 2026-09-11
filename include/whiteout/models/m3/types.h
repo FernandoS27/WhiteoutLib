@@ -192,7 +192,7 @@ inline bool hasFlag(VertexFormatFlag flags, VertexFormatFlag flag) {
  * Uses the PImpl (Pointer to Implementation) idiom to hide layout details.
  */
 struct VertexBuffer {
-    VertexFormatFlag flags; ///< Vertex format flags from MODL.vertexFlags
+    VertexFormatFlag flags = VertexFormatFlag::None; ///< Vertex format flags from MODL.vertexFlags
     std::vector<u8> data;   ///< Raw vertex data blob
 
     /// @brief Construct a new VertexBuffer

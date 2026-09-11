@@ -54,7 +54,16 @@ namespace m3 {
 struct Model {
     // ─── Preamble (0x000–0x0E3, 228 bytes) ────────────────────────
     std::string name;                  ///< Model file path (Ref<CHAR>)
-    ModelFlag flags = ModelFlag::None; ///< Model flags (tangents, FOW, instancing, etc.)
+    /// Not `None`: only 21 of the corpus's 56,146 models leave this at zero.
+    /// These three are latches saying "this work is already done, do not redo
+    /// it", and the converter does all three -- it sorts every `STC_`'s
+    /// animIds, states `kAnimRefBound` on every bound AnimRef, and derives
+    /// every `BONE.flags` from those (`m3_anim::SolveBoneAnimFlags`). The rest
+    /// of the shipped bits are left clear so the editor recomputes them. A
+    /// parsed or restored model overwrites this wholesale.
+    ModelFlag flags = ModelFlag::TrackCollectionSorted |
+                      ModelFlag::TrackAnimatedBaseFlagValid |
+                      ModelFlag::BoneAnimatedFlagSolved; ///< Model flags
     std::vector<Sequence> sequences;   ///< Animation sequences (SEQS)
     std::vector<SubTrackContainer>
         subTrackCollections;                     ///< Sub-track containers (STC_) with keyframe refs

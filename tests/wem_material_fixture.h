@@ -7,9 +7,11 @@
 /// a converter would build it, so each test can break exactly one thing and see
 /// exactly one diagnostic.
 
+#include <optional>
 #include <string>
 #include <vector>
 
+#include <whiteout/models/m3/structures.h>
 #include <whiteout/models/wem/document.h>
 #include <whiteout/models/wem/geometry/builder.h>
 #include <whiteout/models/wem/model.h>
@@ -76,6 +78,20 @@ inline Material makeComposite(const std::string& name, u32 extraColorLayers = 0)
     material.InitCommon().body = std::move(body);
     return material;
 }
+
+/// All eighteen `MAT_` layer slots, in file order, for a test that has to see
+/// every layer a material writes -- the empty ones included.
+inline constexpr std::optional<m3::TextureLayer> m3::StandardMaterial::*const kLayerSlots[] = {
+    &m3::StandardMaterial::diffuseLayer,          &m3::StandardMaterial::decalLayer,
+    &m3::StandardMaterial::specularLayer,         &m3::StandardMaterial::glossLayer,
+    &m3::StandardMaterial::emissiveLayer1,        &m3::StandardMaterial::emissiveLayer2,
+    &m3::StandardMaterial::environmentLayer,      &m3::StandardMaterial::environmentMaskLayer,
+    &m3::StandardMaterial::alphaLayer1,           &m3::StandardMaterial::alphaLayer2,
+    &m3::StandardMaterial::normalLayer,           &m3::StandardMaterial::heightLayer,
+    &m3::StandardMaterial::lightMapLayer,         &m3::StandardMaterial::ambientOcclusionLayer,
+    &m3::StandardMaterial::normalBlend1MaskLayer, &m3::StandardMaterial::normalBlend2MaskLayer,
+    &m3::StandardMaterial::normalBlend1Layer,     &m3::StandardMaterial::normalBlend2Layer,
+};
 
 /// The set a converter produces: one look, one material per slot, in order.
 inline ProfileMaterialSet makeSet(ProfileId profile, std::vector<Material> materials) {

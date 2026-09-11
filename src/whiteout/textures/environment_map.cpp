@@ -26,6 +26,30 @@ void FaceDirection(u32 face, f32 s, f32 t, f32 out[3]) {
     }
 }
 
+/// The face direction @p d lands on and its (@p sc, @p tc) there, still over
+/// @p major -- the inverse of @ref FaceDirection.
+void FaceCoordinates(const f32 d[3], u32& face, f32& major, f32& sc, f32& tc) {
+    const f32 ax = std::abs(d[0]);
+    const f32 ay = std::abs(d[1]);
+    const f32 az = std::abs(d[2]);
+    if (ax >= ay && ax >= az) {
+        face = d[0] > 0.0f ? 0 : 1;
+        major = ax;
+        sc = d[0] > 0.0f ? -d[2] : d[2];
+        tc = -d[1];
+    } else if (ay >= az) {
+        face = d[1] > 0.0f ? 2 : 3;
+        major = ay;
+        sc = d[0];
+        tc = d[1] > 0.0f ? d[2] : -d[2];
+    } else {
+        face = d[2] > 0.0f ? 4 : 5;
+        major = az;
+        sc = d[2] > 0.0f ? d[0] : -d[0];
+        tc = -d[1];
+    }
+}
+
 /// Bilinear RGBA8 fetch; the longitude wraps, the latitude clamps at the poles.
 void SampleBilinear(std::span<const u8> src, u32 w, u32 h, f32 u, f32 v, u8 out[4]) {
     const f32 x = u * static_cast<f32>(w) - 0.5f;
@@ -89,6 +113,67 @@ std::optional<Texture> CubeFromPanorama(const Texture& panorama, u32 faceSize) {
                 const f32 v = 0.5f - std::asin(std::clamp(d[2], -1.0f, 1.0f)) / kPi;
                 SampleBilinear(px, w, h, u, v,
                                &out[(static_cast<std::size_t>(y) * faceSize + x) * 4]);
+            }
+        }
+    }
+    return cube;
+}
+
+std::optional<Texture> CubeFromCube(const Texture& source, u32 cubeIndex,
+                                    const std::array<f32, 9>& sourceFromTarget,
+                                    const std::array<u32, 6>& faceOrder) {
+    const TextureType type = source.type();
+    if ((type != TextureType::TextureCube && type != TextureType::TextureCubeArray) ||
+        source.width() == 0 || cubeIndex >= std::max<u32>(source.arraySize(), 1)) {
+        return std::nullopt;
+    }
+    for (const u32 layer : faceOrder) {
+        if (layer > 5) {
+            return std::nullopt;
+        }
+    }
+    const Texture rgba = source.copyAsFormat(PixelFormat::RGBA8);
+    const u32 size = rgba.width();
+    if (size == 0) {
+        return std::nullopt;
+    }
+    const u32 levels = std::max<u32>(rgba.mipCount(), 1);
+    const std::array<f32, 9>& m = sourceFromTarget;
+
+    Texture cube = Texture::createCube(PixelFormat::RGBA8, size, levels);
+    cube.setSrgb(source.isSrgb());
+    for (u32 level = 0; level < levels; ++level) {
+        const u32 n = std::max<u32>(size >> level, 1);
+        const f32 extent = static_cast<f32>(n);
+        for (u32 face = 0; face < 6; ++face) {
+            const std::span<u8> out = cube.mipData(level, face);
+            for (u32 y = 0; y < n; ++y) {
+                const f32 t = 2.0f * (static_cast<f32>(y) + 0.5f) / extent - 1.0f;
+                for (u32 x = 0; x < n; ++x) {
+                    const f32 s = 2.0f * (static_cast<f32>(x) + 0.5f) / extent - 1.0f;
+                    f32 d[3];
+                    FaceDirection(face, s, t, d);
+                    const f32 p[3] = {m[0] * d[0] + m[1] * d[1] + m[2] * d[2],
+                                      m[3] * d[0] + m[4] * d[1] + m[5] * d[2],
+                                      m[6] * d[0] + m[7] * d[1] + m[8] * d[2]};
+                    u32 from = 0;
+                    f32 major = 0.0f;
+                    f32 sc = 0.0f;
+                    f32 tc = 0.0f;
+                    FaceCoordinates(p, from, major, sc, tc);
+                    if (major <= 0.0f) {
+                        continue;
+                    }
+                    const f32 u =
+                        std::clamp((sc / major + 1.0f) * 0.5f * extent, 0.0f, extent - 1.0f);
+                    const f32 v =
+                        std::clamp((tc / major + 1.0f) * 0.5f * extent, 0.0f, extent - 1.0f);
+                    const std::span<const u8> src =
+                        rgba.mipData(level, cubeIndex * 6 + faceOrder[from]);
+                    const std::size_t at =
+                        (static_cast<std::size_t>(v) * n + static_cast<std::size_t>(u)) * 4;
+                    std::copy_n(&src[at], 4, &out[(static_cast<std::size_t>(y) * n + x) * 4]);
+                }
             }
         }
     }

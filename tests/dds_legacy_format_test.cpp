@@ -12,6 +12,7 @@
 #include <vector>
 
 #include <whiteout/textures/dds/dds.h>
+#include <whiteout/textures/dds/writer.h>
 #include <whiteout/textures/texture.h>
 
 using namespace whiteout;
@@ -90,4 +91,27 @@ TEST_CASE("legacy DDS: unknown masks are rejected", "[texture][dds]") {
     auto tex = parser.parse(std::span<const u8>{file});
     CHECK_FALSE(tex.has_value());
     CHECK(parser.hasIssues());
+}
+
+TEST_CASE("DDS writer: depth is a volume's field", "[texture][dds]") {
+    // Every shipped StarCraft II .dds writes 0 here for a 2D texture; the
+    // writer put the texture's depth of 1 there, under no DDSD_DEPTH flag.
+    constexpr u32 kDdsdDepth = 0x00800000u;
+    const auto depthOf = [](const std::vector<u8>& file, u32& flags) {
+        u32 depth = 0;
+        std::memcpy(&flags, file.data() + 8, sizeof(flags));
+        std::memcpy(&depth, file.data() + 24, sizeof(depth));
+        return depth;
+    };
+    u32 flags = 0;
+    const std::vector<u8> flat = dds::Writer().write(Texture::create2D(PixelFormat::RGBA8, 2, 2));
+    REQUIRE(flat.size() > 128);
+    CHECK(depthOf(flat, flags) == 0u);
+    CHECK((flags & kDdsdDepth) == 0u);
+
+    const std::vector<u8> volume =
+        dds::Writer().write(Texture::create3D(PixelFormat::RGBA8, 2, 2, 3, 1));
+    REQUIRE(volume.size() > 128);
+    CHECK(depthOf(volume, flags) == 3u);
+    CHECK((flags & kDdsdDepth) == kDdsdDepth);
 }

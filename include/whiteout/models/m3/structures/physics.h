@@ -33,8 +33,8 @@ namespace m3 {
  * within an influence volume shape (sphere, cylinder, box, hemisphere).
  */
 struct Force {
-    ForceType forceType;               ///< Force influence type (radial/wind/explosion)
-    ForceShape forceShape;             ///< Influence volume shape
+    ForceType forceType = ForceType::Radial;               ///< Force influence type (radial/wind/explosion)
+    ForceShape forceShape = ForceShape::Sphere;             ///< Influence volume shape
     u32 unknown = 0;                   ///< Unknown field
     u32 boneIndex = 0;                 ///< Index into BONE array
     ForceFlag flags = ForceFlag::None; ///< Force flags (falloff, height gradient, unbounded)
@@ -240,7 +240,7 @@ struct PhysicsShape {
     // v1: collisionMargin + shapeType at offsets 64-71
     // v2+: shapeType at offset 64
     f32 collisionMargin = 0.0f; ///< Havok convex radius (v1 only, ≈ 0.019685)
-    PhysicsShapeType shapeType; ///< Shape type (box/sphere/capsule/cylinder/hull/mesh)
+    PhysicsShapeType shapeType = PhysicsShapeType::Box; ///< Shape type (box/sphere/capsule/cylinder/hull/mesh)
     // Note: 3 bytes alignment padding follow shapeType in the binary layout
     Vector3f oldSizes{};      ///< Legacy sizes (v1 only, zero for shapeType 4–5)
     Reference reserved0;      ///< Reserved reference

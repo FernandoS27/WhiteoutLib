@@ -575,6 +575,17 @@ std::optional<Texture> BakeBaseColor(const BaseColorRecipe& recipe);
 f32 TeamReplaceFromBlend(const f32 albedo[3], f32 weight, bool srgb, f32 out[3]);
 
 /**
+ * @brief The diffuse albedo Reforged lights a base-colour texel with.
+ *
+ * Reforged has no dielectric F0 (`ps_ibl.slang`): `F0 = m * albedo`, and the
+ * diffuse is what the metal leaves, `(1 - m) * albedo`, in linear light. A
+ * metal texel is seen only through its reflection, so a spec/gloss target
+ * that keeps the whole base colour as its diffuse lights every metal twice.
+ * @p srgb as in @ref TeamReplaceFromBlend.
+ */
+void DiffuseFromMetalness(const f32 albedo[3], f32 metalness, bool srgb, f32 out[3]);
+
+/**
  * @brief Sum two additive emissive layers into one map.
  *
  * StarCraft II folds both emissive layers into one accumulator before

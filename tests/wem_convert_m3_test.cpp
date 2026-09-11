@@ -8,9 +8,11 @@
 /// (and is bit-exact both ways), a region's faces are region-local, and a
 /// vertex's bone index goes through its region's `boneLookup` window.
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -21,6 +23,7 @@
 #include <whiteout/models/m3/parser.h>
 #include <whiteout/models/m3/writer.h>
 #include <whiteout/models/wem/converters.h>
+#include <whiteout/models/wem/profile.h>
 
 #include "wem_material_fixture.h"
 
@@ -240,12 +243,15 @@ TEST_CASE("wem m3 a built record carries no stack junk into the file",
     m3::TextureLayer layer;
     CHECK(layer.flipbookRows == 0u);
     CHECK(layer.flipbookColumns == 0u);
-    CHECK(layer.textureSource == 0u);
+    CHECK(layer.textureSource == 0xFFFFFFFFu);
     CHECK(layer.pocTexture == 0u);
-    CHECK(layer.uvSourceRelated == 0u);
-    CHECK(layer.fresnelExponent == 0.0f);
+    // Its own UVs (1,033 of 1,033 shipped diffuse layers) and the fresnel ramp
+    // every shipped layer states whether or not it is on.
+    CHECK(layer.uvSourceRelated == 0xFFFFFFFFu);
+    CHECK(layer.fresnelMode == m3::FresnelMode::None);
+    CHECK(layer.fresnelExponent == 4.0f);
     CHECK(layer.fresnelMin == 0.0f);
-    CHECK(layer.fresnelMax == 0.0f);
+    CHECK(layer.fresnelMax == 1.0f);
 
     // And through the whole crossing, on the file the editor actually reads.
     const M3Converter converter;
@@ -262,8 +268,46 @@ TEST_CASE("wem m3 a built record carries no stack junk into the file",
         // is a field nobody wrote.
         CHECK(mat.diffuseLayer->flipbookColumns < 256u);
         CHECK(mat.diffuseLayer->flipbookRows < 256u);
-        CHECK(mat.diffuseLayer->textureSource < 16u);
+        CHECK(mat.diffuseLayer->textureSource == 0xFFFFFFFFu);
     }
+}
+
+TEST_CASE("wem m3 an exported division draws once and states its declaration",
+          "[wem][convert][m3][version]") {
+    // The three fields a conversion left at zero that the client reads as
+    // answers rather than as absences. The division's instance count is the
+    // one that cost a render: the Galaxy editor built no index buffer for a
+    // division claiming zero copies, logged "Index buffer not set" once per
+    // batch per frame and failed the draw with D3DERR_INVALIDCALL -- the mesh
+    // loaded, bound to nothing, and the viewport stayed black.
+    const M3Converter converter;
+    Result<Document> document = converter.fromM3(makeModel(29), ProfileId::Sc2);
+    REQUIRE(document.ok());
+    Result<m3::Model> written = converter.toM3(*document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+
+    REQUIRE_FALSE(written->divisions.empty());
+    // 5,502 of 5,502 shipped divisions.
+    CHECK(written->divisions.front().instances == 1u);
+
+    // 5,510 of 5,510 shipped models set every bit of 0x01800061, whatever they
+    // mean; a source that states no declaration of its own still gets them.
+    CHECK((static_cast<u32>(written->vertices.flags) & 0x01800061u) == 0x01800061u);
+
+    // A model with no collision mesh states no volume for one: all 2,448
+    // shipped v29 models leave `collisionBounds` zero, and this converter
+    // emits no collision mesh.
+    CHECK(written->collisionVerts.empty());
+    CHECK(written->collisionBounds.radius == 0.0f);
+    CHECK(written->collisionBounds.min.x == 0.0f);
+    CHECK(written->collisionBounds.max.z == 0.0f);
+
+    // An enum member with no initialiser is the `TextureLayer` defect one
+    // field over: nothing assigns the tight hit-test shape, so a
+    // default-initialised one wrote junk shape types (711000064 in one export,
+    // 0 in the next) into every file.
+    CHECK(written->tightHitTestObject.shapeType == m3::HitTestShapeType::Sphere);
+    CHECK(m3::HitTestShape{}.shapeType == m3::HitTestShapeType::Sphere);
 }
 
 TEST_CASE("wem m3 an exported file leaves the client nothing null to walk",
@@ -760,15 +804,119 @@ TEST_CASE("wem m3 two regions keep their own vertices and windows",
 }
 
 // ---------------------------------------------------------------------------
+// A region's bone palette is a hardware limit, not a preference.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/// One region skinned across `bones` bones, one triangle per bone, so the
+/// window grows by exactly one per triangle and any cap has to cut it.
+m3::Model makeWideSkinModel(u32 bones) {
+    m3::Model model = makeModel(29);
+    model.bones.resize(1);
+    m3::Bone limb = model.bones[0];
+    limb.parentIndex = 0;
+    for (u32 i = 0; i < bones; ++i) {
+        limb.name = "limb" + std::to_string(i);
+        model.bones.push_back(limb);
+    }
+
+    std::vector<u8> blob;
+    std::vector<u16> faces;
+    model.boneLookup.clear();
+    for (u32 i = 0; i < bones; ++i) {
+        const f32 x = static_cast<f32>(i);
+        pushVertex(blob, Vector3f{x, 0, 0}, static_cast<u8>(i));
+        pushVertex(blob, Vector3f{x, 1, 0}, static_cast<u8>(i));
+        pushVertex(blob, Vector3f{x, 0, 1}, static_cast<u8>(i));
+        faces.push_back(static_cast<u16>(3 * i));
+        faces.push_back(static_cast<u16>(3 * i + 1));
+        faces.push_back(static_cast<u16>(3 * i + 2));
+        model.boneLookup.push_back(static_cast<u16>(i + 1));
+    }
+    model.vertices.flags = m3::VertexFormatFlag::UV1;
+    model.vertices.data = std::move(blob);
+    model.vertices.initialize();
+
+    m3::MeshDivision division;
+    division.faces = std::move(faces);
+    m3::Region region;
+    region.firstVertex = 0;
+    region.vertexCount = 3 * bones;
+    region.firstIndex = 0;
+    region.indexCount = 3 * bones;
+    region.firstBoneLookup = 0;
+    region.boneLookupCount = static_cast<u16>(bones);
+    region.rootBone = 0;
+    division.regions.push_back(region);
+
+    m3::Batch batch;
+    batch.regionIndex = 0;
+    batch.materialIndex = 0;
+    batch.boneCount = 0xFFFF;
+    division.batches.push_back(batch);
+
+    model.divisions.clear();
+    model.divisions.push_back(division);
+    return model;
+}
+
+} // namespace
+
+TEST_CASE("wem m3 a region never names more bones than the palette holds",
+          "[wem][convert][m3][skin]") {
+    // A draw whose bone palette overruns the vertex shader's matrix registers
+    // fails with D3DERR_INVALIDCALL, and the Galaxy editor answers that by
+    // resetting the device -- every frame, onto a black viewport, with the model
+    // loaded and no complaint made about it. No shipped v5 region names more
+    // than 63 bones: 436 of the corpus's 67,320 regions sit exactly there and
+    // none goes past, so a range needing more is split, not clamped.
+    constexpr u32 kBones = 100;
+    constexpr u16 kCap = 63;
+    CHECK(Profile(ProfileId::Sc2).maxBonesPerPalette == kCap);
+    CHECK(Profile(ProfileId::Heroes).maxBonesPerPalette == kCap);
+
+    const M3Converter converter;
+    Result<Document> document = converter.fromM3(makeWideSkinModel(kBones), ProfileId::Sc2);
+    REQUIRE(document.ok());
+    Result<m3::Model> written = converter.toM3(*document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    REQUIRE(written->divisions.size() == 1);
+
+    const m3::MeshDivision& division = written->divisions[0];
+    REQUIRE(division.regions.size() > 1);
+    u32 corners = 0;
+    for (const m3::Region& region : division.regions) {
+        CHECK(region.boneLookupCount <= kCap);
+        corners += region.indexCount;
+    }
+    // A split redistributes triangles; it drops none of them.
+    CHECK(corners == 3 * kBones);
+
+    // And every region it produced still draws, under the material the one
+    // region started with: a region no batch names is geometry never submitted.
+    REQUIRE(division.batches.size() == division.regions.size());
+    std::vector<bool> drawn(division.regions.size(), false);
+    for (const m3::Batch& batch : division.batches) {
+        REQUIRE(batch.regionIndex < division.regions.size());
+        CHECK(batch.materialIndex == 0);
+        drawn[batch.regionIndex] = true;
+    }
+    CHECK(std::find(drawn.begin(), drawn.end(), false) == drawn.end());
+}
+
+// ---------------------------------------------------------------------------
 // The vertex declaration is the model's, not the converter's.
 // ---------------------------------------------------------------------------
 
 namespace {
 
-/// 40 bytes: the base 24, a BGRA colour, two UV pairs, and the tangent. The two
-/// high bits of `flags` are ones this reader cannot name -- they are here to be
-/// carried, not understood.
-constexpr u32 kRichFlags = 0x01800000u | 0x0200u | 0x20000u | 0x40000u;
+/// 40 bytes: the base 24, a BGRA colour, two UV pairs, and the tangent. The
+/// bits outside the layout set are ones this reader cannot name -- they are
+/// here to be carried, not understood. `0x01800061` is the part every one of
+/// the 5,510 corpus models states, so the whole word is a real declaration
+/// (124 shipped models carry exactly this one) rather than an invented mix.
+constexpr u32 kRichFlags = 0x01800061u | 0x0200u | 0x20000u | 0x40000u;
 constexpr std::size_t kRichStride = 40;
 
 void pushRichVertex(std::vector<u8>& blob, const Vector3f& position, const Vector2f& uv0,
@@ -1130,6 +1278,60 @@ TEST_CASE("wem m3 a blend pass picks its home by shading", "[wem][convert][m3][f
         CHECK(written.diagnostics.countOf(DiagCode::UnlitFold) == 0);
         CHECK(written.diagnostics.countOf(DiagCode::LitFold) == 0);
     }
+}
+
+TEST_CASE("wem m3 a built layer states the rests every shipped layer does",
+          "[wem][convert][m3][fold]") {
+    // Fields the renderer in this build never reads and the game does: over
+    // 3,679 sampled shipped textured layers the multiply and map alpha rest at
+    // one, the tiling at (1, 1), the W tiling is one, and the specular
+    // multiplier of the material is at least one on 1,270 of 1,275 -- 436 of
+    // them, like this one, with no specular layer to scale.
+    Material material = stack("skin", {colorLayer(0, CompositeOp::Set)});
+    Document document = warcraftDocument(std::move(material));
+    const M3Converter converter;
+    Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    const m3::StandardMaterial& out = firstMaterial(written);
+    REQUIRE(out.diffuseLayer.has_value());
+    const m3::TextureLayer& diffuse = *out.diffuseLayer;
+    CHECK(diffuse.uvSourceRelated == 0xFFFFFFFFu);
+    CHECK(diffuse.fresnelMode == m3::FresnelMode::None);
+    CHECK(diffuse.fresnelExponent == 4.0f);
+    CHECK(diffuse.fresnelMax == 1.0f);
+    CHECK(diffuse.rgbMultiply.initValue == 1.0f);
+    CHECK(diffuse.rgbMultiply.nullValue == 1.0f);
+    CHECK(diffuse.mapAlpha.nullValue == 1.0f);
+    CHECK(diffuse.uvTiling.nullValue.x == 1.0f);
+    CHECK(diffuse.uvTiling.nullValue.y == 1.0f);
+    CHECK(diffuse.wTiling.initValue == 1.0f);
+    CHECK(diffuse.triplanarScale.initValue.z == 1.0f);
+    CHECK_FALSE(out.specularLayer.has_value());
+    CHECK(out.hdrSpecularMultiplier == Catch::Approx(1.0f));
+}
+
+TEST_CASE("wem m3 a solid-colour carrier rests its multiply and map alpha at one",
+          "[wem][convert][m3][fold]") {
+    // The game restores a written layer constant to its null after the draw
+    // and skips a still layer whose init equals its null. A carrier resting at
+    // zero left the alpha-mask slot at zero, and the footman's alpha-tested
+    // body, whose mask rests at one, drew fully clipped.
+    Material material = stack("banshee", {colorLayer(0, CompositeOp::Set, 0.66f)});
+    material.MutableCommon().blend = BlendMode::AlphaBlend;
+    Document document = warcraftDocument(std::move(material));
+    const M3Converter converter;
+    Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    const m3::StandardMaterial& out = firstMaterial(written);
+    REQUIRE(out.alphaLayer2.has_value());
+    REQUIRE(hasFlag(out.alphaLayer2->flags, m3::TextureLayerFlag::Color));
+    CHECK(out.alphaLayer2->rgbMultiply.nullValue == 1.0f);
+    CHECK(out.alphaLayer2->mapAlpha.nullValue == 1.0f);
+
+    // The fade carriers the animation and section paths build start from the
+    // struct, so its rests are theirs.
+    const m3::TextureLayer blank;
+    CHECK(blank.rgbMultiply.nullValue == 1.0f);
+    CHECK(blank.mapAlpha.nullValue == 1.0f);
+    CHECK(blank.rgbAdd.nullValue == 0.0f);
 }
 
 TEST_CASE("wem m3 a lit additive pass takes the decal", "[wem][convert][m3][fold]") {
@@ -1634,4 +1836,235 @@ TEST_CASE("wem m3 a layer's own fresnel survives an edit", "[wem][convert][m3][f
     CHECK(out.diffuseLayer->fresnelExponent == Catch::Approx(3.0f));
     CHECK(out.diffuseLayer->fresnelMin == Catch::Approx(0.9f));
     CHECK(out.diffuseLayer->fresnelMax == Catch::Approx(0.2f));
+}
+
+TEST_CASE("wem m3 a built material states that its geometry is visible",
+          "[wem][convert][m3][material]") {
+    // `GeometryVisible` (0x80000000) is what puts a batch in the colour pass:
+    // 35,492 of the corpus's 35,533 v20 materials set it, and the 41 that do
+    // not are trigger volumes (`War3_FootSwitch.m3`) meant to be unseen.
+    // Without it the Galaxy editor loads the model, casts its shadow, draws no
+    // mesh, and complains about none of it -- every draw succeeds.
+    const Document document = wemfix::makeDocument(ProfileId::Sc2);
+    const M3Converter converter;
+    const Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    REQUIRE_FALSE(written->standardMaterials.empty());
+    for (const m3::StandardMaterial& material : written->standardMaterials) {
+        CHECK(hasFlag(material.flags, m3::MaterialFlag::GeometryVisible));
+    }
+    // It rides on the default, so no export path can be the one that forgets
+    // -- and a material read back off a file keeps whatever that file said.
+    CHECK(hasFlag(m3::StandardMaterial{}.flags, m3::MaterialFlag::GeometryVisible));
+}
+
+TEST_CASE("wem m3 a built layer is not a render target", "[wem][convert][m3][material]") {
+    // `textureSource` is -1 on every one of the corpus's 23,988 layers, and the
+    // editor reads it as `b_iIsRTTTexture = textureSource != -1`
+    // (`sub_141F96390`). A render-target layer has its UVs remapped into the
+    // target's sub-rect -- `uv * p_vRTTTextureOffsetScale.zw + .xy` -- and
+    // nothing fills that constant for a layer that reads a file, so the whole
+    // model samples uv (0,0): flat team colour where the diffuse selects RGBA,
+    // flat black where it selects RGB. The same field is one of the four terms
+    // that mark a layer ACTIVE, so a zero also switched on the empty slots.
+    CHECK(m3::TextureLayer{}.textureSource == 0xFFFFFFFFu);
+
+    const Document document = wemfix::makeDocument(ProfileId::Sc2);
+    const M3Converter converter;
+    const Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    REQUIRE_FALSE(written->standardMaterials.empty());
+    // Through the writer, because the eighteen slots a material does not use are
+    // its `emptyLayer` and reach the file all the same.
+    const m3::Model reparsed = m3::Parser().parse(m3::Writer().write(*written));
+    REQUIRE_FALSE(reparsed.standardMaterials.empty());
+    std::size_t layers = 0;
+    for (const m3::StandardMaterial& material : reparsed.standardMaterials) {
+        for (const auto slot : wemfix::kLayerSlots) {
+            REQUIRE((material.*slot).has_value());
+            CHECK((material.*slot)->textureSource == 0xFFFFFFFFu);
+            ++layers;
+        }
+    }
+    CHECK(layers > 0);
+}
+
+TEST_CASE("wem m3 a textured layer states the pair its clamp needs",
+          "[wem][convert][m3][material]") {
+    // All 7,726 shipped layers that name a texture set `ColorAdd |
+    // ColorMultiply`, and the editor makes the pair the precondition for the
+    // clamp beside it: `b_iClamp = (flags & 0xC0) && (flags & ColorClamp)`.
+    // Without it the coverage switch's `a * 1 + rgbAdd` never saturates. A
+    // constant-colour carrier is the other shape and ships as plain `Color`
+    // (442 of 446), so the pair belongs to layers with a path, not to all.
+    const Document document = wemfix::makeDocument(ProfileId::Sc2);
+    const M3Converter converter;
+    const Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    std::size_t textured = 0;
+    for (const m3::StandardMaterial& material : written->standardMaterials) {
+        for (const auto slot : wemfix::kLayerSlots) {
+            const std::optional<m3::TextureLayer>& layer = material.*slot;
+            if (!layer.has_value() || layer->texturePath.empty()) {
+                continue;
+            }
+            ++textured;
+            CHECK(hasFlag(layer->flags, m3::TextureLayerFlag::ColorAdd));
+            CHECK(hasFlag(layer->flags, m3::TextureLayerFlag::ColorMultiply));
+        }
+    }
+    CHECK(textured > 0);
+}
+
+TEST_CASE("wem m3 a blend op nobody authored adds rather than multiplies",
+          "[wem][convert][m3][material]") {
+    // Over 7,519 shipped materials the decal blend is Add on 97.4%, emissive 1
+    // on 96.8% (Add or its team-colour form) and emissive 2 on 98.5% -- Mod is
+    // what an unassigned field reads as, and it is the destructive one: a Mod
+    // emissive MULTIPLIES the lit colour, and an unused emissive slot is black.
+    const m3::StandardMaterial fresh;
+    CHECK(fresh.layerBlendMode == m3::LayerBlendOp::Add);
+    CHECK(fresh.emissiveBlendMode1 == m3::LayerBlendOp::Add);
+    CHECK(fresh.emissiveBlendMode2 == m3::LayerBlendOp::Add);
+
+    const Document document = wemfix::makeDocument(ProfileId::Sc2);
+    const M3Converter converter;
+    const Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    REQUIRE_FALSE(written->standardMaterials.empty());
+    for (const m3::StandardMaterial& material : written->standardMaterials) {
+        CHECK(material.emissiveBlendMode1 != m3::LayerBlendOp::Mod);
+        CHECK(material.emissiveBlendMode2 != m3::LayerBlendOp::Mod);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The skin fields a shipped region states.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/// The fixture quad blended between its two bones, one vertex per shape: an
+/// even split, a lone influence parked in slot 1, an uneven split heavier in
+/// slot 1, and a lone influence in slot 0. The import orders each vertex
+/// heaviest first (`SkinBinding`), so that is the order the file comes back in.
+m3::Model makeBlendedModel() {
+    m3::Model model = makeModel(29);
+    model.boneLookup = {0, 1};
+    model.divisions[0].regions[0].boneLookupCount = 2;
+    const u8 weights[4][4] = {{128, 128, 0, 0}, {0, 255, 0, 0}, {100, 155, 0, 0}, {255, 0, 0, 0}};
+    for (std::size_t v = 0; v < 4; ++v) {
+        const std::size_t base = v * kStride;
+        for (std::size_t k = 0; k < 4; ++k) {
+            model.vertices.data[base + 12 + k] = weights[v][k];
+            model.vertices.data[base + 16 + k] = static_cast<u8>(k < 2 ? k : 0);
+        }
+    }
+    model.vertices.initialize();
+    return model;
+}
+
+} // namespace
+
+TEST_CASE("wem m3 a vertex stores weights summing to exactly 255",
+          "[wem][convert][m3][skin]") {
+    // 1,002,734 shipped vertices sum to exactly 255. Rounding each weight alone
+    // wrote an even two-bone split as 128 + 128.
+    const M3Converter converter;
+    Result<Document> doc = converter.fromM3(makeBlendedModel());
+    REQUIRE(doc.ok());
+    Result<m3::Model> back = converter.toM3(*doc.value, ProfileId::Sc2, 29);
+    REQUIRE(back.ok());
+    REQUIRE(back->divisions.size() == 1);
+    REQUIRE(back->divisions[0].regions.size() == 1);
+    const m3::Region& region = back->divisions[0].regions[0];
+    REQUIRE(region.vertexCount == 4u);
+
+    const std::vector<Vector3f> positions = back->vertices.getPositions();
+    const std::vector<std::array<u8, 4>> indices = back->vertices.getBoneIndices();
+    const std::vector<std::array<u8, 4>> weights = back->vertices.getBoneWeights();
+    for (u32 v = 0; v < region.vertexCount; ++v) {
+        const std::size_t g = region.firstVertex + v;
+        const std::array<u8, 4>& w = weights[g];
+        CHECK(w[0] + w[1] + w[2] + w[3] == 255);
+        CHECK((w[0] >= w[1] && w[1] >= w[2] && w[2] >= w[3]));
+        const u32 heaviest = back->boneLookup[region.firstBoneLookup + indices[g][0]];
+        const Vector3f& p = positions[g];
+        if (p.x < 0.5f && p.y < 0.5f) { // the even split
+            CHECK(w[0] == 128);
+            CHECK(w[1] == 127);
+        } else if (p.x > 0.5f && p.y < 0.5f) { // the lone influence from slot 1
+            CHECK(w[0] == 255);
+            CHECK(heaviest == 1u);
+        } else if (p.x > 0.5f) { // the split heavier in slot 1
+            CHECK(w[0] == 155);
+            CHECK(w[1] == 100);
+            CHECK(heaviest == 1u);
+        } else {
+            CHECK(w[0] == 255);
+            CHECK(heaviest == 0u);
+        }
+    }
+    CHECK(region.boneWeightPairs == 4);
+    CHECK(region.boneIndexPairs == 4);
+    CHECK(region.unknown2 == region.boneLookupCount);
+}
+
+TEST_CASE("wem m3 a region no vertex blends states one weight pair",
+          "[wem][convert][m3][skin]") {
+    // All 730 shipped regions whose vertices each follow one bone say 1, and
+    // 874 of 874 repeat their lookup count at +24.
+    const M3Converter converter;
+    Result<Document> doc = converter.fromM3(makeTwoRegionModel());
+    REQUIRE(doc.ok());
+    Result<m3::Model> back = converter.toM3(*doc.value, ProfileId::Heroes, 30);
+    REQUIRE(back.ok());
+    REQUIRE(back->divisions.size() == 1);
+    REQUIRE(back->divisions[0].regions.size() == 2);
+    for (const m3::Region& region : back->divisions[0].regions) {
+        CHECK(region.boneWeightPairs == 1);
+        // 829 of 840 shipped regions state the index pairs equal to the weight
+        // pairs; a 1 / 4 split is on eleven.
+        CHECK(region.boneIndexPairs == 1);
+        CHECK(region.unknown2 == region.boneLookupCount);
+    }
+}
+
+TEST_CASE("wem m3 a region names its first lookup bone as its root",
+          "[wem][convert][m3][skin]") {
+    // 840 of 840 shipped regions, rigid and blended alike. A Warcraft III
+    // source has no region record to carry one, and every region reached the
+    // engine naming bone 0.
+    const M3Converter converter;
+
+    SECTION("a source without region records") {
+        Result<Document> doc = converter.fromM3(makeTwoRegionModel());
+        REQUIRE(doc.ok());
+        for (Mesh& mesh : doc->models.front().meshes) {
+            for (MeshSection& section : mesh.sections) {
+                section.native = SectionNative{};
+            }
+        }
+        Result<m3::Model> back = converter.toM3(*doc.value, ProfileId::Heroes, 30);
+        REQUIRE(back.ok());
+        REQUIRE(back->divisions[0].regions.size() == 2);
+        for (const m3::Region& region : back->divisions[0].regions) {
+            REQUIRE(region.boneLookupCount >= 1);
+            CHECK(region.rootBone == back->boneLookup[region.firstBoneLookup]);
+        }
+        CHECK(back->divisions[0].regions[0].rootBone != back->divisions[0].regions[1].rootBone);
+    }
+
+    SECTION("a native record keeps the root it carried") {
+        m3::Model model = makeTwoRegionModel();
+        model.divisions[0].regions[0].rootBone = 2;
+        model.divisions[0].regions[1].rootBone = 1;
+        Result<Document> doc = converter.fromM3(model);
+        REQUIRE(doc.ok());
+        Result<m3::Model> back = converter.toM3(*doc.value, ProfileId::Heroes, 30);
+        REQUIRE(back.ok());
+        REQUIRE(back->divisions[0].regions.size() == 2);
+        CHECK(back->divisions[0].regions[0].rootBone == 2);
+        CHECK(back->divisions[0].regions[1].rootBone == 1);
+    }
 }
