@@ -100,7 +100,7 @@ enum class M3MaterialFlag : u32 {
     None = 0,
     VertexColor = 0x1,                    ///< Enable vertex color
     VertexAlpha = 0x2,                    ///< Enable vertex alpha
-    Unfogged = 0x4,                       ///< Not affected by fog
+    NormalBlend = 0x4,                    ///< Blend the normal-blend layers by factors 0-3 (v19+)
     TwoSided = 0x8,                       ///< Two-sided rendering
     Unshaded = 0x10,                      ///< Unlit / unshaded
     NoShadowsCast = 0x20,                 ///< Does not cast shadows
@@ -110,7 +110,7 @@ enum class M3MaterialFlag : u32 {
     TerrainHDR = 0x200,                   ///< Terrain HDR mode
     SimulateRoughness = 0x800,            ///< Simulate roughness
     PixelForwardLighting = 0x1000,        ///< Pixel forward lighting
-    DepthFog = 0x2000,                    ///< Depth-based fog
+    Unfogged = 0x2000,                    ///< Not affected by fog
     TransparentShadows = 0x4000,          ///< Transparent shadows
     DecalLighting = 0x8000,               ///< Decal lighting mode
     TransparentDepthEffects = 0x10000,    ///< Transparent depth effects
@@ -124,6 +124,7 @@ enum class M3MaterialFlag : u32 {
     SpecLowRequired = 0x1000000,          ///< Specular low LOD required
     AcceptSplatsOnly = 0x2000000,         ///< Accept splats only
     BackgroundObject = 0x4000000,         ///< Background object
+    NormalBlend2 = 0x8000000,             ///< Second normal blend, by factors 4-7 (v19+)
     DepthPrepassLowRequired = 0x10000000, ///< Depth prepass low LOD
     NoHighlighting = 0x20000000,          ///< Disable highlighting
     ClampOutput = 0x40000000,             ///< Clamp output
@@ -139,8 +140,8 @@ inline const char* ToString(M3MaterialFlag value) {
         return "VertexColor";
     case M3MaterialFlag::VertexAlpha:
         return "VertexAlpha";
-    case M3MaterialFlag::Unfogged:
-        return "Unfogged";
+    case M3MaterialFlag::NormalBlend:
+        return "NormalBlend";
     case M3MaterialFlag::TwoSided:
         return "TwoSided";
     case M3MaterialFlag::Unshaded:
@@ -159,8 +160,8 @@ inline const char* ToString(M3MaterialFlag value) {
         return "SimulateRoughness";
     case M3MaterialFlag::PixelForwardLighting:
         return "PixelForwardLighting";
-    case M3MaterialFlag::DepthFog:
-        return "DepthFog";
+    case M3MaterialFlag::Unfogged:
+        return "Unfogged";
     case M3MaterialFlag::TransparentShadows:
         return "TransparentShadows";
     case M3MaterialFlag::DecalLighting:
@@ -187,6 +188,8 @@ inline const char* ToString(M3MaterialFlag value) {
         return "AcceptSplatsOnly";
     case M3MaterialFlag::BackgroundObject:
         return "BackgroundObject";
+    case M3MaterialFlag::NormalBlend2:
+        return "NormalBlend2";
     case M3MaterialFlag::DepthPrepassLowRequired:
         return "DepthPrepassLowRequired";
     case M3MaterialFlag::NoHighlighting:
@@ -641,6 +644,13 @@ struct M3ColorBGRA {
 /// parameters, fresnel settings, and AVI video playback controls. Materials embed
 /// multiple optional TextureLayer instances for diffuse, specular, emissive, normal,
 /// and other texture slots.
+///
+/// Every field is initialised for the same reason `StandardMaterial`'s are: the parser
+/// fills all of them, but a conversion builds a layer from scratch (`layerFrom`) and a
+/// default-initialised one handed to the writer carries stack junk into the file. It
+/// did -- the halves of live heap pointers landed in `flipbookColumns`, `textureSource`
+/// and the fresnel fields of every exported layer, and the Galaxy editor crashed on the
+/// ones whose low byte came out zero (`reference_m3_layer_stack_junk`).
 struct M3TextureLayer {
     /// Layer identifier
     u32 id{};
@@ -696,13 +706,13 @@ struct M3TextureLayer {
     M3AnimRef<f32> wOffset{};
     /// Animated W tiling (3D textures)
     M3AnimRef<f32> wTiling{};
-    /// Animated map alpha
+    /// Animated map alpha; rests at one (above)
     M3AnimRef<f32> mapAlpha{};
     /// Tri-planar UV offset (v23+)
     M3AnimRef<Vector3f> triplanarOffset{};
     /// Tri-planar UV scale (v23+)
     M3AnimRef<Vector3f> triplanarScale{};
-    /// UV source related field
+    /// Layer whose UV setup this one shares; -1 = own
     u32 uvSourceRelated{};
     /// Fresnel effect mode
     M3FresnelMode fresnelMode{};
@@ -1146,7 +1156,11 @@ struct M3Reflection {
     std::optional<M3TextureLayer> blurMap;
     /// Reflection flags (v2+)
     M3ReflectionMaterialFlag flags{};
-    /// Unknown field
+    /// Index of the DataDrivenMaterial this was converted into, 0xFFFFFFFF if none
+    /// (v3+). Written by the Heroes load-time conversion pass, not a material
+    /// parameter; meaningless in a model that carries no MADD chunk. v3 exists only to
+    /// hold it. Defaulted because an invented REF_ has no link to name, and a v3 record
+    /// that says anything else points the Heroes loader at a MADD index.
     u32 unknown2{};
 
     template <class V>

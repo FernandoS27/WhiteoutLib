@@ -893,6 +893,18 @@ m3::MaterialMap pushStandard(m3::StandardMaterial standard, m3::Model& model, Pr
                              Diagnostics& out) {
     standard.setVersion(profile == ProfileId::Heroes ? m3::HOTS_MAX_STANDARD_MATERIAL_VERSION
                                                      : m3::SC2_MAX_STANDARD_MATERIAL_VERSION);
+    // From v19 a normal blend switches on factors the editor's draw reads without
+    // looking: 0-3 for the first, 4-7 for the second. The flag with no factors
+    // dereferences an empty array. All 20 shipped v20 materials that set it carry
+    // four. A record restored from a pre-v19 source still has that version's 0x4
+    // (17,012 of 59,704 v15-v18 materials), which Blizzard's loader clears when it
+    // upgrades one; the native mirror keeps no version, so the factors decide.
+    if (standard.normalBlendFactors.size() < 4) {
+        standard.flags &= ~m3::MaterialFlag::NormalBlend;
+    }
+    if (standard.normalBlendFactors.size() < 8) {
+        standard.flags &= ~m3::MaterialFlag::NormalBlend2;
+    }
     if (profile == ProfileId::Heroes && standard.hdrEnvironmentConstant > 0.0f) {
         // Heroes keeps these as properties of a MADD blob instead, and this
         // export writes typed materials. §18.2.
@@ -2333,10 +2345,8 @@ void finish(Section& s, const CompositeBody* body, const CommonMaterial& common,
         m.alphaLayer1->mapAlpha.initValue = 1.0f; // the static weight rides its own carrier
     }
     // An explicit coverage layer answers what the team select gave up, and the
-    // header's own blend and threshold stand again. `psmaterial.fx` tests by the
-    // mask, but the Galaxy editor was measured testing by the DIFFUSE's alpha, so
-    // the threshold only holds where the mask IS that alpha -- the Reforged driver
-    // bakes the cutout into its team diffuse and lowers the threshold to match.
+    // header's own blend and threshold stand again: `psmainshading.fx` tests
+    // `alphaFactor * mask`, never the diffuse's alpha.
     if (s.teamDiffuse && !s.toggle && m.alphaLayer1.has_value() &&
         m.blendMode == m3::BlendMode::Opaque && m.alphaTestThreshold == 0) {
         m.blendMode = blendFor(common.blend);

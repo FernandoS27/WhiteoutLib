@@ -2068,3 +2068,50 @@ TEST_CASE("wem m3 a region names its first lookup bone as its root",
         CHECK(back->divisions[0].regions[1].rootBone == 1);
     }
 }
+
+TEST_CASE("wem m3 an unfogged material states the editor's unfogged bit",
+          "[wem][convert][m3][material]") {
+    // The Galaxy editor's flag table names 0x2000 Unfogged. 0x4 is a normal blend
+    // from v19, whose factors the draw reads without checking the count, so the
+    // Skink High Priest's and Spirit of Vengeance's unfogged glows, written as
+    // 0x4, crashed the editor on an empty factor array.
+    CHECK(static_cast<u32>(m3::MaterialFlag::Unfogged) == 0x2000u);
+    CHECK(static_cast<u32>(m3::MaterialFlag::NormalBlend) == 0x4u);
+
+    Document document = wemfix::makeDocument(ProfileId::Sc2);
+    for (Material& material : document.models[0].profileSets[0].materials) {
+        material.InitCommon().flags |= MaterialFlags::Unfogged;
+    }
+    const Result<m3::Model> written = M3Converter().toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    REQUIRE_FALSE(written->standardMaterials.empty());
+    for (const m3::StandardMaterial& material : written->standardMaterials) {
+        CHECK(hasFlag(material.flags, m3::MaterialFlag::Unfogged));
+        CHECK_FALSE(hasFlag(material.flags, m3::MaterialFlag::NormalBlend));
+    }
+}
+
+TEST_CASE("wem m3 a normal blend is written only with the factors it reads",
+          "[wem][convert][m3][material]") {
+    // A record restored from a pre-v19 source keeps that version's 0x4, and the
+    // export stamps it v20, where the bit is a normal blend.
+    const auto exportedFlags = [](std::size_t factors) {
+        m3::Model source = makeModel(29);
+        m3::StandardMaterial& material = source.standardMaterials.front();
+        material.flags |= m3::MaterialFlag::NormalBlend | m3::MaterialFlag::NormalBlend2;
+        material.normalBlendFactors.resize(factors);
+        const M3Converter converter;
+        Result<Document> document = converter.fromM3(source, ProfileId::Sc2);
+        REQUIRE(document.ok());
+        REQUIRE(document->models[0].profileSets[0].materials.front().NativeIsAuthoritative());
+        Result<m3::Model> written = converter.toM3(*document, ProfileId::Sc2, 29);
+        REQUIRE(written.ok());
+        REQUIRE(written->standardMaterials.size() == 1);
+        return written->standardMaterials.front().flags;
+    };
+    CHECK_FALSE(hasFlag(exportedFlags(0), m3::MaterialFlag::NormalBlend));
+    CHECK_FALSE(hasFlag(exportedFlags(0), m3::MaterialFlag::NormalBlend2));
+    CHECK(hasFlag(exportedFlags(4), m3::MaterialFlag::NormalBlend));
+    CHECK_FALSE(hasFlag(exportedFlags(4), m3::MaterialFlag::NormalBlend2));
+    CHECK(hasFlag(exportedFlags(8), m3::MaterialFlag::NormalBlend2));
+}

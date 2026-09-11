@@ -1162,7 +1162,7 @@ struct MAT {
 |------|------|-------------|
 | 0x00000001 | vertexColor | Enable vertex color |
 | 0x00000002 | vertexAlpha | Enable vertex alpha |
-| 0x00000004 | unfogged | Not affected by fog |
+| 0x00000004 | normalBlend | v19+: blend the normal-blend layers by `normalBlendFactors` 0-3 (see below) |
 | 0x00000008 | twoSided | Two-sided rendering |
 | 0x00000010 | unshaded | Unlit / unshaded |
 | 0x00000020 | noShadowsCast | Does not cast shadows |
@@ -1172,7 +1172,7 @@ struct MAT {
 | 0x00000200 | terrainHDR | Terrain HDR mode |
 | 0x00000800 | simulateRoughness | Simulate roughness |
 | 0x00001000 | pixelForwardLighting | Pixel forward lighting |
-| 0x00002000 | depthFog | Depth-based fog |
+| 0x00002000 | unfogged | Not affected by fog |
 | 0x00004000 | transparentShadows | Transparent shadows |
 | 0x00008000 | decalLighting | Decal lighting mode |
 | 0x00010000 | transparentDepthEffects | Transparent depth effects |
@@ -1186,10 +1186,20 @@ struct MAT {
 | 0x01000000 | specLowRequired | Specular low LOD required |
 | 0x02000000 | acceptSplatsOnly | Accept splats only |
 | 0x04000000 | backgroundObject | Background object |
+| 0x08000000 | normalBlend2 | v19+: second normal blend, by factors 4-7 |
 | 0x10000000 | depthPrepassLowRequired | Depth prepass low LOD |
 | 0x20000000 | noHighlighting | Disable highlighting |
 | 0x40000000 | clampOutput | Clamp output |
 | 0x80000000 | geometryVisible | Geometry visible (v17+) |
+
+Unfogged is 0x2000 in the Galaxy editor's own flag table (`SC2Editor_x64`,
+`EDSTR_MODELDATA_MATERIAL_FLAG_UNFOGGED`), and the draw zeroes the fog density
+for it. 0x4 means something else before v19 (17,012 of 59,704 shipped v15-v18
+materials set it), and the loader clears it and 0x08000000 when it upgrades a
+record older than v19. From v19 the draw reads `normalBlendFactors` whenever
+either bit is set, without checking the count. A material that sets 0x4 with an
+empty factor array crashes the editor. All 20 shipped v20 materials that set it
+carry four factors and all four normal-blend layers.
 
 **Layer Indices** (v19/v20, 18 layers):
 

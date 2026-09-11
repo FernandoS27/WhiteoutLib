@@ -275,7 +275,12 @@ enum class MaterialFlag : u32 {
     None = 0x0,
     VertexColor = 0x00000001,             ///< Enable vertex color
     VertexAlpha = 0x00000002,             ///< Enable vertex alpha
-    Unfogged = 0x00000004,                ///< Not affected by fog
+    // 0x4 is not fog. The Galaxy editor's own flag table names 0x2000 Unfogged,
+    // its loader clears 0x4 and 0x08000000 on every MAT_ older than v19, and from
+    // v19 its draw reads normalBlendFactors whenever 0x4 is set. An export that
+    // called this bit Unfogged gave a material an empty factor array and crashed
+    // the editor (`reference_m3_normal_blend_flag`).
+    NormalBlend = 0x00000004,             ///< Blend the normal-blend layers by factors 0-3 (v19+)
     TwoSided = 0x00000008,                ///< Two-sided rendering
     Unshaded = 0x00000010,                ///< Unlit / unshaded
     NoShadowsCast = 0x00000020,           ///< Does not cast shadows
@@ -285,7 +290,7 @@ enum class MaterialFlag : u32 {
     TerrainHDR = 0x00000200,              ///< Terrain HDR mode
     SimulateRoughness = 0x00000800,       ///< Simulate roughness
     PixelForwardLighting = 0x00001000,    ///< Pixel forward lighting
-    DepthFog = 0x00002000,                ///< Depth-based fog
+    Unfogged = 0x00002000,                ///< Not affected by fog
     TransparentShadows = 0x00004000,      ///< Transparent shadows
     DecalLighting = 0x00008000,           ///< Decal lighting mode
     TransparentDepthEffects = 0x00010000, ///< Transparent depth effects
@@ -299,6 +304,7 @@ enum class MaterialFlag : u32 {
     SpecLowRequired = 0x01000000,         ///< Specular low LOD required
     AcceptSplatsOnly = 0x02000000,        ///< Accept splats only
     BackgroundObject = 0x04000000,        ///< Background object
+    NormalBlend2 = 0x08000000,            ///< Second normal blend, by factors 4-7 (v19+)
     DepthPrepassLowRequired = 0x10000000, ///< Depth prepass low LOD
     NoHighlighting = 0x20000000,          ///< Disable highlighting
     ClampOutput = 0x40000000,             ///< Clamp output
