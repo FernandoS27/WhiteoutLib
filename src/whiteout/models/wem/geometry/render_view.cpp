@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
 #include <numeric>
 #include <unordered_map>
 
@@ -420,6 +421,9 @@ RenderMesh BuildRenderMesh(const Mesh& mesh, const RenderMeshDesc& desc) {
         const u32 width = desc.maxInfluences;
         std::vector<u32> boneIndices(vertexCount * width, 0);
         std::vector<f32> boneWeights(vertexCount * width, 0.0f);
+        const bool fold = !desc.skinParents.empty() && !desc.skinPivots.empty();
+        const std::span<const Vector3f> positions =
+            mesh.attributes.get<Vector3f>(names::kPosition, Domain::Vertex);
         u32 overflowed = 0;
         for (std::size_t i = 0; i < vertexCount; ++i) {
             const GroupRec& record = groups[order[i]];
@@ -440,9 +444,15 @@ RenderMesh BuildRenderMesh(const Mesh& mesh, const RenderMeshDesc& desc) {
                 continue;
             }
 
-            const std::span<const Influence> influences = mesh.skin.forVertex(record.vertex);
+            std::span<const Influence> influences = mesh.skin.forVertex(record.vertex);
+            std::vector<Influence> folded;
             if (influences.size() > width) {
                 ++overflowed;
+                if (fold && record.vertex < positions.size()) {
+                    folded = FoldInfluences(influences, width, positions[record.vertex],
+                                            desc.skinParents, desc.skinPivots);
+                    influences = folded;
+                }
             }
             const std::size_t count = std::min<std::size_t>(influences.size(), width);
             for (std::size_t k = 0; k < count; ++k) {
@@ -453,7 +463,9 @@ RenderMesh BuildRenderMesh(const Mesh& mesh, const RenderMeshDesc& desc) {
         if (overflowed != 0) {
             out.diagnostics.warn(DiagCode::BoneInfluenceLimit,
                                  std::to_string(overflowed) + " vertex/vertices carry more than " +
-                                     std::to_string(width) + " influences; the tail was cut");
+                                     std::to_string(width) + " influences; " +
+                                     (fold ? "the surplus folded into the nearest joints"
+                                           : "the tail was cut"));
         }
         buffer.declareIntAttribute(boneIndices, width, utils::AttributeClass::BlendIndices,
                                    desc.blendIndexEncoding);
@@ -462,6 +474,71 @@ RenderMesh BuildRenderMesh(const Mesh& mesh, const RenderMeshDesc& desc) {
     }
 
     out.vertices = buffer.build();
+    return out;
+}
+
+std::vector<Influence> FoldInfluences(std::span<const Influence> influences, u32 width,
+                                      const Vector3f& position, std::span<const u32> parents,
+                                      std::span<const Vector3f> pivots) {
+    std::vector<Influence> out(influences.begin(), influences.end());
+    // Each influence's chain, the bone first and its root last; the walk stops
+    // at a parent past the span, and after as many steps as there are nodes.
+    const auto chainOf = [&parents](u32 bone) {
+        std::vector<u32> chain;
+        for (u32 node = bone; node < parents.size() && chain.size() <= parents.size();
+             node = parents[node]) {
+            chain.push_back(node);
+        }
+        return chain;
+    };
+    const auto lever = [&pivots, &position](u32 node) {
+        return node < pivots.size() ? (position - pivots[node]).length() : 0.0f;
+    };
+    std::vector<std::vector<u32>> chains;
+    chains.reserve(out.size());
+    for (const Influence& influence : out) {
+        chains.push_back(chainOf(influence.bone));
+    }
+
+    while (out.size() > width) {
+        std::size_t bestFrom = 0;
+        std::size_t bestInto = 1;
+        f32 bestCost = std::numeric_limits<f32>::max();
+        for (std::size_t a = 0; a < out.size(); ++a) {
+            for (std::size_t b = a + 1; b < out.size(); ++b) {
+                // The joints below the lowest common ancestor on either side;
+                // with none in common, both whole chains.
+                const std::vector<u32>& ca = chains[a];
+                const std::vector<u32>& cb = chains[b];
+                std::size_t shared = 0;
+                while (shared < ca.size() && shared < cb.size() &&
+                       ca[ca.size() - 1 - shared] == cb[cb.size() - 1 - shared]) {
+                    ++shared;
+                }
+                f32 levers = 0.0f;
+                for (std::size_t k = 0; k + shared < ca.size(); ++k) {
+                    levers += lever(ca[k]);
+                }
+                for (std::size_t k = 0; k + shared < cb.size(); ++k) {
+                    levers += lever(cb[k]);
+                }
+                // The lighter one moves; on a tie, the one farther from the root.
+                const bool aMoves = out[a].weight < out[b].weight ||
+                                    (out[a].weight == out[b].weight && ca.size() > cb.size());
+                const f32 cost = (aMoves ? out[a].weight : out[b].weight) * levers;
+                if (cost < bestCost) {
+                    bestCost = cost;
+                    bestFrom = aMoves ? a : b;
+                    bestInto = aMoves ? b : a;
+                }
+            }
+        }
+        out[bestInto].weight += out[bestFrom].weight;
+        out.erase(out.begin() + static_cast<std::ptrdiff_t>(bestFrom));
+        chains.erase(chains.begin() + static_cast<std::ptrdiff_t>(bestFrom));
+    }
+    std::stable_sort(out.begin(), out.end(),
+                     [](const Influence& l, const Influence& r) { return l.weight > r.weight; });
     return out;
 }
 

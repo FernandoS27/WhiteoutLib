@@ -32,6 +32,7 @@
 #include <string>
 #include <vector>
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <whiteout/models/wem/geometry/render_view.h>
@@ -308,6 +309,104 @@ TEST_CASE("WEM render view emits one range per section", "[wem][geometry][render
     CHECK(render.ranges[1].materialSlot == 7);
     CHECK(render.ranges[1].indexCount == 3);
     CHECK(render.indices.size() == 6);
+}
+
+// A Warcraft III cloth hub: three two-bone chains under one root meet at a
+// vertex sitting on the middle chain's child pivot, and the matrix group names
+// all six bones at a sixth each.
+struct ClothHub {
+    std::vector<u32> parents{kInvalidIndex, 0, 1, 0, 3, 0, 5};
+    std::vector<Vector3f> pivots{Vector3f{0, 0, 80},   Vector3f{0, 9, 77},  Vector3f{-5, 11, 66},
+                                 Vector3f{-3, 0, 77},  Vector3f{-7.5f, 0, 67},
+                                 Vector3f{0, -9, 77},  Vector3f{-5, -11, 66}};
+    Vector3f vertex{-7.5f, 0, 67};
+    std::vector<geom::Influence> influences{{1, 1.0f / 6}, {2, 1.0f / 6}, {3, 1.0f / 6},
+                                            {4, 1.0f / 6}, {5, 1.0f / 6}, {6, 1.0f / 6}};
+};
+
+bool hasBone(const std::vector<u32>& bones, u32 bone) {
+    return std::find(bones.begin(), bones.end(), bone) != bones.end();
+}
+
+TEST_CASE("WEM influence fold keeps every chain a cloth hub hangs from", "[wem][geometry][render]") {
+    const ClothHub hub;
+    const std::vector<geom::Influence> folded =
+        geom::FoldInfluences(hub.influences, 4, hub.vertex, hub.parents, hub.pivots);
+    REQUIRE(folded.size() == 4);
+    std::vector<u32> bones;
+    f32 total = 0.0f;
+    for (const geom::Influence& influence : folded) {
+        bones.push_back(influence.bone);
+        total += influence.weight;
+    }
+    CHECK(total == Catch::Approx(1.0f));
+    // The child whose pivot the vertex sits on folds first, for free, into
+    // its parent; the second fold takes one of the side chains' children.
+    CHECK_FALSE(hasBone(bones, 4));
+    REQUIRE(hasBone(bones, 3));
+    const auto middle = std::find_if(folded.begin(), folded.end(),
+                                     [](const geom::Influence& i) { return i.bone == 3; });
+    CHECK(middle->weight == Catch::Approx(2.0f / 6.0f));
+    CHECK(folded.front().weight >= folded.back().weight);
+    CHECK(hasBone(bones, 1));
+    CHECK(hasBone(bones, 5));
+    CHECK((hasBone(bones, 2) != hasBone(bones, 6)));
+
+    // Within the width, nothing moves.
+    const std::vector<geom::Influence> kept = geom::FoldInfluences(
+        std::span<const geom::Influence>(hub.influences).first(4), 4, hub.vertex, hub.parents,
+        hub.pivots);
+    CHECK(kept.size() == 4);
+}
+
+TEST_CASE("WEM render view folds surplus influences only over a skeleton it is given",
+          "[wem][geometry][render]") {
+    const ClothHub hub;
+    test::IngestedMesh mesh = makeFixture(3, {0, 1, 2}, "hub");
+    mesh.mesh.attributes.get<Vector3f>(geom::names::kPosition, geom::Domain::Vertex)[0] =
+        hub.vertex;
+    mesh.mesh.skin.offsets = {0, 6, 7, 8};
+    mesh.mesh.skin.influences = hub.influences;
+    mesh.mesh.skin.influences.push_back({0, 1.0f});
+    mesh.mesh.skin.influences.push_back({0, 1.0f});
+
+    geom::RenderMeshDesc desc = geom::RenderMeshDesc::Standard();
+    desc.includeSkin = true;
+    desc.maxInfluences = 4;
+    const auto hubBones = [](const geom::RenderMesh& render) {
+        std::vector<u32> bones;
+        const auto indices = render.vertices.getBoneIndices();
+        const auto weights = render.vertices.getBoneWeights();
+        for (u32 v = 0; v < render.vertexCount(); ++v) {
+            if (render.vertexToWemVertex[v] != 0) {
+                continue;
+            }
+            for (u32 k = 0; k < 4; ++k) {
+                if (weights[v][k] > 0.0f) {
+                    bones.push_back(indices[v][k]);
+                }
+            }
+        }
+        return bones;
+    };
+
+    // The tail cut drops the last chain whole.
+    const std::vector<u32> cut = hubBones(geom::BuildRenderMesh(mesh.mesh, desc));
+    CHECK_FALSE(hasBone(cut, 5));
+    CHECK_FALSE(hasBone(cut, 6));
+
+    desc.skinParents = hub.parents;
+    desc.skinPivots = hub.pivots;
+    const geom::RenderMesh render = geom::BuildRenderMesh(mesh.mesh, desc);
+    const std::vector<u32> folded = hubBones(render);
+    CHECK(folded.size() == 4);
+    CHECK(hasBone(folded, 5));
+    CHECK_FALSE(hasBone(folded, 4));
+    bool said = false;
+    for (const auto& entry : render.diagnostics.all()) {
+        said = said || entry.message.find("folded") != std::string::npos;
+    }
+    CHECK(said);
 }
 
 TEST_CASE("WEM render view splits a seam into two GPU vertices", "[wem][geometry][render]") {

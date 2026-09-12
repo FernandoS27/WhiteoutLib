@@ -43,6 +43,7 @@
 #include <vector>
 
 #include <whiteout/models/m3/structures.h>
+#include <whiteout/models/wem/converters.h>
 #include <whiteout/models/wem/diagnostics.h>
 #include <whiteout/models/wem/document.h>
 #include <whiteout/models/wem/profile.h>
@@ -93,6 +94,14 @@ struct ExportContext {
     /// Parallel to `Model::nodes`.
     std::vector<NodeSlot> nodeSlots;
 
+    /// Parallel to `Model::nodes`, and only filled under
+    /// `M3ExportSettings::effectNodeBones`: the node's own carrier bone
+    /// (`kInvalidIndex` when it has none) and the bone its visibility is wired
+    /// to -- the `_Vis` leaf where `toM3` made one. A light or camera keeps its
+    /// record's slot for its own properties and keys its carrier with the rest.
+    std::vector<u32> nodeBone;
+    std::vector<u32> nodeVisBone;
+
     /// Section-visibility gate bones. A Warcraft III geoset animation hides a
     /// whole SECTION, and the `.m3` spelling of that is a bone whose animated
     /// visibility gates the batch (`Batch::boneCount` -- Blizzard's own
@@ -112,6 +121,19 @@ struct ExportContext {
     /// composite slot has one per section.
     std::map<u32 /*channel id*/, std::vector<std::pair<u32 /*standard material*/, u8 /*slot*/>>>
         sectionAlphaLayers;
+
+    /// The TINTS: a Warcraft III geoset colour track multiplies the geoset, and
+    /// its carrier is a Color-flag emissive layer on the Mod op whose `color`
+    /// carries the keys -- as RGBA, so the channel's RGB is widened into an SDCC
+    /// stream. Slot 1 = emissiveLayer1, 2 = emissiveLayer2.
+    std::map<u32 /*channel id*/, std::vector<std::pair<u32 /*standard material*/, u8 /*slot*/>>>
+        sectionColorLayers;
+
+    /// Per slot, the material map entries `toM3` appended as copies of the
+    /// slot's standard material for Warcraft III sections whose tint or fade
+    /// differs from the slot's first drawer. Every track the slot's material
+    /// keys reaches each copy too.
+    std::map<u32 /*slot*/, std::vector<u32 /*material map entry*/>> materialClones;
 
     /// The live/dead coverage switch (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5.3
     /// R6b): per slot, the ordinal whose alpha track drives the first
@@ -140,8 +162,10 @@ void SolveBoneAnimFlags(m3::Model& out);
 
 /// Writes `document`'s clips back onto `out` as SEQS / STG_ / STC_ and the SD
 /// blocks — the inverse of @ref Import.
+///
+/// @p map, when given, receives the clip -> SEQS -> STC_ join.
 void Export(const Document& document, u32 model, const ExportContext& context, m3::Model& out,
-            Diagnostics& diagnostics);
+            Diagnostics& diagnostics, M3ExportMap* map = nullptr);
 
 /// Merges an external animation file into @p document.
 ///

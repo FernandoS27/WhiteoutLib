@@ -40,11 +40,15 @@
 
 #include "../materials/m3_core.h"
 #include "m3_anim.h"
+#include "skin_skeleton.h"
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstring>
+#include <map>
+#include <set>
 #include <string>
 #include <utility>
 
@@ -65,6 +69,80 @@ constexpr u32 kModelBoundsAnimId = 0x001F9BD2;
 /// What MODL's attachment-point and camera addon arrays hold: 5,998 of 5,998
 /// shipped attachment addons and every camera one measured is 0xFFFF.
 constexpr u16 kNoAddon = 0xFFFFu;
+
+/// Reorders `MATM` so every composite follows the entries its sections name,
+/// and repoints everything that indexes the map. The editor builds the map in
+/// index order and resolves a section through the material it already built at
+/// that index, so a section naming a later entry hands it a null material
+/// (SC2Editor 5.0.16: `ACCESS_VIOLATION reading 0x78`). No shipped file does:
+/// 2,519 composites over 40,036 models, each right after its sections. `toM3`
+/// numbers a slot's entry by the slot and appends the sections after every
+/// slot, so it runs last -- everything before it reads a map index as a slot.
+void PlaceSectionsFirst(m3::Model& out) {
+    const std::size_t count = out.materialMaps.size();
+    std::vector<u32> order;
+    order.reserve(count);
+    std::vector<u8> placed(count, 0);
+    const auto place = [&](u32 m) {
+        if (!placed[m]) {
+            placed[m] = 1;
+            order.push_back(m);
+        }
+    };
+    for (u32 m = 0; m < count; ++m) {
+        const m3::MaterialMap& map = out.materialMaps[m];
+        if (map.materialType == m3::MaterialType::Composite &&
+            map.materialIndex < out.compositeMaterials.size()) {
+            for (const m3::CompositeSection& section :
+                 out.compositeMaterials[map.materialIndex].sections) {
+                // A composite never nests another (0 in either corpus).
+                if (section.materialIndex < count &&
+                    out.materialMaps[section.materialIndex].materialType !=
+                        m3::MaterialType::Composite) {
+                    place(section.materialIndex);
+                }
+            }
+        }
+        place(m);
+    }
+
+    std::vector<u32> remap(count);
+    bool moved = false;
+    for (u32 k = 0; k < count; ++k) {
+        remap[order[k]] = k;
+        moved = moved || order[k] != k;
+    }
+    if (!moved) {
+        return;
+    }
+    std::vector<m3::MaterialMap> maps;
+    maps.reserve(count);
+    for (const u32 m : order) {
+        maps.push_back(out.materialMaps[m]);
+    }
+    out.materialMaps = std::move(maps);
+
+    const auto repoint = [&](u32 index) { return index < count ? remap[index] : index; };
+    for (m3::CompositeMaterial& composite : out.compositeMaterials) {
+        for (m3::CompositeSection& section : composite.sections) {
+            section.materialIndex = repoint(section.materialIndex);
+        }
+    }
+    for (m3::MeshDivision& division : out.divisions) {
+        for (m3::Batch& batch : division.batches) {
+            batch.materialIndex = static_cast<u16>(repoint(batch.materialIndex));
+        }
+    }
+    for (m3::ParticleEmitter& emitter : out.particleEmitters) {
+        emitter.materialIndex = repoint(emitter.materialIndex);
+    }
+    for (m3::RibbonEmitter& ribbon : out.ribbonEmitters) {
+        ribbon.materialIndex = repoint(ribbon.materialIndex);
+    }
+    for (m3::Projector& projector : out.projections) {
+        projector.materialReferenceIndex = repoint(projector.materialReferenceIndex);
+    }
+}
 
 /// A shipped `.m3` string carries its terminator inside the `std::string` — the
 /// `Reference` count includes it — so anything comparing or storing one has to
@@ -721,7 +799,8 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
 // ============================================================================
 
 Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
-                                    u32 targetVersion, const M3ExportSettings& settings) const {
+                                    u32 targetVersion, const M3ExportSettings& settings,
+                                    M3ExportMap* map) const {
     Result<m3::Model> result;
     if (!checkExportProfile(document, profile, result.diagnostics)) {
         return result;
@@ -843,6 +922,39 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                          "hierarchy in one pass)",
                          ElementRef(ElementKind::Document, 0), profile);
     }
+    // What each node keys, for the Warcraft III carriers: a node whose
+    // transform or visibility moves needs a bone of its own to move, and an
+    // identity attachment that rides its parent's bone would otherwise take its
+    // keys nowhere. A visibility that rests hidden counts -- it has to hide
+    // something.
+    const std::size_t nodeCount = model.nodes.size();
+    std::vector<u8> keyedTransform(nodeCount, 0);
+    std::vector<u8> keyedVisibility(nodeCount, 0);
+    if (settings.effectNodeBones) {
+        for (const AnimChannel& channel : model.animChannels.channels) {
+            if (channel.target.kind != TrackTarget::Kind::Node ||
+                channel.target.node >= nodeCount) {
+                continue;
+            }
+            switch (channel.target.channel) {
+            case Channel::Translation:
+            case Channel::Rotation:
+            case Channel::Scale:
+                keyedTransform[channel.target.node] = 1;
+                break;
+            case Channel::Visibility:
+                keyedVisibility[channel.target.node] = 1;
+                break;
+            default:
+                break;
+            }
+        }
+        for (u32 n = 0; n < nodeCount; ++n) {
+            if (VisibilityRest(model, n) <= 0.5f) {
+                keyedVisibility[n] = 1;
+            }
+        }
+    }
     for (const u32 n : topological) {
         const Node& node = model.nodes.nodes[n];
         bool carries = false;
@@ -854,7 +966,16 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         case NodeKind::Attachment:
         case NodeKind::Light:
         case NodeKind::Camera:
-            carries = !identityLocal(node);
+            carries = !identityLocal(node) ||
+                      (settings.effectNodeBones && (keyedTransform[n] || keyedVisibility[n]));
+            break;
+        case NodeKind::ParticleEmitter:
+        case NodeKind::RibbonEmitter:
+        case NodeKind::CollisionShape:
+            // An emitter record names a bone, and a Warcraft III emitter moves
+            // and hides on its own node: the bone is the node (§2.3). So does
+            // the hit test a collision shape crosses as (C8.2).
+            carries = settings.effectNodeBones;
             break;
         default:
             break;
@@ -889,7 +1010,11 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         m3::Bone bone;
         bone.name = node.name;
         bone.flags = FromNodeFlags(node.flags, static_cast<u32>(node.native.value("m3FlagBits")));
-        const u32 parentBone = nearestBone(n);
+        // A `ModelSpace` node's local is its world (`NodeTree::worldBind` stops
+        // there, and so does the IREF below): under a parent bone it would be
+        // composed a second time.
+        const u32 parentBone =
+            hasFlag(node.flags, NodeFlags::ModelSpace) ? 0xFFFFu : nearestBone(n);
         bone.parentIndex = parentBone == 0xFFFFu ? u16(0xFFFFu) : static_cast<u16>(parentBone);
         bone.position.initValue = Unrebase(node.local.translation);
         const Quaternion& rotation = node.local.rotation;
@@ -911,16 +1036,170 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         out.initialReference.resize(out.bones.size());
         out.initialReference[boneOf[n]] = reference;
     }
+    // The visibility leaves (§2.3). A StarCraft II bone that is hidden hides
+    // everything under it; a Warcraft III node's visibility hides that node
+    // alone -- an attachment's children, an emitter's child emitters, keep
+    // drawing. So a node that keys its visibility AND has children keeps its
+    // transform on its own bone and moves the visibility onto an identity
+    // child that nothing else hangs off: the shape of Blizzard's own
+    // conversions, transform on the `_OffsetDummy`, visibility on the leaf.
+    std::vector<u32> visBoneOf(nodeCount, 0xFFFFu);
+    if (settings.effectNodeBones) {
+        std::vector<u8> hasChildren(nodeCount, 0);
+        for (u32 n = 0; n < nodeCount; ++n) {
+            const Node& child = model.nodes.nodes[n];
+            if (child.parent != kInvalidNode && child.parent < nodeCount &&
+                child.native.find(kNodeSharesParentVisibility) == nullptr) {
+                hasChildren[child.parent] = 1;
+            }
+        }
+        for (const u32 n : topological) {
+            const Node& node = model.nodes.nodes[n];
+            const bool ownVisibility =
+                node.kind == NodeKind::Attachment || node.kind == NodeKind::Light ||
+                node.kind == NodeKind::ParticleEmitter || node.kind == NodeKind::RibbonEmitter;
+            if (!ownVisibility || boneOf[n] == 0xFFFFu || !keyedVisibility[n] || !hasChildren[n]) {
+                continue;
+            }
+            m3::Bone leaf;
+            leaf.name = node.name + "_Vis";
+            leaf.parentIndex = static_cast<u16>(boneOf[n]);
+            leaf.rotation.initValue = Quaternion{0, 0, 0, 1};
+            leaf.scale.initValue = Vector3f{1, 1, 1};
+            leaf.visibility.initValue = out.bones[boneOf[n]].visibility.initValue;
+            // The owner rests visible: its children are not what hides.
+            out.bones[boneOf[n]].visibility.initValue = 1u;
+            visBoneOf[n] = static_cast<u32>(out.bones.size());
+            out.bones.push_back(std::move(leaf));
+            // An identity child binds where its owner does.
+            out.initialReference.push_back(out.initialReference[boneOf[n]]);
+        }
+        animContext.nodeBone.assign(nodeCount, kInvalidIndex);
+        animContext.nodeVisBone.assign(nodeCount, kInvalidIndex);
+        for (u32 n = 0; n < nodeCount; ++n) {
+            if (boneOf[n] == 0xFFFFu) {
+                continue;
+            }
+            animContext.nodeBone[n] = boneOf[n];
+            animContext.nodeVisBone[n] = visBoneOf[n] != 0xFFFFu ? visBoneOf[n] : boneOf[n];
+        }
+    }
     out.skinBoneCount = static_cast<u32>(out.bones.size());
+
+    // --- billboards (WC3_TO_SC2_COMPLETION_PLAN.md §4.2) ---------------------
+    //
+    // A Warcraft III node states which way it billboards in its flags; a
+    // StarCraft II bone states it in a BBSC record. Both evaluate in model
+    // space, before the children compose onto the result, and both aim from
+    // the node at the eye -- Warcraft III takes `camera - pivot`, so every
+    // record asks `cameraLookAt`, not the view direction Blizzard's own
+    // conversions mostly chose.
+    //
+    // The axes cross through the basis change: Warcraft III's +X (the facing
+    // axis) is StarCraft II's -Y and its +Y is +X, so a node locked to its Y
+    // is a bone locked to X (type 0) and one locked to its X is a bone locked
+    // to Y (type 1). Measured in `wc3_sc2_equivalence_test` (E1), which also
+    // found that Warcraft III's frame for a lock on X is left-handed: no
+    // rotation reproduces it, and type 1 unturned is the one that keeps the
+    // facing and standing axes, mirroring the locked one. The locked types
+    // hold the MODEL's axis where Warcraft III holds the node's own current
+    // one; the two agree while nothing above the node turns it, and a turning
+    // ancestor is reported.
+    //
+    // Only for a Warcraft III document: the `.m2` importer sets the same bits
+    // with its own semantics, and an `.m3` source carries no NodeFlags at all.
+    const bool warcraftNodes = document.defaultProfile == ProfileId::Wc3Classic ||
+                               document.defaultProfile == ProfileId::Wc3Reforged;
+    if (warcraftNodes) {
+        constexpr i64 kCameraAnchored = 0x80;
+        const auto rotates = [&](u32 n) {
+            for (u32 p = n; p != kInvalidNode && p < nodeCount; p = model.nodes.nodes[p].parent) {
+                for (const AnimChannel& channel : model.animChannels.channels) {
+                    if (channel.target.kind == TrackTarget::Kind::Node && channel.target.node == p &&
+                        channel.target.channel == Channel::Rotation) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        };
+        for (const u32 n : topological) {
+            const Node& node = model.nodes.nodes[n];
+            const bool full = hasFlag(node.flags, NodeFlags::Billboarded);
+            const bool lockX = hasFlag(node.flags, NodeFlags::BillboardLockX);
+            const bool lockY = hasFlag(node.flags, NodeFlags::BillboardLockY);
+            const bool lockZ = hasFlag(node.flags, NodeFlags::BillboardLockZ);
+            const bool anchored = (node.native.value("mdxFlagBits", 0) & kCameraAnchored) != 0;
+            if (!full && !lockX && !lockY && !lockZ) {
+                if (anchored) {
+                    diagnostics.warn(DiagCode::FeatureDropped,
+                                     "node '" + node.name +
+                                         "' is camera-anchored without a billboard; StarCraft II "
+                                         "has no spelling for the pivot sliding toward the eye",
+                                     ElementRef(ElementKind::Node, n), profile);
+                }
+                continue;
+            }
+            if (boneOf[n] == 0xFFFFu) {
+                continue;
+            }
+            m3::BillboardBehavior record;
+            record.boneIndex = static_cast<u16>(boneOf[n]);
+            record.cameraLookAt = 1;
+            record.up = Quaternion{0, 0, 0, 1};
+            record.forward = Quaternion{0, 0, 0, 1};
+            // Warcraft III tests the free billboard first, then X, Y and Z.
+            if (full) {
+                record.billboardType = 6;
+            } else if (lockX) {
+                record.billboardType = 1;
+            } else if (lockY) {
+                record.billboardType = 0;
+            } else {
+                record.billboardType = 2;
+            }
+            if ((lockX || lockY) && !full && rotates(n)) {
+                diagnostics.warn(DiagCode::AnimTrackApproximated,
+                                 "node '" + node.name +
+                                     "' locks its billboard to its own axis, which something "
+                                     "above it turns; the bone locks the model's",
+                                 ElementRef(ElementKind::Node, n), profile);
+            }
+            if (anchored) {
+                diagnostics.warn(DiagCode::FeatureDropped,
+                                 "node '" + node.name +
+                                     "' is camera-anchored; the billboard crosses and the pivot "
+                                     "sliding toward the eye does not",
+                                 ElementRef(ElementKind::Node, n), profile);
+            }
+            out.billboardBehaviors.push_back(std::move(record));
+        }
+    }
 
     for (std::size_t n = 0; n < model.nodes.size(); ++n) {
         const Node& node = model.nodes.nodes[n];
         // The node's own bone when the pass above gave it one (it carries a
-        // rest offset), the nearest ancestor's otherwise.
+        // rest offset), the nearest ancestor's otherwise -- and its visibility
+        // leaf over both, since a record there hides with the node.
         const u32 carrier = boneOf[n] != 0xFFFFu ? boneOf[n] : nearestBone(n);
-        const u32 parentBone = carrier;
+        const u32 parentBone = visBoneOf[n] != 0xFFFFu ? visBoneOf[n] : carrier;
+        if (map != nullptr) {
+            map->nodeBone.resize(nodeCount, kInvalidIndex);
+            map->nodeVisBone.resize(nodeCount, kInvalidIndex);
+            map->nodeBone[n] = carrier == 0xFFFFu ? kInvalidIndex : carrier;
+            map->nodeVisBone[n] = parentBone == 0xFFFFu ? kInvalidIndex : parentBone;
+        }
         switch (node.kind) {
         case NodeKind::Attachment: {
+            // An ATT_ has no model slot: what a Warcraft III point spawns is the
+            // game's to attach, and nothing in the file can name it.
+            if (const auto* payload = std::get_if<AttachmentPayload>(&node.payload);
+                payload != nullptr && !payload->asset.path.empty()) {
+                diagnostics.info(DiagCode::FeatureDropped,
+                                 "attachment '" + node.name + "' spawns '" + payload->asset.path +
+                                     "'; an ATT_ names no model, so it is not attached",
+                                 ElementRef(ElementKind::Node, n), profile);
+            }
             m3::AttachmentPoint point;
             point.name = node.name;
             point.boneIndex = parentBone == 0xFFFFu ? 0u : parentBone;
@@ -934,8 +1213,13 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         case NodeKind::Light: {
             m3::Light light;
             light.boneIndex = static_cast<u16>(parentBone == 0xFFFFu ? 0u : parentBone);
-            light.flags =
-                static_cast<m3::LightFlag>(static_cast<u32>(node.native.value("m3LightFlags")));
+            // Every shipped light states LightOpaque (0x08 on 1,440 of 1,440,
+            // Blizzard's two War3_* lights included), so a light no `.m3`
+            // authored states it too.
+            light.flags = static_cast<m3::LightFlag>(
+                node.native.find("m3LightFlags") != nullptr
+                    ? static_cast<u32>(node.native.value("m3LightFlags"))
+                    : static_cast<u32>(m3::LightFlag::LightOpaque));
             if (const auto* payload = std::get_if<LightPayload>(&node.payload)) {
                 switch (payload->kind) {
                 case LightKind::Spot:
@@ -957,6 +1241,13 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                 light.intensityMultiplier.initValue = payload->intensity;
                 light.attenuationStart.initValue = payload->attenuationStart;
                 light.attenuationEnd = payload->attenuationEnd;
+                // The far attenuation's AnimRef rests at the same distance: the
+                // struct's `decay` is that AnimRef, not an exponent -- its init
+                // equals the plain float on 1,947 of 2,001 sampled shipped
+                // lights, the two histograms identical. Left at zero it stated
+                // a light that reaches nowhere.
+                light.decay.initValue = payload->attenuationEnd;
+                light.decay.nullValue = payload->attenuationEnd;
                 light.hotSpot.initValue = payload->hotSpot;
                 light.falloff.initValue = payload->falloff;
             }
@@ -1076,11 +1367,16 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     };
     desc.includeSkin = true;
     desc.maxInfluences = Profile(profile).maxBoneInfluences;
+    const SkinSkeleton skinSkeleton(model.nodes);
+    skinSkeleton.describe(desc);
 
     // The vertex declaration follows the meshes, not a default: an `.m3` may
     // carry none, one or five UV sets and an optional colour, and writing the
     // one shape this converter used to assume both dropped sets a material
-    // samples and invented one for a model that had none.
+    // samples and invented one for a model that had none. The buffer is one
+    // declaration for every mesh, so it takes the widest: a count that followed
+    // the last mesh dropped the flowing light Zhao Yun's spear reads from its
+    // one geoset with a second set, and every later geoset had one.
     const std::size_t maxUvSets =
         std::min<std::size_t>(Profile(profile).maxUvSets, M3VertexEncoder::kMaxUvSets);
     std::size_t uvCount = 0;
@@ -1089,7 +1385,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         for (std::size_t u = 0; u < maxUvSets; ++u) {
             if (mesh.attributes.has(geom::names::uv(static_cast<u32>(u)), geom::Domain::Halfedge) ||
                 mesh.attributes.has(geom::names::uv(static_cast<u32>(u)), geom::Domain::Vertex)) {
-                uvCount = u + 1;
+                uvCount = std::max(uvCount, u + 1);
             }
         }
         hasColor = hasColor ||
@@ -1110,8 +1406,262 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     std::size_t writtenVertices = 0;
     m3::MeshDivision division;
 
+    // Every standard material a slot draws with: one, or a composite's
+    // sections -- a geoset's tint or fade reaches every pass.
+    const auto standardsOf = [&out](u32 slot) {
+        std::vector<u32> targets;
+        const m3::MaterialMap& map = out.materialMaps[slot];
+        if (map.materialType == m3::MaterialType::Standard) {
+            targets.push_back(map.materialIndex);
+        } else if (map.materialType == m3::MaterialType::Composite &&
+                   map.materialIndex < out.compositeMaterials.size()) {
+            for (const m3::CompositeSection& section :
+                 out.compositeMaterials[map.materialIndex].sections) {
+                if (section.materialIndex < out.materialMaps.size() &&
+                    out.materialMaps[section.materialIndex].materialType ==
+                        m3::MaterialType::Standard) {
+                    targets.push_back(out.materialMaps[section.materialIndex].materialIndex);
+                }
+            }
+        }
+        return targets;
+    };
+    // The static half of a Warcraft III geoset animation, and its colour keys.
+    // The tint rides a Color-flag emissive layer on the Mod op, which the
+    // shader multiplies into the lit colour (or, after an additive emissive,
+    // into the emissive) -- where every one of the 604 static geoset colours
+    // found in Blizzard's own conversions sits. A partial static alpha rides
+    // the alpha carrier a fade would.
+    //
+    // A material belongs to every geoset that draws with it, and a geoset
+    // animation to one geoset. Where the sections drawing a standard material
+    // disagree on their tint or their fade, each other signature draws a copy of
+    // the material and carries its own (52 of the 751 tinted shipped geosets,
+    // and 44 geosets on 17 materials a fade would otherwise take whole --
+    // GryphonRider's body under one fading geoset). A composite keeps the old
+    // rule: its carrier is planted only where every section agrees.
+    const auto tintOf = [&model](const MeshSection& section, u32 mesh, u32 sectionIndex) {
+        std::string signature;
+        for (const char* name : {"geosetColorR", "geosetColorG", "geosetColorB", "geosetAlpha"}) {
+            const NativeBag::Entry* entry = section.native.find(name);
+            signature += entry != nullptr ? std::to_string(entry->value) : std::string("-");
+            signature += ',';
+        }
+        for (const AnimChannel& entry : model.animChannels.channels) {
+            if (entry.target.kind == TrackTarget::Kind::Section && entry.target.mesh == mesh &&
+                entry.target.sub == sectionIndex && entry.target.channel == Channel::Color) {
+                signature += "keyed" + std::to_string(entry.id);
+            }
+        }
+        return signature;
+    };
+    // A Warcraft III geoset "visibility" arrives as a Section ALPHA channel
+    // (GEOA is an alpha track). Only a binary, step-interpolated one is a gate;
+    // a fade needs a layer alpha and drawing it un-faded beats hiding it
+    // outright.
+    const auto binaryStep = [&document](u32 channelId) {
+        bool any = false;
+        for (const Clip& clip : document.clips) {
+            for (const SubTrackContainer& container : clip.containers) {
+                for (const SubTrack& track : container.subTracks) {
+                    if (track.channel != channelId) {
+                        continue;
+                    }
+                    any = true;
+                    const f32* values = reinterpret_cast<const f32*>(track.values.data());
+                    const std::size_t count = track.values.size() / sizeof(f32);
+                    // A one-key track steps by definition -- the WoW hide idiom
+                    // is one zero key, tagged with whatever interp the file
+                    // happened to carry.
+                    if (track.interp != Interpolation::Step && count > 1) {
+                        return false;
+                    }
+                    for (std::size_t k = 0; k < count; ++k) {
+                        if (values[k] > 0.01f && values[k] < 0.99f) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        return any;
+    };
+    const auto fadeOf = [&model, &binaryStep](u32 mesh, u32 sectionIndex) {
+        std::string signature;
+        for (const AnimChannel& entry : model.animChannels.channels) {
+            if (entry.target.kind == TrackTarget::Kind::Section && entry.target.mesh == mesh &&
+                entry.target.sub == sectionIndex && entry.target.channel == Channel::Alpha &&
+                !binaryStep(entry.id)) {
+                signature += "fade" + std::to_string(entry.id);
+            }
+        }
+        return signature;
+    };
+    const bool warcraftMaterials = document.defaultProfile == ProfileId::Wc3Classic ||
+                                   document.defaultProfile == ProfileId::Wc3Reforged;
+    std::map<u32, std::string> slotTint;
+    std::set<u32> slotTintShared;
+    // The material map entry a section draws, where it is not its slot's.
+    std::map<std::pair<u32, u32>, u32> sectionDrawSlot;
+    std::map<std::pair<u32, std::string>, u32> slotCopy;
     for (std::size_t m = 0; m < model.meshes.size(); ++m) {
         const Mesh& mesh = model.meshes[m];
+        for (std::size_t s = 0; s < mesh.sections.size(); ++s) {
+            const u32 slot = mesh.sections[s].materialSlot;
+            const std::string signature =
+                tintOf(mesh.sections[s], static_cast<u32>(m), static_cast<u32>(s)) +
+                (warcraftMaterials ? fadeOf(static_cast<u32>(m), static_cast<u32>(s))
+                                   : std::string());
+            const auto [entry, fresh] = slotTint.emplace(slot, signature);
+            if (fresh || entry->second == signature) {
+                continue;
+            }
+            if (!warcraftMaterials || slot >= out.materialMaps.size() ||
+                out.materialMaps[slot].materialType != m3::MaterialType::Standard ||
+                out.materialMaps[slot].materialIndex >= out.standardMaterials.size()) {
+                slotTintShared.insert(slot);
+                continue;
+            }
+            const auto [copy, made] = slotCopy.emplace(std::make_pair(slot, signature), 0u);
+            if (made) {
+                m3::MaterialMap copyMap = out.materialMaps[slot];
+                m3::StandardMaterial material = out.standardMaterials[copyMap.materialIndex];
+                material.name +=
+                    "_" + std::to_string(animContext.materialClones[slot].size() + 1);
+                copyMap.materialIndex = static_cast<u32>(out.standardMaterials.size());
+                out.standardMaterials.push_back(std::move(material));
+                copy->second = static_cast<u32>(out.materialMaps.size());
+                out.materialMaps.push_back(copyMap);
+                std::vector<u32> ordinals = slot < animContext.materialOrdinals.size()
+                                                ? animContext.materialOrdinals[slot]
+                                                : std::vector<u32>{};
+                animContext.materialOrdinals.push_back(std::move(ordinals));
+                animContext.materialClones[slot].push_back(copy->second);
+            }
+            sectionDrawSlot[{static_cast<u32>(m), static_cast<u32>(s)}] = copy->second;
+        }
+    }
+    std::set<std::pair<u32, u32>> tinted;
+    // Geoset fades reported as dropped, once each however many batches draw them.
+    std::set<u32> fadesDropped;
+    const auto plantGeosetTint = [&](m3::Model& target, const MeshSection& section, u32 mesh,
+                                     u32 sectionIndex, u32 slot, u16 gate) {
+        const auto floatOf = [&section](const char* name, f32& value) {
+            const NativeBag::Entry* entry = section.native.find(name);
+            if (entry == nullptr) {
+                return false;
+            }
+            value = std::bit_cast<f32>(static_cast<u32>(entry->value));
+            return true;
+        };
+        Vector3f rest{1.0f, 1.0f, 1.0f};
+        const bool staticColor = floatOf("geosetColorR", rest.x) &&
+                                 floatOf("geosetColorG", rest.y) &&
+                                 floatOf("geosetColorB", rest.z);
+        f32 alpha = 1.0f;
+        const bool staticAlpha = floatOf("geosetAlpha", alpha);
+        const AnimChannel* keyedColor = nullptr;
+        bool keyedAlpha = false;
+        for (const AnimChannel& entry : model.animChannels.channels) {
+            if (entry.target.kind != TrackTarget::Kind::Section || entry.target.mesh != mesh ||
+                entry.target.sub != sectionIndex) {
+                continue;
+            }
+            if (entry.target.channel == Channel::Color) {
+                keyedColor = &entry;
+            } else if (entry.target.channel == Channel::Alpha) {
+                keyedAlpha = true;
+            }
+        }
+        const bool tint = staticColor || keyedColor != nullptr;
+        const bool fadeOnly = staticAlpha && !keyedAlpha &&
+                              gate == static_cast<u16>(kSectionAlwaysDrawn);
+        if ((!tint && !fadeOnly) || !tinted.emplace(mesh, sectionIndex).second) {
+            return;
+        }
+        if (slotTintShared.count(slot) != 0) {
+            diagnostics.warn(DiagCode::FeatureDropped,
+                             "geoset '" + section.name +
+                                 "' is tinted or partly transparent, and shares its composite "
+                                 "material with a geoset that is not; neither is written",
+                             ElementRef(ElementKind::Mesh, mesh), profile);
+            return;
+        }
+        const auto byte = [](f32 unit) {
+            return static_cast<u8>(std::clamp(unit, 0.0f, 1.0f) * 255.0f + 0.5f);
+        };
+        for (const u32 matIndex : standardsOf(slot)) {
+            if (matIndex >= target.standardMaterials.size()) {
+                continue;
+            }
+            m3::StandardMaterial& mat = target.standardMaterials[matIndex];
+            if (tint) {
+                u8 which = 0;
+                if (!mat.emissiveLayer1.has_value()) {
+                    which = 1;
+                } else if (!mat.emissiveLayer2.has_value()) {
+                    which = 2;
+                }
+                if (which == 0) {
+                    diagnostics.warn(DiagCode::FeatureDropped,
+                                     "geoset '" + section.name +
+                                         "' is tinted, and its material has no free emissive "
+                                         "layer to carry the tint",
+                                     ElementRef(ElementKind::Mesh, mesh), profile);
+                } else {
+                    m3::TextureLayer carrier;
+                    carrier.flags = m3::TextureLayerFlag::Color;
+                    carrier.color.initValue =
+                        m3::ColorBGRA{byte(rest.z), byte(rest.y), byte(rest.x), 255};
+                    // The null stays 0. The engine writes a layer colour only
+                    // when its init differs from its null or it animates, so a
+                    // still tint restated as its null was never written and the
+                    // Mod multiplied whatever the slot held: an additive tinted
+                    // geoset vanished in the editor.
+                    carrier.rgbMultiply.initValue = 1.0f;
+                    carrier.rgbMultiply.nullValue = 1.0f;
+                    carrier.mapAlpha.initValue = 1.0f;
+                    carrier.mapAlpha.nullValue = 1.0f;
+                    (which == 1 ? mat.emissiveLayer1 : mat.emissiveLayer2) = std::move(carrier);
+                    (which == 1 ? mat.emissiveBlendMode1 : mat.emissiveBlendMode2) =
+                        m3::LayerBlendOp::Mod;
+                    if (keyedColor != nullptr) {
+                        animContext.sectionColorLayers[keyedColor->id].emplace_back(matIndex,
+                                                                                     which);
+                    }
+                }
+            }
+            if (fadeOnly) {
+                u8 which = 0;
+                if (!mat.alphaLayer1.has_value()) {
+                    which = 1;
+                } else if (!mat.alphaLayer2.has_value()) {
+                    which = 2;
+                }
+                if (which == 0) {
+                    diagnostics.warn(DiagCode::FeatureDropped,
+                                     "geoset '" + section.name +
+                                         "' is partly transparent, and its material has no free "
+                                         "alpha layer to carry it",
+                                     ElementRef(ElementKind::Mesh, mesh), profile);
+                    continue;
+                }
+                m3::TextureLayer carrier;
+                carrier.flags = m3::TextureLayerFlag::Color;
+                carrier.color.initValue = m3::ColorBGRA{255, 255, 255, 255};
+                carrier.rgbMultiply.initValue = 1.0f;
+                // Null 1, like the tint's: a still map alpha at its null is
+                // never written.
+                carrier.mapAlpha.initValue = alpha;
+                (which == 1 ? mat.alphaLayer1 : mat.alphaLayer2) = std::move(carrier);
+            }
+        }
+    };
+
+    for (std::size_t m = 0; m < model.meshes.size(); ++m) {
+        const Mesh& mesh = model.meshes[m];
+        const bool warcraftDocument = document.defaultProfile == ProfileId::Wc3Classic ||
+                                      document.defaultProfile == ProfileId::Wc3Reforged;
         const geom::RenderMesh render = geom::BuildRenderMesh(mesh, desc);
         diagnostics.append(render.diagnostics);
 
@@ -1387,9 +1937,11 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             }
             const std::size_t regionCount = division.regions.size() - firstRegion;
 
+            const auto drawn = sectionDrawSlot.find({static_cast<u32>(m), range.section});
+            const u32 drawSlot = drawn != sectionDrawSlot.end() ? drawn->second : range.materialSlot;
             m3::Batch batch;
             batch.regionIndex = static_cast<u16>(firstRegion);
-            batch.materialIndex = static_cast<u16>(range.materialSlot);
+            batch.materialIndex = static_cast<u16>(drawSlot);
             batch.boneCount = 0xFFFFu;
             if (range.section < mesh.sections.size()) {
                 batch.boneCount = static_cast<u16>(
@@ -1404,38 +1956,8 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             // `skinBoneCount` because it skins nothing; the anim export wires
             // its AnimRef to the channel's own stream (`sectionGateBones`).
             if (batch.boneCount == static_cast<u16>(kSectionAlwaysDrawn)) {
-                // A Warcraft III geoset "visibility" arrives as a Section
-                // ALPHA channel (GEOA is an alpha track). Only a binary,
-                // step-interpolated one is a gate; a fade needs a layer alpha
-                // and drawing it un-faded beats hiding it outright.
-                const auto binaryStep = [&document](u32 channelId) {
-                    bool any = false;
-                    for (const Clip& clip : document.clips) {
-                        for (const SubTrackContainer& container : clip.containers) {
-                            for (const SubTrack& track : container.subTracks) {
-                                if (track.channel != channelId) {
-                                    continue;
-                                }
-                                any = true;
-                                const f32* values =
-                                    reinterpret_cast<const f32*>(track.values.data());
-                                const std::size_t count = track.values.size() / sizeof(f32);
-                                // A one-key track steps by definition -- the
-                                // WoW hide idiom is one zero key, tagged with
-                                // whatever interp the file happened to carry.
-                                if (track.interp != Interpolation::Step && count > 1) {
-                                    return false;
-                                }
-                                for (std::size_t k = 0; k < count; ++k) {
-                                    if (values[k] > 0.01f && values[k] < 0.99f) {
-                                        return false;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    return any;
-                };
+                // A binary step gates (`binaryStep`, above); a fade rides the
+                // material.
                 const AnimChannel* vis = nullptr;
                 const AnimChannel* fade = nullptr;
                 for (const AnimChannel& entry : model.animChannels.channels) {
@@ -1505,14 +2027,13 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                 // oracle's own conversions animate). The construction smoke
                 // over the Barracks is the canonical case: alpha 0 through
                 // every Stand, easing in only while building.
-                if (vis == nullptr && fade != nullptr &&
-                    range.materialSlot < out.materialMaps.size() &&
+                if (vis == nullptr && fade != nullptr && drawSlot < out.materialMaps.size() &&
                     animContext.sectionAlphaLayers.find(fade->id) ==
                         animContext.sectionAlphaLayers.end()) {
                     // Every standard material the slot draws with -- one, or
                     // a composite's sections: a geoset fade fades every pass.
                     std::vector<u32> targets;
-                    const m3::MaterialMap& map = out.materialMaps[range.materialSlot];
+                    const m3::MaterialMap& map = out.materialMaps[drawSlot];
                     if (map.materialType == m3::MaterialType::Standard) {
                         targets.push_back(map.materialIndex);
                     } else if (map.materialType == m3::MaterialType::Composite &&
@@ -1556,6 +2077,12 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                             which = 2;
                         }
                         if (which == 0) {
+                            if (!fadesDropped.insert(fade->id).second) {
+                                continue;
+                            }
+                            diagnostics.warn(DiagCode::AnimTrackDropped,
+                                             "a geoset fade found both alpha layers taken",
+                                             ElementRef(ElementKind::Channel, fade->id), profile);
                             continue;
                         }
                         std::optional<m3::TextureLayer>& carrierSlot =
@@ -1596,6 +2123,14 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                     }
                     batch.boneCount = static_cast<u16>(gate->second);
                 }
+            }
+            // A Warcraft III geoset's tint -- GEOA's static colour or KGAC -- and
+            // its static partial alpha (WC3_TO_SC2_COMPLETION_PLAN.md C2.3-C2.4).
+            // Warcraft III multiplies both into every pass of the geoset.
+            if (warcraftDocument && range.section < mesh.sections.size() &&
+                drawSlot < out.materialMaps.size()) {
+                plantGeosetTint(out, mesh.sections[range.section], static_cast<u32>(m),
+                                range.section, drawSlot, batch.boneCount);
             }
             // One batch per region the range became: a split changed how many
             // draws the material takes, not which material it is.
@@ -1676,7 +2211,23 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     // Last, because it re-imports the materials just written to recover which
     // ordinal each layer became, and puts an AnimRef back on the record that
     // owns the property.
-    m3_anim::Export(document, 0, animContext, out, diagnostics);
+    m3_anim::Export(document, 0, animContext, out, diagnostics, map);
+    if (map != nullptr) {
+        // Past every id a stream or AnimRef in the file names, the fixed ones
+        // included, so a caller's new streams join nothing already there.
+        u32 highest = kModelBoundsAnimId;
+        for (const m3::SubTrackContainer& stc : out.subTrackCollections) {
+            for (const u32 id : stc.animIds) {
+                highest = (std::max)(highest, id);
+            }
+        }
+        for (const AnimChannel& channel : model.animChannels.channels) {
+            highest = (std::max)(highest, channel.id);
+        }
+        map->nextAnimId = highest + 1;
+    }
+
+    PlaceSectionsFirst(out);
 
     // The two parallel arrays MODL owes its scene objects. Every one of 1,535
     // shipped models with attachment points carries one addon entry per point

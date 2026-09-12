@@ -117,6 +117,43 @@ struct M3ExportSettings {
     /// Per `Document::textures` entry, an `m3_core::TextureAlphaClass` byte;
     /// empty when nobody decoded the textures.
     std::vector<u8> textureAlphaClasses;
+    /// Warcraft III's node carriers (WC3_TO_SC2_COMPLETION_PLAN.md §2.3).
+    ///
+    /// Every particle and ribbon emitter node becomes a bone, and so does an
+    /// attachment, light or camera whose transform or visibility is keyed;
+    /// a light's and a camera's transform tracks ride that bone. A node whose
+    /// visibility is keyed and that has children gets a `<name>_Vis` leaf
+    /// bone carrying the visibility alone, because an `.m3` bone hides its
+    /// whole subtree and a Warcraft III node hides only itself.
+    ///
+    /// Off, `toM3` writes what it always has: an `.m3`-imported emitter node
+    /// has no transform and no channel, and a StarCraft II visibility IS
+    /// hierarchical, so no other source wants it.
+    bool effectNodeBones = false;
+};
+
+/// A node native key: this node draws only while its parent does, so a
+/// visibility on the parent needs no leaf bone to keep it off this node --
+/// the helper an effect crossing plants under its emitter says so.
+inline constexpr const char* kNodeSharesParentVisibility = "sharesParentVisibility";
+
+/// Where `toM3` put what the document named, for a caller that adds records
+/// beside the ones WEM carries (WC3_TO_SC2_COMPLETION_PLAN.md §2.2).
+struct M3ExportMap {
+    /// Per node: the bone its records ride -- its own, or the nearest ancestor's
+    /// when it got none. `kInvalidIndex` when nothing above it is a bone.
+    std::vector<u32> nodeBone;
+    /// Per node: the bone that carries its visibility, and so the bone its
+    /// record points at -- the `_Vis` leaf where there is one, else `nodeBone`.
+    std::vector<u32> nodeVisBone;
+    /// Per `Document::clips` entry: the SEQS it became, `kInvalidIndex` for a
+    /// clip of another model.
+    std::vector<u32> clipSequence;
+    /// Per SEQS: the STC_ its clip's first container became -- the one that
+    /// holds the clip's events, and the one a crossed property joins.
+    std::vector<u32> sequenceStc;
+    /// The first animId no stream or AnimRef the export wrote uses.
+    u32 nextAnimId = 1;
 };
 
 class M3Converter final : public FormatConverter {
@@ -142,8 +179,11 @@ public:
     /// v29 for StarCraft II, v30 for Heroes of the Storm. The two ranges are
     /// the difference between the games — a v30 file is one StarCraft II
     /// refuses, and `ProfileForVersion` reads it back as Heroes.
+    /// @p map, when given, receives where the document's nodes and clips
+    /// landed (`M3ExportMap`).
     Result<m3::Model> toM3(const Document& document, ProfileId profile, u32 targetVersion = 0,
-                           const M3ExportSettings& settings = {}) const;
+                           const M3ExportSettings& settings = {},
+                           M3ExportMap* map = nullptr) const;
 
     /**
      * @brief Merges an external animation file (`.m3a`) into an imported model.

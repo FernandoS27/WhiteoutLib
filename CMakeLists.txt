@@ -454,6 +454,8 @@ add_library(whiteout_lib
     src/whiteout/models/wem/converters/m2_anim.cpp
     src/whiteout/models/wem/converters/m3_converter.cpp
     src/whiteout/models/wem/converters/m3_anim.cpp
+    src/whiteout/models/wem/converters/m3_track_sink.cpp
+    src/whiteout/models/cross/mdx_m3_effects.cpp
     src/whiteout/models/wem/converters/d3_converter.cpp
     src/whiteout/models/wem/converters/d3_anim.cpp
     src/whiteout/models/wem/converters/gltf_converter.cpp

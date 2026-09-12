@@ -914,6 +914,49 @@ TEST_CASE("wem m3 a quaternion stream is written in one hemisphere", "[wem][anim
     CHECK(std::fabs(keys[1].w) == Catch::Approx(c));
 }
 
+TEST_CASE("wem m3 a rotation is written in spans the engine's lerp can carry",
+          "[wem][anim][m3]") {
+    // The engine lerps the four components raw and builds the basis from the
+    // result with no normalise, so a wide span sags INSIDE the unit sphere and
+    // the bone shrinks mid-span. Warcraft III slerps and spends keys
+    // accordingly -- Zhao Yun's ground discs turn on four quarter-turn keys --
+    // so the arc is sampled on the way out. The turn is unchanged; only the
+    // number of keys stating it grows.
+    const f32 h = 0.70710678f; // a quarter turn about z, and a half turn
+    m3::Model model = makeModel();
+    model.bones[0].rotation = animated<Quaternion>(8, Quaternion{0, 0, 0, 1});
+    m3::AnimBlock<Quaternion> block;
+    block.timestamps = {0, 1000};
+    block.keys = {Quaternion{0, 0, 0, 1}, Quaternion{0, 0, h, h}};
+    model.subTrackCollections[0].sd4q.push_back(std::move(block));
+    model.subTrackCollections[0].animIds.push_back(8);
+    model.subTrackCollections[0].animRefs.push_back(Ref(3, 0));
+
+    const Document document = convert(model);
+    const M3Converter converter;
+    Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+
+    const u32 ref = stcRefFor(*written, 8);
+    const auto& out = stcHolding(*written, 8).sd4q[ref & 0xFFFFu];
+    REQUIRE(out.keys.size() >= 4u); // 90 degrees needs three spans of 30
+    REQUIRE(out.keys.size() == out.timestamps.size());
+    for (std::size_t k = 1; k < out.keys.size(); ++k) {
+        CHECK(out.timestamps[k] > out.timestamps[k - 1]);
+        // Every span inside 30 degrees of turn: cos(15 degrees) on the halves.
+        CHECK(dotOf(out.keys[k - 1], out.keys[k]) > 0.9659f);
+        // And every key still ON the arc -- a lerped one would sag.
+        const Quaternion& q = out.keys[k];
+        CHECK(std::sqrt(dotOf(q, q)) == Catch::Approx(1.0f).margin(1e-4f));
+    }
+    // The ends are the keys the source stated, and the turn between them the
+    // one it meant.
+    CHECK(out.timestamps.front() == 0);
+    CHECK(out.timestamps.back() == 1000);
+    CHECK(dotOf(out.keys.front(), Quaternion{0, 0, 0, 1}) == Catch::Approx(1.0f).margin(1e-4f));
+    CHECK(dotOf(out.keys.back(), Quaternion{0, 0, h, h}) == Catch::Approx(1.0f).margin(1e-4f));
+}
+
 TEST_CASE("wem m3 a Warcraft window is keyed at both edges the way its engine plays them",
           "[wem][anim][m3]") {
     // Warcraft III reads only the keys inside a window and plays the span past

@@ -15,6 +15,7 @@
 #include <whiteout/models/wem/anim/clip.h>
 
 #include "../materials/m3_core.h"
+#include "m3_track_sink.h"
 
 namespace whiteout {
 namespace models {
@@ -23,12 +24,6 @@ namespace m3_anim {
 
 namespace {
 
-/// What a bound AnimRef states in `flags`: bit 1 that an animId in this model's
-/// own tracks answers the property, bit 2 that the tracks were this model's and
-/// not an attached `.m3a`'s. All 15,633 bound bone refs measured over 1,169
-/// shipped self-animated models write exactly this and all 56,519 unbound ones
-/// write 0 -- there is no third value.
-constexpr u16 kAnimRefBound = 0x6;
 
 /// STC `animRefs[j]` packs the slot in the high half and the block index in the
 /// low one — the 13 typed `AnimBlock` arrays are addressed no other way.
@@ -769,87 +764,8 @@ u32 Merge(const m3::Model& external, Document& document, u32 model, Diagnostics&
 
 namespace {
 
-i32 Ticks(f32 seconds) {
-    return static_cast<i32>(seconds * 1000.0f + (seconds < 0.0f ? -0.5f : 0.5f));
-}
-
-/// Whether @p clip is played Warcraft III's way: only the keys inside the
-/// window count, and the spans outside them -- before the first key, after
-/// the last -- are ONE segment from the last key back to the first
-/// (`FindBracket`: `t = pos / ((first - last) + length)`). A sequence window
-/// and a global sequence both are.
-bool WarcraftWindow(const Clip& clip) {
-    return clip.native.value("intervalStart", -1) >= 0 ||
-           clip.native.value("globalSequenceId", -1) >= 0;
-}
-
-/// The value a Warcraft III track shows at fraction @p t of its wrap segment
-/// from @p last back to @p first, as @p size bytes of @p type. A step track
-/// holds the last key across it; a quaternion takes the short way round.
-std::vector<u8> WrapValue(geom::AttrType type, Interpolation interp, const u8* last,
-                          const u8* first, f32 t, std::size_t size) {
-    std::vector<u8> out(last, last + size);
-    if (interp == Interpolation::Step) {
-        return out;
-    }
-    switch (type) {
-    case geom::AttrType::F32:
-    case geom::AttrType::F32x2:
-    case geom::AttrType::F32x3:
-    case geom::AttrType::F32x4: {
-        const std::size_t n = size / sizeof(f32);
-        for (std::size_t i = 0; i < n; ++i) {
-            f32 a = 0, b = 0;
-            std::memcpy(&a, last + i * sizeof(f32), sizeof(f32));
-            std::memcpy(&b, first + i * sizeof(f32), sizeof(f32));
-            const f32 v = a + (b - a) * t;
-            std::memcpy(out.data() + i * sizeof(f32), &v, sizeof(f32));
-        }
-        return out;
-    }
-    case geom::AttrType::Quat: {
-        Quaternion a{}, b{};
-        std::memcpy(&a, last, sizeof(a));
-        std::memcpy(&b, first, sizeof(b));
-        const f32 sign = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w < 0.0f ? -1.0f : 1.0f;
-        Quaternion v{a.x + (sign * b.x - a.x) * t, a.y + (sign * b.y - a.y) * t,
-                     a.z + (sign * b.z - a.z) * t, a.w + (sign * b.w - a.w) * t};
-        const f32 length = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z + v.w * v.w);
-        if (length > 0.0f) {
-            v = Quaternion{v.x / length, v.y / length, v.z / length, v.w / length};
-        }
-        std::memcpy(out.data(), &v, sizeof(v));
-        return out;
-    }
-    default:
-        return out;
-    }
-}
-
-/// Keeps a quaternion stream in one hemisphere: every key is flipped onto the
-/// side of the one before it, and the first onto the side of @p reference
-/// where there is one. Retail's `M3Anim_EvalTrackQuat` lerps the four
-/// components as stored -- no slerp, no sign test -- so a stream whose keys
-/// alternate q, -q (which the Warcraft III Max exporter writes, and which
-/// WC3's own slerp absorbs) passes near zero between every pair of keys: the
-/// bone shrinks and swings at key rate, a tremor. Blizzard's own War3_*.m3
-/// conversions carry no such pair.
-void AlignHemispheres(std::vector<Quaternion>& keys, const Quaternion* reference) {
-    const auto flipOnto = [](const Quaternion& onto, Quaternion& q) {
-        if (onto.x * q.x + onto.y * q.y + onto.z * q.z + onto.w * q.w < 0.0f) {
-            q = Quaternion{-q.x, -q.y, -q.z, -q.w};
-        }
-    };
-    if (keys.empty()) {
-        return;
-    }
-    if (reference != nullptr) {
-        flipOnto(*reference, keys.front());
-    }
-    for (std::size_t k = 1; k < keys.size(); ++k) {
-        flipOnto(keys[k - 1], keys[k]);
-    }
-}
+using m3_sink::Ticks;
+using m3_sink::WarcraftWindow;
 
 /// The inverse of `Rebase` — WEM's canonical basis back into SC2's.
 Vector3f Unrebase(const Vector3f& v) {
@@ -879,18 +795,6 @@ m3::Extent UnrebaseExtent(const Extent& source) {
     return out;
 }
 
-m3::ColorBGRA FromRgba(const Vector4f& value) {
-    const auto byteOf = [](f32 v) {
-        const f32 scaled = v * 255.0f;
-        return static_cast<u8>(scaled <= 0.0f ? 0.0f : scaled >= 255.0f ? 255.0f : scaled + 0.5f);
-    };
-    m3::ColorBGRA color;
-    color.r = byteOf(value.x);
-    color.g = byteOf(value.y);
-    color.b = byteOf(value.z);
-    color.a = byteOf(value.w);
-    return color;
-}
 
 // ---- UV-animation conversion (M2/WC3 -> the layer's own transform) ---------
 
@@ -972,32 +876,28 @@ void UvCompose(const f32 t[3], const f32 q[4], const f32 s[3], f32& angle, Vecto
 class Exporter {
 public:
     Exporter(const Document& document, u32 modelIndex, const ExportContext& context, m3::Model& out,
-             Diagnostics& diagnostics)
+             Diagnostics& diagnostics, M3ExportMap* map)
         : document_(document), model_(document.models[modelIndex]), modelIndex_(modelIndex),
-          context_(context), out_(out), diagnostics_(diagnostics) {}
+          context_(context), out_(out), diagnostics_(diagnostics), map_(map) {}
 
     void run() {
         buildMaterialOrdinals();
+        if (map_ != nullptr) {
+            map_->clipSequence.assign(document_.clips.size(), kInvalidIndex);
+            map_->sequenceStc.clear();
+        }
         for (std::size_t c = 0; c < document_.clips.size(); ++c) {
             if (document_.clips[c].model == modelIndex_) {
+                if (map_ != nullptr) {
+                    map_->clipSequence[c] = static_cast<u32>(out_.sequences.size());
+                }
                 buildClip(document_.clips[c]);
             }
         }
     }
 
 private:
-    /// Where one channel's keys go: which typed array, and how a value is
-    /// written into it.
-    enum class Stream : u32 {
-        None = 0,
-        Sd2v = 1,
-        Sd3v = 2,
-        Sd4q = 3,
-        Sdcc = 4,
-        Sdr3 = 5,
-        Sdu3 = 10,
-        Sdfg = 11,
-    };
+    using Stream = m3_sink::Stream;
 
     /// The slot a channel's values belong in.
     ///
@@ -1052,6 +952,44 @@ private:
         AnimChannel channel;
         SubTrack track;
     };
+
+    /// The container's section colour tracks a tint carrier reads
+    /// (`sectionColorLayers`), widened to the RGBA its SDCC stream holds: the
+    /// colour at each key, opaque, and linear where the source was smooth.
+    std::vector<ConvertedTrack> convertTintTracks(const SubTrackContainer& source,
+                                                  std::set<u32>& consumed) {
+        std::vector<ConvertedTrack> out;
+        for (const SubTrack& track : source.subTracks) {
+            const AnimChannel* channel = model_.animChannels.find(track.channel);
+            if (channel == nullptr || channel->target.kind != TrackTarget::Kind::Section ||
+                channel->target.channel != Channel::Color ||
+                channel->valueType != geom::AttrType::F32x3 ||
+                context_.sectionColorLayers.count(channel->id) == 0 ||
+                !track.wellSized(channel->valueType)) {
+                continue;
+            }
+            consumed.insert(channel->id);
+            ConvertedTrack converted;
+            converted.channel = *channel;
+            converted.channel.valueType = geom::AttrType::F32x4;
+            converted.channel.initValue.clear();
+            converted.track.channel = channel->id;
+            converted.track.interp =
+                track.interp == Interpolation::Step ? Interpolation::Step : Interpolation::Linear;
+            const std::size_t stride = ValuesPerKey(track.interp) * 3 * sizeof(f32);
+            for (std::size_t k = 0; k < track.times.size(); ++k) {
+                f32 rgb[3] = {1.0f, 1.0f, 1.0f};
+                std::memcpy(rgb, track.values.data() + k * stride, sizeof(rgb));
+                converted.track.times.push_back(track.times[k]);
+                const f32 rgba[4] = {rgb[0], rgb[1], rgb[2], 1.0f};
+                const u8* bytes = reinterpret_cast<const u8*>(rgba);
+                converted.track.values.insert(converted.track.values.end(), bytes,
+                                              bytes + sizeof(rgba));
+            }
+            out.push_back(std::move(converted));
+        }
+        return out;
+    }
 
     /// The container's convertible UV feature channels (`NeedsUvConversion`),
     /// regrouped per feature into offset / angle / tiling tracks. Each becomes
@@ -1247,6 +1185,11 @@ private:
             }
         }
 
+        if (map_ != nullptr) {
+            map_->sequenceStc.push_back(group.subtrackIndices.empty()
+                                            ? kInvalidIndex
+                                            : group.subtrackIndices.front());
+        }
         out_.sequences.push_back(std::move(sequence));
         out_.animationGroups.push_back(std::move(group));
     }
@@ -1265,7 +1208,10 @@ private:
         // offset/angle/tiling tracks; the originals must not ALSO be
         // written, or the STC carries a quaternion no Vector2 AnimRef reads.
         std::set<u32> convertedIds;
-        const std::vector<ConvertedTrack> convertedUv = convertUvTracks(source, convertedIds);
+        std::vector<ConvertedTrack> convertedUv = convertUvTracks(source, convertedIds);
+        for (ConvertedTrack& tint : convertTintTracks(source, convertedIds)) {
+            convertedUv.push_back(std::move(tint));
+        }
         const bool warcraft = WarcraftWindow(clip);
 
         for (const SubTrack& track : source.subTracks) {
@@ -1331,24 +1277,7 @@ private:
         // StarCraft II searches it: every shipped container keeps it sorted by
         // id — 1,221 of 1,221 measured across 600 models. Ours came out in the
         // order the channels happened to be written.
-        std::vector<std::size_t> order(stc.animIds.size());
-        for (std::size_t k = 0; k < order.size(); ++k) {
-            order[k] = k;
-        }
-        std::stable_sort(order.begin(), order.end(),
-                         [&](std::size_t a, std::size_t b) {
-                             return stc.animIds[a] < stc.animIds[b];
-                         });
-        std::vector<u32> ids;
-        std::vector<u32> refs;
-        ids.reserve(order.size());
-        refs.reserve(order.size());
-        for (const std::size_t k : order) {
-            ids.push_back(stc.animIds[k]);
-            refs.push_back(stc.animRefs[k]);
-        }
-        stc.animIds = std::move(ids);
-        stc.animRefs = std::move(refs);
+        m3_sink::SortLookup(stc);
 
         // Every container names an animation state, and the index it named was
         // whatever the source said with nothing behind it: this export wrote no
@@ -1375,217 +1304,18 @@ private:
     /// says the clip is a Warcraft III window (`WarcraftWindow`).
     u32 writeStream(m3::SubTrackContainer& stc, const AnimChannel& channel, const SubTrack& track,
                     i32 origin, f32 duration, bool warcraft) {
-        const Stream stream = StreamFor(channel);
-        if (stream == Stream::None) {
-            return kInvalidIndex;
+        m3_sink::StreamSpec spec;
+        spec.stream = StreamFor(channel);
+        spec.type = channel.valueType;
+        spec.unrebaseVector = RebasesVector(channel);
+        spec.unrebaseQuaternion = RebasesQuaternion(channel);
+        Quaternion rest{};
+        if (channel.valueType == geom::AttrType::Quat && channel.hasInitValue()) {
+            std::memcpy(&rest, channel.initValue.data(), sizeof(rest));
+            rest = spec.unrebaseQuaternion ? UnrebaseRotation(rest) : rest;
+            spec.restQuaternion = &rest;
         }
-        const std::size_t size = geom::AttrTypeSize(channel.valueType);
-        const std::size_t stride = ValuesPerKey(track.interp) * size;
-        const auto at = [&](std::size_t key) { return track.values.data() + key * stride; };
-
-        // Which keys the sequence plays.
-        //
-        // The MDX slicer keeps one bracketing key past each edge of a clip so
-        // the wem player can interpolate the edge spans. A SEQS timeline
-        // cannot say that: a key before the clip becomes the value in effect
-        // at its start (the LAST such key, held at the origin), and a key
-        // past its end is dropped -- the sampler then answers the last
-        // in-range key, which is the hold the global timeline plays. Left
-        // in, an out-of-window key sits at a timestamp the sequence never
-        // reaches and a whole channel reads as its bracket value: the
-        // Grunt's every geoset gated itself invisible on a key 139 seconds
-        // past `Stand 01`.
-        //
-        // A Warcraft III window is stricter still. Its engine reads only the
-        // keys inside the window -- the bracket keys are keys it never sees --
-        // and plays the span after the last one, and the span before the
-        // first, as one segment from the last key back to the first. M3 holds
-        // before its first key and wraps a looping track on its own last
-        // stamp, so a track that does not reach an edge gets a key there
-        // carrying the value the engine shows at it: the start and end key
-        // Warcraft III has on every track, restated for a format that has
-        // defaults. A track with no key inside the window is not written;
-        // the engine answers its rest value, and so does the AnimRef's own.
-        std::vector<std::size_t> kept;
-        std::ptrdiff_t entry = -1;
-        const f32 slack = duration > 0 ? duration : track.times.empty() ? 0 : track.times.back();
-        for (std::size_t k = 0; k < track.times.size(); ++k) {
-            const f32 time = track.times[k];
-            if (time < -1e-4f) {
-                entry = static_cast<std::ptrdiff_t>(k);
-            } else if (time <= slack + 1e-4f) {
-                kept.push_back(k);
-            }
-        }
-        if (entry >= 0 && !warcraft && (kept.empty() || Ticks(track.times[kept.front()]) > 0)) {
-            kept.insert(kept.begin(), static_cast<std::size_t>(entry));
-        }
-        if (kept.empty()) {
-            return kInvalidIndex;
-        }
-
-        std::vector<u8> wrap;
-        bool wrapStart = false;
-        bool wrapEnd = false;
-        if (warcraft && kept.size() >= 2 && duration > 0.0f) {
-            const f32 firstTime = track.times[kept.front()];
-            const f32 lastTime = track.times[kept.back()];
-            wrapStart = Ticks(firstTime) > 0;
-            wrapEnd = Ticks(lastTime) < Ticks(duration);
-            if (wrapStart || wrapEnd) {
-                // The same point of the wrap segment either way: the sequence
-                // end IS its start, one loop on.
-                const f32 segment = (firstTime - lastTime) + duration;
-                const f32 t = segment > 0.0f
-                                  ? std::clamp((duration - lastTime) / segment, 0.0f, 1.0f)
-                                  : 0.0f;
-                wrap = WrapValue(channel.valueType, track.interp, at(kept.back()),
-                                 at(kept.front()), t, size);
-            }
-        }
-
-        std::vector<i32> stamps;
-        std::vector<const u8*> values;
-        stamps.reserve(kept.size() + 2);
-        values.reserve(kept.size() + 2);
-        if (wrapStart) {
-            stamps.push_back(origin);
-            values.push_back(wrap.data());
-        }
-        for (std::size_t k : kept) {
-            const f32 time = track.times[k] < 0.0f ? 0.0f : track.times[k];
-            stamps.push_back(origin + Ticks(time));
-            values.push_back(at(k));
-        }
-        if (wrapEnd) {
-            stamps.push_back(origin + Ticks(duration));
-            values.push_back(wrap.data());
-        }
-        const std::size_t count = stamps.size();
-        // Every block ends where its sequence does -- 61,344 of 61,344 shipped
-        // blocks, the 1,550 single-key ones included -- never at its last key.
-        // Ended at its last key, each hidden Grunt geoset was one key of 0 at
-        // frame 0 ending at 0, and the Galaxy editor drew every one of them.
-        const auto endFrame = static_cast<u32>(origin + Ticks(duration));
-
-        const auto read = [&](std::size_t k) { return values[k]; };
-
-        u32 block = 0;
-        switch (stream) {
-        case Stream::Sd2v: {
-            m3::AnimBlock<Vector2f> entry;
-            entry.timestamps = stamps;
-            entry.flags = 0;
-            entry.endFrame = endFrame;
-            for (std::size_t k = 0; k < count; ++k) {
-                Vector2f value{};
-                std::memcpy(&value, read(k), sizeof(value));
-                entry.keys.push_back(value);
-            }
-            block = static_cast<u32>(stc.sd2v.size());
-            stc.sd2v.push_back(std::move(entry));
-            break;
-        }
-        case Stream::Sd3v: {
-            m3::AnimBlock<Vector3f> entry;
-            entry.timestamps = stamps;
-            entry.flags = 0;
-            entry.endFrame = endFrame;
-            const bool rebase = RebasesVector(channel);
-            for (std::size_t k = 0; k < count; ++k) {
-                Vector3f value{};
-                std::memcpy(&value, read(k), sizeof(value));
-                entry.keys.push_back(rebase ? Unrebase(value) : value);
-            }
-            block = static_cast<u32>(stc.sd3v.size());
-            stc.sd3v.push_back(std::move(entry));
-            break;
-        }
-        case Stream::Sd4q: {
-            m3::AnimBlock<Quaternion> entry;
-            entry.timestamps = stamps;
-            entry.flags = 0;
-            entry.endFrame = endFrame;
-            const bool rebase = RebasesQuaternion(channel);
-            for (std::size_t k = 0; k < count; ++k) {
-                Quaternion value{};
-                std::memcpy(&value, read(k), sizeof(value));
-                entry.keys.push_back(rebase ? UnrebaseRotation(value) : value);
-            }
-            Quaternion rest{};
-            const bool hasRest =
-                channel.valueType == geom::AttrType::Quat && channel.hasInitValue();
-            if (hasRest) {
-                std::memcpy(&rest, channel.initValue.data(), sizeof(rest));
-                rest = rebase ? UnrebaseRotation(rest) : rest;
-            }
-            AlignHemispheres(entry.keys, hasRest ? &rest : nullptr);
-            block = static_cast<u32>(stc.sd4q.size());
-            stc.sd4q.push_back(std::move(entry));
-            break;
-        }
-        case Stream::Sdcc: {
-            m3::AnimBlock<m3::ColorBGRA> entry;
-            entry.timestamps = stamps;
-            entry.flags = 0;
-            entry.endFrame = endFrame;
-            for (std::size_t k = 0; k < count; ++k) {
-                Vector4f value{};
-                std::memcpy(&value, read(k), sizeof(value));
-                entry.keys.push_back(FromRgba(value));
-            }
-            block = static_cast<u32>(stc.sdcc.size());
-            stc.sdcc.push_back(std::move(entry));
-            break;
-        }
-        case Stream::Sdr3: {
-            m3::AnimBlock<f32> entry;
-            entry.timestamps = stamps;
-            entry.flags = 0;
-            entry.endFrame = endFrame;
-            for (std::size_t k = 0; k < count; ++k) {
-                f32 value = 0.0f;
-                std::memcpy(&value, read(k), sizeof(value));
-                entry.keys.push_back(value);
-            }
-            block = static_cast<u32>(stc.sdr3.size());
-            stc.sdr3.push_back(std::move(entry));
-            break;
-        }
-        case Stream::Sdu3: {
-            m3::AnimBlock<u32> entry;
-            entry.timestamps = stamps;
-            entry.flags = 0;
-            entry.endFrame = endFrame;
-            for (std::size_t k = 0; k < count; ++k) {
-                u32 value = 0;
-                std::memcpy(&value, read(k), sizeof(value));
-                entry.keys.push_back(value);
-            }
-            block = static_cast<u32>(stc.sdu3.size());
-            stc.sdu3.push_back(std::move(entry));
-            break;
-        }
-        case Stream::Sdfg: {
-            m3::AnimBlock<m3::Flag> entry;
-            entry.timestamps = stamps;
-            entry.flags = 0;
-            entry.endFrame = endFrame;
-            for (std::size_t k = 0; k < count; ++k) {
-                f32 value = 0.0f;
-                std::memcpy(&value, read(k), sizeof(value));
-                m3::Flag flag{};
-                flag.value = value != 0.0f ? 1u : 0u;
-                entry.keys.push_back(flag);
-            }
-            block = static_cast<u32>(stc.sdfg.size());
-            stc.sdfg.push_back(std::move(entry));
-            break;
-        }
-        case Stream::None:
-            return kInvalidIndex;
-        }
-        return (static_cast<u32>(stream) << 16) | block;
+        return m3_sink::WriteStream(stc, spec, track, origin, duration, warcraft);
     }
 
     u32 writeEvents(m3::SubTrackContainer& stc, const Clip& clip, i32 origin) {
@@ -1656,7 +1386,7 @@ private:
 
     /// Binding an AnimRef is two statements, and this used to make neither.
     ///
-    /// `flags` says the property IS answered by a track -- `kAnimRefBound`,
+    /// `flags` says the property IS answered by a track -- `Wiring::kBound`,
     /// see SolveBoneAnimFlags for what reads it and why a zero here freezes
     /// the whole model. `interpType` is the step half: the per-chunk load
     /// fixup folds it in as `if (interpType == 0) flags |= 0x10` and then
@@ -1665,16 +1395,10 @@ private:
     ///
     /// One AnimRef serves every sequence, so the step stands only while EVERY
     /// clip's track holds -- a clip that moves clears it for good, whichever
-    /// order they are wired.
+    /// order they are wired (`m3_sink::Wiring`).
     template <class T>
     void Wire(m3::AnimRef<T>& ref, u32 animId, Interpolation interp) {
-        ref.animId = animId;
-        if (interp != Interpolation::Step) {
-            moving_.insert(animId);
-        }
-        const bool step = interp == Interpolation::Step && moving_.count(animId) == 0;
-        ref.flags = kAnimRefBound;
-        ref.interpType = step ? u16(0) : u16(1);
+        wiring_.wire(ref, animId, interp);
     }
 
     void wireAnimRef(const AnimChannel& channel, const SubTrack& track) {
@@ -1687,6 +1411,26 @@ private:
             wireMaterial(channel, track);
             return;
         case TrackTarget::Kind::Section: {
+            // A tint: the carrier emissive's colour (`convertTintTracks`
+            // widened the stream to its RGBA).
+            if (channel.target.channel == Channel::Color) {
+                const auto tint = context_.sectionColorLayers.find(channel.id);
+                if (tint == context_.sectionColorLayers.end()) {
+                    return;
+                }
+                for (const auto& [matIndex, which] : tint->second) {
+                    if (matIndex >= out_.standardMaterials.size()) {
+                        continue;
+                    }
+                    m3::StandardMaterial& mat = out_.standardMaterials[matIndex];
+                    std::optional<m3::TextureLayer>& slot =
+                        which == 1 ? mat.emissiveLayer1 : mat.emissiveLayer2;
+                    if (slot.has_value()) {
+                        Wire(slot->color, exportId(channel.id), track.interp);
+                    }
+                }
+                return;
+            }
             // The stream is already in the STC under this channel's id; the
             // gate bone's AnimRef is the one reader (see ExportContext).
             // Warcraft III spells section visibility as an ALPHA track, so
@@ -1726,6 +1470,33 @@ private:
             return;
         }
         const ExportContext::NodeSlot& slot = context_.nodeSlots[node];
+        // The Warcraft III carriers (`M3ExportSettings::effectNodeBones`): a
+        // visibility goes to the bone `toM3` chose for it -- a `_Vis` leaf
+        // where the node has children -- and a light's or a camera's transform
+        // to the bone that carries its record.
+        const u32 carrier = node < context_.nodeBone.size() ? context_.nodeBone[node] : kInvalidIndex;
+        const u32 visCarrier =
+            node < context_.nodeVisBone.size() ? context_.nodeVisBone[node] : kInvalidIndex;
+        if (channel.target.channel == Channel::Visibility && visCarrier < out_.bones.size()) {
+            Wire(out_.bones[visCarrier].visibility, exportId(channel.id), track.interp);
+            return;
+        }
+        if (carrier < out_.bones.size() && slot.slot != ExportContext::Slot::Bone) {
+            m3::Bone& bone = out_.bones[carrier];
+            switch (channel.target.channel) {
+            case Channel::Translation:
+                Wire(bone.position, exportId(channel.id), track.interp);
+                return;
+            case Channel::Rotation:
+                Wire(bone.rotation, exportId(channel.id), track.interp);
+                return;
+            case Channel::Scale:
+                Wire(bone.scale, exportId(channel.id), track.interp);
+                return;
+            default:
+                break;
+            }
+        }
         if (slot.slot == ExportContext::Slot::Bone && slot.index < out_.bones.size()) {
             m3::Bone& bone = out_.bones[slot.index];
             switch (channel.target.channel) {
@@ -1747,6 +1518,17 @@ private:
         }
         if (slot.slot == ExportContext::Slot::Light && slot.index < out_.lights.size()) {
             m3::Light& light = out_.lights[slot.index];
+            // `sub` 1 is a Warcraft III or World of Warcraft light's AMBIENT
+            // term, which a LITE has no field for; wiring it onto the diffuse
+            // made the ambient colour the light's colour.
+            if (channel.target.sub != 0) {
+                if (ambientDropped_.insert(channel.id).second) {
+                    diagnostics_.info(DiagCode::AnimTrackDropped,
+                                      "a light's ambient term has no LITE field",
+                                      ElementRef(ElementKind::Channel, channel.id), profile());
+                }
+                return;
+            }
             switch (channel.target.channel) {
             case Channel::Color:
                 Wire(light.diffuseColor, exportId(channel.id), track.interp);
@@ -1756,6 +1538,12 @@ private:
                 return;
             case Channel::AttenuationStart:
                 Wire(light.attenuationStart, exportId(channel.id), track.interp);
+                return;
+            case Channel::AttenuationEnd:
+                // The far attenuation is the AnimRef the struct calls `decay`
+                // (its init is the plain float beside it on every shipped
+                // light).
+                Wire(light.decay, exportId(channel.id), track.interp);
                 return;
             default:
                 return;
@@ -1877,6 +1665,11 @@ private:
             if (!layer.has_value()) {
                 continue;
             }
+            // The coverage mask a fold copied from this diffuse samples its UVs,
+            // so it takes the UV and frame tracks too -- never the fade, which
+            // already rides a carrier.
+            m3::TextureLayer* const mask =
+                maskCopyOf(mat, ordinals, section.ordinalBase, layerSlot);
 
             if (channel.target.kind == TrackTarget::Kind::MaterialLayer) {
                 switch (channel.target.channel) {
@@ -1888,6 +1681,9 @@ private:
                     continue;
                 case Channel::TextureIndex:
                     Wire(layer->currentFrame, exportId(channel.id), track.interp);
+                    if (mask != nullptr) {
+                        Wire(mask->currentFrame, exportId(channel.id), track.interp);
+                    }
                     continue;
                 case Channel::Weight:
                     Wire(layer->rgbMultiply, exportId(channel.id), track.interp);
@@ -1899,18 +1695,52 @@ private:
             switch (channel.target.channel) {
             case Channel::UvTranslate:
                 Wire(layer->uvOffset, exportId(channel.id), track.interp);
+                if (mask != nullptr) {
+                    Wire(mask->uvOffset, exportId(channel.id), track.interp);
+                }
                 continue;
             case Channel::UvRotate:
                 Wire(layer->uvAngle, exportId(channel.id), track.interp);
+                if (mask != nullptr) {
+                    Wire(mask->uvAngle, exportId(channel.id), track.interp);
+                }
                 continue;
             case Channel::UvScale:
                 Wire(layer->uvTiling, exportId(channel.id), track.interp);
+                if (mask != nullptr) {
+                    Wire(mask->uvTiling, exportId(channel.id), track.interp);
+                }
                 continue;
             default:
                 continue;
             }
         }
         }
+    }
+
+    /// The coverage mask `m3_core`'s fold copied from a section's diffuse -- that
+    /// texture on its alpha channel, under no ordinal of its own -- when
+    /// @p layerSlot is that diffuse. Wired to the colour alone, a scrolling
+    /// Warcraft III blend slid its colour over a frozen mask and drew nothing
+    /// (ChineseFairy's slashes).
+    m3::TextureLayer* maskCopyOf(m3::StandardMaterial& mat, const std::vector<u32>& ordinals,
+                                 std::size_t ordinalBase, std::size_t layerSlot) const {
+        if (static_cast<m3_core::StandardLayer>(layerSlot) != m3_core::StandardLayer::Diffuse ||
+            !mat.diffuseLayer.has_value() || !mat.alphaLayer1.has_value()) {
+            return nullptr;
+        }
+        const std::size_t alpha1 =
+            ordinalBase + static_cast<std::size_t>(m3_core::StandardLayer::Alpha1);
+        if (alpha1 < ordinals.size() && ordinals[alpha1] != kInvalidIndex) {
+            return nullptr; // a stage of its own, wired through its ordinal
+        }
+        m3::TextureLayer& mask = *mat.alphaLayer1;
+        if (hasFlag(mask.flags, m3::TextureLayerFlag::Color) ||
+            mask.colorType != m3::ColorChannelSelect::Alpha ||
+            TrimNuls(mask.texturePath) != TrimNuls(mat.diffuseLayer->texturePath)) {
+            return nullptr;
+        }
+        return &mask;
     }
 
     /// One standard material the slot draws with, and where its ordinals start
@@ -1944,6 +1774,17 @@ private:
                 }
             }
         }
+        // The copies a differing tint or fade drew (`ExportContext::materialClones`).
+        const auto clones = context_.materialClones.find(slot);
+        if (clones != context_.materialClones.end()) {
+            for (const u32 entry : clones->second) {
+                if (entry < out_.materialMaps.size() &&
+                    out_.materialMaps[entry].materialType == m3::MaterialType::Standard &&
+                    out_.materialMaps[entry].materialIndex < out_.standardMaterials.size()) {
+                    result.push_back({out_.materialMaps[entry].materialIndex, 0});
+                }
+            }
+        }
         return result;
     }
 
@@ -1970,6 +1811,13 @@ private:
             return l.has_value() && hasFlag(l->flags, m3::TextureLayerFlag::Color) &&
                    !l->mapAlpha.isAnimated();
         };
+        // Last, a textured mask: its map alpha multiplies the sample
+        // (`PSMaterialLayer.fx`, `cResult.a *= p_vMultiplyAddAlphaTrans.z`),
+        // and while it rests at 1 nothing else states it.
+        const auto freeMapAlpha = [](const std::optional<m3::TextureLayer>& l) {
+            return l.has_value() && !l->mapAlpha.isAnimated() && l->mapAlpha.initValue == 1.0f &&
+                   l->mapAlpha.nullValue == 1.0f;
+        };
         std::optional<m3::TextureLayer>* slot = nullptr;
         if (!mat.alphaLayer1.has_value()) {
             slot = &mat.alphaLayer1;
@@ -1979,10 +1827,14 @@ private:
             slot = &mat.alphaLayer1;
         } else if (shareable(mat.alphaLayer2)) {
             slot = &mat.alphaLayer2;
+        } else if (freeMapAlpha(mat.alphaLayer1)) {
+            slot = &mat.alphaLayer1;
+        } else if (freeMapAlpha(mat.alphaLayer2)) {
+            slot = &mat.alphaLayer2;
         }
         if (slot == nullptr) {
             diagnostics_.warn(DiagCode::AnimTrackDropped,
-                              "a material alpha track found both alpha layers taken",
+                              "a material alpha track found both alpha layers' map alphas taken",
                               ElementRef(ElementKind::Channel, channel.id), context_.profile);
             return;
         }
@@ -2026,20 +1878,23 @@ private:
     const ExportContext& context_;
     m3::Model& out_;
     Diagnostics& diagnostics_;
+    M3ExportMap* map_ = nullptr;
     std::vector<std::vector<u32>> materialOrdinals_;
     /// (channel, standard material) pairs that already have a carrier alpha
     /// layer (`wireAlphaCarrier`) -- a composite slot plants one per section.
     std::set<std::pair<u32, u32>> alphaCarriers_;
     /// Whole-material colour channels whose rest already seeded the diffuse.
     std::set<u32> colorSeeded_;
+    /// Light ambient channels already reported as dropped.
+    std::set<u32> ambientDropped_;
     /// Channels some clip interpolates, so no clip may leave them stepped.
-    std::set<u32> moving_;
+    m3_sink::Wiring wiring_;
 };
 
 } // namespace
 
 void SolveBoneAnimFlags(m3::Model& out) {
-    // Bit 1 of `kAnimRefBound` alone: the solver asks only whether a track
+    // Bit 1 of `Wiring::kBound` alone: the solver asks only whether a track
     // answers the property, never which model's tracks it was.
     const auto bound = [](u16 flags) { return (flags & 0x2u) != 0; };
     const std::size_t count = out.bones.size();
@@ -2076,11 +1931,12 @@ void SolveBoneAnimFlags(m3::Model& out) {
 }
 
 void Export(const Document& document, u32 model, const ExportContext& context, m3::Model& out,
-            Diagnostics& diagnostics) {
+            Diagnostics& diagnostics, M3ExportMap* map) {
     if (model >= document.models.size()) {
         return;
     }
-    Exporter(document, model, context, out, diagnostics).run();
+    Exporter(document, model, context, out, diagnostics, map).run();
+    m3_sink::UnshareAnimIds(out);
     SolveBoneAnimFlags(out);
 }
 

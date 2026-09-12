@@ -33,9 +33,11 @@
 
 #include "../materials/mdx_core.h"
 #include "mdx_anim.h"
+#include "skin_skeleton.h"
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <map>
 #include <string>
 #include <unordered_map>
@@ -276,6 +278,9 @@ void FillPayload(const mdx::Model& source, const PendingNode& pending, Node& nod
     case Origin::Attachment: {
         const mdx::Attachment& attachment = source.attachments[pending.sourceIndex];
         node.native.set("mdxAttachmentId", static_cast<i64>(attachment.attachmentId));
+        // The model the point spawns (`NEBirth`, `UBirth`), by name: nothing in
+        // this file resolves it, so it stays a key with no model behind it.
+        std::get<AttachmentPayload>(node.payload).asset.path = attachment.path;
         break;
     }
     case Origin::ParticleEmitter: {
@@ -417,6 +422,9 @@ NodeImport ImportNodes(const mdx::Model& source) {
         payload.fov = camera.fieldOfView;
         payload.nearClip = camera.nearClippingPlane;
         payload.farClip = camera.farClippingPlane;
+        // The position is the camera's pivot as much as its rest: KCTR keys
+        // offset it, and a retarget rebuilds the rest from the pivot.
+        node.pivot = camera.position;
         node.local.translation = camera.position;
         node.poses.push_back(node.local);
         out.cameraNodes.push_back(out.tree.size());
@@ -685,6 +693,27 @@ Result<Document> MdxConverter::fromMdx(const mdx::Model& source) const {
                 section.flags |= SectionFlags::Hidden;
                 break;
             }
+        }
+        // The rest of a geoset animation is no track either: a static tint and
+        // a static partial alpha, which Warcraft III multiplies into the geoset
+        // and a keyed one answers outside its keys. Kept bit for bit; the
+        // colour is red first, as the renderer and Blizzard's conversions read
+        // it (`mdx_anim.cpp`, `SwapRedBlue`).
+        for (const mdx::GeosetAnimation& animation : source.geosetAnimations) {
+            if (animation.geosetId != g) {
+                continue;
+            }
+            const auto bits = [](f32 value) { return static_cast<i64>(std::bit_cast<u32>(value)); };
+            const Vector3f& c = animation.color;
+            if (c.x != 1.0f || c.y != 1.0f || c.z != 1.0f) {
+                section.native.set("geosetColorR", bits(c.x));
+                section.native.set("geosetColorG", bits(c.y));
+                section.native.set("geosetColorB", bits(c.z));
+            }
+            if (animation.alpha > 0.0f && animation.alpha != 1.0f) {
+                section.native.set("geosetAlpha", bits(animation.alpha));
+            }
+            break;
         }
         const u32 sectionIndex = builder.addSection(std::move(section));
 
@@ -1132,6 +1161,9 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
             if (const auto* id = node.native.find("mdxAttachmentId")) {
                 attachment.attachmentId = static_cast<u32>(id->value);
             }
+            if (const auto* payload = std::get_if<AttachmentPayload>(&node.payload)) {
+                attachment.path = payload->asset.path;
+            }
             claim(i, mdx_anim::ExportContext::Slot::Attachment, out.attachments.size());
             out.attachments.push_back(std::move(attachment));
             break;
@@ -1275,6 +1307,8 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
     desc.includeSkin = true;
     desc.maxInfluences = Profile(profile).maxBoneInfluences;
     desc.splitBySection = true;
+    const SkinSkeleton skinSkeleton(model.nodes);
+    skinSkeleton.describe(desc);
 
     // `SKIN` and `TANG` are written only above 800 (mdx/writer.cpp), so at 800
     // the group encoding is the only skinning the file carries.
@@ -1284,6 +1318,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
     // The geosets a hidden section produced, turned into geoset animations once
     // every geoset exists.
     std::vector<u32> hiddenGeosets;
+    std::vector<std::pair<u32, const MeshSection*>> tintedGeosets;
 
     constexpr u32 kUnmapped = ~0u;
     for (std::size_t m = 0; m < model.meshes.size(); ++m) {
@@ -1398,6 +1433,10 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
                 if (hasFlag(section->flags, SectionFlags::Hidden)) {
                     hiddenGeosets.push_back(static_cast<u32>(out.geosets.size()));
                 }
+                if (section->native.find("geosetColorR") != nullptr ||
+                    section->native.find("geosetAlpha") != nullptr) {
+                    tintedGeosets.emplace_back(static_cast<u32>(out.geosets.size()), section);
+                }
             }
 
             animContext.geosetsOfMesh[m].push_back(static_cast<u32>(out.geosets.size()));
@@ -1416,6 +1455,37 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
         animation.alpha = 0.0f;
         animation.flags = mdx::GeosetAnimation::Flag::Color;
         out.geosetAnimations.push_back(std::move(animation));
+    }
+    // A static tint or partial alpha goes back onto the geoset's record.
+    for (const auto& [geoset, section] : tintedGeosets) {
+        const NativeBag::Entry* r = section->native.find("geosetColorR");
+        const NativeBag::Entry* a = section->native.find("geosetAlpha");
+        mdx::GeosetAnimation* animation = nullptr;
+        for (mdx::GeosetAnimation& existing : out.geosetAnimations) {
+            if (existing.geosetId == geoset) {
+                animation = &existing;
+            }
+        }
+        if (animation == nullptr) {
+            mdx::GeosetAnimation created;
+            created.geosetId = geoset;
+            created.flags = mdx::GeosetAnimation::Flag::Color;
+            out.geosetAnimations.push_back(std::move(created));
+            animation = &out.geosetAnimations.back();
+        }
+        const auto value = [](const NativeBag::Entry* entry) {
+            return std::bit_cast<f32>(static_cast<u32>(entry->value));
+        };
+        if (r != nullptr) {
+            const NativeBag::Entry* g = section->native.find("geosetColorG");
+            const NativeBag::Entry* b = section->native.find("geosetColorB");
+            if (g != nullptr && b != nullptr) {
+                animation->color = Vector3f{value(r), value(g), value(b)};
+            }
+        }
+        if (a != nullptr && !hasFlag(section->flags, SectionFlags::Hidden)) {
+            animation->alpha = value(a);
+        }
     }
 
     // Last, because a geoset animation names a geoset and an event object has

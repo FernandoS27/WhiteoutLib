@@ -39,6 +39,7 @@
 
 #include "../materials/m2_core.h"
 #include "m2_anim.h"
+#include "skin_skeleton.h"
 
 #include <algorithm>
 #include <array>
@@ -592,6 +593,8 @@ Result<m2::Model> M2Converter::toM2(const Document& document, ProfileId profile,
     desc.includeSkin = true;
     desc.maxInfluences = Profile(profile).maxBoneInfluences;
     desc.wantU16Indices = true;
+    const SkinSkeleton skinSkeleton(model.nodes);
+    skinSkeleton.describe(desc);
 
     for (std::size_t m = 0; m < model.meshes.size(); ++m) {
         const Mesh& mesh = model.meshes[m];

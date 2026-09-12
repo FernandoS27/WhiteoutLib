@@ -97,6 +97,15 @@ struct RenderMeshDesc {
     utils::AttributeEncoding blendIndexEncoding = utils::AttributeEncoding::UInt8;
     utils::AttributeEncoding blendWeightEncoding = utils::AttributeEncoding::Float32;
 
+    /// The skeleton a vertex's surplus influences fold over when it carries more
+    /// than `maxInfluences` (`FoldInfluences`), both indexed like
+    /// `Influence::bone`: each node's parent, where a value past the span is a
+    /// root, and its bind-space pivot. Views, so the arrays must outlive the
+    /// build. Left empty, the heaviest `maxInfluences` are kept and the rest
+    /// dropped.
+    std::span<const u32> skinParents;
+    std::span<const Vector3f> skinPivots;
+
     /// A default set: position + normal + uv0, all `Float32`.
     static RenderMeshDesc Standard();
 };
@@ -132,6 +141,25 @@ struct RenderMesh {
  * Halfedge-domain layers index correctly in both cases.
  */
 RenderMesh BuildRenderMesh(const Mesh& mesh, const RenderMeshDesc& desc);
+
+/**
+ * @brief Folds @p influences down to @p width, one merge at a time.
+ *
+ * Re-binding a vertex at @p position from one bone to another moves it by the
+ * turns of the joints between them -- the chain from each bone up to their
+ * lowest common ancestor -- each levered by the vertex's distance from that
+ * joint's pivot. Each merge takes the pair whose lighter influence times that
+ * summed lever is least, and adds its weight to the other; an equal pair keeps
+ * the bone nearer the root. The result is sorted by descending weight.
+ *
+ * A Warcraft III matrix group averages every bone it names equally, six on a
+ * cloth hub where three chains meet. Keeping the first four dropped a whole
+ * chain and tore the hub off the cloth; folding a child into its parent keeps
+ * every chain.
+ */
+std::vector<Influence> FoldInfluences(std::span<const Influence> influences, u32 width,
+                                      const Vector3f& position, std::span<const u32> parents,
+                                      std::span<const Vector3f> pivots);
 
 } // namespace geom
 } // namespace wem

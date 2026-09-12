@@ -133,6 +133,8 @@ whiteout_add_test(wem_convert_d3_test wem_convert_d3_test.cpp)
 target_include_directories(wem_convert_d3_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 whiteout_add_test(wem_convert_gltf_test wem_convert_gltf_test.cpp)
 target_include_directories(wem_convert_gltf_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+whiteout_add_test(mdx_m3_effects_test mdx_m3_effects_test.cpp)
+target_include_directories(mdx_m3_effects_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 whiteout_add_test(wem_convert_corpus_test wem_convert_corpus_test.cpp)
 target_include_directories(wem_convert_corpus_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # The expected-loss goldens live beside the test sources, and the sweep has to

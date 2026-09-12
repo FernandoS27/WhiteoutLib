@@ -13,6 +13,8 @@
 
 #include <whiteout/models/wem/anim/clip.h>
 
+#include "mdx_track_slicer.h"
+
 namespace whiteout {
 namespace models {
 namespace wem {
@@ -42,39 +44,26 @@ constexpr f32 Seconds(f32 milliseconds) {
     return milliseconds / kMillisecondsPerSecond;
 }
 
-template <class T>
-struct ValueTrait;
-template <>
-struct ValueTrait<f32> {
-    static constexpr geom::AttrType kType = geom::AttrType::F32;
-};
-template <>
-struct ValueTrait<u32> {
-    static constexpr geom::AttrType kType = geom::AttrType::U32;
-};
-template <>
-struct ValueTrait<Vector3f> {
-    static constexpr geom::AttrType kType = geom::AttrType::F32x3;
-};
-template <>
-struct ValueTrait<Quaternion> {
-    static constexpr geom::AttrType kType = geom::AttrType::Quat;
-};
+using mdx_slice::InterpOf;
+using mdx_slice::ValueTrait;
 
-/// MDX's `Linear` over a quaternion **is** a shortest-arc slerp in the engine,
-/// so the two are the same statement and WEM says the more specific one.
-Interpolation InterpOf(mdx::InterpolationType type, geom::AttrType valueType) {
-    switch (type) {
-    case mdx::InterpolationType::None:
-        return Interpolation::Step;
-    case mdx::InterpolationType::Linear:
-        return valueType == geom::AttrType::Quat ? Interpolation::Slerp : Interpolation::Linear;
-    case mdx::InterpolationType::Hermite:
-        return Interpolation::Hermite;
-    case mdx::InterpolationType::Bezier:
-        return Interpolation::Bezier;
+/// A colour track with red and blue exchanged, tangents and all.
+///
+/// Warcraft III stores every keyed colour -- KGAC, KLAC, KLBC and KRCO -- blue
+/// first, and the static colour beside it red first; WEM's colour channels are
+/// RGB. Blizzard's own StarCraft II conversions name the exchanged key on all
+/// 222 keyed geoset colours they carry and the plain static on all 604 static
+/// ones. Lights have no such witness (Blizzard dropped 167 of 168), but the day
+/// and night suns read only one way: Lordaeron's midnight key (0.80, 0.53, 0.31)
+/// is moonlight blue exchanged, and its noon ambient (0.98, 0.84, 0.84) a
+/// sky-blue fill rather than pink. No shipped ribbon keys its colour. The native
+/// renderer reads all four the same way (`mdx_model_adapter.cpp`). The exchange
+/// is its own inverse, so the import and the export call the one function.
+mdx::Track<Vector3f> SwapRedBlue(mdx::Track<Vector3f> track) {
+    for (Vector3f& value : track.keys_data) {
+        std::swap(value.x, value.z);
     }
-    return Interpolation::Linear;
+    return track;
 }
 
 /// The `Fresnel` or `UvAnimation` feature on @p ordinal, creating a
@@ -116,16 +105,13 @@ public:
         addLayerTracks();
         addGeosetAnimationTracks();
         addEvents();
+        reserveEmitterClips();
         commit();
     }
 
 private:
     /// One sequence's window on the global timeline, and the clip it became.
-    struct Window {
-        f32 start = 0; ///< Milliseconds.
-        f32 end = 0;
-        u32 clip = kInvalidIndex;
-    };
+    using Window = mdx_slice::Window;
 
     void buildSequenceClips() {
         windows_.reserve(source_.sequences.size());
@@ -201,17 +187,6 @@ private:
         return index;
     }
 
-    template <class T>
-    static void appendKey(const mdx::Track<T>& track, std::size_t key, u32 perKey,
-                          std::vector<u8>& values) {
-        const std::size_t base = key * perKey;
-        for (u32 v = 0; v < perKey; ++v) {
-            const T& value = track.keys_data[base + v];
-            const u8* bytes = reinterpret_cast<const u8*>(&value);
-            values.insert(values.end(), bytes, bytes + sizeof(T));
-        }
-    }
-
     /// One track, into every clip that plays part of it.
     template <class T>
     void addTrack(const mdx::Track<T>& track, const TrackTarget& target) {
@@ -245,18 +220,13 @@ private:
                           ElementRef(ElementKind::Track, kInvalidIndex));
                 return;
             }
-            SubTrack sub;
-            sub.channel = id;
-            sub.interp = interp;
-            for (std::size_t k = 0; k < track.timestamps.size(); ++k) {
-                sub.times.push_back(Seconds(static_cast<f32>(track.timestamps[k])));
-                appendKey(track, k, perKey, sub.values);
-            }
-            clips_[clip].containers[0].subTracks.push_back(std::move(sub));
+            clips_[clip].containers[0].subTracks.push_back(mdx_slice::WholeTrack(track, id));
             used = true;
         } else {
             for (const Window& window : windows_) {
-                if (sliceInto(track, interp, perKey, id, window)) {
+                SubTrack sub;
+                if (mdx_slice::SliceWindow(track, id, window, sub)) {
+                    clips_[window.clip].containers[0].subTracks.push_back(std::move(sub));
                     used = true;
                 }
             }
@@ -270,39 +240,6 @@ private:
         channel.target = target;
         channel.valueType = kType;
         model_.animChannels.add(channel);
-    }
-
-    /// The window's keys plus the two that bracket it — see the file comment.
-    template <class T>
-    bool sliceInto(const mdx::Track<T>& track, Interpolation interp, u32 perKey, u32 id,
-                   const Window& window) {
-        const std::vector<u32>& times = track.timestamps;
-
-        std::size_t first = 0;
-        while (first < times.size() && static_cast<f32>(times[first]) < window.start) {
-            ++first;
-        }
-        std::size_t last = first;
-        while (last < times.size() && static_cast<f32>(times[last]) <= window.end) {
-            ++last;
-        }
-        // One before and one after, so the spans at both edges interpolate the
-        // way the global track does.
-        const std::size_t lo = first > 0 ? first - 1 : first;
-        const std::size_t hi = last < times.size() ? last + 1 : last;
-        if (lo >= hi) {
-            return false;
-        }
-
-        SubTrack sub;
-        sub.channel = id;
-        sub.interp = interp;
-        for (std::size_t k = lo; k < hi; ++k) {
-            sub.times.push_back(Seconds(static_cast<f32>(times[k]) - window.start));
-            appendKey(track, k, perKey, sub.values);
-        }
-        clips_[window.clip].containers[0].subTracks.push_back(std::move(sub));
-        return true;
     }
 
     u32 nodeOf(u32 objectId) const {
@@ -376,14 +313,14 @@ private:
             if (node == kInvalidNode) {
                 continue;
             }
-            addTrack(light.colorTracks, nodeTarget(node, Channel::Color));
+            addTrack(SwapRedBlue(light.colorTracks), nodeTarget(node, Channel::Color));
             addTrack(light.intensityTracks, nodeTarget(node, Channel::Intensity));
             addTrack(light.attenuationStartTracks, nodeTarget(node, Channel::AttenuationStart));
             addTrack(light.attenuationEndTracks, nodeTarget(node, Channel::AttenuationEnd));
             addTrack(light.visibilityTracks, nodeTarget(node, Channel::Visibility));
             // A WC3 light carries a second colour and intensity for its ambient
             // term. Same channel, `sub` 1 — which is what `sub` is for on a node.
-            addTrack(light.ambientColorTracks, nodeTarget(node, Channel::Color, 1));
+            addTrack(SwapRedBlue(light.ambientColorTracks), nodeTarget(node, Channel::Color, 1));
             addTrack(light.ambientIntensityTracks, nodeTarget(node, Channel::Intensity, 1));
         }
         for (const mdx::Attachment& attachment : source_.attachments) {
@@ -409,7 +346,7 @@ private:
             if (node == kInvalidNode) {
                 continue;
             }
-            addTrack(ribbon.colorTracks, nodeTarget(node, Channel::Color));
+            addTrack(SwapRedBlue(ribbon.colorTracks), nodeTarget(node, Channel::Color));
             addTrack(ribbon.alphaTracks, nodeTarget(node, Channel::Alpha));
             addTrack(ribbon.textureSlotTracks, nodeTarget(node, Channel::TextureIndex));
             addTrack(ribbon.visibilityTracks, nodeTarget(node, Channel::Visibility));
@@ -556,7 +493,7 @@ private:
             target.channel = Channel::Alpha;
             addTrack(animation.alphaTracks, target);
             target.channel = Channel::Color;
-            addTrack(animation.colorTracks, target);
+            addTrack(SwapRedBlue(animation.colorTracks), target);
         }
     }
 
@@ -589,6 +526,44 @@ private:
                         Seconds(static_cast<f32>(time) - window.start), node, event.node.name, 0});
                 }
             }
+        }
+    }
+
+    /// The clips an emitter's PROPERTY tracks play under.
+    ///
+    /// WEM does not hold those tracks (§18), but a global sequence only they
+    /// key is still a loop the model runs: without its auto-play clip a
+    /// conversion that crosses the emitter natively (`cross/mdx_m3_effects`)
+    /// has no sequence to put its emission rate in. Last, so every clip the
+    /// tracks above made keeps its place.
+    void reserveEmitterClips() {
+        const auto reserve = [this](const auto& track) {
+            if (track.isUsed && !track.timestamps.empty() &&
+                track.globalSequenceId != kNoGlobalSequence &&
+                track.globalSequenceId < source_.globalSequences.size()) {
+                globalClipFor(track.globalSequenceId);
+            }
+        };
+        for (const mdx::ParticleEmitter& emitter : source_.particleEmitters) {
+            reserve(emitter.emissionRateTracks);
+            reserve(emitter.gravityTracks);
+            reserve(emitter.longitudeTracks);
+            reserve(emitter.latitudeTracks);
+            reserve(emitter.lifespanTracks);
+            reserve(emitter.speedTracks);
+        }
+        for (const mdx::ParticleEmitter2& emitter : source_.particleEmitters2) {
+            reserve(emitter.speedTracks);
+            reserve(emitter.variationTracks);
+            reserve(emitter.latitudeTracks);
+            reserve(emitter.gravityTracks);
+            reserve(emitter.emissionRateTracks);
+            reserve(emitter.lengthTracks);
+            reserve(emitter.widthTracks);
+        }
+        for (const mdx::RibbonEmitter& ribbon : source_.ribbonEmitters) {
+            reserve(ribbon.heightAboveTracks);
+            reserve(ribbon.heightBelowTracks);
         }
     }
 
@@ -1193,9 +1168,12 @@ private:
             // node animates two things of the same name.
             const bool ambient = channel.target.sub == 1;
             switch (channel.target.channel) {
-            case Channel::Color:
-                Emit(merged, ambient ? light.ambientColorTracks : light.colorTracks);
+            case Channel::Color: {
+                mdx::Track<Vector3f>& color = ambient ? light.ambientColorTracks : light.colorTracks;
+                Emit(merged, color);
+                color = SwapRedBlue(std::move(color));
                 return;
+            }
             case Channel::Intensity:
                 Emit(merged, ambient ? light.ambientIntensityTracks : light.intensityTracks);
                 return;
@@ -1242,6 +1220,7 @@ private:
             switch (channel.target.channel) {
             case Channel::Color:
                 Emit(merged, ribbon.colorTracks);
+                ribbon.colorTracks = SwapRedBlue(std::move(ribbon.colorTracks));
                 return;
             case Channel::Alpha:
                 Emit(merged, ribbon.alphaTracks);
@@ -1323,6 +1302,7 @@ private:
                 Emit(merged, animation.alphaTracks);
             } else {
                 Emit(merged, animation.colorTracks);
+                animation.colorTracks = SwapRedBlue(std::move(animation.colorTracks));
             }
         }
         if (!drawn) {
@@ -1643,6 +1623,7 @@ private:
                 break;
             case Channel::Color:
                 Emit(merged, animation.colorTracks);
+                animation.colorTracks = SwapRedBlue(std::move(animation.colorTracks));
                 break;
             default:
                 break;

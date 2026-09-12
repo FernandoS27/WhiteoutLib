@@ -43,6 +43,7 @@
 #include "whiteout/models/wem/materials/gltf_core.h"
 
 #include "gltf_anim.h"
+#include "skin_skeleton.h"
 #include "gltf_bin.h"
 
 namespace whiteout {
@@ -291,6 +292,8 @@ struct MeshExportContext {
     bool skinned = false;
     /// The default-look visibility gate, when the model has clips to ask.
     const DefaultLookAlpha* defaultLook = nullptr;
+    /// What a vertex's surplus influences fold over.
+    const SkinSkeleton* skinSkeleton = nullptr;
 };
 
 /// Exports one WEM mesh as one glTF mesh. Returns its index, or `gltf::kNone`
@@ -336,6 +339,9 @@ u32 ExportMesh(MeshExportContext& context, const Mesh& mesh, u32 meshOrdinal) {
     }
     desc.includeSkin = hasSkinData;
     desc.maxInfluences = 4;
+    if (context.skinSkeleton != nullptr) {
+        context.skinSkeleton->describe(desc);
+    }
     desc.blendIndexEncoding = utils::AttributeEncoding::UInt16;
     desc.blendWeightEncoding = utils::AttributeEncoding::Float32;
 
@@ -1438,6 +1444,8 @@ Result<gltf::Asset> GltfConverter::toGltf(const Document& document, ProfileId pr
         MeshExportContext context{asset, bin, profile, slotMaterials, result.diagnostics,
                                   model.nodes.size()};
         context.defaultLook = &defaultLook;
+        const SkinSkeleton skinSkeleton(model.nodes);
+        context.skinSkeleton = &skinSkeleton;
         for (std::size_t meshIndex = 0; meshIndex < model.meshes.size(); ++meshIndex) {
             const Mesh& mesh = model.meshes[meshIndex];
             if (options.baseLodOnly && mesh.lodLevel != 0) {

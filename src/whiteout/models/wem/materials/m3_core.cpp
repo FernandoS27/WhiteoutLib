@@ -1979,14 +1979,16 @@ std::size_t open(Section& s, const std::vector<Pass>& passes, std::size_t i,
     if (p.glow) {
         // R4. `Opaque` never reads the material alpha, so an opaque glow's
         // static weight rides the layer; a blended one rides the carrier
-        // `finish` plants.
+        // `finish` plants -- and only there. The team op reads the layer's own
+        // alpha (`model_material.slang:355`), so a weight on both dimmed the
+        // glow twice (0.75 * 0.75 = 0.56 on the Skink hero). The oracle's hero
+        // glows state mapAlpha 1 beside a 191/255 carrier.
         s.kind = Section::Kind::Glow;
         m.emissiveLayer1 = layerFrom(p.input, context);
         m.emissiveLayer1->colorType = m3::ColorChannelSelect::Red;
         m.emissiveBlendMode1 = Op::TeamColorEmissiveAdd;
-        if (blend == m3::BlendMode::Opaque) {
-            weightLayer(*m.emissiveLayer1, p.input.weight);
-        }
+        weightLayer(*m.emissiveLayer1,
+                    blend == m3::BlendMode::Opaque ? p.input.weight : 1.0f);
         s.record(StandardLayer::Emissive1, p.ordinal);
         s.emisAdd = 1;
         s.stage = 4;
@@ -2303,7 +2305,8 @@ void placeFresnel(Section& s, const CompositeBody* body, const CommonMaterial& c
 /// The header fields every section shares, the multipliers, the base's own
 /// coverage and static alpha.
 void finish(Section& s, const CompositeBody* body, const CommonMaterial& common,
-            const std::string& name, ProfileId profile, Diagnostics& out) {
+            const std::string& name, const Context& context, ProfileId profile,
+            Diagnostics& out) {
     m3::StandardMaterial& m = s.standard;
     m.name = name;
     m.priority = common.priorityPlane;
@@ -2319,6 +2322,23 @@ void finish(Section& s, const CompositeBody* body, const CommonMaterial& common,
     // not).
     m.hdrEmissiveMultiplier =
         body != nullptr ? (std::max)(1.0f, body->emissiveFactor.x) : 1.0f;
+    // A team glow adds the ENGINE's emissive team colour, not the source
+    // texture's own red -- and that colour is authored dark (red is 0.545,
+    // 0.26 de-gamma'd) where Warcraft III adds the glow texture itself (its
+    // red peaks at 0.48) over two stacked quads. So the glow needs a scale the
+    // source pass never carried. All 541 of the oracle's team-glow materials
+    // state one: 540 say 1.5, the rest 2 to 4. Measured on the Skink hero,
+    // 1.5 adds a peak of +46/255 and 3 adds +88; the user picked 2.25 between
+    // them. Warcraft III stacks only, so an `.m3` round trip keeps whatever
+    // its own header stated.
+    const bool teamGlow =
+        (m.emissiveLayer1.has_value() &&
+         m.emissiveBlendMode1 == m3::LayerBlendOp::TeamColorEmissiveAdd) ||
+        (m.emissiveLayer2.has_value() &&
+         m.emissiveBlendMode2 == m3::LayerBlendOp::TeamColorEmissiveAdd);
+    if (context.warcraftPasses && teamGlow) {
+        m.hdrEmissiveMultiplier = 2.25f;
+    }
     if (body != nullptr && body->environmentFactor > 0.0f) {
         m.hdrEnvironmentConstant = body->environmentFactor;
     } else if (s.hasEnv && m.hdrEnvironmentConstant <= 0.0f) {
@@ -2461,7 +2481,7 @@ m3::MaterialMap exportPasses(std::vector<Pass> passes, const CompositeBody* body
             }
             placeFresnel(s, body, common, context, profile, out);
         }
-        finish(s, body, common, material.name, profile, out);
+        finish(s, body, common, material.name, context, profile, out);
         sections.push_back(std::move(s));
     }
     if (sections.empty()) {
@@ -2471,7 +2491,7 @@ m3::MaterialMap exportPasses(std::vector<Pass> passes, const CompositeBody* body
             placeExtras(s, *body, context, profile, out);
         }
         placeFresnel(s, body, common, context, profile, out);
-        finish(s, body, common, material.name, profile, out);
+        finish(s, body, common, material.name, context, profile, out);
         sections.push_back(std::move(s));
     }
 

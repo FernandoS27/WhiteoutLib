@@ -53,6 +53,7 @@
 #include "../materials/d3_core.h"
 #include "../native/d3_copy.h"
 #include "d3_anim.h"
+#include "skin_skeleton.h"
 
 #include <algorithm>
 #include <array>
@@ -1581,7 +1582,9 @@ private:
     // --- geometry ----------------------------------------------------------
 
     void writeGeometry(d3n::Appearances& appearance, D3AppearanceExport& result) {
-        const geom::RenderMeshDesc desc = D3VertexDesc();
+        geom::RenderMeshDesc desc = D3VertexDesc();
+        const SkinSkeleton skinSkeleton(model_.nodes);
+        skinSkeleton.describe(desc);
         bool clamped = false;
 
         for (std::size_t m = 0; m < model_.meshes.size(); ++m) {

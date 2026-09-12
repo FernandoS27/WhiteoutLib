@@ -1192,6 +1192,26 @@ TEST_CASE("wem m3 a team glow layer is the team emissive op",
     REQUIRE(out.emissiveLayer1.has_value());
     CHECK(out.emissiveBlendMode1 == m3::LayerBlendOp::TeamColorEmissiveAdd);
     CHECK(out.emissiveLayer1->colorType == m3::ColorChannelSelect::Red);
+
+    // The same glow at three quarters: the weight rides the carrier alone, or
+    // the team colour arrives twice-weighted at 0.56 (the op reads the layer's
+    // own alpha). And it scales the ENGINE's dark team colour, which the
+    // source pass never needed -- the oracle's hero glows state mapAlpha 1 and
+    // a 191/255 carrier, and scale the colour by 1.5 to 4; ours says 3, which
+    // is what measures closest to the Warcraft III draw.
+    Material faded = stack("glow", {colorLayer(2, CompositeOp::Set, 0.75f)});
+    faded.MutableCommon().blend = BlendMode::Additive;
+    Document dim = warcraftDocument(std::move(faded), 2, 2);
+    Result<m3::Model> shine = converter.toM3(dim, ProfileId::Sc2, 29);
+    const m3::StandardMaterial& halo = firstMaterial(shine);
+    CHECK(halo.blendMode == m3::BlendMode::AlphaAdd);
+    REQUIRE(halo.emissiveLayer1.has_value());
+    CHECK(halo.emissiveBlendMode1 == m3::LayerBlendOp::TeamColorEmissiveAdd);
+    CHECK(halo.emissiveLayer1->mapAlpha.initValue == Catch::Approx(1.0f));
+    CHECK(halo.hdrEmissiveMultiplier == Catch::Approx(3.0f));
+    REQUIRE(halo.alphaLayer1.has_value());
+    CHECK(hasFlag(halo.alphaLayer1->flags, m3::TextureLayerFlag::Color));
+    CHECK(halo.alphaLayer1->rgbMultiply.initValue == Catch::Approx(0.75f));
 }
 
 TEST_CASE("wem m3 a keyed material states its own coverage",
@@ -1536,7 +1556,7 @@ TEST_CASE("wem m3 a stack no material can carry folds maximal runs into a compos
     // The Jackal Tank turret: an additive base under a keyed pass (one blend
     // state cannot add and then replace), a second keyed pass, an additive,
     // and an unlit blend that takes the emissive slot ahead of the add. Two
-    // sections, not five; the sections' map entries follow the slots.
+    // sections, not five; the sections' map entries precede the composite.
     Material material = stack("turret", {colorLayer(0, CompositeOp::Set),
                                          colorLayer(1, CompositeOp::AlphaKey),
                                          colorLayer(2, CompositeOp::AlphaKey),
@@ -1549,15 +1569,15 @@ TEST_CASE("wem m3 a stack no material can carry folds maximal runs into a compos
     const M3Converter converter;
     Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
     REQUIRE(written.ok());
-    REQUIRE(written->materialMaps.size() == 1 + 2);
-    CHECK(written->materialMaps[0].materialType == m3::MaterialType::Composite);
+    REQUIRE(written->materialMaps.size() == 2 + 1);
+    CHECK(written->materialMaps[2].materialType == m3::MaterialType::Composite);
     REQUIRE(written->compositeMaterials.size() == 1);
     const m3::CompositeMaterial& composite = written->compositeMaterials[0];
     REQUIRE(composite.sections.size() == 2);
     REQUIRE(written->standardMaterials.size() == 2);
     for (std::size_t k = 0; k < 2; ++k) {
         const u32 map = composite.sections[k].materialIndex;
-        REQUIRE(map == 1 + k);
+        REQUIRE(map == k);
         CHECK(written->materialMaps[map].materialType == m3::MaterialType::Standard);
         CHECK(composite.sections[k].mapMultiplier.initValue == Catch::Approx(1.0f));
     }
@@ -1593,10 +1613,61 @@ TEST_CASE("wem m3 a stack no material can carry folds maximal runs into a compos
     CHECK(split->compositeMaterials[0].sections.size() == 5);
 }
 
+TEST_CASE("wem m3 a composite follows the map entries its sections name",
+          "[wem][convert][m3][fold]") {
+    // The editor builds MATM in index order and resolves a section through the
+    // material it already built there: a section naming a LATER entry reads a
+    // null material and faults (SC2Editor 5.0.16, ACCESS_VIOLATION reading
+    // 0x78). 2,519 of 2,519 shipped composites name earlier entries only, and
+    // the batch that drew the slot follows its composite to the new index.
+    Material material = stack("turret", {colorLayer(0, CompositeOp::Set),
+                                         colorLayer(1, CompositeOp::AlphaKey),
+                                         colorLayer(2, CompositeOp::AlphaKey),
+                                         colorLayer(3, CompositeOp::AddAlpha),
+                                         colorLayer(4, CompositeOp::AlphaBlend)});
+    material.MutableCommon().blend = BlendMode::AdditiveAlpha;
+    shade(material, 3, true);
+    shade(material, 4, true);
+    Document document = warcraftDocument(std::move(material));
+    const auto check = [](const m3::Model& model) {
+        std::size_t composites = 0;
+        for (std::size_t m = 0; m < model.materialMaps.size(); ++m) {
+            const m3::MaterialMap& map = model.materialMaps[m];
+            if (map.materialType != m3::MaterialType::Composite) {
+                continue;
+            }
+            ++composites;
+            REQUIRE(map.materialIndex < model.compositeMaterials.size());
+            for (const m3::CompositeSection& section :
+                 model.compositeMaterials[map.materialIndex].sections) {
+                CHECK(section.materialIndex < m);
+            }
+        }
+        CHECK(composites == 1);
+        REQUIRE(model.divisions.size() == 1);
+        REQUIRE_FALSE(model.divisions[0].batches.empty());
+        for (const m3::Batch& batch : model.divisions[0].batches) {
+            REQUIRE(batch.materialIndex < model.materialMaps.size());
+            CHECK(model.materialMaps[batch.materialIndex].materialType ==
+                  m3::MaterialType::Composite);
+        }
+    };
+    const M3Converter converter;
+    Result<m3::Model> folded = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(folded.ok());
+    check(*folded);
+    M3ExportSettings exact;
+    exact.exactPasses = true;
+    Result<m3::Model> split = converter.toM3(document, ProfileId::Sc2, 29, exact);
+    REQUIRE(split.ok());
+    check(*split);
+}
+
 TEST_CASE("wem m3 a composite of single-pass sections reads back as the stack",
           "[wem][convert][m3][fold]") {
     // The import inverse: an additive base under a keyed pass goes out as two
-    // sections and comes back as two Color passes under the first's header.
+    // sections and comes back as two Color passes under the first's header, on
+    // the slot the batch draws (the sections' own entries come first).
     Material material = stack("jackal", {colorLayer(0, CompositeOp::Set),
                                          colorLayer(1, CompositeOp::AlphaKey)});
     material.MutableCommon().blend = BlendMode::AdditiveAlpha;
@@ -1610,7 +1681,10 @@ TEST_CASE("wem m3 a composite of single-pass sections reads back as the stack",
     Result<Document> back = converter.fromM3(*written, ProfileId::Sc2);
     REQUIRE(back.ok());
     const Model& model = back->models.front();
-    const Material* imported = Resolve(model, 0, ProfileId::Sc2, 0);
+    REQUIRE_FALSE(model.meshes.empty());
+    REQUIRE_FALSE(model.meshes[0].sections.empty());
+    const Material* imported =
+        Resolve(model, model.meshes[0].sections[0].materialSlot, ProfileId::Sc2, 0);
     REQUIRE(imported != nullptr);
     const CompositeBody* body = imported->Common().composite();
     REQUIRE(body != nullptr);
@@ -2114,4 +2188,45 @@ TEST_CASE("wem m3 a normal blend is written only with the factors it reads",
     CHECK(hasFlag(exportedFlags(4), m3::MaterialFlag::NormalBlend));
     CHECK_FALSE(hasFlag(exportedFlags(4), m3::MaterialFlag::NormalBlend2));
     CHECK(hasFlag(exportedFlags(8), m3::MaterialFlag::NormalBlend2));
+}
+
+TEST_CASE("wem m3 the vertex declaration carries the widest mesh's uv sets",
+          "[wem][convert][m3][geometry]") {
+    // One buffer serves every mesh. Zhao Yun's flowing light reads a second set
+    // only its own geoset has, and a count that followed the last mesh wrote one
+    // set, so the layer sampled coordinates the file did not have.
+    Document document = wemfix::makeDocument(ProfileId::Sc2);
+    Model& model = document.models[0];
+    model.meshes.push_back(model.meshes[0]);
+    const auto fill = [](Mesh& mesh, u32 set, Vector2f value) {
+        for (Vector2f& uv : mesh.attributes.getOrCreate<Vector2f>(
+                 geom::names::uv(set), geom::Domain::Halfedge, geom::AttrType::F32x2)) {
+            uv = value;
+        }
+    };
+    fill(model.meshes[0], 0, Vector2f{0.5f, 0.5f});
+    fill(model.meshes[0], 1, Vector2f{0.25f, 0.75f});
+    fill(model.meshes[1], 0, Vector2f{0.5f, 0.5f});
+
+    const M3Converter converter;
+    Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    CHECK(written->vertices.UVsNum() == 2u);
+    CHECK(hasFlag(written->vertices.flags, m3::VertexFormatFlag::UV2));
+
+    // Read back through the importer's own decode: the wide mesh's second set
+    // is its value, the narrow mesh's is the zero it never stated.
+    Result<Document> back = converter.fromM3(*written);
+    REQUIRE(back.ok());
+    bool wide = false;
+    bool narrow = false;
+    for (const Mesh& mesh : back->models[0].meshes) {
+        for (const Vector2f& uv :
+             mesh.attributes.get<Vector2f>(geom::names::uv(1), geom::Domain::Halfedge)) {
+            wide = wide || (std::abs(uv.x - 0.25f) < 1e-3f && std::abs(uv.y - 0.75f) < 1e-3f);
+            narrow = narrow || (uv.x == 0.0f && uv.y == 0.0f);
+        }
+    }
+    CHECK(wide);
+    CHECK(narrow);
 }
