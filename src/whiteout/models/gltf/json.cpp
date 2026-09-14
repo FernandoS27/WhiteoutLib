@@ -3,9 +3,12 @@
 
 #include "whiteout/models/gltf/json.h"
 
+#include <cerrno>
 #include <charconv>
+#include <clocale>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace whiteout {
@@ -189,6 +192,39 @@ struct Reader {
     std::size_t pos = 0;
     u32 maxDepth = 0;
     std::string error;
+    std::string numberScratch;
+
+    /// `std::from_chars` for f64. libc++ before LLVM 20 — emsdk's pinned
+    /// toolchain and AppleClang — ships only the integral overloads, so fall
+    /// back to `strtod` there. Callers grammar-check the token first, so
+    /// `strtod` cannot widen what the parser accepts; it does honour
+    /// LC_NUMERIC, hence the radix substitution.
+    std::from_chars_result toDouble(const char* first, const char* last, f64& out) {
+#if defined(__cpp_lib_to_chars)
+        return std::from_chars(first, last, out);
+#else
+        numberScratch.assign(first, last);
+        const char* const radix = std::localeconv()->decimal_point;
+        if (std::strcmp(radix, ".") != 0) {
+            const std::size_t dot = numberScratch.find('.');
+            if (dot != std::string::npos) {
+                numberScratch.replace(dot, 1, radix);
+            }
+        }
+        const char* const buffer = numberScratch.c_str();
+        char* end = nullptr;
+        errno = 0;
+        out = std::strtod(buffer, &end);
+        // strtod raises ERANGE for subnormal results as well, but from_chars
+        // calls those a success — they are representable. Only a magnitude
+        // that saturated to infinity or collapsed to zero is out of range.
+        const bool unrepresentable = errno == ERANGE && (out == 0.0 || std::isinf(out));
+        std::from_chars_result result;
+        result.ptr = first + (end - buffer);
+        result.ec = unrepresentable ? std::errc::result_out_of_range : std::errc();
+        return result;
+#endif
+    }
 
     bool fail(const char* message) {
         if (error.empty()) {
@@ -392,7 +428,7 @@ struct Reader {
         }
         const char* first = text.data() + start;
         const char* last = text.data() + pos;
-        const std::from_chars_result result = std::from_chars(first, last, out);
+        const std::from_chars_result result = toDouble(first, last, out);
         if (result.ec == std::errc::result_out_of_range) {
             // A magnitude past f64 is data the file said; the nearest
             // representable answer (±inf collapses to ±HUGE) would poison

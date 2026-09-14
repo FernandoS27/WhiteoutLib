@@ -7,6 +7,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <clocale>
+#include <string>
+
 #include <whiteout/models/gltf/json.h>
 #include <whiteout/models/gltf/parser.h>
 #include <whiteout/models/gltf/writer.h>
@@ -65,6 +68,62 @@ TEST_CASE("json rejects what the grammar rejects", "[gltf][json]") {
         CAPTURE(text);
         CHECK_FALSE(gltf::json::Parse(text).ok());
     }
+}
+
+TEST_CASE("json numbers convert exactly", "[gltf][json]") {
+    // Pins the f64 conversion on both sides of the toDouble() gate: the
+    // strtod fallback runs wherever libc++ predates LLVM 20 (emsdk, AppleClang)
+    // and nothing else in the suite would catch it drifting from from_chars.
+    auto number = [](const char* text) {
+        gltf::json::ParseResult parsed = gltf::json::Parse(text);
+        REQUIRE(parsed.ok());
+        return parsed.value->asNumber();
+    };
+
+    CHECK(number("0") == 0.0);
+    CHECK(number("-17") == -17.0);
+    CHECK(number("1.5") == 1.5);
+    CHECK(number("1e3") == 1000.0);
+    CHECK(number("1E-3") == 1e-3);
+    CHECK(number("-2.5e-2") == -0.025);
+    CHECK(number("3.141592653589793") == 3.141592653589793);
+    CHECK(number("16777217") == 16777217.0);
+    CHECK(number("1.7976931348623157e308") == 1.7976931348623157e308);
+    // Subnormals are representable, so they parse rather than failing the
+    // out-of-range branch.
+    CHECK(number("5e-324") == 5e-324);
+
+    // Magnitudes f64 cannot hold are a parse error, not an infinity.
+    CHECK_FALSE(gltf::json::Parse("1e309").ok());
+    CHECK_FALSE(gltf::json::Parse("-1e309").ok());
+    CHECK_FALSE(gltf::json::Parse("1e-400").ok());
+}
+
+TEST_CASE("json numbers ignore the ambient LC_NUMERIC", "[gltf][json]") {
+    // The strtod fallback in toDouble() converts through the C runtime, which
+    // honours LC_NUMERIC; a comma-radix host locale would otherwise truncate
+    // every fractional number in a glTF file at the decimal point.
+    const char* previous = std::setlocale(LC_NUMERIC, nullptr);
+    const std::string restore = previous ? previous : "C";
+
+    const char* applied = std::setlocale(LC_NUMERIC, "de_DE.UTF-8");
+    if (!applied) {
+        applied = std::setlocale(LC_NUMERIC, "de-DE");
+    }
+    if (!applied) {
+        SUCCEED("no comma-radix locale on this platform");
+        return;
+    }
+
+    gltf::json::ParseResult fraction = gltf::json::Parse("[1.5,-2.5e-2,0.125]");
+    REQUIRE(fraction.ok());
+    CHECK(fraction.value->at(0).asNumber() == 1.5);
+    CHECK(fraction.value->at(1).asNumber() == -0.025);
+    CHECK(fraction.value->at(2).asNumber() == 0.125);
+    // A comma is never a decimal point, whatever the locale says.
+    CHECK_FALSE(gltf::json::Parse("1,5").ok());
+
+    std::setlocale(LC_NUMERIC, restore.c_str());
 }
 
 TEST_CASE("json depth limit fails cleanly", "[gltf][json]") {
