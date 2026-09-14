@@ -166,12 +166,12 @@ def _emit_ffi(buf: StringIO) -> None:
             if not is_static:
                 parts.append(f'self_: {owner}' if is_const else f'self_: *mut {owner}')
             for p_t, p_n in params:
-                parts.append(f'{_snake(p_n)}: {_ffi_ty(p_t)}')
+                parts.append(f'{_param_name(p_n)}: {_ffi_ty(p_t)}')
             sig = ', '.join(parts)
             ret_s = '' if ret == 'void' else f' -> {_ffi_ty(ret)}'
             buf.write(f'    pub fn {_sym(owner, name)}({sig}){ret_s};\n')
     for name, ret, params in _SHARED_MATH_FREE_FUNCTIONS:
-        sig = ', '.join(f'{_snake(n)}: {_ffi_ty(t)}' for t, n in params)
+        sig = ', '.join(f'{_param_name(n)}: {_ffi_ty(t)}' for t, n in params)
         buf.write(f'    pub fn whiteout_v_{name}({sig}) -> {_ffi_ty(ret)};\n')
     buf.write('}\n')
 
@@ -371,14 +371,14 @@ def _emit_ffi_impls(buf: StringIO, name: str) -> None:
         if not is_static:
             parts.append('self' if is_const else '&mut self')
         for p_t, p_n in params:
-            parts.append(f'{_snake(p_n)}: {_rust_ty(p_t)}')
+            parts.append(f'{_param_name(p_n)}: {_rust_ty(p_t)}')
         sig = ', '.join(parts)
         ret_s = '' if ret == 'void' else f' -> {rust_ret}'
 
         call_args = []
         if not is_static:
             call_args.append('self' if is_const else 'self')
-        call_args += [_snake(p_n) for _, p_n in params]
+        call_args += [_param_name(p_n) for _, p_n in params]
         call = f'ffi::{_sym(name, mname)}({", ".join(call_args)})'
 
         buf.write(f'    #[inline]\n    pub fn {mname}({sig}){ret_s} {{\n')
@@ -419,8 +419,8 @@ def emit_math() -> str:
     if _SHARED_MATH_FREE_FUNCTIONS:
         buf.write('// ── Free functions ─────────────────────────────────────\n\n')
         for name, ret, params in _SHARED_MATH_FREE_FUNCTIONS:
-            sig = ', '.join(f'{_snake(n)}: {_rust_ty(t)}' for t, n in params)
-            args = ', '.join(_snake(n) for _, n in params)
+            sig = ', '.join(f'{_param_name(n)}: {_rust_ty(t)}' for t, n in params)
+            args = ', '.join(_param_name(n) for _, n in params)
             buf.write(f'''#[inline]
 pub fn {name}({sig}) -> {_rust_ty(ret)} {{
     unsafe {{ ffi::whiteout_v_{name}({args}) }}
@@ -515,6 +515,13 @@ _RUST_PRIMITIVE = {
     'unsigned long long': 'u64', 'long long': 'i64',
     'float': 'f32', 'double': 'f64',
     'size_t': 'usize', 'unsigned long': 'u64', 'long': 'i64',
+    # libclang hands back the qualified spelling for a `std::size_t`
+    # written as such, and it is a different table key from the bare
+    # `size_t` above. u64, not usize, because that is what the C emitter
+    # already spells it as everywhere it crosses today (every
+    # `std::size_t` field on a value object is a `uint64_t` getter) — and
+    # the two sides have to agree on width, not merely on meaning.
+    'std::size_t': 'u64',
     'void': '()',
 }
 
@@ -911,12 +918,12 @@ def _params(m, ctx: _Ctx):
 
     if m.bytes_in and params:
         p0 = params.pop(0)
-        out.append(('bytes_in', f'{_snake(p0.name)}: &[u8]',
-                    [f'{_snake(p0.name)}: *const u8', f'{_snake(p0.name)}_size: usize'],
-                    [f'{_snake(p0.name)}.as_ptr()', f'{_snake(p0.name)}.len()']))
+        out.append(('bytes_in', f'{_param_name(p0.name)}: &[u8]',
+                    [f'{_param_name(p0.name)}: *const u8', f'{_param_name(p0.name)}_size: usize'],
+                    [f'{_param_name(p0.name)}.as_ptr()', f'{_param_name(p0.name)}.len()']))
 
     for p in params:
-        name = _snake(p.name)
+        name = _param_name(p.name)
         raw = p.type.cpp_text.replace('const ', '').strip()
 
         # A `std::span<const u8>` anywhere but first. `m.bytes_in` only
@@ -1925,8 +1932,8 @@ def _emit_tier_a(buf: StringIO, c: BindClass, ctx: _Ctx) -> None:
         buf.write(f'impl {rust} {{\n')
         for method, extra in methods:
             name = f'{_snake(method)}_mut'
-            args = ''.join(f', {_snake(n)}: u32' for _t, n in extra)
-            pass_args = ''.join(f'{_snake(n)}, ' for _t, n in extra)
+            args = ''.join(f', {_param_name(n)}: u32' for _t, n in extra)
+            pass_args = ''.join(f'{_param_name(n)}, ' for _t, n in extra)
             buf.write(f'''    /// Mutable, zero-copy view of the underlying buffer.
     ///
     /// Writes land directly in the C++ allocation — nothing is marshalled.
@@ -1975,7 +1982,7 @@ pub mod tier_a {
 ''')
     for _inc, handle, _cpp, methods in entries:
         for method, extra in methods:
-            args = ''.join(f'{_snake(n)}: u32, ' for _t, n in extra)
+            args = ''.join(f'{_param_name(n)}: u32, ' for _t, n in extra)
             buf.write(f'        pub fn {_tier_a_sym(handle, method)}('
                       f'self_: *mut Opaque, {args}out_size: *mut usize) -> *mut u8;\n')
     buf.write('    }\n}\n\n')
@@ -2015,6 +2022,23 @@ _C_COMP_TO_RUST = {
 
 def _field_name(f) -> str:
     out = _snake(f.name)
+    return f'{out}_' if out in _KEYWORDS else out
+
+
+def _param_name(name: str) -> str:
+    """Parameter identifier, escaped when C++ used a Rust keyword.
+
+    `ActorView::Play(..., bool loop, ...)` is legal C++ and produced
+    `loop: i32`, which does not parse — the generated crate failed at
+    `cargo fmt` before anything got as far as compiling it. Same `_`
+    suffix as `_method_name` / `_field_name`, and for the same reason: a
+    raw identifier (`r#loop`) would compile but reads badly.
+
+    Must be used at EVERY site that spells a parameter — the extern
+    declaration, the wrapper signature and the call-through — or the
+    three stop agreeing.
+    """
+    out = _snake(name)
     return f'{out}_' if out in _KEYWORDS else out
 
 
