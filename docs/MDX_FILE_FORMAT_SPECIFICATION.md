@@ -92,6 +92,10 @@ pre {
 |------|---------|-------------|
 | 2025-07-18 | 2.0 | Complete rewrite based on WhiteoutLib parser/writer implementation, GhostWolf's HiveWorkshop reference, and validation against 5081-file Reforged corpus |
 | 2026-05-21 | 2.1 | Corrected the Layer fresnel-field version gate (v1000, not v900); documented the v≥1100 layer `shader` field as a `ShaderType` enum (was mislabelled `isHD`); fixed the KEVT field order (`globalSequenceId` precedes the track times — v2.0 had it backwards); added field defaults, signed keyframe-time notes, and the precise version→release mapping. Validated by a byte-exact MDX→MDL→MDX round-trip over the full `war3.w3mod` game-asset corpus. |
+| 2026-09-13 | 2.2 | Warcraft III 3.0.0 and MDX version **1800**, read out of `Warcraft III.decrypted.exe` 3.0.0.24268 and checked against the shipped 3.0.0 assets: the CAMS packed size-and-variant word; the v1400 `u16` SKIN stream; the Light fields added at v700, v1300 and v1600 together with the non-zero defaults the client substitutes below v1600; the new Light and Camera tracks (KLSS, KLSE, KLQF, KLLF, KLDA, KCVS, IDUF, ELAF, PTSF); and the `DILG` glider chunk. |
+| 2026-09-13 | 2.3 | Materials and layers in 3.0.0, from the same binary: two ShadingFlags bits that no earlier revision recorded (`0x200` BackFacesForShadows, `0x400` AmbientOcclusion); the shader-name registry behind the `shader` string and the `ShaderType` enum, including `Shader_HD_Crystal` (24); the material `flags` word, which the 3.0.0 client reads into a discarded register and writes as a constant zero; and the measured `900 <= version < 1100` gate on the material shader string. |
+| 2026-09-13 | 2.4 | Audited the geometry and emitter chunks against the 3.0.0 client: **no** version gate and **no** new field exists in PREM, PRE2, RIBB or CORN, and the geoset's optional sub-chunk set is still exactly TANG / SKIN / UVAS. Corrected the CORN colour layout — `float[3]` plus a separate `f32 alpha`, and KPPC is a three-float track like KRCO, not `float[4]` RGBA. Documented that node flag bits 15–20 are reinterpreted per emitter chunk (CORN reads `0x20000` as Unfogged and `0x40000` as PopcornScaling), that the 3.0.0 client never takes a node's type from `flags`, and the 16-layer UVAS limit. |
+| 2026-09-13 | 2.5 | Reverse-engineered the `DILG` glider chunk end to end and closed the chunk inventory. A glider entry is a **geoset id**, and the list is a ray-intersection whitelist consumed by the client's world-picking query — it changes what a ray can hit, never what is drawn. Recorded the binary reader's store defect (every entry lands in element 0), the MDL `Glider` block, and the fact that DILG is written last. Confirmed the chunk dispatcher handles exactly 26 tags, so `DILG` is the only chunk 3.0.0 added and there is no rope, cloth or physics chunk in the format. |
 
 ## Table of Contents
 
@@ -128,9 +132,15 @@ The format is **chunk-based**: the file consists of a 4-byte magic number follow
 | 900 | Warcraft III: Reforged — Beta |
 | 1000 | Warcraft III: Reforged — First Release (1.32) |
 | 1100 | Warcraft III: Reforged — 2.0.0 and later |
-| 1200 | Warcraft III: Reforged — current 2.0.x |
+| 1200 | Warcraft III: Reforged — 2.0.x |
+| 1300 | Not seen in shipped data — adds light shadow casting |
+| 1400 | Not seen in shipped data — widens the skin weights |
+| 1600 | Not seen in shipped data — adds light falloff |
+| 1800 | Warcraft III 3.0.0 (Definitive Edition) |
 
-> **Corpus note:** A corpus of 5081 MDX files extracted from Warcraft III: Reforged consists entirely of version 1200 files. Classic v800 models exist in older game data.
+> **Corpus note:** A corpus of 5081 MDX files extracted from Warcraft III: Reforged consists entirely of version 1200 files. Classic v800 models exist in older game data. Warcraft III **3.0.0 ships every `.mdx` as version 1800**, including the 5,965 models that live under the new `_de.w3mod` overlay.
+
+> **On the versions between:** 1300, 1400 and 1600 are the versions at which the structures below changed, and the 3.0.0 client still reads each of them; no *shipped* file has been seen at those versions. The client has **no gate at 1500, 1700 or 1800** — 1800 means only "every earlier addition applies". Sweeping the reader for its version compares is how to be sure a version is fully understood: the model version lives at `model+944`, and every comparison against it in the binary reader (`0x1403C0000`–`0x140410000` in 3.0.0) is one gate. In 3.0.0 that sweep returns 700, 900, 1100, 1200, 1300, 1400 and 1600, and nothing else.
 
 ---
 
@@ -201,10 +211,18 @@ MDX {
     (BPOS)                   // Bind poses (version > 800)
     (FAFX)                   // Face effects (version > 800)
     (CORN)                   // Popcorn emitters (version > 800)
+    (DILG)                   // Gliders (3.0.0)
 }
 ```
 
 All chunks are optional and may appear in any order. A valid MDX file can consist of just the 4-byte `"MDLX"` magic. Unknown chunks should be skipped using the size from the chunk header.
+
+> **The list above is the complete set.** The 3.0.0 chunk dispatcher branches on exactly
+> these twenty-six tags and sends everything else to *"Warning: Unknown section tag found.
+> Skipping section."* `DILG` is the only tag Warcraft III 3.0.0 added; in particular there
+> is no rope, cloth, physics or skeleton chunk in the format, in this or any earlier
+> version. The client does carry rope simulation classes, but they are gameplay objects
+> with no representation in a model file.
 
 ---
 
@@ -411,10 +429,10 @@ MTLS {
 ```
 Material {
     u32         inclusiveSize       // Total size including this field
-    u32         priorityPlane
-    u32         flags
+    i32         priorityPlane       // Signed: read and written as an int
+    u32         flags               // Dead in 3.0.0 — see below
 
-    // version > 800 AND version < 1100 only:
+    // version >= 900 AND version < 1100 only:
     char[80]    shader              // Shader name (e.g. "Shader_HD_DefaultUnit")
 
     FourCC      "LAYS"              // Layer sub-chunk tag (0x5359414C)
@@ -423,7 +441,19 @@ Material {
 }
 ```
 
-> **Important version gate:** The `shader` field exists only when `version > 800 && version < 1100`. In version ≥ 1100, the shader field was removed and the layer system was redesigned with the SubTexture system (see Layer below).
+> **Important version gate:** The `shader` field exists only when `version >= 900 && version < 1100`. In version ≥ 1100, the shader field was removed and the layer system was redesigned with the SubTexture system (see Layer below). The 3.0.0 client spells the gate as a single unsigned range test, `(version - 900) <= 199`, so 900 is the exact lower bound; no shipped version lies between 800 and 900 to distinguish it from the `> 800` form used by community documentation.
+
+> **The material `flags` word is dead in Warcraft III 3.0.0.** The binary
+> reader consumes the `u32` and never stores it — the register holding it is
+> overwritten by the next load — and the binary writer emits a literal `0` in
+> its place for every material. The text writer emits no material flag at all,
+> and the text reader accepts `ConstantColor`, `SortPrimsFarZ`, `SortPrimsNearZ`,
+> `FullResolution` and `Unfogged` only to throw them away. The single exception
+> is `TwoSided`, which the text reader does not store on the material either:
+> it ORs `0x10` into the **ShadingFlags of every layer** the material owns.
+> A reader should therefore treat a non-zero `flags` in an older file as
+> historical information that the shipping client ignores, and a writer should
+> not rely on it to carry anything.
 
 #### Layer
 
@@ -513,7 +543,34 @@ shaders (post-processing, terrain, UI, …) and are listed for completeness.
 | 0 | SD | Classic fixed-function shading; single diffuse SubTexture at slot 0. |
 | 1 | HD | Reforged PBR shading; the 6-slot SubTexture set. |
 | 2 | SDOnHD | SD content rendered through the HD pipeline. |
-| 3–25 | *(engine-internal)* | Terrain, Water, Fog, Foliage, Sprite, post-process (DepthOfField, Bloom\*, GaussianBlur, Tonemap, CMAA\*), Distortion, Crystal, Imgui, … — not used by on-disk model layers. |
+| 3–23, 25 | *(engine-internal)* | Terrain, Water, Fog, Foliage, Sprite, post-process (DepthOfField, Bloom\*, GaussianBlur, Tonemap, CMAA\*), Distortion, Imgui, … — not used by on-disk model layers. |
+| 24 | Crystal | Named in the client's shader registry as `Shader_HD_Crystal`, and one of only two ids the legacy upgrade path recognises. |
+
+**The shader-name registry.** Only four of these ids have a name, and the
+names are what the `char[80]` material `shader` string and the MDL `Shader`
+keyword are matched against. The table is built once at start-up and holds
+`{id, name}` pairs:
+
+| Id | Registered name |
+|---:|-----------------|
+| 0 | `Shader_SD_Legacy` |
+| 1 | `Shader_HD_DefaultUnit` |
+| 2 | `Shader_SD_FixedFunction` |
+| 24 | `Shader_HD_Crystal` |
+
+> **Matching is case-insensitive, and a miss is silent.** An unrecognised
+> shader name leaves the id at its initial `0` — `Shader_SD_Legacy` — rather
+> than raising an error, so a typo in a hand-written MDL downgrades an HD
+> layer to SD without any diagnostic.
+
+> **How a v900–1000 model becomes a v≥1100 one.** On load, a material whose
+> version is in `[900, 1100)`, whose shader id is **1 or 24**, and which has
+> **exactly six layers**, is rewritten in place: layers 1–5 are folded into
+> layer 0 as SubTextures at slots 1–5 (carrying their KMTF tracks with them),
+> the shader id is stored on the surviving layer, and the layer list is
+> truncated to one. A material that does not meet all three conditions is left
+> alone. This is the only upgrade path, which is why ids 0 and 2 never produce
+> a multi-slot layer from legacy data.
 
 #### FilterMode Enum
 
@@ -529,17 +586,34 @@ shaders (post-processing, terrain, UI, …) and are listed for completeness.
 
 #### ShadingFlags Bitfield
 
-| Bit | Hex | Description |
-|-----|-----|-------------|
-| 0 | 0x1 | Unshaded |
-| 1 | 0x2 | Sphere environment map |
-| 2 | 0x4 | Wrap width (unknown) |
-| 3 | 0x8 | Wrap height (unknown) |
-| 4 | 0x10 | Two sided |
-| 5 | 0x20 | Unfogged |
-| 6 | 0x40 | No depth test |
-| 7 | 0x80 | No depth set |
-| 8 | 0x100 | Unlit (version > 800) |
+| Bit | Hex | MDL keyword | Description |
+|-----|-----|-------------|-------------|
+| 0 | 0x1 | `Unshaded` | Not affected by lighting |
+| 1 | 0x2 | `SphereEnvMap` | Spherical environment mapping |
+| 2 | 0x4 | `WrapWidth` | Wrap the texture in U |
+| 3 | 0x8 | `WrapHeight` | Wrap the texture in V |
+| 4 | 0x10 | `TwoSided` | Render both faces |
+| 5 | 0x20 | `Unfogged` | Not affected by fog |
+| 6 | 0x40 | `NoDepthTest` | Disable depth testing |
+| 7 | 0x80 | `NoDepthSet` | Do not write depth |
+| 8 | 0x100 | `Unlit` | Bypass the lighting pipeline (version > 800) |
+| 9 | 0x200 | `BackFacesForShadows` | Cast the shadow volume from back faces |
+| 10 | 0x400 | `AmbientOcclusion` | Layer participates in ambient occlusion |
+
+> **Bits 9 and 10 are not version-gated.** `BackFacesForShadows` (`0x200`) and
+> `AmbientOcclusion` (`0x400`) are absent from every published MDX description
+> before this revision, but the 3.0.0 client reads `shadingFlags` as one
+> unconditional `u32` and its text reader accepts both keywords at any version.
+> They are properties of the *client*, not of a format version, so a v800 file
+> carrying `0x400` is read exactly as a v1800 one is. The two bits and their
+> keywords come from the flag-to-keyword table the MDL writer walks, which has
+> exactly eleven entries — the nine above plus these two — so the list is
+> complete rather than merely everything that happened to be found.
+
+> **Bits 2 and 3 are the wrap bits**, not unknowns: the text reader maps
+> `WrapWidth` to `0x4` and `WrapHeight` to `0x8`. Note that the TEXS texture
+> record carries its own, separate wrap pair (`0x1` / `0x2`); the layer bits do
+> not replace them.
 
 ### 7.8 TXAN — Texture Animations
 
@@ -639,6 +713,16 @@ Geoset {
 }
 ```
 
+> **`uvSetCount` is hard-capped at 16.** Above that the 3.0.0 reader abandons
+> the model with *"Excessive tex coord layer count(%u) Geoset."* A count of
+> **zero** is accepted and simply leaves the geoset with no UV sets — whereas
+> TANG and SKIN both reject a zero count outright (*"Invalid zero length …
+> section in Geoset."*), so the three optional sub-chunks do not share one rule.
+
+> **The optional set is closed at three.** The 3.0.0 geoset reader dispatches
+> on exactly `TANG`, `SKIN` and `UVAS`; every other tag falls through to the
+> generic skip. No optional geoset sub-chunk was added for Warcraft III 3.0.0.
+
 #### Tangents Sub-Chunk (version > 800)
 
 ```
@@ -654,12 +738,21 @@ Tangents {
 ```
 Skin {
     FourCC      "SKIN"              // 0x4E494B53
-    u32         count               // Byte count
-    u8[count]   data                // Groups of 8 bytes: 4 bone indices + 4 weights
+    u32         count               // Element count — see below
+
+    // version < 1400:
+    u8[count]   data                // Groups of 8: 4 bone indices + 4 weights
+
+    // version >= 1400:
+    u16[count]  data                // Groups of 8: 4 bone indices + 4 weights
 }
 ```
 
-The SKIN data replaces the GNDX/MTGC/MATS skinning system. Each vertex uses 8 bytes: 4 `u8` bone indices followed by 4 `u8` weights (divide by 255.0 to normalize; weights should sum to 1.0).
+The SKIN data replaces the GNDX/MTGC/MATS skinning system. Each vertex gets 4 bone indices followed by 4 weights (divide a weight by 255.0 to normalize; the four sum to 255).
+
+`count` is an **element** count in both layouts, never a byte count — so the payload is `count` bytes below version 1400 and `count * 2` bytes from 1400 on. What 1400 widened is the element, from `u8` to `u16`, so that a bone index can exceed 255; the weights still occupy 0..255 and simply sit in a wider slot.
+
+> **Trap:** reading a v1400+ stream as bytes consumes exactly half of it and leaves the geoset walk standing in the middle of the weights. The visible symptom is not a skinning error — it is a geoset that appears to have no texture coordinates, because UVBS is the sub-chunk the walk lands on next.
 
 #### TextureCoordinateSet
 
@@ -740,15 +833,30 @@ Light {
     u32         inclusiveSize
     Node        node
     u32         type                // See LightType enum
+
+    // version >= 1300:
+    u32         shadowCasting       // Boolean: 0 or 1
+
     f32         attenuationStart
     f32         attenuationEnd
     float[3]    color               // RGB
     f32         intensity
+
+    // version >= 700:
     float[3]    ambientColor        // RGB
     f32         ambientIntensity
 
     // version >= 1200:
     f32         shadowIntensity
+
+    // version >= 1300:
+    f32         shadowCastingStart
+    f32         shadowCastingEnd
+
+    // version >= 1600:
+    f32         quadraticFalloff    // Default 0.0005 below 1600
+    f32         linearFalloff       // Default 0 below 1600
+    f32         damping             // Default 0.00001 below 1600
 
     (KLAS)                          // Attenuation start: f32
     (KLAE)                          // Attenuation end: f32
@@ -757,8 +865,31 @@ Light {
     (KLBI)                          // Ambient intensity: f32
     (KLBC)                          // Ambient color: float[3]
     (KLAV)                          // Visibility: f32
+    (KLSS)                          // Shadow-casting start: f32 (1300)
+    (KLSE)                          // Shadow-casting end: f32 (1300)
+    (KLQF)                          // Quadratic falloff: f32 (1600)
+    (KLLF)                          // Linear falloff: f32 (1600)
+    (KLDA)                          // Damping: f32 (1600)
 }
 ```
+
+> **`shadowCasting` is not where the other shadow fields are.** It sits between
+> `type` and `attenuationStart`, four fields ahead of `shadowCastingStart` /
+> `shadowCastingEnd`. Reading it in the obvious place — with its namesakes —
+> shifts every field after `type` by four bytes.
+
+> **The pre-1600 falloff defaults are not zero.** A light older than 1600 is
+> given `quadraticFalloff = 0.0005`, `linearFalloff = 0` and `damping = 1e-5`
+> by the client, so a reader that zero-initializes them instead makes every
+> older light behave differently from the way the game shows it.
+
+> The field names here are the World Editor's own MDL keywords
+> (`ShadowCasting`, `ShadowCastingStart`, `QuadraticFalloff`, `LinearFalloff`,
+> `Damping`), not invented ones.
+
+> **Version 700** predates this document's floor of 800 and is listed only
+> because the client still gates on it: below 700 a light carries no
+> `ambientColor` / `ambientIntensity` at all. No such file is known to survive.
 
 #### LightType Enum
 
@@ -969,19 +1100,46 @@ CAMS {
 }
 
 Camera {
-    u32         inclusiveSize
+    u32         sizeAndVariant      // Low 24 bits: inclusiveSize. High 8: variant.
     char[80]    name
     float[3]    position            // Camera position (x, y, z)
     f32         fieldOfView         // Radians
     f32         farClippingPlane
     f32         nearClippingPlane
+
+    // variant == 1 or variant == 2:
+    u8[12]      unknown             // Present, and skipped by the client
+
     float[3]    targetPosition      // Look-at target (x, y, z)
 
     (KCTR)                          // Position: float[3]
     (KCRL)                          // Rotation: f32 (scalar angle)
     (KTTR)                          // Target position: float[3]
+    (KCVS)                          // Visibility: f32
+    (IDUF)                          // Focus distance: f32 (3.0.0)
+    (ELAF)                          // Focal length: f32 (3.0.0)
+    (PTSF)                          // F-stop: f32 (3.0.0)
 }
 ```
+
+> **The leading word is not a plain size**, and this is the single most
+> destructive thing to get wrong in the whole format. The client masks it as
+> `size = word & 0x00FFFFFF` and `variant = word >> 24`. Warcraft III 3.0.0
+> writes **variant 3 on every camera** (276 of 276), so a reader that takes all
+> 32 bits as the size computes an end position about 48 MB past the entry, walks
+> off the end of the file looking for tracks, and — if its reader reports a
+> failed stream as "no progress" rather than as an error — never terminates.
+> The size still counts from the start of this word, exactly as `inclusiveSize`
+> does elsewhere.
+
+> **Variants.** Only 1 and 2 change the layout, by inserting twelve bytes
+> between the near plane and the target position, which the client reads and
+> discards. Variants 0 and 3 are identical in effect; shipped data uses 3.
+
+> The three depth-of-field tracks are animation-only — the camera struct grew
+> no fields for them. Their tags read as the reverse of their mnemonics
+> (`FUDI`, `FALE`, `FSTP` written backwards), unlike the `K`-prefixed tags,
+> which are stored forwards.
 
 ### 7.21 CLID — Collision Shapes
 
@@ -1059,13 +1217,14 @@ CornEmitter {
     f32         lifeSpan
     f32         emissionRate
     f32         speed
-    float[4]    color               // RGBA (4 floats)
+    float[3]    color               // RGB
+    f32         alpha
     u32         replaceableId
     char[260]   path                // Effect file path (.pkfx)
     char[260]   animVisibilityGuide // Sequence-based visibility rules (see below)
 
     (KPPA)                          // Alpha: f32
-    (KPPC)                          // Color: float[4] (RGBA)
+    (KPPC)                          // Color: float[3] (RGB)
     (KPPE)                          // Emission rate: f32
     (KPPL)                          // Lifespan: f32
     (KPPS)                          // Speed: f32
@@ -1073,7 +1232,16 @@ CornEmitter {
 }
 ```
 
-> **Important:** The KPPC color track uses `float[4]` (RGBA), not `float[3]` (RGB). This differs from GhostWolf's specification and from the KRCO ribbon emitter color track which uses `float[3]`.
+> **Corrected in revision 2.4.** The KPPC colour track is `float[3]` (RGB) —
+> the same shape as the ribbon emitter's KRCO. Revisions 2.0–2.3 claimed
+> `float[4]` (RGBA) and that it differed from KRCO; both halves were wrong.
+> The 3.0.0 reader and writer each move **three** floats per key through a
+> 40-byte `MDLCOLORKEYFRAME` (16 bytes when the interpolation type is 0 or 1),
+> using the identical code path KRCO uses. Alpha is never part of the colour
+> track: it is its own `f32` field in the struct and its own KPPA track. The
+> total struct size is unchanged — the four floats were always three of colour
+> followed by one of alpha. WhiteoutLib's parser already reads `Vector3f`
+> here, so this was a defect in the document alone.
 
 #### animVisibilityGuide
 
@@ -1152,6 +1320,78 @@ The field is a null-terminated ASCII string within a 260-byte buffer. It may be 
 | `Walk 1` | 14 | Walk variation 1 |
 
 > **Note:** Some corpus entries contain typos (`Alwyas`, `Allways`, `deacy` for `Decay`) and inconsistent casing (`always` vs `Always`, `Off` vs `off`). The engine likely performs case-insensitive matching. Some entries have trailing `\r\n` sequences or extra whitespace, indicating imprecise editor tooling.
+
+### 7.25 DILG — Gliders
+
+**Tag:** `0x474C4944` · **Element size:** 4 bytes · **Count:** `size / 4` · **No version gate; first seen in 3.0.0**
+
+```
+DILG {
+    u32[size / 4] geosetIds
+}
+```
+
+Each element is a **geoset id** — an index into the model's GEOS list, the same
+index a GEOA entry's `geosetId` uses. The client rejects a chunk size that is
+not a multiple of four (*"Invalid glider section detected in model —
+non-integral number of gliders."*), which is what says the element is four
+bytes wide.
+
+Both the binary writer and the MDL writer are registered **last** in their
+chunk-writer tables, so DILG is emitted after BPOS; the chunk is omitted
+entirely when the list is empty.
+
+#### What a glider is
+
+The list is a **hit-test whitelist**, and it does not affect rendering at all.
+On load the client copies it out of the parsed model into the shared model data,
+and exactly one routine reads it back: the per-model ray test behind
+`ModelIntersectLineSegment` / `ModelIntersectLineSegmentEx`, which is the
+world-space picking query the game uses to decide what a ray struck.
+
+| DILG state | Which geosets a ray can hit |
+|------------|------------------------------|
+| absent, or present with zero entries | the pre-3.0.0 rule, unchanged |
+| one or more entries | **only** the geosets whose ids are listed |
+
+So a model that carries a non-empty DILG becomes selectively clickable: its
+listed geosets keep their collision surface and every other geoset becomes
+transparent to the query, however it is drawn. Nothing else in the client reads
+the chunk — not the renderer, not the animator, not the collision-shape code,
+which keeps using CLID.
+
+#### MDL form
+
+One top-level block per entry — the count is not written anywhere, the blocks
+are simply repeated:
+
+```mdl
+Glider {
+	GeosetId 3,
+}
+```
+
+See §6.24 of the MDL specification.
+
+> **The 3.0.0 binary reader mis-stores the payload.** It reads `size / 4` `u32`s
+> from the stream — so the stream position ends up correct and the rest of the
+> file parses normally — but the destination pointer is never advanced between
+> iterations, so every value is written to element 0. The vector is resized and
+> zero-filled beforehand, so a DILG naming N geosets loads as `[last, 0, 0, …]`:
+> geoset 0 is whitelisted whether or not it was listed, and every entry except
+> the last is lost. The MDL text reader and both writers iterate correctly, which
+> makes this a read-path defect only — and it means a model taken through the
+> client's own MDX reader and writer comes back with a different whitelist than
+> it went in with. Exactly one shipped 3.0.0 model carries the chunk, as 28 zero
+> bytes (seven zero entries), where the defect cannot be observed.
+
+> A reader that wants to match the game byte for byte has to decide which
+> behaviour to reproduce. Reading the array correctly is the right thing for a
+> tool; it will simply disagree with the client about which geosets are
+> pickable whenever a model lists more than one glider.
+
+> Mind the spelling. The tag is `DILG`, not `DLIG`, and the letters are not
+> an abbreviation of the keyword they stand for.
 
 ---
 
@@ -1245,6 +1485,11 @@ The following table lists all track tags, their data type `T`, parent object, an
 | **KLBI** | `f32` | Ambient intensity |
 | **KLBC** | `float[3]` | Ambient color (RGB) |
 | **KLAV** | `f32` | Visibility |
+| **KLSS** | `f32` | Shadow-casting start (version ≥ 1300) |
+| **KLSE** | `f32` | Shadow-casting end (version ≥ 1300) |
+| **KLQF** | `f32` | Quadratic falloff (version ≥ 1600) |
+| **KLLF** | `f32` | Linear falloff (version ≥ 1600) |
+| **KLDA** | `f32` | Damping (version ≥ 1600) |
 
 #### Attachment Tracks
 
@@ -1295,13 +1540,17 @@ The following table lists all track tags, their data type `T`, parent object, an
 | **KCTR** | `float[3]` | Position (x, y, z) |
 | **KCRL** | `f32` | Target rotation (scalar angle) |
 | **KTTR** | `float[3]` | Target position (x, y, z) |
+| **KCVS** | `f32` | Visibility |
+| **IDUF** | `f32` | Focus distance (3.0.0) |
+| **ELAF** | `f32` | Focal length (3.0.0) |
+| **PTSF** | `f32` | F-stop (3.0.0) |
 
 #### Popcorn Emitter Tracks (CORN)
 
 | Tag | Data Type | Description |
 |-----|-----------|-------------|
 | **KPPA** | `f32` | Alpha |
-| **KPPC** | `float[4]` | Color (RGBA) |
+| **KPPC** | `float[3]` | Color (RGB) — alpha is the separate KPPA track |
 | **KPPE** | `f32` | Emission rate |
 | **KPPL** | `f32` | Lifespan |
 | **KPPS** | `f32` | Speed |
@@ -1369,7 +1618,7 @@ The `flags` field encodes both the node type **and** behavioral flags.
 | 12 | 0x1000 | Particle emitter |
 | 13 | 0x2000 | Collision shape |
 | 14 | 0x4000 | Ribbon emitter |
-| 17 | 0x20000 | Line emitter / Particle emitter 2 |
+| 17 | 0x20000 | Line emitter — the same bit the behavioural table below gives to PRE2 `LineEmitter` and CORN `Unfogged`; see the caution there |
 
 If none of the type bits are set (`flags & 0xFF00 == 0`), the node is a Helper.
 
@@ -1385,11 +1634,43 @@ If none of the type bits are set (`flags & 0xFF00 == 0`), the node is a Helper.
 | 5 | 0x20 | Billboarded lock Y |
 | 6 | 0x40 | Billboarded lock Z |
 | 7 | 0x80 | Camera anchored |
-| 15 | 0x8000 | Emitter uses MDL (PREM) / Unshaded (PRE2) |
-| 16 | 0x10000 | Emitter uses TGA (PREM) / Sort primitives far Z (PRE2) |
-| 18 | 0x40000 | Unfogged |
-| 19 | 0x80000 | Model space |
-| 20 | 0x100000 | XY quad |
+
+Bits 0–7 mean the same thing on every node. **Bits 15–20 do not:** their
+meaning is decided by the chunk the node was parsed from, and the same bit
+names a different property in each emitter.
+
+| Bit | Hex | PREM | PRE2 | CORN |
+|-----|-----|------|------|------|
+| 15 | 0x8000 | Emitter uses MDL | Unshaded | Unshaded |
+| 16 | 0x10000 | Emitter uses TGA | Sort primitives far Z | Sort primitives far Z |
+| 17 | 0x20000 | — | Line emitter | **Unfogged** |
+| 18 | 0x40000 | — | Unfogged | **PopcornScaling** |
+| 19 | 0x80000 | — | Model space | — |
+| 20 | 0x100000 | — | XY quad | — |
+
+> **CORN is the trap.** A reader that applies the PRE2 column to a Popcorn
+> emitter sees `LineEmitter` where the client sees `Unfogged`, and `Unfogged`
+> where the client sees `PopcornScaling`. Both mistakes are silent. The MDL
+> text reader and the MDL writer agree with the column for their own chunk in
+> every case, so the mapping round-trips — but only if the reader knows which
+> chunk it is in.
+
+> **PREM writes exactly one of its two bits.** The text reader sets `0x8000`
+> for `EmitterUsesMDL` and `0x10000` for `EmitterUsesTGA` independently, but
+> the writer tests only `0x10000` and always emits one keyword or the other. A
+> PREM with neither bit set is written back as `EmitterUsesMDL`; one with both
+> set is written back as `EmitterUsesTGA` alone.
+
+> **Warcraft III 3.0.0 never takes a node's type from `flags`.** It knows the
+> type from the chunk the object was parsed out of and records it separately,
+> as a tagged pointer in the model's object table (PRE2 is tagged
+> `0x80000000`), and the generic-object writer stores `flags` back verbatim
+> with no type bit ORed in. The node-type table above therefore describes a
+> convention present in the data rather than something the shipping client
+> relies on. One practical consequence: the `flags & 0xFF00 == 0` test for
+> “this is a Helper” overlaps bit 15, so a PRE2 or CORN emitter carrying
+> `Unshaded` fails that test for the wrong reason. Decide the type from the
+> chunk, as the client does.
 
 > **Note on multiple roots:** MDX models commonly have multiple root nodes (parentId = 0xFFFFFFFF). For example, unit models often have separate bone hierarchies for the living model and its corpse/decay animation.
 
@@ -1430,10 +1711,56 @@ Major layer system change:
 - **Layer**: SubTexture system added — `shader` (`ShaderType` `u32`), `numSubTextures`, and per-subtexture `{textureId, slot, KMTF}`
 - **Layer**: KMTF track moved from Layer level to per-SubTexture
 
-### Version 1200 (Reforged Current)
+### Version 1200 (Reforged 2.0.x)
 
 Added to existing structures:
 - **Light**: `shadowIntensity` field (`f32`) after `ambientIntensity`
+
+### Version 1300
+
+Added to existing structures:
+- **Light**: `shadowCasting` (`u32` boolean) between `type` and
+  `attenuationStart`, and `shadowCastingStart` / `shadowCastingEnd` (`f32`)
+  after `shadowIntensity`; KLSS and KLSE tracks
+
+### Version 1400
+
+Changed in existing structures:
+- **Geoset**: the SKIN payload widens from `u8` to `u16` per element. The
+  count keeps counting elements, so the payload doubles in size.
+
+### Version 1600
+
+Added to existing structures:
+- **Light**: `quadraticFalloff`, `linearFalloff` and `damping` (`f32`) at the
+  end of the struct; KLQF, KLLF and KLDA tracks. Below 1600 the client
+  substitutes 0.0005 / 0 / 1e-5, not zeroes.
+
+### Version 1800 (Warcraft III 3.0.0)
+
+**No structure changed at 1800 and the client has no gate for it** — the
+version is a statement that every addition above applies. What did arrive with
+the 3.0.0 client, ungated and therefore applying to any version:
+
+- **Camera**: the leading `u32` is read as a 24-bit size plus a variant byte,
+  and variants 1 and 2 carry twelve extra bytes before `targetPosition`
+- **Camera tracks**: KCVS, and the depth-of-field triple IDUF / ELAF / PTSF
+- **DILG**: the glider chunk — a list of geoset ids that whitelists which
+  geosets a world-picking ray may hit (§7.25)
+- **Layer**: ShadingFlags `0x200` BackFacesForShadows and `0x400`
+  AmbientOcclusion, accepted at any version
+- **Material**: the `flags` word stops meaning anything — read and discarded,
+  written as zero, with only the text `TwoSided` surviving, pushed down onto
+  every layer
+- **Shader registry**: `Shader_HD_Crystal` (id 24) joins `Shader_SD_Legacy` (0),
+  `Shader_HD_DefaultUnit` (1) and `Shader_SD_FixedFunction` (2)
+
+> **One reading of the 3.0.0 client disagrees with this document.** Its layer
+> reader gates `emissiveGain` *and* the fresnel fields together at 900, with no
+> gate at 1000 anywhere in the binary reader, where revision 2.1 above places
+> the fresnel fields at 1000. The two readings differ only for a v900 file, of
+> which none is known to ship, so nothing observable settles it here; recorded
+> so that the next reader of either source is not surprised.
 
 ---
 
@@ -1460,6 +1787,26 @@ Warcraft III animations use millisecond timing. At 60 FPS, advance animation cou
 ### Inclusive Size Fields
 
 The `inclusiveSize` at the start of variable-sized objects includes the 4 bytes of the `inclusiveSize` field itself. For example, if `inclusiveSize = 100`, the object occupies exactly 100 bytes from the start of the `inclusiveSize` field (96 bytes of payload after it).
+
+### Sizes That Are Not Only Sizes
+
+The camera entry's leading `u32` is a 24-bit size with a variant byte above it
+(see [Section 7.20](#720-cams--cameras)). It is the only field of its kind in
+the format — searching the 3.0.0 reader for the mask that gives it away,
+`and reg, 0FFFFFFh`, finds this one site and no other — but it is worth knowing
+that a size field here can carry a flag, because the failure it causes is not a
+wrong value: it is an end position tens of megabytes past the entry.
+
+### Truncated and Malformed Files
+
+A reader built on a C++ `std::istream` must not infer "bytes remain" from the
+stream position alone. A read past the end latches `failbit`, after which
+`tellg()` returns **-1** and every later read is a no-op — so `tellg() < size`
+is true forever, and a loop that measures its own progress as
+`position - positionBefore` sees no progress rather than an error. A chunk walk
+written that way turns a malformed or misread file into an infinite loop
+instead of a diagnostic. Ask the stream whether it has failed, and treat a
+negative position as "nothing remaining".
 
 ### Geoset Sub-Chunk Tag-Size Pairs
 
@@ -1493,7 +1840,7 @@ LITE = 0x4554494C      HELP = 0x504C4548      ATCH = 0x48435441
 PIVT = 0x54564950      PREM = 0x4D455250      PRE2 = 0x32455250
 RIBB = 0x42424952      EVTS = 0x53545645      CAMS = 0x534D4143
 CLID = 0x44494C43      BPOS = 0x534F5042      FAFX = 0x58464146
-CORN = 0x4E524F43
+CORN = 0x4E524F43      DILG = 0x474C4944
 
 LAYS = 0x5359414C      VRTX = 0x58545256      NRMS = 0x534D524E
 PTYP = 0x50595450      PCNT = 0x544E4350      PVTX = 0x58545650
@@ -1637,14 +1984,14 @@ The `CornEmitter` fields map to the PopcornFX runtime as follows:
 | MDX Field | PopcornFX Role | Notes |
 |-----------|---------------|-------|
 | `path` | Effect file to load | Resolved against asset root |
-| `color` (float[4] RGBA) | Tint override | Passed to effect as an attribute sampler; many effects use black (0,0,0,1) as neutral |
+| `color` (float[3] RGB) + `alpha` (`f32`) | Tint override | Passed to the effect as an attribute sampler; many effects use black (0,0,0) with alpha 1 as neutral. Colour and alpha are separate fields and separate tracks (KPPC / KPPA), not one RGBA vector |
 | `speed` | Speed multiplier | Scales particle velocity in the effect |
 | `emissionRate` | Emission rate multiplier | Scales spawn count |
 | `lifeSpan` | Lifetime multiplier | Scales particle lifetime |
 | `replaceableId` | Texture replacement ID | For team-color or replaceable texture effects (0 = none) |
 | `Node` transform | World-space transform | The emitter inherits position/rotation/scale from the bone hierarchy |
 | KPPA track | Animated alpha | Per-keyframe alpha override |
-| KPPC track | Animated color | Per-keyframe RGBA color override |
+| KPPC track | Animated color | Per-keyframe RGB color override; alpha animates separately on KPPA |
 | KPPE track | Animated emission rate | Per-keyframe emission rate override |
 | KPPL track | Animated lifespan | Per-keyframe lifespan override |
 | KPPS track | Animated speed | Per-keyframe speed override |
@@ -1697,9 +2044,9 @@ This dual system lets artists achieve common patterns efficiently:
 | Item | Old Spec | Corrected |
 |------|----------|-----------|
 | KTAR data type | `f32` (scalar angle) | `float[4]` (quaternion XYZW) |
-| KPPC data type | `float[3]` (RGB) | `float[4]` (RGBA) |
+| KPPC data type | (v2.0–2.3 of this doc claimed `float[4]` RGBA) | `float[3]` (RGB), as the prior community specifications had it — the claim was retracted in revision 2.4 after reading the 3.0.0 reader and writer |
 | KEVT field order | (v2.0 of this doc placed `globalSequenceId` **after** the track times) | `globalSequenceId` sits **between** `trackCount` and the track times — verified against game assets and mdx-m3-viewer |
-| Material shader | Present when `version > 800` | Present when `version > 800 && version < 1100` |
+| Material shader | Present when `version > 800` | Present when `version >= 900 && version < 1100`, as the 3.0.0 client measures it |
 | Light shadowIntensity | Not documented | Present when `version >= 1200` |
 | Layer SubTexture system | Not documented | New in version ≥ 1100 |
 | Layer fresnel fields | Present when `version > 800` (with `emissiveGain`) | `emissiveGain` is `version > 800`; `fresnelColor`/`fresnelOpacity`/`fresnelTeamColor` are `version > 900` |

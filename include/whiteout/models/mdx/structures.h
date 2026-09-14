@@ -538,6 +538,17 @@ struct Light {
     f32 ambientIntensity = 0.0f;               ///< Ambient intensity
     f32 shadowIntensity = 0.4f;                ///< Shadow darkness (Reforged)
 
+    // Reforged 3.0. Field names are the World Editor's own MDL keywords
+    // ("ShadowCasting", "QuadraticFalloff", ...), and the falloff defaults are
+    // the values the game substitutes when it loads a light that predates
+    // them -- not zeroes, so an older light keeps its look.
+    bool shadowCasting = false;   ///< v1300+, stored as a u32 on disk
+    f32 shadowCastingStart = 0.0f; ///< v1300+
+    f32 shadowCastingEnd = 0.0f;   ///< v1300+
+    f32 quadraticFalloff = 0.0005f; ///< v1600+
+    f32 linearFalloff = 0.0f;       ///< v1600+
+    f32 damping = 0.00001f;         ///< v1600+
+
     // Animation tracks
     Track<f32> attenuationStartTracks;  ///< Attenuation start animation
     Track<f32> attenuationEndTracks;    ///< Attenuation end animation
@@ -547,6 +558,11 @@ struct Light {
     Track<Vector3f> ambientColorTracks; ///< Ambient color animation
     Track<f32> visibilityTracks;        ///< Visibility animation
     Track<f32> shadowIntensityTracks;   ///< Shadow intensity animation (Reforged)
+    Track<f32> shadowCastingStartTracks; ///< KLSS, v1300+
+    Track<f32> shadowCastingEndTracks;   ///< KLSE, v1300+
+    Track<f32> quadraticFalloffTracks;   ///< KLQF, v1600+
+    Track<f32> linearFalloffTracks;      ///< KLLF, v1600+
+    Track<f32> dampingTracks;            ///< KLDA, v1600+
 };
 
 // ============================================================================
@@ -737,6 +753,13 @@ struct Camera {
     Track<Vector3f> positionTracks;       ///< Position animation
     Track<f32> targetRotationTracks;      ///< Target rotation animation
     Track<Vector3f> targetPositionTracks; ///< Target position animation
+    Track<f32> visibilityTracks;          ///< KCVS
+
+    // Reforged 3.0 depth of field. Animation-only -- the camera struct itself
+    // grew no fields for these; names are the World Editor's MDL keywords.
+    Track<f32> focusDistanceTracks; ///< IDUF
+    Track<f32> focalLengthTracks;   ///< ELAF
+    Track<f32> fStopTracks;         ///< PTSF
 };
 
 // ============================================================================

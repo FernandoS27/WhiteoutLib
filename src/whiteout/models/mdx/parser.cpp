@@ -26,7 +26,12 @@ class Parser::Impl {
 public:
     UpgradeMode upgradeMode = UpgradeMode::UpgradeOldVersions;
     std::vector<std::string> issues;
-    static constexpr u32 CurrentVersion = 1200; ///< Latest known MDX version (Reforged)
+    static constexpr u32 CurrentVersion = 1800; ///< Newest MDX version this parser reads
+    /// What UpgradeOldVersions rewrites a v900/v1000 model as. Deliberately not
+    /// CurrentVersion: emitting 3.0 lights and wide skin weights would make the
+    /// result unreadable to every earlier Warcraft III, and nothing about
+    /// upgrading an old material needs the newer chunks.
+    static constexpr u32 UpgradeTargetVersion = 1200;
 
     // Internal helper methods for parsing
     void SkipUnknownChunk(BinaryReader& reader, u32 tag, u32 size);
@@ -406,7 +411,7 @@ void Parser::Impl::parseSNDS(BinaryReader& reader, u32 size, Model& mdx) {
 void Parser::Impl::parseSNEM(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
-    while (totalRead < size) {
+    while (totalRead < size && !reader.failed()) {
         u32 const posBefore = reader.getPosition();
         SoundEmitter snem = parseSoundEmitter(reader, size - totalRead);
         snem.node.nodeFamilyId = static_cast<u32>(mdx.soundEmitters.size());
@@ -447,7 +452,7 @@ SoundEmitter Parser::Impl::parseSoundEmitter(BinaryReader& reader, u32 /*maxSize
 void Parser::Impl::parseMTLS(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
-    while (totalRead < size) {
+    while (totalRead < size && !reader.failed()) {
         u32 const posBefore = reader.getPosition();
         Material const mat = parseMaterial(reader, size - totalRead, mdx);
         mdx.materials.push_back(mat);
@@ -586,7 +591,7 @@ Layer Parser::Impl::parseLayer(BinaryReader& reader, Model& mdx) {
 void Parser::Impl::parseTXAN(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
-    while (totalRead < size) {
+    while (totalRead < size && !reader.failed()) {
         u32 const posBefore = reader.getPosition();
         TextureAnimation const anim = parseTextureAnimation(reader, size - totalRead);
         mdx.textureAnimations.push_back(anim);
@@ -632,7 +637,7 @@ TextureAnimation Parser::Impl::parseTextureAnimation(BinaryReader& reader, u32 /
 void Parser::Impl::parseGEOS(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
-    while (totalRead < size) {
+    while (totalRead < size && !reader.failed()) {
         u32 const posBefore = reader.getPosition();
         Geoset const geo = parseGeoset(reader, size - totalRead, mdx);
 
@@ -736,7 +741,31 @@ Geoset Parser::Impl::parseGeoset(BinaryReader& reader, u32 /*maxSize*/, Model& m
         }
         case SKIN_TAG: {
             u32 const skinDataCount = reader.read<u32>();
-            geoset.skinData = reader.read<std::vector<u8>>(skinDataCount);
+            if (mdx.version >= 1400) {
+                // v1400 widened the skin stream to u16 -- four bone indices
+                // then four weights, so an index is no longer capped at 255 --
+                // and the count came with it: it counts those u16s, not bytes.
+                // Read as bytes it takes half the stream and leaves the geoset
+                // walk standing in the middle of the weights, which is why
+                // every 3.0.0 HD geoset lost its texture coordinates.
+                //
+                // Narrowed back to the byte-per-influence form the rest of the
+                // library already speaks. That is lossless for everything
+                // Warcraft III ships (the widest index across 4,652 skinned
+                // geosets is 232) and an index that really needs the second
+                // byte is reported rather than quietly truncated.
+                auto const wide = reader.read<std::vector<u16>>(skinDataCount);
+                geoset.skinData.resize(wide.size());
+                bool truncated = false;
+                for (std::size_t i = 0; i < wide.size(); ++i) {
+                    truncated = truncated || wide[i] > 0xFF;
+                    geoset.skinData[i] = static_cast<u8>(wide[i]);
+                }
+                if (truncated)
+                    issues.push_back("Geoset skin value above 255 truncated to a byte");
+            } else {
+                geoset.skinData = reader.read<std::vector<u8>>(skinDataCount);
+            }
             break;
         }
         default: {
@@ -760,7 +789,7 @@ Geoset Parser::Impl::parseGeoset(BinaryReader& reader, u32 /*maxSize*/, Model& m
 void Parser::Impl::parseGEOA(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
-    while (totalRead < size) {
+    while (totalRead < size && !reader.failed()) {
         u32 const startPos = reader.getPosition();
 
         GeosetAnimation anim;
@@ -801,7 +830,7 @@ void Parser::Impl::parseGEOA(BinaryReader& reader, u32 size, Model& mdx) {
 void Parser::Impl::parseBONE(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
-    while (totalRead < size) {
+    while (totalRead < size && !reader.failed()) {
         Bone bone;
 
         u32 const startPos = reader.getPosition();
@@ -875,7 +904,7 @@ void Parser::Impl::parseNodeTracks(BinaryReader& reader, Node& node, u32 nodeSiz
 void Parser::Impl::parseLITE(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
-    while (totalRead < size) {
+    while (totalRead < size && !reader.failed()) {
         u32 const posBefore = reader.getPosition();
         Light light = parseLight(reader, size - totalRead, mdx);
         light.node.type = Node::NodeType::Light; // Set node type to Light
@@ -893,6 +922,11 @@ Light Parser::Impl::parseLight(BinaryReader& reader, u32 /*maxSize*/, Model& mdx
     u32 const inclusiveSize = reader.read<u32>();
     light.node = parseNode(reader);
     light.type = static_cast<Light::LightType>(reader.read<u32>());
+    // ShadowCasting is wedged in here, between the type and the attenuation --
+    // not with the other shadow fields at the end of the struct. Reading it in
+    // the obvious place instead would shift everything after it by four bytes.
+    if (mdx.version >= 1300)
+        light.shadowCasting = reader.read<u32>() != 0;
     light.attenuationStart = reader.read<f32>();
     light.attenuationEnd = reader.read<f32>();
     light.color = reader.read<Vector3f>();
@@ -903,6 +937,22 @@ Light Parser::Impl::parseLight(BinaryReader& reader, u32 /*maxSize*/, Model& mdx
         light.shadowIntensity = reader.read<f32>();
     } else {
         light.shadowIntensity = 0.4f; // Default value for older versions
+    }
+    if (mdx.version >= 1300) {
+        light.shadowCastingStart = reader.read<f32>();
+        light.shadowCastingEnd = reader.read<f32>();
+    }
+    // The falloff triple is v1600. What the game substitutes for an older light
+    // is not zeroes, so read a pre-1600 light the way the game does rather than
+    // leaving it dark.
+    if (mdx.version >= 1600) {
+        light.quadraticFalloff = reader.read<f32>();
+        light.linearFalloff = reader.read<f32>();
+        light.damping = reader.read<f32>();
+    } else {
+        light.quadraticFalloff = 0.0005f;
+        light.linearFalloff = 0.0f;
+        light.damping = 0.00001f;
     }
 
     // Parse animation tracks (KLAS, KLAE, KLAC, KLAI, KLBI, KLBC, KLAV)
@@ -942,6 +992,26 @@ Light Parser::Impl::parseLight(BinaryReader& reader, u32 /*maxSize*/, Model& mdx
             light.visibilityTracks =
                 readTrackChunk<f32>(reader, trackCount, interpolationType, globalSequenceId);
             break;
+        case KLSS_TAG: // KLSS - shadow-casting start (v1300+)
+            light.shadowCastingStartTracks =
+                readTrackChunk<f32>(reader, trackCount, interpolationType, globalSequenceId);
+            break;
+        case KLSE_TAG: // KLSE - shadow-casting end (v1300+)
+            light.shadowCastingEndTracks =
+                readTrackChunk<f32>(reader, trackCount, interpolationType, globalSequenceId);
+            break;
+        case KLQF_TAG: // KLQF - quadratic falloff (v1600+)
+            light.quadraticFalloffTracks =
+                readTrackChunk<f32>(reader, trackCount, interpolationType, globalSequenceId);
+            break;
+        case KLLF_TAG: // KLLF - linear falloff (v1600+)
+            light.linearFalloffTracks =
+                readTrackChunk<f32>(reader, trackCount, interpolationType, globalSequenceId);
+            break;
+        case KLDA_TAG: // KLDA - damping (v1600+)
+            light.dampingTracks =
+                readTrackChunk<f32>(reader, trackCount, interpolationType, globalSequenceId);
+            break;
         default:
             SkipUnknownTrack(reader, trackTag, trackCount, interpolationType);
             break;
@@ -954,7 +1024,7 @@ Light Parser::Impl::parseLight(BinaryReader& reader, u32 /*maxSize*/, Model& mdx
 void Parser::Impl::parseHELP(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
-    while (totalRead < size) {
+    while (totalRead < size && !reader.failed()) {
         u32 const startPos = reader.getPosition();
 
         Helper helper;
@@ -974,7 +1044,7 @@ void Parser::Impl::parseHELP(BinaryReader& reader, u32 size, Model& mdx) {
 void Parser::Impl::parseATCH(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
-    while (totalRead < size) {
+    while (totalRead < size && !reader.failed()) {
         u32 const posBefore = reader.getPosition();
         Attachment att = parseAttachment(reader, size - totalRead);
 
@@ -1030,7 +1100,7 @@ void Parser::Impl::parsePIVT(BinaryReader& reader, u32 size, Model& mdx) {
 void Parser::Impl::parsePREM(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
-    while (totalRead < size) {
+    while (totalRead < size && !reader.failed()) {
         u32 const posBefore = reader.getPosition();
         ParticleEmitter pem = parseParticleEmitter(reader, size - totalRead);
         pem.node.type = Node::NodeType::ParticleEmitter; // Set node type to ParticleEmitter
@@ -1106,7 +1176,7 @@ ParticleEmitter Parser::Impl::parseParticleEmitter(BinaryReader& reader, u32 /*m
 void Parser::Impl::parsePRE2(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
-    while (totalRead < size) {
+    while (totalRead < size && !reader.failed()) {
         u32 const posBefore = reader.getPosition();
         ParticleEmitter2 pem2 = parseParticleEmitter2(reader, size - totalRead);
         pem2.node.type = Node::NodeType::ParticleEmitter2; // Set node type to ParticleEmitter2
@@ -1223,7 +1293,7 @@ ParticleEmitter2 Parser::Impl::parseParticleEmitter2(BinaryReader& reader, u32 /
 void Parser::Impl::parseRIBB(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
-    while (totalRead < size) {
+    while (totalRead < size && !reader.failed()) {
         u32 const posBefore = reader.getPosition();
         RibbonEmitter ribb = parseRibbonEmitter(reader, size - totalRead);
         ribb.node.type = Node::NodeType::RibbonEmitter; // Set node type to RibbonEmitter
@@ -1299,7 +1369,7 @@ RibbonEmitter Parser::Impl::parseRibbonEmitter(BinaryReader& reader, u32 /*maxSi
 void Parser::Impl::parseEVTS(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
-    while (totalRead < size) {
+    while (totalRead < size && !reader.failed()) {
         u32 const startPos = reader.getPosition();
 
         EventObject evt;
@@ -1328,7 +1398,7 @@ void Parser::Impl::parseEVTS(BinaryReader& reader, u32 size, Model& mdx) {
 void Parser::Impl::parseCAMS(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
-    while (totalRead < size) {
+    while (totalRead < size && !reader.failed()) {
         u32 const posBefore = reader.getPosition();
         Camera const cam = parseCamera(reader, size - totalRead);
         mdx.cameras.push_back(cam);
@@ -1340,15 +1410,28 @@ Camera Parser::Impl::parseCamera(BinaryReader& reader, u32 /*maxSize*/) {
     Camera cam;
     u32 const startPos = reader.getPosition();
 
-    u32 const inclusiveSize = reader.read<u32>();
+    // The leading u32 is a 24-bit inclusive size with a variant byte on top:
+    // Warcraft III 3.0.0 ships every camera as variant 3, so reading all 32
+    // bits puts endPos 48 MB past the entry, the track walk runs off the end
+    // of the file and the parse never finishes. The game masks it the same way
+    // (its CAMS reader keeps `& 0xFFFFFF` for the size and switches on
+    // `& 0xFF000000`), and variants 1 and 2 -- neither of which the shipped
+    // data uses -- carry twelve bytes it skips before the target position.
+    u32 const sizeAndVariant = reader.read<u32>();
+    u32 const inclusiveSize = sizeAndVariant & 0x00FFFFFFu;
+    u32 const variant = sizeAndVariant >> 24;
     cam.name = reader.readString(80);
     cam.position = reader.read<Vector3f>();
     cam.fieldOfView = reader.read<f32>();
     cam.farClippingPlane = reader.read<f32>();
     cam.nearClippingPlane = reader.read<f32>();
+    if (variant == 1 || variant == 2)
+        reader.skip(12);
     cam.targetPosition = reader.read<Vector3f>();
 
-    // Parse animation tracks (KCTR, KCRL, KTTR)
+    // Parse animation tracks (KCTR, KCRL, KTTR, plus v1800's ELAF / PTSF /
+    // IDUF depth-of-field tracks and KCVS, which the unknown-track skip walks
+    // correctly because all four carry f32 values).
     u32 const endPos = startPos + inclusiveSize;
     while (reader.getPosition() < endPos) {
         u32 const trackTag = reader.read<u32>();
@@ -1369,6 +1452,22 @@ Camera Parser::Impl::parseCamera(BinaryReader& reader, u32 /*maxSize*/) {
             cam.targetPositionTracks =
                 readTrackChunk<Vector3f>(reader, trackCount, interpolationType, globalSequenceId);
             break;
+        case KCVS_TAG: // KCVS - visibility
+            cam.visibilityTracks =
+                readTrackChunk<f32>(reader, trackCount, interpolationType, globalSequenceId);
+            break;
+        case IDUF_TAG: // IDUF - focus distance (Reforged 3.0)
+            cam.focusDistanceTracks =
+                readTrackChunk<f32>(reader, trackCount, interpolationType, globalSequenceId);
+            break;
+        case ELAF_TAG: // ELAF - focal length (Reforged 3.0)
+            cam.focalLengthTracks =
+                readTrackChunk<f32>(reader, trackCount, interpolationType, globalSequenceId);
+            break;
+        case PTSF_TAG: // PTSF - f-stop (Reforged 3.0)
+            cam.fStopTracks =
+                readTrackChunk<f32>(reader, trackCount, interpolationType, globalSequenceId);
+            break;
         default:
             SkipUnknownTrack(reader, trackTag, trackCount, interpolationType);
             break;
@@ -1381,7 +1480,7 @@ Camera Parser::Impl::parseCamera(BinaryReader& reader, u32 /*maxSize*/) {
 void Parser::Impl::parseCLID(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
-    while (totalRead < size) {
+    while (totalRead < size && !reader.failed()) {
         u32 const startPos = reader.getPosition();
 
         CollisionShape shape = parseCollisionShape(reader);
@@ -1443,7 +1542,7 @@ void Parser::Impl::parseFAFX(BinaryReader& reader, u32 size, Model& mdx) {
 void Parser::Impl::parseCORN(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
-    while (totalRead < size) {
+    while (totalRead < size && !reader.failed()) {
         CornEmitter corn;
         u32 const startPos = reader.getPosition();
 
@@ -1516,7 +1615,7 @@ void Parser::Impl::upgradeModel(Model& mdx) {
     }
 
     upgradeMaterials(mdx);
-    mdx.version = CurrentVersion;
+    mdx.version = UpgradeTargetVersion;
 }
 
 void Parser::Impl::upgradeMaterials(Model& mdx) {

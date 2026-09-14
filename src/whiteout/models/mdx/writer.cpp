@@ -500,10 +500,18 @@ void Writer::Impl::writeGeoset(BinaryWriter& writer, const Geoset& geo, const Mo
             writer.write(geo.tangents);
         }
 
-        // Write optional SKIN
+        // Write optional SKIN. The count is an element count in both
+        // conventions, and one element is one byte here, so only the stream
+        // width changes: v1400 and later spell each influence as a u16 (see
+        // the parser's SKIN case).
         if (!geo.skinData.empty()) {
             writeChunkHeader(writer, SKIN_TAG, geo.skinData.size());
-            writer.write(geo.skinData);
+            if (mdx.version >= 1400) {
+                std::vector<u16> const wide(geo.skinData.begin(), geo.skinData.end());
+                writer.write(wide);
+            } else {
+                writer.write(geo.skinData);
+            }
         }
     }
 
@@ -582,6 +590,8 @@ void Writer::Impl::writeLight(BinaryWriter& writer, const Light& light, const Mo
 
     writeNode(writer, light.node);
     writer.write(static_cast<u32>(light.type));
+    if (mdx.version >= 1300)
+        writer.write<u32>(light.shadowCasting ? 1u : 0u);
     writer.write(light.attenuationStart);
     writer.write(light.attenuationEnd);
     writer.write(light.color);
@@ -591,6 +601,15 @@ void Writer::Impl::writeLight(BinaryWriter& writer, const Light& light, const Mo
     if (mdx.version >= 1200) {
         writer.write(light.shadowIntensity);
     }
+    if (mdx.version >= 1300) {
+        writer.write(light.shadowCastingStart);
+        writer.write(light.shadowCastingEnd);
+    }
+    if (mdx.version >= 1600) {
+        writer.write(light.quadraticFalloff);
+        writer.write(light.linearFalloff);
+        writer.write(light.damping);
+    }
 
     writeTrackChunk(writer, KLAS_TAG, light.attenuationStartTracks);
     writeTrackChunk(writer, KLAE_TAG, light.attenuationEndTracks);
@@ -599,6 +618,15 @@ void Writer::Impl::writeLight(BinaryWriter& writer, const Light& light, const Mo
     writeTrackChunk(writer, KLBI_TAG, light.ambientIntensityTracks);
     writeTrackChunk(writer, KLBC_TAG, light.ambientColorTracks);
     writeTrackChunk(writer, KLAV_TAG, light.visibilityTracks);
+    if (mdx.version >= 1300) {
+        writeTrackChunk(writer, KLSS_TAG, light.shadowCastingStartTracks);
+        writeTrackChunk(writer, KLSE_TAG, light.shadowCastingEndTracks);
+    }
+    if (mdx.version >= 1600) {
+        writeTrackChunk(writer, KLQF_TAG, light.quadraticFalloffTracks);
+        writeTrackChunk(writer, KLLF_TAG, light.linearFalloffTracks);
+        writeTrackChunk(writer, KLDA_TAG, light.dampingTracks);
+    }
 }
 
 void Writer::Impl::writeHELP(BinaryWriter& writer, const Model& mdx) {
@@ -803,6 +831,12 @@ void Writer::Impl::writeCamera(BinaryWriter& writer, const Camera& cam) {
     writeTrackChunk(writer, KCTR_TAG, cam.positionTracks);
     writeTrackChunk(writer, KCRL_TAG, cam.targetRotationTracks);
     writeTrackChunk(writer, KTTR_TAG, cam.targetPositionTracks);
+    // Unconditional: writeTrackChunk emits nothing for a track that was never
+    // set, and only a v1400-or-later source can carry these.
+    writeTrackChunk(writer, KCVS_TAG, cam.visibilityTracks);
+    writeTrackChunk(writer, IDUF_TAG, cam.focusDistanceTracks);
+    writeTrackChunk(writer, ELAF_TAG, cam.focalLengthTracks);
+    writeTrackChunk(writer, PTSF_TAG, cam.fStopTracks);
 }
 
 void Writer::Impl::writeCLID(BinaryWriter& writer, const Model& mdx) {

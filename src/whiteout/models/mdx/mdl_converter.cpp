@@ -997,6 +997,25 @@ void convertLight(const MdlNode& block, Model& model) {
     light.ambientColorTracks = getTrack<Vector3f>(block, "AmbColor");
     light.visibilityTracks = getTrack<f32>(block, "Visibility");
 
+    // Reforged 3.0. Absent keywords leave the struct defaults, which are the
+    // values the game itself substitutes for a light that predates them.
+    // Each falls back to the value already in the struct, which is the default
+    // the game substitutes when the field predates the model -- so an absent
+    // keyword and an old model land in the same place.
+    light.shadowIntensity = getFloatOrStatic(block, "ShadowIntensity", light.shadowIntensity);
+    light.shadowCasting = hasFlag(block, "ShadowCasting");
+    light.shadowCastingStart =
+        getFloatOrStatic(block, "ShadowCastingStart", light.shadowCastingStart);
+    light.shadowCastingEnd = getFloatOrStatic(block, "ShadowCastingEnd", light.shadowCastingEnd);
+    light.quadraticFalloff = getFloatOrStatic(block, "QuadraticFalloff", light.quadraticFalloff);
+    light.linearFalloff = getFloatOrStatic(block, "LinearFalloff", light.linearFalloff);
+    light.damping = getFloatOrStatic(block, "Damping", light.damping);
+    light.shadowCastingStartTracks = getTrack<f32>(block, "ShadowCastingStart");
+    light.shadowCastingEndTracks = getTrack<f32>(block, "ShadowCastingEnd");
+    light.quadraticFalloffTracks = getTrack<f32>(block, "QuadraticFalloff");
+    light.linearFalloffTracks = getTrack<f32>(block, "LinearFalloff");
+    light.dampingTracks = getTrack<f32>(block, "Damping");
+
     model.lights.push_back(std::move(light));
 }
 
@@ -1239,6 +1258,10 @@ void convertCamera(const MdlNode& block, Model& model) {
 
     cam.positionTracks = getTrack<Vector3f>(block, "Translation");
     cam.targetRotationTracks = getTrack<f32>(block, "Rotation");
+    cam.visibilityTracks = getTrack<f32>(block, "Visibility");
+    cam.focusDistanceTracks = getTrack<f32>(block, "FocusDistance");
+    cam.focalLengthTracks = getTrack<f32>(block, "FocalLength");
+    cam.fStopTracks = getTrack<f32>(block, "FStop");
 
     // Target sub-block
     if (auto* target = findBlock(block, "Target")) {

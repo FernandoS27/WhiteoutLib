@@ -45,6 +45,9 @@ pre { padding: 0.6rem 0.8rem; overflow-x: auto; }
 | Date | Version | Description |
 |------|---------|-------------|
 | 2026-05-21 | 1.0 | Initial specification of the Warcraft III MDL dialect, derived from the WhiteoutLib MDL writer/parser and validated by a byte-exact MDX→MDL→MDX round-trip over the `war3.w3mod` game-asset corpus. |
+| 2026-09-13 | 1.1 | Added the Warcraft III 3.0.0 keywords: the light's `ShadowCasting`, `ShadowCastingStart`, `ShadowCastingEnd`, `QuadraticFalloff`, `LinearFalloff` and `Damping`, and the camera's `Visibility` and depth-of-field properties. See the MDX specification, revision 2.2, for the binary layouts and version gates. |
+| 2026-09-13 | 1.2 | Corrected the camera depth-of-field spellings against the World Editor's own keyword table — the scalar forms are `DOFDistance`, `FocalLength` and `FStop` and the keyed forms are `FocusDistanceKeys`, `FocalLengthKeys` and `FStopKeys`; there is no `FocusDistance` keyword. Recorded the client defect that swaps the two scalar forms. Added the `BackFacesForShadows` and `AmbientOcclusion` layer flags, the complete shader-name set, and the fact that 3.0.0 ignores every material flag except `TwoSided`. |
+| 2026-09-13 | 1.3 | Added the `Glider` top-level block — the MDL form of the MDX `DILG` chunk, whose single `GeosetId` property whitelists a geoset for ray picking — and the sequence property `SyncPoint`, which has always been in the binary record but had no documented keyword. Recorded `BlendColors` and `ComponentSkin` as reserved words that the tokenizer knows and no reader accepts. |
 
 ## Table of Contents
 
@@ -136,6 +139,13 @@ Parent 0,            // "Bone_Root"
 | `,` | Entry separator (and trailing separator). |
 | `:` | Keyframe time/value separator. |
 | `<=` | HD sub-texture slot designator (`static TextureID 0 <= 1,`). |
+
+> **Two reserved words are not usable.** The 3.0.0 tokenizer recognises
+> `BlendColors` and `ComponentSkin` as keywords, but no block in the language
+> accepts either one — there is no reader case for them anywhere, and no writer
+> emits them. Using either is a **parse error**, not a line the reader skips, so
+> a file carrying one is rejected outright rather than degraded. Treat them as
+> reserved for a future revision and do not emit them.
 
 ### 2.4 Numbers
 
@@ -441,6 +451,7 @@ Sequences 2 {
 		NonLooping,
 		MoveSpeed 270.0,
 		Rarity 0.0,
+		SyncPoint 1,
 		MinimumExtent { -55.0, -55.0, 0.0 },
 		MaximumExtent { 55.0, 55.0, 105.0 },
 		BoundsRadius 85.0,
@@ -454,7 +465,13 @@ Sequences 2 {
 | `NonLooping` | Flag — sequence plays once instead of looping. |
 | `MoveSpeed` | Movement speed this animation is authored for; omitted when `0`. |
 | `Rarity` | Random-selection weight; omitted when `0`. |
+| `SyncPoint` | Unsigned integer. The field the MDX `Sequence` record has always carried after `rarity`; only the keyword is new. Omitted when `0`. |
 | extent | Per-sequence bounding volume. |
+
+The writer emits these in a fixed order — `Interval`, `NonLooping`,
+`MoveSpeed`, `Rarity`, `SyncPoint`, then the extent — and drops `MoveSpeed`,
+`Rarity` and `SyncPoint` when they are zero. The reader accepts any order and
+rejects a repeated property.
 
 ### 6.4 GlobalSequences
 
@@ -523,12 +540,12 @@ Materials 1 {
 
 | Property | Description |
 |----------|-------------|
-| `PriorityPlane` | Render-order priority; omitted when `0`. |
-| `ConstantColor` | Flag. |
-| `TwoSided` | Flag — render both faces. |
-| `Unfogged` | Flag — not affected by fog. |
-| `SortPrimsNearZ` / `SortPrimsFarZ` | Flags — primitive sort order. |
-| `FullResolution` | Flag. |
+| `PriorityPlane` | Render-order priority; signed; omitted when `0`. |
+| `ConstantColor` | Flag. Parsed and discarded by Warcraft III 3.0.0. |
+| `TwoSided` | Flag — render both faces. **Not stored on the material**: 3.0.0 ORs the layer flag `TwoSided` into every `Layer` the material owns. |
+| `Unfogged` | Flag — not affected by fog. Parsed and discarded by 3.0.0. |
+| `SortPrimsNearZ` / `SortPrimsFarZ` | Flags — primitive sort order. Parsed and discarded by 3.0.0. |
+| `FullResolution` | Flag. Parsed and discarded by 3.0.0. |
 | `Shader` | `Shader "name",` — material-level HD shader-pipeline name. Present **only for `version` 900 and 1000** (see *Shader* below). |
 
 #### Layer properties
@@ -538,7 +555,7 @@ A `Layer` selects a texture and the way it is blended.
 | Property | Form | Description |
 |----------|------|-------------|
 | `FilterMode` | identifier | `None`, `Transparent`, `Blend`, `Additive`, `AddAlpha`, `Modulate`, `Modulate2x`. |
-| Shading flags | bare flags | `Unshaded`, `SphereEnvMap`, `TwoSided`, `Unfogged`, `NoDepthTest`, `NoDepthSet`, `WrapWidth`, `WrapHeight`, `Unlit`. |
+| Shading flags | bare flags | `Unshaded`, `SphereEnvMap`, `TwoSided`, `Unfogged`, `NoDepthTest`, `NoDepthSet`, `WrapWidth`, `WrapHeight`, `Unlit`, `BackFacesForShadows`, `AmbientOcclusion`. The last two are the Warcraft III 3.0.0 spellings of bits `0x200` and `0x400`; like the rest they are accepted at any version. |
 | `Shader` | `Shader "name",` | Per-layer HD shader name, written for `version ≥ 1100` HD layers — see *Shader* below. Omitted for SD layers. |
 | `TextureID` | `static TextureID id <= slot,` | Texture binding — see below. Animatable. |
 | `TVertexAnimId` | `TVertexAnimId N,` | Index into `TextureAnims`; omitted when none. |
@@ -606,9 +623,17 @@ Material {                              // version 900 / 1000
 }
 ```
 
-Common shader names: `"Shader_HD_DefaultUnit"`, `"Shader_HD_Crystal"`,
-`"Shader_SD_FixedFunction"`. The HiveWorkshop dialect marks `version ≥ 1100` HD
-layers differently — see [Appendix A.1](#a1-hd-layer-shader-version--1100).
+The complete set of names the client will match is `"Shader_SD_Legacy"` (id 0),
+`"Shader_HD_DefaultUnit"` (1), `"Shader_SD_FixedFunction"` (2) and
+`"Shader_HD_Crystal"` (24). Matching is **case-insensitive**, and a name that
+matches nothing silently leaves the layer at id `0` — a misspelled HD shader
+downgrades the layer to SD with no diagnostic. The HiveWorkshop dialect marks
+`version ≥ 1100` HD layers differently — see
+[Appendix A.1](#a1-hd-layer-shader-version--1100).
+
+> **Warcraft III 3.0.0 writes the `Shader` line on every layer**, SD layers
+> included, where it names `"Shader_SD_Legacy"`. A reader must not treat the
+> presence of `Shader` as evidence that a layer is HD; read the name.
 
 ### 6.7 TextureAnims
 
@@ -753,6 +778,13 @@ Light "LightOmni" {
 	static Intensity 1.0,
 	static AmbColor { 1.0, 1.0, 1.0 },
 	static AmbIntensity 0.0,
+	static ShadowIntensity 0.4,
+	ShadowCasting,
+	static ShadowCastingStart 0.0,
+	static ShadowCastingEnd 0.0,
+	static QuadraticFalloff 0.0005,
+	static LinearFalloff 0.0,
+	static Damping 0.00001,
 }
 ```
 
@@ -760,6 +792,22 @@ The light type is a bare flag: `Omnidirectional`, `Directional`, or `Ambient`.
 `AttenuationStart`, `AttenuationEnd`, `Color`, `Intensity`, `AmbColor`,
 `AmbIntensity`, and `Visibility` are all animatable. `Color` and `AmbColor`
 default to `{ 1, 1, 1 }`.
+
+The remaining keywords arrived with later MDX versions, and a writer emits each
+group only for a model at or above its version: `ShadowIntensity` at 1200,
+`ShadowCasting` / `ShadowCastingStart` / `ShadowCastingEnd` at 1300, and
+`QuadraticFalloff` / `LinearFalloff` / `Damping` at 1600. All of them except
+`ShadowCasting` are animatable, and all of them take the `static` form above
+when they are not.
+
+`ShadowCasting` is a **bare flag** — present or absent, never a value — in the
+same family as `Omnidirectional` and `Unshaded`.
+
+> **The falloff keywords do not default to zero.** An absent
+> `QuadraticFalloff` is `0.0005`, `LinearFalloff` is `0`, and `Damping` is
+> `0.00001`, which is what the game substitutes for a light older than MDX 1600.
+> A reader that leaves them zeroed gives every older light a different falloff
+> from the one the game shows.
 
 ### 6.12 Helper
 
@@ -955,6 +1003,9 @@ Camera "Portrait" {
 	FieldOfView 0.7853982,
 	FarClip 1000.0,
 	NearClip 0.1,
+	DOFDistance 180.0,
+	FocalLength 50.0,
+	FStop 2.8,
 	Target {
 		Position { 0.0, 0.0, 70.0 },
 	}
@@ -964,10 +1015,44 @@ Camera "Portrait" {
 | Element | Description |
 |---------|-------------|
 | `Position` | Camera eye position. `Translation` adds an animation track. |
-| `FieldOfView` | Vertical FOV in radians. |
-| `FarClip` / `NearClip` | Clip-plane distances. |
+| `FieldOfView` | Vertical FOV in radians. **Required.** |
+| `FarClip` | Far clip-plane distance. **Required.** |
+| `NearClip` | Near clip-plane distance. |
 | `Rotation` | Optional scalar (`f32`) roll-angle track. |
 | `Target { Position … }` | Look-at target; `Translation` inside it adds a track. |
+| `Visibility` | Optional `f32` visibility track. |
+| `DOFDistance` | Focus distance, Warcraft III 3.0.0. Scalar form of the `FocusDistanceKeys` track. |
+| `FocusDistanceKeys` | Keyed form of the focus distance. |
+| `FocalLength` | Lens focal length, 3.0.0. Scalar form of the `FocalLengthKeys` track. |
+| `FocalLengthKeys` | Keyed form of the focal length. |
+| `FStop` | Aperture f-number, 3.0.0. Scalar form of the `FStopKeys` track. |
+| `FStopKeys` | Keyed form of the f-number. |
+
+The three depth-of-field properties have **no static storage**: the camera
+carries only a track for each, in the text form and the binary one alike. The
+scalar keywords `DOFDistance`, `FocalLength` and `FStop` are not separate
+fields — each pushes a **single key at time 0** into the corresponding track.
+A writer holding one constant value may emit either the scalar keyword or a
+one-key block; the model that results is the same. The writer itself always
+chooses the keyed form.
+
+Note the spelling asymmetry, which is the World Editor's own: the scalar for
+the focus distance is `DOFDistance` — there is no `FocusDistance` keyword —
+while the other two scalars are simply their track names without the `Keys`
+suffix.
+
+> **`FocalLength` and `FStop` are swapped in the Warcraft III 3.0.0 text
+> reader.** The scalar `FocalLength` is stored into the **f-stop** track and
+> the scalar `FStop` into the **focal-length** track. The keyed forms
+> (`FocalLengthKeys`, `FStopKeys`) are correct, as are the binary tracks
+> (`ELAF` focal length, `PTSF` f-stop) and the MDL writer, so the defect is
+> confined to those two scalar keywords, and it shows up as a round trip
+> through MDL text exchanging the two values. Write depth of field with the
+> keyed form, or a one-key block, to survive the client's own parser.
+
+The writer emits the camera's properties in a fixed order: `Position`,
+`Translation`, `Rotation`, `FieldOfView`, `FarClip`, `NearClip`,
+`FocusDistanceKeys`, `FocalLengthKeys`, `FStopKeys`, `Target`, `Visibility`.
 
 ### 6.21 CollisionShape
 
@@ -1012,6 +1097,39 @@ BindPose {
 	}
 }
 ```
+
+### 6.24 Glider
+
+The MDL form of the MDX `DILG` chunk, new in Warcraft III 3.0.0. Each block
+names one geoset by id; there is no count and no container block, so the blocks
+are simply repeated once per entry, and a model with no gliders writes nothing.
+
+```mdl
+Glider {
+	GeosetId 3,
+}
+Glider {
+	GeosetId 7,
+}
+```
+
+| Property | Description |
+|----------|-------------|
+| `GeosetId` | Integer index into the model's `Geoset` list. Required — the block's only content. |
+
+The list is a **ray-picking whitelist**, not geometry and not a visual
+property. When a model carries one or more `Glider` blocks, the game's
+world-picking ray can strike only the geosets they name; every other geoset
+becomes transparent to the query while still drawing normally. A model with no
+`Glider` block keeps the pre-3.0.0 behaviour. Collision shapes are unaffected —
+they remain the `CollisionShape` blocks of §6.21.
+
+Gliders are written last, after `BindPose`.
+
+> The binary side of this is not lossless. The 3.0.0 MDX *reader* stores every
+> glider into slot 0 instead of walking the array, so a `DILG` naming more than
+> one geoset does not survive a load. The MDL reader here has no such defect;
+> see §7.25 of the MDX specification.
 
 ---
 

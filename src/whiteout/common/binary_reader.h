@@ -96,15 +96,29 @@ public:
         file.seekg(count, std::ios::cur);
     }
 
-    // Check if we have remaining data
+    // True once a read has run past the end (or otherwise failed). A failed
+    // istream serves every later read as a no-op and reports tellg() == -1, so
+    // a caller measuring its own progress from getPosition() sees no progress
+    // at all -- which is how a chunk walk that overshoots turns into a spin
+    // rather than an error. Ask this instead of inferring it from positions.
+    bool failed() const {
+        return file.fail() || file.tellg() < 0;
+    }
+
+    // Check if we have remaining data. A failed stream has none: tellg() is
+    // then -1, and comparing that against the size would say "more to read"
+    // forever.
     bool hasRemaining() {
-        return file.tellg() < fileSize;
+        const std::streampos at = file.tellg();
+        return at >= 0 && static_cast<u64>(at) < fileSize;
     }
 
     // Get remaining bytes
     u32 getRemainingBytes() {
-        u32 current = static_cast<u32>(file.tellg());
-        return fileSize - current;
+        const std::streampos at = file.tellg();
+        if (at < 0 || static_cast<u64>(at) >= fileSize)
+            return 0;
+        return fileSize - static_cast<u32>(at);
     }
 
     // Check if stream is valid

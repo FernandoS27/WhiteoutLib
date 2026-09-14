@@ -176,6 +176,15 @@ constexpr u32 KLAI_TAG = makeTag("KLAI"); ///< Light intensity animation
 constexpr u32 KLBI_TAG = makeTag("KLBI"); ///< Light ambient intensity animation
 constexpr u32 KLBC_TAG = makeTag("KLBC"); ///< Light ambient color animation
 constexpr u32 KLAV_TAG = makeTag("KLAV"); ///< Light visibility animation
+constexpr u32 KLSS_TAG = makeTag("KLSS"); ///< Light shadow-casting start animation (v1300+)
+constexpr u32 KLSE_TAG = makeTag("KLSE"); ///< Light shadow-casting end animation (v1300+)
+constexpr u32 KLQF_TAG = makeTag("KLQF"); ///< Light quadratic falloff animation (v1600+)
+constexpr u32 KLLF_TAG = makeTag("KLLF"); ///< Light linear falloff animation (v1600+)
+constexpr u32 KLDA_TAG = makeTag("KLDA"); ///< Light damping animation (v1600+)
+constexpr u32 KCVS_TAG = makeTag("KCVS"); ///< Camera visibility animation
+constexpr u32 IDUF_TAG = makeTag("IDUF"); ///< Camera focus-distance animation (Reforged 3.0)
+constexpr u32 ELAF_TAG = makeTag("ELAF"); ///< Camera focal-length animation (Reforged 3.0)
+constexpr u32 PTSF_TAG = makeTag("PTSF"); ///< Camera f-stop animation (Reforged 3.0)
 
 // Track chunk tags (Camera)
 constexpr u32 KCTR_TAG = makeTag("KCTR"); ///< Camera position animation

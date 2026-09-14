@@ -911,6 +911,35 @@ private:
 
             writeTrack<f32>("Visibility", light.visibilityTracks);
 
+            // Version-gated exactly as the binary writer is: these keywords
+            // mean nothing to a tool older than the build that introduced
+            // them. Keywords are the World Editor's own spellings.
+            if (m_model.version >= 1200)
+                line("static ShadowIntensity " + fmtFloat(light.shadowIntensity) + ",");
+            // writeTrackOrStatic emits nothing at all for an unused track --
+            // it ignores the value it is handed -- so the static line has to be
+            // written here, exactly as the fields above it do.
+            auto trackOrStatic = [&](const char* name, const Track<f32>& track, f32 value) {
+                if (track.isUsed)
+                    writeTrackOrStatic<f32>(name, track, value);
+                else
+                    line(std::string("static ") + name + " " + fmtFloat(value) + ",");
+            };
+            if (m_model.version >= 1300) {
+                if (light.shadowCasting)
+                    line("ShadowCasting,");
+                trackOrStatic("ShadowCastingStart", light.shadowCastingStartTracks,
+                              light.shadowCastingStart);
+                trackOrStatic("ShadowCastingEnd", light.shadowCastingEndTracks,
+                              light.shadowCastingEnd);
+            }
+            if (m_model.version >= 1600) {
+                trackOrStatic("QuadraticFalloff", light.quadraticFalloffTracks,
+                              light.quadraticFalloff);
+                trackOrStatic("LinearFalloff", light.linearFalloffTracks, light.linearFalloff);
+                trackOrStatic("Damping", light.dampingTracks, light.damping);
+            }
+
             closeBlock();
         }
     }
@@ -1265,6 +1294,12 @@ private:
 
             writeTrack<Vector3f>("Translation", cam.positionTracks);
             writeTrack<f32>("Rotation", cam.targetRotationTracks);
+            writeTrack<f32>("Visibility", cam.visibilityTracks);
+            // Reforged 3.0 depth of field -- animation-only, so nothing is
+            // emitted for a camera that does not use it.
+            writeTrack<f32>("FocusDistance", cam.focusDistanceTracks);
+            writeTrack<f32>("FocalLength", cam.focalLengthTracks);
+            writeTrack<f32>("FStop", cam.fStopTracks);
 
             openBlock("Target");
             line("Position " + fmtVec3(cam.targetPosition) + ",");
