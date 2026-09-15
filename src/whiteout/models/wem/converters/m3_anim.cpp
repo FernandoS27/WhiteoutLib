@@ -1162,7 +1162,7 @@ private:
                 static_cast<m3::SequenceFlag>(static_cast<u32>(sequence.flags) |
                                               static_cast<u32>(m3::SequenceFlag::AlwaysGlobal));
         }
-        const i64 rarity = clip.native.value("rarity", 0);
+        const i64 rarity = static_cast<i64>(ClipRarity(clip));
         sequence.frequency =
             static_cast<u32>(clip.native.value("m3Frequency", rarity != 0 ? rarity : 100));
         sequence.moveSpeed = ClipMoveSpeed(clip);

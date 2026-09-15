@@ -486,7 +486,7 @@ void ImportSkin(const mdx::Geoset& geoset, const NodeImport& nodes, geom::MeshBu
             out.warn(DiagCode::DanglingNodeReference,
                      "geoset matrix names object id " + std::to_string(objectId) +
                          ", which is not a node",
-                     ElementRef(ElementKind::Mesh, geosetIndex));
+                     ElementRef(ElementKind::Mesh, static_cast<u32>(geosetIndex)));
         }
         return node;
     };
@@ -574,20 +574,20 @@ std::vector<u32> TextureWrapBits(const Document& document, const ProfileMaterial
     };
     for (const Material& material : set->materials) {
         const CommonMaterial& common = material.Common();
-        if (const CompositeBody* body = common.composite()) {
-            for (const CompositeLayer& layer : body->layers) {
+        if (const CompositeBody* composite = common.composite()) {
+            for (const CompositeLayer& layer : composite->layers) {
                 note(layer.input);
             }
-        } else if (const CombinersBody* body = common.combiners()) {
-            for (const CombinerStage& stage : body->stages) {
+        } else if (const CombinersBody* combiners = common.combiners()) {
+            for (const CombinerStage& stage : combiners->stages) {
                 note(stage.input);
             }
-        } else if (const PbrDeferredBody* body = common.pbr()) {
-            for (const auto& [slot, input] : body->slots) {
+        } else if (const PbrDeferredBody* pbr = common.pbr()) {
+            for (const auto& [slot, input] : pbr->slots) {
                 note(input);
             }
-        } else if (const LegacyDeferredBody* body = common.legacy()) {
-            for (const auto& [slot, input] : body->slots) {
+        } else if (const LegacyDeferredBody* legacy = common.legacy()) {
+            for (const auto& [slot, input] : legacy->slots) {
                 note(input);
             }
         }
@@ -681,7 +681,7 @@ Result<Document> MdxConverter::fromMdx(const mdx::Model& source) const {
             diagnostics.warn(DiagCode::IndexOutOfRange,
                              "geoset names material " + std::to_string(geoset.materialId) +
                                  ", past the end of the material array",
-                             ElementRef(ElementKind::Mesh, g));
+                             ElementRef(ElementKind::Mesh, static_cast<u32>(g)));
         }
         section.native.set("selectionFlags", static_cast<i64>(geoset.selectionFlags));
         // A geoset Warcraft III hides carries a static alpha of zero -- the
@@ -729,7 +729,7 @@ Result<Document> MdxConverter::fromMdx(const mdx::Model& source) const {
             if (corners[0] >= vertexCount || corners[1] >= vertexCount ||
                 corners[2] >= vertexCount) {
                 diagnostics.warn(DiagCode::IndexOutOfRange, "face corner past the vertex array",
-                                 ElementRef(ElementKind::Mesh, g));
+                                 ElementRef(ElementKind::Mesh, static_cast<u32>(g)));
                 continue;
             }
             const geom::FaceId face =
@@ -1148,7 +1148,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
                 if (payload->kind == LightKind::Spot) {
                     diagnostics.warn(DiagCode::FeatureDropped,
                                      "WC3 has no spot light; written as omni",
-                                     ElementRef(ElementKind::Node, i));
+                                     ElementRef(ElementKind::Node, static_cast<u32>(i)));
                 }
             }
             claim(i, mdx_anim::ExportContext::Slot::Light, out.lights.size());
@@ -1226,7 +1226,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
                 case CollisionShapeKind::Hull:
                     diagnostics.warn(DiagCode::FeatureDropped,
                                      "WC3 has no capsule or hull collision shape; written as box",
-                                     ElementRef(ElementKind::Node, i));
+                                     ElementRef(ElementKind::Node, static_cast<u32>(i)));
                     [[fallthrough]];
                 case CollisionShapeKind::Box:
                 default:
@@ -1378,7 +1378,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
             if (wide) {
                 diagnostics.warn(DiagCode::IndexWidthExceeded,
                                  "section needs more than 65535 vertices for one geoset",
-                                 ElementRef(ElementKind::Mesh, m));
+                                 ElementRef(ElementKind::Mesh, static_cast<u32>(m)));
             }
             geoset.faceTypeGroups.push_back(4);
             geoset.faceGroups.push_back(static_cast<u32>(geoset.faces.size()));

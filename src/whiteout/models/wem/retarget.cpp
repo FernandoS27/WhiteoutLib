@@ -1023,15 +1023,15 @@ DeriveResult DeriveProfile(Document& document, ProfileId from, ProfileId to,
 
             std::vector<AnimChannel> twins;
             u32 nextId = model.animChannels.nextFreeId();
-            for (const AnimChannel& source : model.animChannels.channels) {
-                if (!IsMaterialTarget(source.target.kind) ||
-                    source.target.material.profile != from) {
+            for (const AnimChannel& original : model.animChannels.channels) {
+                if (!IsMaterialTarget(original.target.kind) ||
+                    original.target.material.profile != from) {
                     continue;
                 }
-                AnimChannel twin = source;
+                AnimChannel twin = original;
                 twin.target.material.profile = to;
                 if (!targetDesc.supportsLooks) {
-                    if (source.target.material.look != keptLook) {
+                    if (original.target.material.look != keptLook) {
                         // The look it drove is not in this set; `LookDropped`
                         // above already said the look went.
                         continue;
@@ -1050,15 +1050,15 @@ DeriveResult DeriveProfile(Document& document, ProfileId from, ProfileId to,
                 }
                 const CommonMaterial& common = derived.materials[material].Common();
                 const ElementRef where(ElementKind::Slot, slot);
-                if (source.target.kind == TrackTarget::Kind::MaterialLayer) {
+                if (original.target.kind == TrackTarget::Kind::MaterialLayer) {
                     // `kWholeMaterial` is not an ordinal and survives any kind
                     // change; an ordinal only survives one the body kept.
-                    if (source.target.sub != kWholeMaterial &&
-                        source.target.sub >= common.ordinalCount()) {
+                    if (original.target.sub != kWholeMaterial &&
+                        original.target.sub >= common.ordinalCount()) {
                         result.diagnostics.warn(
                             DiagCode::AnimTrackDropped,
-                            std::string("a ") + ToString(source.target.channel) +
-                                " track names ordinal " + number(source.target.sub) +
+                            std::string("a ") + ToString(original.target.channel) +
+                                " track names ordinal " + number(original.target.sub) +
                                 ", and the derived body has " + number(common.ordinalCount()),
                             where, to);
                         continue;
@@ -1066,20 +1066,20 @@ DeriveResult DeriveProfile(Document& document, ProfileId from, ProfileId to,
                 } else {
                     bool alive = false;
                     for (const MaterialFeature& feature : common.features) {
-                        alive = alive || feature.id == source.target.sub;
+                        alive = alive || feature.id == original.target.sub;
                     }
                     if (!alive) {
                         result.diagnostics.warn(
                             DiagCode::AnimTrackDropped,
-                            std::string("a ") + ToString(source.target.channel) +
-                                " track names feature " + number(source.target.sub) +
+                            std::string("a ") + ToString(original.target.channel) +
+                                " track names feature " + number(original.target.sub) +
                                 ", which the derived material dropped",
                             where, to);
                         continue;
                     }
                 }
                 twin.id = nextId++;
-                twinOfChannel.emplace(source.id, twin.id);
+                twinOfChannel.emplace(original.id, twin.id);
                 twins.push_back(std::move(twin));
             }
             for (AnimChannel& twin : twins) {

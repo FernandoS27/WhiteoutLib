@@ -677,7 +677,7 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
                 section.profiles = kNoProfiles;
                 diagnostics.info(DiagCode::SectionUndrawn,
                                  "region " + std::to_string(r) + " has no batch",
-                                 ElementRef(ElementKind::Section, r), profile);
+                                 ElementRef(ElementKind::Section, static_cast<u32>(r)), profile);
             } else {
                 const m3::Batch& record = division.batches[batch];
                 if (record.materialIndex < model.materialSlots.size()) {
@@ -686,7 +686,8 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
                     diagnostics.warn(DiagCode::IndexOutOfRange,
                                      "batch names material map entry " +
                                          std::to_string(record.materialIndex) + ", past the end",
-                                     ElementRef(ElementKind::Section, r), profile);
+                                     ElementRef(ElementKind::Section, static_cast<u32>(r)),
+                                     profile);
                 }
                 // §16's measured finding: `boneCount` is a bone *index* whose
                 // animated visibility gates the batch, and 0xFFFF means always
@@ -710,7 +711,7 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
                     corners[2] >= builder.vertexCount()) {
                     diagnostics.warn(DiagCode::IndexOutOfRange,
                                      "region face corner past the division's vertex slice",
-                                     ElementRef(ElementKind::Mesh, d));
+                                     ElementRef(ElementKind::Mesh, static_cast<u32>(d)));
                     continue;
                 }
                 const geom::FaceId face =
@@ -765,7 +766,7 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
                     if (bone >= model.nodes.size()) {
                         diagnostics.warn(DiagCode::DanglingNodeReference,
                                          "bone lookup names bone " + std::to_string(bone),
-                                         ElementRef(ElementKind::Mesh, d));
+                                         ElementRef(ElementKind::Mesh, static_cast<u32>(d)));
                         continue;
                     }
                     builder.addInfluence(geom::VertexId(global - lowest), bone, weight);
@@ -1198,7 +1199,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                 diagnostics.info(DiagCode::FeatureDropped,
                                  "attachment '" + node.name + "' spawns '" + payload->asset.path +
                                      "'; an ATT_ names no model, so it is not attached",
-                                 ElementRef(ElementKind::Node, n), profile);
+                                 ElementRef(ElementKind::Node, static_cast<u32>(n)), profile);
             }
             m3::AttachmentPoint point;
             point.name = node.name;
@@ -1231,7 +1232,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                 case LightKind::Ambient:
                     diagnostics.warn(DiagCode::FeatureDropped,
                                      "M3 has no ambient light; written as omni",
-                                     ElementRef(ElementKind::Node, n), profile);
+                                     ElementRef(ElementKind::Node, static_cast<u32>(n)), profile);
                     [[fallthrough]];
                 default:
                     light.lightType = m3::LightType::Omni;
@@ -1307,7 +1308,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             animContext.materialOrdinals.emplace_back();
             diagnostics.warn(DiagCode::SlotNotBound,
                              "slot " + model.materialSlots[slot] + " has no material",
-                             ElementRef(ElementKind::Slot, slot), profile);
+                             ElementRef(ElementKind::Slot, static_cast<u32>(slot)), profile);
             continue;
         }
         // Which of the material's passes carry an alpha or texture-id track:
@@ -1830,9 +1831,9 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                 for (u32 i = 0; i < run.second; ++i) {
                     const u32 index = render.indices[range.firstIndex + run.first + i];
                     if (index >= localOf.size()) {
-                        diagnostics.warn(DiagCode::IndexOutOfRange,
-                                         "face corner past the mesh's vertex buffer",
-                                         ElementRef(ElementKind::Mesh, m), profile);
+                        diagnostics.warn(
+                            DiagCode::IndexOutOfRange, "face corner past the mesh's vertex buffer",
+                            ElementRef(ElementKind::Mesh, static_cast<u32>(m)), profile);
                         division.faces.push_back(0);
                         continue;
                     }
@@ -1846,7 +1847,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                     diagnostics.warn(DiagCode::IndexWidthExceeded,
                                      "region needs " + std::to_string(sourceOf.size()) +
                                          " vertices, past the u16 index a face corner is",
-                                     ElementRef(ElementKind::Mesh, m), profile);
+                                     ElementRef(ElementKind::Mesh, static_cast<u32>(m)), profile);
                 }
 
                 bool rigid = true;
@@ -1918,7 +1919,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                                      "region needs " + std::to_string(window.size()) +
                                          " bones, past the profile's " +
                                          std::to_string(paletteLimit),
-                                     ElementRef(ElementKind::Mesh, m), profile);
+                                     ElementRef(ElementKind::Mesh, static_cast<u32>(m)), profile);
                 }
                 for (u32 bone : window) {
                     out.boneLookup.push_back(static_cast<u16>(bone));
@@ -2033,13 +2034,13 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                     // Every standard material the slot draws with -- one, or
                     // a composite's sections: a geoset fade fades every pass.
                     std::vector<u32> targets;
-                    const m3::MaterialMap& map = out.materialMaps[drawSlot];
-                    if (map.materialType == m3::MaterialType::Standard) {
-                        targets.push_back(map.materialIndex);
-                    } else if (map.materialType == m3::MaterialType::Composite &&
-                               map.materialIndex < out.compositeMaterials.size()) {
+                    const m3::MaterialMap& drawMap = out.materialMaps[drawSlot];
+                    if (drawMap.materialType == m3::MaterialType::Standard) {
+                        targets.push_back(drawMap.materialIndex);
+                    } else if (drawMap.materialType == m3::MaterialType::Composite &&
+                               drawMap.materialIndex < out.compositeMaterials.size()) {
                         for (const m3::CompositeSection& section :
-                             out.compositeMaterials[map.materialIndex].sections) {
+                             out.compositeMaterials[drawMap.materialIndex].sections) {
                             if (section.materialIndex < out.materialMaps.size() &&
                                 out.materialMaps[section.materialIndex].materialType ==
                                     m3::MaterialType::Standard) {

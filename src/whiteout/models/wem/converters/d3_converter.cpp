@@ -1825,8 +1825,9 @@ private:
                         boneWeights[source][k] <= 0.0f) {
                         continue;
                     }
-                    const u32 node = boneIndices[source][k];
-                    const u32 bone = node < boneOf_.size() ? boneOf_[node] : kInvalidIndex;
+                    const u32 influenceNode = boneIndices[source][k];
+                    const u32 bone =
+                        influenceNode < boneOf_.size() ? boneOf_[influenceNode] : kInvalidIndex;
                     if (bone == kInvalidIndex) {
                         continue;
                     }

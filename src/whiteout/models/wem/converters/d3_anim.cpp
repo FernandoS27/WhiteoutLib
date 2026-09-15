@@ -102,7 +102,7 @@ private:
                         static_cast<i64>(permutation.nBlendTicksFromOtherAnim));
         clip.native.set("blendTicksSamePermSwap",
                         static_cast<i64>(permutation.nBlendTicksSamePermSwap));
-        clip.native.set("speedScalar", permutation.flSpeedScalar);
+        SetMilli(clip.native, "speedScalarMilli", permutation.flSpeedScalar);
         clip.native.set("frameCount", static_cast<i64>(permutation.dwFrameCount));
 
         SubTrackContainer container;
@@ -337,7 +337,7 @@ public:
             static_cast<i32>(clip_.native.value("blendTicksFromOtherAnim", 0));
         out.nBlendTicksSamePermSwap =
             static_cast<i32>(clip_.native.value("blendTicksSamePermSwap", 0));
-        out.flSpeedScalar = 1.0f;
+        out.flSpeedScalar = Milli(clip_.native, "speedScalarMilli", 1.0f);
 
         // The rate the import derived the times with, recovered from the frame
         // count and the duration rather than stored: `fps = flFramesPerTick*60`

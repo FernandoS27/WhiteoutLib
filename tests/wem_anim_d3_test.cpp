@@ -156,6 +156,19 @@ TEST_CASE("wem d3 one permutation is one clip at its own frame rate", "[wem][ani
     CHECK(translation->times[1] == 1.0f);
 }
 
+TEST_CASE("wem d3 a permutation's speed scalar survives the round trip", "[wem][anim][d3]") {
+    d3n::Anim anim = makeAnim();
+    anim.arPermutations[0].flSpeedScalar = 0.75f;
+    Document document = convertAppearance(makeAppearance());
+    Diagnostics report;
+    REQUIRE(d3_anim::ImportAnim(anim, document, 0, report).size() == 1u);
+
+    const std::vector<d3n::Anim> back = d3_anim::ExportAnims(document, 0, report);
+    REQUIRE(back.size() == 1u);
+    REQUIRE(back[0].arPermutations.size() == 1u);
+    CHECK(back[0].arPermutations[0].flSpeedScalar == 0.75f);
+}
+
 TEST_CASE("wem d3 bones bind by name, case-insensitively, and a miss is skipped",
           "[wem][anim][d3]") {
     // The permutation names "root" and the appearance spells it "Root"; a byte

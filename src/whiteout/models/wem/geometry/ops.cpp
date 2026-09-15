@@ -520,7 +520,7 @@ VertexId SplitEdge(Mesh& mesh, EdgeId edge, f32 t) {
         // split vertex stays in its group and the render view regroups it. This
         // has to come first: `copyElement` writes *every* layer of the domain,
         // position among them, and would undo the interpolation below.
-        mesh.attributes.copyElement(Domain::Vertex, t < 0.5f ? a.index() : b.index(),
+        mesh.attributes.copyElement(Domain::Vertex, t < 0.5f ? a.value() : b.value(),
                                     static_cast<u32>(v.index()));
         const std::span<Vector3f> positions =
             mesh.attributes.get<Vector3f>(names::kPosition, Domain::Vertex);

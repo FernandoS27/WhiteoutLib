@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
+#include <algorithm>
+#include <cmath>
+
 #include "whiteout/models/wem/native_bag.h"
 
 namespace whiteout {
@@ -43,6 +46,18 @@ const std::string& NativeBag::text(const std::string& name) const {
     static const std::string kEmpty;
     const Entry* entry = find(name);
     return entry == nullptr ? kEmpty : entry->text;
+}
+
+void SetMilli(NativeBag& bag, const std::string& name, f32 value) {
+    // A float off a file, so neither finite nor small: `llround` of either is
+    // undefined.
+    const f64 milli = std::isfinite(value) ? static_cast<f64>(value) * 1000.0 : 0.0;
+    bag.set(name, static_cast<i64>(std::llround(std::clamp(milli, -1e15, 1e15))));
+}
+
+f32 Milli(const NativeBag& bag, const std::string& name, f32 fallback) {
+    const NativeBag::Entry* entry = bag.find(name);
+    return entry == nullptr ? fallback : static_cast<f32>(entry->value) / 1000.0f;
 }
 
 } // namespace wem

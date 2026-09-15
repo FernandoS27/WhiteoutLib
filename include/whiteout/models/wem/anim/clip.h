@@ -274,6 +274,16 @@ f32 ClipMoveSpeed(const Clip& clip);
 /// @brief Stores @p speed on @p clip; see @ref ClipMoveSpeed.
 void SetClipMoveSpeed(Clip& clip, f32 speed);
 
+/**
+ * @brief MDX's `Sequence::rarity`, which the M3 export also reads as a
+ *        `frequency`. Held in thousandths for the same reason as
+ *        @ref ClipMoveSpeed; a document written before that holds whole units.
+ */
+f32 ClipRarity(const Clip& clip);
+
+/// @brief Stores @p rarity on @p clip; see @ref ClipRarity.
+void SetClipRarity(Clip& clip, f32 rarity);
+
 // ============================================================================
 // AnimSet
 // ============================================================================

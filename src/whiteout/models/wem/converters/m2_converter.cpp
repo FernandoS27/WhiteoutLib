@@ -304,7 +304,7 @@ Result<Document> M2Converter::fromM2(const m2::Model& source, u32 sourceVersion)
                 diagnostics.warn(DiagCode::IndexOutOfRange,
                                  "batch names submesh " + std::to_string(batch.skinSectionIndex) +
                                      ", past the end",
-                                 ElementRef(ElementKind::Mesh, s));
+                                 ElementRef(ElementKind::Mesh, static_cast<u32>(s)));
                 continue;
             }
             const u32 current = baseBatchOfSubmesh[batch.skinSectionIndex];
@@ -339,9 +339,9 @@ Result<Document> M2Converter::fromM2(const m2::Model& source, u32 sourceVersion)
                 section.native.set("batchFlags", static_cast<i64>(skin.batches[base].flags));
             } else {
                 section.profiles = kNoProfiles;
-                diagnostics.info(DiagCode::SectionUndrawn,
-                                 "submesh " + std::to_string(sub) + " has no batch",
-                                 ElementRef(ElementKind::Section, sub), ProfileId::Wow);
+                diagnostics.info(
+                    DiagCode::SectionUndrawn, "submesh " + std::to_string(sub) + " has no batch",
+                    ElementRef(ElementKind::Section, static_cast<u32>(sub)), ProfileId::Wow);
             }
             sectionOfSubmesh[sub] = builder.addSection(std::move(section));
         }
@@ -379,7 +379,7 @@ Result<Document> M2Converter::fromM2(const m2::Model& source, u32 sourceVersion)
                     corners[2] >= skin.vertices.size()) {
                     diagnostics.warn(DiagCode::IndexOutOfRange,
                                      "submesh index past the skin's vertex list",
-                                     ElementRef(ElementKind::Mesh, s));
+                                     ElementRef(ElementKind::Mesh, static_cast<u32>(s)));
                     continue;
                 }
                 const geom::FaceId face =
@@ -629,7 +629,7 @@ Result<m2::Model> M2Converter::toM2(const Document& document, ProfileId profile,
             if (vertexBase + v > 0xFFFFu) {
                 diagnostics.warn(DiagCode::IndexWidthExceeded,
                                  "more than 65535 vertices across all meshes",
-                                 ElementRef(ElementKind::Mesh, m));
+                                 ElementRef(ElementKind::Mesh, static_cast<u32>(m)));
             }
             skin.vertices.push_back(static_cast<u16>(vertexBase + v));
         }

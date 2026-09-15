@@ -39,21 +39,21 @@ ProfileMaterialSet* Model::setFor(ProfileId profile) {
     return const_cast<ProfileMaterialSet*>(static_cast<const Model*>(this)->setFor(profile));
 }
 
-u32 Model::slotIndex(const std::string& name) const {
+u32 Model::slotIndex(const std::string& slotName) const {
     for (std::size_t i = 0; i < materialSlots.size(); ++i) {
-        if (materialSlots[i] == name) {
+        if (materialSlots[i] == slotName) {
             return static_cast<u32>(i);
         }
     }
     return kInvalidIndex;
 }
 
-u32 Model::addSlot(const std::string& name) {
-    const u32 existing = slotIndex(name);
+u32 Model::addSlot(const std::string& slotName) {
+    const u32 existing = slotIndex(slotName);
     if (existing != kInvalidIndex) {
         return existing;
     }
-    materialSlots.push_back(name);
+    materialSlots.push_back(slotName);
     const u32 index = static_cast<u32>(materialSlots.size() - 1);
     // The parallel-array invariant is the set's, so grow every set with the slot
     // rather than leaving them to notice later.

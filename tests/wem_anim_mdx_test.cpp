@@ -724,6 +724,35 @@ TEST_CASE("wem mdx a sequence's own extent survives the round trip", "[wem][anim
     CHECK(exported->sequences[1].extent.maximum.z == Catch::Approx(100.0f));
 }
 
+TEST_CASE("wem mdx a fractional rarity survives the round trip", "[wem][anim][mdx]") {
+    mdx::Model model = makeModel();
+    model.sequences[0].rarity = 0.5f;
+    model.sequences[1].rarity = 3.25f;
+
+    const Document document = convert(model);
+    MdxConverter converter;
+    const Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->sequences.size() == model.sequences.size());
+    CHECK(exported->sequences[0].rarity == Catch::Approx(0.5f));
+    CHECK(exported->sequences[1].rarity == Catch::Approx(3.25f));
+}
+
+TEST_CASE("wem mdx a whole-unit rarity from an older document still exports", "[wem][anim][mdx]") {
+    Document document = convert(makeModel());
+    for (Clip& clip : document.clips) {
+        std::erase_if(clip.native.entries,
+                      [](const NativeBag::Entry& entry) { return entry.name == "rarityMilli"; });
+        clip.native.set("rarity", 2);
+    }
+
+    MdxConverter converter;
+    const Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic);
+    REQUIRE(exported.ok());
+    REQUIRE_FALSE(exported->sequences.empty());
+    CHECK(exported->sequences[0].rarity == Catch::Approx(2.0f));
+}
+
 TEST_CASE("wem mdx export re-times a clip that never had a window", "[wem][anim][mdx]") {
     // A clip from another format — or from an editor — carries no
     // `intervalStart`, and MDX's one timeline is the only clock it has. That is

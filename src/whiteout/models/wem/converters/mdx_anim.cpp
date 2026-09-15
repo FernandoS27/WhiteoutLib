@@ -125,7 +125,7 @@ private:
             clip.native.set("intervalStart", static_cast<i64>(sequence.intervalStart));
             clip.native.set("intervalEnd", static_cast<i64>(sequence.intervalEnd));
             SetClipMoveSpeed(clip, sequence.moveSpeed);
-            clip.native.set("rarity", sequence.rarity);
+            SetClipRarity(clip, sequence.rarity);
             clip.native.set("syncPoint", static_cast<i64>(sequence.syncPoint));
             // The sequence's own extent, which is the one bound WEM stores
             // rather than recomputes: it is the posed model over this clip, and
@@ -913,7 +913,7 @@ private:
                 sequence.flags = mdx::Sequence::Flag::NonLooping;
             }
             sequence.moveSpeed = ClipMoveSpeed(clip);
-            sequence.rarity = static_cast<f32>(clip.native.value("rarity", 0));
+            sequence.rarity = ClipRarity(clip);
             sequence.syncPoint = static_cast<u32>(clip.native.value("syncPoint", 0));
             // The clip's own extent when it has one, and the model's when it
             // does not — a clip from another format, or one an editor made.

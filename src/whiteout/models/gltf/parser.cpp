@@ -922,7 +922,10 @@ bool ReadAccessorU32(const Asset& asset, u32 index, std::vector<u32>& out) {
         }
     }
     if (accessor.sparse.has_value()) {
-        std::vector<f32> overlay(out.begin(), out.end());
+        std::vector<f32> overlay(out.size());
+        for (std::size_t i = 0; i < out.size(); ++i) {
+            overlay[i] = static_cast<f32>(out[i]);
+        }
         if (!applySparse(asset, accessor, overlay, layout.components)) {
             return false;
         }

@@ -220,7 +220,7 @@ RenderMesh BuildRenderMesh(const Mesh& mesh, const RenderMeshDesc& desc) {
         u32 valence = 0;
         for (HalfedgeId h : topology->fh(face)) {
             const VertexId v = topology->from(h);
-            const u32 group = v.index() < mergeGroups.size() ? mergeGroups[v.index()] : v.index();
+            const u32 group = v.index() < mergeGroups.size() ? mergeGroups[v.index()] : v.value();
 
             key.clear();
             const u8* groupBytes = reinterpret_cast<const u8*>(&group);
@@ -256,8 +256,8 @@ RenderMesh BuildRenderMesh(const Mesh& mesh, const RenderMeshDesc& desc) {
                 record.seq = sequence;
                 record.keyOffset = static_cast<u32>(keyPool.size());
                 record.keySize = static_cast<u32>(key.size());
-                record.vertex = v.index();
-                record.halfedge = h.index();
+                record.vertex = v.value();
+                record.halfedge = h.value();
                 keyPool.insert(keyPool.end(), key.begin(), key.end());
                 found = static_cast<u32>(groups.size());
                 groups.push_back(record);

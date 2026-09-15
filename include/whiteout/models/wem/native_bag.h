@@ -106,6 +106,13 @@ private:
     Entry& slot(const std::string& name);
 };
 
+/// Stores @p value in thousandths, the scaling a float needs to fit the `i64`
+/// half. A non-finite value is stored as zero.
+void SetMilli(NativeBag& bag, const std::string& name, f32 value);
+
+/// The inverse of @ref SetMilli; @p fallback when @p name is absent.
+f32 Milli(const NativeBag& bag, const std::string& name, f32 fallback);
+
 } // namespace wem
 } // namespace models
 } // namespace whiteout
