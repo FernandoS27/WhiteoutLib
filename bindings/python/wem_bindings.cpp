@@ -108,6 +108,19 @@ WEM's canonical space is `Blizzard` (+X forward, +Y left, +Z up, right-handed, C
         .value("LEFT", whiteout::models::wem::Handedness::Left)
     ;
 
+    py::enum_<whiteout::models::wem::RigConvention>(m, "RigConvention", R"doc(How a format's rig states the bind pose, and therefore what a node's TRS animation channels mean.
+
+The two are one fact, not two: every format that ships a per-bone inverse bind matrix keys the bone's local transform absolutely, and every format that does not folds the bind into the node's own composition and keys an offset from it. All four agree, so naming them separately would only create a fifth combination nothing writes.
+
+This is the fact `RetargetSkeleton` needs and could not previously ask for, and it is why `.m3 -> .mdx` used to write a skeleton of zero pivots.)doc")
+        .value("PIVOT_RELATIVE", whiteout::models::wem::RigConvention::PivotRelative, R"doc(MDX, `.m2`. The inverse bind is the identity: the mesh is stored in the bind pose and a node at rest contributes nothing.
+
+A node composes `T(-pivot) * S * R * T(pivot + t)`, so a TRS channel is an **offset** and the pivot is a parameter of the composition rather than a transform of its own. The linear part is therefore always `diag(s) * R` — the format cannot hold shear, which is what makes the retarget into one of these the interesting direction.)doc")
+        .value("EXPLICIT_BIND", whiteout::models::wem::RigConvention::ExplicitBind, R"doc(`.m3` (IREF), D3 (`tTransform4`). One inverse model-space bind matrix per bone, shipped beside the rest chain and **not** derivable from it — on `Marine.m3` the two disagree by 2.2 units.
+
+A node composes `S * R * T` from its channels directly, and `pivot` is zero.)doc")
+    ;
+
     py::enum_<whiteout::models::wem::WindingOrder>(m, "WindingOrder")
         .value("COUNTER_CLOCKWISE", whiteout::models::wem::WindingOrder::CounterClockwise)
         .value("CLOCKWISE", whiteout::models::wem::WindingOrder::Clockwise)
@@ -124,8 +137,8 @@ Enumerator order is load-bearing: it is the on-disk value in both the v2 format 
         .value("OPAQUE", whiteout::models::wem::BlendMode::Opaque, R"doc(MDX None(0), M2 Opaque(0), M3 Opaque(0))doc")
         .value("ALPHA_KEY", whiteout::models::wem::BlendMode::AlphaKey, R"doc(M2 AlphaKey(1))doc")
         .value("ALPHA_BLEND", whiteout::models::wem::BlendMode::AlphaBlend, R"doc(MDX Blend(2), M2 Alpha(2), M3 AlphaBlend(1))doc")
-        .value("ADDITIVE", whiteout::models::wem::BlendMode::Additive, R"doc(MDX Additive(3), M2 Add(4), M3 Add(2))doc")
-        .value("ADDITIVE_ALPHA", whiteout::models::wem::BlendMode::AdditiveAlpha, R"doc(MDX AddAlpha(4), M2 NoAlphaAdd(3), M3 AlphaAdd(3))doc")
+        .value("ADDITIVE", whiteout::models::wem::BlendMode::Additive, R"doc(MDX Additive(3), M2 NoAlphaAdd(3), M3 Add(2) — ONE,ONE)doc")
+        .value("ADDITIVE_ALPHA", whiteout::models::wem::BlendMode::AdditiveAlpha, R"doc(MDX AddAlpha(4), M2 Add(4), M3 AlphaAdd(3) — SRC_ALPHA,ONE)doc")
         .value("MODULATE", whiteout::models::wem::BlendMode::Modulate, R"doc(MDX Modulate(5), M2 Mod(5), M3 Mod(4))doc")
         .value("MODULATE2X", whiteout::models::wem::BlendMode::Modulate2x, R"doc(MDX Modulate2x(6), M2 Mod2x(6), M3 Mod2x(5))doc")
         .value("BLEND_ADD", whiteout::models::wem::BlendMode::BlendAdd, R"doc(M2 BlendAdd(7))doc")
@@ -196,22 +209,23 @@ Codes are grouped by area and never renumbered once shipped: the recorded expect
         .value("MATERIAL_BODY_INVALID", whiteout::models::wem::DiagCode::MaterialBodyInvalid, R"doc(A §7.2 body invariant: repeated slot, Orm with the unpacked three, two features of a kind on one layer.)doc")
         .value("LOOK_BINDING_MALFORMED", whiteout::models::wem::DiagCode::LookBindingMalformed, R"doc(`SlotBinding::byLook` is not sized to the `LookTable`.)doc")
         .value("LOOK_DROPPED", whiteout::models::wem::DiagCode::LookDropped, R"doc(A look the target profile has no table for (§6.6).)doc")
-        .value("TEAM_PLATE_COVERED", whiteout::models::wem::DiagCode::TeamPlateCovered, R"doc(WC3 -> SC2 pass fold (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5).)doc")
-        .value("TEAM_PLATE_UNLIT", whiteout::models::wem::DiagCode::TeamPlateUnlit, R"doc(WC3 -> SC2 pass fold (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5).)doc")
-        .value("SHADED_ADDITIVE_FOLDED", whiteout::models::wem::DiagCode::ShadedAdditiveFolded, R"doc(WC3 -> SC2 pass fold (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5).)doc")
-        .value("PASS_FLAGS_FOLDED", whiteout::models::wem::DiagCode::PassFlagsFolded, R"doc(WC3 -> SC2 pass fold (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5).)doc")
-        .value("COVERAGE_CLIPPED", whiteout::models::wem::DiagCode::CoverageClipped, R"doc(WC3 -> SC2 pass fold (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5).)doc")
-        .value("BASE_FADE_SHARED", whiteout::models::wem::DiagCode::BaseFadeShared, R"doc(WC3 -> SC2 pass fold (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5).)doc")
-        .value("LIT_FOLD", whiteout::models::wem::DiagCode::LitFold, R"doc(WC3 -> SC2 pass fold (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5).)doc")
-        .value("UNLIT_FOLD", whiteout::models::wem::DiagCode::UnlitFold, R"doc(WC3 -> SC2 pass fold (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5).)doc")
-        .value("DOUBLE_LIT", whiteout::models::wem::DiagCode::DoubleLit, R"doc(WC3 -> SC2 pass fold (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5).)doc")
-        .value("LIT_ENV_FOLDED", whiteout::models::wem::DiagCode::LitEnvFolded, R"doc(WC3 -> SC2 pass fold (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5).)doc")
-        .value("SOFT_KEY", whiteout::models::wem::DiagCode::SoftKey, R"doc(WC3 -> SC2 pass fold (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5).)doc")
-        .value("MOD_ALPHA_FOLDED", whiteout::models::wem::DiagCode::ModAlphaFolded, R"doc(WC3 -> SC2 pass fold (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5).)doc")
-        .value("DEPTH_FLAGS_DROPPED", whiteout::models::wem::DiagCode::DepthFlagsDropped, R"doc(WC3 -> SC2 pass fold (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5).)doc")
-        .value("FLIPBOOK_DROPPED", whiteout::models::wem::DiagCode::FlipbookDropped, R"doc(WC3 -> SC2 pass fold (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5).)doc")
-        .value("COMPOSITE_EMITTED", whiteout::models::wem::DiagCode::CompositeEmitted, R"doc(WC3 -> SC2 pass fold (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5).)doc")
-        .value("PASS_ORDER_FOLDED", whiteout::models::wem::DiagCode::PassOrderFolded, R"doc(WC3 -> SC2 pass fold (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5).)doc")
+        .value("TEAM_PLATE_COVERED", whiteout::models::wem::DiagCode::TeamPlateCovered, R"doc(A team plate under an opaque-alpha texture never showed; dropped.)doc")
+        .value("TEAM_PLATE_UNLIT", whiteout::models::wem::DiagCode::TeamPlateUnlit, R"doc(The unlit team plate is lit with the texture over it (R2).)doc")
+        .value("SHADED_ADDITIVE_FOLDED", whiteout::models::wem::DiagCode::ShadedAdditiveFolded, R"doc(A lit additive pass went to an emissive slot, which is unlit.)doc")
+        .value("PASS_FLAGS_FOLDED", whiteout::models::wem::DiagCode::PassFlagsFolded, R"doc(A pass's two-sided / fog flag differs from the material's.)doc")
+        .value("COVERAGE_CLIPPED", whiteout::models::wem::DiagCode::CoverageClipped, R"doc(A later pass is confined to a keyed or blended base's coverage.)doc")
+        .value("BASE_FADE_SHARED", whiteout::models::wem::DiagCode::BaseFadeShared, R"doc(The base pass's alpha fades every pass folded onto it.)doc")
+        .value("LIT_FOLD", whiteout::models::wem::DiagCode::LitFold, R"doc(An unlit blend pass went to the decal, which is lit.)doc")
+        .value("UNLIT_FOLD", whiteout::models::wem::DiagCode::UnlitFold, R"doc(A lit blend pass went to an emissive slot, which is unlit.)doc")
+        .value("DOUBLE_LIT", whiteout::models::wem::DiagCode::DoubleLit, R"doc(A lit modulate pass (lit twice in WC3) folded once.)doc")
+        .value("LIT_ENV_FOLDED", whiteout::models::wem::DiagCode::LitEnvFolded, R"doc(A lit sphere-map pass went to the env layer, which is unlit.)doc")
+        .value("SOFT_KEY", whiteout::models::wem::DiagCode::SoftKey, R"doc(A keyed pass over a base became a lerp by its gradient alpha.)doc")
+        .value("MOD_ALPHA_FOLDED", whiteout::models::wem::DiagCode::ModAlphaFolded, R"doc(A modulate pass's animated alpha has no exact layer home.)doc")
+        .value("DEPTH_FLAGS_DROPPED", whiteout::models::wem::DiagCode::DepthFlagsDropped, R"doc(NoDepthTest / NoDepthSet: no StarCraft II material says them.)doc")
+        .value("FLIPBOOK_DROPPED", whiteout::models::wem::DiagCode::FlipbookDropped, R"doc(A texture-id track (KMTF) kept only its first frame.)doc")
+        .value("COMPOSITE_EMITTED", whiteout::models::wem::DiagCode::CompositeEmitted, R"doc(The stack needed N > 1 materials; a CMP_ carries them.)doc")
+        .value("PASS_ORDER_FOLDED", whiteout::models::wem::DiagCode::PassOrderFolded, R"doc(A blend or modulate pass folded BEFORE an additive one it followed.)doc")
+        .value("FRESNEL_FOLDED", whiteout::models::wem::DiagCode::FresnelFolded, R"doc(A rim overlay folded approximately: one lerp, or an undimmed base.)doc")
         .value("PROFILE_NOT_CARRIED", whiteout::models::wem::DiagCode::ProfileNotCarried, R"doc(Export asked for a profile the document does not have.)doc")
         .value("PROFILE_COVERAGE_INCOMPLETE", whiteout::models::wem::DiagCode::ProfileCoverageIncomplete, R"doc(A carried profile has no material for some slot (§6.3).)doc")
         .value("BONE_INFLUENCE_LIMIT", whiteout::models::wem::DiagCode::BoneInfluenceLimit, R"doc(More influences than `maxBoneInfluences`; the tail was cut.)doc")
@@ -227,6 +241,10 @@ Codes are grouped by area and never renumbered once shipped: the recorded expect
         .value("SKIN_INFLUENCE_REASSIGNED", whiteout::models::wem::DiagCode::SkinInfluenceReassigned, R"doc(`SkinPolicy::ReassignToParent` moved weights up (§10.6).)doc")
         .value("DANGLING_NODE_REFERENCE", whiteout::models::wem::DiagCode::DanglingNodeReference, R"doc(A referencer pointed at a node that no longer exists.)doc")
         .value("BIND_POSE_RECOMPOSED", whiteout::models::wem::DiagCode::BindPoseRecomposed, R"doc(`preserveWorld` rebuilt a survivor's local transform.)doc")
+        .value("RIG_CONVENTION_CHANGED", whiteout::models::wem::DiagCode::RigConventionChanged, R"doc(`RetargetSkeleton` restated the tree's bind convention.)doc")
+        .value("BONE_SHEAR_SPLIT", whiteout::models::wem::DiagCode::BoneShearSplit, R"doc(A bind frame sheared; a helper parent carries the stretch.)doc")
+        .value("BONE_SHEAR_PROJECTED", whiteout::models::wem::DiagCode::BoneShearProjected, R"doc(The shear was projected away — the pose is approximate.)doc")
+        .value("NON_UNIFORM_SCALE_FLATTENED", whiteout::models::wem::DiagCode::NonUniformScaleFlattened, R"doc(A target holding one scale float got the x component.)doc")
         .value("MIXED_INTERPOLATION_IN_TRACK", whiteout::models::wem::DiagCode::MixedInterpolationInTrack, R"doc(A sub-track mixes interpolation modes (§10.8.2).)doc")
         .value("ANIM_CHANNEL_INVALIDATED", whiteout::models::wem::DiagCode::AnimChannelInvalidated, R"doc(A channel's target was removed.)doc")
         .value("CLIP_TARGET_MISSING", whiteout::models::wem::DiagCode::ClipTargetMissing, R"doc(A clip references a model or set that is absent.)doc")
@@ -241,6 +259,8 @@ Codes are grouped by area and never renumbered once shipped: the recorded expect
         .value("UNSUPPORTED_VERSION", whiteout::models::wem::DiagCode::UnsupportedVersion, R"doc(A file version this build cannot read.)doc")
         .value("LEGACY_DOCUMENT_UPGRADED", whiteout::models::wem::DiagCode::LegacyDocumentUpgraded, R"doc(A v2 file was read through the compatibility path (§11.5).)doc")
         .value("OPERATION_UNSUPPORTED", whiteout::models::wem::DiagCode::OperationUnsupported, R"doc(The converter does not implement this direction at all.)doc")
+        .value("GEOMETRY_RESCALED", whiteout::models::wem::DiagCode::GeometryRescaled, R"doc(Every length in the document was restated at another scale.)doc")
+        .value("LEVEL_OF_DETAIL_DROPPED", whiteout::models::wem::DiagCode::LevelOfDetailDropped, R"doc(A mesh above the base level of detail was not carried.)doc")
         .value("COUNT", whiteout::models::wem::DiagCode::Count)
     ;
 
@@ -304,6 +324,9 @@ Codes are grouped by area and never renumbered once shipped: the recorded expect
         .value("NO_SHADOW_RECEIVE", whiteout::models::wem::MaterialFlags::NoShadowReceive)
         .value("SORT_NEAR_Z", whiteout::models::wem::MaterialFlags::SortNearZ, R"doc(MDX SortPrimsNearZ — a draw-order hint, not a depth mode.)doc")
         .value("SORT_FAR_Z", whiteout::models::wem::MaterialFlags::SortFarZ, R"doc(MDX SortPrimsFarZ.)doc")
+        .value("INVISIBLE", whiteout::models::wem::MaterialFlags::Invisible, R"doc(The surface exists and does not draw.
+
+Not the same thing as a hidden *section* (`SectionFlags::Hidden`), which is why it is here: Diablo III's visibility bit is per (sub-object, look) and a material is per (slot, look), so the material is the only record with the right scope to hold it. Tyrael's two bodies and the Skeleton King's four are each other's alternates, and every one of them drew at once for as long as this lived only in the native block.)doc")
     ;
 
     py::enum_<whiteout::models::wem::UVMappingMode>(m, "UVMappingMode", R"doc(How a texture's coordinates are produced. Revision 2's `UVMappingMode` had one enumerator per explicit UV set *and* the projections; the set is `TextureInput::uvSet` now, so this is only the projection family.)doc")
@@ -319,7 +342,9 @@ Codes are grouped by area and never renumbered once shipped: the recorded expect
         .value("NORMAL", whiteout::models::wem::SurfaceChannel::Normal)
         .value("AMBIENT_OCCLUSION", whiteout::models::wem::SurfaceChannel::AmbientOcclusion)
         .value("ENVIRONMENT", whiteout::models::wem::SurfaceChannel::Environment, R"doc(M3's env layer family. Sampled per `TextureInput::mapping` (`EnvSphere` / `EnvCube`), scaled by `CompositeBody::environmentFactor`.)doc")
-        .value("COUNT", whiteout::models::wem::SurfaceChannel::Count, R"doc(M3's env layer family. Sampled per `TextureInput::mapping` (`EnvSphere` / `EnvCube`), scaled by `CompositeBody::environmentFactor`.)doc")
+        .value("COVERAGE", whiteout::models::wem::SurfaceChannel::Coverage, R"doc(Per-texel opacity — M3's alpha-mask layers, which are what StarCraft II blends and alpha-tests by (`cFinal.a = mask1.a * mask2.a * alphaFactor`; the diffuse alpha is the team mask there, never coverage). The fold reads each sample's **alpha** and multiplies; a channel-select mask is the native block's detail, like every other layer's select.)doc")
+        .value("GLOSS", whiteout::models::wem::SurfaceChannel::Gloss, R"doc(A specularity scale: M3's gloss (SpecularExponent) layer, whose sample's ALPHA squared scales `CompositeBody::specularExponent` per texel (psmaterial.fx MaterialSpecularity) and, under `simulateRoughness`, sets how blurred the environment reflection reads. Diablo III's `LegacySlot::Gloss`. Appended: a byte on disk.)doc")
+        .value("COUNT", whiteout::models::wem::SurfaceChannel::Count, R"doc(A specularity scale: M3's gloss (SpecularExponent) layer, whose sample's ALPHA squared scales `CompositeBody::specularExponent` per texel (psmaterial.fx MaterialSpecularity) and, under `simulateRoughness`, sets how blurred the environment reflection reads. Diablo III's `LegacySlot::Gloss`. Appended: a byte on disk.)doc")
     ;
 
     py::enum_<whiteout::models::wem::CompositeOp>(m, "CompositeOp", R"doc(WC3's filter modes, verbatim — the superset in real use.
@@ -337,7 +362,11 @@ M3's own layer op field is near-signal-free in shipped content (mod and add cove
 
     py::enum_<whiteout::models::wem::CombinerOp>(m, "CombinerOp", R"doc(M2's vocabulary. The pixel shaders are literally named for it: `Combiners_Opaque_Mod2x` is stage 0 `Opaque`, stage 1 `Mod2x`.
 
-`Pass` is the one addition WoW did not need: D3's Legacy stage block encodes a per-channel **zero** meaning "this stage does not touch that channel" — a glow stage sampled `.xyz` and a mask stage sampled `.w` are mirror images of each other — and without an identity the chain would have to invent a modulate by white.)doc")
+`Pass` is the one addition WoW did not need: D3's Legacy stage block encodes a per-channel **zero** meaning "this stage does not touch that channel" — a glow stage sampled `.xyz` and a mask stage sampled `.w` are mirror images of each other — and without an identity the chain would have to invent a modulate by white.
+
+`AddAlpha` is appended rather than filed next to `Add` because these values are a byte on disk and inserting one would renumber every `.wem` already written. It is `Add` scaled by the sample's own alpha — five of World of Warcraft's shipped combiners spell it (`Combiners_Opaque_AddAlpha` and its family), `CompositeOp` has carried the twin since revision 3, and Warcraft III draws it as `FilterMode::AddAlpha`. Folding it onto `Add` added a glow mask at full strength over the whole surface.
+
+The `Masked` pair (appended for the same on-disk reason) is the `_NA_Alpha` masked fold, `rgb * lerp(sample * N, 1, seedAlpha)`: the stage modulates only where the SEED stage's alpha opens the mask, which is how WoW paints an env sheen over armor whose base map saturates its alpha everywhere else. The op contributes no alpha of its own. Targets that cannot read the seed's alpha (an MDX pass, a composite layer) drop the stage — the identity is what the old collapse onto `Pass` got right and keeping the modulate got measurably wrong.)doc")
         .value("OPAQUE", whiteout::models::wem::CombinerOp::Opaque)
         .value("MOD", whiteout::models::wem::CombinerOp::Mod)
         .value("MOD2X", whiteout::models::wem::CombinerOp::Mod2x)
@@ -346,6 +375,8 @@ M3's own layer op field is near-signal-free in shipped content (mod and add cove
         .value("FADE", whiteout::models::wem::CombinerOp::Fade)
         .value("PASS", whiteout::models::wem::CombinerOp::Pass)
         .value("ADD_ALPHA", whiteout::models::wem::CombinerOp::AddAlpha)
+        .value("MASKED_MOD", whiteout::models::wem::CombinerOp::MaskedMod)
+        .value("MASKED_MOD2X", whiteout::models::wem::CombinerOp::MaskedMod2x)
         .value("COUNT", whiteout::models::wem::CombinerOp::Count)
     ;
 
@@ -361,7 +392,8 @@ The kind is named for the **lighting family** (a legacy spec/gloss G-buffer), no
         .value("AMBIENT_OCCLUSION", whiteout::models::wem::LegacySlot::AmbientOcclusion)
         .value("HEIGHT", whiteout::models::wem::LegacySlot::Height)
         .value("LIGHTMAP", whiteout::models::wem::LegacySlot::Lightmap)
-        .value("COUNT", whiteout::models::wem::LegacySlot::Count)
+        .value("DETAIL", whiteout::models::wem::LegacySlot::Detail, R"doc(A second base map lerped over the diffuse by its own alpha — Diablo III's texture type 25 (`actor2_opaque_glow_skin`: `lerp(diffuse, t25, t25.a·k)`, on 3,992 of 6,920 shipped variants) and M3's decal layer, which folds the same way. Appended because the enum is a byte on disk.)doc")
+        .value("COUNT", whiteout::models::wem::LegacySlot::Count, R"doc(A second base map lerped over the diffuse by its own alpha — Diablo III's texture type 25 (`actor2_opaque_glow_skin`: `lerp(diffuse, t25, t25.a·k)`, on 3,992 of 6,920 shipped variants) and M3's decal layer, which folds the same way. Appended because the enum is a byte on disk.)doc")
     ;
 
     py::enum_<whiteout::models::wem::PbrSlot>(m, "PbrSlot", R"doc(Reforged's `SlotType` enum, nearly verbatim.
@@ -501,12 +533,10 @@ Closed on purpose. A source property with no entry here is **dropped with an `An
     py::class_<whiteout::models::wem::ProfileDesc>(m, "ProfileDesc", R"doc(Everything WEM knows about a profile, as data.)doc")
         .def(py::init<>())
         .def_readwrite("id", &whiteout::models::wem::ProfileDesc::id)
-        .def_readwrite("name", &whiteout::models::wem::ProfileDesc::name, R"doc(Registry name; `ToString(ProfileId)` returns it.)doc")
-        .def_readwrite("display_name", &whiteout::models::wem::ProfileDesc::displayName, R"doc(Human-readable.)doc")
-        .def_readwrite("format_id", &whiteout::models::wem::ProfileDesc::formatId, R"doc("mdx" | "m2" | "m3" | "d3"; nullptr for generic.)doc")
         .def_readwrite("source_space", &whiteout::models::wem::ProfileDesc::sourceSpace)
         .def_readwrite("handedness", &whiteout::models::wem::ProfileDesc::handedness)
         .def_readwrite("winding", &whiteout::models::wem::ProfileDesc::winding)
+        .def_readwrite("rig", &whiteout::models::wem::ProfileDesc::rig, R"doc(How this format states the bind pose — `RetargetSkeleton`'s target.)doc")
         .def_readwrite("scene_scale", &whiteout::models::wem::ProfileDesc::sceneScale, R"doc(The RENDERER's framing constant. Documentation, not an operation.
 
 WoW's and SC2's 100 are unit conversions; D3's 17 is a framing constant fitted so a 7.3-unit Barbarian lands where WC3's camera constants expect a character. Neither belongs baked into WEM geometry, and a retarget that treats them as interchangeable gets the scale wrong by 6x. Applied only when `RetargetOptions::rescale` explicitly asks for it.)doc")
@@ -517,6 +547,9 @@ WoW's and SC2's 100 are unit conversions; D3's 17 is a framing constant fitted s
         .def_readwrite("allows_ngons", &whiteout::models::wem::ProfileDesc::allowsNgons)
         .def_readwrite("allows_vertex_color", &whiteout::models::wem::ProfileDesc::allowsVertexColor)
         .def_readwrite("common_kinds", &whiteout::models::wem::ProfileDesc::commonKinds, R"doc(Which §7.2 kinds the exporter accepts.)doc")
+        .def_readwrite("container_kinds", &whiteout::models::wem::ProfileDesc::containerKinds, R"doc(Kinds the CONTAINER can carry that the shading does not contract to.
+
+`commonKinds` is what this profile's renderer takes; a file format can be wider. An `.mdx` holds the classic SD layer stack beside the Reforged HD slot map, and a material chooses between them by name, so Reforged reads `PBRDeferred` and *writes* either. `DeriveProfile` reaches for this only when the preferred conversion would throw part of the material away — four Diablo III combiner stages folded into one base-colour slot are three quarters of a wing lost, and four MDX layers are exactly the four stages.)doc")
         .def_readwrite("native_material_kind", &whiteout::models::wem::ProfileDesc::nativeMaterialKind)
         .def_readwrite("supports_looks", &whiteout::models::wem::ProfileDesc::supportsLooks)
         .def_readwrite("supports_actors", &whiteout::models::wem::ProfileDesc::supportsActors)
@@ -579,7 +612,9 @@ Order is insertion order and is stable, because a recorded expected-loss list is
     py::class_<whiteout::models::wem::NativeBag>(m, "NativeBag")
         .def(py::init<>())
         .def("set", &whiteout::models::wem::NativeBag::set, py::arg("name"), py::arg("value"), R"doc(Replaces the entry named @p name, or appends one. Insertion order is preserved, which is what makes a text dump of two documents comparable.)doc")
+        .def("set_text", &whiteout::models::wem::NativeBag::setText, py::arg("name"), py::arg("text"), R"doc(The same, for the entry's text half. An entry may carry both; the two halves are independent and neither clears the other.)doc")
         .def("value", &whiteout::models::wem::NativeBag::value, py::arg("name"), py::arg("fallback") = whiteout::i64{}, R"doc(@p fallback when @p name is absent — the shape every converter read has.)doc")
+        .def("text", &whiteout::models::wem::NativeBag::text, py::arg("name"), R"doc(Empty when @p name is absent or carried no text.)doc")
         .def("empty", &whiteout::models::wem::NativeBag::empty)
     ;
 
@@ -630,6 +665,19 @@ Both forms compose with `TextureInput::uvTransform`, which stays the static part
         .def_readwrite("scroll_rate", &whiteout::models::wem::UvAnimationFeature::scrollRate, R"doc(UV units per second.)doc")
         .def_readwrite("rotate_rate", &whiteout::models::wem::UvAnimationFeature::rotateRate, R"doc(Radians per second, about the UV centre.)doc")
         .def_readwrite("scale_rate", &whiteout::models::wem::UvAnimationFeature::scaleRate)
+    ;
+
+    py::class_<whiteout::models::wem::LayerShadingFeature>(m, "LayerShadingFeature", R"doc(How one PASS of a stack meets light, fog, depth and the back faces, where that differs from the material's own header.
+
+Warcraft III states these per layer and WEM's header states them once for the assembled surface (`MaterialFlags::Unlit`, `CullMode`, `DepthState`), so a stack whose unlit team plate sits under a lit texture, or whose additive glow is unfogged over a fogged body, had nowhere to keep the difference but the native block -- which a derived profile drops. The values are absolute (the layer's own bits, not a delta), and a layer without the feature is lit, fogged, culled and depth-tested like the header says.
+
+The consumer contract holds: a renderer that ignores it lights the surface once, which is what the header always meant. The StarCraft II fold reads it to pick a pass's home -- an unlit pass goes to the post-lighting emissive slots, a lit one to the pre-lighting decal (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5.1).)doc")
+        .def(py::init<>())
+        .def_readwrite("unlit", &whiteout::models::wem::LayerShadingFeature::unlit)
+        .def_readwrite("two_sided", &whiteout::models::wem::LayerShadingFeature::twoSided)
+        .def_readwrite("unfogged", &whiteout::models::wem::LayerShadingFeature::unfogged)
+        .def_readwrite("no_depth_test", &whiteout::models::wem::LayerShadingFeature::noDepthTest)
+        .def_readwrite("no_depth_write", &whiteout::models::wem::LayerShadingFeature::noDepthWrite)
     ;
 
     py::class_<whiteout::models::wem::MaterialFeature>(m, "MaterialFeature")
@@ -687,6 +735,7 @@ The MDX split that makes WC3's multi-pass drawing agree with this fold: the *fir
         .def_readwrite("specular_factor", &whiteout::models::wem::CompositeBody::specularFactor)
         .def_readwrite("specular_exponent", &whiteout::models::wem::CompositeBody::specularExponent)
         .def_readwrite("environment_factor", &whiteout::models::wem::CompositeBody::environmentFactor)
+        .def_readwrite("simulate_roughness", &whiteout::models::wem::CompositeBody::simulateRoughness, R"doc(StarCraft II's SimulateRoughness: the `Gloss` layer is a roughness. The engine drops its fake energy-conserving specular dim and, at Medium quality and above, biases the environment cube's mip by `1 - gloss`, so a rough texel reflects a blur and a glossy one a mirror (`MaterialFlag::SimulateRoughness`; the StarTools "Simulate Roughness" guide). `MKCP` v2.)doc")
     ;
 
     py::class_<whiteout::models::wem::CombinerStage>(m, "CombinerStage")
@@ -942,6 +991,9 @@ Both halves are optional and independent. `asset` is what the source named — a
         .def_readwrite("nodes", &whiteout::models::wem::NodeTree::nodes, R"doc(Parents precede children.)doc")
         .def_readwrite("pose_schema", &whiteout::models::wem::NodeTree::poseSchema)
         .def_readwrite("authoritative_pose", &whiteout::models::wem::NodeTree::authoritativePose, R"doc(Which schema entry a profile treats as *the* bind pose.)doc")
+        .def_readwrite("rig", &whiteout::models::wem::NodeTree::rig, R"doc(What convention the values above are in — the fact that decides whether a `.mdx` exporter may write `pivot` and an `.m3` one may write `IREF` straight through.
+
+Set by every importer, read by `RetargetSkeleton` and by the four exporters. It is a property of what the tree *holds*, and `ProfileDesc::rig` is the property of what a format *wants*; a retarget is the operation between them.)doc")
         .def("size", &whiteout::models::wem::NodeTree::size)
         .def("empty", &whiteout::models::wem::NodeTree::empty)
         .def("add", &whiteout::models::wem::NodeTree::add, py::arg("node"), R"doc(Appends a node and returns its index. The caller is responsible for the parents-precede-children invariant; `Validate` checks it.)doc")
@@ -964,6 +1016,10 @@ The same composition D3's `Skeleton_ComposeWorldPose` performs. A node flagged `
 A `PoseStorage::Matrix` entry answers with the *decomposition* of the stored matrix, which is what `poses` holds — use @ref poseMatrixOf when the exact value is what matters.)doc")
         .def("pose_matrix_of", &whiteout::models::wem::NodeTree::poseMatrixOf, py::arg("node"), py::arg("pose"), R"doc(The same value as a matrix, and the authoritative one: a `PoseStorage::Matrix` entry with a stored matrix answers with it unchanged, and everything else composes @ref poseOf.)doc")
         .def("conform_poses", &whiteout::models::wem::NodeTree::conformPoses, R"doc(Resizes every Bone node's `poses` to `poseSchema.size()`, filling new entries from `worldBind`/`local` as the schema's space asks.)doc")
+        .def("inverse_bind_matrix", &whiteout::models::wem::NodeTree::inverseBindMatrix, py::arg("node"), R"doc(The matrix a skinning palette multiplies @p node's animated frame by — `skin = inverseBindMatrix(b) * world(b)`.
+
+The one question every exporter and every evaluator actually has, and the only place `rig` needs to be read to answer it: an `ExplicitBind` tree answers with the shipped `IREF`/`tTransform4`, and a `PivotRelative` one with the inverse of the composed rest chain — identity in the animation's own terms, but the pivot chain is what `local` holds there, so the inverse of `worldBind` is what makes the two agree at the bind pose.)doc")
+        .def("inferred_rig", &whiteout::models::wem::NodeTree::inferredRig, R"doc(The convention `poseSchema` implies, for a tree that never recorded one: an inverse or matrix pose entry exists only to carry an explicit bind.)doc")
     ;
 
     py::class_<whiteout::models::wem::MaterialChannelRef>(m, "MaterialChannelRef", R"doc(Which material a channel drives, along the profile and look axes.

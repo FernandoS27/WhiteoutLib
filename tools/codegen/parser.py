@@ -1138,8 +1138,11 @@ def parse_module(config: ModuleConfig, repo_root: Path) -> BindModule:
                                          known_templates)
                     # Skip fields whose type can't be cleanly bound across
                     # backends — e.g. vector<array<T,N>> needs a specially-
-                    # named container plus per-element conversions.
-                    if _has_unbindable_inner(tref):
+                    # named container plus per-element conversions. Raw
+                    # pointers too: classify_type strips the `*`, so
+                    # `const char*` would otherwise bind as a `char` scalar.
+                    is_pointer = member.type.get_canonical().kind == CXTypeKind.POINTER
+                    if is_pointer or _has_unbindable_inner(tref):
                         bind_class.unbindable_fields.append(
                             (member.spelling, cpp, field_wem,
                              extract_doc(member.raw_comment),
@@ -1260,7 +1263,7 @@ def parse_module(config: ModuleConfig, repo_root: Path) -> BindModule:
                                       t_ref.cpp_text)
             tref = classify_type(substituted, known_classes, known_enums,
                                  known_templates)
-            if _has_unbindable_inner(tref):
+            if '*' in substituted or _has_unbindable_inner(tref):
                 continue
             remember_containers(tref)
             bind_class.fields.append(BindField(

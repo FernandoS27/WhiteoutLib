@@ -90,6 +90,10 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("Right", whiteout::models::wem::Handedness::Right)
         .value("Left", whiteout::models::wem::Handedness::Left);
 
+    enum_<whiteout::models::wem::RigConvention>("WemRigConvention")
+        .value("PivotRelative", whiteout::models::wem::RigConvention::PivotRelative)
+        .value("ExplicitBind", whiteout::models::wem::RigConvention::ExplicitBind);
+
     enum_<whiteout::models::wem::WindingOrder>("WemWindingOrder")
         .value("CounterClockwise", whiteout::models::wem::WindingOrder::CounterClockwise)
         .value("Clockwise", whiteout::models::wem::WindingOrder::Clockwise);
@@ -179,6 +183,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("FlipbookDropped", whiteout::models::wem::DiagCode::FlipbookDropped)
         .value("CompositeEmitted", whiteout::models::wem::DiagCode::CompositeEmitted)
         .value("PassOrderFolded", whiteout::models::wem::DiagCode::PassOrderFolded)
+        .value("FresnelFolded", whiteout::models::wem::DiagCode::FresnelFolded)
         .value("ProfileNotCarried", whiteout::models::wem::DiagCode::ProfileNotCarried)
         .value("ProfileCoverageIncomplete", whiteout::models::wem::DiagCode::ProfileCoverageIncomplete)
         .value("BoneInfluenceLimit", whiteout::models::wem::DiagCode::BoneInfluenceLimit)
@@ -194,6 +199,10 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("SkinInfluenceReassigned", whiteout::models::wem::DiagCode::SkinInfluenceReassigned)
         .value("DanglingNodeReference", whiteout::models::wem::DiagCode::DanglingNodeReference)
         .value("BindPoseRecomposed", whiteout::models::wem::DiagCode::BindPoseRecomposed)
+        .value("RigConventionChanged", whiteout::models::wem::DiagCode::RigConventionChanged)
+        .value("BoneShearSplit", whiteout::models::wem::DiagCode::BoneShearSplit)
+        .value("BoneShearProjected", whiteout::models::wem::DiagCode::BoneShearProjected)
+        .value("NonUniformScaleFlattened", whiteout::models::wem::DiagCode::NonUniformScaleFlattened)
         .value("MixedInterpolationInTrack", whiteout::models::wem::DiagCode::MixedInterpolationInTrack)
         .value("AnimChannelInvalidated", whiteout::models::wem::DiagCode::AnimChannelInvalidated)
         .value("ClipTargetMissing", whiteout::models::wem::DiagCode::ClipTargetMissing)
@@ -208,6 +217,8 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("UnsupportedVersion", whiteout::models::wem::DiagCode::UnsupportedVersion)
         .value("LegacyDocumentUpgraded", whiteout::models::wem::DiagCode::LegacyDocumentUpgraded)
         .value("OperationUnsupported", whiteout::models::wem::DiagCode::OperationUnsupported)
+        .value("GeometryRescaled", whiteout::models::wem::DiagCode::GeometryRescaled)
+        .value("LevelOfDetailDropped", whiteout::models::wem::DiagCode::LevelOfDetailDropped)
         .value("Count", whiteout::models::wem::DiagCode::Count);
 
     enum_<whiteout::models::wem::ElementKind>("WemElementKind")
@@ -262,7 +273,8 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("NoShadowCast", whiteout::models::wem::MaterialFlags::NoShadowCast)
         .value("NoShadowReceive", whiteout::models::wem::MaterialFlags::NoShadowReceive)
         .value("SortNearZ", whiteout::models::wem::MaterialFlags::SortNearZ)
-        .value("SortFarZ", whiteout::models::wem::MaterialFlags::SortFarZ);
+        .value("SortFarZ", whiteout::models::wem::MaterialFlags::SortFarZ)
+        .value("Invisible", whiteout::models::wem::MaterialFlags::Invisible);
 
     enum_<whiteout::models::wem::UVMappingMode>("WemUVMappingMode")
         .value("ExplicitUV", whiteout::models::wem::UVMappingMode::ExplicitUV)
@@ -276,6 +288,8 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("Normal", whiteout::models::wem::SurfaceChannel::Normal)
         .value("AmbientOcclusion", whiteout::models::wem::SurfaceChannel::AmbientOcclusion)
         .value("Environment", whiteout::models::wem::SurfaceChannel::Environment)
+        .value("Coverage", whiteout::models::wem::SurfaceChannel::Coverage)
+        .value("Gloss", whiteout::models::wem::SurfaceChannel::Gloss)
         .value("Count", whiteout::models::wem::SurfaceChannel::Count);
 
     enum_<whiteout::models::wem::CompositeOp>("WemCompositeOp")
@@ -297,6 +311,8 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("Fade", whiteout::models::wem::CombinerOp::Fade)
         .value("Pass", whiteout::models::wem::CombinerOp::Pass)
         .value("AddAlpha", whiteout::models::wem::CombinerOp::AddAlpha)
+        .value("MaskedMod", whiteout::models::wem::CombinerOp::MaskedMod)
+        .value("MaskedMod2x", whiteout::models::wem::CombinerOp::MaskedMod2x)
         .value("Count", whiteout::models::wem::CombinerOp::Count);
 
     enum_<whiteout::models::wem::LegacySlot>("WemLegacySlot")
@@ -309,6 +325,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("AmbientOcclusion", whiteout::models::wem::LegacySlot::AmbientOcclusion)
         .value("Height", whiteout::models::wem::LegacySlot::Height)
         .value("Lightmap", whiteout::models::wem::LegacySlot::Lightmap)
+        .value("Detail", whiteout::models::wem::LegacySlot::Detail)
         .value("Count", whiteout::models::wem::LegacySlot::Count);
 
     enum_<whiteout::models::wem::PbrSlot>("WemPbrSlot")
@@ -424,12 +441,10 @@ EMSCRIPTEN_BINDINGS(wem) {
     class_<whiteout::models::wem::ProfileDesc>("WemProfileDesc")
         .constructor<>()
         .property("id", &whiteout::models::wem::ProfileDesc::id)
-        .property("name", &whiteout::models::wem::ProfileDesc::name)
-        .property("displayName", &whiteout::models::wem::ProfileDesc::displayName)
-        .property("formatId", &whiteout::models::wem::ProfileDesc::formatId)
         .property("sourceSpace", &whiteout::models::wem::ProfileDesc::sourceSpace)
         .property("handedness", &whiteout::models::wem::ProfileDesc::handedness)
         .property("winding", &whiteout::models::wem::ProfileDesc::winding)
+        .property("rig", &whiteout::models::wem::ProfileDesc::rig)
         .property("sceneScale", &whiteout::models::wem::ProfileDesc::sceneScale)
         .property("maxBoneInfluences", &whiteout::models::wem::ProfileDesc::maxBoneInfluences)
         .property("maxUvSets", &whiteout::models::wem::ProfileDesc::maxUvSets)
@@ -438,6 +453,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("allowsNgons", &whiteout::models::wem::ProfileDesc::allowsNgons)
         .property("allowsVertexColor", &whiteout::models::wem::ProfileDesc::allowsVertexColor)
         .property("commonKinds", &whiteout::models::wem::ProfileDesc::commonKinds)
+        .property("containerKinds", &whiteout::models::wem::ProfileDesc::containerKinds)
         .property("nativeMaterialKind", &whiteout::models::wem::ProfileDesc::nativeMaterialKind)
         .property("supportsLooks", &whiteout::models::wem::ProfileDesc::supportsLooks)
         .property("supportsActors", &whiteout::models::wem::ProfileDesc::supportsActors)
@@ -496,7 +512,9 @@ EMSCRIPTEN_BINDINGS(wem) {
     class_<whiteout::models::wem::NativeBag>("WemNativeBag")
         .constructor<>()
         .function("set", &whiteout::models::wem::NativeBag::set)
+        .function("setText", &whiteout::models::wem::NativeBag::setText)
         .function("value", &whiteout::models::wem::NativeBag::value)
+        .function("text", &whiteout::models::wem::NativeBag::text)
         .function("empty", &whiteout::models::wem::NativeBag::empty)
     ;
 
@@ -539,6 +557,15 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("scrollRate", &whiteout::models::wem::UvAnimationFeature::scrollRate)
         .property("rotateRate", &whiteout::models::wem::UvAnimationFeature::rotateRate)
         .property("scaleRate", &whiteout::models::wem::UvAnimationFeature::scaleRate)
+    ;
+
+    class_<whiteout::models::wem::LayerShadingFeature>("WemLayerShadingFeature")
+        .constructor<>()
+        .property("unlit", &whiteout::models::wem::LayerShadingFeature::unlit)
+        .property("twoSided", &whiteout::models::wem::LayerShadingFeature::twoSided)
+        .property("unfogged", &whiteout::models::wem::LayerShadingFeature::unfogged)
+        .property("noDepthTest", &whiteout::models::wem::LayerShadingFeature::noDepthTest)
+        .property("noDepthWrite", &whiteout::models::wem::LayerShadingFeature::noDepthWrite)
     ;
 
     class_<whiteout::models::wem::MaterialFeature>("WemMaterialFeature")
@@ -586,6 +613,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("specularFactor", &whiteout::models::wem::CompositeBody::specularFactor)
         .property("specularExponent", &whiteout::models::wem::CompositeBody::specularExponent)
         .property("environmentFactor", &whiteout::models::wem::CompositeBody::environmentFactor)
+        .property("simulateRoughness", &whiteout::models::wem::CompositeBody::simulateRoughness)
     ;
 
     class_<whiteout::models::wem::CombinerStage>("WemCombinerStage")
@@ -846,6 +874,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("nodes", &whiteout::models::wem::NodeTree::nodes)
         .property("poseSchema", &whiteout::models::wem::NodeTree::poseSchema)
         .property("authoritativePose", &whiteout::models::wem::NodeTree::authoritativePose)
+        .property("rig", &whiteout::models::wem::NodeTree::rig)
         .function("size", &whiteout::models::wem::NodeTree::size)
         .function("empty", &whiteout::models::wem::NodeTree::empty)
         .function("add", &whiteout::models::wem::NodeTree::add)
@@ -860,6 +889,8 @@ EMSCRIPTEN_BINDINGS(wem) {
         .function("poseOf", &whiteout::models::wem::NodeTree::poseOf)
         .function("poseMatrixOf", &whiteout::models::wem::NodeTree::poseMatrixOf)
         .function("conformPoses", &whiteout::models::wem::NodeTree::conformPoses)
+        .function("inverseBindMatrix", &whiteout::models::wem::NodeTree::inverseBindMatrix)
+        .function("inferredRig", &whiteout::models::wem::NodeTree::inferredRig)
     ;
 
     class_<whiteout::models::wem::MaterialChannelRef>("WemMaterialChannelRef")
