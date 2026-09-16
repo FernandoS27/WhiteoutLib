@@ -3,7 +3,9 @@
 
 #include <whiteout/utils/blizzard_game_finder.h>
 
+#include "../common/unicode.h"
 #include "../common/unicode_path.h"
+#include "blizzard_game_finder_scan.h"
 
 #if defined(_WIN32) || defined(__APPLE__) || defined(__linux__)
 
@@ -19,14 +21,19 @@
 #endif
 
 #include <algorithm>
+#include <charconv>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 
 namespace fs = std::filesystem;
+namespace unicode = whiteout::common::unicode;
 
 namespace whiteout::utils {
 namespace {
@@ -93,6 +100,25 @@ using SeenPaths = std::unordered_map<std::string, size_t>;
     }
 }
 
+/// JSON's escape for one UTF-16 code unit: `\u` and four hex digits.
+constexpr std::string_view kUnicodeEscapePrefix = "\\u";
+constexpr size_t kUnicodeEscapeDigits = 4;
+constexpr size_t kUnicodeEscapeLength = kUnicodeEscapePrefix.size() + kUnicodeEscapeDigits;
+constexpr int kHexBase = 16;
+
+/// The code unit a `\uXXXX` escape at the start of @p s spells.
+std::optional<char16_t> jsonEscapedUnit(std::string_view s) {
+    if (s.size() < kUnicodeEscapeLength || !s.starts_with(kUnicodeEscapePrefix))
+        return std::nullopt;
+    std::string_view const digits = s.substr(kUnicodeEscapePrefix.size(), kUnicodeEscapeDigits);
+    char const* const last = digits.data() + digits.size();
+    std::uint16_t unit = 0;
+    auto const [end, error] = std::from_chars(digits.data(), last, unit, kHexBase);
+    if (error != std::errc{} || end != last)
+        return std::nullopt;
+    return static_cast<char16_t>(unit);
+}
+
 /// Crude JSON string value extractor — finds "key" : "value" pairs.
 [[maybe_unused]] std::string extractJsonValue(const std::string& text, size_t startPos,
                                               const std::string& key) {
@@ -114,19 +140,30 @@ using SeenPaths = std::unordered_map<std::string, size_t>;
     if (end == std::string::npos)
         return {};
 
-    // Unescape forward-slash and backslash sequences
-    std::string val = text.substr(pos, end - pos);
+    // Unescape forward-slash, backslash and \u sequences. A non-ASCII character
+    // may be escaped rather than written raw, and one outside the BMP as a
+    // surrogate pair; either way the path comes back as UTF-8.
+    std::string_view rest(text.data() + pos, end - pos);
     std::string unescaped;
-    for (size_t i = 0; i < val.size(); ++i) {
-        if (val[i] == '\\' && i + 1 < val.size()) {
-            char const next = val[i + 1];
-            if (next == '\\' || next == '/' || next == '"') {
-                unescaped += next;
-                ++i;
-                continue;
+    while (!rest.empty()) {
+        if (rest.size() >= 2 && rest[0] == '\\' &&
+            (rest[1] == '\\' || rest[1] == '/' || rest[1] == '"')) {
+            unescaped += rest[1];
+            rest.remove_prefix(2);
+        } else if (auto const unit = jsonEscapedUnit(rest)) {
+            rest.remove_prefix(kUnicodeEscapeLength);
+            auto const low = unicode::isHighSurrogate(*unit) ? jsonEscapedUnit(rest) : std::nullopt;
+            if (low && unicode::isLowSurrogate(*low)) {
+                unicode::appendUtf8(unescaped, unicode::combineSurrogates(*unit, *low));
+                rest.remove_prefix(kUnicodeEscapeLength);
+            } else {
+                // A BMP character, or half of a pair, which appendUtf8 replaces.
+                unicode::appendUtf8(unescaped, static_cast<char32_t>(*unit));
             }
+        } else {
+            unescaped += rest[0];
+            rest.remove_prefix(1);
         }
-        unescaped += val[i];
     }
     return unescaped;
 }
@@ -238,18 +275,8 @@ static constexpr SteamApp kSteamApps[] = {
                               std::istreambuf_iterator<char>());
     file.close();
 
-    for (auto& product : kBnetProducts) {
-        std::string const uidStr = std::string("\"") + product.uid + "\"";
-        size_t const uidPos = content.find(uidStr);
-        if (uidPos == std::string::npos)
-            continue;
-
-        std::string installPath = extractJsonValue(content, uidPos, "InstallPath");
-        if (installPath.empty())
-            installPath = extractJsonValue(content, uidPos, "Path");
-        if (!installPath.empty())
-            addResult(results, seen, product.game, product.gameName, std::move(installPath));
-    }
+    for (auto& c : game_finder_scan::battleNetConfigPaths(content))
+        addResult(results, seen, c.game, std::move(c.name), std::move(c.path));
 }
 
 // ---------------------------------------------------------------------------
@@ -268,39 +295,17 @@ static constexpr SteamApp kSteamApps[] = {
     if (!dbFile)
         return;
 
-    std::string dbContent((std::istreambuf_iterator<char>(dbFile)),
-                          std::istreambuf_iterator<char>());
+    std::string const dbContent((std::istreambuf_iterator<char>(dbFile)),
+                                std::istreambuf_iterator<char>());
     dbFile.close();
 
-    for (auto& product : kBnetProducts) {
-        size_t pos = 0;
-        while ((pos = dbContent.find(product.uid, pos)) != std::string::npos) {
-            size_t const searchStart = pos + std::strlen(product.uid);
-            size_t const searchEnd = (std::min)(searchStart + size_t{512}, dbContent.size());
-
-            for (size_t i = searchStart; i + 3 < searchEnd; ++i) {
-                char const c = dbContent[i];
 #ifdef _WIN32
-                // Windows: drive letter pattern  X:\  or X:/
-                if (((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) && dbContent[i + 1] == ':' &&
-                    (dbContent[i + 2] == '\\' || dbContent[i + 2] == '/')) {
+    constexpr bool kWindowsPaths = true;
 #else
-                // macOS: absolute path starting with /
-                if (c == '/' && dbContent[i + 1] >= 0x20 && dbContent[i + 1] != '"') {
+    constexpr bool kWindowsPaths = false;
 #endif
-                    size_t const pathStart = i;
-                    size_t pathEnd = i;
-                    while (pathEnd < searchEnd && dbContent[pathEnd] >= 0x20 &&
-                           dbContent[pathEnd] != '"')
-                        ++pathEnd;
-                    std::string foundPath = dbContent.substr(pathStart, pathEnd - pathStart);
-                    addResult(results, seen, product.game, product.gameName, std::move(foundPath));
-                    break;
-                }
-            }
-            pos = searchStart;
-        }
-    }
+    for (auto& c : game_finder_scan::productDbPaths(dbContent, kWindowsPaths))
+        addResult(results, seen, c.game, std::move(c.name), std::move(c.path));
 }
 
 // ---------------------------------------------------------------------------
@@ -410,9 +415,11 @@ static constexpr SteamApp kSteamApps[] = {
             if (installDir.empty())
                 continue;
 
-            fs::path const gamePath = steamAppsDir / "common" / installDir;
+            // Both halves are UTF-8. `path::string()` would re-encode in the
+            // ANSI code page on Windows, and throw on a library under a CJK name.
+            fs::path const gamePath = steamAppsDir / "common" / common::utf8_to_path(installDir);
             if (fs::is_directory(gamePath, ec))
-                addResult(results, seen, app.game, app.gameName, gamePath.string());
+                addResult(results, seen, app.game, app.gameName, common::path_to_utf8(gamePath));
         }
     }
 }
@@ -774,19 +781,10 @@ static constexpr AppEntry kMacAppEntries[] = {
                                 std::istreambuf_iterator<char>());
             file.close();
 
-            for (auto& product : kBnetProducts) {
-                std::string uidStr = std::string("\"") + product.uid + "\"";
-                size_t uidPos = content.find(uidStr);
-                if (uidPos == std::string::npos)
-                    continue;
-                std::string installPath = extractJsonValue(content, uidPos, "InstallPath");
-                if (installPath.empty())
-                    installPath = extractJsonValue(content, uidPos, "Path");
-                if (!installPath.empty()) {
-                    std::string real = translateWinePath(installPath, driveC);
-                    if (!real.empty())
-                        addResult(results, seen, product.game, product.gameName, std::move(real));
-                }
+            for (auto& c : game_finder_scan::battleNetConfigPaths(content)) {
+                std::string real = translateWinePath(c.path, driveC);
+                if (!real.empty())
+                    addResult(results, seen, c.game, std::move(c.name), std::move(real));
             }
         }
     }
@@ -803,31 +801,10 @@ static constexpr AppEntry kMacAppEntries[] = {
                           std::istreambuf_iterator<char>());
     dbFile.close();
 
-    for (auto& product : kBnetProducts) {
-        size_t pos = 0;
-        while ((pos = dbContent.find(product.uid, pos)) != std::string::npos) {
-            size_t searchStart = pos + std::strlen(product.uid);
-            size_t searchEnd = (std::min)(searchStart + size_t{512}, dbContent.size());
-
-            for (size_t i = searchStart; i + 3 < searchEnd; ++i) {
-                char c = dbContent[i];
-                // Look for Windows drive letter pattern: X:\ or X:/
-                if (((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) && dbContent[i + 1] == ':' &&
-                    (dbContent[i + 2] == '\\' || dbContent[i + 2] == '/')) {
-                    size_t pathStart = i;
-                    size_t pathEnd = i;
-                    while (pathEnd < searchEnd && dbContent[pathEnd] >= 0x20 &&
-                           dbContent[pathEnd] != '"')
-                        ++pathEnd;
-                    std::string foundPath = dbContent.substr(pathStart, pathEnd - pathStart);
-                    std::string real = translateWinePath(foundPath, driveC);
-                    if (!real.empty())
-                        addResult(results, seen, product.game, product.gameName, std::move(real));
-                    break;
-                }
-            }
-            pos = searchStart;
-        }
+    for (auto& c : game_finder_scan::productDbPaths(dbContent, /*windowsPaths=*/true)) {
+        std::string real = translateWinePath(c.path, driveC);
+        if (!real.empty())
+            addResult(results, seen, c.game, std::move(c.name), std::move(real));
     }
 }
 
@@ -900,6 +877,72 @@ static constexpr AppEntry kMacAppEntries[] = {
 #endif // __linux__
 
 } // anonymous namespace
+
+// ===========================================================================
+// Battle.net file contents → candidate installs (blizzard_game_finder_scan.h)
+// ===========================================================================
+
+namespace game_finder_scan {
+
+std::vector<Candidate> productDbPaths(std::string_view db, bool windowsPaths) {
+    // product.db is protobuf: each path is a length-prefixed string, and the
+    // byte after it is the next field's tag, which is below 0x20. Compared
+    // unsigned — every byte of a non-ASCII UTF-8 character is >= 0x80, which a
+    // signed char reads as negative, and "D:/光模型/Warcraft III" came back "D:/".
+    auto isPathByte = [](char c) { return static_cast<unsigned char>(c) >= 0x20 && c != '"'; };
+    // A drive letter (X:\ or X:/) on Windows and in a Wine prefix; a leading / elsewhere.
+    auto startsPath = [&](size_t i) {
+        if (!windowsPaths)
+            return db[i] == '/' && isPathByte(db[i + 1]);
+        char const c = db[i];
+        return ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) && db[i + 1] == ':' &&
+               (db[i + 2] == '\\' || db[i + 2] == '/');
+    };
+
+    std::vector<Candidate> out;
+    for (auto& product : kBnetProducts) {
+        size_t pos = 0;
+        while ((pos = db.find(product.uid, pos)) != std::string_view::npos) {
+            size_t const searchStart = pos + std::strlen(product.uid);
+            size_t const searchEnd = (std::min)(searchStart + size_t{512}, db.size());
+
+            for (size_t i = searchStart; i + 3 < searchEnd; ++i) {
+                if (!startsPath(i))
+                    continue;
+                // The window bounds where a path may start, not where it ends:
+                // at three bytes per CJK character a real path outruns it.
+                size_t pathEnd = i;
+                while (pathEnd < db.size() && isPathByte(db[pathEnd]))
+                    ++pathEnd;
+                out.push_back(
+                    {product.game, product.gameName, std::string(db.substr(i, pathEnd - i))});
+                break;
+            }
+            pos = searchStart;
+        }
+    }
+    return out;
+}
+
+std::vector<Candidate> battleNetConfigPaths(std::string_view config) {
+    std::string const content(config);
+    std::vector<Candidate> out;
+    for (auto& product : kBnetProducts) {
+        std::string const uidStr = std::string("\"") + product.uid + "\"";
+        size_t const uidPos = content.find(uidStr);
+        if (uidPos == std::string::npos)
+            continue;
+
+        std::string installPath = extractJsonValue(content, uidPos, "InstallPath");
+        if (installPath.empty())
+            installPath = extractJsonValue(content, uidPos, "Path");
+        if (!installPath.empty())
+            out.push_back({product.game, product.gameName, std::move(installPath)});
+    }
+    return out;
+}
+
+} // namespace game_finder_scan
 
 // ===========================================================================
 // Public API

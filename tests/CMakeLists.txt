@@ -36,6 +36,12 @@ target_include_directories(deflate_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 whiteout_add_test(unicode_path_test unicode_path_test.cpp)
 target_include_directories(unicode_path_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+whiteout_add_test(unicode_test unicode_test.cpp)
+target_include_directories(unicode_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+whiteout_add_test(blizzard_game_finder_test blizzard_game_finder_test.cpp)
+target_include_directories(blizzard_game_finder_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
 add_executable(mapped_file_test
     mapped_file_test.cpp
     ${CMAKE_SOURCE_DIR}/src/whiteout/storages/common/mapped_file.cpp
