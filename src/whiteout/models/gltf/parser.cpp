@@ -681,8 +681,8 @@ bool DecodeBase64(std::string_view text, std::vector<u8>& out) {
     for (i8 i = 0; i < 10; ++i) {
         table['0' + i] = static_cast<i8>(52 + i);
     }
-    table['+'] = 62;
-    table['/'] = 63;
+    table[static_cast<unsigned char>('+')] = 62;
+    table[static_cast<unsigned char>('/')] = 63;
 
     out.clear();
     out.reserve((text.size() / 4) * 3);

@@ -187,9 +187,11 @@ struct PhysicsMeshBvhNode {
                     static_cast<f32>(static_cast<i16>(slabMax)) * step};
         }
     };
+    // The initializer must sit on the member with the non-trivial default ctor:
+    // AppleClang 15 / Clang 16 otherwise treat the implicit ctor as deleted.
     union {
-        Vector3f normal{};     ///< Slab normal direction (v0, 12 bytes)
-        Octahedral octahedral; ///< Packed octahedral normal + slab bounds (v1, 8 bytes)
+        Vector3f normal;         ///< Slab normal direction (v0, 12 bytes)
+        Octahedral octahedral{}; ///< Packed octahedral normal + slab bounds (v1, 8 bytes)
     };
     M3_DEFINE_VERSION_ACCESSORS()
 };
