@@ -458,7 +458,8 @@ private:
             line("NoDepthTest,");
         if (mdx::hasFlag(layer.shadingFlags, Layer::ShadingFlag::NoDepthSet))
             line("NoDepthSet,");
-        // Engine-only flag names: WrapWidth, WrapHeight, Unlit.
+        // Engine-only flag names: WrapWidth, WrapHeight, Unlit,
+        // BackFacesForShadows, AmbientOcclusion.
         // HiveWorkshop tools don't recognize these tokens, so we skip them.
         if (m_format == MdlFormat::WarcraftIII) {
             if (mdx::hasFlag(layer.shadingFlags, Layer::ShadingFlag::WrapWidth))
@@ -467,6 +468,10 @@ private:
                 line("WrapHeight,");
             if (mdx::hasFlag(layer.shadingFlags, Layer::ShadingFlag::Unlit))
                 line("Unlit,");
+            if (mdx::hasFlag(layer.shadingFlags, Layer::ShadingFlag::BackFacesForShadows))
+                line("BackFacesForShadows,");
+            if (mdx::hasFlag(layer.shadingFlags, Layer::ShadingFlag::AmbientOcclusion))
+                line("AmbientOcclusion,");
         }
 
         // Shader / shader-type marker

@@ -26,4 +26,8 @@ public enum LayerShadingFlag : int
     NoDepthSet = 128,
     /// <summary>Reforged: bypass lighting pipeline</summary>
     Unlit = 256,
+    /// <summary>Render back faces into the shadow map</summary>
+    BackFacesForShadows = 512,
+    /// <summary>HD: sample baked occlusion (ORM red) at UV set 1</summary>
+    AmbientOcclusion = 1024,
 }

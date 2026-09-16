@@ -122,6 +122,8 @@ typedef enum {
     whiteout_mdx_ShadingFlag_NoDepthTest,
     whiteout_mdx_ShadingFlag_NoDepthSet,
     whiteout_mdx_ShadingFlag_Unlit,
+    whiteout_mdx_ShadingFlag_BackFacesForShadows,
+    whiteout_mdx_ShadingFlag_AmbientOcclusion,
 } whiteout_mdx_ShadingFlag;
 
 typedef enum {

@@ -305,15 +305,17 @@ struct Layer {
     /// @wem rename=MdxShadingFlag
     enum class ShadingFlag : u32 {
         None = 0,
-        Unshaded = 0x1,     ///< Not affected by lighting
-        SphereEnvMap = 0x2, ///< Spherical environment mapping
-        WrapWidth = 0x4,    ///< Texture U-wrap
-        WrapHeight = 0x8,   ///< Texture V-wrap
-        TwoSided = 0x10,    ///< Render both sides of polygons
-        Unfogged = 0x20,    ///< Not affected by fog
-        NoDepthTest = 0x40, ///< Disable depth testing
-        NoDepthSet = 0x80,  ///< Don't write to depth buffer
-        Unlit = 0x100,      ///< Reforged: bypass lighting pipeline
+        Unshaded = 0x1,              ///< Not affected by lighting
+        SphereEnvMap = 0x2,          ///< Spherical environment mapping
+        WrapWidth = 0x4,             ///< Texture U-wrap
+        WrapHeight = 0x8,            ///< Texture V-wrap
+        TwoSided = 0x10,             ///< Render both sides of polygons
+        Unfogged = 0x20,             ///< Not affected by fog
+        NoDepthTest = 0x40,          ///< Disable depth testing
+        NoDepthSet = 0x80,           ///< Don't write to depth buffer
+        Unlit = 0x100,               ///< Reforged: bypass lighting pipeline
+        BackFacesForShadows = 0x200, ///< Render back faces into the shadow map
+        AmbientOcclusion = 0x400,    ///< HD: sample baked occlusion (ORM red) at UV set 1
     };
 
     /// @bind

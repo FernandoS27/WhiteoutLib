@@ -160,7 +160,9 @@ EMSCRIPTEN_BINDINGS(mdx) {
         .value("Unfogged", whiteout::mdx::Layer::ShadingFlag::Unfogged)
         .value("NoDepthTest", whiteout::mdx::Layer::ShadingFlag::NoDepthTest)
         .value("NoDepthSet", whiteout::mdx::Layer::ShadingFlag::NoDepthSet)
-        .value("Unlit", whiteout::mdx::Layer::ShadingFlag::Unlit);
+        .value("Unlit", whiteout::mdx::Layer::ShadingFlag::Unlit)
+        .value("BackFacesForShadows", whiteout::mdx::Layer::ShadingFlag::BackFacesForShadows)
+        .value("AmbientOcclusion", whiteout::mdx::Layer::ShadingFlag::AmbientOcclusion);
 
     enum_<whiteout::mdx::Layer::SlotType>("MdxLayerSlotType")
         .value("DiffuseMap", whiteout::mdx::Layer::SlotType::DiffuseMap)

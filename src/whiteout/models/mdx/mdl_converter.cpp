@@ -573,6 +573,10 @@ void convertMaterials(const MdlNode& block, Model& model) {
                         layer.shadingFlags |= Layer::ShadingFlag::NoDepthSet;
                     if (hasFlag(*layerNode, "Unlit"))
                         layer.shadingFlags |= Layer::ShadingFlag::Unlit;
+                    if (hasFlag(*layerNode, "BackFacesForShadows"))
+                        layer.shadingFlags |= Layer::ShadingFlag::BackFacesForShadows;
+                    if (hasFlag(*layerNode, "AmbientOcclusion"))
+                        layer.shadingFlags |= Layer::ShadingFlag::AmbientOcclusion;
 
                     // Per-layer `Shader "name",` directive maps to ShaderType.
                     if (auto* p = findProp(*layerNode, "Shader")) {

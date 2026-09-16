@@ -242,6 +242,8 @@ void bind_mdx(py::module_& m) {
         .value("NO_DEPTH_TEST", whiteout::mdx::Layer::ShadingFlag::NoDepthTest, R"doc(Disable depth testing)doc")
         .value("NO_DEPTH_SET", whiteout::mdx::Layer::ShadingFlag::NoDepthSet, R"doc(Don't write to depth buffer)doc")
         .value("UNLIT", whiteout::mdx::Layer::ShadingFlag::Unlit, R"doc(Reforged: bypass lighting pipeline)doc")
+        .value("BACK_FACES_FOR_SHADOWS", whiteout::mdx::Layer::ShadingFlag::BackFacesForShadows, R"doc(Render back faces into the shadow map)doc")
+        .value("AMBIENT_OCCLUSION", whiteout::mdx::Layer::ShadingFlag::AmbientOcclusion, R"doc(HD: sample baked occlusion (ORM red) at UV set 1)doc")
     ;
 
     py::enum_<whiteout::mdx::Layer::SlotType>(m, "LayerSlotType")

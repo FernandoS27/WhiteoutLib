@@ -24,7 +24,11 @@ public enum LayerShadingFlag {
     /** Don't write to depth buffer */
     NoDepthSet(128),
     /** Reforged: bypass lighting pipeline */
-    Unlit(256);
+    Unlit(256),
+    /** Render back faces into the shadow map */
+    BackFacesForShadows(512),
+    /** HD: sample baked occlusion (ORM red) at UV set 1 */
+    AmbientOcclusion(1024);
 
     public final int value;
     LayerShadingFlag(int v) { this.value = v; }

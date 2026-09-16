@@ -374,6 +374,10 @@ impl LayerShadingFlag {
     pub const NO_DEPTH_SET: Self = Self(128);
     /// Reforged: bypass lighting pipeline
     pub const UNLIT: Self = Self(256);
+    /// Render back faces into the shadow map
+    pub const BACK_FACES_FOR_SHADOWS: Self = Self(512);
+    /// HD: sample baked occlusion (ORM red) at UV set 1
+    pub const AMBIENT_OCCLUSION: Self = Self(1024);
 
     #[inline]
     pub const fn contains(self, other: Self) -> bool {
