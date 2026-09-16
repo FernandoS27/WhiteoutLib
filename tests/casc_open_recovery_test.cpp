@@ -157,3 +157,61 @@ TEST_CASE("Open fails without .build.info and without configs", "[casc][open]") 
 
     std::filesystem::remove_all(testDir, ec);
 }
+
+namespace {
+
+// "光模型", the directory a user installed Warcraft III under. The paths the
+// library takes are UTF-8; handed to std::filesystem as a plain std::string,
+// Windows decodes them in the ANSI code page and the directory does not exist.
+constexpr const char8_t* kUnicodeDir = u8"test_casc_open_光模型";
+
+std::string utf8(const std::filesystem::path& p) {
+    const std::u8string s = p.u8string();
+    return std::string(s.begin(), s.end());
+}
+
+} // namespace
+
+TEST_CASE("Open a storage under a non-ASCII directory", "[casc][open][unicode]") {
+    namespace fs = std::filesystem;
+    const std::string staging = "test_casc_open_unicode_staging";
+    REQUIRE(buildStorage(staging));
+
+    // Written under an ASCII name and moved, so this measures the reader alone.
+    const fs::path parent(kUnicodeDir);
+    const fs::path install = parent / "Warcraft III";
+    std::error_code ec;
+    fs::remove_all(parent, ec);
+    fs::create_directories(parent, ec);
+    fs::rename(staging, install, ec);
+    REQUIRE_FALSE(ec);
+
+    // Both spellings a caller hands over: the install root, and its data directory.
+    for (const fs::path& root : {install, install / "Data"}) {
+        std::string error;
+        auto storage = Storage::open(utf8(root), &error);
+        INFO(utf8(root) << ": " << error);
+        REQUIRE(storage.has_value());
+        CHECK(storage->readFile("dir/file1.txt") == makeTestData(2048, 0x11));
+        CHECK(storage->readFile("dir/file2.bin") == makeTestData(70000, 0x22));
+    }
+
+    fs::remove_all(parent, ec);
+}
+
+TEST_CASE("Save a storage into a non-ASCII directory", "[casc][write][unicode]") {
+    namespace fs = std::filesystem;
+    const fs::path parent(kUnicodeDir);
+    std::error_code ec;
+    fs::remove_all(parent, ec);
+    fs::create_directories(parent, ec);
+
+    const std::string install = utf8(parent / "saved");
+    REQUIRE(buildStorage(install));
+
+    auto storage = Storage::open(install);
+    REQUIRE(storage.has_value());
+    CHECK(storage->readFile("dir/file2.bin") == makeTestData(70000, 0x22));
+
+    fs::remove_all(parent, ec);
+}

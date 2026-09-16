@@ -24,6 +24,13 @@ inline std::filesystem::path utf8_to_path(const std::string& utf8) {
     return std::filesystem::path(begin, begin + utf8.size());
 }
 
+/// The inverse of utf8_to_path. `path::string()` encodes in the ANSI code page
+/// on Windows, which garbles — or throws on — anything that page cannot hold.
+inline std::string path_to_utf8(const std::filesystem::path& path) {
+    const std::u8string u8 = path.u8string();
+    return std::string(u8.begin(), u8.end());
+}
+
 } // namespace whiteout::common
 
 #ifdef _WIN32

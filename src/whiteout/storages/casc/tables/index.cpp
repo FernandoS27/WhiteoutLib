@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
+#include "../../../common/unicode_path.h"
 #include "../../common/bit_reader.h"
 #include "../../common/jenkins.h"
 #include "../../common/mapped_file.h"
@@ -18,6 +19,11 @@
 #include <unordered_map>
 
 namespace whiteout::storages::casc {
+
+// Directory arguments are UTF-8. Handed to std::filesystem as a plain
+// std::string, Windows would decode them in the ANSI code page instead.
+using whiteout::common::path_to_utf8;
+using whiteout::common::utf8_to_path;
 
 // pimpls so IndexTable stays moveable despite once_flags + mutex.
 
@@ -226,11 +232,12 @@ std::array<std::vector<std::filesystem::path>, 16> discoverIdxFilesByBucket(
     std::array<std::vector<fs::path>, 16> byBucket;
 
     std::vector<fs::path> idxPaths;
+    fs::path const root = utf8_to_path(dataDir);
 
     // Try the known primary index directories first (matching CascLib).
-    std::string primaryDir;
+    fs::path primaryDir;
     for (auto& name : {"data", "darch"}) {
-        std::string const candidate = dataDir + "/" + name;
+        fs::path const candidate = root / name;
         if (fs::exists(candidate) && fs::is_directory(candidate)) {
             primaryDir = candidate;
             break;
@@ -245,8 +252,8 @@ std::array<std::vector<std::filesystem::path>, 16> discoverIdxFilesByBucket(
     }
 
     // Fallback: scan subdirectories.
-    if (idxPaths.empty() && fs::exists(dataDir)) {
-        for (auto& dirEntry : fs::directory_iterator(dataDir)) {
+    if (idxPaths.empty() && fs::exists(root)) {
+        for (auto& dirEntry : fs::directory_iterator(root)) {
             if (!dirEntry.is_directory())
                 continue;
             for (auto& fileEntry : fs::directory_iterator(dirEntry.path())) {
@@ -256,8 +263,8 @@ std::array<std::vector<std::filesystem::path>, 16> discoverIdxFilesByBucket(
         }
     }
     // Fallback: flat layout.
-    if (idxPaths.empty() && fs::exists(dataDir)) {
-        for (auto& entry : fs::directory_iterator(dataDir)) {
+    if (idxPaths.empty() && fs::exists(root)) {
+        for (auto& entry : fs::directory_iterator(root)) {
             if (entry.is_regular_file() && entry.path().extension() == ".idx")
                 idxPaths.push_back(entry.path());
         }
@@ -284,12 +291,12 @@ std::array<std::vector<std::filesystem::path>, 16> discoverIdxFilesByBucket(
     // (directory, bucket). Same logic the original eager loader used.
     std::unordered_map<std::string, std::unordered_map<u8, fs::path>> bestByDirBucket;
     for (auto& p : idxPaths) {
-        auto stem = p.stem().string();
+        auto stem = path_to_utf8(p.stem());
         if (stem.size() < 4)
             continue;
         u8 const bucket = parseBucket(stem);
-        auto& slot = bestByDirBucket[p.parent_path().string()][bucket];
-        if (slot.empty() || stem > slot.stem().string())
+        auto& slot = bestByDirBucket[path_to_utf8(p.parent_path())][bucket];
+        if (slot.empty() || stem > path_to_utf8(slot.stem()))
             slot = p;
     }
 
@@ -303,7 +310,7 @@ std::array<std::vector<std::filesystem::path>, 16> discoverIdxFilesByBucket(
 }
 
 void parseIdxFileIntoVector(const std::filesystem::path& path, std::vector<IndexEntry>& out) {
-    auto mf = common::MappedFile::open(path.string());
+    auto mf = common::MappedFile::open(path_to_utf8(path));
     if (mf)
         parseIdxFile(mf->ptr(), mf->size(), out);
 }
@@ -326,11 +333,12 @@ IndexTable IndexTable::load(const std::string& dataDir, interfaces::WorkerPool* 
     // indices that don't correspond to local data.XXX archives.
     namespace fs = std::filesystem;
     std::vector<fs::path> idxPaths;
+    fs::path const root = utf8_to_path(dataDir);
 
     // Try the known primary index directories first (matching CascLib).
-    std::string primaryDir;
+    fs::path primaryDir;
     for (auto& name : {"data", "darch"}) {
-        std::string const candidate = dataDir + "/" + name;
+        fs::path const candidate = root / name;
         if (fs::exists(candidate) && fs::is_directory(candidate)) {
             primaryDir = candidate;
             break;
@@ -345,8 +353,8 @@ IndexTable IndexTable::load(const std::string& dataDir, interfaces::WorkerPool* 
     }
 
     // Fallback: if no primary directory found, scan all immediate subdirectories.
-    if (idxPaths.empty() && fs::exists(dataDir)) {
-        for (auto& dirEntry : fs::directory_iterator(dataDir)) {
+    if (idxPaths.empty() && fs::exists(root)) {
+        for (auto& dirEntry : fs::directory_iterator(root)) {
             if (!dirEntry.is_directory())
                 continue;
             for (auto& fileEntry : fs::directory_iterator(dirEntry.path())) {
@@ -356,8 +364,8 @@ IndexTable IndexTable::load(const std::string& dataDir, interfaces::WorkerPool* 
         }
     }
     // Fallback: check dataDir root (flat layout).
-    if (idxPaths.empty() && fs::exists(dataDir)) {
-        for (auto& entry : fs::directory_iterator(dataDir)) {
+    if (idxPaths.empty() && fs::exists(root)) {
+        for (auto& entry : fs::directory_iterator(root)) {
             if (entry.is_regular_file() && entry.path().extension() == ".idx")
                 idxPaths.push_back(entry.path());
         }
@@ -386,10 +394,10 @@ IndexTable IndexTable::load(const std::string& dataDir, interfaces::WorkerPool* 
     // Group by parent directory.
     std::unordered_map<std::string, std::vector<std::filesystem::path>> idxByDir;
     for (auto& p : idxPaths) {
-        auto stem = p.stem().string();
+        auto stem = path_to_utf8(p.stem());
         if (stem.size() < 4)
             continue;
-        idxByDir[p.parent_path().string()].push_back(p);
+        idxByDir[path_to_utf8(p.parent_path())].push_back(p);
     }
 
     // Move the parsed buckets in, sized once so no rehash lands in the middle.
@@ -420,10 +428,10 @@ IndexTable IndexTable::load(const std::string& dataDir, interfaces::WorkerPool* 
     for (auto& [dir, paths] : idxByDir) {
         std::unordered_map<u8, std::filesystem::path> bestPerBucket;
         for (auto& p : paths) {
-            auto stem = p.stem().string();
+            auto stem = path_to_utf8(p.stem());
             u8 const bucket = parseBucket(stem);
             auto it = bestPerBucket.find(bucket);
-            if (it == bestPerBucket.end() || stem > it->second.stem().string())
+            if (it == bestPerBucket.end() || stem > path_to_utf8(it->second.stem()))
                 bestPerBucket[bucket] = p;
         }
         for (auto& [_, path] : bestPerBucket)
@@ -440,12 +448,12 @@ IndexTable IndexTable::load(const std::string& dataDir, interfaces::WorkerPool* 
         for (size_t i = 0; i < filesToParse.size(); ++i) {
             interfaces::WorkerTask task;
             task.fn = [&, i]() {
-                auto mf = common::MappedFile::open(filesToParse[i].string());
+                auto mf = common::MappedFile::open(path_to_utf8(filesToParse[i]));
                 if (mf)
                     parseIdxFile(mf->ptr(), mf->size(), perFileEntries[i]);
                 if (sink)
                     (*sink)(parsed.fetch_add(1, std::memory_order_relaxed) + 1, fileCount,
-                            filesToParse[i].filename().string());
+                            path_to_utf8(filesToParse[i].filename()));
                 jobGroup.done();
             };
             pool->submit(task);
@@ -461,10 +469,11 @@ IndexTable IndexTable::load(const std::string& dataDir, interfaces::WorkerPool* 
         std::vector<std::vector<IndexEntry>> perFileEntries(filesToParse.size());
         u64 done = 0;
         for (size_t i = 0; i < filesToParse.size(); ++i) {
-            auto mf = common::MappedFile::open(filesToParse[i].string());
+            auto mf = common::MappedFile::open(path_to_utf8(filesToParse[i]));
             if (mf)
                 parseIdxFile(mf->ptr(), mf->size(), perFileEntries[i]);
-            if (sink && !(*sink)(++done, filesToParse.size(), filesToParse[i].filename().string()))
+            if (sink &&
+                !(*sink)(++done, filesToParse.size(), path_to_utf8(filesToParse[i].filename())))
                 break;
         }
         fillTable(perFileEntries);
@@ -621,8 +630,9 @@ void IndexTable::loadArchiveIndices(const std::string& dataDir,
         return;
 
     // Search for .index files in indices/ or data/ subdirectories.
-    std::string indicesDir;
-    for (auto& candidate : {dataDir + "/indices", dataDir + "/data"}) {
+    fs::path const root = utf8_to_path(dataDir);
+    fs::path indicesDir;
+    for (auto& candidate : {root / "indices", root / "data"}) {
         if (fs::exists(candidate) && fs::is_directory(candidate)) {
             // Check if this directory has .index files.
             for (auto& entry : fs::directory_iterator(candidate)) {
@@ -660,7 +670,7 @@ void IndexTable::loadArchiveIndices(const std::string& dataDir,
 
     for (size_t i = 0; i < archiveEKeys.size(); ++i) {
         std::string const hexName = toHex(archiveEKeys[i]);
-        fs::path const indexPath = fs::path(indicesDir) / (hexName + ".index");
+        fs::path const indexPath = indicesDir / (hexName + ".index");
         if (fs::exists(indexPath))
             jobs.push_back({indexPath, u32(i)});
     }
@@ -678,7 +688,7 @@ void IndexTable::loadArchiveIndices(const std::string& dataDir,
         for (size_t i = 0; i < jobs.size(); ++i) {
             interfaces::WorkerTask task;
             task.fn = [&, i]() {
-                auto mf = common::MappedFile::open(jobs[i].path.string());
+                auto mf = common::MappedFile::open(path_to_utf8(jobs[i].path));
                 if (mf)
                     parseArchiveIndexFile(mf->ptr(), mf->size(), jobs[i].archiveIndex,
                                           perFileEntries[i]);
@@ -710,7 +720,7 @@ void IndexTable::loadArchiveIndices(const std::string& dataDir,
     } else {
         // Sequential parse.
         for (auto& job : jobs) {
-            auto mf = common::MappedFile::open(job.path.string());
+            auto mf = common::MappedFile::open(path_to_utf8(job.path));
             if (!mf)
                 continue;
 
@@ -821,7 +831,7 @@ namespace {
 /// to. Shared by eager and lazy paths. Returns the directory and a parallel
 /// `(path, archiveIndex)` job list. Empty `outDir` ⇒ nothing found.
 struct ArchiveDiscovery {
-    std::string indicesDir;
+    std::filesystem::path indicesDir;
     std::vector<std::filesystem::path> paths; // paths[i] = path for archive i, empty if missing
 };
 
@@ -835,7 +845,8 @@ ArchiveDiscovery discoverArchiveIndices(const std::string& dataDir,
     if (archiveEKeys.empty())
         return out;
 
-    for (auto& candidate : {dataDir + "/indices", dataDir + "/data"}) {
+    fs::path const root = utf8_to_path(dataDir);
+    for (auto& candidate : {root / "indices", root / "data"}) {
         if (fs::exists(candidate) && fs::is_directory(candidate)) {
             for (auto& entry : fs::directory_iterator(candidate)) {
                 if (entry.is_regular_file() && entry.path().extension() == ".index") {
@@ -862,7 +873,7 @@ ArchiveDiscovery discoverArchiveIndices(const std::string& dataDir,
     };
 
     for (size_t i = 0; i < archiveEKeys.size(); ++i) {
-        fs::path indexPath = fs::path(out.indicesDir) / (toHex(archiveEKeys[i]) + ".index");
+        fs::path indexPath = out.indicesDir / (toHex(archiveEKeys[i]) + ".index");
         if (fs::exists(indexPath))
             out.paths[i] = std::move(indexPath);
     }
@@ -897,7 +908,7 @@ void IndexTable::loadArchive(u32 archiveIdx) const {
         return;
 
     std::call_once(m_lazyArchives->flags[archiveIdx], [&]() {
-        auto mf = common::MappedFile::open(path.string());
+        auto mf = common::MappedFile::open(path_to_utf8(path));
         if (!mf)
             return;
 

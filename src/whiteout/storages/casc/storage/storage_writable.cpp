@@ -3,6 +3,7 @@
 /// @file storage_writable.cpp
 /// @brief StorageWritable: write overlay + save-to-disk operations.
 
+#include "../../../common/unicode_path.h"
 #include "../../common/jenkins.h"
 #include "../../common/md5.h"
 #include "constants.h"
@@ -611,14 +612,17 @@ bool StorageWritable::save(const std::string& outputPath) {
         m_impl->buildConfig.buildName.empty() ? "1.0.0" : m_impl->buildConfig.buildName;
     writerOpts.rootFormat = rootFmt;
 
-    // 5. Write to temp dir, then rename.
+    // 5. Write to temp dir, then rename. The paths are UTF-8, which
+    // std::filesystem reads in the ANSI code page on Windows unless told.
     std::string const tempDir = outputPath + ".tmp_save";
+    fs::path const tempPath = whiteout::common::utf8_to_path(tempDir);
+    fs::path const outPath = whiteout::common::utf8_to_path(outputPath);
     std::error_code ec;
-    fs::remove_all(tempDir, ec);
+    fs::remove_all(tempPath, ec);
 
     bool const ok = writeStorage(tempDir, entries, writerOpts, m_impl->pool);
     if (!ok) {
-        fs::remove_all(tempDir, ec);
+        fs::remove_all(tempPath, ec);
         s_lastError = kSaveFailed;
         return false;
     }
@@ -632,30 +636,30 @@ bool StorageWritable::save(const std::string& outputPath) {
 
     std::string const basePath = m_impl->localState ? m_impl->localState->basePath : "";
 
-    auto renameRetrying = [](const std::string& from, const std::string& to) {
+    auto renameRetrying = [](const fs::path& from, const fs::path& to) {
         return retryTransient([&](std::error_code& e) { fs::rename(from, to, e); });
     };
 
     if (outputPath != basePath) {
-        if (!renameRetrying(tempDir, outputPath)) {
-            fs::remove_all(tempDir, ec);
+        if (!renameRetrying(tempPath, outPath)) {
+            fs::remove_all(tempPath, ec);
             s_lastError = kSaveFailed;
             return false;
         }
     } else {
-        std::string const oldDir = outputPath + ".old_save";
-        retryTransient([&](std::error_code& e) { fs::remove_all(oldDir, e); });
-        if (!renameRetrying(outputPath, oldDir)) {
-            fs::remove_all(tempDir, ec);
+        fs::path const oldPath = whiteout::common::utf8_to_path(outputPath + ".old_save");
+        retryTransient([&](std::error_code& e) { fs::remove_all(oldPath, e); });
+        if (!renameRetrying(outPath, oldPath)) {
+            fs::remove_all(tempPath, ec);
             s_lastError = kSaveFailed;
             return false;
         }
-        if (!renameRetrying(tempDir, outputPath)) {
-            renameRetrying(oldDir, outputPath);
+        if (!renameRetrying(tempPath, outPath)) {
+            renameRetrying(oldPath, outPath);
             s_lastError = kSaveFailed;
             return false;
         }
-        fs::remove_all(oldDir, ec);
+        fs::remove_all(oldPath, ec);
     }
 
     // 7. Clear overlay and reload.

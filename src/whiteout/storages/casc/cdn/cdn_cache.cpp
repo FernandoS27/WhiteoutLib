@@ -30,8 +30,13 @@ std::string CdnCache::rangePath(const std::string& archiveKeyHex, u64 offset, u3
            std::to_string(size) + ".blte";
 }
 
+// Cache paths are UTF-8. The cache usually sits under a user profile, and a
+// profile name need not fit the ANSI code page std::filesystem would read a
+// plain std::string in.
+using whiteout::common::utf8_to_path;
+
 void CdnCache::ensureDir(const std::string& path) {
-    auto parent = fs::path(path).parent_path();
+    auto parent = utf8_to_path(path).parent_path();
     if (!parent.empty()) {
         std::error_code ec;
         fs::create_directories(parent, ec);
@@ -40,7 +45,7 @@ void CdnCache::ensureDir(const std::string& path) {
 
 std::optional<std::vector<u8>> CdnCache::readFileBytes(const std::string& path) {
     std::error_code ec;
-    if (!fs::exists(path, ec))
+    if (!fs::exists(utf8_to_path(path), ec))
         return std::nullopt;
 
     auto f = whiteout::common::open_ifstream(path, std::ios::binary | std::ios::ate);
@@ -76,20 +81,22 @@ void CdnCache::writeFileBytes(const std::string& path, std::span<const u8> data)
         if (!f) {
             std::fprintf(stderr, "[whiteout cdn_cache] write failed: %s\n", tmpPath.c_str());
             std::error_code ec;
-            fs::remove(tmpPath, ec);
+            fs::remove(utf8_to_path(tmpPath), ec);
             return;
         }
     }
 
+    fs::path const from = utf8_to_path(tmpPath);
+    fs::path const to = utf8_to_path(path);
     std::error_code ec;
-    fs::rename(tmpPath, path, ec);
+    fs::rename(from, to, ec);
     if (!ec)
         return;
 
     // Rename failed (e.g. cross-device) — try copy + remove.
     std::error_code copyEc;
-    fs::copy_file(tmpPath, path, fs::copy_options::overwrite_existing, copyEc);
-    fs::remove(tmpPath, ec);
+    fs::copy_file(from, to, fs::copy_options::overwrite_existing, copyEc);
+    fs::remove(from, ec);
     if (copyEc) {
         std::fprintf(stderr, "[whiteout cdn_cache] commit failed: %s (%s)\n", path.c_str(),
                      copyEc.message().c_str());
@@ -103,7 +110,7 @@ bool CdnCache::has(const std::string& pathType, const std::string& keyHex) const
     if (p.empty())
         return false;
     std::error_code ec;
-    return fs::exists(p, ec);
+    return fs::exists(utf8_to_path(p), ec);
 }
 
 std::optional<std::vector<u8>> CdnCache::read(const std::string& pathType,
@@ -127,7 +134,7 @@ bool CdnCache::hasRange(const std::string& archiveKeyHex, u64 offset, u32 size) 
     if (p.empty())
         return false;
     std::error_code ec;
-    return fs::exists(p, ec);
+    return fs::exists(utf8_to_path(p), ec);
 }
 
 std::optional<std::vector<u8>> CdnCache::readRange(const std::string& archiveKeyHex, u64 offset,

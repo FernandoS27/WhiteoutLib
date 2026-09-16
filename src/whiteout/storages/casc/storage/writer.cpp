@@ -127,7 +127,7 @@ static std::string generateCdnConfig(const std::vector<std::array<u8, 16>>& arch
 /// Write bytes to a file, creating directories as needed.
 static bool writeFileBytes(const std::string& path, const void* data, size_t size) {
     namespace fs = std::filesystem;
-    fs::create_directories(fs::path(path).parent_path());
+    fs::create_directories(whiteout::common::utf8_to_path(path).parent_path());
     auto ofs = whiteout::common::open_ofstream(path, std::ios::binary);
     if (!ofs)
         return false;
@@ -598,8 +598,8 @@ bool writeStorage(const std::string& outputDir, std::vector<WriteEntry>& entries
     std::string const dataDir = outputDir + "/Data";
     std::string dataSubdir = dataDir + "/data";
     std::string const configDir = dataDir + "/config";
-    fs::create_directories(dataSubdir);
-    fs::create_directories(configDir);
+    fs::create_directories(whiteout::common::utf8_to_path(dataSubdir));
+    fs::create_directories(whiteout::common::utf8_to_path(configDir));
 
     // -----------------------------------------------------------------------
     // Step 1: Compute CKeys and BLTE-encode new files.

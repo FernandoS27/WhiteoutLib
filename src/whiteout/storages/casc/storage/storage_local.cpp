@@ -3,6 +3,7 @@
 /// @file storage_local.cpp
 /// @brief Local (disk) factory, archive mapping, VFS prefetch.
 
+#include "../../../common/unicode_path.h"
 #include "../../common/md5.h"
 #include "constants.h"
 #include "storage_backend_impl.h"
@@ -18,6 +19,18 @@ namespace whiteout::storages::casc {
 
 namespace {
 
+// Every path in this file is UTF-8. A std::string handed straight to
+// std::filesystem is decoded in the ANSI code page on Windows, and an install
+// under a directory that page cannot spell ("D:/光模型/Warcraft III") then does
+// not exist — so every conversion goes through these.
+using whiteout::common::path_to_utf8;
+using whiteout::common::utf8_to_path;
+
+bool existsUtf8(const std::string& path) {
+    std::error_code ec;
+    return std::filesystem::exists(utf8_to_path(path), ec);
+}
+
 /// Subdirectories of an install that can hold the CASC storage, in CascLib's
 /// order. "data/casc" leads: Overwatch nests its storage one level deeper than
 /// every other product, and the "data" entry would otherwise swallow it.
@@ -30,10 +43,10 @@ constexpr const char* kDataDirCandidates[] = {
 bool isCascDataDir(const std::string& dir) {
     namespace fs = std::filesystem;
     std::error_code ec;
-    if (!fs::is_directory(fs::path(dir) / "config", ec))
+    fs::path const root = utf8_to_path(dir);
+    if (!fs::is_directory(root / "config", ec))
         return false;
-    return fs::is_directory(fs::path(dir) / "data", ec) ||
-           fs::is_directory(fs::path(dir) / "darch", ec);
+    return fs::is_directory(root / "data", ec) || fs::is_directory(root / "darch", ec);
 }
 
 /// The install directory owning the data directory @p dataDir — the nearest
@@ -41,13 +54,13 @@ bool isCascDataDir(const std::string& dir) {
 /// the search: its `.build.info` sits two levels up from "data/casc".
 std::string installRootFor(const std::string& dataDir) {
     namespace fs = std::filesystem;
-    fs::path probe(dataDir);
-    std::string const immediate = probe.parent_path().string();
+    fs::path probe = utf8_to_path(dataDir);
+    std::string const immediate = path_to_utf8(probe.parent_path());
     for (int i = 0; i < 3 && probe.has_parent_path(); ++i) {
         probe = probe.parent_path();
         std::error_code ec;
         if (fs::exists(probe / ".build.info", ec))
-            return probe.string();
+            return path_to_utf8(probe);
     }
     return immediate;
 }
@@ -56,7 +69,7 @@ std::vector<std::filesystem::path> scanLocalConfigs(const std::string& dataPath)
     namespace fs = std::filesystem;
     std::vector<fs::path> out;
 
-    fs::path const configRoot = fs::path(dataPath) / "config";
+    fs::path const configRoot = utf8_to_path(dataPath) / "config";
     std::error_code ec;
     if (!fs::exists(configRoot, ec) || !fs::is_directory(configRoot, ec))
         return out;
@@ -80,7 +93,7 @@ std::vector<std::filesystem::path> scanLocalConfigs(const std::string& dataPath)
             for (auto& f : fs::directory_iterator(yy.path(), ec)) {
                 if (!f.is_regular_file())
                     continue;
-                if (!isHex32(f.path().filename().string()))
+                if (!isHex32(path_to_utf8(f.path().filename())))
                     continue;
                 out.push_back(f.path());
             }
@@ -119,7 +132,7 @@ std::optional<BuildConfig> findConsistentBuildConfig(const std::string& dataPath
                                                      const IndexTable& indexTable) {
 
     for (auto& path : scanLocalConfigs(dataPath)) {
-        auto data = storages::common::readFileFully(path.string());
+        auto data = storages::common::readFileFully(path_to_utf8(path));
         if (!data)
             continue;
 
@@ -136,7 +149,7 @@ std::optional<BuildConfig> findConsistentBuildConfig(const std::string& dataPath
 std::optional<CdnConfig> findConsistentCdnConfig(const std::string& dataPath) {
     namespace fs = std::filesystem;
 
-    fs::path const indicesRoot = fs::path(dataPath) / "indices";
+    fs::path const indicesRoot = utf8_to_path(dataPath) / "indices";
     std::error_code ec;
     if (!fs::exists(indicesRoot, ec) || !fs::is_directory(indicesRoot, ec))
         return std::nullopt;
@@ -144,7 +157,7 @@ std::optional<CdnConfig> findConsistentCdnConfig(const std::string& dataPath) {
     std::unordered_set<std::string> localArchives;
     for (auto& e : fs::directory_iterator(indicesRoot, ec)) {
         if (e.is_regular_file() && e.path().extension() == ".index")
-            localArchives.insert(e.path().stem().string());
+            localArchives.insert(path_to_utf8(e.path().stem()));
     }
     if (localArchives.empty())
         return std::nullopt;
@@ -164,7 +177,7 @@ std::optional<CdnConfig> findConsistentCdnConfig(const std::string& dataPath) {
     size_t bestOverlap = 0;
 
     for (auto& path : scanLocalConfigs(dataPath)) {
-        auto data = storages::common::readFileFully(path.string());
+        auto data = storages::common::readFileFully(path_to_utf8(path));
         if (!data)
             continue;
 
@@ -195,7 +208,7 @@ bool LocalState::mapArchives(std::string* error, const ProgressSink* sink) {
     namespace fs = std::filesystem;
 
     std::string const dataSubdir = dataPath + "/data";
-    if (!fs::exists(dataSubdir)) {
+    if (!existsUtf8(dataSubdir)) {
         if (error)
             *error = "Data subdirectory not found: " + dataSubdir;
         return false;
@@ -203,8 +216,8 @@ bool LocalState::mapArchives(std::string* error, const ProgressSink* sink) {
 
     // Discover the max archive index.
     u32 maxIndex = 0;
-    for (auto& entry : fs::directory_iterator(dataSubdir)) {
-        auto name = entry.path().filename().string();
+    for (auto& entry : fs::directory_iterator(utf8_to_path(dataSubdir))) {
+        auto name = path_to_utf8(entry.path().filename());
         if (name.size() >= 8 && name.substr(0, 5) == "data.") {
             u32 const idx = std::stoul(name.substr(5));
             if (idx > maxIndex)
@@ -219,7 +232,7 @@ bool LocalState::mapArchives(std::string* error, const ProgressSink* sink) {
         char archiveName[32];
         std::snprintf(archiveName, sizeof(archiveName), "data/data.%03u", i);
         std::string const path = dataPath + "/" + archiveName;
-        if (fs::exists(path)) {
+        if (existsUtf8(path)) {
             std::string mapErr;
             auto mapped = storages::common::MappedFile::open(
                 path, storages::common::AccessHint::Random, &mapErr);
@@ -248,8 +261,8 @@ bool LocalState::mapStaticArchives(std::string* error, const ProgressSink* sink)
     std::error_code ec;
     std::vector<std::pair<u32, fs::path>> found;
     u32 maxSlot = 0;
-    for (auto& entry : fs::directory_iterator(dataPath, ec)) {
-        auto name = entry.path().filename().string();
+    for (auto& entry : fs::directory_iterator(utf8_to_path(dataPath), ec)) {
+        auto name = path_to_utf8(entry.path().filename());
         u32 chunk = 0;
         u32 uid = 0;
         int consumed = 0;
@@ -276,17 +289,18 @@ bool LocalState::mapStaticArchives(std::string* error, const ProgressSink* sink)
     u64 done = 0;
     for (auto& [slot, path] : found) {
         std::string mapErr;
+        std::string const utf8 = path_to_utf8(path);
         auto mapped = storages::common::MappedFile::open(
-            path.string(), storages::common::AccessHint::Random, &mapErr);
+            utf8, storages::common::AccessHint::Random, &mapErr);
         if (mapped) {
             dataArchives[slot] = std::move(*mapped);
         } else if (firstFailure.empty()) {
-            firstFailure = "Failed to map '" + path.string() + "': " + mapErr;
+            firstFailure = "Failed to map '" + utf8 + "': " + mapErr;
             if (storages::common::isSharingViolation(mapErr))
                 sawSharingViolation = true;
         }
         ++done;
-        if (sink && !(*sink)(done, found.size(), path.filename().string()))
+        if (sink && !(*sink)(done, found.size(), path_to_utf8(path.filename())))
             break;
     }
 
@@ -425,7 +439,6 @@ std::optional<Storage> Storage::open(const std::string& path, const std::string&
 }
 
 std::optional<Storage> Storage::open(const OpenOptions& opts) {
-    namespace fs = std::filesystem;
     s_lastError = kOk;
 
     // Determine basePath and dataPath.
@@ -436,16 +449,16 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     // names the product, but the shared `.build.info` + `Data` live in the
     // parent. Read the flavor code and resolve the real storage from the parent.
     std::string flavorProduct;
-    if (fs::exists(basePath + "/.flavor.info")) {
+    if (existsUtf8(basePath + "/.flavor.info")) {
         std::string flavErr;
         if (auto flav = storages::common::readFileFully(basePath + "/.flavor.info", &flavErr))
             flavorProduct = parseFlavorInfo(*flav);
-        bool const hasOwnStorage = fs::exists(basePath + "/.build.info") ||
-                                   fs::exists(basePath + "/Data") || fs::exists(basePath + "/data");
+        bool const hasOwnStorage = existsUtf8(basePath + "/.build.info") ||
+                                   existsUtf8(basePath + "/Data") || existsUtf8(basePath + "/data");
         if (!hasOwnStorage) {
-            std::string const parent = fs::path(basePath).parent_path().string();
-            if (!parent.empty() && (fs::exists(parent + "/.build.info") ||
-                                    fs::exists(parent + "/Data") || fs::exists(parent + "/data")))
+            std::string const parent = path_to_utf8(utf8_to_path(basePath).parent_path());
+            if (!parent.empty() && (existsUtf8(parent + "/.build.info") ||
+                                    existsUtf8(parent + "/Data") || existsUtf8(parent + "/data")))
                 basePath = parent;
         }
     }
@@ -472,26 +485,26 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     // were pruned, a flat one — still opened before, and the build config can
     // be recovered from the index. Keep the old by-name guess for them.
     if (dataPath.empty()) {
-        auto leaf = fs::path(basePath).filename().string();
+        auto leaf = path_to_utf8(utf8_to_path(basePath).filename());
         std::transform(leaf.begin(), leaf.end(), leaf.begin(), ::tolower);
         if (leaf == "data" || leaf == "sc2data" || leaf == "heroesdata") {
             dataPath = basePath;
-            basePath = fs::path(basePath).parent_path().string();
-        } else if (fs::exists(basePath + "/Data")) {
+            basePath = path_to_utf8(utf8_to_path(basePath).parent_path());
+        } else if (existsUtf8(basePath + "/Data")) {
             dataPath = basePath + "/Data";
-        } else if (fs::exists(basePath + "/data")) {
+        } else if (existsUtf8(basePath + "/data")) {
             dataPath = basePath + "/data";
-        } else if (fs::exists(basePath + "/SC2Data")) {
+        } else if (existsUtf8(basePath + "/SC2Data")) {
             dataPath = basePath + "/SC2Data";
-        } else if (fs::exists(basePath + "/HeroesData")) {
+        } else if (existsUtf8(basePath + "/HeroesData")) {
             dataPath = basePath + "/HeroesData";
         } else {
             dataPath = basePath;
         }
     }
 
-    basePath = fs::path(basePath).lexically_normal().string();
-    dataPath = fs::path(dataPath).lexically_normal().string();
+    basePath = path_to_utf8(utf8_to_path(basePath).lexically_normal());
+    dataPath = path_to_utf8(utf8_to_path(dataPath).lexically_normal());
 
     // A `.build.config` next to the archives marks a static-build-config
     // install — what Steam ships. It names the build outright instead of
@@ -499,9 +512,9 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     // this layout gets its own open path rather than the one below.
     {
         std::string staticConfigPath = dataPath + "/.build.config";
-        if (!fs::exists(staticConfigPath))
+        if (!existsUtf8(staticConfigPath))
             staticConfigPath = basePath + "/.build.config";
-        if (fs::exists(staticConfigPath))
+        if (existsUtf8(staticConfigPath))
             return Impl::openStatic(opts, basePath, dataPath, staticConfigPath);
     }
 
@@ -541,9 +554,9 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     // build and CDN configs are recovered from `config/` by consistency below.
     // The diagnostic is held until that recovery also comes up empty.
     std::string buildInfoPath;
-    if (fs::exists(basePath + "/.build.info"))
+    if (existsUtf8(basePath + "/.build.info"))
         buildInfoPath = basePath + "/.build.info";
-    else if (fs::exists(dataPath + "/.build.info"))
+    else if (existsUtf8(dataPath + "/.build.info"))
         buildInfoPath = dataPath + "/.build.info";
 
     auto reportFileError = [&](const std::string& filePath, const std::string& sysErr,
