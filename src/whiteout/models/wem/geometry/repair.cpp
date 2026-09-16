@@ -4,6 +4,8 @@
 #include <whiteout/models/wem/geometry/repair.h>
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -60,31 +62,58 @@ bool hasRepeatedCorner(std::span<const u32> corners) {
     return false;
 }
 
-/// Twice the area of the polygon's Newell normal. Zero (to a relative epsilon)
-/// means the face has no surface to shade.
+/// Whether the face has no surface to shade: twice its area (the Newell
+/// normal's length) within the float noise of its own corners.
+///
+/// A corner is only stored to `|p| * FLT_EPSILON`, so a face whose longest edge
+/// is `L` cannot be told from a line once its area is below about
+/// `L * |p| * FLT_EPSILON`. Small is not degenerate: the bound follows the
+/// face's own edge and coordinates, never the model's unit. The old one compared
+/// the area squared against the coordinates squared and dropped every face under
+/// ~1.4e-6 units² three units from the origin — the ear screws of
+/// SM_ArmorySpectreCrate's helmets, 271 faces of one region.
 bool isZeroArea(std::span<const u32> corners, std::span<const Vector3f> positions) {
-    if (positions.empty()) {
+    if (positions.empty() || corners.empty()) {
         return false;
     }
-    Vector3f normal{0, 0, 0};
-    f32 scale = 0;
-    for (std::size_t i = 0; i < corners.size(); ++i) {
-        if (corners[i] >= positions.size()) {
+    for (u32 corner : corners) {
+        if (corner >= positions.size()) {
             return false;
         }
+    }
+    // Edges from the first corner, in double: the sum of their cross products is
+    // the same normal, without cancelling against the corners' distance from
+    // the origin.
+    const Vector3f& origin = positions[corners[0]];
+    f64 nx = 0.0;
+    f64 ny = 0.0;
+    f64 nz = 0.0;
+    f64 longestSquared = 0.0;
+    f64 reach = 0.0;
+    for (std::size_t i = 0; i < corners.size(); ++i) {
         const Vector3f& a = positions[corners[i]];
         const Vector3f& b = positions[corners[(i + 1) % corners.size()]];
-        normal.x += (a.y - b.y) * (a.z + b.z);
-        normal.y += (a.z - b.z) * (a.x + b.x);
-        normal.z += (a.x - b.x) * (a.y + b.y);
-        const f32 extent = std::max(std::max(std::abs(a.x), std::abs(a.y)), std::abs(a.z));
-        scale = std::max(scale, extent);
+        const f64 ax = static_cast<f64>(a.x) - origin.x;
+        const f64 ay = static_cast<f64>(a.y) - origin.y;
+        const f64 az = static_cast<f64>(a.z) - origin.z;
+        const f64 bx = static_cast<f64>(b.x) - origin.x;
+        const f64 by = static_cast<f64>(b.y) - origin.y;
+        const f64 bz = static_cast<f64>(b.z) - origin.z;
+        nx += ay * bz - az * by;
+        ny += az * bx - ax * bz;
+        nz += ax * by - ay * bx;
+        longestSquared = std::max(longestSquared, (bx - ax) * (bx - ax) + (by - ay) * (by - ay) +
+                                                      (bz - az) * (bz - az));
+        reach = std::max({reach, std::abs(static_cast<f64>(a.x)), std::abs(static_cast<f64>(a.y)),
+                          std::abs(static_cast<f64>(a.z))});
     }
-    const f32 magnitude = normal.x * normal.x + normal.y * normal.y + normal.z * normal.z;
-    // Relative to the face's own coordinate magnitude, so a tiny-but-real face in
-    // a model authored in centimetres is not mistaken for a degenerate one.
-    const f32 epsilon = std::max(scale * scale, 1.0f) * 1e-12f;
-    return magnitude <= epsilon;
+    const f64 twiceArea = std::sqrt(nx * nx + ny * ny + nz * nz);
+    const f64 longest = std::sqrt(longestSquared);
+    // A few ULPs of slack: a corner that was itself computed in f32 (a midpoint,
+    // a weld) carries its own rounding on top of the storage.
+    const f64 noise = longest * std::max(reach, longest) * 4.0 *
+                      static_cast<f64>(std::numeric_limits<f32>::epsilon());
+    return twiceArea <= noise;
 }
 
 /// Union-find over global corner indices, for the bowtie pass.

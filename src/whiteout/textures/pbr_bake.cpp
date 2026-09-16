@@ -202,13 +202,14 @@ f32 teamAt(const ScalarInput& primary, const Plane& primaryPlane, const ScalarIn
                     scalarAt(secondary, secondaryPlane, u, v));
 }
 
-/// `lerp(white, albedo, 1 - team)`, written so the identity at `team == 0` is
-/// exact. This is the albedo both bakes reason about: the ORM's metalness
-/// splits it and the base colour writes it.
-void teamAlbedoAt(const f32 albedo[3], f32 team, f32 out[3]) {
+/// `lerp(teamColor, albedo, 1 - team)`, written so the identity at `team == 0`
+/// is exact. This is the albedo both bakes reason about: the ORM's metalness
+/// splits it and the base colour writes it. The colour is white unless the
+/// target has no team slot to multiply one in.
+void teamAlbedoAt(const f32 albedo[3], f32 team, const f32 teamColor[3], f32 out[3]) {
     const f32 keep = 1.0f - team;
     for (i32 c = 0; c < 3; ++c) {
-        out[c] = 1.0f + (albedo[c] - 1.0f) * keep;
+        out[c] = teamColor[c] + (albedo[c] - teamColor[c]) * keep;
     }
 }
 
@@ -444,7 +445,7 @@ std::optional<Texture> BakeOrm(const OrmRecipe& recipe) {
                 colorAt(recipe.baseColor, baseColor, u, v, albedo);
                 foldDecal(recipe.decal, decal, recipe.decalOp, u, v, albedo);
                 f32 teamAlbedo[3];
-                teamAlbedoAt(albedo, share, teamAlbedo);
+                teamAlbedoAt(albedo, share, recipe.teamColor, teamAlbedo);
                 if (reflectance.envModulates) {
                     f32 metal[3];
                     modulatedAlbedo(reflectance, teamAlbedo, metal);
@@ -526,7 +527,7 @@ std::optional<Texture> BakeBaseColor(const BaseColorRecipe& recipe) {
             colorAt(recipe.baseColor, baseColor, u, v, albedo);
             foldDecal(recipe.decal, decal, recipe.decalOp, u, v, albedo);
             f32 mixed[3];
-            teamAlbedoAt(albedo, team, mixed);
+            teamAlbedoAt(albedo, team, recipe.teamColor, mixed);
 
             // The metalness beside this takes exactly the reflectance back out
             // again, so the diffuse response is unchanged and the highlight is

@@ -197,6 +197,49 @@ TEST_CASE("wem a modulate-op emissive is a light gate, not glow", "[wem][derive]
     CHECK(emissive->texture == 2u);
 }
 
+TEST_CASE("wem a composite's emissive gain crosses only with a map to scale", "[wem][derive]") {
+    // `hdrEmissiveMultiplier` ships at 1 on materials with no emissive layer. A
+    // pbr body keeping that 1 with no emissive slot is a constant glow to
+    // anything reading a texture-less factor literally, which glTF does.
+    Material material;
+    material.name = "unlit rifle";
+    CompositeBody body;
+    CompositeLayer diffuse;
+    diffuse.input = makeInput(0);
+    diffuse.target = SurfaceChannel::Color;
+    body.layers.push_back(diffuse);
+    body.emissiveFactor = Vector4f{1, 1, 1, 1};
+    material.InitCommon().body = body;
+
+    Material glowing;
+    glowing.name = "visor";
+    CompositeLayer glow;
+    glow.input = makeInput(1);
+    glow.target = SurfaceChannel::Emissive;
+    glow.op = CompositeOp::AddAlpha;
+    body.layers.push_back(glow);
+    body.emissiveFactor = Vector4f{3, 3, 3, 1};
+    glowing.InitCommon().body = std::move(body);
+
+    Document document = documentWith(ProfileId::Sc2, {std::move(material), std::move(glowing)});
+    const DeriveResult result = DeriveProfile(document, ProfileId::Sc2, ProfileId::Wc3Reforged);
+    REQUIRE(result.ok);
+
+    const ProfileMaterialSet* set = document.models[0].setFor(ProfileId::Wc3Reforged);
+    REQUIRE(set != nullptr);
+    REQUIRE(set->materials.size() == 2u);
+    const PbrDeferredBody* plain = set->materials[0].Common().pbr();
+    REQUIRE(plain != nullptr);
+    CHECK(plain->find(PbrSlot::Emissive) == nullptr);
+    CHECK(plain->emissiveFactor.x == 0.0f);
+    CHECK(plain->emissiveFactor.y == 0.0f);
+    CHECK(plain->emissiveFactor.z == 0.0f);
+    const PbrDeferredBody* lit = set->materials[1].Common().pbr();
+    REQUIRE(lit != nullptr);
+    REQUIRE(lit->find(PbrSlot::Emissive) != nullptr);
+    CHECK(lit->emissiveFactor.x == 3.0f);
+}
+
 TEST_CASE("wem a combiner chain survives an Sc2 derive", "[wem][derive]") {
     // Sc2 accepts the kind since the M3 exporter grew its own crossing
     // (WOW_TO_SC2_DESIGN.md §3): squeezed through `toComposite`, every stage

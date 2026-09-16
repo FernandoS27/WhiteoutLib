@@ -3,6 +3,8 @@
 
 #include "whiteout/models/wem/materials/gltf_core.h"
 
+#include <whiteout/textures/pbr_bake.h>
+
 #include <cmath>
 
 namespace whiteout {
@@ -11,14 +13,16 @@ namespace wem {
 
 namespace {
 
-/// Specular exponent to roughness, the Beckmann-style heuristic
-/// `roughness ≈ sqrt(2 / (e + 2))` — an exponent of 0 lands exactly on 1.0,
-/// which is what "no specular highlight" means in metallic-roughness.
+/// Specular exponent to roughness. glTF's roughness is perceptual — the BRDF
+/// squares it into alpha, as Reforged's `ggxNDF` does — so this is the bake's
+/// `sqrt(sqrt(2 / (n + 2)))`, not the lobe-width alpha itself: the alpha put
+/// exponent 20, most of StarCraft II, at 0.30 instead of 0.55 and exported every
+/// surface lacquered. An exponent of 0 is "no specular highlight", roughness 1.
 f32 RoughnessFromExponent(f32 exponent) {
-    if (exponent < 0.0f) {
-        exponent = 0.0f;
+    if (exponent <= 0.0f) {
+        return 1.0f;
     }
-    return std::sqrt(2.0f / (exponent + 2.0f));
+    return textures::pbr::RoughnessFromExponent(exponent);
 }
 
 gltf::WrapMode WrapToGltf(WrapMode mode) {
@@ -476,6 +480,15 @@ GltfExportedMaterial GltfMaterialExporter::exportMaterial(const Material& materi
     }
     case MaterialKind::Count:
         break;
+    }
+
+    // A composite's emissive factor, as the M3 import states it, is
+    // `hdrEmissiveMultiplier`: a gain on the emissive layer, shipped at 1 on
+    // materials that have no such layer. glTF reads a factor with no texture as
+    // constant emission, so those surfaces exported glowing flat white — every
+    // crate on SM_ArmorySpectreCrate. With no map to scale there is nothing to emit.
+    if (common.kind() == MaterialKind::Composite && !out.emissiveTexture.present()) {
+        out.emissiveFactor = Vector3f{0, 0, 0};
     }
 
     // A factor past 1 is HDR emission; the core factor clamps at 1, so the

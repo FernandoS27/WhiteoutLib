@@ -227,6 +227,28 @@ TEST_CASE("wem builder drops degenerate faces", "[wem][builder][repair]") {
     CHECK_FALSE(diagnostics.hasErrors());
 }
 
+TEST_CASE("wem builder keeps small faces away from the origin", "[wem][builder][repair]") {
+    // SM_ArmorySpectreCrate's helmet screws: millimetre triangles about three
+    // units out. Small is not degenerate, and neither is being far from zero;
+    // only a face its corners' own float precision cannot tell from a line is.
+    MeshBuilder builder;
+    addSections(builder, 1);
+    const Vector3f base{1.2f, -2.8f, 0.6f};
+    builder.addVertex(base);
+    builder.addVertex(base + Vector3f{0.001f, 0.0f, 0.0f});
+    builder.addVertex(base + Vector3f{0.0f, 0.001f, 0.0f});
+    // The midpoint of the first edge, rounded the way an f32 pipeline rounds it.
+    builder.addVertex((base + (base + Vector3f{0.001f, 0.0f, 0.0f})) * 0.5f);
+    builder.addTriangle(VertexId(0), VertexId(1), VertexId(2)); // 5e-7 units²: kept
+    builder.addTriangle(VertexId(0), VertexId(3), VertexId(1)); // collinear: dropped
+
+    auto outcome = builder.build();
+    REQUIRE_FALSE(outcome.refused);
+    CHECK(outcome.mesh.faceCount() == 1);
+    REQUIRE(outcome.mesh.repairLog.droppedFaces.size() == 1);
+    CHECK(outcome.mesh.repairLog.droppedFaces[0].index == 1);
+}
+
 TEST_CASE("wem repair is exactly undone by unrepair", "[wem][repair]") {
     // The property the design states: "the face-vertex list that comes out is the
     // one that went in". A converter exporting back to its source profile relies

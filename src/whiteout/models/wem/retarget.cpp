@@ -541,6 +541,14 @@ PbrDeferredBody toPbr(const CommonMaterial& source, const KindContext& ctx) {
             }
             out.set(*slot, *entry.second);
         }
+        // The composite's factor is a gain on its emissive layer
+        // (`hdrEmissiveMultiplier`, shipped at 1 with no layer at all). With no
+        // slot left for it to scale it is nothing, and kept it reads as constant
+        // emission to any consumer taking a texture-less factor literally: glTF
+        // exported SM_ArmorySpectreCrate's rifles and crates glowing white.
+        if (out.find(PbrSlot::Emissive) == nullptr) {
+            out.emissiveFactor = Vector3f{0, 0, 0};
+        }
     }
     return out;
 }

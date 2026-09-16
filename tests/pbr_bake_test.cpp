@@ -8,6 +8,7 @@
 
 #include <catch2/catch_all.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
@@ -408,6 +409,54 @@ TEST_CASE("a fully masked texel goes white, an unmasked one is untouched", "[pbr
         CHECK(channelOf(*base, Channel::R) == 255);
         CHECK(channelOf(*base, Channel::G) == 255);
         CHECK(channelOf(*base, Channel::B) == 255);
+    }
+}
+
+TEST_CASE("a target with no team slot gets the team colour composited", "[pbr_bake]") {
+    // glTF has nowhere to multiply a swatch in, so the bake writes StarCraft
+    // II's own `lerp(team, diffuse, a)` and the metal split reads the same
+    // albedo.
+    const Texture diffuse = solid(40, 80, 120, 64);
+    const Texture specular = solid(200, 200, 200, 255);
+    pbr::BaseColorRecipe base;
+    base.baseColor.texture = &diffuse;
+    base.baseColor.srgb = true;
+    base.teamMask.texture = &diffuse;
+    base.teamMask.channel = Channel::A;
+    base.teamMask.invert = true;
+    const f32 team[3] = {0.5f, 0.02f, 0.03f};
+    std::copy_n(team, 3, base.teamColor);
+
+    const f32 a = 64.0f / 255.0f;
+    SECTION("no specular: the source's lerp, in linear light") {
+        const std::optional<Texture> out = pbr::BakeBaseColor(base);
+        REQUIRE(out.has_value());
+        const f32 art[3] = {srgbToLinear(40.0f / 255.0f), srgbToLinear(80.0f / 255.0f),
+                            srgbToLinear(120.0f / 255.0f)};
+        const Channel channels[3] = {Channel::R, Channel::G, Channel::B};
+        for (int c = 0; c < 3; ++c) {
+            CHECK(linearOf(*out, channels[c]) ==
+                  Catch::Approx(team[c] + (art[c] - team[c]) * a).margin(0.004f));
+        }
+    }
+    SECTION("the metal split pays out of the same composited albedo") {
+        base.reflectance.specular.texture = &specular;
+        pbr::OrmRecipe orm;
+        orm.reflectance = base.reflectance;
+        orm.baseColor = base.baseColor;
+        orm.teamMask = base.teamMask;
+        std::copy_n(team, 3, orm.teamColor);
+        const std::optional<Texture> albedo = pbr::BakeBaseColor(base);
+        const std::optional<Texture> map = pbr::BakeOrm(orm);
+        REQUIRE(albedo.has_value());
+        REQUIRE(map.has_value());
+        const f32 m = unitOf(*map, Channel::B);
+        REQUIRE(m > 0.0f);
+        // What metallic-roughness shades as diffuse, `(1 - m) * base`, is the
+        // composited albedo again.
+        const f32 art = srgbToLinear(40.0f / 255.0f);
+        CHECK((1.0f - m) * linearOf(*albedo, Channel::R) ==
+              Catch::Approx(team[0] + (art - team[0]) * a).margin(0.01f));
     }
 }
 

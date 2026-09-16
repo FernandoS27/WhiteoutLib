@@ -18,6 +18,7 @@
 #include <functional>
 #include <iostream>
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <whiteout/models/gltf/parser.h>
@@ -847,6 +848,73 @@ TEST_CASE("the base colour goes to the first exportable textured stage", "[wem][
     // game-composited.
     REQUIRE(exported->meshes.size() == 1);
     CHECK(exported->meshes[0].primitives.size() >= 1);
+}
+
+TEST_CASE("a composite emits only through an emissive layer", "[wem][gltf]") {
+    // The M3 import states `hdrEmissiveMultiplier` as the composite's emissive
+    // factor, and ships it at 1 on materials with no emissive layer. glTF reads
+    // a factor with no texture as constant emission, which exported every crate
+    // on SM_ArmorySpectreCrate glowing flat white.
+    Document document = makeFixture();
+    Model& model = document.models[0];
+    ProfileMaterialSet* set = model.setFor(ProfileId::Generic);
+    REQUIRE(set != nullptr);
+    CommonMaterial& common = set->materials[0].InitCommon();
+    common.setKind(MaterialKind::Composite);
+    CompositeBody& body = *common.composite();
+    body.emissiveFactor = Vector4f{1.0f, 1.0f, 1.0f, 1.0f};
+    CompositeLayer diffuse;
+    diffuse.input.texture = 0;
+    body.layers.push_back(diffuse);
+
+    const GltfConverter converter;
+    {
+        Result<gltf::Asset> exported = converter.toGltf(document, ProfileId::Generic);
+        REQUIRE(exported.ok());
+        REQUIRE(exported->materials.size() == 1);
+        const gltf::Material& out = exported->materials[0];
+        CHECK_FALSE(out.emissiveTexture.present());
+        CHECK(out.emissiveFactor.x == 0.0f);
+        CHECK(out.emissiveFactor.y == 0.0f);
+        CHECK(out.emissiveFactor.z == 0.0f);
+    }
+
+    // With a layer to scale, the factor is that layer's gain and crosses.
+    CompositeLayer glow;
+    glow.input.texture = 0;
+    glow.target = SurfaceChannel::Emissive;
+    body.layers.push_back(glow);
+    Result<gltf::Asset> exported = converter.toGltf(document, ProfileId::Generic);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->materials.size() == 1);
+    const gltf::Material& out = exported->materials[0];
+    CHECK(out.emissiveTexture.present());
+    CHECK(out.emissiveFactor.x == 1.0f);
+}
+
+TEST_CASE("a specular exponent crosses as a perceptual roughness", "[wem][gltf]") {
+    // glTF squares its roughness into the GGX alpha. Handing it the alpha itself
+    // made StarCraft II's exponent 20 a lacquer at 0.30; the lobe match is 0.55.
+    Document document = makeFixture();
+    ProfileMaterialSet* set = document.models[0].setFor(ProfileId::Generic);
+    REQUIRE(set != nullptr);
+    CommonMaterial& common = set->materials[0].InitCommon();
+    common.setKind(MaterialKind::Composite);
+    CompositeLayer diffuse;
+    diffuse.input.texture = 0;
+    common.composite()->layers.push_back(diffuse);
+
+    const GltfConverter converter;
+    const auto roughnessAt = [&](f32 exponent) {
+        common.composite()->specularExponent = exponent;
+        Result<gltf::Asset> exported = converter.toGltf(document, ProfileId::Generic);
+        REQUIRE(exported.ok());
+        REQUIRE(exported->materials.size() == 1);
+        return exported->materials[0].pbr.roughnessFactor;
+    };
+    CHECK(roughnessAt(20.0f) == Catch::Approx(0.549f).margin(0.002f));
+    CHECK(roughnessAt(80.0f) == Catch::Approx(0.395f).margin(0.002f));
+    CHECK(roughnessAt(0.0f) == 1.0f);
 }
 
 TEST_CASE("a replaceable-only material's sections are skipped", "[wem][gltf]") {

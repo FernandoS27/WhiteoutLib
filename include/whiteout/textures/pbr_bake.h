@@ -269,6 +269,13 @@ struct OrmRecipe {
     /// union is what "this texel is team-coloured" means.
     ScalarInput teamMaskAlt;
 
+    /// What the team mask lerps the albedo toward, linear. White is Reforged's:
+    /// its runtime multiplies the swatch in afterwards (`albedo * lerp(1, team,
+    /// m)`), so the bake only lightens. A target with no team slot at all —
+    /// glTF — passes the colour itself and gets it composited. Must match
+    /// @ref BaseColorRecipe::teamColor, which writes the albedo this splits.
+    f32 teamColor[3] = {1.0f, 1.0f, 1.0f};
+
     /// The albedo the metalness splits, and the team tint modulates.
     ///
     /// Never written to the output, and required for a metalness that means
@@ -311,6 +318,9 @@ struct BaseColorRecipe {
 
     /// A second team mask, combined with @ref teamMask by **max**.
     ScalarInput teamMaskAlt;
+
+    /// What the team mask lerps toward, linear — see @ref OrmRecipe::teamColor.
+    f32 teamColor[3] = {1.0f, 1.0f, 1.0f};
 
     /// Per-texel coverage — StarCraft II's two alpha-mask layers, multiplied
     /// (`cFinal.a = mask1.a * mask2.a`, psmaterial.fx:380). Absent is 1 —
