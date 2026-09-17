@@ -650,11 +650,11 @@ size_t whiteout_mdx_MdxGeoset_get_tangents_count(const whiteout_MdxGeoset* self)
 void whiteout_mdx_MdxGeoset_resize_tangents(whiteout_MdxGeoset* self, size_t count);
 const float* whiteout_mdx_MdxGeoset_get_tangents_data(const whiteout_MdxGeoset* self);
 void whiteout_mdx_MdxGeoset_assign_tangents(whiteout_MdxGeoset* self, const float* data, size_t count);
-/* Bone indices and weights */
+/* Four bone indices then four weights (summing to 255) per vertex. u16 because v1400+ stores them that way and cinematics index past 255 bones; files below 1400 store bytes. */
 size_t whiteout_mdx_MdxGeoset_get_skinData_count(const whiteout_MdxGeoset* self);
 void whiteout_mdx_MdxGeoset_resize_skinData(whiteout_MdxGeoset* self, size_t count);
-const uint8_t* whiteout_mdx_MdxGeoset_get_skinData_data(const whiteout_MdxGeoset* self);
-void whiteout_mdx_MdxGeoset_assign_skinData(whiteout_MdxGeoset* self, const uint8_t* data, size_t count);
+const uint16_t* whiteout_mdx_MdxGeoset_get_skinData_data(const whiteout_MdxGeoset* self);
+void whiteout_mdx_MdxGeoset_assign_skinData(whiteout_MdxGeoset* self, const uint16_t* data, size_t count);
 /* UV coordinates (multiple sets) */
 size_t whiteout_mdx_MdxGeoset_get_textureCoordinateSets_count(const whiteout_MdxGeoset* self);
 size_t whiteout_mdx_MdxGeoset_get_textureCoordinateSets_inner_count(const whiteout_MdxGeoset* self, size_t outer_idx);

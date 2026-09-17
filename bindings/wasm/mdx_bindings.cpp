@@ -389,10 +389,6 @@ EMSCRIPTEN_BINDINGS(mdx) {
         .property("sequenceExtents", &whiteout::mdx::Geoset::sequenceExtents)
         .property("tangents", &whiteout::mdx::Geoset::tangents)
         .property("skinData", &whiteout::mdx::Geoset::skinData)
-        .function("skinDataView",
-                  optional_override([](const whiteout::mdx::Geoset& self) {
-                      return val(typed_memory_view(self.skinData.size(), self.skinData.data()));
-                  }))
         .property("textureCoordinateSets", &whiteout::mdx::Geoset::textureCoordinateSets)
     ;
 

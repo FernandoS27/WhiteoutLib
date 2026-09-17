@@ -127,7 +127,7 @@ void printGeosets(const whiteout::mdx::Model& mdx) {
             std::cout << "  Tangents: " << geo.tangents.size() << std::endl;
         }
         if (!geo.skinData.empty()) {
-            std::cout << "  Skin Data: " << geo.skinData.size() << " bytes" << std::endl;
+            std::cout << "  Skin Data: " << geo.skinData.size() << " entries" << std::endl;
         }
         if (geo.lod > 0) {
             std::cout << "  LOD: " << geo.lod;

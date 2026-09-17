@@ -4034,9 +4034,9 @@ impl Geoset {
         unsafe { ffi::whiteout_mdx_MdxGeoset_resize_tangents(self.raw.as_ptr(), count) }
     }
 
-    /// Bone indices and weights
+    /// Four bone indices then four weights (summing to 255) per vertex. u16 because v1400+ stores them that way and cinematics index past 255 bones; files below 1400 store bytes.
     /// Zero-copy view of the underlying `std::vector`.
-    pub fn skin_data(&self) -> &[u8] {
+    pub fn skin_data(&self) -> &[u16] {
         // SAFETY: `_data`/`_count` describe one contiguous C++
         // allocation, borrowed for as long as `self` is.
         unsafe {
@@ -4051,11 +4051,11 @@ impl Geoset {
     }
 
     /// Zero-copy mutable view. Resize first — the borrow forbids it after.
-    pub fn skin_data_mut(&mut self) -> &mut [u8] {
+    pub fn skin_data_mut(&mut self) -> &mut [u16] {
         // SAFETY: as above; `&mut self` rules out aliasing and resizing.
         unsafe {
             let n = ffi::whiteout_mdx_MdxGeoset_get_skinData_count(self.raw.as_ptr());
-            let p = ffi::whiteout_mdx_MdxGeoset_get_skinData_data(self.raw.as_ptr()) as *mut u8;
+            let p = ffi::whiteout_mdx_MdxGeoset_get_skinData_data(self.raw.as_ptr()) as *mut u16;
             if p.is_null() || n == 0 {
                 &mut []
             } else {
@@ -4064,7 +4064,7 @@ impl Geoset {
         }
     }
 
-    pub fn set_skin_data(&mut self, values: &[u8]) {
+    pub fn set_skin_data(&mut self, values: &[u16]) {
         // SAFETY: the native side copies `values` before returning.
         unsafe {
             ffi::whiteout_mdx_MdxGeoset_assign_skinData(
@@ -9515,10 +9515,10 @@ pub mod ffi {
         pub fn whiteout_mdx_MdxGeoset_resize_skinData(self_: *mut whiteout_MdxGeoset, count: usize);
         pub fn whiteout_mdx_MdxGeoset_get_skinData_data(
             self_: *mut whiteout_MdxGeoset,
-        ) -> *const u8;
+        ) -> *const u16;
         pub fn whiteout_mdx_MdxGeoset_assign_skinData(
             self_: *mut whiteout_MdxGeoset,
-            data: *const u8,
+            data: *const u16,
             count: usize,
         );
         pub fn whiteout_mdx_MdxGeoset_get_textureCoordinateSets_count(

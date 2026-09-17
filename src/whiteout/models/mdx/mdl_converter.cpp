@@ -866,10 +866,10 @@ void convertGeoset(const MdlNode& block, Model& model) {
                     if (v.isArray()) {
                         for (auto& elem : v.asArray()) {
                             if (elem.isNumber())
-                                geo.skinData.push_back(static_cast<u8>(elem.asNumber()));
+                                geo.skinData.push_back(static_cast<u16>(elem.asNumber()));
                         }
                     } else if (v.isNumber()) {
-                        geo.skinData.push_back(static_cast<u8>(v.asNumber()));
+                        geo.skinData.push_back(static_cast<u16>(v.asNumber()));
                     }
                 }
             } else if (sub->name == "Anim") {

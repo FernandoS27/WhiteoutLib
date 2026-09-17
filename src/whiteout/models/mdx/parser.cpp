@@ -743,28 +743,16 @@ Geoset Parser::Impl::parseGeoset(BinaryReader& reader, u32 /*maxSize*/, Model& m
             u32 const skinDataCount = reader.read<u32>();
             if (mdx.version >= 1400) {
                 // v1400 widened the skin stream to u16 -- four bone indices
-                // then four weights, so an index is no longer capped at 255 --
-                // and the count came with it: it counts those u16s, not bytes.
-                // Read as bytes it takes half the stream and leaves the geoset
-                // walk standing in the middle of the weights, which is why
-                // every 3.0.0 HD geoset lost its texture coordinates.
-                //
-                // Narrowed back to the byte-per-influence form the rest of the
-                // library already speaks. That is lossless for everything
-                // Warcraft III ships (the widest index across 4,652 skinned
-                // geosets is 232) and an index that really needs the second
-                // byte is reported rather than quietly truncated.
-                auto const wide = reader.read<std::vector<u16>>(skinDataCount);
-                geoset.skinData.resize(wide.size());
-                bool truncated = false;
-                for (std::size_t i = 0; i < wide.size(); ++i) {
-                    truncated = truncated || wide[i] > 0xFF;
-                    geoset.skinData[i] = static_cast<u8>(wide[i]);
-                }
-                if (truncated)
-                    issues.push_back("Geoset skin value above 255 truncated to a byte");
+                // then four weights -- and the count came with it: it counts
+                // those u16s, not bytes. Read as bytes it takes half the stream
+                // and leaves the geoset walk standing in the middle of the
+                // weights, which is why every 3.0.0 HD geoset lost its texture
+                // coordinates. The width is real: 3.0.0's cinematics index up
+                // to 2,643 bones.
+                geoset.skinData = reader.read<std::vector<u16>>(skinDataCount);
             } else {
-                geoset.skinData = reader.read<std::vector<u8>>(skinDataCount);
+                auto const narrow = reader.read<std::vector<u8>>(skinDataCount);
+                geoset.skinData.assign(narrow.begin(), narrow.end());
             }
             break;
         }

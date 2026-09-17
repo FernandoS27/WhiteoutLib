@@ -378,24 +378,24 @@ public final class Geoset implements AutoCloseable {
         NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_resize_tangents, handle, (long) count);
     }
     /**
-     * Bone indices and weights
+     * Four bone indices then four weights (summing to 255) per vertex. u16 because v1400+ stores them that way and cinematics index past 255 bones; files below 1400 store bytes.
      * @return the skinData field of this MdxGeoset.
      */
     public int getSkinDataCount() {
         return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_skinData_count, handle);
     }
-    public byte[] getSkinData() {
+    public short[] getSkinData() {
         long __count = (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_skinData_count, handle);
         MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_skinData_data, handle);
-        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new byte[0];
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
         long __scalars = __count * 1L;
-        return __ptr.reinterpret(__scalars * 1L).toArray(ValueLayout.JAVA_BYTE);
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
-    public void setSkinData(byte[] values) {
+    public void setSkinData(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
-            MemorySegment __seg = arena.allocate((long) values.length * 1L);
-            if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_BYTE, 0, values.length);
+            MemorySegment __seg = arena.allocate((long) values.length * 2L);
+            if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
             NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_assign_skinData, handle, __seg, __count);
         }
     }

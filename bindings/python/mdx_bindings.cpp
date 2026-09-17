@@ -556,13 +556,7 @@ A geoset is a complete mesh with vertices, normals, faces, and skinning data. Mo
         .def_readwrite("extent", &whiteout::mdx::Geoset::extent, R"doc(Bounding volume)doc")
         .def_readwrite("sequence_extents", &whiteout::mdx::Geoset::sequenceExtents, R"doc(Per-sequence bounding volumes)doc")
         .def_readwrite("tangents", &whiteout::mdx::Geoset::tangents, R"doc(Tangent vectors (for normal mapping))doc")
-        .def_readwrite("skin_data", &whiteout::mdx::Geoset::skinData, R"doc(Bone indices and weights)doc")
-        .def("skin_data_view",
-            [](const whiteout::mdx::Geoset& self) {
-                return py::memoryview::from_memory(
-                    static_cast<const void*>(self.skinData.data()),
-                    static_cast<py::ssize_t>(self.skinData.size()));
-            })
+        .def_readwrite("skin_data", &whiteout::mdx::Geoset::skinData, R"doc(Four bone indices then four weights (summing to 255) per vertex. u16 because v1400+ stores them that way and cinematics index past 255 bones; files below 1400 store bytes.)doc")
         .def_readwrite("texture_coordinate_sets", &whiteout::mdx::Geoset::textureCoordinateSets, R"doc(UV coordinates (multiple sets))doc")
     ;
 

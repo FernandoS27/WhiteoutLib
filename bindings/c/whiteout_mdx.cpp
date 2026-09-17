@@ -1246,15 +1246,15 @@ void whiteout_mdx_MdxGeoset_resize_skinData(whiteout_MdxGeoset* self, size_t cou
     reinterpret_cast<whiteout::mdx::Geoset*>(self)->skinData.resize(count);
 }
 
-const uint8_t* whiteout_mdx_MdxGeoset_get_skinData_data(const whiteout_MdxGeoset* self) {
+const uint16_t* whiteout_mdx_MdxGeoset_get_skinData_data(const whiteout_MdxGeoset* self) {
     const auto& __v = reinterpret_cast<const whiteout::mdx::Geoset*>(self)->skinData;
-    return __v.empty() ? nullptr : reinterpret_cast<const uint8_t*>(__v.data());
+    return __v.empty() ? nullptr : reinterpret_cast<const uint16_t*>(__v.data());
 }
 
-void whiteout_mdx_MdxGeoset_assign_skinData(whiteout_MdxGeoset* self, const uint8_t* data, size_t count) {
+void whiteout_mdx_MdxGeoset_assign_skinData(whiteout_MdxGeoset* self, const uint16_t* data, size_t count) {
     auto& __v = reinterpret_cast<whiteout::mdx::Geoset*>(self)->skinData;
     __v.resize(count);
-    if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::u8));
+    if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::u16));
 }
 
 size_t whiteout_mdx_MdxGeoset_get_textureCoordinateSets_count(const whiteout_MdxGeoset* self) {

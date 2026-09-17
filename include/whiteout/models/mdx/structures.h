@@ -454,7 +454,10 @@ struct Geoset {
     std::vector<Extent> sequenceExtents; ///< Per-sequence bounding volumes
 
     std::vector<Vector4f> tangents; ///< Tangent vectors (for normal mapping)
-    std::vector<u8> skinData;       ///< @bind array_with_view — Bone indices and weights
+    /// Four bone indices then four weights (summing to 255) per vertex. u16 because
+    /// v1400+ stores them that way and cinematics index past 255 bones; files
+    /// below 1400 store bytes.
+    std::vector<u16> skinData;
 
     std::vector<std::vector<Vector2f>> textureCoordinateSets; ///< UV coordinates (multiple sets)
 };

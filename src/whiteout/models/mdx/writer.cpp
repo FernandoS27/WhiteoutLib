@@ -501,16 +501,18 @@ void Writer::Impl::writeGeoset(BinaryWriter& writer, const Geoset& geo, const Mo
         }
 
         // Write optional SKIN. The count is an element count in both
-        // conventions, and one element is one byte here, so only the stream
-        // width changes: v1400 and later spell each influence as a u16 (see
-        // the parser's SKIN case).
+        // conventions, so only the stream width changes: v1400 and later spell
+        // each influence as a u16 (see the parser's SKIN case). Below 1400 a
+        // bone index past 255 has no spelling at all.
         if (!geo.skinData.empty()) {
             writeChunkHeader(writer, SKIN_TAG, geo.skinData.size());
             if (mdx.version >= 1400) {
-                std::vector<u16> const wide(geo.skinData.begin(), geo.skinData.end());
-                writer.write(wide);
-            } else {
                 writer.write(geo.skinData);
+            } else {
+                std::vector<u8> narrow(geo.skinData.size());
+                for (std::size_t i = 0; i < narrow.size(); ++i)
+                    narrow[i] = static_cast<u8>(geo.skinData[i]);
+                writer.write(narrow);
             }
         }
     }

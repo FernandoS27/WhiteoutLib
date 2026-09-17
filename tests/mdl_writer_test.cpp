@@ -872,3 +872,41 @@ TEST_CASE("mdl_write_layer_all_filter_modes", "[mdl_writer]") {
         CHECK(rt.materials[0].layers[0].filterMode == fm);
     }
 }
+
+TEST_CASE("mdx_skin_bone_index_past_255_roundtrips", "[mdl_writer][mdx]") {
+    // 3.0.0 cinematics skin to bone 951 and beyond. Stored as a byte, 369
+    // came back as 113 and the vertex followed the wrong bone.
+    Model model;
+    model.version = 1800;
+    Geoset geo;
+    geo.vertexPositions = {Vector3f(0, 0, 0), Vector3f(1, 0, 0), Vector3f(0, 1, 0)};
+    geo.vertexNormals = {Vector3f(0, 0, 1), Vector3f(0, 0, 1), Vector3f(0, 0, 1)};
+    geo.faces = {0, 1, 2};
+    geo.faceTypeGroups = {4};
+    geo.faceGroups = {3};
+    geo.matrixGroups = {1};
+    geo.matrixIndices = {0};
+    geo.textureCoordinateSets.push_back({Vector2f(0, 0), Vector2f(1, 0), Vector2f(0, 1)});
+    geo.skinData = {369, 951, 0, 0, 200, 55, 0, 0, //
+                    2643, 0, 0, 0, 255, 0, 0, 0, //
+                    7, 0, 0, 0, 255, 0, 0, 0};
+    model.geosets.push_back(geo);
+
+    SECTION("binary MDX") {
+        Writer writer;
+        const std::vector<u8> bytes = writer.write(model);
+        Parser parser;
+        const Model rt = parser.parse(std::span<const u8>(bytes));
+        CHECK_FALSE(parser.hasIssues());
+        REQUIRE(rt.geosets.size() == 1);
+        CHECK(rt.geosets[0].skinData == geo.skinData);
+        // UVAS follows SKIN, so a misread width would lose it.
+        REQUIRE(rt.geosets[0].textureCoordinateSets.size() == 1);
+        CHECK(approx(rt.geosets[0].textureCoordinateSets[0][2].y, 1.0f));
+    }
+    SECTION("MDL text") {
+        auto rt = parseMdl(writeModelToMdl(model));
+        REQUIRE(rt.geosets.size() == 1);
+        CHECK(rt.geosets[0].skinData == geo.skinData);
+    }
+}

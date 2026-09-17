@@ -953,9 +953,9 @@ void WriteGeosetSkin(mdx::Geoset& geoset, const std::vector<u32>& sourceOf,
             if (slot > 0xFFu) {
                 continue;
             }
-            geoset.skinData[v * 8 + k] = static_cast<u8>(slot);
+            geoset.skinData[v * 8 + k] = static_cast<u16>(slot);
             geoset.skinData[v * 8 + 4 + k] =
-                static_cast<u8>(std::clamp(entry.weights[k], 0.0f, 1.0f) * 255.0f + 0.5f);
+                static_cast<u16>(std::clamp(entry.weights[k], 0.0f, 1.0f) * 255.0f + 0.5f);
         }
     }
 }
