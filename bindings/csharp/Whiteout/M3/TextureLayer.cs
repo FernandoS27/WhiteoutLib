@@ -149,7 +149,7 @@ public sealed class TextureLayer : WhiteoutHandle
     }
 
 
-    /// <summary>UV source related field</summary>
+    /// <summary>Layer whose UV setup this one shares; -1 = own</summary>
     public uint UvSourceRelated
     {
         get => NativeMethods.whiteout_m3_M3TextureLayer_get_uvSourceRelated(DangerousGet());

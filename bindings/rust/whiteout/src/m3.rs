@@ -860,8 +860,8 @@ impl MaterialFlag {
     pub const VERTEX_COLOR: Self = Self(1);
     /// Enable vertex alpha
     pub const VERTEX_ALPHA: Self = Self(2);
-    /// Not affected by fog
-    pub const UNFOGGED: Self = Self(4);
+    /// Blend the normal-blend layers by factors 0-3 (v19+)
+    pub const NORMAL_BLEND: Self = Self(4);
     /// Two-sided rendering
     pub const TWO_SIDED: Self = Self(8);
     /// Unlit / unshaded
@@ -880,8 +880,8 @@ impl MaterialFlag {
     pub const SIMULATE_ROUGHNESS: Self = Self(2048);
     /// Pixel forward lighting
     pub const PIXEL_FORWARD_LIGHTING: Self = Self(4096);
-    /// Depth-based fog
-    pub const DEPTH_FOG: Self = Self(8192);
+    /// Not affected by fog
+    pub const UNFOGGED: Self = Self(8192);
     /// Transparent shadows
     pub const TRANSPARENT_SHADOWS: Self = Self(16384);
     /// Decal lighting mode
@@ -908,6 +908,8 @@ impl MaterialFlag {
     pub const ACCEPT_SPLATS_ONLY: Self = Self(33554432);
     /// Background object
     pub const BACKGROUND_OBJECT: Self = Self(67108864);
+    /// Second normal blend, by factors 4-7 (v19+)
+    pub const NORMAL_BLEND_2: Self = Self(134217728);
     /// Depth prepass low LOD
     pub const DEPTH_PREPASS_LOW_REQUIRED: Self = Self(268435456);
     /// Disable highlighting
@@ -2846,15 +2848,22 @@ impl SubTrackContainer {
         }
     }
 
-    /// Alignment padding
-    pub fn padding(&self) -> u16 {
+    /// Second copy of the STS_ index; every one of the 2,197 shipped containers repeats the index here
+    pub fn animation_state_index_copy(&self) -> u16 {
         // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3SubTrackContainer_get_padding(self.raw.as_ptr()) }
+        unsafe {
+            ffi::whiteout_m3_M3SubTrackContainer_get_animationStateIndexCopy(self.raw.as_ptr())
+        }
     }
 
-    pub fn set_padding(&mut self, value: u16) {
+    pub fn set_animation_state_index_copy(&mut self, value: u16) {
         // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m3_M3SubTrackContainer_set_padding(self.raw.as_ptr(), value) }
+        unsafe {
+            ffi::whiteout_m3_M3SubTrackContainer_set_animationStateIndexCopy(
+                self.raw.as_ptr(),
+                value,
+            )
+        }
     }
 
     /// Animation IDs (U32_)
@@ -8408,6 +8417,8 @@ impl Default for MaterialMap {
 /// LAYR — Texture layer (v0–v26, 352–464 bytes)
 ///
 /// A single texture binding with animated color tint, UV transforms, flipbook parameters, fresnel settings, and AVI video playback controls. Materials embed multiple optional TextureLayer instances for diffuse, specular, emissive, normal, and other texture slots.
+///
+/// Every field is initialised for the same reason `StandardMaterial`'s are: the parser fills all of them, but a conversion builds a layer from scratch (`layerFrom`) and a default-initialised one handed to the writer carries stack junk into the file. It did -- the halves of live heap pointers landed in `flipbookColumns`, `textureSource` and the fresnel fields of every exported layer, and the Galaxy editor crashed on the ones whose low byte came out zero (`reference_m3_layer_stack_junk`).
 pub struct TextureLayer {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M3TextureLayer>,
 }
@@ -8914,7 +8925,7 @@ impl TextureLayer {
         }
     }
 
-    /// Animated map alpha
+    /// Animated map alpha; rests at one (above)
     /// Borrows the field in place — no copy, no allocation.
     pub fn map_alpha(&self) -> crate::support::Ref<'_, AnimRefF32> {
         // SAFETY: an interior pointer into `self`, valid for this
@@ -8989,7 +9000,7 @@ impl TextureLayer {
         }
     }
 
-    /// UV source related field
+    /// Layer whose UV setup this one shares; -1 = own
     pub fn uv_source_related(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3TextureLayer_get_uvSourceRelated(self.raw.as_ptr()) }
@@ -10944,7 +10955,7 @@ impl ReflectionMaterial {
         unsafe { ffi::whiteout_m3_M3ReflectionMaterial_set_flags(self.raw.as_ptr(), value.0) }
     }
 
-    /// Unknown field
+    /// Index of the DataDrivenMaterial this was converted into, 0xFFFFFFFF if none (v3+). Written by the Heroes load-time conversion pass, not a material parameter; meaningless in a model that carries no MADD chunk. v3 exists only to hold it. Defaulted because an invented REF_ has no link to name, and a v3 record that says anything else points the Heroes loader at a MADD index.
     pub fn unknown_2(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3ReflectionMaterial_get_unknown2(self.raw.as_ptr()) }
@@ -12375,6 +12386,13 @@ impl DataDrivenMaterial {
             ffi::whiteout_m3_M3DataDrivenMaterial_setVersion(self.raw.as_ptr(), new_version) != 0
         }
     }
+
+    pub fn force_version(&mut self, new_version: i32) {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            ffi::whiteout_m3_M3DataDrivenMaterial_forceVersion(self.raw.as_ptr(), new_version);
+        }
+    }
 }
 
 impl Default for DataDrivenMaterial {
@@ -12706,7 +12724,7 @@ impl Region {
         unsafe { ffi::whiteout_m3_M3Region_set_indexCount(self.raw.as_ptr(), value) }
     }
 
-    /// Unknown field
+    /// Repeats boneLookupCount (874 of 874 shipped regions)
     pub fn unknown_2(&self) -> u16 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3Region_get_unknown2(self.raw.as_ptr()) }
@@ -13462,7 +13480,7 @@ impl HitTestShape {
         }
     }
 
-    /// Shape type (box/sphere/capsule/cylinder/mesh)
+    /// Shape type (box/sphere/capsule/cylinder/mesh). Defaulted because a conversion builds `MODL.tightHitTestObject` without ever assigning it, and an indeterminate enum wrote junk shape types into every export (`reference_m3_layer_stack_junk`, the same defect one field over). Sphere is what 2,222 of 2,448 shipped models state.
     pub fn shape_type(&self) -> HitTestShapeType {
         // SAFETY: scalar read; the discriminant is validated below.
         unsafe { ffi::whiteout_m3_M3HitTestShape_get_shapeType(self.raw.as_ptr()) }
@@ -19268,7 +19286,7 @@ impl Model {
         unsafe { ffi::whiteout_m3_M3Model_set_name(self.raw.as_ptr(), value.as_ptr()) }
     }
 
-    /// Model flags (tangents, FOW, instancing, etc.)
+    /// Not `None`: only 21 of the corpus's 56,146 models leave this at zero. These three are latches saying "this work is already done, do not redo it", and the converter does all three -- it sorts every `STC_`'s animIds, states `kAnimRefBound` on every bound AnimRef, and derives every `BONE.flags` from those (`m3_anim::SolveBoneAnimFlags`). The rest of the shipped bits are left clear so the editor recomputes them. A parsed or restored model overwrites this wholesale.
     pub fn flags(&self) -> ModelFlag {
         // SAFETY: scalar read; a flag set accepts any bits.
         ModelFlag(unsafe { ffi::whiteout_m3_M3Model_get_flags(self.raw.as_ptr()) })
@@ -23934,10 +23952,10 @@ pub mod ffi {
             self_: *mut whiteout_M3SubTrackContainer,
             value: u16,
         );
-        pub fn whiteout_m3_M3SubTrackContainer_get_padding(
+        pub fn whiteout_m3_M3SubTrackContainer_get_animationStateIndexCopy(
             self_: *mut whiteout_M3SubTrackContainer,
         ) -> u16;
-        pub fn whiteout_m3_M3SubTrackContainer_set_padding(
+        pub fn whiteout_m3_M3SubTrackContainer_set_animationStateIndexCopy(
             self_: *mut whiteout_M3SubTrackContainer,
             value: u16,
         );
@@ -27086,6 +27104,10 @@ pub mod ffi {
             self_: *mut whiteout_M3DataDrivenMaterial,
             new_version: i32,
         ) -> i32;
+        pub fn whiteout_m3_M3DataDrivenMaterial_forceVersion(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+            new_version: i32,
+        );
         // Bone
         pub fn whiteout_m3_M3Bone_new() -> *mut whiteout_M3Bone;
         pub fn whiteout_m3_M3Bone_delete(self_: *mut whiteout_M3Bone);

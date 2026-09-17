@@ -370,8 +370,8 @@ impl Storage {
         pool: Option<&crate::interfaces::HostWorkerPool>,
     ) -> Option<Storage> {
         let product_cstr = CString::new(product).unwrap_or_default();
-        let region_cstr = CString::new(if region.is_empty() { "us" } else { region })
-            .unwrap_or_default();
+        let region_cstr =
+            CString::new(if region.is_empty() { "us" } else { region }).unwrap_or_default();
         let build_key_cstr = CString::new(build_key.unwrap_or("")).unwrap_or_default();
         let cache_dir_cstr = CString::new(cache_dir.unwrap_or("")).unwrap_or_default();
 
@@ -436,6 +436,7 @@ impl Storage {
     /// Same reporting and cancellation rules as [`Storage::open_with_progress`].
     /// `flags` is a `StorageFeatureFlags` bitmask; pass 0 to keep the online
     /// default (fully lazy).
+    #[allow(clippy::too_many_arguments)]
     pub fn open_online_with_progress(
         product: &str,
         region: &str,
@@ -500,9 +501,7 @@ impl Storage {
             // native side never holds a pointer to a dead context.
             unsafe { whiteout_casc_shim_setProgressCallback(handle, cb, user) };
             let out = body(self);
-            unsafe {
-                whiteout_casc_shim_setProgressCallback(handle, None, core::ptr::null_mut())
-            };
+            unsafe { whiteout_casc_shim_setProgressCallback(handle, None, core::ptr::null_mut()) };
             out
         })
     }

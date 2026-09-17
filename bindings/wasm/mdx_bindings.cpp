@@ -424,6 +424,12 @@ EMSCRIPTEN_BINDINGS(mdx) {
         .property("ambientColor", &whiteout::mdx::Light::ambientColor)
         .property("ambientIntensity", &whiteout::mdx::Light::ambientIntensity)
         .property("shadowIntensity", &whiteout::mdx::Light::shadowIntensity)
+        .property("shadowCasting", &whiteout::mdx::Light::shadowCasting)
+        .property("shadowCastingStart", &whiteout::mdx::Light::shadowCastingStart)
+        .property("shadowCastingEnd", &whiteout::mdx::Light::shadowCastingEnd)
+        .property("quadraticFalloff", &whiteout::mdx::Light::quadraticFalloff)
+        .property("linearFalloff", &whiteout::mdx::Light::linearFalloff)
+        .property("damping", &whiteout::mdx::Light::damping)
         .property("attenuationStartTracks", &whiteout::mdx::Light::attenuationStartTracks)
         .property("attenuationEndTracks", &whiteout::mdx::Light::attenuationEndTracks)
         .property("colorTracks", &whiteout::mdx::Light::colorTracks)
@@ -432,6 +438,11 @@ EMSCRIPTEN_BINDINGS(mdx) {
         .property("ambientColorTracks", &whiteout::mdx::Light::ambientColorTracks)
         .property("visibilityTracks", &whiteout::mdx::Light::visibilityTracks)
         .property("shadowIntensityTracks", &whiteout::mdx::Light::shadowIntensityTracks)
+        .property("shadowCastingStartTracks", &whiteout::mdx::Light::shadowCastingStartTracks)
+        .property("shadowCastingEndTracks", &whiteout::mdx::Light::shadowCastingEndTracks)
+        .property("quadraticFalloffTracks", &whiteout::mdx::Light::quadraticFalloffTracks)
+        .property("linearFalloffTracks", &whiteout::mdx::Light::linearFalloffTracks)
+        .property("dampingTracks", &whiteout::mdx::Light::dampingTracks)
     ;
 
     class_<whiteout::mdx::Helper>("MdxHelper")
@@ -565,6 +576,10 @@ EMSCRIPTEN_BINDINGS(mdx) {
         .property("positionTracks", &whiteout::mdx::Camera::positionTracks)
         .property("targetRotationTracks", &whiteout::mdx::Camera::targetRotationTracks)
         .property("targetPositionTracks", &whiteout::mdx::Camera::targetPositionTracks)
+        .property("visibilityTracks", &whiteout::mdx::Camera::visibilityTracks)
+        .property("focusDistanceTracks", &whiteout::mdx::Camera::focusDistanceTracks)
+        .property("focalLengthTracks", &whiteout::mdx::Camera::focalLengthTracks)
+        .property("fStopTracks", &whiteout::mdx::Camera::fStopTracks)
     ;
 
     class_<whiteout::mdx::CollisionShape>("MdxCollisionShape")

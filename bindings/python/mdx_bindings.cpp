@@ -600,6 +600,12 @@ Lights can be attached to bones to move with animations. They affect how the mod
         .def_readwrite("ambient_color", &whiteout::mdx::Light::ambientColor, R"doc(Ambient light color)doc")
         .def_readwrite("ambient_intensity", &whiteout::mdx::Light::ambientIntensity, R"doc(Ambient intensity)doc")
         .def_readwrite("shadow_intensity", &whiteout::mdx::Light::shadowIntensity, R"doc(Shadow darkness (Reforged))doc")
+        .def_readwrite("shadow_casting", &whiteout::mdx::Light::shadowCasting, R"doc(v1300+, stored as a u32 on disk)doc")
+        .def_readwrite("shadow_casting_start", &whiteout::mdx::Light::shadowCastingStart, R"doc(v1300+)doc")
+        .def_readwrite("shadow_casting_end", &whiteout::mdx::Light::shadowCastingEnd, R"doc(v1300+)doc")
+        .def_readwrite("quadratic_falloff", &whiteout::mdx::Light::quadraticFalloff, R"doc(v1600+)doc")
+        .def_readwrite("linear_falloff", &whiteout::mdx::Light::linearFalloff, R"doc(v1600+)doc")
+        .def_readwrite("damping", &whiteout::mdx::Light::damping, R"doc(v1600+)doc")
         .def_readwrite("attenuation_start_tracks", &whiteout::mdx::Light::attenuationStartTracks, R"doc(Attenuation start animation)doc")
         .def_readwrite("attenuation_end_tracks", &whiteout::mdx::Light::attenuationEndTracks, R"doc(Attenuation end animation)doc")
         .def_readwrite("color_tracks", &whiteout::mdx::Light::colorTracks, R"doc(Color animation)doc")
@@ -608,6 +614,11 @@ Lights can be attached to bones to move with animations. They affect how the mod
         .def_readwrite("ambient_color_tracks", &whiteout::mdx::Light::ambientColorTracks, R"doc(Ambient color animation)doc")
         .def_readwrite("visibility_tracks", &whiteout::mdx::Light::visibilityTracks, R"doc(Visibility animation)doc")
         .def_readwrite("shadow_intensity_tracks", &whiteout::mdx::Light::shadowIntensityTracks, R"doc(Shadow intensity animation (Reforged))doc")
+        .def_readwrite("shadow_casting_start_tracks", &whiteout::mdx::Light::shadowCastingStartTracks, R"doc(KLSS, v1300+)doc")
+        .def_readwrite("shadow_casting_end_tracks", &whiteout::mdx::Light::shadowCastingEndTracks, R"doc(KLSE, v1300+)doc")
+        .def_readwrite("quadratic_falloff_tracks", &whiteout::mdx::Light::quadraticFalloffTracks, R"doc(KLQF, v1600+)doc")
+        .def_readwrite("linear_falloff_tracks", &whiteout::mdx::Light::linearFalloffTracks, R"doc(KLLF, v1600+)doc")
+        .def_readwrite("damping_tracks", &whiteout::mdx::Light::dampingTracks, R"doc(KLDA, v1600+)doc")
     ;
 
     py::class_<whiteout::mdx::Helper>(m, "Helper", R"doc(Helper node (attachment point)
@@ -804,6 +815,10 @@ Cameras define viewpoints that can be used for portrait renders or in-game cutsc
         .def_readwrite("position_tracks", &whiteout::mdx::Camera::positionTracks, R"doc(Position animation)doc")
         .def_readwrite("target_rotation_tracks", &whiteout::mdx::Camera::targetRotationTracks, R"doc(Target rotation animation)doc")
         .def_readwrite("target_position_tracks", &whiteout::mdx::Camera::targetPositionTracks, R"doc(Target position animation)doc")
+        .def_readwrite("visibility_tracks", &whiteout::mdx::Camera::visibilityTracks, R"doc(KCVS)doc")
+        .def_readwrite("focus_distance_tracks", &whiteout::mdx::Camera::focusDistanceTracks, R"doc(IDUF)doc")
+        .def_readwrite("focal_length_tracks", &whiteout::mdx::Camera::focalLengthTracks, R"doc(ELAF)doc")
+        .def_readwrite("f_stop_tracks", &whiteout::mdx::Camera::fStopTracks, R"doc(PTSF)doc")
     ;
 
     py::class_<whiteout::mdx::CollisionShape>(m, "CollisionShape", R"doc(Collision volume for physics

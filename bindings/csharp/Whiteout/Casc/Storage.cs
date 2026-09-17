@@ -47,6 +47,13 @@ public sealed class Storage : WhiteoutHandle
     }
 
 
+    /// <summary>How many entries enumerate() will visit.</summary>
+    public ulong EntryCount
+    {
+        get => NativeMethods.whiteout_casc_CascStorage_entryCount(DangerousGet());
+    }
+
+
     /// <summary>Open an existing local CASC storage. @param path Path to the game's top-level directory (containing .build.info) or its Data subdirectory. @param pool Optional WorkerPool for parallel I/O (non-owning). @return A valid Storage, or std::nullopt on failure.</summary>
     public static Storage? Open(string path, Whiteout.Host.WorkerPool pool)
     {

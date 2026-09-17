@@ -158,7 +158,7 @@ public final class ReflectionMaterial implements AutoCloseable {
         handle.set(ValueLayout.JAVA_INT, 1648L, value.value);
     }
     /**
-     * Unknown field
+     * Index of the DataDrivenMaterial this was converted into, 0xFFFFFFFF if none (v3+). Written by the Heroes load-time conversion pass, not a material parameter; meaningless in a model that carries no MADD chunk. v3 exists only to hold it. Defaulted because an invented REF_ has no link to name, and a v3 record that says anything else points the Heroes loader at a MADD index.
      * @return the unknown2 field of this M3ReflectionMaterial.
      */
     public int getUnknown2() {

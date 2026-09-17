@@ -1475,6 +1475,54 @@ void whiteout_mdx_MdxLight_set_shadowIntensity(whiteout_MdxLight* self, float va
     reinterpret_cast<whiteout::mdx::Light*>(self)->shadowIntensity = value;
 }
 
+int32_t whiteout_mdx_MdxLight_get_shadowCasting(const whiteout_MdxLight* self) {
+    return reinterpret_cast<const whiteout::mdx::Light*>(self)->shadowCasting;
+}
+
+void whiteout_mdx_MdxLight_set_shadowCasting(whiteout_MdxLight* self, int32_t value) {
+    reinterpret_cast<whiteout::mdx::Light*>(self)->shadowCasting = value;
+}
+
+float whiteout_mdx_MdxLight_get_shadowCastingStart(const whiteout_MdxLight* self) {
+    return reinterpret_cast<const whiteout::mdx::Light*>(self)->shadowCastingStart;
+}
+
+void whiteout_mdx_MdxLight_set_shadowCastingStart(whiteout_MdxLight* self, float value) {
+    reinterpret_cast<whiteout::mdx::Light*>(self)->shadowCastingStart = value;
+}
+
+float whiteout_mdx_MdxLight_get_shadowCastingEnd(const whiteout_MdxLight* self) {
+    return reinterpret_cast<const whiteout::mdx::Light*>(self)->shadowCastingEnd;
+}
+
+void whiteout_mdx_MdxLight_set_shadowCastingEnd(whiteout_MdxLight* self, float value) {
+    reinterpret_cast<whiteout::mdx::Light*>(self)->shadowCastingEnd = value;
+}
+
+float whiteout_mdx_MdxLight_get_quadraticFalloff(const whiteout_MdxLight* self) {
+    return reinterpret_cast<const whiteout::mdx::Light*>(self)->quadraticFalloff;
+}
+
+void whiteout_mdx_MdxLight_set_quadraticFalloff(whiteout_MdxLight* self, float value) {
+    reinterpret_cast<whiteout::mdx::Light*>(self)->quadraticFalloff = value;
+}
+
+float whiteout_mdx_MdxLight_get_linearFalloff(const whiteout_MdxLight* self) {
+    return reinterpret_cast<const whiteout::mdx::Light*>(self)->linearFalloff;
+}
+
+void whiteout_mdx_MdxLight_set_linearFalloff(whiteout_MdxLight* self, float value) {
+    reinterpret_cast<whiteout::mdx::Light*>(self)->linearFalloff = value;
+}
+
+float whiteout_mdx_MdxLight_get_damping(const whiteout_MdxLight* self) {
+    return reinterpret_cast<const whiteout::mdx::Light*>(self)->damping;
+}
+
+void whiteout_mdx_MdxLight_set_damping(whiteout_MdxLight* self, float value) {
+    reinterpret_cast<whiteout::mdx::Light*>(self)->damping = value;
+}
+
 whiteout_MdxTrackF32* whiteout_mdx_MdxLight_get_attenuationStartTracks(whiteout_MdxLight* self) {
     return reinterpret_cast<whiteout_MdxTrackF32*>(&reinterpret_cast<whiteout::mdx::Light*>(self)->attenuationStartTracks);
 }
@@ -1537,6 +1585,46 @@ whiteout_MdxTrackF32* whiteout_mdx_MdxLight_get_shadowIntensityTracks(whiteout_M
 
 void whiteout_mdx_MdxLight_set_shadowIntensityTracks(whiteout_MdxLight* self, const whiteout_MdxTrackF32* value) {
     reinterpret_cast<whiteout::mdx::Light*>(self)->shadowIntensityTracks = *reinterpret_cast<const whiteout::mdx::Track<whiteout::f32>*>(value);
+}
+
+whiteout_MdxTrackF32* whiteout_mdx_MdxLight_get_shadowCastingStartTracks(whiteout_MdxLight* self) {
+    return reinterpret_cast<whiteout_MdxTrackF32*>(&reinterpret_cast<whiteout::mdx::Light*>(self)->shadowCastingStartTracks);
+}
+
+void whiteout_mdx_MdxLight_set_shadowCastingStartTracks(whiteout_MdxLight* self, const whiteout_MdxTrackF32* value) {
+    reinterpret_cast<whiteout::mdx::Light*>(self)->shadowCastingStartTracks = *reinterpret_cast<const whiteout::mdx::Track<whiteout::f32>*>(value);
+}
+
+whiteout_MdxTrackF32* whiteout_mdx_MdxLight_get_shadowCastingEndTracks(whiteout_MdxLight* self) {
+    return reinterpret_cast<whiteout_MdxTrackF32*>(&reinterpret_cast<whiteout::mdx::Light*>(self)->shadowCastingEndTracks);
+}
+
+void whiteout_mdx_MdxLight_set_shadowCastingEndTracks(whiteout_MdxLight* self, const whiteout_MdxTrackF32* value) {
+    reinterpret_cast<whiteout::mdx::Light*>(self)->shadowCastingEndTracks = *reinterpret_cast<const whiteout::mdx::Track<whiteout::f32>*>(value);
+}
+
+whiteout_MdxTrackF32* whiteout_mdx_MdxLight_get_quadraticFalloffTracks(whiteout_MdxLight* self) {
+    return reinterpret_cast<whiteout_MdxTrackF32*>(&reinterpret_cast<whiteout::mdx::Light*>(self)->quadraticFalloffTracks);
+}
+
+void whiteout_mdx_MdxLight_set_quadraticFalloffTracks(whiteout_MdxLight* self, const whiteout_MdxTrackF32* value) {
+    reinterpret_cast<whiteout::mdx::Light*>(self)->quadraticFalloffTracks = *reinterpret_cast<const whiteout::mdx::Track<whiteout::f32>*>(value);
+}
+
+whiteout_MdxTrackF32* whiteout_mdx_MdxLight_get_linearFalloffTracks(whiteout_MdxLight* self) {
+    return reinterpret_cast<whiteout_MdxTrackF32*>(&reinterpret_cast<whiteout::mdx::Light*>(self)->linearFalloffTracks);
+}
+
+void whiteout_mdx_MdxLight_set_linearFalloffTracks(whiteout_MdxLight* self, const whiteout_MdxTrackF32* value) {
+    reinterpret_cast<whiteout::mdx::Light*>(self)->linearFalloffTracks = *reinterpret_cast<const whiteout::mdx::Track<whiteout::f32>*>(value);
+}
+
+whiteout_MdxTrackF32* whiteout_mdx_MdxLight_get_dampingTracks(whiteout_MdxLight* self) {
+    return reinterpret_cast<whiteout_MdxTrackF32*>(&reinterpret_cast<whiteout::mdx::Light*>(self)->dampingTracks);
+}
+
+void whiteout_mdx_MdxLight_set_dampingTracks(whiteout_MdxLight* self, const whiteout_MdxTrackF32* value) {
+    reinterpret_cast<whiteout::mdx::Light*>(self)->dampingTracks = *reinterpret_cast<const whiteout::mdx::Track<whiteout::f32>*>(value);
 }
 
 } // extern "C"
@@ -2345,6 +2433,38 @@ whiteout_MdxTrackVector3f* whiteout_mdx_MdxCamera_get_targetPositionTracks(white
 
 void whiteout_mdx_MdxCamera_set_targetPositionTracks(whiteout_MdxCamera* self, const whiteout_MdxTrackVector3f* value) {
     reinterpret_cast<whiteout::mdx::Camera*>(self)->targetPositionTracks = *reinterpret_cast<const whiteout::mdx::Track<whiteout::Vector3f>*>(value);
+}
+
+whiteout_MdxTrackF32* whiteout_mdx_MdxCamera_get_visibilityTracks(whiteout_MdxCamera* self) {
+    return reinterpret_cast<whiteout_MdxTrackF32*>(&reinterpret_cast<whiteout::mdx::Camera*>(self)->visibilityTracks);
+}
+
+void whiteout_mdx_MdxCamera_set_visibilityTracks(whiteout_MdxCamera* self, const whiteout_MdxTrackF32* value) {
+    reinterpret_cast<whiteout::mdx::Camera*>(self)->visibilityTracks = *reinterpret_cast<const whiteout::mdx::Track<whiteout::f32>*>(value);
+}
+
+whiteout_MdxTrackF32* whiteout_mdx_MdxCamera_get_focusDistanceTracks(whiteout_MdxCamera* self) {
+    return reinterpret_cast<whiteout_MdxTrackF32*>(&reinterpret_cast<whiteout::mdx::Camera*>(self)->focusDistanceTracks);
+}
+
+void whiteout_mdx_MdxCamera_set_focusDistanceTracks(whiteout_MdxCamera* self, const whiteout_MdxTrackF32* value) {
+    reinterpret_cast<whiteout::mdx::Camera*>(self)->focusDistanceTracks = *reinterpret_cast<const whiteout::mdx::Track<whiteout::f32>*>(value);
+}
+
+whiteout_MdxTrackF32* whiteout_mdx_MdxCamera_get_focalLengthTracks(whiteout_MdxCamera* self) {
+    return reinterpret_cast<whiteout_MdxTrackF32*>(&reinterpret_cast<whiteout::mdx::Camera*>(self)->focalLengthTracks);
+}
+
+void whiteout_mdx_MdxCamera_set_focalLengthTracks(whiteout_MdxCamera* self, const whiteout_MdxTrackF32* value) {
+    reinterpret_cast<whiteout::mdx::Camera*>(self)->focalLengthTracks = *reinterpret_cast<const whiteout::mdx::Track<whiteout::f32>*>(value);
+}
+
+whiteout_MdxTrackF32* whiteout_mdx_MdxCamera_get_fStopTracks(whiteout_MdxCamera* self) {
+    return reinterpret_cast<whiteout_MdxTrackF32*>(&reinterpret_cast<whiteout::mdx::Camera*>(self)->fStopTracks);
+}
+
+void whiteout_mdx_MdxCamera_set_fStopTracks(whiteout_MdxCamera* self, const whiteout_MdxTrackF32* value) {
+    reinterpret_cast<whiteout::mdx::Camera*>(self)->fStopTracks = *reinterpret_cast<const whiteout::mdx::Track<whiteout::f32>*>(value);
 }
 
 } // extern "C"

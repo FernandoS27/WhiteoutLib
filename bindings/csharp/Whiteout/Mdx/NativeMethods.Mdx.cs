@@ -729,6 +729,48 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
+    internal static partial int whiteout_mdx_MdxLight_get_shadowCasting(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_mdx_MdxLight_set_shadowCasting(IntPtr self, int value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_mdx_MdxLight_get_shadowCastingStart(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_mdx_MdxLight_set_shadowCastingStart(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_mdx_MdxLight_get_shadowCastingEnd(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_mdx_MdxLight_set_shadowCastingEnd(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_mdx_MdxLight_get_quadraticFalloff(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_mdx_MdxLight_set_quadraticFalloff(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_mdx_MdxLight_get_linearFalloff(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_mdx_MdxLight_set_linearFalloff(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_mdx_MdxLight_get_damping(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_mdx_MdxLight_set_damping(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
     internal static partial IntPtr whiteout_mdx_MdxHelper_new();
 
     [LibraryImport(Runtime.LibraryName)]

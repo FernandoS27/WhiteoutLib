@@ -113,6 +113,14 @@ public final class DataDrivenMaterial implements AutoCloseable {
     }
 
     /**
+     * Native method wrapping {@code DataDrivenMaterial::forceVersion}.
+     * @param newVersion int input.
+     */
+    public void forceVersion(int newVersion) {
+        NativeCommon.invokeNative(Native.whiteout_m3_M3DataDrivenMaterial_forceVersion, handle, newVersion);
+    }
+
+    /**
      * Material name (Ref<CHAR>)
      * @return the materialName field of this M3DataDrivenMaterial.
      */

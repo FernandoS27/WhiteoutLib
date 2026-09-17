@@ -364,7 +364,7 @@ Recovered from `CBBSolver::ApplyBillboard` (SC2 `0x1027F1F30`). The aim directio
         .value("NONE", whiteout::m3::MaterialFlag::None)
         .value("VERTEX_COLOR", whiteout::m3::MaterialFlag::VertexColor, R"doc(Enable vertex color)doc")
         .value("VERTEX_ALPHA", whiteout::m3::MaterialFlag::VertexAlpha, R"doc(Enable vertex alpha)doc")
-        .value("UNFOGGED", whiteout::m3::MaterialFlag::Unfogged, R"doc(Not affected by fog)doc")
+        .value("NORMAL_BLEND", whiteout::m3::MaterialFlag::NormalBlend, R"doc(Blend the normal-blend layers by factors 0-3 (v19+))doc")
         .value("TWO_SIDED", whiteout::m3::MaterialFlag::TwoSided, R"doc(Two-sided rendering)doc")
         .value("UNSHADED", whiteout::m3::MaterialFlag::Unshaded, R"doc(Unlit / unshaded)doc")
         .value("NO_SHADOWS_CAST", whiteout::m3::MaterialFlag::NoShadowsCast, R"doc(Does not cast shadows)doc")
@@ -374,7 +374,7 @@ Recovered from `CBBSolver::ApplyBillboard` (SC2 `0x1027F1F30`). The aim directio
         .value("TERRAIN_HDR", whiteout::m3::MaterialFlag::TerrainHDR, R"doc(Terrain HDR mode)doc")
         .value("SIMULATE_ROUGHNESS", whiteout::m3::MaterialFlag::SimulateRoughness, R"doc(Simulate roughness)doc")
         .value("PIXEL_FORWARD_LIGHTING", whiteout::m3::MaterialFlag::PixelForwardLighting, R"doc(Pixel forward lighting)doc")
-        .value("DEPTH_FOG", whiteout::m3::MaterialFlag::DepthFog, R"doc(Depth-based fog)doc")
+        .value("UNFOGGED", whiteout::m3::MaterialFlag::Unfogged, R"doc(Not affected by fog)doc")
         .value("TRANSPARENT_SHADOWS", whiteout::m3::MaterialFlag::TransparentShadows, R"doc(Transparent shadows)doc")
         .value("DECAL_LIGHTING", whiteout::m3::MaterialFlag::DecalLighting, R"doc(Decal lighting mode)doc")
         .value("TRANSPARENT_DEPTH_EFFECTS", whiteout::m3::MaterialFlag::TransparentDepthEffects, R"doc(Transparent depth effects)doc")
@@ -388,6 +388,7 @@ Recovered from `CBBSolver::ApplyBillboard` (SC2 `0x1027F1F30`). The aim directio
         .value("SPEC_LOW_REQUIRED", whiteout::m3::MaterialFlag::SpecLowRequired, R"doc(Specular low LOD required)doc")
         .value("ACCEPT_SPLATS_ONLY", whiteout::m3::MaterialFlag::AcceptSplatsOnly, R"doc(Accept splats only)doc")
         .value("BACKGROUND_OBJECT", whiteout::m3::MaterialFlag::BackgroundObject, R"doc(Background object)doc")
+        .value("NORMAL_BLEND2", whiteout::m3::MaterialFlag::NormalBlend2, R"doc(Second normal blend, by factors 4-7 (v19+))doc")
         .value("DEPTH_PREPASS_LOW_REQUIRED", whiteout::m3::MaterialFlag::DepthPrepassLowRequired, R"doc(Depth prepass low LOD)doc")
         .value("NO_HIGHLIGHTING", whiteout::m3::MaterialFlag::NoHighlighting, R"doc(Disable highlighting)doc")
         .value("CLAMP_OUTPUT", whiteout::m3::MaterialFlag::ClampOutput, R"doc(Clamp output)doc")
@@ -695,7 +696,7 @@ Binds animation IDs to concrete keyframe data stored in 13 typed AnimBlock array
         .def_readwrite("runs_concurrent", &whiteout::m3::SubTrackContainer::runsConcurrent, R"doc(Non-zero if runs concurrently)doc")
         .def_readwrite("anim_priority", &whiteout::m3::SubTrackContainer::animPriority, R"doc(Animation priority level)doc")
         .def_readwrite("animation_state_index", &whiteout::m3::SubTrackContainer::animationStateIndex, R"doc(Parent STS_ index)doc")
-        .def_readwrite("padding", &whiteout::m3::SubTrackContainer::padding, R"doc(Alignment padding)doc")
+        .def_readwrite("animation_state_index_copy", &whiteout::m3::SubTrackContainer::animationStateIndexCopy, R"doc(Second copy of the STS_ index; every one of the 2,197 shipped containers repeats the index here)doc")
         .def_readwrite("anim_ids", &whiteout::m3::SubTrackContainer::animIds, R"doc(Animation IDs (U32_))doc")
         .def_readwrite("anim_refs", &whiteout::m3::SubTrackContainer::animRefs, R"doc(Animation reference indices (U32_))doc")
         .def_readwrite("unknown", &whiteout::m3::SubTrackContainer::unknown, R"doc(Unknown field)doc")
@@ -1043,7 +1044,9 @@ Maps a material type enum to an index into the corresponding material array. The
 
     py::class_<whiteout::m3::TextureLayer>(m, "TextureLayer", R"doc(LAYR — Texture layer (v0–v26, 352–464 bytes)
 
-A single texture binding with animated color tint, UV transforms, flipbook parameters, fresnel settings, and AVI video playback controls. Materials embed multiple optional TextureLayer instances for diffuse, specular, emissive, normal, and other texture slots.)doc")
+A single texture binding with animated color tint, UV transforms, flipbook parameters, fresnel settings, and AVI video playback controls. Materials embed multiple optional TextureLayer instances for diffuse, specular, emissive, normal, and other texture slots.
+
+Every field is initialised for the same reason `StandardMaterial`'s are: the parser fills all of them, but a conversion builds a layer from scratch (`layerFrom`) and a default-initialised one handed to the writer carries stack junk into the file. It did -- the halves of live heap pointers landed in `flipbookColumns`, `textureSource` and the fresnel fields of every exported layer, and the Galaxy editor crashed on the ones whose low byte came out zero (`reference_m3_layer_stack_junk`).)doc")
         .def(py::init<>())
         .def_readwrite("id", &whiteout::m3::TextureLayer::id, R"doc(Layer identifier)doc")
         .def_readwrite("texture_path", &whiteout::m3::TextureLayer::texturePath, R"doc(Texture file path (Ref<CHAR>))doc")
@@ -1072,10 +1075,10 @@ A single texture binding with animated color tint, UV transforms, flipbook param
         .def_readwrite("uv_tiling", &whiteout::m3::TextureLayer::uvTiling, R"doc(Animated UV tiling)doc")
         .def_readwrite("w_offset", &whiteout::m3::TextureLayer::wOffset, R"doc(Animated W offset (3D textures))doc")
         .def_readwrite("w_tiling", &whiteout::m3::TextureLayer::wTiling, R"doc(Animated W tiling (3D textures))doc")
-        .def_readwrite("map_alpha", &whiteout::m3::TextureLayer::mapAlpha, R"doc(Animated map alpha)doc")
+        .def_readwrite("map_alpha", &whiteout::m3::TextureLayer::mapAlpha, R"doc(Animated map alpha; rests at one (above))doc")
         .def_readwrite("triplanar_offset", &whiteout::m3::TextureLayer::triplanarOffset, R"doc(Tri-planar UV offset (v23+))doc")
         .def_readwrite("triplanar_scale", &whiteout::m3::TextureLayer::triplanarScale, R"doc(Tri-planar UV scale (v23+))doc")
-        .def_readwrite("uv_source_related", &whiteout::m3::TextureLayer::uvSourceRelated, R"doc(UV source related field)doc")
+        .def_readwrite("uv_source_related", &whiteout::m3::TextureLayer::uvSourceRelated, R"doc(Layer whose UV setup this one shares; -1 = own)doc")
         .def_readwrite("fresnel_mode", &whiteout::m3::TextureLayer::fresnelMode, R"doc(Fresnel effect mode)doc")
         .def_readwrite("fresnel_exponent", &whiteout::m3::TextureLayer::fresnelExponent, R"doc(Fresnel exponent (edge sharpness))doc")
         .def_readwrite("fresnel_min", &whiteout::m3::TextureLayer::fresnelMin, R"doc(Fresnel minimum intensity)doc")
@@ -1256,7 +1259,7 @@ Planar or cube-map reflection material with animated reflection/displacement str
         .def_readwrite("displacement_map", &whiteout::m3::ReflectionMaterial::displacementMap, R"doc(Displacement map texture)doc")
         .def_readwrite("blur_map", &whiteout::m3::ReflectionMaterial::blurMap, R"doc(Blur map texture)doc")
         .def_readwrite("flags", &whiteout::m3::ReflectionMaterial::flags, R"doc(Reflection flags (v2+))doc")
-        .def_readwrite("unknown2", &whiteout::m3::ReflectionMaterial::unknown2, R"doc(Unknown field)doc")
+        .def_readwrite("unknown2", &whiteout::m3::ReflectionMaterial::unknown2, R"doc(Index of the DataDrivenMaterial this was converted into, 0xFFFFFFFF if none (v3+). Written by the Heroes load-time conversion pass, not a material parameter; meaningless in a model that carries no MADD chunk. v3 exists only to hold it. Defaulted because an invented REF_ has no link to name, and a v3 record that says anything else points the Heroes loader at a MADD index.)doc")
     ;
 
     py::class_<whiteout::m3::SubFlare>(m, "SubFlare", R"doc(LFSB — Sub-flare element (v0–v2, 56 bytes)
@@ -1377,6 +1380,7 @@ The engine only converts in the other direction, and does so lossily, so this re
 toStandardMaterial() refuses shader-graph materials, which were authored in the node editor and never had a StandardMaterial form. This infers one anyway, from the node types, the per-node names in extraHashes, and the texture filenames. The blob stores nodes but not the edges between them, so the graph topology cannot be recovered and the result is a likeness, not a conversion — `lossy` always says so. Materials that are already fixed-function are forwarded to toStandardMaterial() unchanged.)doc")
         .def("get_version", &whiteout::m3::DataDrivenMaterial::getVersion)
         .def("set_version", &whiteout::m3::DataDrivenMaterial::setVersion, py::arg("newVersion"))
+        .def("force_version", &whiteout::m3::DataDrivenMaterial::forceVersion, py::arg("newVersion"))
     ;
 
     py::class_<whiteout::m3::Bone>(m, "Bone", R"doc(BONE — Skeleton bone (v0–v1, 160 bytes)
@@ -1404,7 +1408,7 @@ Describes a contiguous range of vertices and indices forming a submesh, with bon
         .def_readwrite("vertex_count", &whiteout::m3::Region::vertexCount, R"doc(Number of vertices)doc")
         .def_readwrite("first_index", &whiteout::m3::Region::firstIndex, R"doc(First index in the index buffer)doc")
         .def_readwrite("index_count", &whiteout::m3::Region::indexCount, R"doc(Number of indices (triangles × 3))doc")
-        .def_readwrite("unknown2", &whiteout::m3::Region::unknown2, R"doc(Unknown field)doc")
+        .def_readwrite("unknown2", &whiteout::m3::Region::unknown2, R"doc(Repeats boneLookupCount (874 of 874 shipped regions))doc")
         .def_readwrite("first_bone_lookup", &whiteout::m3::Region::firstBoneLookup, R"doc(First entry in bone lookup table)doc")
         .def_readwrite("bone_lookup_count", &whiteout::m3::Region::boneLookupCount, R"doc(Number of bone lookup entries)doc")
         .def_readwrite("padding", &whiteout::m3::Region::padding, R"doc(Alignment padding)doc")
@@ -1465,7 +1469,7 @@ Named bone location used by the engine to attach effects, weapons, or other mode
 
 Defines a collision / selection volume (box, sphere, capsule, cylinder, or mesh) attached to a bone. Used for both tight and fuzzy hit testing.)doc")
         .def(py::init<>())
-        .def_readwrite("shape_type", &whiteout::m3::HitTestShape::shapeType, R"doc(Shape type (box/sphere/capsule/cylinder/mesh))doc")
+        .def_readwrite("shape_type", &whiteout::m3::HitTestShape::shapeType, R"doc(Shape type (box/sphere/capsule/cylinder/mesh). Defaulted because a conversion builds `MODL.tightHitTestObject` without ever assigning it, and an indeterminate enum wrote junk shape types into every export (`reference_m3_layer_stack_junk`, the same defect one field over). Sphere is what 2,222 of 2,448 shipped models state.)doc")
         .def_readwrite("bone_index", &whiteout::m3::HitTestShape::boneIndex, R"doc(Index into BONE array)doc")
         .def_readwrite("padding", &whiteout::m3::HitTestShape::padding, R"doc(Alignment padding)doc")
         .def_readwrite("vertex_positions", &whiteout::m3::HitTestShape::vertexPositions, R"doc(Mesh vertex positions (VEC3, mesh type only))doc")
@@ -1883,7 +1887,7 @@ The root of all model data. Contains Ref<T> fields pointing to every sub-chunk i
 Version history: - v23 (784 bytes): Base release layout - v24 (+ikCCD): 796 bytes - v25 (+volumeNoiseMaterials): 808 bytes - v26 (+stbMaterials): 820 bytes - v28 (+reflectionMaterials, +clothPhysics): 844 bytes - v29 (+lensFlareMaterials): 856 bytes - v30 (+dataDrivenMaterials): 868 bytes)doc")
         .def(py::init<>())
         .def_readwrite("name", &whiteout::m3::Model::name, R"doc(Model file path (Ref<CHAR>))doc")
-        .def_readwrite("flags", &whiteout::m3::Model::flags, R"doc(Model flags (tangents, FOW, instancing, etc.))doc")
+        .def_readwrite("flags", &whiteout::m3::Model::flags, R"doc(Not `None`: only 21 of the corpus's 56,146 models leave this at zero. These three are latches saying "this work is already done, do not redo it", and the converter does all three -- it sorts every `STC_`'s animIds, states `kAnimRefBound` on every bound AnimRef, and derives every `BONE.flags` from those (`m3_anim::SolveBoneAnimFlags`). The rest of the shipped bits are left clear so the editor recomputes them. A parsed or restored model overwrites this wholesale.)doc")
         .def_readwrite("sequences", &whiteout::m3::Model::sequences, R"doc(Animation sequences (SEQS))doc")
         .def_readwrite("sub_track_collections", &whiteout::m3::Model::subTrackCollections, R"doc(Sub-track containers (STC_) with keyframe refs)doc")
         .def_readwrite("animation_groups", &whiteout::m3::Model::animationGroups, R"doc(Animation groups (STG_))doc")

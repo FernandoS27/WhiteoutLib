@@ -11,8 +11,8 @@ public enum MaterialFlag {
     VertexColor(1),
     /** Enable vertex alpha */
     VertexAlpha(2),
-    /** Not affected by fog */
-    Unfogged(4),
+    /** Blend the normal-blend layers by factors 0-3 (v19+) */
+    NormalBlend(4),
     /** Two-sided rendering */
     TwoSided(8),
     /** Unlit / unshaded */
@@ -31,8 +31,8 @@ public enum MaterialFlag {
     SimulateRoughness(2048),
     /** Pixel forward lighting */
     PixelForwardLighting(4096),
-    /** Depth-based fog */
-    DepthFog(8192),
+    /** Not affected by fog */
+    Unfogged(8192),
     /** Transparent shadows */
     TransparentShadows(16384),
     /** Decal lighting mode */
@@ -59,6 +59,8 @@ public enum MaterialFlag {
     AcceptSplatsOnly(33554432),
     /** Background object */
     BackgroundObject(67108864),
+    /** Second normal blend, by factors 4-7 (v19+) */
+    NormalBlend2(134217728),
     /** Depth prepass low LOD */
     DepthPrepassLowRequired(268435456),
     /** Disable highlighting */

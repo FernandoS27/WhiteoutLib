@@ -69,7 +69,7 @@ public sealed class Region : WhiteoutHandle
     }
 
 
-    /// <summary>Unknown field</summary>
+    /// <summary>Repeats boneLookupCount (874 of 874 shipped regions)</summary>
     public ushort Unknown2
     {
         get => NativeMethods.whiteout_m3_M3Region_get_unknown2(DangerousGet());

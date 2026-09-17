@@ -85,7 +85,7 @@ public final class Model implements AutoCloseable {
         }
     }
     /**
-     * Model flags (tangents, FOW, instancing, etc.)
+     * Not `None`: only 21 of the corpus's 56,146 models leave this at zero. These three are latches saying "this work is already done, do not redo it", and the converter does all three -- it sorts every `STC_`'s animIds, states `kAnimRefBound` on every bound AnimRef, and derives every `BONE.flags` from those (`m3_anim::SolveBoneAnimFlags`). The rest of the shipped bits are left clear so the editor recomputes them. A parsed or restored model overwrites this wholesale.
      * @return the flags field of this M3Model.
      */
     public ModelFlag getFlags() {

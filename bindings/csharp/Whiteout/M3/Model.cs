@@ -29,7 +29,7 @@ public sealed class Model : WhiteoutHandle
     }
 
 
-    /// <summary>Model flags (tangents, FOW, instancing, etc.)</summary>
+    /// <summary>Not `None`: only 21 of the corpus's 56,146 models leave this at zero. These three are latches saying "this work is already done, do not redo it", and the converter does all three -- it sorts every `STC_`'s animIds, states `kAnimRefBound` on every bound AnimRef, and derives every `BONE.flags` from those (`m3_anim::SolveBoneAnimFlags`). The rest of the shipped bits are left clear so the editor recomputes them. A parsed or restored model overwrites this wholesale.</summary>
     public ModelFlag Flags
     {
         get => (ModelFlag)NativeMethods.whiteout_m3_M3Model_get_flags(DangerousGet());

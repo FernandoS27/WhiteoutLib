@@ -401,6 +401,18 @@ public final class Native {
     public static final MethodHandle whiteout_mdx_MdxLight_set_ambientIntensity = find("whiteout_mdx_MdxLight_set_ambientIntensity", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
     public static final MethodHandle whiteout_mdx_MdxLight_get_shadowIntensity = find("whiteout_mdx_MdxLight_get_shadowIntensity", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_mdx_MdxLight_set_shadowIntensity = find("whiteout_mdx_MdxLight_set_shadowIntensity", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
+    public static final MethodHandle whiteout_mdx_MdxLight_get_shadowCasting = find("whiteout_mdx_MdxLight_get_shadowCasting", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxLight_set_shadowCasting = find("whiteout_mdx_MdxLight_set_shadowCasting", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_mdx_MdxLight_get_shadowCastingStart = find("whiteout_mdx_MdxLight_get_shadowCastingStart", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxLight_set_shadowCastingStart = find("whiteout_mdx_MdxLight_set_shadowCastingStart", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
+    public static final MethodHandle whiteout_mdx_MdxLight_get_shadowCastingEnd = find("whiteout_mdx_MdxLight_get_shadowCastingEnd", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxLight_set_shadowCastingEnd = find("whiteout_mdx_MdxLight_set_shadowCastingEnd", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
+    public static final MethodHandle whiteout_mdx_MdxLight_get_quadraticFalloff = find("whiteout_mdx_MdxLight_get_quadraticFalloff", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxLight_set_quadraticFalloff = find("whiteout_mdx_MdxLight_set_quadraticFalloff", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
+    public static final MethodHandle whiteout_mdx_MdxLight_get_linearFalloff = find("whiteout_mdx_MdxLight_get_linearFalloff", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxLight_set_linearFalloff = find("whiteout_mdx_MdxLight_set_linearFalloff", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
+    public static final MethodHandle whiteout_mdx_MdxLight_get_damping = find("whiteout_mdx_MdxLight_get_damping", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxLight_set_damping = find("whiteout_mdx_MdxLight_set_damping", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
     public static final MethodHandle whiteout_mdx_MdxLight_get_attenuationStartTracks = find("whiteout_mdx_MdxLight_get_attenuationStartTracks", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_mdx_MdxLight_set_attenuationStartTracks = find("whiteout_mdx_MdxLight_set_attenuationStartTracks", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_mdx_MdxLight_get_attenuationEndTracks = find("whiteout_mdx_MdxLight_get_attenuationEndTracks", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
@@ -417,6 +429,16 @@ public final class Native {
     public static final MethodHandle whiteout_mdx_MdxLight_set_visibilityTracks = find("whiteout_mdx_MdxLight_set_visibilityTracks", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_mdx_MdxLight_get_shadowIntensityTracks = find("whiteout_mdx_MdxLight_get_shadowIntensityTracks", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_mdx_MdxLight_set_shadowIntensityTracks = find("whiteout_mdx_MdxLight_set_shadowIntensityTracks", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxLight_get_shadowCastingStartTracks = find("whiteout_mdx_MdxLight_get_shadowCastingStartTracks", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxLight_set_shadowCastingStartTracks = find("whiteout_mdx_MdxLight_set_shadowCastingStartTracks", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxLight_get_shadowCastingEndTracks = find("whiteout_mdx_MdxLight_get_shadowCastingEndTracks", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxLight_set_shadowCastingEndTracks = find("whiteout_mdx_MdxLight_set_shadowCastingEndTracks", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxLight_get_quadraticFalloffTracks = find("whiteout_mdx_MdxLight_get_quadraticFalloffTracks", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxLight_set_quadraticFalloffTracks = find("whiteout_mdx_MdxLight_set_quadraticFalloffTracks", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxLight_get_linearFalloffTracks = find("whiteout_mdx_MdxLight_get_linearFalloffTracks", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxLight_set_linearFalloffTracks = find("whiteout_mdx_MdxLight_set_linearFalloffTracks", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxLight_get_dampingTracks = find("whiteout_mdx_MdxLight_get_dampingTracks", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxLight_set_dampingTracks = find("whiteout_mdx_MdxLight_set_dampingTracks", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
 
     // -- MdxHelper --
     public static final MethodHandle whiteout_mdx_MdxHelper_new = find(
@@ -635,6 +657,14 @@ public final class Native {
     public static final MethodHandle whiteout_mdx_MdxCamera_set_targetRotationTracks = find("whiteout_mdx_MdxCamera_set_targetRotationTracks", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_mdx_MdxCamera_get_targetPositionTracks = find("whiteout_mdx_MdxCamera_get_targetPositionTracks", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_mdx_MdxCamera_set_targetPositionTracks = find("whiteout_mdx_MdxCamera_set_targetPositionTracks", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxCamera_get_visibilityTracks = find("whiteout_mdx_MdxCamera_get_visibilityTracks", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxCamera_set_visibilityTracks = find("whiteout_mdx_MdxCamera_set_visibilityTracks", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxCamera_get_focusDistanceTracks = find("whiteout_mdx_MdxCamera_get_focusDistanceTracks", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxCamera_set_focusDistanceTracks = find("whiteout_mdx_MdxCamera_set_focusDistanceTracks", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxCamera_get_focalLengthTracks = find("whiteout_mdx_MdxCamera_get_focalLengthTracks", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxCamera_set_focalLengthTracks = find("whiteout_mdx_MdxCamera_set_focalLengthTracks", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxCamera_get_fStopTracks = find("whiteout_mdx_MdxCamera_get_fStopTracks", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxCamera_set_fStopTracks = find("whiteout_mdx_MdxCamera_set_fStopTracks", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
 
     // -- MdxCollisionShape --
     public static final MethodHandle whiteout_mdx_MdxCollisionShape_new = find(

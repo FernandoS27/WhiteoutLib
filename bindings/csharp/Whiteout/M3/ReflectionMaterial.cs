@@ -45,7 +45,7 @@ public sealed class ReflectionMaterial : WhiteoutHandle
     }
 
 
-    /// <summary>Unknown field</summary>
+    /// <summary>Index of the DataDrivenMaterial this was converted into, 0xFFFFFFFF if none (v3+). Written by the Heroes load-time conversion pass, not a material parameter; meaningless in a model that carries no MADD chunk. v3 exists only to hold it. Defaulted because an invented REF_ has no link to name, and a v3 record that says anything else points the Heroes loader at a MADD index.</summary>
     public uint Unknown2
     {
         get => NativeMethods.whiteout_m3_M3ReflectionMaterial_get_unknown2(DangerousGet());

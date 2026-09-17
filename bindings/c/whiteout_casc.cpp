@@ -199,6 +199,10 @@ int32_t whiteout_casc_CascStorage_rootFormat(const whiteout_CascStorage* self) {
     return static_cast<int32_t>(reinterpret_cast<const whiteout::storages::casc::Storage*>(self)->rootFormat());
 }
 
+uint64_t whiteout_casc_CascStorage_entryCount(const whiteout_CascStorage* self) {
+    return reinterpret_cast<const whiteout::storages::casc::Storage*>(self)->entryCount();
+}
+
 whiteout_Bytes whiteout_casc_CascStorage_readFile(const whiteout_CascStorage* self, const char* cascPath) {
     auto __r = reinterpret_cast<const whiteout::storages::casc::Storage*>(self)->readFile(std::string(cascPath ? cascPath : ""));
     if (!__r) return emptyBytes();

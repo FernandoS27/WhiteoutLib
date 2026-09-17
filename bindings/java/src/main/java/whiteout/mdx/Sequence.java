@@ -150,11 +150,7 @@ public final class Sequence implements AutoCloseable {
         return new Extent(handle.asSlice(56L, 28L), false);
     }
     public void setExtent(Extent value) {
-        if (value == null) {
-            NativeCommon.invokeNative(Native.whiteout_mdx_MdxSequence_set_extent, handle, MemorySegment.NULL);
-            return;
-        }
-        MemorySegment.copy(value.handle, 0L, handle, 56L, 28L);
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxSequence_set_extent, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     @Override public String toString() {
         return "Sequence(" + "name=" + getName() + ", " + "intervalStart=" + getIntervalStart() + ", " + "intervalEnd=" + getIntervalEnd() + ", " + "moveSpeed=" + getMoveSpeed() + ", " + "flags=" + getFlags() + ", " + "rarity=" + getRarity() + ", " + "syncPoint=" + getSyncPoint() + ")";

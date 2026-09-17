@@ -743,6 +743,24 @@ void whiteout_mdx_MdxLight_set_ambientIntensity(whiteout_MdxLight* self, float v
 /* Shadow darkness (Reforged) */
 float whiteout_mdx_MdxLight_get_shadowIntensity(const whiteout_MdxLight* self);
 void whiteout_mdx_MdxLight_set_shadowIntensity(whiteout_MdxLight* self, float value);
+/* v1300+, stored as a u32 on disk */
+int32_t whiteout_mdx_MdxLight_get_shadowCasting(const whiteout_MdxLight* self);
+void whiteout_mdx_MdxLight_set_shadowCasting(whiteout_MdxLight* self, int32_t value);
+/* v1300+ */
+float whiteout_mdx_MdxLight_get_shadowCastingStart(const whiteout_MdxLight* self);
+void whiteout_mdx_MdxLight_set_shadowCastingStart(whiteout_MdxLight* self, float value);
+/* v1300+ */
+float whiteout_mdx_MdxLight_get_shadowCastingEnd(const whiteout_MdxLight* self);
+void whiteout_mdx_MdxLight_set_shadowCastingEnd(whiteout_MdxLight* self, float value);
+/* v1600+ */
+float whiteout_mdx_MdxLight_get_quadraticFalloff(const whiteout_MdxLight* self);
+void whiteout_mdx_MdxLight_set_quadraticFalloff(whiteout_MdxLight* self, float value);
+/* v1600+ */
+float whiteout_mdx_MdxLight_get_linearFalloff(const whiteout_MdxLight* self);
+void whiteout_mdx_MdxLight_set_linearFalloff(whiteout_MdxLight* self, float value);
+/* v1600+ */
+float whiteout_mdx_MdxLight_get_damping(const whiteout_MdxLight* self);
+void whiteout_mdx_MdxLight_set_damping(whiteout_MdxLight* self, float value);
 /* Attenuation start animation */
 whiteout_MdxTrackF32* whiteout_mdx_MdxLight_get_attenuationStartTracks(whiteout_MdxLight* self);
 void whiteout_mdx_MdxLight_set_attenuationStartTracks(whiteout_MdxLight* self, const whiteout_MdxTrackF32* value);
@@ -767,6 +785,21 @@ void whiteout_mdx_MdxLight_set_visibilityTracks(whiteout_MdxLight* self, const w
 /* Shadow intensity animation (Reforged) */
 whiteout_MdxTrackF32* whiteout_mdx_MdxLight_get_shadowIntensityTracks(whiteout_MdxLight* self);
 void whiteout_mdx_MdxLight_set_shadowIntensityTracks(whiteout_MdxLight* self, const whiteout_MdxTrackF32* value);
+/* KLSS, v1300+ */
+whiteout_MdxTrackF32* whiteout_mdx_MdxLight_get_shadowCastingStartTracks(whiteout_MdxLight* self);
+void whiteout_mdx_MdxLight_set_shadowCastingStartTracks(whiteout_MdxLight* self, const whiteout_MdxTrackF32* value);
+/* KLSE, v1300+ */
+whiteout_MdxTrackF32* whiteout_mdx_MdxLight_get_shadowCastingEndTracks(whiteout_MdxLight* self);
+void whiteout_mdx_MdxLight_set_shadowCastingEndTracks(whiteout_MdxLight* self, const whiteout_MdxTrackF32* value);
+/* KLQF, v1600+ */
+whiteout_MdxTrackF32* whiteout_mdx_MdxLight_get_quadraticFalloffTracks(whiteout_MdxLight* self);
+void whiteout_mdx_MdxLight_set_quadraticFalloffTracks(whiteout_MdxLight* self, const whiteout_MdxTrackF32* value);
+/* KLLF, v1600+ */
+whiteout_MdxTrackF32* whiteout_mdx_MdxLight_get_linearFalloffTracks(whiteout_MdxLight* self);
+void whiteout_mdx_MdxLight_set_linearFalloffTracks(whiteout_MdxLight* self, const whiteout_MdxTrackF32* value);
+/* KLDA, v1600+ */
+whiteout_MdxTrackF32* whiteout_mdx_MdxLight_get_dampingTracks(whiteout_MdxLight* self);
+void whiteout_mdx_MdxLight_set_dampingTracks(whiteout_MdxLight* self, const whiteout_MdxTrackF32* value);
 
 /* ── MdxHelper ─────────────────────────────────────────────── */
 
@@ -1090,6 +1123,18 @@ void whiteout_mdx_MdxCamera_set_targetRotationTracks(whiteout_MdxCamera* self, c
 /* Target position animation */
 whiteout_MdxTrackVector3f* whiteout_mdx_MdxCamera_get_targetPositionTracks(whiteout_MdxCamera* self);
 void whiteout_mdx_MdxCamera_set_targetPositionTracks(whiteout_MdxCamera* self, const whiteout_MdxTrackVector3f* value);
+/* KCVS */
+whiteout_MdxTrackF32* whiteout_mdx_MdxCamera_get_visibilityTracks(whiteout_MdxCamera* self);
+void whiteout_mdx_MdxCamera_set_visibilityTracks(whiteout_MdxCamera* self, const whiteout_MdxTrackF32* value);
+/* IDUF */
+whiteout_MdxTrackF32* whiteout_mdx_MdxCamera_get_focusDistanceTracks(whiteout_MdxCamera* self);
+void whiteout_mdx_MdxCamera_set_focusDistanceTracks(whiteout_MdxCamera* self, const whiteout_MdxTrackF32* value);
+/* ELAF */
+whiteout_MdxTrackF32* whiteout_mdx_MdxCamera_get_focalLengthTracks(whiteout_MdxCamera* self);
+void whiteout_mdx_MdxCamera_set_focalLengthTracks(whiteout_MdxCamera* self, const whiteout_MdxTrackF32* value);
+/* PTSF */
+whiteout_MdxTrackF32* whiteout_mdx_MdxCamera_get_fStopTracks(whiteout_MdxCamera* self);
+void whiteout_mdx_MdxCamera_set_fStopTracks(whiteout_MdxCamera* self, const whiteout_MdxTrackF32* value);
 
 /* ── MdxCollisionShape ─────────────────────────────────────────────── */
 

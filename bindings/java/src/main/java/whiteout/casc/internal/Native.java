@@ -71,6 +71,8 @@ public final class Native {
         "whiteout_casc_CascStorage_isWritable", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_casc_CascStorage_rootFormat = find(
         "whiteout_casc_CascStorage_rootFormat", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_casc_CascStorage_entryCount = find(
+        "whiteout_casc_CascStorage_entryCount", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_casc_CascStorage_readFile = find(
         "whiteout_casc_CascStorage_readFile", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_casc_CascStorage_readFile_cascPath_localeFlags_openFlags = find(

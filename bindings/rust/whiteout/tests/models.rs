@@ -57,7 +57,9 @@ fn m3_synthesised_model_round_trips() {
         return;
     }
     let back = m3::Parser::new().parse(&bytes).expect("re-parse failed");
-    assert_eq!(back.name(), "RoundTrip");
+    // The writer terminates an invented name and the parser keeps the NUL,
+    // since both game clients strlen() the CHAR chunk.
+    assert_eq!(back.name(), "RoundTrip\0");
 }
 
 // ── Corpus helpers ────────────────────────────────────────────────────────

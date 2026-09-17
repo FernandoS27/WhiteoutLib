@@ -428,12 +428,12 @@ void whiteout_m3_M3SubTrackContainer_set_animationStateIndex(whiteout_M3SubTrack
     reinterpret_cast<whiteout::m3::SubTrackContainer*>(self)->animationStateIndex = value;
 }
 
-uint16_t whiteout_m3_M3SubTrackContainer_get_padding(const whiteout_M3SubTrackContainer* self) {
-    return reinterpret_cast<const whiteout::m3::SubTrackContainer*>(self)->padding;
+uint16_t whiteout_m3_M3SubTrackContainer_get_animationStateIndexCopy(const whiteout_M3SubTrackContainer* self) {
+    return reinterpret_cast<const whiteout::m3::SubTrackContainer*>(self)->animationStateIndexCopy;
 }
 
-void whiteout_m3_M3SubTrackContainer_set_padding(whiteout_M3SubTrackContainer* self, uint16_t value) {
-    reinterpret_cast<whiteout::m3::SubTrackContainer*>(self)->padding = value;
+void whiteout_m3_M3SubTrackContainer_set_animationStateIndexCopy(whiteout_M3SubTrackContainer* self, uint16_t value) {
+    reinterpret_cast<whiteout::m3::SubTrackContainer*>(self)->animationStateIndexCopy = value;
 }
 
 size_t whiteout_m3_M3SubTrackContainer_get_animIds_count(const whiteout_M3SubTrackContainer* self) {
@@ -4307,6 +4307,10 @@ int32_t whiteout_m3_M3DataDrivenMaterial_getVersion(const whiteout_M3DataDrivenM
 
 int32_t whiteout_m3_M3DataDrivenMaterial_setVersion(whiteout_M3DataDrivenMaterial* self, int32_t newVersion) {
     return reinterpret_cast<whiteout::m3::DataDrivenMaterial*>(self)->setVersion(newVersion);
+}
+
+void whiteout_m3_M3DataDrivenMaterial_forceVersion(whiteout_M3DataDrivenMaterial* self, int32_t newVersion) {
+    reinterpret_cast<whiteout::m3::DataDrivenMaterial*>(self)->forceVersion(newVersion);
 }
 
 whiteout_CString whiteout_m3_M3DataDrivenMaterial_get_materialName(const whiteout_M3DataDrivenMaterial* self) {

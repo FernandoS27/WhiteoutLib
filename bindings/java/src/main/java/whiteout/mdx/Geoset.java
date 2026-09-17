@@ -330,11 +330,7 @@ public final class Geoset implements AutoCloseable {
         return new Extent(handle.asSlice(240L, 28L), false);
     }
     public void setExtent(Extent value) {
-        if (value == null) {
-            NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_set_extent, handle, MemorySegment.NULL);
-            return;
-        }
-        MemorySegment.copy(value.handle, 0L, handle, 240L, 28L);
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_set_extent, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Per-sequence bounding volumes

@@ -4615,6 +4615,77 @@ impl Light {
         unsafe { ffi::whiteout_mdx_MdxLight_set_shadowIntensity(self.raw.as_ptr(), value) }
     }
 
+    /// v1300+, stored as a u32 on disk
+    pub fn shadow_casting(&self) -> bool {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_mdx_MdxLight_get_shadowCasting(self.raw.as_ptr()) != 0 }
+    }
+
+    pub fn set_shadow_casting(&mut self, value: bool) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe {
+            ffi::whiteout_mdx_MdxLight_set_shadowCasting(
+                self.raw.as_ptr(),
+                if value { 1 } else { 0 },
+            )
+        }
+    }
+
+    /// v1300+
+    pub fn shadow_casting_start(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_mdx_MdxLight_get_shadowCastingStart(self.raw.as_ptr()) }
+    }
+
+    pub fn set_shadow_casting_start(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_mdx_MdxLight_set_shadowCastingStart(self.raw.as_ptr(), value) }
+    }
+
+    /// v1300+
+    pub fn shadow_casting_end(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_mdx_MdxLight_get_shadowCastingEnd(self.raw.as_ptr()) }
+    }
+
+    pub fn set_shadow_casting_end(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_mdx_MdxLight_set_shadowCastingEnd(self.raw.as_ptr(), value) }
+    }
+
+    /// v1600+
+    pub fn quadratic_falloff(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_mdx_MdxLight_get_quadraticFalloff(self.raw.as_ptr()) }
+    }
+
+    pub fn set_quadratic_falloff(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_mdx_MdxLight_set_quadraticFalloff(self.raw.as_ptr(), value) }
+    }
+
+    /// v1600+
+    pub fn linear_falloff(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_mdx_MdxLight_get_linearFalloff(self.raw.as_ptr()) }
+    }
+
+    pub fn set_linear_falloff(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_mdx_MdxLight_set_linearFalloff(self.raw.as_ptr(), value) }
+    }
+
+    /// v1600+
+    pub fn damping(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_mdx_MdxLight_get_damping(self.raw.as_ptr()) }
+    }
+
+    pub fn set_damping(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_mdx_MdxLight_set_damping(self.raw.as_ptr(), value) }
+    }
+
     /// Attenuation start animation
     /// Borrows the field in place — no copy, no allocation.
     pub fn attenuation_start_tracks(&self) -> crate::support::Ref<'_, TrackF32> {
@@ -4810,6 +4881,131 @@ impl Light {
             crate::support::RefMut::new(TrackF32 {
                 raw: core::ptr::NonNull::new_unchecked(
                     ffi::whiteout_mdx_MdxLight_get_shadowIntensityTracks(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    /// KLSS, v1300+
+    /// Borrows the field in place — no copy, no allocation.
+    pub fn shadow_casting_start_tracks(&self) -> crate::support::Ref<'_, TrackF32> {
+        // SAFETY: an interior pointer into `self`, valid for this
+        // borrow and never freed by the `Ref`.
+        unsafe {
+            crate::support::Ref::new(TrackF32 {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_mdx_MdxLight_get_shadowCastingStartTracks(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    pub fn shadow_casting_start_tracks_mut(&mut self) -> crate::support::RefMut<'_, TrackF32> {
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            crate::support::RefMut::new(TrackF32 {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_mdx_MdxLight_get_shadowCastingStartTracks(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    /// KLSE, v1300+
+    /// Borrows the field in place — no copy, no allocation.
+    pub fn shadow_casting_end_tracks(&self) -> crate::support::Ref<'_, TrackF32> {
+        // SAFETY: an interior pointer into `self`, valid for this
+        // borrow and never freed by the `Ref`.
+        unsafe {
+            crate::support::Ref::new(TrackF32 {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_mdx_MdxLight_get_shadowCastingEndTracks(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    pub fn shadow_casting_end_tracks_mut(&mut self) -> crate::support::RefMut<'_, TrackF32> {
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            crate::support::RefMut::new(TrackF32 {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_mdx_MdxLight_get_shadowCastingEndTracks(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    /// KLQF, v1600+
+    /// Borrows the field in place — no copy, no allocation.
+    pub fn quadratic_falloff_tracks(&self) -> crate::support::Ref<'_, TrackF32> {
+        // SAFETY: an interior pointer into `self`, valid for this
+        // borrow and never freed by the `Ref`.
+        unsafe {
+            crate::support::Ref::new(TrackF32 {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_mdx_MdxLight_get_quadraticFalloffTracks(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    pub fn quadratic_falloff_tracks_mut(&mut self) -> crate::support::RefMut<'_, TrackF32> {
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            crate::support::RefMut::new(TrackF32 {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_mdx_MdxLight_get_quadraticFalloffTracks(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    /// KLLF, v1600+
+    /// Borrows the field in place — no copy, no allocation.
+    pub fn linear_falloff_tracks(&self) -> crate::support::Ref<'_, TrackF32> {
+        // SAFETY: an interior pointer into `self`, valid for this
+        // borrow and never freed by the `Ref`.
+        unsafe {
+            crate::support::Ref::new(TrackF32 {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_mdx_MdxLight_get_linearFalloffTracks(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    pub fn linear_falloff_tracks_mut(&mut self) -> crate::support::RefMut<'_, TrackF32> {
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            crate::support::RefMut::new(TrackF32 {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_mdx_MdxLight_get_linearFalloffTracks(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    /// KLDA, v1600+
+    /// Borrows the field in place — no copy, no allocation.
+    pub fn damping_tracks(&self) -> crate::support::Ref<'_, TrackF32> {
+        // SAFETY: an interior pointer into `self`, valid for this
+        // borrow and never freed by the `Ref`.
+        unsafe {
+            crate::support::Ref::new(TrackF32 {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_mdx_MdxLight_get_dampingTracks(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    pub fn damping_tracks_mut(&mut self) -> crate::support::RefMut<'_, TrackF32> {
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            crate::support::RefMut::new(TrackF32 {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_mdx_MdxLight_get_dampingTracks(self.raw.as_ptr()),
                 ),
             })
         }
@@ -6791,6 +6987,106 @@ impl Camera {
             crate::support::RefMut::new(TrackVector3f {
                 raw: core::ptr::NonNull::new_unchecked(
                     ffi::whiteout_mdx_MdxCamera_get_targetPositionTracks(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    /// KCVS
+    /// Borrows the field in place — no copy, no allocation.
+    pub fn visibility_tracks(&self) -> crate::support::Ref<'_, TrackF32> {
+        // SAFETY: an interior pointer into `self`, valid for this
+        // borrow and never freed by the `Ref`.
+        unsafe {
+            crate::support::Ref::new(TrackF32 {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_mdx_MdxCamera_get_visibilityTracks(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    pub fn visibility_tracks_mut(&mut self) -> crate::support::RefMut<'_, TrackF32> {
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            crate::support::RefMut::new(TrackF32 {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_mdx_MdxCamera_get_visibilityTracks(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    /// IDUF
+    /// Borrows the field in place — no copy, no allocation.
+    pub fn focus_distance_tracks(&self) -> crate::support::Ref<'_, TrackF32> {
+        // SAFETY: an interior pointer into `self`, valid for this
+        // borrow and never freed by the `Ref`.
+        unsafe {
+            crate::support::Ref::new(TrackF32 {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_mdx_MdxCamera_get_focusDistanceTracks(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    pub fn focus_distance_tracks_mut(&mut self) -> crate::support::RefMut<'_, TrackF32> {
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            crate::support::RefMut::new(TrackF32 {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_mdx_MdxCamera_get_focusDistanceTracks(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    /// ELAF
+    /// Borrows the field in place — no copy, no allocation.
+    pub fn focal_length_tracks(&self) -> crate::support::Ref<'_, TrackF32> {
+        // SAFETY: an interior pointer into `self`, valid for this
+        // borrow and never freed by the `Ref`.
+        unsafe {
+            crate::support::Ref::new(TrackF32 {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_mdx_MdxCamera_get_focalLengthTracks(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    pub fn focal_length_tracks_mut(&mut self) -> crate::support::RefMut<'_, TrackF32> {
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            crate::support::RefMut::new(TrackF32 {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_mdx_MdxCamera_get_focalLengthTracks(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    /// PTSF
+    /// Borrows the field in place — no copy, no allocation.
+    pub fn f_stop_tracks(&self) -> crate::support::Ref<'_, TrackF32> {
+        // SAFETY: an interior pointer into `self`, valid for this
+        // borrow and never freed by the `Ref`.
+        unsafe {
+            crate::support::Ref::new(TrackF32 {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_mdx_MdxCamera_get_fStopTracks(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    pub fn f_stop_tracks_mut(&mut self) -> crate::support::RefMut<'_, TrackF32> {
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            crate::support::RefMut::new(TrackF32 {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_mdx_MdxCamera_get_fStopTracks(self.raw.as_ptr()),
                 ),
             })
         }
@@ -9351,6 +9647,27 @@ pub mod ffi {
         );
         pub fn whiteout_mdx_MdxLight_get_shadowIntensity(self_: *mut whiteout_MdxLight) -> f32;
         pub fn whiteout_mdx_MdxLight_set_shadowIntensity(self_: *mut whiteout_MdxLight, value: f32);
+        pub fn whiteout_mdx_MdxLight_get_shadowCasting(self_: *mut whiteout_MdxLight) -> i32;
+        pub fn whiteout_mdx_MdxLight_set_shadowCasting(self_: *mut whiteout_MdxLight, value: i32);
+        pub fn whiteout_mdx_MdxLight_get_shadowCastingStart(self_: *mut whiteout_MdxLight) -> f32;
+        pub fn whiteout_mdx_MdxLight_set_shadowCastingStart(
+            self_: *mut whiteout_MdxLight,
+            value: f32,
+        );
+        pub fn whiteout_mdx_MdxLight_get_shadowCastingEnd(self_: *mut whiteout_MdxLight) -> f32;
+        pub fn whiteout_mdx_MdxLight_set_shadowCastingEnd(
+            self_: *mut whiteout_MdxLight,
+            value: f32,
+        );
+        pub fn whiteout_mdx_MdxLight_get_quadraticFalloff(self_: *mut whiteout_MdxLight) -> f32;
+        pub fn whiteout_mdx_MdxLight_set_quadraticFalloff(
+            self_: *mut whiteout_MdxLight,
+            value: f32,
+        );
+        pub fn whiteout_mdx_MdxLight_get_linearFalloff(self_: *mut whiteout_MdxLight) -> f32;
+        pub fn whiteout_mdx_MdxLight_set_linearFalloff(self_: *mut whiteout_MdxLight, value: f32);
+        pub fn whiteout_mdx_MdxLight_get_damping(self_: *mut whiteout_MdxLight) -> f32;
+        pub fn whiteout_mdx_MdxLight_set_damping(self_: *mut whiteout_MdxLight, value: f32);
         pub fn whiteout_mdx_MdxLight_get_attenuationStartTracks(
             self_: *mut whiteout_MdxLight,
         ) -> *mut whiteout_MdxTrackF32;
@@ -9404,6 +9721,41 @@ pub mod ffi {
             self_: *mut whiteout_MdxLight,
         ) -> *mut whiteout_MdxTrackF32;
         pub fn whiteout_mdx_MdxLight_set_shadowIntensityTracks(
+            self_: *mut whiteout_MdxLight,
+            value: *const whiteout_MdxTrackF32,
+        );
+        pub fn whiteout_mdx_MdxLight_get_shadowCastingStartTracks(
+            self_: *mut whiteout_MdxLight,
+        ) -> *mut whiteout_MdxTrackF32;
+        pub fn whiteout_mdx_MdxLight_set_shadowCastingStartTracks(
+            self_: *mut whiteout_MdxLight,
+            value: *const whiteout_MdxTrackF32,
+        );
+        pub fn whiteout_mdx_MdxLight_get_shadowCastingEndTracks(
+            self_: *mut whiteout_MdxLight,
+        ) -> *mut whiteout_MdxTrackF32;
+        pub fn whiteout_mdx_MdxLight_set_shadowCastingEndTracks(
+            self_: *mut whiteout_MdxLight,
+            value: *const whiteout_MdxTrackF32,
+        );
+        pub fn whiteout_mdx_MdxLight_get_quadraticFalloffTracks(
+            self_: *mut whiteout_MdxLight,
+        ) -> *mut whiteout_MdxTrackF32;
+        pub fn whiteout_mdx_MdxLight_set_quadraticFalloffTracks(
+            self_: *mut whiteout_MdxLight,
+            value: *const whiteout_MdxTrackF32,
+        );
+        pub fn whiteout_mdx_MdxLight_get_linearFalloffTracks(
+            self_: *mut whiteout_MdxLight,
+        ) -> *mut whiteout_MdxTrackF32;
+        pub fn whiteout_mdx_MdxLight_set_linearFalloffTracks(
+            self_: *mut whiteout_MdxLight,
+            value: *const whiteout_MdxTrackF32,
+        );
+        pub fn whiteout_mdx_MdxLight_get_dampingTracks(
+            self_: *mut whiteout_MdxLight,
+        ) -> *mut whiteout_MdxTrackF32;
+        pub fn whiteout_mdx_MdxLight_set_dampingTracks(
             self_: *mut whiteout_MdxLight,
             value: *const whiteout_MdxTrackF32,
         );
@@ -10027,6 +10379,34 @@ pub mod ffi {
         pub fn whiteout_mdx_MdxCamera_set_targetPositionTracks(
             self_: *mut whiteout_MdxCamera,
             value: *const whiteout_MdxTrackVector3f,
+        );
+        pub fn whiteout_mdx_MdxCamera_get_visibilityTracks(
+            self_: *mut whiteout_MdxCamera,
+        ) -> *mut whiteout_MdxTrackF32;
+        pub fn whiteout_mdx_MdxCamera_set_visibilityTracks(
+            self_: *mut whiteout_MdxCamera,
+            value: *const whiteout_MdxTrackF32,
+        );
+        pub fn whiteout_mdx_MdxCamera_get_focusDistanceTracks(
+            self_: *mut whiteout_MdxCamera,
+        ) -> *mut whiteout_MdxTrackF32;
+        pub fn whiteout_mdx_MdxCamera_set_focusDistanceTracks(
+            self_: *mut whiteout_MdxCamera,
+            value: *const whiteout_MdxTrackF32,
+        );
+        pub fn whiteout_mdx_MdxCamera_get_focalLengthTracks(
+            self_: *mut whiteout_MdxCamera,
+        ) -> *mut whiteout_MdxTrackF32;
+        pub fn whiteout_mdx_MdxCamera_set_focalLengthTracks(
+            self_: *mut whiteout_MdxCamera,
+            value: *const whiteout_MdxTrackF32,
+        );
+        pub fn whiteout_mdx_MdxCamera_get_fStopTracks(
+            self_: *mut whiteout_MdxCamera,
+        ) -> *mut whiteout_MdxTrackF32;
+        pub fn whiteout_mdx_MdxCamera_set_fStopTracks(
+            self_: *mut whiteout_MdxCamera,
+            value: *const whiteout_MdxTrackF32,
         );
         // CollisionShape
         pub fn whiteout_mdx_MdxCollisionShape_new() -> *mut whiteout_MdxCollisionShape;

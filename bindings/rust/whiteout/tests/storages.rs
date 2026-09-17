@@ -159,17 +159,11 @@ mod casc_tests {
         std::fs::create_dir_all(&dir).unwrap();
 
         let mut calls = 0;
-        let storage = casc::Storage::open_with_progress(
-            dir.to_str().unwrap(),
-            None,
-            0,
-            0,
-            None,
-            &mut |_| {
+        let storage =
+            casc::Storage::open_with_progress(dir.to_str().unwrap(), None, 0, 0, None, &mut |_| {
                 calls += 1;
                 false
-            },
-        );
+            });
 
         assert!(storage.is_none());
         assert_eq!(calls, 1, "cancelling stops the event stream");
@@ -250,8 +244,10 @@ mod casc_ext_tests {
         }
     }
 
+    type Written = Vec<(String, Vec<u8>)>;
+
     /// Build a storage holding three files and reopen it from disk.
-    fn round_tripped(tag: &str) -> Option<(casc::Storage, Vec<(String, Vec<u8>)>, TempDir)> {
+    fn round_tripped(tag: &str) -> Option<(casc::Storage, Written, TempDir)> {
         let dir = std::env::temp_dir().join(format!("whiteout-casc-rs-{tag}"));
         let _ = std::fs::remove_dir_all(&dir);
         let guard = TempDir(dir.clone());
@@ -321,7 +317,11 @@ mod casc_ext_tests {
 
         assert_eq!(results.len(), written.len());
         for (result, (path, data)) in results.iter().zip(&written) {
-            assert!(result.is_ok(), "batch read failed for {path}: {}", result.error);
+            assert!(
+                result.is_ok(),
+                "batch read failed for {path}: {}",
+                result.error
+            );
             assert_eq!(result.data.as_deref(), Some(data.as_slice()));
         }
     }
@@ -362,7 +362,10 @@ mod casc_ext_tests {
             eprintln!("skipping: CASC create/save unsupported in this build");
             return;
         };
-        assert_eq!(storage.file_size("tiny.dat"), Some(written[2].1.len() as u64));
+        assert_eq!(
+            storage.file_size("tiny.dat"),
+            Some(written[2].1.len() as u64)
+        );
         assert_eq!(storage.file_size("does/not/exist.bin"), None);
     }
 

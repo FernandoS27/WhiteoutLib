@@ -31,7 +31,7 @@ import whiteout.mdx.internal.Native;
  * external access if a handle is shared across threads.
  */
 public final class Light implements AutoCloseable {
-    private static final long BYTES = 896L;
+    private static final long BYTES = 1280L;
 
     final MemorySegment handle;
     final boolean owned;
@@ -157,6 +157,66 @@ public final class Light implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 316L, value);
     }
     /**
+     * v1300+, stored as a u32 on disk
+     * @return the shadowCasting field of this MdxLight.
+     */
+    public boolean getShadowCasting() {
+        return handle.get(ValueLayout.JAVA_BYTE, 320L) != 0;
+    }
+    public void setShadowCasting(boolean value) {
+        handle.set(ValueLayout.JAVA_BYTE, 320L, (byte) (value ? 1 : 0));
+    }
+    /**
+     * v1300+
+     * @return the shadowCastingStart field of this MdxLight.
+     */
+    public float getShadowCastingStart() {
+        return handle.get(ValueLayout.JAVA_FLOAT, 324L);
+    }
+    public void setShadowCastingStart(float value) {
+        handle.set(ValueLayout.JAVA_FLOAT, 324L, value);
+    }
+    /**
+     * v1300+
+     * @return the shadowCastingEnd field of this MdxLight.
+     */
+    public float getShadowCastingEnd() {
+        return handle.get(ValueLayout.JAVA_FLOAT, 328L);
+    }
+    public void setShadowCastingEnd(float value) {
+        handle.set(ValueLayout.JAVA_FLOAT, 328L, value);
+    }
+    /**
+     * v1600+
+     * @return the quadraticFalloff field of this MdxLight.
+     */
+    public float getQuadraticFalloff() {
+        return handle.get(ValueLayout.JAVA_FLOAT, 332L);
+    }
+    public void setQuadraticFalloff(float value) {
+        handle.set(ValueLayout.JAVA_FLOAT, 332L, value);
+    }
+    /**
+     * v1600+
+     * @return the linearFalloff field of this MdxLight.
+     */
+    public float getLinearFalloff() {
+        return handle.get(ValueLayout.JAVA_FLOAT, 336L);
+    }
+    public void setLinearFalloff(float value) {
+        handle.set(ValueLayout.JAVA_FLOAT, 336L, value);
+    }
+    /**
+     * v1600+
+     * @return the damping field of this MdxLight.
+     */
+    public float getDamping() {
+        return handle.get(ValueLayout.JAVA_FLOAT, 340L);
+    }
+    public void setDamping(float value) {
+        handle.set(ValueLayout.JAVA_FLOAT, 340L, value);
+    }
+    /**
      * Attenuation start animation
      * @return the attenuationStartTracks field of this MdxLight.
      */
@@ -244,8 +304,63 @@ public final class Light implements AutoCloseable {
     public void setShadowIntensityTracks(TrackF32 value) {
         NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_set_shadowIntensityTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
+    /**
+     * KLSS, v1300+
+     * @return the shadowCastingStartTracks field of this MdxLight.
+     */
+    public TrackF32 getShadowCastingStartTracks() {
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_get_shadowCastingStartTracks, handle);
+        return new TrackF32(__h, false);
+    }
+    public void setShadowCastingStartTracks(TrackF32 value) {
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_set_shadowCastingStartTracks, handle, value == null ? MemorySegment.NULL : value.handle);
+    }
+    /**
+     * KLSE, v1300+
+     * @return the shadowCastingEndTracks field of this MdxLight.
+     */
+    public TrackF32 getShadowCastingEndTracks() {
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_get_shadowCastingEndTracks, handle);
+        return new TrackF32(__h, false);
+    }
+    public void setShadowCastingEndTracks(TrackF32 value) {
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_set_shadowCastingEndTracks, handle, value == null ? MemorySegment.NULL : value.handle);
+    }
+    /**
+     * KLQF, v1600+
+     * @return the quadraticFalloffTracks field of this MdxLight.
+     */
+    public TrackF32 getQuadraticFalloffTracks() {
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_get_quadraticFalloffTracks, handle);
+        return new TrackF32(__h, false);
+    }
+    public void setQuadraticFalloffTracks(TrackF32 value) {
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_set_quadraticFalloffTracks, handle, value == null ? MemorySegment.NULL : value.handle);
+    }
+    /**
+     * KLLF, v1600+
+     * @return the linearFalloffTracks field of this MdxLight.
+     */
+    public TrackF32 getLinearFalloffTracks() {
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_get_linearFalloffTracks, handle);
+        return new TrackF32(__h, false);
+    }
+    public void setLinearFalloffTracks(TrackF32 value) {
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_set_linearFalloffTracks, handle, value == null ? MemorySegment.NULL : value.handle);
+    }
+    /**
+     * KLDA, v1600+
+     * @return the dampingTracks field of this MdxLight.
+     */
+    public TrackF32 getDampingTracks() {
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_get_dampingTracks, handle);
+        return new TrackF32(__h, false);
+    }
+    public void setDampingTracks(TrackF32 value) {
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_set_dampingTracks, handle, value == null ? MemorySegment.NULL : value.handle);
+    }
     @Override public String toString() {
-        return "Light(" + "type=" + getType() + ", " + "attenuationStart=" + getAttenuationStart() + ", " + "attenuationEnd=" + getAttenuationEnd() + ", " + "intensity=" + getIntensity() + ", " + "ambientIntensity=" + getAmbientIntensity() + ", " + "shadowIntensity=" + getShadowIntensity() + ")";
+        return "Light(" + "type=" + getType() + ", " + "attenuationStart=" + getAttenuationStart() + ", " + "attenuationEnd=" + getAttenuationEnd() + ", " + "intensity=" + getIntensity() + ", " + "ambientIntensity=" + getAmbientIntensity() + ", " + "shadowIntensity=" + getShadowIntensity() + ", " + "shadowCasting=" + getShadowCasting() + ", " + "shadowCastingStart=" + getShadowCastingStart() + ", " + "shadowCastingEnd=" + getShadowCastingEnd() + ", " + "quadraticFalloff=" + getQuadraticFalloff() + ", " + "linearFalloff=" + getLinearFalloff() + ", " + "damping=" + getDamping() + ")";
     }
 
 }

@@ -14,6 +14,8 @@ import whiteout.m3.internal.Native;
  * LAYR — Texture layer (v0–v26, 352–464 bytes)
  * 
  * A single texture binding with animated color tint, UV transforms, flipbook parameters, fresnel settings, and AVI video playback controls. Materials embed multiple optional TextureLayer instances for diffuse, specular, emissive, normal, and other texture slots.
+ * 
+ * Every field is initialised for the same reason `StandardMaterial`'s are: the parser fills all of them, but a conversion builds a layer from scratch (`layerFrom`) and a default-initialised one handed to the writer carries stack junk into the file. It did -- the halves of live heap pointers landed in `flipbookColumns`, `textureSource` and the fresnel fields of every exported layer, and the Galaxy editor crashed on the ones whose low byte came out zero (`reference_m3_layer_stack_junk`).
  *
  * <p><b>Lifecycle.</b> Instances hold a handle to a native
  * TextureLayer allocation. Always release them with
@@ -354,7 +356,7 @@ public final class TextureLayer implements AutoCloseable {
         NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_set_wTiling, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
-     * Animated map alpha
+     * Animated map alpha; rests at one (above)
      * @return the mapAlpha field of this M3TextureLayer.
      */
     public AnimRefF32 getMapAlpha() {
@@ -387,7 +389,7 @@ public final class TextureLayer implements AutoCloseable {
         NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_set_triplanarScale, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
-     * UV source related field
+     * Layer whose UV setup this one shares; -1 = own
      * @return the uvSourceRelated field of this M3TextureLayer.
      */
     public int getUvSourceRelated() {

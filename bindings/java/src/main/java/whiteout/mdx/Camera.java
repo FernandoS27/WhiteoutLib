@@ -31,7 +31,7 @@ import whiteout.mdx.internal.Native;
  * external access if a handle is shared across threads.
  */
 public final class Camera implements AutoCloseable {
-    private static final long BYTES = 288L;
+    private static final long BYTES = 576L;
 
     final MemorySegment handle;
     final boolean owned;
@@ -172,6 +172,50 @@ public final class Camera implements AutoCloseable {
     }
     public void setTargetPositionTracks(TrackVector3f value) {
         NativeCommon.invokeNative(Native.whiteout_mdx_MdxCamera_set_targetPositionTracks, handle, value == null ? MemorySegment.NULL : value.handle);
+    }
+    /**
+     * KCVS
+     * @return the visibilityTracks field of this MdxCamera.
+     */
+    public TrackF32 getVisibilityTracks() {
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxCamera_get_visibilityTracks, handle);
+        return new TrackF32(__h, false);
+    }
+    public void setVisibilityTracks(TrackF32 value) {
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxCamera_set_visibilityTracks, handle, value == null ? MemorySegment.NULL : value.handle);
+    }
+    /**
+     * IDUF
+     * @return the focusDistanceTracks field of this MdxCamera.
+     */
+    public TrackF32 getFocusDistanceTracks() {
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxCamera_get_focusDistanceTracks, handle);
+        return new TrackF32(__h, false);
+    }
+    public void setFocusDistanceTracks(TrackF32 value) {
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxCamera_set_focusDistanceTracks, handle, value == null ? MemorySegment.NULL : value.handle);
+    }
+    /**
+     * ELAF
+     * @return the focalLengthTracks field of this MdxCamera.
+     */
+    public TrackF32 getFocalLengthTracks() {
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxCamera_get_focalLengthTracks, handle);
+        return new TrackF32(__h, false);
+    }
+    public void setFocalLengthTracks(TrackF32 value) {
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxCamera_set_focalLengthTracks, handle, value == null ? MemorySegment.NULL : value.handle);
+    }
+    /**
+     * PTSF
+     * @return the fStopTracks field of this MdxCamera.
+     */
+    public TrackF32 getFStopTracks() {
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxCamera_get_fStopTracks, handle);
+        return new TrackF32(__h, false);
+    }
+    public void setFStopTracks(TrackF32 value) {
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxCamera_set_fStopTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     @Override public String toString() {
         return "Camera(" + "name=" + getName() + ", " + "fieldOfView=" + getFieldOfView() + ", " + "farClippingPlane=" + getFarClippingPlane() + ", " + "nearClippingPlane=" + getNearClippingPlane() + ")";

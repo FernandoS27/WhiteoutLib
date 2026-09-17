@@ -98,9 +98,11 @@ void bind_utils(py::module_& m) {
         .def("get_positions", &whiteout::utils::VertexBuffer::getPositions, R"doc(Extract vertex positions (Vector3f, 12 bytes at offset 0))doc")
         .def("get_normals", &whiteout::utils::VertexBuffer::getNormals, R"doc(Extract vertex normals (3 x i8 at offset 20, divided by 127.0))doc")
         .def("get_tangents", &whiteout::utils::VertexBuffer::getTangents, R"doc(Extract tangent vectors (3 x i8 + sign byte at end of vertex))doc")
-        .def("get_u_vs", py::overload_cast<size_t>(&whiteout::utils::VertexBuffer::getUVs, py::const_), py::arg("which"), R"doc(Extract UV coordinates for a layer (i16 pairs, divided by 2048.0))doc")
+        .def("get_u_vs", py::overload_cast<size_t>(&whiteout::utils::VertexBuffer::getUVs, py::const_), py::arg("which"), R"doc(Extract UV coordinates for a layer, decoded by the attribute's encoding: float and normalized encodings give the coordinate itself, and a raw integer one is StarCraft II's i16 fixed point (divided by 2048.0), which is the buffer this reader was first written for.)doc")
         .def("get_u_vs", py::overload_cast<size_t, whiteout::f32, whiteout::f32>(&whiteout::utils::VertexBuffer::getUVs, py::const_), py::arg("which"), py::arg("uvMultiply"), py::arg("uvOffset"), R"doc(Extract UV coordinates using region-level scale/offset (REGN v5+) @param which UV layer index (0-based) @param uvMultiply UV scale factor (default 16.0 in REGN v5+) @param uvOffset UV offset (default 0.0 in REGN v5+) @return Vector of UV coordinates: float_uv = i16_uv * uvMultiply + uvOffset)doc")
-        .def("get_colors", &whiteout::utils::VertexBuffer::getColors)
+        .def("get_colors", py::overload_cast<>(&whiteout::utils::VertexBuffer::getColors, py::const_))
+        .def("get_colors", py::overload_cast<size_t>(&whiteout::utils::VertexBuffer::getColors, py::const_), py::arg("which"), R"doc(The @p which'th colour layer. Diablo III authors two — a tint and a baked occlusion mask — and reading only the first drops the second.)doc")
+        .def("get_binormals", &whiteout::utils::VertexBuffer::getBinormals, R"doc(The binormal layer, when the buffer declares one. Its own attribute rather than a sign bit on the tangent: D3 authors both vectors, and reconstructing one from the other assumes an orthonormal frame that content does not promise.)doc")
     ;
 
     py::class_<whiteout::utils::VertexBufferBuilder>(m, "VertexBufferBuilder")

@@ -276,10 +276,10 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial ushort whiteout_m3_M3SubTrackContainer_get_padding(IntPtr self);
+    internal static partial ushort whiteout_m3_M3SubTrackContainer_get_animationStateIndexCopy(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3SubTrackContainer_set_padding(IntPtr self, ushort value);
+    internal static partial void whiteout_m3_M3SubTrackContainer_set_animationStateIndexCopy(IntPtr self, ushort value);
 
 
     [LibraryImport(Runtime.LibraryName)]
@@ -2415,6 +2415,10 @@ internal static partial class NativeMethods
     [LibraryImport(Runtime.LibraryName)]
     [return: MarshalAs(UnmanagedType.I4)]
     internal static partial int whiteout_m3_M3DataDrivenMaterial_setVersion(IntPtr self, int newVersion);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m3_M3DataDrivenMaterial_forceVersion(IntPtr self, int newVersion);
 
 
     [LibraryImport(Runtime.LibraryName)]

@@ -126,8 +126,8 @@ public final class Native {
     public static final MethodHandle whiteout_m3_M3SubTrackContainer_set_animPriority = find("whiteout_m3_M3SubTrackContainer_set_animPriority", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT));
     public static final MethodHandle whiteout_m3_M3SubTrackContainer_get_animationStateIndex = find("whiteout_m3_M3SubTrackContainer_get_animationStateIndex", FunctionDescriptor.of(ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3SubTrackContainer_set_animationStateIndex = find("whiteout_m3_M3SubTrackContainer_set_animationStateIndex", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT));
-    public static final MethodHandle whiteout_m3_M3SubTrackContainer_get_padding = find("whiteout_m3_M3SubTrackContainer_get_padding", FunctionDescriptor.of(ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3SubTrackContainer_set_padding = find("whiteout_m3_M3SubTrackContainer_set_padding", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT));
+    public static final MethodHandle whiteout_m3_M3SubTrackContainer_get_animationStateIndexCopy = find("whiteout_m3_M3SubTrackContainer_get_animationStateIndexCopy", FunctionDescriptor.of(ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3SubTrackContainer_set_animationStateIndexCopy = find("whiteout_m3_M3SubTrackContainer_set_animationStateIndexCopy", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT));
     public static final MethodHandle whiteout_m3_M3SubTrackContainer_get_animIds_count = find("whiteout_m3_M3SubTrackContainer_get_animIds_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3SubTrackContainer_resize_animIds = find("whiteout_m3_M3SubTrackContainer_resize_animIds", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m3_M3SubTrackContainer_get_animIds_data = find("whiteout_m3_M3SubTrackContainer_get_animIds_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
@@ -1160,6 +1160,8 @@ public final class Native {
         "whiteout_m3_M3DataDrivenMaterial_getVersion", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_setVersion = find(
         "whiteout_m3_M3DataDrivenMaterial_setVersion", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_forceVersion = find(
+        "whiteout_m3_M3DataDrivenMaterial_forceVersion", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
     public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_get_materialName = find("whiteout_m3_M3DataDrivenMaterial_get_materialName", FunctionDescriptor.of(CSTRING_LAYOUT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_set_materialName = find("whiteout_m3_M3DataDrivenMaterial_set_materialName", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_get_fragmentHashes_count = find("whiteout_m3_M3DataDrivenMaterial_get_fragmentHashes_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));

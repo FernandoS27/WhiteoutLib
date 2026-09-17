@@ -116,4 +116,52 @@ public sealed class Light : WhiteoutHandle
         set => NativeMethods.whiteout_mdx_MdxLight_set_shadowIntensity(DangerousGet(), value);
     }
 
+
+    /// <summary>v1300+, stored as a u32 on disk</summary>
+    public bool ShadowCasting
+    {
+        get => NativeMethods.whiteout_mdx_MdxLight_get_shadowCasting(DangerousGet()) != 0;
+        set => NativeMethods.whiteout_mdx_MdxLight_set_shadowCasting(DangerousGet(), value ? 1 : 0);
+    }
+
+
+    /// <summary>v1300+</summary>
+    public float ShadowCastingStart
+    {
+        get => NativeMethods.whiteout_mdx_MdxLight_get_shadowCastingStart(DangerousGet());
+        set => NativeMethods.whiteout_mdx_MdxLight_set_shadowCastingStart(DangerousGet(), value);
+    }
+
+
+    /// <summary>v1300+</summary>
+    public float ShadowCastingEnd
+    {
+        get => NativeMethods.whiteout_mdx_MdxLight_get_shadowCastingEnd(DangerousGet());
+        set => NativeMethods.whiteout_mdx_MdxLight_set_shadowCastingEnd(DangerousGet(), value);
+    }
+
+
+    /// <summary>v1600+</summary>
+    public float QuadraticFalloff
+    {
+        get => NativeMethods.whiteout_mdx_MdxLight_get_quadraticFalloff(DangerousGet());
+        set => NativeMethods.whiteout_mdx_MdxLight_set_quadraticFalloff(DangerousGet(), value);
+    }
+
+
+    /// <summary>v1600+</summary>
+    public float LinearFalloff
+    {
+        get => NativeMethods.whiteout_mdx_MdxLight_get_linearFalloff(DangerousGet());
+        set => NativeMethods.whiteout_mdx_MdxLight_set_linearFalloff(DangerousGet(), value);
+    }
+
+
+    /// <summary>v1600+</summary>
+    public float Damping
+    {
+        get => NativeMethods.whiteout_mdx_MdxLight_get_damping(DangerousGet());
+        set => NativeMethods.whiteout_mdx_MdxLight_set_damping(DangerousGet(), value);
+    }
+
 }

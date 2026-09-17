@@ -124,6 +124,10 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
+    internal static partial ulong whiteout_casc_CascStorage_entryCount(IntPtr self);
+
+
+    [LibraryImport(Runtime.LibraryName)]
     internal static partial Whiteout.Common.NativeBytes whiteout_casc_CascStorage_readFile(IntPtr self, [MarshalAs(UnmanagedType.LPUTF8Str)] string cascPath);
 
 

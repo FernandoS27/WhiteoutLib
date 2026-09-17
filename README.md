@@ -114,7 +114,7 @@ the import path stays `whiteout`:
 
 ```toml
 [dependencies]
-whiteoutlib = { version = "0.1", features = ["casc", "mpq"] }
+whiteoutlib = { version = "0.2", features = ["casc", "mpq"] }
 ```
 
 ```rust

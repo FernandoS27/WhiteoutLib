@@ -201,7 +201,7 @@ typedef enum {
     whiteout_m3_MaterialFlag_None,
     whiteout_m3_MaterialFlag_VertexColor,
     whiteout_m3_MaterialFlag_VertexAlpha,
-    whiteout_m3_MaterialFlag_Unfogged,
+    whiteout_m3_MaterialFlag_NormalBlend,
     whiteout_m3_MaterialFlag_TwoSided,
     whiteout_m3_MaterialFlag_Unshaded,
     whiteout_m3_MaterialFlag_NoShadowsCast,
@@ -211,7 +211,7 @@ typedef enum {
     whiteout_m3_MaterialFlag_TerrainHDR,
     whiteout_m3_MaterialFlag_SimulateRoughness,
     whiteout_m3_MaterialFlag_PixelForwardLighting,
-    whiteout_m3_MaterialFlag_DepthFog,
+    whiteout_m3_MaterialFlag_Unfogged,
     whiteout_m3_MaterialFlag_TransparentShadows,
     whiteout_m3_MaterialFlag_DecalLighting,
     whiteout_m3_MaterialFlag_TransparentDepthEffects,
@@ -225,6 +225,7 @@ typedef enum {
     whiteout_m3_MaterialFlag_SpecLowRequired,
     whiteout_m3_MaterialFlag_AcceptSplatsOnly,
     whiteout_m3_MaterialFlag_BackgroundObject,
+    whiteout_m3_MaterialFlag_NormalBlend2,
     whiteout_m3_MaterialFlag_DepthPrepassLowRequired,
     whiteout_m3_MaterialFlag_NoHighlighting,
     whiteout_m3_MaterialFlag_ClampOutput,
@@ -702,9 +703,9 @@ void whiteout_m3_M3SubTrackContainer_set_animPriority(whiteout_M3SubTrackContain
 /* Parent STS_ index */
 uint16_t whiteout_m3_M3SubTrackContainer_get_animationStateIndex(const whiteout_M3SubTrackContainer* self);
 void whiteout_m3_M3SubTrackContainer_set_animationStateIndex(whiteout_M3SubTrackContainer* self, uint16_t value);
-/* Alignment padding */
-uint16_t whiteout_m3_M3SubTrackContainer_get_padding(const whiteout_M3SubTrackContainer* self);
-void whiteout_m3_M3SubTrackContainer_set_padding(whiteout_M3SubTrackContainer* self, uint16_t value);
+/* Second copy of the STS_ index; every one of the 2,197 shipped containers repeats the index here */
+uint16_t whiteout_m3_M3SubTrackContainer_get_animationStateIndexCopy(const whiteout_M3SubTrackContainer* self);
+void whiteout_m3_M3SubTrackContainer_set_animationStateIndexCopy(whiteout_M3SubTrackContainer* self, uint16_t value);
 /* Animation IDs (U32_) */
 size_t whiteout_m3_M3SubTrackContainer_get_animIds_count(const whiteout_M3SubTrackContainer* self);
 void whiteout_m3_M3SubTrackContainer_resize_animIds(whiteout_M3SubTrackContainer* self, size_t count);
@@ -1638,6 +1639,8 @@ void whiteout_m3_M3MaterialMap_set_materialIndex(whiteout_M3MaterialMap* self, u
 /* LAYR — Texture layer (v0–v26, 352–464 bytes) */
 /*  */
 /* A single texture binding with animated color tint, UV transforms, flipbook parameters, fresnel settings, and AVI video playback controls. Materials embed multiple optional TextureLayer instances for diffuse, specular, emissive, normal, and other texture slots. */
+/*  */
+/* Every field is initialised for the same reason `StandardMaterial`'s are: the parser fills all of them, but a conversion builds a layer from scratch (`layerFrom`) and a default-initialised one handed to the writer carries stack junk into the file. It did -- the halves of live heap pointers landed in `flipbookColumns`, `textureSource` and the fresnel fields of every exported layer, and the Galaxy editor crashed on the ones whose low byte came out zero (`reference_m3_layer_stack_junk`). */
 whiteout_M3TextureLayer* whiteout_m3_M3TextureLayer_new(void);
 void whiteout_m3_M3TextureLayer_delete(whiteout_M3TextureLayer* self);
 
@@ -1722,7 +1725,7 @@ void whiteout_m3_M3TextureLayer_set_wOffset(whiteout_M3TextureLayer* self, const
 /* Animated W tiling (3D textures) */
 whiteout_M3AnimRefF32* whiteout_m3_M3TextureLayer_get_wTiling(whiteout_M3TextureLayer* self);
 void whiteout_m3_M3TextureLayer_set_wTiling(whiteout_M3TextureLayer* self, const whiteout_M3AnimRefF32* value);
-/* Animated map alpha */
+/* Animated map alpha; rests at one (above) */
 whiteout_M3AnimRefF32* whiteout_m3_M3TextureLayer_get_mapAlpha(whiteout_M3TextureLayer* self);
 void whiteout_m3_M3TextureLayer_set_mapAlpha(whiteout_M3TextureLayer* self, const whiteout_M3AnimRefF32* value);
 /* Tri-planar UV offset (v23+) */
@@ -1731,7 +1734,7 @@ void whiteout_m3_M3TextureLayer_set_triplanarOffset(whiteout_M3TextureLayer* sel
 /* Tri-planar UV scale (v23+) */
 whiteout_M3AnimRefVector3f* whiteout_m3_M3TextureLayer_get_triplanarScale(whiteout_M3TextureLayer* self);
 void whiteout_m3_M3TextureLayer_set_triplanarScale(whiteout_M3TextureLayer* self, const whiteout_M3AnimRefVector3f* value);
-/* UV source related field */
+/* Layer whose UV setup this one shares; -1 = own */
 uint32_t whiteout_m3_M3TextureLayer_get_uvSourceRelated(const whiteout_M3TextureLayer* self);
 void whiteout_m3_M3TextureLayer_set_uvSourceRelated(whiteout_M3TextureLayer* self, uint32_t value);
 /* Fresnel effect mode */
@@ -2063,7 +2066,7 @@ void whiteout_m3_M3ReflectionMaterial_set_blurDistanceMax(whiteout_M3ReflectionM
 /* Reflection flags (v2+) */
 int32_t whiteout_m3_M3ReflectionMaterial_get_flags(const whiteout_M3ReflectionMaterial* self);
 void whiteout_m3_M3ReflectionMaterial_set_flags(whiteout_M3ReflectionMaterial* self, int32_t value);
-/* Unknown field */
+/* Index of the DataDrivenMaterial this was converted into, 0xFFFFFFFF if none (v3+). Written by the Heroes load-time conversion pass, not a material parameter; meaningless in a model that carries no MADD chunk. v3 exists only to hold it. Defaulted because an invented REF_ has no link to name, and a v3 record that says anything else points the Heroes loader at a MADD index. */
 uint32_t whiteout_m3_M3ReflectionMaterial_get_unknown2(const whiteout_M3ReflectionMaterial* self);
 void whiteout_m3_M3ReflectionMaterial_set_unknown2(whiteout_M3ReflectionMaterial* self, uint32_t value);
 
@@ -2237,6 +2240,7 @@ struct whiteout_M3StandardMaterialConversion* whiteout_m3_M3DataDrivenMaterial_t
 struct whiteout_M3StandardMaterialConversion* whiteout_m3_M3DataDrivenMaterial_approximateStandardMaterial(const whiteout_M3DataDrivenMaterial* self);
 int32_t whiteout_m3_M3DataDrivenMaterial_getVersion(const whiteout_M3DataDrivenMaterial* self);
 int32_t whiteout_m3_M3DataDrivenMaterial_setVersion(whiteout_M3DataDrivenMaterial* self, int32_t newVersion);
+void whiteout_m3_M3DataDrivenMaterial_forceVersion(whiteout_M3DataDrivenMaterial* self, int32_t newVersion);
 /* Material name (Ref<CHAR>) */
 whiteout_CString whiteout_m3_M3DataDrivenMaterial_get_materialName(const whiteout_M3DataDrivenMaterial* self);
 void whiteout_m3_M3DataDrivenMaterial_set_materialName(whiteout_M3DataDrivenMaterial* self, const char* value);
@@ -2359,7 +2363,7 @@ void whiteout_m3_M3Region_set_firstIndex(whiteout_M3Region* self, uint32_t value
 /* Number of indices (triangles × 3) */
 uint32_t whiteout_m3_M3Region_get_indexCount(const whiteout_M3Region* self);
 void whiteout_m3_M3Region_set_indexCount(whiteout_M3Region* self, uint32_t value);
-/* Unknown field */
+/* Repeats boneLookupCount (874 of 874 shipped regions) */
 uint16_t whiteout_m3_M3Region_get_unknown2(const whiteout_M3Region* self);
 void whiteout_m3_M3Region_set_unknown2(whiteout_M3Region* self, uint16_t value);
 /* First entry in bone lookup table */
@@ -2493,7 +2497,7 @@ void whiteout_m3_M3AttachmentPoint_set_boneIndex(whiteout_M3AttachmentPoint* sel
 whiteout_M3HitTestShape* whiteout_m3_M3HitTestShape_new(void);
 void whiteout_m3_M3HitTestShape_delete(whiteout_M3HitTestShape* self);
 
-/* Shape type (box/sphere/capsule/cylinder/mesh) */
+/* Shape type (box/sphere/capsule/cylinder/mesh). Defaulted because a conversion builds `MODL.tightHitTestObject` without ever assigning it, and an indeterminate enum wrote junk shape types into every export (`reference_m3_layer_stack_junk`, the same defect one field over). Sphere is what 2,222 of 2,448 shipped models state. */
 int32_t whiteout_m3_M3HitTestShape_get_shapeType(const whiteout_M3HitTestShape* self);
 void whiteout_m3_M3HitTestShape_set_shapeType(whiteout_M3HitTestShape* self, int32_t value);
 /* Index into BONE array */
@@ -3525,7 +3529,7 @@ void whiteout_m3_M3Model_delete(whiteout_M3Model* self);
 /* Model file path (Ref<CHAR>) */
 whiteout_CString whiteout_m3_M3Model_get_name(const whiteout_M3Model* self);
 void whiteout_m3_M3Model_set_name(whiteout_M3Model* self, const char* value);
-/* Model flags (tangents, FOW, instancing, etc.) */
+/* Not `None`: only 21 of the corpus's 56,146 models leave this at zero. These three are latches saying "this work is already done, do not redo it", and the converter does all three -- it sorts every `STC_`'s animIds, states `kAnimRefBound` on every bound AnimRef, and derives every `BONE.flags` from those (`m3_anim::SolveBoneAnimFlags`). The rest of the shipped bits are left clear so the editor recomputes them. A parsed or restored model overwrites this wholesale. */
 int32_t whiteout_m3_M3Model_get_flags(const whiteout_M3Model* self);
 void whiteout_m3_M3Model_set_flags(whiteout_M3Model* self, int32_t value);
 /* Animation sequences (SEQS) */

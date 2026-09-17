@@ -53,11 +53,11 @@ public sealed class SubTrackContainer : WhiteoutHandle
     }
 
 
-    /// <summary>Alignment padding</summary>
-    public ushort Padding
+    /// <summary>Second copy of the STS_ index; every one of the 2,197 shipped containers repeats the index here</summary>
+    public ushort AnimationStateIndexCopy
     {
-        get => NativeMethods.whiteout_m3_M3SubTrackContainer_get_padding(DangerousGet());
-        set => NativeMethods.whiteout_m3_M3SubTrackContainer_set_padding(DangerousGet(), value);
+        get => NativeMethods.whiteout_m3_M3SubTrackContainer_get_animationStateIndexCopy(DangerousGet());
+        set => NativeMethods.whiteout_m3_M3SubTrackContainer_set_animationStateIndexCopy(DangerousGet(), value);
     }
 
 

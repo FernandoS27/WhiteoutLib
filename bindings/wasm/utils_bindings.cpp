@@ -98,7 +98,9 @@ EMSCRIPTEN_BINDINGS(utils) {
         .function("getTangents", &whiteout::utils::VertexBuffer::getTangents)
         .function("getUVs", select_overload<std::vector<whiteout::Vector2f>(size_t) const>(&whiteout::utils::VertexBuffer::getUVs))
         .function("getUVs_which_uvMultiply_uvOffset", select_overload<std::vector<whiteout::Vector2f>(size_t, whiteout::f32, whiteout::f32) const>(&whiteout::utils::VertexBuffer::getUVs))
-        .function("getColors", &whiteout::utils::VertexBuffer::getColors)
+        .function("getColors", select_overload<std::vector<whiteout::Vector4f>() const>(&whiteout::utils::VertexBuffer::getColors))
+        .function("getColors_which", select_overload<std::vector<whiteout::Vector4f>(size_t) const>(&whiteout::utils::VertexBuffer::getColors))
+        .function("getBinormals", &whiteout::utils::VertexBuffer::getBinormals)
     ;
 
     class_<whiteout::utils::VertexBufferBuilder>("UtilsVertexBufferBuilder")

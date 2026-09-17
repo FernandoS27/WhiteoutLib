@@ -119,7 +119,7 @@ public final class Region implements AutoCloseable {
         handle.set(ValueLayout.JAVA_INT, 20L, value);
     }
     /**
-     * Unknown field
+     * Repeats boneLookupCount (874 of 874 shipped regions)
      * @return the unknown2 field of this M3Region.
      */
     public short getUnknown2() {

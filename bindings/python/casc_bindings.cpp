@@ -135,6 +135,13 @@ Uses the PImpl (Pointer to Implementation) idiom to hide internals.
         .def("is_online", &whiteout::storages::casc::Storage::isOnline, R"doc(@return True if this storage reads from CDN.)doc")
         .def("is_writable", &whiteout::storages::casc::Storage::isWritable, R"doc(@return True if this storage has a write overlay (StorageWritable).)doc")
         .def("root_format", &whiteout::storages::casc::Storage::rootFormat, R"doc(@return The root manifest format, or RootFormat::Unknown.)doc")
+        .def("entry_count", &whiteout::storages::casc::Storage::entryCount, R"doc(How many entries enumerate() will visit.
+
+The denominator a caller needs to report progress across a walk: on a StarCraft II install that is three quarters of a million entries, and without a total the only honest thing a UI can draw is a marquee.
+
+Cheap — the root manifest already knows — but it forces the deferred load on a LoadOnDemand storage, exactly as enumerate() would.
+
+@return 0 when the storage has no root, or the root cannot say.)doc")
         .def("read_file",
             [](whiteout::storages::casc::Storage& self, const std::string& cascPath) {
                 auto __r = self.readFile(cascPath);

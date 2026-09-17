@@ -392,6 +392,18 @@ impl Storage {
         }
     }
 
+    /// How many entries enumerate() will visit.
+    ///
+    /// The denominator a caller needs to report progress across a walk: on a StarCraft II install that is three quarters of a million entries, and without a total the only honest thing a UI can draw is a marquee.
+    ///
+    /// Cheap — the root manifest already knows — but it forces the deferred load on a LoadOnDemand storage, exactly as enumerate() would.
+    ///
+    /// @return 0 when the storage has no root, or the root cannot say.
+    pub fn entry_count(&self) -> u64 {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe { ffi::whiteout_casc_CascStorage_entryCount(self.raw.as_ptr()) }
+    }
+
     /// @return File contents, or std::nullopt if the path is not found.
     pub fn read_file(&self, casc_path: &str) -> Option<Bytes> {
         let casc_path_cstr = std::ffi::CString::new(casc_path).unwrap_or_default();
@@ -942,6 +954,7 @@ pub mod ffi {
         pub fn whiteout_casc_CascStorage_isOnline(self_: *mut whiteout_CascStorage) -> i32;
         pub fn whiteout_casc_CascStorage_isWritable(self_: *mut whiteout_CascStorage) -> i32;
         pub fn whiteout_casc_CascStorage_rootFormat(self_: *mut whiteout_CascStorage) -> i32;
+        pub fn whiteout_casc_CascStorage_entryCount(self_: *mut whiteout_CascStorage) -> u64;
         pub fn whiteout_casc_CascStorage_readFile(
             self_: *mut whiteout_CascStorage,
             casc_path: *const core::ffi::c_char,

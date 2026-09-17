@@ -126,11 +126,7 @@ public final class Model implements AutoCloseable {
         return new Extent(handle.asSlice(72L, 28L), false);
     }
     public void setModelExtent(Extent value) {
-        if (value == null) {
-            NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_set_modelExtent, handle, MemorySegment.NULL);
-            return;
-        }
-        MemorySegment.copy(value.handle, 0L, handle, 72L, 28L);
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_set_modelExtent, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Time in milliseconds to blend between animations

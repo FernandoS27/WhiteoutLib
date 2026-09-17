@@ -185,4 +185,10 @@ public sealed class DataDrivenMaterial : WhiteoutHandle
         return NativeMethods.whiteout_m3_M3DataDrivenMaterial_setVersion(DangerousGet(), newVersion) != 0;
     }
 
+
+    public void ForceVersion(int newVersion)
+    {
+        NativeMethods.whiteout_m3_M3DataDrivenMaterial_forceVersion(DangerousGet(), newVersion);
+    }
+
 }

@@ -113,13 +113,13 @@ public final class SubTrackContainer implements AutoCloseable {
         handle.set(ValueLayout.JAVA_SHORT, 36L, value);
     }
     /**
-     * Alignment padding
-     * @return the padding field of this M3SubTrackContainer.
+     * Second copy of the STS_ index; every one of the 2,197 shipped containers repeats the index here
+     * @return the animationStateIndexCopy field of this M3SubTrackContainer.
      */
-    public short getPadding() {
+    public short getAnimationStateIndexCopy() {
         return handle.get(ValueLayout.JAVA_SHORT, 38L);
     }
-    public void setPadding(short value) {
+    public void setAnimationStateIndexCopy(short value) {
         handle.set(ValueLayout.JAVA_SHORT, 38L, value);
     }
     /**
@@ -183,7 +183,7 @@ public final class SubTrackContainer implements AutoCloseable {
         handle.set(ValueLayout.JAVA_INT, 88L, value);
     }
     @Override public String toString() {
-        return "SubTrackContainer(" + "name=" + getName() + ", " + "runsConcurrent=" + getRunsConcurrent() + ", " + "animPriority=" + getAnimPriority() + ", " + "animationStateIndex=" + getAnimationStateIndex() + ", " + "padding=" + getPadding() + ", " + "unknown=" + getUnknown() + ")";
+        return "SubTrackContainer(" + "name=" + getName() + ", " + "runsConcurrent=" + getRunsConcurrent() + ", " + "animPriority=" + getAnimPriority() + ", " + "animationStateIndex=" + getAnimationStateIndex() + ", " + "animationStateIndexCopy=" + getAnimationStateIndexCopy() + ", " + "unknown=" + getUnknown() + ")";
     }
 
 }

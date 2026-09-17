@@ -21,7 +21,7 @@ public sealed class HitTestShape : WhiteoutHandle
         return true;
     }
 
-    /// <summary>Shape type (box/sphere/capsule/cylinder/mesh)</summary>
+    /// <summary>Shape type (box/sphere/capsule/cylinder/mesh). Defaulted because a conversion builds `MODL.tightHitTestObject` without ever assigning it, and an indeterminate enum wrote junk shape types into every export (`reference_m3_layer_stack_junk`, the same defect one field over). Sphere is what 2,222 of 2,448 shipped models state.</summary>
     public HitTestShapeType ShapeType
     {
         get => (HitTestShapeType)NativeMethods.whiteout_m3_M3HitTestShape_get_shapeType(DangerousGet());

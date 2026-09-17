@@ -12,8 +12,8 @@ public enum MaterialFlag : int
     VertexColor = 1,
     /// <summary>Enable vertex alpha</summary>
     VertexAlpha = 2,
-    /// <summary>Not affected by fog</summary>
-    Unfogged = 4,
+    /// <summary>Blend the normal-blend layers by factors 0-3 (v19+)</summary>
+    NormalBlend = 4,
     /// <summary>Two-sided rendering</summary>
     TwoSided = 8,
     /// <summary>Unlit / unshaded</summary>
@@ -32,8 +32,8 @@ public enum MaterialFlag : int
     SimulateRoughness = 2048,
     /// <summary>Pixel forward lighting</summary>
     PixelForwardLighting = 4096,
-    /// <summary>Depth-based fog</summary>
-    DepthFog = 8192,
+    /// <summary>Not affected by fog</summary>
+    Unfogged = 8192,
     /// <summary>Transparent shadows</summary>
     TransparentShadows = 16384,
     /// <summary>Decal lighting mode</summary>
@@ -60,6 +60,8 @@ public enum MaterialFlag : int
     AcceptSplatsOnly = 33554432,
     /// <summary>Background object</summary>
     BackgroundObject = 67108864,
+    /// <summary>Second normal blend, by factors 4-7 (v19+)</summary>
+    NormalBlend2 = 134217728,
     /// <summary>Depth prepass low LOD</summary>
     DepthPrepassLowRequired = 268435456,
     /// <summary>Disable highlighting</summary>
