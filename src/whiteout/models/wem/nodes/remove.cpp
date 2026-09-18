@@ -274,6 +274,12 @@ NodeRemaps CompactNodes(NodeTree& tree, NodeReferencers referencers, Diagnostics
     tree.nodes = std::move(survivors);
     tree.invalidateHierarchy();
 
+    RemapNodeReferencers(tree, remaps.nodes, referencers, out);
+    return remaps;
+}
+
+void RemapNodeReferencers(NodeTree& tree, std::span<const u32> remap, NodeReferencers referencers,
+                          Diagnostics& out) {
     // --- the §10.6 referencer table ------------------------------------------------
     //
     // One block per row. A later phase adds a block, not a mechanism.
@@ -284,11 +290,11 @@ NodeRemaps CompactNodes(NodeTree& tree, NodeReferencers referencers, Diagnostics
         // SkinBinding::Influence::bone
         u32 dangling = 0;
         for (geom::Influence& influence : mesh.skin.influences) {
-            if (influence.bone >= remaps.nodes.size()) {
+            if (influence.bone >= remap.size()) {
                 ++dangling;
                 continue;
             }
-            const u32 fresh = remaps.nodes[influence.bone];
+            const u32 fresh = remap[influence.bone];
             if (fresh == kInvalidNode) {
                 ++dangling;
             } else {
@@ -312,8 +318,8 @@ NodeRemaps CompactNodes(NodeTree& tree, NodeReferencers referencers, Diagnostics
             if (gate < 0 || gate == kSectionAlwaysDrawn) {
                 continue;
             }
-            const u32 fresh = static_cast<std::size_t>(gate) < remaps.nodes.size()
-                                  ? remaps.nodes[static_cast<std::size_t>(gate)]
+            const u32 fresh = static_cast<std::size_t>(gate) < remap.size()
+                                  ? remap[static_cast<std::size_t>(gate)]
                                   : kInvalidNode;
             if (fresh == kInvalidNode) {
                 out.info(DiagCode::DanglingNodeReference,
@@ -333,7 +339,7 @@ NodeRemaps CompactNodes(NodeTree& tree, NodeReferencers referencers, Diagnostics
                 continue;
             }
             const u32 old = *section.rigidNode;
-            const u32 fresh = old < remaps.nodes.size() ? remaps.nodes[old] : kInvalidNode;
+            const u32 fresh = old < remap.size() ? remap[old] : kInvalidNode;
             if (fresh == kInvalidNode) {
                 out.error(DiagCode::DanglingNodeReference,
                           "rigidNode names a node that no longer exists",
@@ -354,7 +360,7 @@ NodeRemaps CompactNodes(NodeTree& tree, NodeReferencers referencers, Diagnostics
                 continue;
             }
             const u32 old = channel.target.node;
-            const u32 fresh = old < remaps.nodes.size() ? remaps.nodes[old] : kInvalidNode;
+            const u32 fresh = old < remap.size() ? remap[old] : kInvalidNode;
             channel.target.node = fresh;
             if (fresh == kInvalidNode) {
                 ++dangling;
@@ -377,7 +383,7 @@ NodeRemaps CompactNodes(NodeTree& tree, NodeReferencers referencers, Diagnostics
                 if (link == kInvalidNode) {
                     return;
                 }
-                const u32 fresh = link < remaps.nodes.size() ? remaps.nodes[link] : kInvalidNode;
+                const u32 fresh = link < remap.size() ? remap[link] : kInvalidNode;
                 link = fresh;
                 if (fresh == kInvalidNode) {
                     ++dangling;
@@ -400,7 +406,7 @@ NodeRemaps CompactNodes(NodeTree& tree, NodeReferencers referencers, Diagnostics
                 continue;
             }
             const u32 fresh =
-                event.node < remaps.nodes.size() ? remaps.nodes[event.node] : kInvalidNode;
+                event.node < remap.size() ? remap[event.node] : kInvalidNode;
             event.node = fresh;
             if (fresh == kInvalidNode) {
                 ++dangling;
@@ -413,8 +419,6 @@ NodeRemaps CompactNodes(NodeTree& tree, NodeReferencers referencers, Diagnostics
                       ElementRef(ElementKind::Clip, c));
         }
     }
-
-    return remaps;
 }
 
 void CheckEmitterLinks(const NodeTree& tree, Diagnostics& out) {

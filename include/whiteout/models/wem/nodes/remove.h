@@ -122,6 +122,19 @@ struct NodeRemaps {
  */
 NodeRemaps CompactNodes(NodeTree& tree, NodeReferencers referencers, Diagnostics& out);
 
+/**
+ * @brief Renumbers every row of the §10.6 table through @p remap (`remap[old]` =
+ *        new index, or `kInvalidNode` for a node that is gone).
+ *
+ * `CompactNodes`' second half, public so that a reorder
+ * (`NodeTree::sortParentsFirst`) renumbers exactly the rows a removal does. @p tree
+ * is the tree already renumbered: its emitter payloads' own links are rewritten
+ * in place. A referencer left naming no node is reported as `CompactNodes`
+ * reports it, which a permutation never does.
+ */
+void RemapNodeReferencers(NodeTree& tree, std::span<const u32> remap, NodeReferencers referencers,
+                          Diagnostics& out);
+
 /// The emitter-system payloads' node links (§10.9) against the tree: each one in
 /// range, and naming the kind its `EmitterLink` needs — a copy's source a
 /// particle emitter that is not itself a copy, a bounce's ribbon a ribbon.
