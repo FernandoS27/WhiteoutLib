@@ -182,9 +182,10 @@ void rescaleNode(Node& node, f32 factor) {
         light->attenuationEnd *= factor;
     } else if (auto* camera = std::get_if<CameraPayload>(&node.payload)) {
         // `fov` is an angle and stays; the two clip planes are distances from
-        // the camera and move with the model.
+        // the camera and move with the model, and the target is a point in it.
         camera->nearClip *= factor;
         camera->farClip *= factor;
+        scale(camera->target, factor);
     } else if (auto* collision = std::get_if<CollisionPayload>(&node.payload)) {
         scale(collision->shape.box, factor);
         scale(collision->shape.sphere, factor);

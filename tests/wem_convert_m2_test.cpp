@@ -134,6 +134,27 @@ TEST_CASE("wem m2 attachments become bone children", "[wem][convert][m2][nodes]"
     CHECK(nodes.worldBind(2).translation.z == 8.0f);
 }
 
+TEST_CASE("wem m2 a camera keeps where it looks", "[wem][convert][m2][nodes]") {
+    m2::Model source = makeModel();
+    m2::Camera camera;
+    camera.type = 0;
+    camera.fieldOfView = 0.9f;
+    camera.nearClip = 0.5f;
+    camera.farClip = 300.0f;
+    camera.positionBase = Vector3f{6, -2, 3};
+    camera.targetPositionBase = Vector3f{0, 0, 1.5f};
+    source.cameras.push_back(camera);
+
+    const M2Converter converter;
+    Result<Document> imported = converter.fromM2(source);
+    REQUIRE(imported.ok());
+    Result<m2::Model> exported = converter.toM2(*imported, ProfileId::Wow);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->cameras.size() == 1);
+    CHECK(exported->cameras[0].positionBase == camera.positionBase);
+    CHECK(exported->cameras[0].targetPositionBase == camera.targetPositionBase);
+}
+
 TEST_CASE("wem m2 keeps a multi-pass batch's material", "[wem][convert][m2][materials]") {
     m2::Model source = makeModel();
     m2::Batch second = source.skinProfiles[0].batches[0];

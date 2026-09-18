@@ -32,11 +32,13 @@
 #include "whiteout/models/wem/geometry/render_view.h"
 
 #include "../materials/mdx_core.h"
+#include "../native/mdx_copy.h"
 #include "mdx_anim.h"
 #include "skin_skeleton.h"
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <bit>
 #include <map>
 #include <string>
@@ -502,6 +504,7 @@ NodeImport ImportNodes(const mdx::Model& source) {
         payload.fov = camera.fieldOfView;
         payload.nearClip = camera.nearClippingPlane;
         payload.farClip = camera.farClippingPlane;
+        payload.target = camera.targetPosition;
         // The position is the camera's pivot as much as its rest: KCTR keys
         // offset it, and a retarget rebuilds the rest from the pivot.
         node.pivot = camera.position;
@@ -1190,6 +1193,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
                 camera.fieldOfView = payload->fov;
                 camera.nearClippingPlane = payload->nearClip;
                 camera.farClippingPlane = payload->farClip;
+                camera.targetPosition = payload->target;
             }
             claim(i, mdx_anim::ExportContext::Slot::Camera, out.cameras.size());
             out.cameras.push_back(std::move(camera));
@@ -1749,6 +1753,380 @@ Result<std::vector<u8>> MdxConverter::exportToBytes(const Document& document, Pr
     mdx::Writer writer;
     result.value = writer.write(*converted);
     return result;
+}
+
+// ============================================================================
+// Editing a Warcraft III material (EDIT_MODE_MATERIALS_DESIGN.md §6)
+// ============================================================================
+
+namespace {
+
+/// The context `fromMdx` builds, over a document that already exists: every
+/// texture by identity (the index a block names IS the document's), the wrap
+/// words read off the table, and the block's own version.
+mdx_core::Context EditContext(const Document& document, u32 version) {
+    mdx_core::Context context;
+    context.modelVersion = version;
+    context.textureIndexMap.resize(document.textures.size());
+    for (std::size_t i = 0; i < document.textures.size(); ++i) {
+        context.textureIndexMap[i] = static_cast<u32>(i);
+    }
+    context.textureRefs = &document.textures;
+    return context;
+}
+
+/// @p block as the import reads it: its layers' HD-ness recomputed from what
+/// says it in a file — the layer's shader from v1100, the material's name below
+/// — because `isHd` is the import's normalisation of that, and an edit that
+/// changed the shader leaves the flag behind it. `IsHdLayer` believes the flag
+/// first, so a stale one would read an SD layer back as HD.
+mdx::Material IncomingMaterial(const native::MdxMaterial& block) {
+    mdx::Material material;
+    CopyFromNative(block, material);
+    for (mdx::Layer& layer : material.layers) {
+        layer.is_hd = false;
+        layer.is_hd = mdx_core::IsHdLayer(material, layer, block.sourceVersion);
+    }
+    return material;
+}
+
+/// @p block through the import, as a re-import of a saved file would see it.
+/// @p ordinals receives the ordinal each block layer became.
+Material ProjectBlock(const native::MdxMaterial& block, ProfileId profile,
+                      const Document& document, Diagnostics& out, std::vector<u32>& ordinals) {
+    return mdx_core::ImportMaterial(IncomingMaterial(block), profile,
+                                    EditContext(document, block.sourceVersion), out, &ordinals);
+}
+
+/// Whether @p set binds @p material at (@p slot, @p look).
+bool BindsMaterial(const ProfileMaterialSet& set, u32 slot, u32 look, u32 material) {
+    return slot < set.slotBindings.size() && look < set.slotBindings[slot].byLook.size() &&
+           set.slotBindings[slot].byLook[look] == material;
+}
+
+/// What a stock-texture lookup compares: the path as the game resolves it,
+/// which ignores case and the slash direction.
+std::string NormalisedTexturePath(const std::string& path) {
+    std::string out = path;
+    for (char& c : out) {
+        c = c == '\\' ? '/' : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    return out;
+}
+
+} // namespace
+
+MaterialBlockResult MdxConverter::setMaterialBlock(Document& document,
+                                                   const MaterialBlockEdit& edit) const {
+    MaterialBlockResult result;
+    Diagnostics& out = result.diagnostics;
+    const auto number = [](u64 value) { return std::to_string(value); };
+
+    if (edit.profile != ProfileId::Wc3Classic && edit.profile != ProfileId::Wc3Reforged) {
+        out.error(DiagCode::OperationUnsupported,
+                  std::string("an MDX block edits a Warcraft III set, not ") +
+                      ToString(edit.profile),
+                  ElementRef(), edit.profile);
+        return result;
+    }
+    if (edit.model >= document.models.size()) {
+        out.error(DiagCode::IndexOutOfRange,
+                  "model " + number(edit.model) + " of " + number(document.models.size()));
+        return result;
+    }
+    Model& model = document.models[edit.model];
+    ProfileMaterialSet* set = model.setFor(edit.profile);
+    if (set == nullptr) {
+        out.error(DiagCode::ProfileNotCarried,
+                  std::string("the model carries no ") + ToString(edit.profile) + " material set",
+                  ElementRef(), edit.profile);
+        return result;
+    }
+    if (edit.material >= set->materials.size()) {
+        out.error(DiagCode::IndexOutOfRange,
+                  "material " + number(edit.material) + " of " + number(set->materials.size()),
+                  ElementRef(ElementKind::Material, edit.material), edit.profile);
+        return result;
+    }
+    Material& target = set->materials[edit.material];
+    const native::MdxMaterial* previous = std::get_if<native::MdxMaterial>(&target.Native());
+    if (previous == nullptr) {
+        out.error(DiagCode::OperationUnsupported, "the material has no MDX block to edit",
+                  ElementRef(ElementKind::Material, edit.material), edit.profile);
+        return result;
+    }
+
+    // --- 1. the shaders: the import would drop a layer the set may not hold --
+    const ElementRef where(ElementKind::Material, edit.material);
+    if (edit.block.layers.empty()) {
+        // Not "draws nothing": an empty MDX stack draws untextured white. A
+        // material that should not draw is a layer at alpha 0.
+        out.error(DiagCode::MaterialBodyInvalid, "a material keeps at least one layer", where,
+                  edit.profile);
+        return result;
+    }
+    {
+        // A Reforged model uses all four shaders and a classic one SD alone
+        // (`mdx_core::LayerAllowedIn`), so only a classic set can refuse.
+        const mdx::Material incoming = IncomingMaterial(edit.block);
+        for (std::size_t i = 0; i < incoming.layers.size(); ++i) {
+            if (mdx_core::LayerAllowedIn(incoming, incoming.layers[i], edit.block.sourceVersion,
+                                         edit.profile)) {
+                continue;
+            }
+            out.error(DiagCode::NativeKindProfileMismatch,
+                      "layer " + number(i) + " is not an SD layer, and a classic model draws SD "
+                      "layers only",
+                      ElementRef(ElementKind::Layer, edit.material, static_cast<u32>(i)),
+                      edit.profile);
+            return result;
+        }
+    }
+    if (!edit.layerRemap.empty()) {
+        bool valid = edit.layerRemap.size() == previous->layers.size();
+        for (const u32 to : edit.layerRemap) {
+            valid = valid && (to == kInvalidIndex || to < edit.block.layers.size());
+        }
+        if (!valid) {
+            out.error(DiagCode::IndexOutOfRange,
+                      "the layer map names " + number(edit.layerRemap.size()) + " of " +
+                          number(previous->layers.size()) + " old layers, or a new layer past " +
+                          number(edit.block.layers.size()),
+                      where, edit.profile);
+            return result;
+        }
+    }
+
+    // --- 2. project, both sides: the import is the one place that decides
+    // which ordinal a layer is ------------------------------------------------
+    Diagnostics before;
+    std::vector<u32> oldOrdinals;
+    ProjectBlock(*previous, edit.profile, document, before, oldOrdinals);
+    std::vector<u32> newOrdinals;
+    Material derived = ProjectBlock(edit.block, edit.profile, document, out, newOrdinals);
+    // The import names a material after its `shader` string; this one keeps
+    // the name it had, which is its slot's.
+    derived.name = target.name;
+
+    const auto newLayerOf = [&](u32 oldLayer) {
+        if (edit.layerRemap.empty()) {
+            return oldLayer < edit.block.layers.size() ? oldLayer : kInvalidIndex;
+        }
+        return oldLayer < edit.layerRemap.size() ? edit.layerRemap[oldLayer] : kInvalidIndex;
+    };
+    // Old ordinal -> old layer -> the map -> new layer -> new ordinal.
+    const auto newOrdinalOf = [&](u32 oldOrdinal) -> u32 {
+        if (oldOrdinal == kWholeMaterial) {
+            return kWholeMaterial;
+        }
+        for (std::size_t layer = 0; layer < oldOrdinals.size(); ++layer) {
+            if (oldOrdinals[layer] != oldOrdinal) {
+                continue;
+            }
+            const u32 to = newLayerOf(static_cast<u32>(layer));
+            return to < newOrdinals.size() ? newOrdinals[to] : kInvalidIndex;
+        }
+        return kInvalidIndex;
+    };
+
+    // --- 3. the features: sub-tracks join them by id -------------------------
+    const std::vector<MaterialFeature>& oldFeatures = target.Common().features;
+    std::vector<u32> joined;
+    u32 nextId = NextFeatureId(oldFeatures);
+    for (const AnimChannel& channel : model.animChannels.channels) {
+        const TrackTarget& t = channel.target;
+        if (t.kind != TrackTarget::Kind::MaterialFeature || t.material.profile != edit.profile ||
+            !BindsMaterial(*set, t.material.slot, t.material.look, edit.material)) {
+            continue;
+        }
+        joined.push_back(t.sub);
+        // Never an id a channel still names, even one whose feature is gone.
+        nextId = std::max(nextId, t.sub + 1);
+    }
+    const auto isJoined = [&](u32 id) {
+        return std::find(joined.begin(), joined.end(), id) != joined.end();
+    };
+
+    CommonMaterial& common = derived.InitCommon();
+    std::vector<MaterialFeature> features;
+    std::vector<bool> carried(oldFeatures.size(), false);
+    for (MaterialFeature feature : common.features) {
+        bool matched = false;
+        for (std::size_t o = 0; o < oldFeatures.size() && !matched; ++o) {
+            if (carried[o] || oldFeatures[o].kind() != feature.kind() ||
+                newOrdinalOf(oldFeatures[o].layer) != feature.layer) {
+                continue;
+            }
+            feature.id = oldFeatures[o].id;
+            carried[o] = true;
+            matched = true;
+        }
+        if (!matched) {
+            feature.id = nextId++;
+        }
+        features.push_back(std::move(feature));
+    }
+    std::vector<u32> droppedIds;
+    for (std::size_t o = 0; o < oldFeatures.size(); ++o) {
+        if (carried[o]) {
+            continue;
+        }
+        const MaterialFeature& old = oldFeatures[o];
+        // The import never makes a UV animation (the animation import does),
+        // and a feature a channel joins on is the user's animation: a static
+        // value typed to zero must not cut it.
+        if (old.kind() != FeatureKind::UvAnimation && !isJoined(old.id)) {
+            continue;
+        }
+        const u32 layer = newOrdinalOf(old.layer);
+        if (layer == kInvalidIndex) {
+            droppedIds.push_back(old.id);
+            out.warn(DiagCode::FeatureDropped,
+                     std::string(ToString(old.kind())) + " feature " + number(old.id) +
+                         " was on a removed layer",
+                     ElementRef(ElementKind::Feature, edit.material, old.id), edit.profile);
+            continue;
+        }
+        MaterialFeature kept = old;
+        kept.layer = layer;
+        if (FresnelFeature* fresnel = kept.fresnel()) {
+            for (std::size_t l = 0; l < newOrdinals.size(); ++l) {
+                if (newOrdinals[l] != layer || l >= edit.block.layers.size()) {
+                    continue;
+                }
+                const native::MdxLayer& source = edit.block.layers[l];
+                fresnel->color = source.fresnelColor;
+                fresnel->outMax = source.fresnelOpacity;
+                fresnel->teamColor = source.fresnelTeamColor;
+            }
+        }
+        features.push_back(std::move(kept));
+    }
+    common.features = std::move(features);
+
+    // --- 4. the channels ------------------------------------------------------
+    for (AnimChannel& channel : model.animChannels.channels) {
+        TrackTarget& t = channel.target;
+        if (!IsMaterialTarget(t.kind) || t.material.profile != edit.profile ||
+            !BindsMaterial(*set, t.material.slot, t.material.look, edit.material)) {
+            continue;
+        }
+        bool dead = false;
+        if (t.kind == TrackTarget::Kind::MaterialLayer) {
+            if (t.sub == kWholeMaterial) {
+                continue;
+            }
+            const u32 to = newOrdinalOf(t.sub);
+            dead = to == kInvalidIndex;
+            if (!dead && to != t.sub) {
+                t.sub = to;
+                ++result.channelsRemapped;
+            }
+        } else {
+            dead = std::find(droppedIds.begin(), droppedIds.end(), t.sub) != droppedIds.end();
+        }
+        if (!dead) {
+            continue;
+        }
+        // Invalidated, never dropped: an id is never reused (§7.5).
+        t.material.slot = kInvalidIndex;
+        ++result.channelsInvalidated;
+        out.warn(DiagCode::AnimChannelInvalidated,
+                 "channel " + number(channel.id) + " animated a removed layer",
+                 ElementRef(ElementKind::Channel, channel.id), edit.profile);
+    }
+
+    target = std::move(derived);
+    result.ok = true;
+    return result;
+}
+
+u32 MdxConverter::internStockTexture(Document& document, mdx::Layer::SlotType slot,
+                                     bool* appended) const {
+    if (appended != nullptr) {
+        *appended = false;
+    }
+    const mdx_core::StockSlotTexture stock = mdx_core::StockTextureFor(slot);
+    const std::string path = stock.path;
+    if (path.empty() && stock.replaceableId == 0) {
+        return kInvalidIndex;
+    }
+    const std::string wanted = NormalisedTexturePath(path);
+    for (std::size_t i = 0; i < document.textures.size(); ++i) {
+        const TextureRef& texture = document.textures[i];
+        if (texture.replaceableId == stock.replaceableId &&
+            NormalisedTexturePath(texture.path) == wanted) {
+            return static_cast<u32>(i);
+        }
+    }
+    TextureRef texture;
+    texture.path = path;
+    texture.replaceableId = stock.replaceableId;
+    // Every shipped Reforged `TEXS` word wraps both ways; an empty word is
+    // clamp, not "no opinion".
+    texture.flags = static_cast<u32>(mdx::Texture::Flag::WrapWidth) |
+                    static_cast<u32>(mdx::Texture::Flag::WrapHeight);
+    document.textures.push_back(std::move(texture));
+    if (appended != nullptr) {
+        *appended = true;
+    }
+    return static_cast<u32>(document.textures.size() - 1);
+}
+
+MaterialBlockDraft MdxConverter::defaultMaterialBlock(Document& document, ProfileId profile,
+                                                      u32 colourMap, u32 sourceVersion) const {
+    MaterialBlockDraft draft;
+    // From the parser's own defaults — alpha 1, emissive gain 1, a white
+    // fresnel colour at no strength — so a default layer is what a file with
+    // nothing to say about a field would have read as.
+    mdx::Material material;
+    mdx::Layer layer;
+    layer.filterMode = mdx::Layer::FilterMode::None;
+    layer.textureAnimationId = mdx_core::kNoTextureAnimation;
+    layer.coordId = 0;
+    if (profile == ProfileId::Wc3Reforged) {
+        layer.shader = mdx::Layer::ShaderType::HD;
+        layer.is_hd = true;
+        for (u32 s = 0; s < mdx_core::kHdPositionalSlotCount; ++s) {
+            const auto slot = static_cast<mdx::Layer::SlotType>(s);
+            mdx::Layer::SubTexture sub;
+            sub.slot = slot;
+            sub.textureId = colourMap;
+            if (slot != mdx::Layer::SlotType::DiffuseMap) {
+                bool added = false;
+                const u32 stock = internStockTexture(document, slot, &added);
+                draft.texturesAppended += added ? 1u : 0u;
+                if (stock != kInvalidIndex) {
+                    sub.textureId = stock;
+                }
+            }
+            layer.subTextures.push_back(sub);
+        }
+        // Below v1100 a layer carries no shader id, and this string on the
+        // material is the whole signal that its stack is HD.
+        if (sourceVersion < 1100) {
+            material.shader = "Shader_HD_DefaultUnit";
+        }
+    } else {
+        layer.shader = mdx::Layer::ShaderType::SD;
+        // Where a block of this version keeps its colour map: the parser moves
+        // every v900+ layer's texture into the first sub-texture and zeroes
+        // `textureId`, and the renderer reads `subAt(0)` whenever there is one.
+        if (sourceVersion >= 900) {
+            mdx::Layer::SubTexture sub;
+            sub.textureId = colourMap;
+            sub.slot = mdx::Layer::SlotType::DiffuseMap;
+            layer.subTextures.push_back(sub);
+            layer.textureId = 0;
+        } else {
+            layer.textureId = colourMap;
+        }
+    }
+    material.layers.push_back(layer);
+    CopyToNative(material, draft.block);
+    draft.block.sourceVersion = sourceVersion;
+    draft.block.layers[0].isHd = profile == ProfileId::Wc3Reforged;
+    return draft;
 }
 
 } // namespace wem

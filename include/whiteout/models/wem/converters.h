@@ -25,6 +25,7 @@
 #include "../mdx/structures.h"
 #include "../mdx/types.h"
 #include "converter_base.h"
+#include "native/mdx_native.h"
 
 namespace whiteout {
 namespace models {
@@ -33,6 +34,34 @@ namespace wem {
 // ============================================================================
 // MdxConverter
 // ============================================================================
+
+/// One edit to a Warcraft III material, as its whole new native block
+/// (EDIT_MODE_MATERIALS_DESIGN.md §6.1).
+struct MaterialBlockEdit {
+    u32 model = 0;
+    ProfileId profile = ProfileId::Wc3Classic; ///< `Wc3Classic` or `Wc3Reforged`.
+    u32 material = kInvalidIndex;              ///< In that set's `materials`.
+    native::MdxMaterial block;                 ///< The whole new block.
+    /// Old block layer -> new, `kInvalidIndex` for a removed one. Empty is the
+    /// identity: a field edit that moved no layer.
+    std::vector<u32> layerRemap;
+};
+
+struct MaterialBlockResult {
+    bool ok = false;
+    /// Layer channels whose ordinal moved with their layer.
+    u32 channelsRemapped = 0;
+    /// Channels whose layer or feature is gone, each with a diagnostic.
+    u32 channelsInvalidated = 0;
+    Diagnostics diagnostics;
+};
+
+/// A native block and the document textures its making appended — which the
+/// caller records so an undo can pop exactly those.
+struct MaterialBlockDraft {
+    native::MdxMaterial block;
+    u32 texturesAppended = 0;
+};
 
 /**
  * @brief Warcraft III `.mdx`, both directions, serving both WC3 profiles.
@@ -61,6 +90,55 @@ public:
     /// are drawn; @p targetVersion is the `.mdx` version stamped on the result.
     Result<mdx::Model> toMdx(const Document& document, ProfileId profile,
                              u32 targetVersion = 800) const;
+
+    // ---- Editing a Warcraft III material (EDIT_MODE_MATERIALS_DESIGN.md §6) ----
+    //
+    // An editor writes a material's NATIVE block, and the common view is
+    // re-derived from it by the import's own projection, so the material stays
+    // `InSync` and `toMdx` writes the block as it stands. Here rather than in a
+    // free function because the projection is this converter's private core.
+
+    /**
+     * @brief Replace one material's native block and re-derive its common view.
+     *
+     * 1. Refuses (nothing written) a block holding a layer of the other
+     *    family: the import keeps only the profile's layers and would drop it
+     *    without a word.
+     * 2. Projects the block through the import with the context `fromMdx`
+     *    had: the document's textures by identity, the block's own version.
+     *    The material keeps its name.
+     * 3. Carries the features. A re-derived feature takes the id of the old
+     *    one of its kind on the same layer (through @ref MaterialBlockEdit::
+     *    layerRemap); a new one takes an id no feature or channel has used.
+     *    Every `UvAnimation` feature is carried, its layer remapped, and so is
+     *    any feature a channel joins on — typing a keyed fresnel's strength to
+     *    zero keeps its feature, refreshed from the block. A feature whose
+     *    layer was removed goes, and the channels joining it are invalidated.
+     * 4. Remaps the `MaterialLayer` channels on every slot bound to the
+     *    material: old ordinal -> old layer -> `layerRemap` -> new layer -> new
+     *    ordinal, invalidating one whose layer is gone.
+     */
+    MaterialBlockResult setMaterialBlock(Document& document, const MaterialBlockEdit& edit) const;
+
+    /**
+     * @brief The plain default material of @p profile over document texture
+     *        @p colourMap, at @p sourceVersion.
+     *
+     * `Wc3Classic`: one opaque `SD` layer, the colour map where a block of that
+     * version keeps it (`textureId` at v800, `subTextures[0]` from v900).
+     * `Wc3Reforged`: one opaque `HD` layer over six sub-textures in slot order,
+     * the colour map first and Warcraft III's stock neutral in every other
+     * slot, interned into `document.textures` (see @ref internStockTexture).
+     */
+    MaterialBlockDraft defaultMaterialBlock(Document& document, ProfileId profile, u32 colourMap,
+                                            u32 sourceVersion) const;
+
+    /// The document texture holding Warcraft III's stock neutral for @p slot,
+    /// appended when no entry has the same path (compared case- and
+    /// slash-insensitively) and replaceable id. `kInvalidIndex` for a slot the
+    /// game has no neutral for. @p appended, when given, says whether it was.
+    u32 internStockTexture(Document& document, mdx::Layer::SlotType slot,
+                           bool* appended = nullptr) const;
 };
 
 // ============================================================================

@@ -3,12 +3,14 @@
 
 /// WEM v3 P3c — one `.mdx` producing two profiles over one geometry.
 ///
-/// The mechanism is per-*layer*: `mdx::Layer::is_hd` decides which profile a
-/// layer belongs to, so a single material can feed a `Wc3Classic` set and a
-/// `Wc3Reforged` set at once, and each set's native block holds only its own
-/// layers. That is what makes `DeriveProfile(Wc3Reforged -> Wc3Classic)` a layer
-/// filter rather than a re-derivation through `CommonMaterial` (§7.3), and it is
-/// the reason the two WC3 profiles share one native block type at all.
+/// The mechanism is per-*layer*, and the rule is which shaders each model may
+/// use: a Reforged (HD) model all four — HD, Crystal, SD on HD, SD — and a
+/// classic (SD) model SD alone. So a single material can feed a `Wc3Classic` set
+/// (its SD layers) and a `Wc3Reforged` set (all of it) at once, and each set's
+/// native block holds only what that profile may hold. That is what makes
+/// `DeriveProfile(Wc3Reforged -> Wc3Classic)` a layer filter rather than a
+/// re-derivation through `CommonMaterial` (§7.3), and it is the reason the two
+/// WC3 profiles share one native block type at all.
 ///
 /// The design's open question #1 asks how much shipped content actually carries
 /// both kinds. The corpus case at the end publishes that number rather than
@@ -164,7 +166,8 @@ TEST_CASE("wem one mdx material feeds both WC3 profiles", "[wem][materials][mdx]
     CHECK(pbr->find(PbrSlot::TeamColorMask) != nullptr);
 }
 
-TEST_CASE("wem each set's native block holds only its own layers", "[wem][materials][mdx]") {
+TEST_CASE("wem the classic block holds the SD layers, the Reforged block all of them",
+          "[wem][materials][mdx]") {
     const mdx::Material source = makeMixedMaterial();
     Diagnostics diagnostics;
     const Material classic =
@@ -178,12 +181,14 @@ TEST_CASE("wem each set's native block holds only its own layers", "[wem][materi
     const auto& classicBlock = std::get<native::MdxMaterial>(classic.Native());
     const auto& reforgedBlock = std::get<native::MdxMaterial>(reforged.Native());
     CHECK(classicBlock.layers.size() == 2);
-    CHECK(reforgedBlock.layers.size() == 6);
+    REQUIRE(reforgedBlock.layers.size() == 8);
     for (const native::MdxLayer& layer : classicBlock.layers) {
         CHECK_FALSE(layer.isHd);
     }
-    for (const native::MdxLayer& layer : reforgedBlock.layers) {
-        CHECK(layer.isHd);
+    // `isHd` is each layer's own shading, not the set it sits in: the two SD
+    // layers a Reforged model keeps are still SD, and must read back so.
+    for (std::size_t i = 0; i < reforgedBlock.layers.size(); ++i) {
+        CHECK(reforgedBlock.layers[i].isHd == (i >= 2));
     }
 
     // The block is the format version's, not the material's: nothing in
@@ -191,7 +196,7 @@ TEST_CASE("wem each set's native block holds only its own layers", "[wem][materi
     CHECK(classicBlock.sourceVersion == 1200);
 }
 
-TEST_CASE("wem each set exports back to its own half", "[wem][materials][mdx]") {
+TEST_CASE("wem each set exports back what it holds", "[wem][materials][mdx]") {
     const mdx::Material source = makeMixedMaterial();
     Diagnostics diagnostics;
     const Material classic =
@@ -204,15 +209,16 @@ TEST_CASE("wem each set exports back to its own half", "[wem][materials][mdx]") 
     const mdx::Material reforgedOut =
         mdx_core::ExportMaterial(reforged, ProfileId::Wc3Reforged, makeContext(), diagnostics);
 
+    // The classic set is the SD half; the Reforged set is the whole stack, its
+    // SD layers still SD.
     REQUIRE(classicOut.layers.size() == 2);
-    REQUIRE(reforgedOut.layers.size() == 6);
+    REQUIRE(reforgedOut.layers.size() == source.layers.size());
     CHECK(classicOut.layers[0].filterMode == Layer::FilterMode::None);
     CHECK(classicOut.layers[1].filterMode == Layer::FilterMode::Blend);
-    for (const Layer& layer : reforgedOut.layers) {
-        CHECK(layer.is_hd);
+    for (std::size_t i = 0; i < reforgedOut.layers.size(); ++i) {
+        CHECK(reforgedOut.layers[i].is_hd == (i >= 2));
+        CHECK(reforgedOut.layers[i].textureId == source.layers[i].textureId);
     }
-    // Rejoining the two halves reproduces the source layer list.
-    CHECK(classicOut.layers.size() + reforgedOut.layers.size() == source.layers.size());
 }
 
 TEST_CASE("wem below v1100 the HD split is per material, not per layer", "[wem][materials][mdx]") {
@@ -235,23 +241,72 @@ TEST_CASE("wem below v1100 the HD split is per material, not per layer", "[wem][
     CHECK_FALSE(mdx_core::IsHdLayer(source, source.layers[1], 1200));
 }
 
-TEST_CASE("wem SDOnHD layers belong to the classic set", "[wem][materials][mdx]") {
-    // SD content drawn through the HD pipeline is still SD content: its layers
-    // have no PBR slots to fill, so putting them in the Reforged set would
-    // produce a slot map made of guesses.
+TEST_CASE("wem a Reforged model uses all four shaders, a classic model SD alone",
+          "[wem][materials][mdx]") {
+    mdx::Material source;
+    for (const Layer::ShaderType shader :
+         {Layer::ShaderType::SD, Layer::ShaderType::HD, Layer::ShaderType::SDOnHD,
+          Layer::ShaderType::Crystal}) {
+        Layer layer = makeLayer(Layer::FilterMode::None, false, 0);
+        layer.shader = shader;
+        source.layers.push_back(layer);
+    }
+    for (const Layer& layer : source.layers) {
+        CHECK(mdx_core::LayerAllowedIn(source, layer, 1200, ProfileId::Wc3Reforged));
+    }
+    CHECK(mdx_core::LayerAllowedIn(source, source.layers[0], 1200, ProfileId::Wc3Classic));
+    CHECK_FALSE(mdx_core::LayerAllowedIn(source, source.layers[1], 1200, ProfileId::Wc3Classic));
+    CHECK_FALSE(mdx_core::LayerAllowedIn(source, source.layers[2], 1200, ProfileId::Wc3Classic));
+    CHECK_FALSE(mdx_core::LayerAllowedIn(source, source.layers[3], 1200, ProfileId::Wc3Classic));
+
+    // The classic set keeps the one SD layer, the Reforged set all four.
+    Diagnostics diagnostics;
+    const Material classic =
+        mdx_core::ImportMaterial(source, ProfileId::Wc3Classic, makeContext(), diagnostics);
+    const Material reforged =
+        mdx_core::ImportMaterial(source, ProfileId::Wc3Reforged, makeContext(), diagnostics);
+    CHECK(std::get<native::MdxMaterial>(classic.Native()).layers.size() == 1);
+    CHECK(std::get<native::MdxMaterial>(reforged.Native()).layers.size() == 4);
+}
+
+TEST_CASE("wem SDOnHD layers belong to the Reforged set, never the classic one",
+          "[wem][materials][mdx]") {
+    // SD content drawn through the HD pipeline shades the classic way, but it is
+    // a Reforged model's shader: a classic model draws SD alone.
     mdx::Material source;
     Layer layer = makeLayer(Layer::FilterMode::None, false, 0);
     layer.shader = Layer::ShaderType::SDOnHD;
     source.layers.push_back(layer);
     CHECK_FALSE(mdx_core::IsHdLayer(source, source.layers[0], 1200));
-    CHECK(mdx_core::HasLayersFor(source, ProfileId::Wc3Classic, makeContext()));
+    CHECK(mdx_core::IsSdOnHdLayer(source, source.layers[0], 1200));
+    CHECK(mdx_core::HasLayersFor(source, ProfileId::Wc3Reforged, makeContext()));
+    CHECK_FALSE(mdx_core::HasLayersFor(source, ProfileId::Wc3Classic, makeContext()));
+
+    // Below v1100 the material's name says it, for every layer.
+    mdx::Material named;
+    named.shader = "Shader_SD_FixedFunction";
+    named.layers.push_back(makeLayer(Layer::FilterMode::None, false, 0));
+    CHECK(mdx_core::IsSdOnHdLayer(named, named.layers[0], 1000));
+    CHECK(mdx_core::HasLayersFor(named, ProfileId::Wc3Reforged, makeContext(1000)));
+    CHECK_FALSE(mdx_core::HasLayersFor(named, ProfileId::Wc3Classic, makeContext(1000)));
+
+    // A Reforged material of SD-on-HD layers has no PBR slots: it takes the
+    // classic projection, not a slot map of guesses.
+    Diagnostics diagnostics;
+    const Material reforged =
+        mdx_core::ImportMaterial(source, ProfileId::Wc3Reforged, makeContext(), diagnostics);
+    CHECK(reforged.Common().kind() == MaterialKind::Composite);
 }
 
-TEST_CASE("wem a classic-only material produces no Reforged set", "[wem][materials][mdx]") {
+TEST_CASE("wem an SD material serves Reforged only from a Reforged-era file", "[wem][materials][mdx]") {
     mdx::Material source;
     source.layers.push_back(makeLayer(Layer::FilterMode::None, false, 0));
+    // v800 is an SD model: no Reforged set.
+    CHECK(mdx_core::HasLayersFor(source, ProfileId::Wc3Classic, makeContext(800)));
+    CHECK_FALSE(mdx_core::HasLayersFor(source, ProfileId::Wc3Reforged, makeContext(800)));
+    // From v900 it is a Reforged model's material as well, which may use SD.
     CHECK(mdx_core::HasLayersFor(source, ProfileId::Wc3Classic, makeContext()));
-    CHECK_FALSE(mdx_core::HasLayersFor(source, ProfileId::Wc3Reforged, makeContext()));
+    CHECK(mdx_core::HasLayersFor(source, ProfileId::Wc3Reforged, makeContext()));
 }
 
 

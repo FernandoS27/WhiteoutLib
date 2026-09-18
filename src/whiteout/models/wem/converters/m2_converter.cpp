@@ -226,6 +226,7 @@ NodeTree ImportNodes(const m2::Model& source) {
         payload.fov = camera.fieldOfView;
         payload.nearClip = camera.nearClip;
         payload.farClip = camera.farClip;
+        payload.target = camera.targetPositionBase;
         node.native.set("cameraType", static_cast<i64>(camera.type));
         node.local.translation = camera.positionBase;
         node.poses.push_back(node.local);
@@ -563,6 +564,7 @@ Result<m2::Model> M2Converter::toM2(const Document& document, ProfileId profile,
                 camera.fieldOfView = payload->fov;
                 camera.nearClip = payload->nearClip;
                 camera.farClip = payload->farClip;
+                camera.targetPositionBase = payload->target;
             }
             camera.positionBase = world;
             animContext.nodeSlots[n] = {m2_anim::ExportContext::Slot::Camera,

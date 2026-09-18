@@ -13,10 +13,15 @@
  *
  * ### One file, two profiles
  *
- * The classic/Reforged distinction is per **layer**, so one `.mdx` material can
- * feed a `Wc3Classic` set and a `Wc3Reforged` set at once. `ImportMaterial`
- * takes the profile and filters; a material with no layers for that profile
- * yields nothing, which is how a classic-only file produces no Reforged set.
+ * Which shaders a model may use is the rule, and it is not symmetric. A
+ * Reforged (HD) model uses all four of Warcraft III's model shaders — HD,
+ * Crystal, SD on HD and SD. A classic (SD) model uses SD and nothing else. So
+ * one `.mdx` material can feed a `Wc3Classic` set and a `Wc3Reforged` set at
+ * once: the Reforged set keeps every layer of it, and the classic set only its
+ * plain SD layers. `ImportMaterial` takes the profile and filters by
+ * @ref LayerAllowedIn; a material with nothing that profile may hold yields
+ * nothing, which is how a classic-only file produces no Reforged set and an
+ * all-HD file no classic one.
  *
  * ### What actually says "HD", measured
  *
@@ -25,14 +30,16 @@
  * on its own as the discriminator. What the parser does produce:
  *
  *   - **v1100+**: `Layer::shader`, a per-layer `ShaderType`. `HD` and `Crystal`
- *     are the Reforged family. `SDOnHD` is not — that is SD *content* drawn
- *     through the HD pipeline, and its layers belong to the classic set.
+ *     shade as HD. `SDOnHD` does not — that is SD *content* drawn through the HD
+ *     pipeline — but it is still a Reforged model's shader, never a classic one.
  *   - **v900..v1100**: no per-layer shader at all. The only signal is
  *     `Material::shader`, a string on the **material** — so below v1100 the split
  *     is per material in practice, whatever the format allows.
  *   - **v800**: never HD.
  *
  * `is_hd` is still honoured first, so a producer that does set it is believed.
+ * WEM writes it into a native block as the layer's own shading — HD or not —
+ * never as the set the block sits in: a Reforged block's SD layer says `false`.
  *
  * ### The first layer is not an op
  *
@@ -145,18 +152,36 @@ struct StockSlotTexture {
 /// The stock neutral for @p slot. Empty for a slot Warcraft III has none for.
 StockSlotTexture StockTextureFor(mdx::Layer::SlotType slot);
 
-/// Whether @p layer of @p material is a Reforged HD layer. See the file comment:
-/// this is not `layer.is_hd`, because nothing sets that.
+/// Whether @p layer of @p material shades as Reforged HD: the `HD` or `Crystal`
+/// shader. See the file comment: this is not `layer.is_hd`, because nothing sets
+/// that.
 bool IsHdLayer(const mdx::Material& material, const mdx::Layer& layer, u32 modelVersion);
 
-/// Whether @p material has any layer belonging to @p profile.
+/// Whether @p layer is SD content drawn through the HD pipeline: `SDOnHD` from
+/// v1100, a material named `Shader_SD_FixedFunction` below it.
+bool IsSdOnHdLayer(const mdx::Material& material, const mdx::Layer& layer, u32 modelVersion);
+
+/// Whether a @p profile material may hold @p layer. `Wc3Reforged` holds all four
+/// model shaders (HD, Crystal, SD on HD, SD); `Wc3Classic` holds plain SD only.
+bool LayerAllowedIn(const mdx::Material& material, const mdx::Layer& layer, u32 modelVersion,
+                    ProfileId profile);
+
+/// Whether a file of this version serves @p profile with @p material: it has a
+/// layer @ref LayerAllowedIn allows, and for `Wc3Reforged` the file is a
+/// Reforged-era one (v900+, where layers carry Reforged fields) or the layer
+/// shades as HD. A v800 file is an SD model and declares no Reforged set.
 bool HasLayersFor(const mdx::Material& material, ProfileId profile, const Context& context);
 
 /// One `mdx::Material` -> one `wem::Material` for @p profile, with the native
-/// block attached `InSync` and holding only that profile's layers (§7.3).
+/// block attached `InSync` and holding only the layers that profile may hold
+/// (§7.3).
 ///
 /// Yields a `Composite` for `Wc3Classic` — or a `Combiners` when the stack
-/// collapses (§7.2.2) — and a `PBRDeferred` for `Wc3Reforged`.
+/// collapses (§7.2.2). For `Wc3Reforged` it yields a `PBRDeferred` over the HD
+/// layers, or the classic projection when the material has none: a Reforged
+/// material of SD or SD-on-HD layers has no PBR slots to fill. In a stack that
+/// mixes the two — no shipped material does — the SD layers are kept in the
+/// block and drawn, have no ordinal, and are reported.
 ///
 /// @p layerOrdinals, when given, is resized to `material.layers.size()` and
 /// filled with the WEM ordinal each `.mdx` layer became, or `kInvalidIndex` for

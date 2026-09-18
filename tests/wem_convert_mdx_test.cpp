@@ -475,9 +475,44 @@ TEST_CASE("wem mdx a cylinder and a plane keep their two vertices",
     CHECK(exported->collisionShapes[0].radius == 3.0f);
 }
 
-TEST_CASE("wem mdx import produces one model with a classic set", "[wem][convert][mdx]") {
+TEST_CASE("wem mdx a camera keeps where it looks", "[wem][convert][mdx][nodes]") {
+    // A camera is its position and its target; WEM kept the first alone, so every
+    // exported camera looked at the model's origin.
+    mdx::Model source = makeModel();
+    mdx::Camera camera;
+    camera.name = "Portrait";
+    camera.position = Vector3f{120, -40, 90};
+    camera.targetPosition = Vector3f{0, 5, 60};
+    camera.fieldOfView = 0.7f;
+    camera.nearClippingPlane = 8.0f;
+    camera.farClippingPlane = 2000.0f;
+    source.cameras.push_back(camera);
+
     const MdxConverter converter;
-    Result<Document> result = converter.fromMdx(makeModel());
+    Result<Document> imported = converter.fromMdx(source);
+    REQUIRE(imported.ok());
+    const NodeTree& nodes = imported->models.front().nodes;
+    REQUIRE_FALSE(nodes.ofKind(NodeKind::Camera).empty());
+    const Node& node = nodes.nodes[nodes.ofKind(NodeKind::Camera)[0]];
+    CHECK(std::get<CameraPayload>(node.payload).target == camera.targetPosition);
+
+    Result<mdx::Model> exported = converter.toMdx(*imported, ProfileId::Wc3Classic, 800);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->cameras.size() == 1);
+    const mdx::Camera& out = exported->cameras[0];
+    CHECK(out.name == "Portrait");
+    CHECK(out.position == camera.position);
+    CHECK(out.targetPosition == camera.targetPosition);
+    CHECK(out.fieldOfView == 0.7f);
+    CHECK(out.farClippingPlane == 2000.0f);
+}
+
+TEST_CASE("wem mdx import produces one model with a classic set", "[wem][convert][mdx]") {
+    // A v800 file: an SD model's format.
+    mdx::Model source = makeModel();
+    source.version = 800;
+    const MdxConverter converter;
+    Result<Document> result = converter.fromMdx(source);
     REQUIRE(result.ok());
     const Document& document = *result;
 
@@ -487,8 +522,7 @@ TEST_CASE("wem mdx import produces one model with a classic set", "[wem][convert
     REQUIRE(document.textures.size() == 1);
     CHECK(document.textures[0].path == "textures/body.blp");
 
-    // Only classic: the one material has no HD layer, so no Reforged set is
-    // invented for it.
+    // Only classic: an SD model's file, so no Reforged set is invented for it.
     CHECK(document.carries(ProfileId::Wc3Classic));
     CHECK_FALSE(document.carries(ProfileId::Wc3Reforged));
 
@@ -501,9 +535,10 @@ TEST_CASE("wem mdx import produces one model with a classic set", "[wem][convert
     CHECK(Resolve(model, 0, ProfileId::Wc3Classic) != nullptr);
 }
 
-TEST_CASE("wem mdx one material feeding both profiles masks its section", "[wem][convert][mdx]") {
+TEST_CASE("wem mdx an HD file's SD geoset draws in both profiles", "[wem][convert][mdx]") {
     mdx::Model source = makeModel();
-    // A second material with HD layers only, and a second geoset that uses it.
+    // A v1200 file: an SD material, then a second material with HD layers only,
+    // and a second geoset that uses it.
     mdx::Material reforged;
     reforged.shader = "Shader_HD_DefaultUnit";
     for (u32 slot = 0; slot < 6; ++slot) {
@@ -528,18 +563,27 @@ TEST_CASE("wem mdx one material feeding both profiles masks its section", "[wem]
     REQUIRE(model.meshes[0].sections.size() == 1);
     REQUIRE(model.meshes[1].sections.size() == 1);
 
-    // The SD geoset draws only in classic, the HD one only in Reforged. That
-    // mask is what keeps a Reforged consumer from drawing the SD copy on top.
+    // An HD model uses SD materials too, so the SD geoset draws in both
+    // profiles; a classic model uses SD alone, so the HD one draws only in
+    // Reforged.
     CHECK(HasProfile(model.meshes[0].sections[0].profiles, ProfileId::Wc3Classic));
-    CHECK_FALSE(HasProfile(model.meshes[0].sections[0].profiles, ProfileId::Wc3Reforged));
+    CHECK(HasProfile(model.meshes[0].sections[0].profiles, ProfileId::Wc3Reforged));
     CHECK(HasProfile(model.meshes[1].sections[0].profiles, ProfileId::Wc3Reforged));
     CHECK_FALSE(HasProfile(model.meshes[1].sections[0].profiles, ProfileId::Wc3Classic));
 
-    // And each set binds only its own slot.
+    // The classic set binds the SD slot alone; the Reforged set binds both.
     CHECK(Resolve(model, 0, ProfileId::Wc3Classic) != nullptr);
     CHECK(Resolve(model, 1, ProfileId::Wc3Classic) == nullptr);
-    CHECK(Resolve(model, 0, ProfileId::Wc3Reforged) == nullptr);
+    CHECK(Resolve(model, 0, ProfileId::Wc3Reforged) != nullptr);
     CHECK(Resolve(model, 1, ProfileId::Wc3Reforged) != nullptr);
+
+    // And the Reforged export keeps the SD material SD.
+    Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Reforged);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->materials.size() == 2);
+    REQUIRE_FALSE(exported->materials[0].layers.empty());
+    CHECK_FALSE(exported->materials[0].layers[0].is_hd);
+    CHECK(exported->materials[0].layers[0].shader == mdx::Layer::ShaderType::SD);
 }
 
 TEST_CASE("wem mdx pivots become local translations", "[wem][convert][mdx][nodes]") {
@@ -601,8 +645,11 @@ TEST_CASE("wem mdx reads both skinning conventions", "[wem][convert][mdx][skin]"
 }
 
 TEST_CASE("wem mdx export refuses a profile the document does not carry", "[wem][convert][mdx]") {
+    // A v800 file carries no Reforged set.
+    mdx::Model source = makeModel();
+    source.version = 800;
     const MdxConverter converter;
-    Result<Document> imported = converter.fromMdx(makeModel());
+    Result<Document> imported = converter.fromMdx(source);
     REQUIRE(imported.ok());
 
     Result<mdx::Model> exported = converter.toMdx(*imported, ProfileId::Wc3Reforged);

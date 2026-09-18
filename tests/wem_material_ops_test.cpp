@@ -9,6 +9,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <whiteout/models/wem/materials/ops.h>
+#include <whiteout/models/wem/reflect_bytes.h>
 #include <whiteout/models/wem/validate.h>
 
 #include "wem_material_fixture.h"
@@ -296,4 +297,97 @@ TEST_CASE("wem material referencer check finds every dangling index", "[wem][mat
     Diagnostics holeOnly;
     CheckMaterialReferencers(model, 0, holeOnly);
     CHECK(codes(holeOnly) == "");
+}
+
+// ============================================================================
+// RemoveSlot (EDIT_MODE_MATERIALS_DESIGN.md §4.4)
+// ============================================================================
+
+namespace {
+
+/// A channel animating a layer of @p slot's Sc2 material.
+AnimChannel slotChannel(u32 id, u32 slot) {
+    AnimChannel channel;
+    channel.id = id;
+    channel.target.kind = TrackTarget::Kind::MaterialLayer;
+    channel.target.material.profile = ProfileId::Sc2;
+    channel.target.material.slot = slot;
+    channel.target.sub = 0;
+    channel.target.channel = Channel::Alpha;
+    channel.valueType = geom::AttrType::F32;
+    return channel;
+}
+
+} // namespace
+
+TEST_CASE("wem remove slot: an unused slot goes at once, with the material only it bound",
+          "[wem][materials][ops]") {
+    Model model = makeThreeSlotModel();
+    // A fourth slot no section names, bound to a fourth material.
+    model.materialSlots.push_back("d");
+    ProfileMaterialSet& set = *model.setFor(ProfileId::Sc2);
+    set.materials.push_back(makeComposite("m3"));
+    set.resizeBindings(model.materialSlots.size());
+    set.slotBindings[3].byLook[0] = 3;
+
+    const RemovalResult result = RemoveSlot(model, 3);
+    REQUIRE(result.removed);
+    CHECK(model.materialSlots.size() == 3u);
+    CHECK(set.slotBindings.size() == 3u);
+    CHECK(set.materials.size() == 3u);
+    CHECK(result.remap == std::vector<u32>{0, 1, 2, kInvalidIndex});
+}
+
+TEST_CASE("wem remove slot: a used slot is refused without a replacement",
+          "[wem][materials][ops]") {
+    Model model = makeThreeSlotModel();
+    const Model before = model;
+
+    const RemovalResult unnamed = RemoveSlot(model, 1);
+    CHECK_FALSE(unnamed.removed);
+    CHECK(codes(unnamed.diagnostics) == "SlotNotBoundx1");
+    CHECK(SameReflected(model, before));
+
+    CHECK_FALSE(RemoveSlot(model, 1, 1).removed);
+    CHECK(SameReflected(model, before));
+
+    // A replacement the section's profile does not bind is no replacement.
+    model.setFor(ProfileId::Sc2)->slotBindings[2].byLook[0] = kInvalidIndex;
+    const Model unbound = model;
+    CHECK_FALSE(RemoveSlot(model, 1, 2).removed);
+    CHECK(SameReflected(model, unbound));
+}
+
+TEST_CASE("wem remove slot: sections take the replacement, channels die, everything renumbers",
+          "[wem][materials][ops]") {
+    Model model = makeThreeSlotModel();
+    model.animChannels.add(slotChannel(10, 1));
+    model.animChannels.add(slotChannel(11, 2));
+
+    const RemovalResult result = RemoveSlot(model, 1, 2);
+    REQUIRE(result.removed);
+    CHECK(result.invalidated == 1u);
+    CHECK(result.remap == std::vector<u32>{0, kInvalidIndex, 1});
+    CHECK(model.materialSlots == std::vector<std::string>{"a", "c"});
+
+    // Section 1 took the replacement, which is now slot 1; section 2 followed
+    // its slot down.
+    CHECK(model.meshes[0].sections[0].materialSlot == 0u);
+    CHECK(model.meshes[0].sections[1].materialSlot == 1u);
+    CHECK(model.meshes[0].sections[2].materialSlot == 1u);
+
+    // The material only slot 1 bound went with it, and the binding above moved.
+    const ProfileMaterialSet* set = model.setFor(ProfileId::Sc2);
+    REQUIRE(set->materials.size() == 2u);
+    CHECK(set->materials[1].name == "m2");
+    CHECK(boundMaterial(model, ProfileId::Sc2, 1) == 1u);
+
+    // The channel on the removed slot is invalidated (its id stays declared);
+    // the one above it follows the renumbering.
+    CHECK(model.animChannels.find(10)->target.material.slot == kInvalidIndex);
+    CHECK(model.animChannels.find(11)->target.material.slot == 1u);
+
+    Diagnostics check;
+    CheckMaterialReferencers(model, 0, check);
+    CHECK(errorCodes(check) == "");
 }

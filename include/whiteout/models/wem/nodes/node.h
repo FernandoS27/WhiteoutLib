@@ -308,12 +308,17 @@ struct CameraPayload {
     f32 fov = 0;
     f32 nearClip = 0;
     f32 farClip = 0;
+    /// Where the camera looks, in model space. MDX and M2 store one; M3 and glTF
+    /// aim a camera by its node's orientation instead, and leave this at the
+    /// origin — which is also what a v3 `NODE` reads as.
+    Vector3f target{0, 0, 0};
 
     template <class V>
     void reflect(V& v) {
         v.field("fov", fov);
         v.field("nearClip", nearClip);
         v.field("farClip", farClip);
+        v.since(4).field("target", target);
     }
 };
 

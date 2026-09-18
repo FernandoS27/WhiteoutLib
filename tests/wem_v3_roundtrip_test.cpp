@@ -410,6 +410,21 @@ TEST_CASE("wem a v3 document survives write and read", "[wem][format][v3]") {
     CHECK(writeDocument(reread) == bytes);
 }
 
+TEST_CASE("wem a camera's target survives write and read", "[wem][format][nodes]") {
+    Document original = makeDocument();
+    NodeTree& nodes = original.models.front().nodes;
+    REQUIRE_FALSE(nodes.ofKind(NodeKind::Camera).empty());
+    const u32 camera = nodes.ofKind(NodeKind::Camera)[0];
+    std::get<CameraPayload>(nodes.nodes[camera].payload).target = Vector3f{12, -3, 45};
+
+    std::vector<std::string> issues;
+    const Document reread = readDocument(writeDocument(original), issues);
+    CHECK(issues.empty());
+    const Node& node = reread.models.front().nodes.nodes[camera];
+    REQUIRE(node.kind == NodeKind::Camera);
+    CHECK(std::get<CameraPayload>(node.payload).target == Vector3f(12, -3, 45));
+}
+
 TEST_CASE("wem a v3 file says it is v3", "[wem][format][v3]") {
     const std::vector<u8> bytes = writeDocument(makeDocument());
     REQUIRE(bytes.size() >= 32);

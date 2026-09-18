@@ -124,6 +124,7 @@ Document makeRescaleDocument() {
     cameraPayload.fov = 0.8f;
     cameraPayload.nearClip = 0.1f;
     cameraPayload.farClip = 500.0f;
+    cameraPayload.target = Vector3f{10, -20, 30};
 
     const u32 shape = addNode(model, "shape", NodeKind::CollisionShape);
     auto& collision = std::get<CollisionPayload>(model.nodes.nodes[shape].payload);
@@ -237,6 +238,7 @@ TEST_CASE("wem a rescale moves every length in the document", "[wem][rescale]") 
     CHECK(camera.fov == 0.8f); ///< An angle, not a distance.
     CHECK_THAT(camera.nearClip, WithinAbs(0.1f * k, 1e-2f));
     CHECK_THAT(camera.farClip, WithinAbs(500.0f * k, 1e-1f));
+    CHECK_THAT(camera.target.y, WithinAbs(-20.0f * k, 1e-2f)); ///< A point, like a pivot.
 
     const auto& collision = std::get<CollisionPayload>(model.nodes.nodes[4].payload);
     CHECK_THAT(collision.shape.sphere.radius, WithinAbs(5.0f * k, 1e-2f));

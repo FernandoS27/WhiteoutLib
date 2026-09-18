@@ -266,12 +266,12 @@ struct ChunkTagTraits<Matrix44f> {
 };
 
 /// v2 adds `Node::poseMatrices` (§10.5's matrix poses); v3 the five emitter
-/// system kinds and their payloads (§10.9). An older chunk holds none of them,
-/// so it reads unchanged.
+/// system kinds and their payloads (§10.9); v4 a camera's target. An older chunk
+/// holds none of them, so it reads unchanged.
 template <>
 struct ChunkTagTraits<Node> {
     static constexpr u32 value = kTag("NODE");
-    static constexpr u32 max_version = 3;
+    static constexpr u32 max_version = 4;
     static constexpr bool is_trivial = false;
 };
 

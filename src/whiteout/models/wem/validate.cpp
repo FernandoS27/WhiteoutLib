@@ -157,24 +157,12 @@ void checkNodeKindProfiles(const Document& document, Diagnostics& out) {
     }
 }
 
-/// The emitter systems' joins (§10.9): their node links, their textures, and the
-/// `EmitterProperty` channels that key them. The material slots are §7.5's
-/// table, checked with the rest of it.
+/// The emitter systems' joins (§10.9): their node links and the
+/// `EmitterProperty` channels that key them. Their material slots are §7.5's
+/// table and their textures §7.4's, each checked with the rest of its table.
 void checkEmitters(const Document& document, Diagnostics& out) {
     for (const Model& model : document.models) {
         CheckEmitterLinks(model.nodes, out);
-
-        for (std::size_t n = 0; n < model.nodes.nodes.size(); ++n) {
-            ForEachTextureLink(model.nodes.nodes[n].payload, [&](const u32& texture) {
-                if (texture == kInvalidIndex || texture < document.textures.size()) {
-                    return;
-                }
-                out.error(DiagCode::IndexOutOfRange,
-                          "emitter names texture " + number(texture) + " of " +
-                              number(document.textures.size()),
-                          ElementRef(ElementKind::Node, static_cast<u32>(n)));
-            });
-        }
 
         // An `EmitterProperty` channel means only what its node's kind says it
         // means, so a node of the wrong kind, a property the kind does not have,
@@ -470,11 +458,13 @@ void checkAnimReferencers(const Document& document, Diagnostics& out) {
     }
 }
 
-/// The §7.5 referencer table, per model.
+/// The §7.5 referencer table, per model, and §7.4's texture table, which
+/// spans the document.
 void checkMaterialReferencers(const Document& document, Diagnostics& out) {
     for (std::size_t m = 0; m < document.models.size(); ++m) {
         CheckMaterialReferencers(document.models[m], static_cast<u32>(m), out);
     }
+    CheckTextureReferencers(document, out);
 }
 
 // ---------------------------------------------------------------------------
@@ -572,7 +562,9 @@ void checkMaterialLimits(const Document& document, Diagnostics& out) {
                 const CommonMaterial& common = set.materials[m].Common();
                 const ElementRef where(ElementKind::Material, static_cast<u32>(m));
 
-                if (!HasMaterialKind(desc.commonKinds, common.kind())) {
+                // What the shading contracts to, and what the profile's own
+                // content is also written in (a Reforged model's SD stacks).
+                if (!HasMaterialKind(desc.commonKinds | desc.contentKinds, common.kind())) {
                     out.error(DiagCode::UnsupportedMaterialKind,
                               std::string(ToString(set.profile)) + " does not accept a " +
                                   ToString(common.kind()) + " material",

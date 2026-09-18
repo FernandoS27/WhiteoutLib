@@ -96,6 +96,14 @@ whiteout_add_test(wem_ops_test wem_ops_test.cpp)
 whiteout_add_test(wem_render_identity_test wem_render_identity_test.cpp)
 whiteout_add_test(wem_material_kind_test wem_material_kind_test.cpp)
 whiteout_add_test(wem_material_ops_test wem_material_ops_test.cpp)
+# SameReflected / ReflectBytes: the value comparison the editor's undo and
+# preview stand on, over every part of a material.
+whiteout_add_test(wem_reflect_bytes_test wem_reflect_bytes_test.cpp)
+# The Materials workspace's WEM half (EDIT_MODE_MATERIALS_DESIGN.md §6.1, §5.4):
+# a material edited through its native block, and a texture removed over the
+# §7.4 referencer table, both read back through toMdx.
+whiteout_add_test(wem_material_block_test wem_material_block_test.cpp)
+whiteout_add_test(wem_texture_ops_test wem_texture_ops_test.cpp)
 whiteout_add_test(wem_document_test wem_document_test.cpp)
 whiteout_add_test(wem_anim_test wem_anim_test.cpp)
 whiteout_add_test(wem_anim_mdx_test wem_anim_mdx_test.cpp)

@@ -280,6 +280,14 @@ struct ProfileDesc {
     /// three quarters of a wing lost, and four MDX layers are exactly the four
     /// stages.
     MaterialKindMask containerKinds = 0;
+    /// Kinds this profile's OWN content is written in beyond `commonKinds`: what
+    /// `Validate` holds a set to, and what a derive never aims at.
+    ///
+    /// A Reforged (HD) model uses all four of Warcraft III's model shaders — SD
+    /// and SD on HD beside HD and Crystal — so its sets hold the classic kinds an
+    /// `.mdx` SD stack imports as. A material derived INTO Reforged from another
+    /// format is not SD content, and still aims at the HD slot map.
+    MaterialKindMask contentKinds = 0;
     NativeKind nativeMaterialKind = NativeKind::None;
     bool supportsLooks = false;
     bool supportsActors = false;

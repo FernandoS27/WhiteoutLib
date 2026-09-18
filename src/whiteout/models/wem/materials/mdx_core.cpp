@@ -178,16 +178,11 @@ Layer::SlotType slotTypeFor(PbrSlot slot) {
 
 // ── shared bits ─────────────────────────────────────────────────────────────
 
-bool wantsHd(ProfileId profile) {
-    return profile == ProfileId::Wc3Reforged;
-}
-
 std::vector<const Layer*> layersFor(const mdx::Material& material, ProfileId profile,
                                     u32 modelVersion) {
     std::vector<const Layer*> out;
-    const bool hd = wantsHd(profile);
     for (const Layer& layer : material.layers) {
-        if (IsHdLayer(material, layer, modelVersion) == hd) {
+        if (LayerAllowedIn(material, layer, modelVersion, profile)) {
             out.push_back(&layer);
         }
     }
@@ -528,7 +523,7 @@ bool IsHdLayer(const mdx::Material& material, const Layer& layer, u32 modelVersi
     }
     if (modelVersion >= 1100) {
         // `SDOnHD` is deliberately absent: it is SD content drawn through the HD
-        // pipeline, and its layers belong to the classic set.
+        // pipeline, and it shades the classic way.
         return layer.shader == Layer::ShaderType::HD || layer.shader == Layer::ShaderType::Crystal;
     }
     // Below v1100 there is no per-layer shader, so the material's name is the
@@ -536,12 +531,47 @@ bool IsHdLayer(const mdx::Material& material, const Layer& layer, u32 modelVersi
     return material.shader == "Shader_HD_DefaultUnit" || material.shader == "Shader_HD_Crystal";
 }
 
+bool IsSdOnHdLayer(const mdx::Material& material, const Layer& layer, u32 modelVersion) {
+    // v800 is an SD model's format, with no shader string to say otherwise.
+    if (layer.is_hd || modelVersion <= 800) {
+        return false;
+    }
+    if (modelVersion >= 1100) {
+        return layer.shader == Layer::ShaderType::SDOnHD;
+    }
+    // The name the export writes for it below v1100 (`kSdOnHdShader`), and the
+    // one `Parser::upgradeMaterials` reads.
+    return material.shader == "Shader_SD_FixedFunction";
+}
+
+bool LayerAllowedIn(const mdx::Material& material, const Layer& layer, u32 modelVersion,
+                    ProfileId profile) {
+    // A Reforged model uses all four: HD, Crystal, SD on HD and SD.
+    if (profile == ProfileId::Wc3Reforged) {
+        return true;
+    }
+    // A classic model uses SD alone. From v1100 the layer names its shader, and
+    // any other id — the HD family, SD on HD, a terrain or water shader — is
+    // not a classic model's.
+    if (IsHdLayer(material, layer, modelVersion) || IsSdOnHdLayer(material, layer, modelVersion)) {
+        return false;
+    }
+    return modelVersion < 1100 || layer.shader == Layer::ShaderType::SD;
+}
+
 bool HasLayersFor(const mdx::Material& material, ProfileId profile, const Context& context) {
-    const bool hd = wantsHd(profile);
     for (const Layer& layer : material.layers) {
-        if (IsHdLayer(material, layer, context.modelVersion) == hd) {
-            return true;
+        if (!LayerAllowedIn(material, layer, context.modelVersion, profile)) {
+            continue;
         }
+        // A v800 file is an SD model: it declares a Reforged set only for an HD
+        // layer, which it never has. From v900 a file is a Reforged-era one, and
+        // everything in it is a Reforged model's.
+        if (profile == ProfileId::Wc3Reforged && context.modelVersion <= 800 &&
+            !IsHdLayer(material, layer, context.modelVersion)) {
+            continue;
+        }
+        return true;
     }
     return false;
 }
@@ -586,8 +616,37 @@ Material ImportMaterial(const mdx::Material& material, ProfileId profile, const 
         }
     }
 
+    // The HD-shaded layers, where a Reforged material has any: they are what a
+    // PBR body describes. A Reforged material of SD or SD-on-HD layers has no
+    // slots to fill and takes the classic projection instead.
+    std::vector<const Layer*> hdLayers;
+    std::vector<std::size_t> hdAt;
     if (profile == ProfileId::Wc3Reforged) {
-        importPbr(layers, context, common, out, ordinalOfLayer);
+        for (std::size_t i = 0; i < layers.size(); ++i) {
+            if (IsHdLayer(material, *layers[i], context.modelVersion)) {
+                hdLayers.push_back(layers[i]);
+                hdAt.push_back(i);
+            }
+        }
+    }
+
+    if (!hdLayers.empty()) {
+        std::vector<u32> hdOrdinals(hdLayers.size(), kInvalidIndex);
+        importPbr(hdLayers, context, common, out, hdOrdinals);
+        ordinalOfLayer.assign(layers.size(), kInvalidIndex);
+        for (std::size_t k = 0; k < hdAt.size(); ++k) {
+            ordinalOfLayer[hdAt[k]] = hdOrdinals[k];
+        }
+        for (std::size_t i = 0; i < layers.size(); ++i) {
+            if (!IsHdLayer(material, *layers[i], context.modelVersion)) {
+                out.warn(DiagCode::LayerDropped,
+                         "layer " + number(i) +
+                             " is SD in a stack with HD layers: it is kept in the block and "
+                             "drawn, but the PBR body does not describe it and its animation "
+                             "has no ordinal",
+                         layerRef(static_cast<u32>(i)));
+            }
+        }
     } else if (StackCollapses(layers)) {
         importCombiners(layers, context, common, out);
         attachLayerShading(material, layers, common);
@@ -612,21 +671,23 @@ Material ImportMaterial(const mdx::Material& material, ProfileId profile, const 
         }
     }
 
-    // The native block holds only this profile's layers: that is what makes
-    // `DeriveProfile(Wc3Reforged -> Wc3Classic)` a layer filter (§7.3).
+    // The native block holds only the layers this profile may hold: that is
+    // what makes `DeriveProfile(Wc3Reforged -> Wc3Classic)` a layer filter
+    // (§7.3).
     native::MdxMaterial block;
     CopyToNative(material, block);
     block.sourceVersion = context.modelVersion;
     std::vector<native::MdxLayer> kept;
     kept.reserve(layers.size());
     for (std::size_t i = 0; i < material.layers.size() && i < block.layers.size(); ++i) {
-        if (IsHdLayer(material, material.layers[i], context.modelVersion) != wantsHd(profile)) {
+        if (!LayerAllowedIn(material, material.layers[i], context.modelVersion, profile)) {
             continue;
         }
-        // The mirror's `isHd` is normalised on the way in, so a block written
-        // from a v900 file — where the flag was never on disk — still says which
-        // profile it belongs to.
-        block.layers[i].isHd = wantsHd(profile);
+        // The mirror's `isHd` is normalised on the way in to the layer's own
+        // shading, so a block written from a v900 file — where the flag was
+        // never on disk — still says it. It is not the set: a Reforged block's
+        // SD layer is SD, and saying otherwise would read it back as HD.
+        block.layers[i].isHd = IsHdLayer(material, material.layers[i], context.modelVersion);
         kept.push_back(std::move(block.layers[i]));
     }
     block.layers = std::move(kept);
@@ -636,7 +697,7 @@ Material ImportMaterial(const mdx::Material& material, ProfileId profile, const 
         layerOrdinals->assign(material.layers.size(), kInvalidIndex);
         std::size_t filtered = 0;
         for (std::size_t i = 0; i < material.layers.size(); ++i) {
-            if (IsHdLayer(material, material.layers[i], context.modelVersion) != wantsHd(profile)) {
+            if (!LayerAllowedIn(material, material.layers[i], context.modelVersion, profile)) {
                 continue;
             }
             if (filtered < ordinalOfLayer.size()) {

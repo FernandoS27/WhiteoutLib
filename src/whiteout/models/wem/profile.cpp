@@ -97,7 +97,7 @@ ProfileDesc makeDesc(ProfileId id, const char* name, const char* displayName, co
                      u32 maxPalette, IndexWidth width, bool ngons, bool vertexColor,
                      std::span<const BlendMode> blends, MaterialKindMask kinds, NativeKind native,
                      bool looks, bool actors, RigConvention rig = RigConvention::PivotRelative,
-                     MaterialKindMask containerKinds = 0) {
+                     MaterialKindMask containerKinds = 0, MaterialKindMask contentKinds = 0) {
     ProfileDesc d;
     d.id = id;
     d.name = name;
@@ -117,6 +117,7 @@ ProfileDesc makeDesc(ProfileId id, const char* name, const char* displayName, co
     d.blendModes = blends;
     d.commonKinds = kinds;
     d.containerKinds = containerKinds;
+    d.contentKinds = contentKinds;
     d.nativeMaterialKind = native;
     d.supportsLooks = looks;
     d.supportsActors = actors;
@@ -153,10 +154,13 @@ const std::array<ProfileDesc, static_cast<std::size_t>(ProfileId::Count)>& descs
         // a `Composite` is an ordered stack over NAMED channels and an MDX SD
         // stack has none, so writing one there drops the normal, the specular
         // and the ambient occlusion to keep an ordering nothing reads.
+        // `contentKinds` is the model's own SD content: a Reforged model uses
+        // SD and SD on HD beside HD and Crystal, and an `.mdx` SD stack imports
+        // as a `Composite`, or a `Combiners` when it collapses.
         makeDesc(ProfileId::Wc3Reforged, "wc3_reforged", "Warcraft III (Reforged)", "mdx",
                  CoordSpace::Blizzard, 1.0f, 4, 2, 0, IndexWidth::U16, false, false,
                  modes(kMdxBlendModes), kPbr, NativeKind::Mdx, false, false,
-                 RigConvention::PivotRelative, kCombiners),
+                 RigConvention::PivotRelative, kCombiners, kComposite | kCombiners),
 
         // World of Warcraft. Stage order and combine ops *are* the material, so
         // Combiners is the only kind; looks carry texture variations (§8).
