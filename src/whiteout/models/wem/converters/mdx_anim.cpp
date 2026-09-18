@@ -14,6 +14,7 @@
 #include <whiteout/models/wem/anim/clip.h>
 
 #include "mdx_track_slicer.h"
+#include "../materials/mdx_core.h"
 
 namespace whiteout {
 namespace models {
@@ -849,6 +850,7 @@ public:
           profile_(profile), context_(context), out_(out), diagnostics_(diagnostics) {}
 
     void run() {
+        releaseTextureAnimationIds();
         buildWindows();
         buildVisibilityGates();
         for (const AnimChannel& channel : model_.animChannels.channels) {
@@ -868,6 +870,20 @@ private:
         u32 end = 0;   ///< Milliseconds, inclusive. Same.
         u32 globalSequenceId = mdx::Track<f32>::kNoGlobalSequence;
     };
+
+    /// The TXAN table is built here, from the UV features: the document keeps
+    /// no copy of the source file's. A material written from its native block
+    /// still names the SOURCE ids, and everything below reads an id under the
+    /// table's size as an entry this export already handed out — so a kept id
+    /// joined whatever landed there first: another layer's scroll, or the entry
+    /// its own feature was handed, which it then wrote into.
+    void releaseTextureAnimationIds() {
+        for (mdx::Material& material : out_.materials) {
+            for (mdx::Layer& layer : material.layers) {
+                layer.textureAnimationId = mdx_core::kNoTextureAnimation;
+            }
+        }
+    }
 
     static bool IsGlobalClip(const Clip& clip) {
         // The three-format unification, read backwards: an auto-play clip on a

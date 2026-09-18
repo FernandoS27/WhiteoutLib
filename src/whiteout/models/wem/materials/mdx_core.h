@@ -77,6 +77,16 @@ inline constexpr std::size_t kHdPositionalSlotCount = 6;
 /// — see @ref Context::stockTexture.
 inline constexpr u32 kNoTexture = 0xFFFFFFFFu;
 
+/// `Layer::textureAnimationId`'s "there is none".
+///
+/// The field has no separate presence bit and `mdx::Layer` defaults it to 0,
+/// which is a perfectly good TXAN index — so a layer this export creates and
+/// never fills in claims the model's *first* texture animation. `mdl_converter`
+/// already reads and writes the sentinel; every layer written here says it too,
+/// and `mdx_anim` then hands out one TXAN per animated layer instead of pouring
+/// every scrolling UV in the model into entry 0.
+inline constexpr u32 kNoTextureAnimation = 0xFFFFFFFFu;
+
 /// What the converter must supply that a `mdx::Material` does not carry.
 struct Context {
     /// `mdx::Model::version` — 800 | 900 | 1000 | 1100 | 1200. Decides whether
@@ -152,10 +162,11 @@ bool HasLayersFor(const mdx::Material& material, ProfileId profile, const Contex
 /// filled with the WEM ordinal each `.mdx` layer became, or `kInvalidIndex` for
 /// one this profile filtered out. Animation needs it: a layer's alpha track
 /// targets an **ordinal** (§10.8), and the ordinal is the layer's position in
-/// the *filtered* stack, not in the file. For `PBRDeferred` a layer can set
-/// several slots and the ordinal reported is the first of them — an alpha track
-/// on an HD layer means the surface's opacity rather than one slot's, and the
-/// first slot is the closest thing this ordinal space has to saying that.
+/// the *filtered* stack, not in the file. That holds for `PBRDeferred` too,
+/// whose ordinals are body slots: an HD layer sets several, a later one re-sets
+/// the slots before it, so no slot tells two layers apart — and for the
+/// one-layer stack nearly every model has, position 0 is its first slot anyway.
+/// A layer past the last slot has no ordinal and is reported.
 Material ImportMaterial(const mdx::Material& material, ProfileId profile, const Context& context,
                         Diagnostics& out, std::vector<u32>* layerOrdinals = nullptr);
 

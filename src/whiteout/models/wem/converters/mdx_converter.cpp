@@ -1411,11 +1411,18 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
                     shape.radius = payload->shape.sphere.radius;
                     shape.vertices.push_back(payload->shape.sphere.center);
                     break;
+                // Both carry two vertices, which import reads into the box's
+                // corners; a chunk written without them is one every reader
+                // misparses from there on.
                 case CollisionShapeKind::Plane:
                     shape.type = mdx::CollisionShape::ShapeType::Plane;
+                    shape.vertices.push_back(payload->shape.box.minimum);
+                    shape.vertices.push_back(payload->shape.box.maximum);
                     break;
                 case CollisionShapeKind::Cylinder:
                     shape.type = mdx::CollisionShape::ShapeType::Cylinder;
+                    shape.vertices.push_back(payload->shape.box.minimum);
+                    shape.vertices.push_back(payload->shape.box.maximum);
                     shape.radius = payload->shape.sphere.radius;
                     break;
                 case CollisionShapeKind::Capsule:

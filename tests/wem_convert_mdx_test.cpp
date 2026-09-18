@@ -437,6 +437,44 @@ TEST_CASE("wem mdx numbers object ids by chunk, not by node order",
     CHECK(second.matrixIndices[0] == 1);
 }
 
+TEST_CASE("wem mdx a cylinder and a plane keep their two vertices",
+          "[wem][convert][mdx][nodes]") {
+    // `CLID` stores two vertices for a box, a plane and a cylinder, and a
+    // reader takes them by the shape's type rather than by a count. Import read
+    // both into the box's corners and export wrote them only for a box, so a
+    // cylinder came back with its radius and no ends, and the chunk after it
+    // misparsed.
+    mdx::Model source = makeModel();
+    mdx::CollisionShape cylinder;
+    cylinder.node = makeNode("Collision Cylinder01", 2, mdx::Node::NO_PARENT);
+    cylinder.type = mdx::CollisionShape::ShapeType::Cylinder;
+    cylinder.vertices = {Vector3f{0, 0, -5}, Vector3f{0, 0, 15}};
+    cylinder.radius = 3.0f;
+    mdx::CollisionShape plane;
+    plane.node = makeNode("Collision Plane01", 3, mdx::Node::NO_PARENT);
+    plane.type = mdx::CollisionShape::ShapeType::Plane;
+    plane.vertices = {Vector3f{-4, -2, 0}, Vector3f{4, 2, 0}};
+    source.collisionShapes = {cylinder, plane};
+    source.pivotPoints.push_back(Vector3f{1, 2, 3});
+    source.pivotPoints.push_back(Vector3f{0, 0, 0});
+
+    const MdxConverter converter;
+    Result<Document> imported = converter.fromMdx(source);
+    REQUIRE(imported.ok());
+    Result<mdx::Model> exported = converter.toMdx(*imported, ProfileId::Wc3Classic, 800);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->collisionShapes.size() == 2);
+    for (std::size_t i = 0; i < 2; ++i) {
+        const mdx::CollisionShape& shape = exported->collisionShapes[i];
+        const mdx::CollisionShape& from = source.collisionShapes[i];
+        CHECK(shape.type == from.type);
+        REQUIRE(shape.vertices.size() == 2);
+        CHECK(shape.vertices[0] == from.vertices[0]);
+        CHECK(shape.vertices[1] == from.vertices[1]);
+    }
+    CHECK(exported->collisionShapes[0].radius == 3.0f);
+}
+
 TEST_CASE("wem mdx import produces one model with a classic set", "[wem][convert][mdx]") {
     const MdxConverter converter;
     Result<Document> result = converter.fromMdx(makeModel());

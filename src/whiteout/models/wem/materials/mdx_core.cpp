@@ -26,16 +26,6 @@ ElementRef layerRef(u32 ordinal) {
     return ElementRef(ElementKind::Layer, ordinal);
 }
 
-/// `Layer::textureAnimationId`'s "there is none".
-///
-/// The field has no separate presence bit and `mdx::Layer` defaults it to 0,
-/// which is a perfectly good TXAN index — so a layer this export creates and
-/// never fills in claims the model's *first* texture animation. `mdl_converter`
-/// already reads and writes the sentinel; every layer written here says it too,
-/// and `mdx_anim` then hands out one TXAN per animated layer instead of pouring
-/// every scrolling UV in the model into entry 0.
-constexpr u32 kNoTextureAnimation = 0xFFFFFFFFu;
-
 // ── the §7.2.1 split ────────────────────────────────────────────────────────
 
 /// The FIRST layer's filter mode: how the stack meets the scene.
@@ -411,9 +401,6 @@ void importPbr(const std::vector<const Layer*>& layers, const Context& context,
     for (std::size_t i = 0; i < layers.size(); ++i) {
         const Layer& layer = *layers[i];
         const u32 ordinal = static_cast<u32>(i);
-        // Where this layer's first slot landed in the body — the ordinal space
-        // for a deferred kind is the `slots` vector, not the layer stack.
-        ordinalOfLayer[i] = static_cast<u32>(body.slots.size());
 
         if (!layer.subTextures.empty()) {
             // v1200+: the slots name themselves.
@@ -438,7 +425,28 @@ void importPbr(const std::vector<const Layer*>& layers, const Context& context,
                          "slot is a guess",
                      layerRef(ordinal));
         }
-        addFresnel(layer, ordinal, common);
+    }
+
+    // A layer's ordinal is its position in the HD stack. It was where the
+    // layer's first slot landed in the body, which is the same thing for the
+    // one-layer stack nearly every model has — but a second layer re-sets the
+    // slots the first one set, so its first slot landed one past the end: an
+    // ordinal the material does not have, which `Validate` rejects and the
+    // export dropped. The position is also what the native block is read back
+    // by, and what each layer's fresnel feature already carried.
+    const u32 ordinals = static_cast<u32>(body.slots.size());
+    for (std::size_t i = 0; i < layers.size(); ++i) {
+        const u32 ordinal = static_cast<u32>(i);
+        if (ordinal >= ordinals) {
+            out.warn(DiagCode::LayerDropped,
+                     "HD layer " + number(i) + " has no ordinal: the stack has more layers than " +
+                         number(ordinals) + " slots, so its animation cannot be kept",
+                     layerRef(ordinal));
+            ordinalOfLayer[i] = kInvalidIndex;
+            continue;
+        }
+        ordinalOfLayer[i] = ordinal;
+        addFresnel(*layers[i], ordinal, common);
     }
 
     if (!layers.empty()) {
@@ -1200,8 +1208,9 @@ mdx::Material ExportMaterial(const Material& material, ProfileId profile, const 
         if (material.nativeKind() == NativeKind::Mdx) {
             exportFromNative(std::get<native::MdxMaterial>(material.Native()), context.modelVersion,
                              dst);
-            // The block holds this profile's layers in ordinal order (§7.3), so
-            // here the map really is the identity.
+            // The block holds this profile's layers in ordinal order (§7.3), and
+            // import numbers an HD layer by its position too, so here the map
+            // really is the identity.
             std::vector<u32> identity(dst.layers.size());
             for (std::size_t i = 0; i < identity.size(); ++i) {
                 identity[i] = static_cast<u32>(i);

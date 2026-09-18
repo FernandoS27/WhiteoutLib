@@ -12,6 +12,7 @@
 
 #include <cstring>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -872,6 +873,125 @@ TEST_CASE("wem mdx export lets the moving clip name a shared track's interpolati
 // ============================================================================
 // The corpus arm
 // ============================================================================
+
+TEST_CASE("wem mdx a second HD layer keeps its tracks through the native block",
+          "[wem][anim][mdx]") {
+    // Two HD layers that each set all six slots: the second re-sets the first
+    // one's, so where its first slot landed was one past the body's end. Its
+    // ordinal is its position, which is what the export — writing the native
+    // block layer by layer — reads it back by.
+    mdx::Model model = makeModel();
+    model.version = 1200;
+    for (u32 t = 1; t < 6; ++t) {
+        mdx::Texture texture;
+        texture.fileName = "textures/slot" + std::to_string(t) + ".dds";
+        model.textures.push_back(texture);
+    }
+    mdx::Material material;
+    for (u32 l = 0; l < 2; ++l) {
+        mdx::Layer layer;
+        layer.filterMode = l == 0 ? mdx::Layer::FilterMode::None : mdx::Layer::FilterMode::Additive;
+        layer.shader = mdx::Layer::ShaderType::HD;
+        layer.is_hd = true;
+        layer.textureAnimationId = 0xFFFFFFFF;
+        for (u32 s = 0; s < 6; ++s) {
+            mdx::Layer::SubTexture sub;
+            sub.textureId = s;
+            sub.slot = static_cast<mdx::Layer::SlotType>(s);
+            layer.subTextures.push_back(sub);
+        }
+        material.layers.push_back(layer);
+    }
+    material.layers[1].alphaTracks =
+        makeTrack<f32>(mdx::InterpolationType::Linear, {0, 1000}, {1.0f, 0.25f});
+    model.materials[0] = material;
+
+    const Document document = convert(model);
+    const AnimChannelTable& table = document.models[0].animChannels;
+    REQUIRE(table.channels.size() == 1u);
+    CHECK(table.channels[0].target.material.profile == ProfileId::Wc3Reforged);
+    CHECK(table.channels[0].target.sub == 1u);
+    CHECK(Validate(document, ValidateLevel::Profile).countOf(DiagCode::IndexOutOfRange) == 0u);
+
+    MdxConverter converter;
+    const Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Reforged, 1200);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->materials.size() == 1u);
+    REQUIRE(exported->materials[0].layers.size() == 2u);
+    CHECK_FALSE(exported->materials[0].layers[0].alphaTracks.isUsed);
+    const mdx::Track<f32>& alpha = exported->materials[0].layers[1].alphaTracks;
+    REQUIRE(alpha.isUsed);
+    REQUIRE(alpha.keys_data.size() == 2u);
+    CHECK(alpha.keys_data[1] == Catch::Approx(0.25f));
+}
+
+TEST_CASE("wem mdx export gives each layer back its own texture animation",
+          "[wem][anim][mdx][uv]") {
+    // The file's TXAN table is not kept: export rebuilds it from the UV
+    // features, handing out entries in channel order and reading an id below
+    // the table's size as one already handed out. A layer that kept the id it
+    // was read with therefore pointed into the new table at whatever landed
+    // there.
+    mdx::Model model = makeModel();
+    model.materials.push_back(model.materials[0]);
+    mdx::Geoset second = model.geosets[0];
+    second.materialId = 1;
+    model.geosets.push_back(second);
+    const auto scroll = [](Vector3f to) {
+        mdx::TextureAnimation animation;
+        animation.translationTracks = makeTrack<Vector3f>(mdx::InterpolationType::Linear,
+                                                          {0, 1000}, {Vector3f{0, 0, 0}, to});
+        return animation;
+    };
+
+    const auto exportedScroll = [](const mdx::Model& exported, u32 material) {
+        const u32 id = exported.materials[material].layers[0].textureAnimationId;
+        if (id >= exported.textureAnimations.size()) {
+            return std::optional<Vector3f>();
+        }
+        const mdx::Track<Vector3f>& track = exported.textureAnimations[id].translationTracks;
+        return track.isUsed && !track.keys_data.empty() ? std::optional(track.keys_data.back())
+                                                        : std::optional<Vector3f>();
+    };
+
+    MdxConverter converter;
+    SECTION("a later layer's kept id is another layer's new one") {
+        // Material 0 is exported first and handed entry 0 — the id material 1
+        // was read with, so its scroll went into material 0's TXAN.
+        model.textureAnimations = {scroll(Vector3f{0, 2, 0}), scroll(Vector3f{1, 0, 0})};
+        model.materials[0].layers[0].textureAnimationId = 1;
+        model.materials[1].layers[0].textureAnimationId = 0;
+
+        const Result<mdx::Model> exported =
+            converter.toMdx(convert(model), ProfileId::Wc3Classic);
+        REQUIRE(exported.ok());
+        REQUIRE(exported->materials.size() == 2u);
+        const std::optional<Vector3f> first = exportedScroll(*exported, 0);
+        const std::optional<Vector3f> other = exportedScroll(*exported, 1);
+        REQUIRE(first.has_value());
+        REQUIRE(other.has_value());
+        CHECK(first->x == Catch::Approx(1.0f));
+        CHECK(first->y == Catch::Approx(0.0f));
+        CHECK(other->x == Catch::Approx(0.0f));
+        CHECK(other->y == Catch::Approx(2.0f));
+        CHECK(exported->textureAnimations.size() == 2u);
+    }
+    SECTION("a kept id to a TXAN that moves nothing is another layer's scroll") {
+        // Material 1's TXAN has no keys, so it has no feature and no channel —
+        // and its kept id 0 is the entry material 0's scroll is handed.
+        model.textureAnimations = {mdx::TextureAnimation{}, scroll(Vector3f{1, 0, 0})};
+        model.materials[0].layers[0].textureAnimationId = 1;
+        model.materials[1].layers[0].textureAnimationId = 0;
+
+        const Result<mdx::Model> exported =
+            converter.toMdx(convert(model), ProfileId::Wc3Classic);
+        REQUIRE(exported.ok());
+        REQUIRE(exported->materials.size() == 2u);
+        REQUIRE(exportedScroll(*exported, 0).has_value());
+        CHECK(exportedScroll(*exported, 0)->x == Catch::Approx(1.0f));
+        CHECK_FALSE(exportedScroll(*exported, 1).has_value());
+    }
+}
 
 TEST_CASE("wem mdx animation survives the corpus", "[wem][anim][mdx][corpus]") {
     const auto files = test::gather("WEM_MDX_CORPUS_DIR", ".mdx", {"MDL", "Wc3Mdx"});
