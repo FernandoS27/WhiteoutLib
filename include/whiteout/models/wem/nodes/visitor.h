@@ -165,6 +165,31 @@ struct NodeVisitor {
         (void)node;
         (void)payload;
     }
+    virtual void OnWc3ParticleEmitter1(u32 id, Node& node, Wc3ParticleEmitter1Payload& payload) {
+        (void)id;
+        (void)node;
+        (void)payload;
+    }
+    virtual void OnWc3ParticleEmitter2(u32 id, Node& node, Wc3ParticleEmitter2Payload& payload) {
+        (void)id;
+        (void)node;
+        (void)payload;
+    }
+    virtual void OnWc3RibbonEmitter(u32 id, Node& node, Wc3RibbonEmitterPayload& payload) {
+        (void)id;
+        (void)node;
+        (void)payload;
+    }
+    virtual void OnSc2ParticleEmitter(u32 id, Node& node, Sc2ParticleEmitterPayload& payload) {
+        (void)id;
+        (void)node;
+        (void)payload;
+    }
+    virtual void OnSc2RibbonEmitter(u32 id, Node& node, Sc2RibbonEmitterPayload& payload) {
+        (void)id;
+        (void)node;
+        (void)payload;
+    }
 };
 
 /// Array order.

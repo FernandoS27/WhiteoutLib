@@ -35,6 +35,7 @@
 #include <whiteout/models/wem/geometry/attributes.h>
 #include <whiteout/models/wem/geometry/skin.h>
 #include <whiteout/models/wem/geometry/mesh.h>
+#include <whiteout/models/wem/nodes/emitters.h>
 #include <whiteout/models/wem/nodes/node.h>
 #include <whiteout/models/wem/nodes/tree.h>
 #include <whiteout/models/wem/anim/channel.h>
@@ -53,6 +54,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u32>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimChannel>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimSet>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimTag>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AssetKey>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Clip>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ClipEvent>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::CombinerStage>);
@@ -70,6 +72,8 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Node>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::PoseSchema>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ProfileId>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ProfileMaterialSet>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Sc2Property<whiteout::Vector3f>>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Sc2RibbonSplinePoint>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::SlotBinding>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::SubTrack>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::SubTrackContainer>);
@@ -245,6 +249,7 @@ Codes are grouped by area and never renumbered once shipped: the recorded expect
         .value("BONE_SHEAR_SPLIT", whiteout::models::wem::DiagCode::BoneShearSplit, R"doc(A bind frame sheared; a helper parent carries the stretch.)doc")
         .value("BONE_SHEAR_PROJECTED", whiteout::models::wem::DiagCode::BoneShearProjected, R"doc(The shear was projected away — the pose is approximate.)doc")
         .value("NON_UNIFORM_SCALE_FLATTENED", whiteout::models::wem::DiagCode::NonUniformScaleFlattened, R"doc(A target holding one scale float got the x component.)doc")
+        .value("NODE_KIND_NOT_CARRIED", whiteout::models::wem::DiagCode::NodeKindNotCarried, R"doc(A node kind the profile does not carry (§10.9).)doc")
         .value("MIXED_INTERPOLATION_IN_TRACK", whiteout::models::wem::DiagCode::MixedInterpolationInTrack, R"doc(A sub-track mixes interpolation modes (§10.8.2).)doc")
         .value("ANIM_CHANNEL_INVALIDATED", whiteout::models::wem::DiagCode::AnimChannelInvalidated, R"doc(A channel's target was removed.)doc")
         .value("CLIP_TARGET_MISSING", whiteout::models::wem::DiagCode::ClipTargetMissing, R"doc(A clip references a model or set that is absent.)doc")
@@ -427,16 +432,208 @@ Deliberate: Reforged HD is the only shipped PBR content among the six games, so 
         .value("PROJECTED_SHADOW", whiteout::models::wem::SectionFlags::ProjectedShadow)
     ;
 
-    py::enum_<whiteout::models::wem::NodeKind>(m, "NodeKind")
+    py::enum_<whiteout::models::wem::EmitterLink>(m, "EmitterLink", R"doc(What one of a payload's node links points at, so `Validate` can hold it to the kind it has to be and say which link is wrong.)doc")
+        .value("COPY_SOURCE", whiteout::models::wem::EmitterLink::CopySource, R"doc(`copyOf`: a `Sc2ParticleEmitter` that is not itself a copy.)doc")
+        .value("COLLISION_SPAWN", whiteout::models::wem::EmitterLink::CollisionSpawn, R"doc(A `Sc2ParticleEmitter`.)doc")
+        .value("TRAIL", whiteout::models::wem::EmitterLink::Trail, R"doc(A `Sc2ParticleEmitter`.)doc")
+        .value("BOUNCE_RIBBON", whiteout::models::wem::EmitterLink::BounceRibbon, R"doc(A `Sc2RibbonEmitter`.)doc")
+        .value("SPLINE_BONE", whiteout::models::wem::EmitterLink::SplineBone, R"doc(Any node; a bone in every shipped file.)doc")
+    ;
+
+    py::enum_<whiteout::models::wem::Wc3Particle1Property>(m, "Wc3Particle1Property", R"doc(MDX `PREM` tracks (KPEE, KPEG, KPLN, KPLT, KPEL, KPES).)doc")
+        .value("EMISSION_RATE", whiteout::models::wem::Wc3Particle1Property::EmissionRate)
+        .value("GRAVITY", whiteout::models::wem::Wc3Particle1Property::Gravity)
+        .value("LONGITUDE", whiteout::models::wem::Wc3Particle1Property::Longitude)
+        .value("LATITUDE", whiteout::models::wem::Wc3Particle1Property::Latitude)
+        .value("LIFESPAN", whiteout::models::wem::Wc3Particle1Property::Lifespan)
+        .value("SPEED", whiteout::models::wem::Wc3Particle1Property::Speed)
+        .value("COUNT", whiteout::models::wem::Wc3Particle1Property::Count)
+    ;
+
+    py::enum_<whiteout::models::wem::Wc3Particle2Property>(m, "Wc3Particle2Property", R"doc(MDX `PRE2` tracks (KP2S, KP2R, KP2L, KP2G, KP2E, KP2N, KP2W).)doc")
+        .value("SPEED", whiteout::models::wem::Wc3Particle2Property::Speed)
+        .value("VARIATION", whiteout::models::wem::Wc3Particle2Property::Variation)
+        .value("LATITUDE", whiteout::models::wem::Wc3Particle2Property::Latitude)
+        .value("GRAVITY", whiteout::models::wem::Wc3Particle2Property::Gravity)
+        .value("EMISSION_RATE", whiteout::models::wem::Wc3Particle2Property::EmissionRate)
+        .value("WIDTH", whiteout::models::wem::Wc3Particle2Property::Width)
+        .value("LENGTH", whiteout::models::wem::Wc3Particle2Property::Length)
+        .value("COUNT", whiteout::models::wem::Wc3Particle2Property::Count)
+    ;
+
+    py::enum_<whiteout::models::wem::Wc3RibbonProperty>(m, "Wc3RibbonProperty", R"doc(MDX `RIBB` tracks beyond the shared channels (KRHA, KRHB).)doc")
+        .value("HEIGHT_ABOVE", whiteout::models::wem::Wc3RibbonProperty::HeightAbove)
+        .value("HEIGHT_BELOW", whiteout::models::wem::Wc3RibbonProperty::HeightBelow)
+        .value("COUNT", whiteout::models::wem::Wc3RibbonProperty::Count)
+    ;
+
+    py::enum_<whiteout::models::wem::Sc2ParticleProperty>(m, "Sc2ParticleProperty", R"doc(M3 `PAR_` AnimRefs, and a `PARC` copy's two. `SplinePoint` is per element.)doc")
+        .value("INITIAL_SPEED", whiteout::models::wem::Sc2ParticleProperty::InitialSpeed)
+        .value("INITIAL_SPEED_RANDOM", whiteout::models::wem::Sc2ParticleProperty::InitialSpeedRandom)
+        .value("INITIAL_YAW", whiteout::models::wem::Sc2ParticleProperty::InitialYaw)
+        .value("INITIAL_PITCH", whiteout::models::wem::Sc2ParticleProperty::InitialPitch)
+        .value("INITIAL_HORIZONTAL", whiteout::models::wem::Sc2ParticleProperty::InitialHorizontal)
+        .value("INITIAL_VERTICAL", whiteout::models::wem::Sc2ParticleProperty::InitialVertical)
+        .value("LIFETIME", whiteout::models::wem::Sc2ParticleProperty::Lifetime)
+        .value("LIFETIME_RANDOM", whiteout::models::wem::Sc2ParticleProperty::LifetimeRandom)
+        .value("SIZE_ANIMATION", whiteout::models::wem::Sc2ParticleProperty::SizeAnimation)
+        .value("ROTATION_ANIMATION", whiteout::models::wem::Sc2ParticleProperty::RotationAnimation)
+        .value("COLOR_START", whiteout::models::wem::Sc2ParticleProperty::ColorStart)
+        .value("COLOR_MID", whiteout::models::wem::Sc2ParticleProperty::ColorMid)
+        .value("COLOR_END", whiteout::models::wem::Sc2ParticleProperty::ColorEnd)
+        .value("EMISSION_RATE", whiteout::models::wem::Sc2ParticleProperty::EmissionRate)
+        .value("SHAPE_OUTER", whiteout::models::wem::Sc2ParticleProperty::ShapeOuter)
+        .value("SHAPE_INNER", whiteout::models::wem::Sc2ParticleProperty::ShapeInner)
+        .value("OUTER_RADIUS", whiteout::models::wem::Sc2ParticleProperty::OuterRadius)
+        .value("INNER_RADIUS", whiteout::models::wem::Sc2ParticleProperty::InnerRadius)
+        .value("SIZE_RANDOM_ANIMATION", whiteout::models::wem::Sc2ParticleProperty::SizeRandomAnimation)
+        .value("ROTATION_RANDOM_ANIMATION", whiteout::models::wem::Sc2ParticleProperty::RotationRandomAnimation)
+        .value("COLOR_START_RANDOM", whiteout::models::wem::Sc2ParticleProperty::ColorStartRandom)
+        .value("COLOR_MID_RANDOM", whiteout::models::wem::Sc2ParticleProperty::ColorMidRandom)
+        .value("COLOR_END_RANDOM", whiteout::models::wem::Sc2ParticleProperty::ColorEndRandom)
+        .value("SQUIRT_AMOUNT", whiteout::models::wem::Sc2ParticleProperty::SquirtAmount)
+        .value("PITCH_AMPLITUDE", whiteout::models::wem::Sc2ParticleProperty::PitchAmplitude)
+        .value("PITCH_FREQUENCY", whiteout::models::wem::Sc2ParticleProperty::PitchFrequency)
+        .value("YAW_AMPLITUDE", whiteout::models::wem::Sc2ParticleProperty::YawAmplitude)
+        .value("YAW_FREQUENCY", whiteout::models::wem::Sc2ParticleProperty::YawFrequency)
+        .value("SPEED_AMPLITUDE", whiteout::models::wem::Sc2ParticleProperty::SpeedAmplitude)
+        .value("SPEED_FREQUENCY", whiteout::models::wem::Sc2ParticleProperty::SpeedFrequency)
+        .value("SIZE_AMPLITUDE", whiteout::models::wem::Sc2ParticleProperty::SizeAmplitude)
+        .value("SIZE_FREQUENCY", whiteout::models::wem::Sc2ParticleProperty::SizeFrequency)
+        .value("ALPHA_AMPLITUDE", whiteout::models::wem::Sc2ParticleProperty::AlphaAmplitude)
+        .value("ALPHA_FREQUENCY", whiteout::models::wem::Sc2ParticleProperty::AlphaFrequency)
+        .value("COLOR_AMPLITUDE", whiteout::models::wem::Sc2ParticleProperty::ColorAmplitude)
+        .value("COLOR_FREQUENCY", whiteout::models::wem::Sc2ParticleProperty::ColorFrequency)
+        .value("ROTATION_AMPLITUDE", whiteout::models::wem::Sc2ParticleProperty::RotationAmplitude)
+        .value("ROTATION_FREQUENCY", whiteout::models::wem::Sc2ParticleProperty::RotationFrequency)
+        .value("HORIZONTAL_AMPLITUDE", whiteout::models::wem::Sc2ParticleProperty::HorizontalAmplitude)
+        .value("HORIZONTAL_FREQUENCY", whiteout::models::wem::Sc2ParticleProperty::HorizontalFrequency)
+        .value("VERTICAL_AMPLITUDE", whiteout::models::wem::Sc2ParticleProperty::VerticalAmplitude)
+        .value("VERTICAL_FREQUENCY", whiteout::models::wem::Sc2ParticleProperty::VerticalFrequency)
+        .value("PARTICLE_VELOCITY", whiteout::models::wem::Sc2ParticleProperty::ParticleVelocity)
+        .value("PHASE_SHIFT", whiteout::models::wem::Sc2ParticleProperty::PhaseShift)
+        .value("ALPHA_THRESHOLD", whiteout::models::wem::Sc2ParticleProperty::AlphaThreshold)
+        .value("UV_OFFSET", whiteout::models::wem::Sc2ParticleProperty::UvOffset)
+        .value("UV_ANGLE", whiteout::models::wem::Sc2ParticleProperty::UvAngle)
+        .value("UV_TILING", whiteout::models::wem::Sc2ParticleProperty::UvTiling)
+        .value("SPLINE_POINT", whiteout::models::wem::Sc2ParticleProperty::SplinePoint)
+        .value("LOWER_BOUND", whiteout::models::wem::Sc2ParticleProperty::LowerBound)
+        .value("UPPER_BOUND", whiteout::models::wem::Sc2ParticleProperty::UpperBound)
+        .value("TRAIL_EMISSION_RATE", whiteout::models::wem::Sc2ParticleProperty::TrailEmissionRate)
+        .value("COUNT", whiteout::models::wem::Sc2ParticleProperty::Count)
+    ;
+
+    py::enum_<whiteout::models::wem::Sc2RibbonProperty>(m, "Sc2RibbonProperty", R"doc(M3 `RIB_` AnimRefs; the `Spline*` ones are per `SRIB` element.)doc")
+        .value("INITIAL_SPEED", whiteout::models::wem::Sc2RibbonProperty::InitialSpeed)
+        .value("INITIAL_SPEED_RANDOM", whiteout::models::wem::Sc2RibbonProperty::InitialSpeedRandom)
+        .value("INITIAL_YAW", whiteout::models::wem::Sc2RibbonProperty::InitialYaw)
+        .value("INITIAL_PITCH", whiteout::models::wem::Sc2RibbonProperty::InitialPitch)
+        .value("INITIAL_HORIZONTAL", whiteout::models::wem::Sc2RibbonProperty::InitialHorizontal)
+        .value("INITIAL_VERTICAL", whiteout::models::wem::Sc2RibbonProperty::InitialVertical)
+        .value("LIFETIME", whiteout::models::wem::Sc2RibbonProperty::Lifetime)
+        .value("LIFETIME_RANDOM", whiteout::models::wem::Sc2RibbonProperty::LifetimeRandom)
+        .value("SIZE_ANIMATION", whiteout::models::wem::Sc2RibbonProperty::SizeAnimation)
+        .value("ROTATION_ANIMATION", whiteout::models::wem::Sc2RibbonProperty::RotationAnimation)
+        .value("COLOR_START", whiteout::models::wem::Sc2RibbonProperty::ColorStart)
+        .value("COLOR_MID", whiteout::models::wem::Sc2RibbonProperty::ColorMid)
+        .value("COLOR_END", whiteout::models::wem::Sc2RibbonProperty::ColorEnd)
+        .value("MAX_LENGTH", whiteout::models::wem::Sc2RibbonProperty::MaxLength)
+        .value("ACTIVE", whiteout::models::wem::Sc2RibbonProperty::Active)
+        .value("YAW_AMPLITUDE", whiteout::models::wem::Sc2RibbonProperty::YawAmplitude)
+        .value("YAW_FREQUENCY", whiteout::models::wem::Sc2RibbonProperty::YawFrequency)
+        .value("PITCH_AMPLITUDE", whiteout::models::wem::Sc2RibbonProperty::PitchAmplitude)
+        .value("PITCH_FREQUENCY", whiteout::models::wem::Sc2RibbonProperty::PitchFrequency)
+        .value("SPEED_AMPLITUDE", whiteout::models::wem::Sc2RibbonProperty::SpeedAmplitude)
+        .value("SPEED_FREQUENCY", whiteout::models::wem::Sc2RibbonProperty::SpeedFrequency)
+        .value("SIZE_AMPLITUDE", whiteout::models::wem::Sc2RibbonProperty::SizeAmplitude)
+        .value("SIZE_FREQUENCY", whiteout::models::wem::Sc2RibbonProperty::SizeFrequency)
+        .value("ALPHA_AMPLITUDE", whiteout::models::wem::Sc2RibbonProperty::AlphaAmplitude)
+        .value("ALPHA_FREQUENCY", whiteout::models::wem::Sc2RibbonProperty::AlphaFrequency)
+        .value("PARTICLE_VELOCITY", whiteout::models::wem::Sc2RibbonProperty::ParticleVelocity)
+        .value("OVERLAY", whiteout::models::wem::Sc2RibbonProperty::Overlay)
+        .value("SPLINE_VELOCITY", whiteout::models::wem::Sc2RibbonProperty::SplineVelocity)
+        .value("SPLINE_VELOCITY_BASE_FACTOR", whiteout::models::wem::Sc2RibbonProperty::SplineVelocityBaseFactor)
+        .value("SPLINE_VELOCITY_END_FACTOR", whiteout::models::wem::Sc2RibbonProperty::SplineVelocityEndFactor)
+        .value("SPLINE_YAW_AMPLITUDE", whiteout::models::wem::Sc2RibbonProperty::SplineYawAmplitude)
+        .value("SPLINE_YAW_FREQUENCY", whiteout::models::wem::Sc2RibbonProperty::SplineYawFrequency)
+        .value("SPLINE_PITCH_AMPLITUDE", whiteout::models::wem::Sc2RibbonProperty::SplinePitchAmplitude)
+        .value("SPLINE_PITCH_FREQUENCY", whiteout::models::wem::Sc2RibbonProperty::SplinePitchFrequency)
+        .value("SPLINE_VELOCITY_AMPLITUDE", whiteout::models::wem::Sc2RibbonProperty::SplineVelocityAmplitude)
+        .value("SPLINE_VELOCITY_FREQUENCY", whiteout::models::wem::Sc2RibbonProperty::SplineVelocityFrequency)
+        .value("SPLINE_YAW", whiteout::models::wem::Sc2RibbonProperty::SplineYaw)
+        .value("SPLINE_PITCH", whiteout::models::wem::Sc2RibbonProperty::SplinePitch)
+        .value("COUNT", whiteout::models::wem::Sc2RibbonProperty::Count)
+    ;
+
+    py::enum_<whiteout::models::wem::Wc3ParticleFilter>(m, "Wc3ParticleFilter", R"doc(`PRE2`'s own blend vocabulary — not a material's `filterMode`.)doc")
+        .value("BLEND", whiteout::models::wem::Wc3ParticleFilter::Blend)
+        .value("ADDITIVE", whiteout::models::wem::Wc3ParticleFilter::Additive)
+        .value("MODULATE", whiteout::models::wem::Wc3ParticleFilter::Modulate)
+        .value("MODULATE2X", whiteout::models::wem::Wc3ParticleFilter::Modulate2x)
+        .value("ALPHA_KEY", whiteout::models::wem::Wc3ParticleFilter::AlphaKey)
+    ;
+
+    py::enum_<whiteout::models::wem::Wc3ParticleHeadOrTail>(m, "Wc3ParticleHeadOrTail")
+        .value("HEAD", whiteout::models::wem::Wc3ParticleHeadOrTail::Head)
+        .value("TAIL", whiteout::models::wem::Wc3ParticleHeadOrTail::Tail)
+        .value("BOTH", whiteout::models::wem::Wc3ParticleHeadOrTail::Both)
+    ;
+
+    py::enum_<whiteout::models::wem::Sc2EmitterShape>(m, "Sc2EmitterShape", R"doc(`PAR_` emission shapes, by the file's own value.)doc")
+        .value("POINT", whiteout::models::wem::Sc2EmitterShape::Point)
+        .value("PLANE", whiteout::models::wem::Sc2EmitterShape::Plane)
+        .value("SPHERE", whiteout::models::wem::Sc2EmitterShape::Sphere)
+        .value("BOX", whiteout::models::wem::Sc2EmitterShape::Box)
+        .value("CYLINDER", whiteout::models::wem::Sc2EmitterShape::Cylinder)
+        .value("DISC", whiteout::models::wem::Sc2EmitterShape::Disc)
+        .value("SPLINE", whiteout::models::wem::Sc2EmitterShape::Spline, R"doc(Along `splinePoints`.)doc")
+        .value("MESH", whiteout::models::wem::Sc2EmitterShape::Mesh, R"doc(Off `shapeSections`.)doc")
+    ;
+
+    py::enum_<whiteout::models::wem::Sc2ParticleInstance>(m, "Sc2ParticleInstance", R"doc(`PAR_` instance types — what one particle is drawn as.)doc")
+        .value("BILLBOARD", whiteout::models::wem::Sc2ParticleInstance::Billboard)
+        .value("TAIL", whiteout::models::wem::Sc2ParticleInstance::Tail)
+        .value("FACE_TRAVEL_DIR", whiteout::models::wem::Sc2ParticleInstance::FaceTravelDir)
+        .value("FACE_WORLD_DIR", whiteout::models::wem::Sc2ParticleInstance::FaceWorldDir)
+        .value("SINGLE_AXIS", whiteout::models::wem::Sc2ParticleInstance::SingleAxis)
+        .value("TERRAIN_ORIENTED", whiteout::models::wem::Sc2ParticleInstance::TerrainOriented)
+        .value("TERRAIN_DIR_ORIENTED", whiteout::models::wem::Sc2ParticleInstance::TerrainDirOriented)
+        .value("EMITTER_ORIENTED", whiteout::models::wem::Sc2ParticleInstance::EmitterOriented)
+        .value("PHYSICS_ORIENTED", whiteout::models::wem::Sc2ParticleInstance::PhysicsOriented)
+        .value("PINNED", whiteout::models::wem::Sc2ParticleInstance::Pinned)
+        .value("TRAIL", whiteout::models::wem::Sc2ParticleInstance::Trail)
+    ;
+
+    py::enum_<whiteout::models::wem::Sc2Smoothing>(m, "Sc2Smoothing", R"doc(How a birth-middle-death curve is blended.)doc")
+        .value("LINEAR", whiteout::models::wem::Sc2Smoothing::Linear)
+        .value("LINEAR_SMOOTH", whiteout::models::wem::Sc2Smoothing::LinearSmooth)
+        .value("BEZIER", whiteout::models::wem::Sc2Smoothing::Bezier)
+        .value("LINEAR_WITH_HOLD", whiteout::models::wem::Sc2Smoothing::LinearWithHold)
+        .value("BEZIER_WITH_HOLD", whiteout::models::wem::Sc2Smoothing::BezierWithHold)
+    ;
+
+    py::enum_<whiteout::models::wem::Sc2RibbonType>(m, "Sc2RibbonType")
+        .value("BILLBOARD", whiteout::models::wem::Sc2RibbonType::Billboard)
+        .value("PLANAR", whiteout::models::wem::Sc2RibbonType::Planar)
+        .value("CYLINDER", whiteout::models::wem::Sc2RibbonType::Cylinder)
+        .value("STAR", whiteout::models::wem::Sc2RibbonType::Star)
+    ;
+
+    py::enum_<whiteout::models::wem::NodeKind>(m, "NodeKind", R"doc(Appended, never reordered: the value is what a `NODE` chunk stores.)doc")
         .value("HELPER", whiteout::models::wem::NodeKind::Helper, R"doc(Transform only (MDX Helper).)doc")
         .value("BONE", whiteout::models::wem::NodeKind::Bone, R"doc(Skinnable.)doc")
         .value("ATTACHMENT", whiteout::models::wem::NodeKind::Attachment, R"doc(MDX/M2/M3 attachment, D3 hardpoint.)doc")
         .value("LIGHT", whiteout::models::wem::NodeKind::Light)
         .value("CAMERA", whiteout::models::wem::NodeKind::Camera)
-        .value("PARTICLE_EMITTER", whiteout::models::wem::NodeKind::ParticleEmitter, R"doc(Placement + reference; the system itself is out of scope (§18).)doc")
-        .value("RIBBON_EMITTER", whiteout::models::wem::NodeKind::RibbonEmitter)
+        .value("PARTICLE_EMITTER", whiteout::models::wem::NodeKind::ParticleEmitter, R"doc(Placement + a reference to a system WEM does not hold (§18).)doc")
+        .value("RIBBON_EMITTER", whiteout::models::wem::NodeKind::RibbonEmitter, R"doc(The same, for a trail.)doc")
         .value("EVENT", whiteout::models::wem::NodeKind::Event, R"doc(A named anchor clips fire at (MDX EventObject, M2 Event).)doc")
         .value("COLLISION_SHAPE", whiteout::models::wem::NodeKind::CollisionShape)
+        .value("WC3_PARTICLE_EMITTER1", whiteout::models::wem::NodeKind::Wc3ParticleEmitter1, R"doc(MDX `PREM`: every particle is a copy of a model.)doc")
+        .value("WC3_PARTICLE_EMITTER2", whiteout::models::wem::NodeKind::Wc3ParticleEmitter2, R"doc(MDX `PRE2`: textured quads with a head and a tail.)doc")
+        .value("WC3_RIBBON_EMITTER", whiteout::models::wem::NodeKind::Wc3RibbonEmitter, R"doc(MDX `RIBB`.)doc")
+        .value("SC2_PARTICLE_EMITTER", whiteout::models::wem::NodeKind::Sc2ParticleEmitter, R"doc(M3 `PAR_`, and each `PARC` copy of one.)doc")
+        .value("SC2_RIBBON_EMITTER", whiteout::models::wem::NodeKind::Sc2RibbonEmitter, R"doc(M3 `RIB_` with its `SRIB` spline.)doc")
         .value("COUNT", whiteout::models::wem::NodeKind::Count)
     ;
 
@@ -487,7 +684,9 @@ The inherit bits and the billboard family are MDX's vocabulary, and M3's `BoneFl
 
     py::enum_<whiteout::models::wem::Channel>(m, "Channel", R"doc(Which property, in the vocabulary all four formats share.
 
-Closed on purpose. A source property with no entry here is **dropped with an `AnimTrackDropped` diagnostic**, not smuggled through under a free-text name: a consumer that cannot enumerate what it might be handed cannot implement the table, and M3 alone would contribute hundreds of AnimRefs on structures WEM does not store at all (§18).)doc")
+Closed on purpose. A source property with no entry here is **dropped with an `AnimTrackDropped` diagnostic**, not smuggled through under a free-text name: a consumer that cannot enumerate what it might be handed cannot implement the table, and M3 alone would contribute hundreds of AnimRefs on structures WEM does not store at all (§18).
+
+`EmitterProperty` is the one entry whose meaning the target's node picks: an emitter system's own properties (§10.9) are shared by no other format, so rather than a hundred entries here they are one, with `TrackTarget::sub` naming the property in that kind's closed enum — still enumerable, through `FindEmitterProperty`.)doc")
         .value("TRANSLATION", whiteout::models::wem::Channel::Translation, R"doc(F32x3. MDX KGTR, M2 `Bone::translation`, M3 BONE, D3 `TranslationCurve`.)doc")
         .value("ROTATION", whiteout::models::wem::Channel::Rotation, R"doc(Quat. Slerp by default; the source's interpolation still decides.)doc")
         .value("SCALE", whiteout::models::wem::Channel::Scale, R"doc(F32x3, or F32 where the source ships one float (D3 `ScaleCurve`).)doc")
@@ -503,7 +702,8 @@ Closed on purpose. A source property with no entry here is **dropped with an `An
         .value("WEIGHT", whiteout::models::wem::Channel::Weight, R"doc(F32. A blend factor with no better name: MDX's fresnel team-colour amount, M3's layer blend weights.)doc")
         .value("TEXTURE_INDEX", whiteout::models::wem::Channel::TextureIndex, R"doc(U32. MDX KMTF's flipbook frame and KRTX's ribbon slot.)doc")
         .value("EMISSIVE", whiteout::models::wem::Channel::Emissive, R"doc(F32. MDX KMTE.)doc")
-        .value("COUNT", whiteout::models::wem::Channel::Count)
+        .value("EMITTER_PROPERTY", whiteout::models::wem::Channel::EmitterProperty, R"doc(An emitter system's own property; `sub` says which (§10.9). The type is the property's, not this entry's.)doc")
+        .value("COUNT", whiteout::models::wem::Channel::Count, R"doc(An emitter system's own property; `sub` says which (§10.9). The type is the property's, not this entry's.)doc")
     ;
 
     py::enum_<whiteout::models::wem::Interpolation>(m, "Interpolation")
@@ -553,6 +753,7 @@ WoW's and SC2's 100 are unit conversions; D3's 17 is a framing constant fitted s
         .def_readwrite("native_material_kind", &whiteout::models::wem::ProfileDesc::nativeMaterialKind)
         .def_readwrite("supports_looks", &whiteout::models::wem::ProfileDesc::supportsLooks)
         .def_readwrite("supports_actors", &whiteout::models::wem::ProfileDesc::supportsActors)
+        .def_readwrite("node_kinds", &whiteout::models::wem::ProfileDesc::nodeKinds, R"doc(Which node kinds this profile carries (§10.9). The nine shared kinds are in every mask; an emitter-system kind — `Wc3ParticleEmitter2`, `Sc2RibbonEmitter`, … — is in its own game's alone, because its payload is that game's particle system and nothing else can run it. `Validate` and every exporter read the gate from here and nowhere else.)doc")
     ;
 
     py::class_<whiteout::models::wem::ElementRef>(m, "ElementRef", R"doc(Where a diagnostic happened, in the document's own coordinates.
@@ -879,6 +1080,304 @@ Deterministic and idempotent. Fails only on a non-manifold face set, which `Mesh
         .def("face_sections", py::overload_cast<>(&whiteout::models::wem::Mesh::faceSections, py::const_))
         .def("faces_of_section", &whiteout::models::wem::Mesh::facesOfSection, py::arg("section"), R"doc(Faces belonging to @p section, in face order. A bucket pass at the point of use, which is what replaces the old sorted-range invariant.)doc")
         .def("recompute_bounds", &whiteout::models::wem::Mesh::recomputeBounds, R"doc(Recomputes `bounds` and every section's `bounds` from `position`.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::Wc3ParticleEmitter1Payload>(m, "Wc3ParticleEmitter1Payload", R"doc(`PREM`: every particle is a copy of `spawnModel`, flung from the node.)doc")
+        .def(py::init<>())
+        .def_readwrite("emission_rate", &whiteout::models::wem::Wc3ParticleEmitter1Payload::emissionRate, R"doc(Particles a second.)doc")
+        .def_readwrite("gravity", &whiteout::models::wem::Wc3ParticleEmitter1Payload::gravity)
+        .def_readwrite("longitude", &whiteout::models::wem::Wc3ParticleEmitter1Payload::longitude, R"doc(Radians.)doc")
+        .def_readwrite("latitude", &whiteout::models::wem::Wc3ParticleEmitter1Payload::latitude, R"doc(Radians.)doc")
+        .def_readwrite("lifespan", &whiteout::models::wem::Wc3ParticleEmitter1Payload::lifespan, R"doc(Seconds.)doc")
+        .def_readwrite("speed", &whiteout::models::wem::Wc3ParticleEmitter1Payload::speed, R"doc(`initialVelocity`.)doc")
+        .def_readwrite("spawn_model", &whiteout::models::wem::Wc3ParticleEmitter1Payload::spawnModel, R"doc(The model each particle is, by path.)doc")
+        .def_readwrite("uses_mdl", &whiteout::models::wem::Wc3ParticleEmitter1Payload::usesMdl, R"doc(Node flag 0x8000.)doc")
+        .def_readwrite("uses_tga", &whiteout::models::wem::Wc3ParticleEmitter1Payload::usesTga, R"doc(Node flag 0x10000.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::Wc3ParticleSegment>(m, "Wc3ParticleSegment", R"doc(A particle's look at one of its three lifetime points: birth, `time`, death.)doc")
+        .def(py::init<>())
+        .def_readwrite("color", &whiteout::models::wem::Wc3ParticleSegment::color, R"doc(RGB, red first — the static-colour order.)doc")
+        .def_readwrite("alpha", &whiteout::models::wem::Wc3ParticleSegment::alpha)
+        .def_readwrite("scaling", &whiteout::models::wem::Wc3ParticleSegment::scaling, R"doc(The quad's size, in model units.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::Wc3ParticleInterval>(m, "Wc3ParticleInterval", R"doc(A flipbook run: cells `start..end`, `repeat` times over the span.)doc")
+        .def(py::init<>())
+        .def_readwrite("start", &whiteout::models::wem::Wc3ParticleInterval::start)
+        .def_readwrite("end", &whiteout::models::wem::Wc3ParticleInterval::end)
+        .def_readwrite("repeat", &whiteout::models::wem::Wc3ParticleInterval::repeat)
+    ;
+
+    py::class_<whiteout::models::wem::Wc3ParticleEmitter2Payload>(m, "Wc3ParticleEmitter2Payload", R"doc(`PRE2`: camera-facing flipbook quads — the Warcraft III particle.)doc")
+        .def(py::init<>())
+        .def_readwrite("speed", &whiteout::models::wem::Wc3ParticleEmitter2Payload::speed)
+        .def_readwrite("variation", &whiteout::models::wem::Wc3ParticleEmitter2Payload::variation, R"doc(Of the speed, as a fraction.)doc")
+        .def_readwrite("latitude", &whiteout::models::wem::Wc3ParticleEmitter2Payload::latitude, R"doc(Radians.)doc")
+        .def_readwrite("gravity", &whiteout::models::wem::Wc3ParticleEmitter2Payload::gravity)
+        .def_readwrite("lifespan", &whiteout::models::wem::Wc3ParticleEmitter2Payload::lifespan, R"doc(Seconds.)doc")
+        .def_readwrite("emission_rate", &whiteout::models::wem::Wc3ParticleEmitter2Payload::emissionRate)
+        .def_readwrite("width", &whiteout::models::wem::Wc3ParticleEmitter2Payload::width, R"doc(The emission area, in model units.)doc")
+        .def_readwrite("length", &whiteout::models::wem::Wc3ParticleEmitter2Payload::length)
+        .def_readwrite("filter", &whiteout::models::wem::Wc3ParticleEmitter2Payload::filter)
+        .def_readwrite("rows", &whiteout::models::wem::Wc3ParticleEmitter2Payload::rows, R"doc(Flipbook grid.)doc")
+        .def_readwrite("columns", &whiteout::models::wem::Wc3ParticleEmitter2Payload::columns)
+        .def_readwrite("head_or_tail", &whiteout::models::wem::Wc3ParticleEmitter2Payload::headOrTail)
+        .def_readwrite("tail_length", &whiteout::models::wem::Wc3ParticleEmitter2Payload::tailLength)
+        .def_readwrite("time", &whiteout::models::wem::Wc3ParticleEmitter2Payload::time, R"doc(Where `middle` sits in the lifespan, 0..1.)doc")
+        .def_readwrite("start", &whiteout::models::wem::Wc3ParticleEmitter2Payload::start)
+        .def_readwrite("middle", &whiteout::models::wem::Wc3ParticleEmitter2Payload::middle)
+        .def_readwrite("end", &whiteout::models::wem::Wc3ParticleEmitter2Payload::end)
+        .def_readwrite("head_life", &whiteout::models::wem::Wc3ParticleEmitter2Payload::headLife)
+        .def_readwrite("head_decay", &whiteout::models::wem::Wc3ParticleEmitter2Payload::headDecay)
+        .def_readwrite("tail_life", &whiteout::models::wem::Wc3ParticleEmitter2Payload::tailLife)
+        .def_readwrite("tail_decay", &whiteout::models::wem::Wc3ParticleEmitter2Payload::tailDecay)
+        .def_readwrite("texture", &whiteout::models::wem::Wc3ParticleEmitter2Payload::texture, R"doc(-> `Document::textures`.)doc")
+        .def_readwrite("replaceable_id", &whiteout::models::wem::Wc3ParticleEmitter2Payload::replaceableId)
+        .def_readwrite("squirt", &whiteout::models::wem::Wc3ParticleEmitter2Payload::squirt, R"doc(Emission is a burst per rate key, not a rate.)doc")
+        .def_readwrite("priority_plane", &whiteout::models::wem::Wc3ParticleEmitter2Payload::priorityPlane)
+        .def_readwrite("unshaded", &whiteout::models::wem::Wc3ParticleEmitter2Payload::unshaded, R"doc(0x8000.)doc")
+        .def_readwrite("sort_prims_far_z", &whiteout::models::wem::Wc3ParticleEmitter2Payload::sortPrimsFarZ, R"doc(0x10000.)doc")
+        .def_readwrite("line_emitter", &whiteout::models::wem::Wc3ParticleEmitter2Payload::lineEmitter, R"doc(0x20000.)doc")
+        .def_readwrite("unfogged", &whiteout::models::wem::Wc3ParticleEmitter2Payload::unfogged, R"doc(0x40000.)doc")
+        .def_readwrite("xy_quad", &whiteout::models::wem::Wc3ParticleEmitter2Payload::xyQuad, R"doc(0x100000.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::Wc3RibbonEmitterPayload>(m, "Wc3RibbonEmitterPayload", R"doc(`RIBB`: a strip swept between `heightAbove` and `heightBelow` of the node.
+
+Its colour, alpha and flipbook cell key on the shared `Color`, `Alpha` and `TextureIndex` channels and rest here.)doc")
+        .def(py::init<>())
+        .def_readwrite("height_above", &whiteout::models::wem::Wc3RibbonEmitterPayload::heightAbove)
+        .def_readwrite("height_below", &whiteout::models::wem::Wc3RibbonEmitterPayload::heightBelow)
+        .def_readwrite("alpha", &whiteout::models::wem::Wc3RibbonEmitterPayload::alpha)
+        .def_readwrite("color", &whiteout::models::wem::Wc3RibbonEmitterPayload::color, R"doc(RGB, red first.)doc")
+        .def_readwrite("lifespan", &whiteout::models::wem::Wc3RibbonEmitterPayload::lifespan, R"doc(Seconds a segment lives.)doc")
+        .def_readwrite("texture_slot", &whiteout::models::wem::Wc3RibbonEmitterPayload::textureSlot, R"doc(The flipbook cell.)doc")
+        .def_readwrite("emission_rate", &whiteout::models::wem::Wc3RibbonEmitterPayload::emissionRate, R"doc(Segments a second.)doc")
+        .def_readwrite("rows", &whiteout::models::wem::Wc3RibbonEmitterPayload::rows)
+        .def_readwrite("columns", &whiteout::models::wem::Wc3RibbonEmitterPayload::columns)
+        .def_readwrite("material_slot", &whiteout::models::wem::Wc3RibbonEmitterPayload::materialSlot, R"doc(-> `Model::materialSlots`.)doc")
+        .def_readwrite("gravity", &whiteout::models::wem::Wc3RibbonEmitterPayload::gravity)
+    ;
+
+    py::class_<whiteout::models::wem::Sc2Variation>(m, "Sc2Variation", R"doc(One of the per-particle variation channels: a curve type, and the amplitude and frequency it runs at.)doc")
+        .def(py::init<>())
+        .def_readwrite("type", &whiteout::models::wem::Sc2Variation::type, R"doc(0 = none.)doc")
+        .def_readwrite("amplitude", &whiteout::models::wem::Sc2Variation::amplitude)
+        .def_readwrite("frequency", &whiteout::models::wem::Sc2Variation::frequency)
+    ;
+
+    py::class_<whiteout::models::wem::Sc2ParticleEmitterPayload>(m, "Sc2ParticleEmitterPayload", R"doc(`PAR_` — the StarCraft II particle system — or one `PARC` copy of it.
+
+Field names are the M3 record's. The bit words keep the file's own bits: `flags` is `m3::ParticleFlag`, `additionalFlags` `m3::ParticleAdditionalFlag`, `rotationFlags` `m3::ParticleRotationFlag`.
+
+**A copy is a node too.** A `PARC` is another emission point of one system — its own bone, emission rate and squirt, the source's everything else — so it imports as a `Sc2ParticleEmitter` node under that bone whose `copyOf` names the source, and reads nothing of its payload but `emissionRate` and `squirtAmount`. The engine numbers copies as slots 1..n in node order.)doc")
+        .def(py::init<>())
+        .def_readwrite("copy_of", &whiteout::models::wem::Sc2ParticleEmitterPayload::copyOf, R"doc(Set on a `PARC`: the emitter it copies.)doc")
+        .def_readwrite("material_slot", &whiteout::models::wem::Sc2ParticleEmitterPayload::materialSlot, R"doc(-> `Model::materialSlots`.)doc")
+        .def_readwrite("additional_flags", &whiteout::models::wem::Sc2ParticleEmitterPayload::additionalFlags)
+        .def_readwrite("initial_speed", &whiteout::models::wem::Sc2ParticleEmitterPayload::initialSpeed)
+        .def_readwrite("initial_speed_random", &whiteout::models::wem::Sc2ParticleEmitterPayload::initialSpeedRandom)
+        .def_readwrite("initial_yaw", &whiteout::models::wem::Sc2ParticleEmitterPayload::initialYaw)
+        .def_readwrite("initial_pitch", &whiteout::models::wem::Sc2ParticleEmitterPayload::initialPitch)
+        .def_readwrite("initial_horizontal", &whiteout::models::wem::Sc2ParticleEmitterPayload::initialHorizontal)
+        .def_readwrite("initial_vertical", &whiteout::models::wem::Sc2ParticleEmitterPayload::initialVertical)
+        .def_readwrite("lifetime", &whiteout::models::wem::Sc2ParticleEmitterPayload::lifetime)
+        .def_readwrite("lifetime_random", &whiteout::models::wem::Sc2ParticleEmitterPayload::lifetimeRandom)
+        .def_readwrite("kill_radius", &whiteout::models::wem::Sc2ParticleEmitterPayload::killRadius)
+        .def_readwrite("gravity_x", &whiteout::models::wem::Sc2ParticleEmitterPayload::gravityX, R"doc(Stored as the file does; 0 everywhere shipped.)doc")
+        .def_readwrite("gravity_y", &whiteout::models::wem::Sc2ParticleEmitterPayload::gravityY)
+        .def_readwrite("gravity", &whiteout::models::wem::Sc2ParticleEmitterPayload::gravity)
+        .def_readwrite("size_mid_time", &whiteout::models::wem::Sc2ParticleEmitterPayload::sizeMidTime)
+        .def_readwrite("color_mid_time", &whiteout::models::wem::Sc2ParticleEmitterPayload::colorMidTime)
+        .def_readwrite("alpha_mid_time", &whiteout::models::wem::Sc2ParticleEmitterPayload::alphaMidTime)
+        .def_readwrite("rotation_mid_time", &whiteout::models::wem::Sc2ParticleEmitterPayload::rotationMidTime)
+        .def_readwrite("size_mid_hold_time", &whiteout::models::wem::Sc2ParticleEmitterPayload::sizeMidHoldTime)
+        .def_readwrite("color_mid_hold_time", &whiteout::models::wem::Sc2ParticleEmitterPayload::colorMidHoldTime)
+        .def_readwrite("alpha_mid_hold_time", &whiteout::models::wem::Sc2ParticleEmitterPayload::alphaMidHoldTime)
+        .def_readwrite("rotation_mid_hold_time", &whiteout::models::wem::Sc2ParticleEmitterPayload::rotationMidHoldTime)
+        .def_readwrite("size_animation", &whiteout::models::wem::Sc2ParticleEmitterPayload::sizeAnimation, R"doc(Birth, middle, death.)doc")
+        .def_readwrite("rotation_animation", &whiteout::models::wem::Sc2ParticleEmitterPayload::rotationAnimation, R"doc(Birth, middle, death.)doc")
+        .def_readwrite("color_start", &whiteout::models::wem::Sc2ParticleEmitterPayload::colorStart)
+        .def_readwrite("color_mid", &whiteout::models::wem::Sc2ParticleEmitterPayload::colorMid)
+        .def_readwrite("color_end", &whiteout::models::wem::Sc2ParticleEmitterPayload::colorEnd)
+        .def_readwrite("drag", &whiteout::models::wem::Sc2ParticleEmitterPayload::drag)
+        .def_readwrite("mass", &whiteout::models::wem::Sc2ParticleEmitterPayload::mass)
+        .def_readwrite("mass_random", &whiteout::models::wem::Sc2ParticleEmitterPayload::massRandom)
+        .def_readwrite("mass_size_multiplier", &whiteout::models::wem::Sc2ParticleEmitterPayload::massSizeMultiplier)
+        .def_readwrite("local_forces", &whiteout::models::wem::Sc2ParticleEmitterPayload::localForces, R"doc(Force channel masks.)doc")
+        .def_readwrite("world_forces", &whiteout::models::wem::Sc2ParticleEmitterPayload::worldForces)
+        .def_readwrite("local_forces_fallback", &whiteout::models::wem::Sc2ParticleEmitterPayload::localForcesFallback)
+        .def_readwrite("world_forces_fallback", &whiteout::models::wem::Sc2ParticleEmitterPayload::worldForcesFallback)
+        .def_readwrite("world_forces_mass_multiplier", &whiteout::models::wem::Sc2ParticleEmitterPayload::worldForcesMassMultiplier)
+        .def_readwrite("noise_amplitude", &whiteout::models::wem::Sc2ParticleEmitterPayload::noiseAmplitude)
+        .def_readwrite("noise_frequency", &whiteout::models::wem::Sc2ParticleEmitterPayload::noiseFrequency)
+        .def_readwrite("noise_coherence", &whiteout::models::wem::Sc2ParticleEmitterPayload::noiseCoherence)
+        .def_readwrite("noise_edge", &whiteout::models::wem::Sc2ParticleEmitterPayload::noiseEdge)
+        .def_readwrite("index_plus_length", &whiteout::models::wem::Sc2ParticleEmitterPayload::indexPlusLength)
+        .def_readwrite("max_particles", &whiteout::models::wem::Sc2ParticleEmitterPayload::maxParticles)
+        .def_readwrite("emission_rate", &whiteout::models::wem::Sc2ParticleEmitterPayload::emissionRate)
+        .def_readwrite("emitter_shape", &whiteout::models::wem::Sc2ParticleEmitterPayload::emitterShape)
+        .def_readwrite("shape_outer", &whiteout::models::wem::Sc2ParticleEmitterPayload::shapeOuter)
+        .def_readwrite("shape_inner", &whiteout::models::wem::Sc2ParticleEmitterPayload::shapeInner)
+        .def_readwrite("outer_radius", &whiteout::models::wem::Sc2ParticleEmitterPayload::outerRadius)
+        .def_readwrite("inner_radius", &whiteout::models::wem::Sc2ParticleEmitterPayload::innerRadius)
+        .def_readwrite("shape_sections", &whiteout::models::wem::Sc2ParticleEmitterPayload::shapeSections, R"doc(The mesh sections a `Mesh` shape emits from: sections of `Model::meshes[0]`, which is the one division StarCraft II draws, so a section index is the region index the file stores.)doc")
+        .def_readwrite("velocity_type", &whiteout::models::wem::Sc2ParticleEmitterPayload::velocityType)
+        .def_readwrite("size_random_enable", &whiteout::models::wem::Sc2ParticleEmitterPayload::sizeRandomEnable)
+        .def_readwrite("size_random_animation", &whiteout::models::wem::Sc2ParticleEmitterPayload::sizeRandomAnimation)
+        .def_readwrite("rotation_random_enable", &whiteout::models::wem::Sc2ParticleEmitterPayload::rotationRandomEnable)
+        .def_readwrite("rotation_random_animation", &whiteout::models::wem::Sc2ParticleEmitterPayload::rotationRandomAnimation)
+        .def_readwrite("color_random_enable", &whiteout::models::wem::Sc2ParticleEmitterPayload::colorRandomEnable)
+        .def_readwrite("color_start_random", &whiteout::models::wem::Sc2ParticleEmitterPayload::colorStartRandom)
+        .def_readwrite("color_mid_random", &whiteout::models::wem::Sc2ParticleEmitterPayload::colorMidRandom)
+        .def_readwrite("color_end_random", &whiteout::models::wem::Sc2ParticleEmitterPayload::colorEndRandom)
+        .def_readwrite("alpha_random_enable", &whiteout::models::wem::Sc2ParticleEmitterPayload::alphaRandomEnable)
+        .def_readwrite("squirt_amount", &whiteout::models::wem::Sc2ParticleEmitterPayload::squirtAmount, R"doc(A burst count, keyed as a step.)doc")
+        .def_readwrite("flipbook_start_init_index", &whiteout::models::wem::Sc2ParticleEmitterPayload::flipbookStartInitIndex)
+        .def_readwrite("flipbook_start_stop_index", &whiteout::models::wem::Sc2ParticleEmitterPayload::flipbookStartStopIndex)
+        .def_readwrite("flipbook_end_init_index", &whiteout::models::wem::Sc2ParticleEmitterPayload::flipbookEndInitIndex)
+        .def_readwrite("flipbook_end_stop_index", &whiteout::models::wem::Sc2ParticleEmitterPayload::flipbookEndStopIndex)
+        .def_readwrite("flipbook_mid_time", &whiteout::models::wem::Sc2ParticleEmitterPayload::flipbookMidTime)
+        .def_readwrite("flipbook_columns", &whiteout::models::wem::Sc2ParticleEmitterPayload::flipbookColumns)
+        .def_readwrite("flipbook_rows", &whiteout::models::wem::Sc2ParticleEmitterPayload::flipbookRows)
+        .def_readwrite("flipbook_column_fraction", &whiteout::models::wem::Sc2ParticleEmitterPayload::flipbookColumnFraction)
+        .def_readwrite("flipbook_row_fraction", &whiteout::models::wem::Sc2ParticleEmitterPayload::flipbookRowFraction)
+        .def_readwrite("bounce", &whiteout::models::wem::Sc2ParticleEmitterPayload::bounce)
+        .def_readwrite("friction", &whiteout::models::wem::Sc2ParticleEmitterPayload::friction)
+        .def_readwrite("collision_spawn", &whiteout::models::wem::Sc2ParticleEmitterPayload::collisionSpawn, R"doc(The emitter a collision spawns from.)doc")
+        .def_readwrite("collision_spawn_min", &whiteout::models::wem::Sc2ParticleEmitterPayload::collisionSpawnMin)
+        .def_readwrite("collision_spawn_max", &whiteout::models::wem::Sc2ParticleEmitterPayload::collisionSpawnMax)
+        .def_readwrite("collision_spawn_chance", &whiteout::models::wem::Sc2ParticleEmitterPayload::collisionSpawnChance)
+        .def_readwrite("collision_spawn_energy", &whiteout::models::wem::Sc2ParticleEmitterPayload::collisionSpawnEnergy)
+        .def_readwrite("collision_die_bounce", &whiteout::models::wem::Sc2ParticleEmitterPayload::collisionDieBounce)
+        .def_readwrite("instance_type", &whiteout::models::wem::Sc2ParticleEmitterPayload::instanceType)
+        .def_readwrite("tail_length", &whiteout::models::wem::Sc2ParticleEmitterPayload::tailLength)
+        .def_readwrite("instance_angle", &whiteout::models::wem::Sc2ParticleEmitterPayload::instanceAngle)
+        .def_readwrite("instance_distance", &whiteout::models::wem::Sc2ParticleEmitterPayload::instanceDistance)
+        .def_readwrite("pitch", &whiteout::models::wem::Sc2ParticleEmitterPayload::pitch)
+        .def_readwrite("yaw", &whiteout::models::wem::Sc2ParticleEmitterPayload::yaw)
+        .def_readwrite("speed", &whiteout::models::wem::Sc2ParticleEmitterPayload::speed)
+        .def_readwrite("size", &whiteout::models::wem::Sc2ParticleEmitterPayload::size)
+        .def_readwrite("alpha", &whiteout::models::wem::Sc2ParticleEmitterPayload::alpha)
+        .def_readwrite("color", &whiteout::models::wem::Sc2ParticleEmitterPayload::color)
+        .def_readwrite("rotation", &whiteout::models::wem::Sc2ParticleEmitterPayload::rotation)
+        .def_readwrite("horizontal", &whiteout::models::wem::Sc2ParticleEmitterPayload::horizontal)
+        .def_readwrite("vertical", &whiteout::models::wem::Sc2ParticleEmitterPayload::vertical)
+        .def_readwrite("particle_velocity", &whiteout::models::wem::Sc2ParticleEmitterPayload::particleVelocity)
+        .def_readwrite("phase_shift", &whiteout::models::wem::Sc2ParticleEmitterPayload::phaseShift)
+        .def_readwrite("flags", &whiteout::models::wem::Sc2ParticleEmitterPayload::flags)
+        .def_readwrite("rotation_flags", &whiteout::models::wem::Sc2ParticleEmitterPayload::rotationFlags)
+        .def_readwrite("color_smoothing", &whiteout::models::wem::Sc2ParticleEmitterPayload::colorSmoothing)
+        .def_readwrite("size_smoothing", &whiteout::models::wem::Sc2ParticleEmitterPayload::sizeSmoothing)
+        .def_readwrite("rotation_smoothing", &whiteout::models::wem::Sc2ParticleEmitterPayload::rotationSmoothing)
+        .def_readwrite("alpha_threshold", &whiteout::models::wem::Sc2ParticleEmitterPayload::alphaThreshold)
+        .def_readwrite("uv_offset", &whiteout::models::wem::Sc2ParticleEmitterPayload::uvOffset)
+        .def_readwrite("uv_angle", &whiteout::models::wem::Sc2ParticleEmitterPayload::uvAngle)
+        .def_readwrite("uv_tiling", &whiteout::models::wem::Sc2ParticleEmitterPayload::uvTiling)
+        .def_readwrite("spline_points", &whiteout::models::wem::Sc2ParticleEmitterPayload::splinePoints, R"doc(A `Spline` shape's path.)doc")
+        .def_readwrite("wind_multiplier", &whiteout::models::wem::Sc2ParticleEmitterPayload::windMultiplier)
+        .def_readwrite("lod_reduce", &whiteout::models::wem::Sc2ParticleEmitterPayload::lodReduce)
+        .def_readwrite("lod_cut", &whiteout::models::wem::Sc2ParticleEmitterPayload::lodCut)
+        .def_readwrite("lower_bound", &whiteout::models::wem::Sc2ParticleEmitterPayload::lowerBound)
+        .def_readwrite("upper_bound", &whiteout::models::wem::Sc2ParticleEmitterPayload::upperBound)
+        .def_readwrite("trail_link", &whiteout::models::wem::Sc2ParticleEmitterPayload::trailLink, R"doc(The emitter this one leaves trails with.)doc")
+        .def_readwrite("trail_chance", &whiteout::models::wem::Sc2ParticleEmitterPayload::trailChance)
+        .def_readwrite("trail_emission_rate", &whiteout::models::wem::Sc2ParticleEmitterPayload::trailEmissionRate)
+        .def_readwrite("splat_projection_index", &whiteout::models::wem::Sc2ParticleEmitterPayload::splatProjectionIndex, R"doc(A `PROJ` index. WEM holds no projectors, so the number is carried as the file had it; -1 is none, which is every shipped emitter measured.)doc")
+        .def_readwrite("splat_chance", &whiteout::models::wem::Sc2ParticleEmitterPayload::splatChance)
+        .def_readwrite("models", &whiteout::models::wem::Sc2ParticleEmitterPayload::models, R"doc(Model particles, by path (`SCHR`).)doc")
+        .def_readwrite("spawn_ribbon_on_bounce_chance", &whiteout::models::wem::Sc2ParticleEmitterPayload::spawnRibbonOnBounceChance)
+        .def_readwrite("ribbon_link", &whiteout::models::wem::Sc2ParticleEmitterPayload::ribbonLink, R"doc(The ribbon a bounce spawns.)doc")
+        .def_readwrite("noise_smoothness", &whiteout::models::wem::Sc2ParticleEmitterPayload::noiseSmoothness, R"doc(Pre-v12 only; the upgrade has nowhere to put it.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::Sc2RibbonSplinePoint>(m, "Sc2RibbonSplinePoint", R"doc(`SRIB`: one control point of a `RIB_`'s spline, riding a bone of its own.)doc")
+        .def(py::init<>())
+        .def_readwrite("node", &whiteout::models::wem::Sc2RibbonSplinePoint::node, R"doc(The bone it rides.)doc")
+        .def_readwrite("emission_offset", &whiteout::models::wem::Sc2RibbonSplinePoint::emissionOffset)
+        .def_readwrite("emission_vector", &whiteout::models::wem::Sc2RibbonSplinePoint::emissionVector)
+        .def_readwrite("velocity", &whiteout::models::wem::Sc2RibbonSplinePoint::velocity)
+        .def_readwrite("reserved", &whiteout::models::wem::Sc2RibbonSplinePoint::reserved)
+        .def_readwrite("velocity_base_factor", &whiteout::models::wem::Sc2RibbonSplinePoint::velocityBaseFactor)
+        .def_readwrite("velocity_end_factor", &whiteout::models::wem::Sc2RibbonSplinePoint::velocityEndFactor)
+        .def_readwrite("yaw_variation", &whiteout::models::wem::Sc2RibbonSplinePoint::yawVariation)
+        .def_readwrite("pitch_variation", &whiteout::models::wem::Sc2RibbonSplinePoint::pitchVariation)
+        .def_readwrite("velocity_variation", &whiteout::models::wem::Sc2RibbonSplinePoint::velocityVariation)
+        .def_readwrite("yaw", &whiteout::models::wem::Sc2RibbonSplinePoint::yaw)
+        .def_readwrite("pitch", &whiteout::models::wem::Sc2RibbonSplinePoint::pitch)
+        .def_readwrite("emission_vector_norm_factor", &whiteout::models::wem::Sc2RibbonSplinePoint::emissionVectorNormFactor, R"doc(Shipped as ~0.01 / |emissionVector|.)doc")
+        .def_readwrite("velocity_norm_factor", &whiteout::models::wem::Sc2RibbonSplinePoint::velocityNormFactor, R"doc(Shipped as ~0.01 / velocity.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::Sc2RibbonEmitterPayload>(m, "Sc2RibbonEmitterPayload", R"doc(`RIB_` — the StarCraft II ribbon.
+
+Its bone is the node's parent. The record's second `u16` beside the bone is the high half of one `u32` bone index to the editor, zero on every shipped ribbon, and is written as zero rather than carried. `flags` is `m3::RibbonFlag`, `additionalFlags` `m3::RibbonAdditionalFlag`.)doc")
+        .def(py::init<>())
+        .def_readwrite("material_slot", &whiteout::models::wem::Sc2RibbonEmitterPayload::materialSlot, R"doc(-> `Model::materialSlots`.)doc")
+        .def_readwrite("additional_flags", &whiteout::models::wem::Sc2RibbonEmitterPayload::additionalFlags)
+        .def_readwrite("initial_speed", &whiteout::models::wem::Sc2RibbonEmitterPayload::initialSpeed)
+        .def_readwrite("initial_speed_random", &whiteout::models::wem::Sc2RibbonEmitterPayload::initialSpeedRandom)
+        .def_readwrite("initial_yaw", &whiteout::models::wem::Sc2RibbonEmitterPayload::initialYaw)
+        .def_readwrite("initial_pitch", &whiteout::models::wem::Sc2RibbonEmitterPayload::initialPitch)
+        .def_readwrite("initial_horizontal", &whiteout::models::wem::Sc2RibbonEmitterPayload::initialHorizontal)
+        .def_readwrite("initial_vertical", &whiteout::models::wem::Sc2RibbonEmitterPayload::initialVertical)
+        .def_readwrite("lifetime", &whiteout::models::wem::Sc2RibbonEmitterPayload::lifetime)
+        .def_readwrite("lifetime_random", &whiteout::models::wem::Sc2RibbonEmitterPayload::lifetimeRandom)
+        .def_readwrite("kill_radius", &whiteout::models::wem::Sc2RibbonEmitterPayload::killRadius, R"doc(A `u32` in the ribbon record, unlike the particle's.)doc")
+        .def_readwrite("gravity_x", &whiteout::models::wem::Sc2RibbonEmitterPayload::gravityX)
+        .def_readwrite("gravity_y", &whiteout::models::wem::Sc2RibbonEmitterPayload::gravityY)
+        .def_readwrite("gravity", &whiteout::models::wem::Sc2RibbonEmitterPayload::gravity)
+        .def_readwrite("size_mid_time", &whiteout::models::wem::Sc2RibbonEmitterPayload::sizeMidTime)
+        .def_readwrite("color_mid_time", &whiteout::models::wem::Sc2RibbonEmitterPayload::colorMidTime)
+        .def_readwrite("alpha_mid_time", &whiteout::models::wem::Sc2RibbonEmitterPayload::alphaMidTime)
+        .def_readwrite("rotation_mid_time", &whiteout::models::wem::Sc2RibbonEmitterPayload::rotationMidTime)
+        .def_readwrite("size_mid_hold_time", &whiteout::models::wem::Sc2RibbonEmitterPayload::sizeMidHoldTime)
+        .def_readwrite("color_mid_hold_time", &whiteout::models::wem::Sc2RibbonEmitterPayload::colorMidHoldTime)
+        .def_readwrite("alpha_mid_hold_time", &whiteout::models::wem::Sc2RibbonEmitterPayload::alphaMidHoldTime)
+        .def_readwrite("rotation_mid_hold_time", &whiteout::models::wem::Sc2RibbonEmitterPayload::rotationMidHoldTime)
+        .def_readwrite("size_animation", &whiteout::models::wem::Sc2RibbonEmitterPayload::sizeAnimation)
+        .def_readwrite("rotation_animation", &whiteout::models::wem::Sc2RibbonEmitterPayload::rotationAnimation)
+        .def_readwrite("color_start", &whiteout::models::wem::Sc2RibbonEmitterPayload::colorStart)
+        .def_readwrite("color_mid", &whiteout::models::wem::Sc2RibbonEmitterPayload::colorMid)
+        .def_readwrite("color_end", &whiteout::models::wem::Sc2RibbonEmitterPayload::colorEnd)
+        .def_readwrite("drag", &whiteout::models::wem::Sc2RibbonEmitterPayload::drag)
+        .def_readwrite("mass", &whiteout::models::wem::Sc2RibbonEmitterPayload::mass)
+        .def_readwrite("mass_random", &whiteout::models::wem::Sc2RibbonEmitterPayload::massRandom)
+        .def_readwrite("mass_size_multiplier", &whiteout::models::wem::Sc2RibbonEmitterPayload::massSizeMultiplier)
+        .def_readwrite("local_forces", &whiteout::models::wem::Sc2RibbonEmitterPayload::localForces)
+        .def_readwrite("world_forces", &whiteout::models::wem::Sc2RibbonEmitterPayload::worldForces)
+        .def_readwrite("local_forces_fallback", &whiteout::models::wem::Sc2RibbonEmitterPayload::localForcesFallback)
+        .def_readwrite("world_forces_fallback", &whiteout::models::wem::Sc2RibbonEmitterPayload::worldForcesFallback)
+        .def_readwrite("world_forces_mass_multiplier", &whiteout::models::wem::Sc2RibbonEmitterPayload::worldForcesMassMultiplier)
+        .def_readwrite("noise_amplitude", &whiteout::models::wem::Sc2RibbonEmitterPayload::noiseAmplitude)
+        .def_readwrite("noise_frequency", &whiteout::models::wem::Sc2RibbonEmitterPayload::noiseFrequency)
+        .def_readwrite("noise_coherence", &whiteout::models::wem::Sc2RibbonEmitterPayload::noiseCoherence)
+        .def_readwrite("noise_edge", &whiteout::models::wem::Sc2RibbonEmitterPayload::noiseEdge)
+        .def_readwrite("index_plus_length", &whiteout::models::wem::Sc2RibbonEmitterPayload::indexPlusLength)
+        .def_readwrite("emitter_shape", &whiteout::models::wem::Sc2RibbonEmitterPayload::emitterShape)
+        .def_readwrite("ribbon_type", &whiteout::models::wem::Sc2RibbonEmitterPayload::ribbonType)
+        .def_readwrite("divisions", &whiteout::models::wem::Sc2RibbonEmitterPayload::divisions)
+        .def_readwrite("edges", &whiteout::models::wem::Sc2RibbonEmitterPayload::edges)
+        .def_readwrite("inner_radius", &whiteout::models::wem::Sc2RibbonEmitterPayload::innerRadius)
+        .def_readwrite("max_length", &whiteout::models::wem::Sc2RibbonEmitterPayload::maxLength)
+        .def_readwrite("spline_points", &whiteout::models::wem::Sc2RibbonEmitterPayload::splinePoints, R"doc(`SRIB`.)doc")
+        .def_readwrite("active", &whiteout::models::wem::Sc2RibbonEmitterPayload::active, R"doc(A flag, keyed as one. Rests at null 0 on every shipped ribbon.)doc")
+        .def_readwrite("flags", &whiteout::models::wem::Sc2RibbonEmitterPayload::flags)
+        .def_readwrite("size_smoothing", &whiteout::models::wem::Sc2RibbonEmitterPayload::sizeSmoothing)
+        .def_readwrite("color_smoothing", &whiteout::models::wem::Sc2RibbonEmitterPayload::colorSmoothing)
+        .def_readwrite("friction", &whiteout::models::wem::Sc2RibbonEmitterPayload::friction)
+        .def_readwrite("bounce", &whiteout::models::wem::Sc2RibbonEmitterPayload::bounce)
+        .def_readwrite("lod_reduce", &whiteout::models::wem::Sc2RibbonEmitterPayload::lodReduce)
+        .def_readwrite("lod_cut", &whiteout::models::wem::Sc2RibbonEmitterPayload::lodCut)
+        .def_readwrite("yaw", &whiteout::models::wem::Sc2RibbonEmitterPayload::yaw)
+        .def_readwrite("pitch", &whiteout::models::wem::Sc2RibbonEmitterPayload::pitch)
+        .def_readwrite("speed", &whiteout::models::wem::Sc2RibbonEmitterPayload::speed)
+        .def_readwrite("size", &whiteout::models::wem::Sc2RibbonEmitterPayload::size)
+        .def_readwrite("alpha", &whiteout::models::wem::Sc2RibbonEmitterPayload::alpha)
+        .def_readwrite("particle_velocity", &whiteout::models::wem::Sc2RibbonEmitterPayload::particleVelocity)
+        .def_readwrite("overlay", &whiteout::models::wem::Sc2RibbonEmitterPayload::overlay)
+        .def_readwrite("deprecated_unknown", &whiteout::models::wem::Sc2RibbonEmitterPayload::deprecatedUnknown, R"doc(Pre-v7 only (`unknown3fbae7d6`).)doc")
     ;
 
     py::class_<whiteout::models::wem::Transform>(m, "Transform", R"doc(TRS everywhere in WEM. Nothing stores a matrix that a TRS can express.)doc")
@@ -1223,9 +1722,70 @@ The parser fills it and the writer reads it, so a read-edit-write round trip pre
         .def("diagnostics", &whiteout::models::wem::Writer::diagnostics)
     ;
 
+    py::class_<whiteout::models::wem::Sc2Property<whiteout::f32>>(m, "Sc2PropertyF32", R"doc(One animatable property of a StarCraft II emitter, at rest.
+
+An M3 AnimRef without its link. `initValue` is what plays while no clip keys the property; the link — the animId and the keys — is the node's `Channel::EmitterProperty` channel, whose id is the AnimRef's own (§10.8.1).
+
+`nullValue` is live, not padding: the engine retires an unkeyed `PAR_` whose rate and squirt, or a `RIB_` whose `active`, sit at their nulls before it emits anything. Shipped emitters rest every null at zero.
+
+Colours are RGBA in 0..1, the channel convention; a `u16` squirt count widens to `u32`.)doc")
+        .def(py::init<>())
+        .def_readwrite("init_value", &whiteout::models::wem::Sc2Property<whiteout::f32>::initValue)
+        .def_readwrite("null_value", &whiteout::models::wem::Sc2Property<whiteout::f32>::nullValue)
+    ;
+
+    py::class_<whiteout::models::wem::Sc2Property<whiteout::Vector3f>>(m, "Sc2PropertyVector3f", R"doc(One animatable property of a StarCraft II emitter, at rest.
+
+An M3 AnimRef without its link. `initValue` is what plays while no clip keys the property; the link — the animId and the keys — is the node's `Channel::EmitterProperty` channel, whose id is the AnimRef's own (§10.8.1).
+
+`nullValue` is live, not padding: the engine retires an unkeyed `PAR_` whose rate and squirt, or a `RIB_` whose `active`, sit at their nulls before it emits anything. Shipped emitters rest every null at zero.
+
+Colours are RGBA in 0..1, the channel convention; a `u16` squirt count widens to `u32`.)doc")
+        .def(py::init<>())
+        .def_readwrite("init_value", &whiteout::models::wem::Sc2Property<whiteout::Vector3f>::initValue)
+        .def_readwrite("null_value", &whiteout::models::wem::Sc2Property<whiteout::Vector3f>::nullValue)
+    ;
+
+    py::class_<whiteout::models::wem::Sc2Property<whiteout::Vector4f>>(m, "Sc2PropertyVector4f", R"doc(One animatable property of a StarCraft II emitter, at rest.
+
+An M3 AnimRef without its link. `initValue` is what plays while no clip keys the property; the link — the animId and the keys — is the node's `Channel::EmitterProperty` channel, whose id is the AnimRef's own (§10.8.1).
+
+`nullValue` is live, not padding: the engine retires an unkeyed `PAR_` whose rate and squirt, or a `RIB_` whose `active`, sit at their nulls before it emits anything. Shipped emitters rest every null at zero.
+
+Colours are RGBA in 0..1, the channel convention; a `u16` squirt count widens to `u32`.)doc")
+        .def(py::init<>())
+        .def_readwrite("init_value", &whiteout::models::wem::Sc2Property<whiteout::Vector4f>::initValue)
+        .def_readwrite("null_value", &whiteout::models::wem::Sc2Property<whiteout::Vector4f>::nullValue)
+    ;
+
+    py::class_<whiteout::models::wem::Sc2Property<whiteout::u32>>(m, "Sc2PropertyU32", R"doc(One animatable property of a StarCraft II emitter, at rest.
+
+An M3 AnimRef without its link. `initValue` is what plays while no clip keys the property; the link — the animId and the keys — is the node's `Channel::EmitterProperty` channel, whose id is the AnimRef's own (§10.8.1).
+
+`nullValue` is live, not padding: the engine retires an unkeyed `PAR_` whose rate and squirt, or a `RIB_` whose `active`, sit at their nulls before it emits anything. Shipped emitters rest every null at zero.
+
+Colours are RGBA in 0..1, the channel convention; a `u16` squirt count widens to `u32`.)doc")
+        .def(py::init<>())
+        .def_readwrite("init_value", &whiteout::models::wem::Sc2Property<whiteout::u32>::initValue)
+        .def_readwrite("null_value", &whiteout::models::wem::Sc2Property<whiteout::u32>::nullValue)
+    ;
+
+    py::class_<whiteout::models::wem::Sc2Property<whiteout::Vector2f>>(m, "Sc2PropertyVector2f", R"doc(One animatable property of a StarCraft II emitter, at rest.
+
+An M3 AnimRef without its link. `initValue` is what plays while no clip keys the property; the link — the animId and the keys — is the node's `Channel::EmitterProperty` channel, whose id is the AnimRef's own (§10.8.1).
+
+`nullValue` is live, not padding: the engine retires an unkeyed `PAR_` whose rate and squirt, or a `RIB_` whose `active`, sit at their nulls before it emits anything. Shipped emitters rest every null at zero.
+
+Colours are RGBA in 0..1, the channel convention; a `u16` squirt count widens to `u32`.)doc")
+        .def(py::init<>())
+        .def_readwrite("init_value", &whiteout::models::wem::Sc2Property<whiteout::Vector2f>::initValue)
+        .def_readwrite("null_value", &whiteout::models::wem::Sc2Property<whiteout::Vector2f>::nullValue)
+    ;
+
     py::bind_vector<std::vector<whiteout::models::wem::AnimChannel>>(m, "VectorWemAnimChannel");
     py::bind_vector<std::vector<whiteout::models::wem::AnimSet>>(m, "VectorWemAnimSet");
     py::bind_vector<std::vector<whiteout::models::wem::AnimTag>>(m, "VectorWemAnimTag");
+    py::bind_vector<std::vector<whiteout::models::wem::AssetKey>>(m, "VectorWemAssetKey");
     py::bind_vector<std::vector<whiteout::models::wem::Clip>>(m, "VectorWemClip");
     py::bind_vector<std::vector<whiteout::models::wem::ClipEvent>>(m, "VectorWemClipEvent");
     py::bind_vector<std::vector<whiteout::models::wem::CombinerStage>>(m, "VectorWemCombinerStage");
@@ -1243,6 +1803,8 @@ The parser fills it and the writer reads it, so a read-edit-write round trip pre
     py::bind_vector<std::vector<whiteout::models::wem::PoseSchema>>(m, "VectorWemPoseSchema");
     py::bind_vector<std::vector<whiteout::models::wem::ProfileId>>(m, "VectorWemProfileId");
     py::bind_vector<std::vector<whiteout::models::wem::ProfileMaterialSet>>(m, "VectorWemProfileMaterialSet");
+    py::bind_vector<std::vector<whiteout::models::wem::Sc2Property<whiteout::Vector3f>>>(m, "VectorWemSc2PropertyVector3f");
+    py::bind_vector<std::vector<whiteout::models::wem::Sc2RibbonSplinePoint>>(m, "VectorWemSc2RibbonSplinePoint");
     py::bind_vector<std::vector<whiteout::models::wem::SlotBinding>>(m, "VectorWemSlotBinding");
     py::bind_vector<std::vector<whiteout::models::wem::SubTrack>>(m, "VectorWemSubTrack");
     py::bind_vector<std::vector<whiteout::models::wem::SubTrackContainer>>(m, "VectorWemSubTrackContainer");

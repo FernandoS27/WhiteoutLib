@@ -102,8 +102,9 @@ TEST_CASE("wem a clean document validates at every level", "[wem][document][vali
 
     // Levels are cumulative, and each one this phase touched has rules now.
     // P6 added the seventh structural rule (the child model an attach point
-    // rides); P7 added the eighth and a fourth profile rule.
-    CHECK(ValidationRulesFor(ValidateLevel::Structural).size() == 8u);
+    // rides); P7 added the eighth and a fourth profile rule; §10.9 the node-kind
+    // gate and the emitter joins.
+    CHECK(ValidationRulesFor(ValidateLevel::Structural).size() == 10u);
     CHECK(ValidationRulesFor(ValidateLevel::Manifold).size() == 1u);
     CHECK(ValidationRulesFor(ValidateLevel::Profile).size() == 4u);
 }

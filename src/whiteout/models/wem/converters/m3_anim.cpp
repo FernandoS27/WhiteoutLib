@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 #include "m3_anim.h"
+#include "m3_emitters.h"
 
 #include <algorithm>
 #include <array>
@@ -231,6 +232,20 @@ bool Decode(const m3::SubTrackContainer& stc, u32 animRef, const Declared& chann
         }
         break;
     }
+    case kSds6: {
+        // A `PAR_`'s squirt count, the one AnimRef shipped content keys here.
+        // The key is the `u16` the AnimRef holds, stored signed; its bits
+        // widen unchanged, so the export narrows them back exactly.
+        if (block >= stc.sds6.size() || channel.type != geom::AttrType::U32) {
+            return false;
+        }
+        stamp(stc.sds6[block].timestamps);
+        for (i16 key : stc.sds6[block].keys) {
+            const u32 widened = static_cast<u16>(key);
+            AppendBytes(widened, values);
+        }
+        break;
+    }
     case kSdu6: {
         if (block >= stc.sdu6.size() || channel.type != geom::AttrType::U32) {
             return false;
@@ -291,6 +306,7 @@ public:
         declareBoneChannels();
         declareLightChannels();
         declareMaterialChannels();
+        declareEmitterChannels();
         buildClips();
         for (Clip& clip : clips_) {
             document_.clips.push_back(std::move(clip));
@@ -365,11 +381,12 @@ private:
         return bytes;
     }
 
-    static TrackTarget nodeTarget(u32 node, Channel channel) {
+    static TrackTarget nodeTarget(u32 node, Channel channel, u32 sub = 0) {
         TrackTarget target;
         target.kind = TrackTarget::Kind::Node;
         target.node = node;
         target.channel = channel;
+        target.sub = sub;
         return target;
     }
 
@@ -405,6 +422,46 @@ private:
                     nodeTarget(node, Channel::Intensity));
             declare(light.attenuationStart, geom::AttrType::F32,
                     nodeTarget(node, Channel::AttenuationStart));
+        }
+    }
+
+    /// The emitter systems' AnimRefs (§10.9), each an `EmitterProperty` channel
+    /// on its record's node, typed by the property. Their vectors are in the
+    /// system's own basis and are not rebased — the payload keeps them there.
+    void declareEmitterChannels() {
+        const auto declareOn = [this](u32 node, NodeKind kind) {
+            return [this, node, kind](u32 sub, const auto& ref) {
+                const EmitterPropertyDesc* desc = FindEmitterProperty(kind, sub);
+                if (desc != nullptr) {
+                    declare(ref, desc->type, nodeTarget(node, Channel::EmitterProperty, sub));
+                }
+            };
+        };
+        u32 copyNode = context_.bases.particleCopy;
+        for (std::size_t p = 0; p < source_.particleEmitters.size(); ++p) {
+            const m3::ParticleEmitter& emitter = source_.particleEmitters[p];
+            const u32 node = context_.bases.particle + static_cast<u32>(p);
+            if (node < model_.nodes.size()) {
+                m3_emitters::ForEachParticleRef(emitter,
+                                                declareOn(node, NodeKind::Sc2ParticleEmitter));
+            }
+            for (const u32 copy : emitter.copyIndices) {
+                if (copy >= source_.particleEmitterCopies.size()) {
+                    continue;
+                }
+                if (copyNode < model_.nodes.size()) {
+                    m3_emitters::ForEachCopyRef(source_.particleEmitterCopies[copy],
+                                                declareOn(copyNode, NodeKind::Sc2ParticleEmitter));
+                }
+                ++copyNode;
+            }
+        }
+        for (std::size_t r = 0; r < source_.ribbonEmitters.size(); ++r) {
+            const u32 node = context_.bases.ribbon + static_cast<u32>(r);
+            if (node < model_.nodes.size()) {
+                m3_emitters::ForEachRibbonRef(source_.ribbonEmitters[r],
+                                              declareOn(node, NodeKind::Sc2RibbonEmitter));
+            }
         }
     }
 
@@ -619,6 +676,15 @@ NodeBases NodeBases::Of(const m3::Model& source) {
     bases.attachment = static_cast<u32>(source.bones.size());
     bases.light = bases.attachment + static_cast<u32>(source.attachmentPoints.size());
     bases.camera = bases.light + static_cast<u32>(source.lights.size());
+    bases.particle = bases.camera + static_cast<u32>(source.cameras.size());
+    bases.particleCopy = bases.particle + static_cast<u32>(source.particleEmitters.size());
+    u32 copies = 0;
+    for (const m3::ParticleEmitter& emitter : source.particleEmitters) {
+        for (const u32 copy : emitter.copyIndices) {
+            copies += copy < source.particleEmitterCopies.size() ? 1u : 0u;
+        }
+    }
+    bases.ribbon = bases.particleCopy + copies;
     return bases;
 }
 
@@ -882,6 +948,7 @@ public:
 
     void run() {
         buildMaterialOrdinals();
+        nameEmitterRefs();
         if (map_ != nullptr) {
             map_->clipSequence.assign(document_.clips.size(), kInvalidIndex);
             map_->sequenceStc.clear();
@@ -906,6 +973,23 @@ private:
     /// to SDR3. Which it is, is a property of the channel — `Visibility` is the
     /// only F32 the import read out of SDFG.
     Stream StreamFor(const AnimChannel& channel) const {
+        // Two emitter properties are not the stream their type suggests: a
+        // ribbon's `active` is a flag in SDFG (248 of 248 shipped keys), and a
+        // particle's squirt a count in SDS6 (7,281 of 7,281).
+        if (channel.target.kind == TrackTarget::Kind::Node &&
+            channel.target.channel == Channel::EmitterProperty &&
+            channel.target.node < model_.nodes.size()) {
+            const NodeKind kind = model_.nodes.nodes[channel.target.node].kind;
+            const u32 property = EmitterPropertyOf(channel.target.sub);
+            if (kind == NodeKind::Sc2RibbonEmitter &&
+                property == static_cast<u32>(Sc2RibbonProperty::Active)) {
+                return Stream::Sdfg;
+            }
+            if (kind == NodeKind::Sc2ParticleEmitter &&
+                property == static_cast<u32>(Sc2ParticleProperty::SquirtAmount)) {
+                return Stream::Sds6;
+            }
+        }
         switch (channel.valueType) {
         case geom::AttrType::F32x2:
             return Stream::Sd2v;
@@ -1226,6 +1310,16 @@ private:
                 channel->target.material.profile != profile()) {
                 continue;
             }
+            // Likewise an emitter system this profile does not carry: it went
+            // out as its placement (`checkNodeKinds` said so), no record holds
+            // an AnimRef for its properties, and a Warcraft III one is crossed
+            // natively with streams of its own.
+            if (channel->target.kind == TrackTarget::Kind::Node &&
+                channel->target.channel == Channel::EmitterProperty &&
+                (channel->target.node >= model_.nodes.size() ||
+                 !CarriesNodeKind(profile(), model_.nodes.nodes[channel->target.node].kind))) {
+                continue;
+            }
             if (convertedIds.count(channel->id) != 0) {
                 continue;
             }
@@ -1464,9 +1558,61 @@ private:
         }
     }
 
+    /// The AnimRef an `EmitterProperty` channel names on the record its node
+    /// became, handed to @p f; nothing when the node is not an emitter record
+    /// or has no such property.
+    template <class F>
+    void withEmitterRef(const AnimChannel& channel, F&& f) {
+        const u32 node = channel.target.node;
+        if (channel.target.kind != TrackTarget::Kind::Node ||
+            channel.target.channel != Channel::EmitterProperty ||
+            node >= context_.nodeSlots.size()) {
+            return;
+        }
+        const ExportContext::NodeSlot& slot = context_.nodeSlots[node];
+        const auto match = [&](u32 sub, auto& ref) {
+            if (sub == channel.target.sub) {
+                f(ref);
+            }
+        };
+        switch (slot.slot) {
+        case ExportContext::Slot::ParticleEmitter:
+            if (slot.index < out_.particleEmitters.size()) {
+                m3_emitters::ForEachParticleRef(out_.particleEmitters[slot.index], match);
+            }
+            return;
+        case ExportContext::Slot::ParticleCopy:
+            if (slot.index < out_.particleEmitterCopies.size()) {
+                m3_emitters::ForEachCopyRef(out_.particleEmitterCopies[slot.index], match);
+            }
+            return;
+        case ExportContext::Slot::RibbonEmitter:
+            if (slot.index < out_.ribbonEmitters.size()) {
+                m3_emitters::ForEachRibbonRef(out_.ribbonEmitters[slot.index], match);
+            }
+            return;
+        default:
+            return;
+        }
+    }
+
+    /// Every emitter AnimRef a channel declares takes the channel's id, keyed
+    /// or not: that is how a shipped record reads (no emitter AnimRef ships
+    /// with id 0), and the id is the join an `.m3a` keys it by. Binding -- the
+    /// flags and the step -- is left to a written track (`Wire`).
+    void nameEmitterRefs() {
+        for (const AnimChannel& channel : model_.animChannels.channels) {
+            withEmitterRef(channel, [&](auto& ref) { ref.animId = exportId(channel.id); });
+        }
+    }
+
     void wireNode(const AnimChannel& channel, const SubTrack& track) {
         const u32 node = channel.target.node;
         if (node >= context_.nodeSlots.size()) {
+            return;
+        }
+        if (channel.target.channel == Channel::EmitterProperty) {
+            withEmitterRef(channel, [&](auto& ref) { Wire(ref, exportId(channel.id), track.interp); });
             return;
         }
         const ExportContext::NodeSlot& slot = context_.nodeSlots[node];

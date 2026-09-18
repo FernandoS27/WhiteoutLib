@@ -25,6 +25,12 @@
  * it becomes sub-tracks driving the node's channels (§10.8). The node holds the
  * static bind value; the channel table declares the property; the clip holds the
  * motion. One rule, no per-kind track fields.
+ *
+ * **Emitter systems are node kinds of their own, one per game (§10.9).** The
+ * Warcraft III and StarCraft II particle and ribbon systems share too little to
+ * be one generic record, so each is a kind whose payload is that system whole
+ * (`emitters.h`), and a kind is carried only by the profiles of the game that
+ * runs it (`ProfileDesc::nodeKinds`).
  */
 
 #include <string>
@@ -40,12 +46,11 @@
 #include "../bounds.h"
 #include "../native_bag.h"
 #include "../profile.h"
+#include "emitters.h"
 
 namespace whiteout {
 namespace models {
 namespace wem {
-
-inline constexpr u32 kInvalidNode = 0xFFFFFFFFu;
 
 // ============================================================================
 // Transform
@@ -104,20 +109,80 @@ Transform FromMatrix(const Matrix44f& matrix);
 // Kinds and flags
 // ============================================================================
 
+/// Appended, never reordered: the value is what a `NODE` chunk stores.
 enum class NodeKind : u8 {
     Helper = 0, ///< Transform only (MDX Helper).
     Bone,       ///< Skinnable.
     Attachment, ///< MDX/M2/M3 attachment, D3 hardpoint.
     Light,
     Camera,
-    ParticleEmitter, ///< Placement + reference; the system itself is out of scope (§18).
-    RibbonEmitter,
-    Event, ///< A named anchor clips fire at (MDX EventObject, M2 Event).
+    ParticleEmitter, ///< Placement + a reference to a system WEM does not hold (§18).
+    RibbonEmitter,   ///< The same, for a trail.
+    Event,           ///< A named anchor clips fire at (MDX EventObject, M2 Event).
     CollisionShape,
+    // --- emitter systems, each carried by its own game's profiles (§10.9) ---
+    Wc3ParticleEmitter1, ///< MDX `PREM`: every particle is a copy of a model.
+    Wc3ParticleEmitter2, ///< MDX `PRE2`: textured quads with a head and a tail.
+    Wc3RibbonEmitter,    ///< MDX `RIBB`.
+    Sc2ParticleEmitter,  ///< M3 `PAR_`, and each `PARC` copy of one.
+    Sc2RibbonEmitter,    ///< M3 `RIB_` with its `SRIB` spline.
     Count
 };
 
 const char* ToString(NodeKind kind);
+
+constexpr NodeKindMask NodeKindBit(NodeKind kind) {
+    return static_cast<NodeKindMask>(1u) << static_cast<u32>(kind);
+}
+
+constexpr bool HasNodeKind(NodeKindMask mask, NodeKind kind) {
+    return (mask & NodeKindBit(kind)) != 0;
+}
+
+/// The kinds every profile carries: placements whose meaning the formats share.
+inline constexpr NodeKindMask kSharedNodeKinds =
+    NodeKindBit(NodeKind::Helper) | NodeKindBit(NodeKind::Bone) |
+    NodeKindBit(NodeKind::Attachment) | NodeKindBit(NodeKind::Light) |
+    NodeKindBit(NodeKind::Camera) | NodeKindBit(NodeKind::ParticleEmitter) |
+    NodeKindBit(NodeKind::RibbonEmitter) | NodeKindBit(NodeKind::Event) |
+    NodeKindBit(NodeKind::CollisionShape);
+
+/// Warcraft III's three emitter systems — `Wc3Classic` and `Wc3Reforged`.
+inline constexpr NodeKindMask kWc3NodeKinds = NodeKindBit(NodeKind::Wc3ParticleEmitter1) |
+                                              NodeKindBit(NodeKind::Wc3ParticleEmitter2) |
+                                              NodeKindBit(NodeKind::Wc3RibbonEmitter);
+
+/// StarCraft II's two — `Sc2` and `Heroes`.
+inline constexpr NodeKindMask kSc2NodeKinds =
+    NodeKindBit(NodeKind::Sc2ParticleEmitter) | NodeKindBit(NodeKind::Sc2RibbonEmitter);
+
+/// Whether @p profile carries a node of @p kind — the §10.9 gate, read off
+/// `ProfileDesc::nodeKinds`.
+bool CarriesNodeKind(ProfileId profile, NodeKind kind);
+
+/// Every profile that carries @p kind.
+ProfileMask ProfilesCarryingNodeKind(NodeKind kind);
+
+/// A particle system of any family: the generic reference or a game's own.
+constexpr bool IsParticleEmitterKind(NodeKind kind) {
+    return kind == NodeKind::ParticleEmitter || kind == NodeKind::Wc3ParticleEmitter1 ||
+           kind == NodeKind::Wc3ParticleEmitter2 || kind == NodeKind::Sc2ParticleEmitter;
+}
+
+/// A ribbon system of any family.
+constexpr bool IsRibbonEmitterKind(NodeKind kind) {
+    return kind == NodeKind::RibbonEmitter || kind == NodeKind::Wc3RibbonEmitter ||
+           kind == NodeKind::Sc2RibbonEmitter;
+}
+
+constexpr bool IsEmitterKind(NodeKind kind) {
+    return IsParticleEmitterKind(kind) || IsRibbonEmitterKind(kind);
+}
+
+/// A kind whose payload is a game's whole emitter system — the gated five.
+constexpr bool IsEmitterSystemKind(NodeKind kind) {
+    return HasNodeKind(kWc3NodeKinds | kSc2NodeKinds, kind);
+}
 
 /**
  * @brief What at least two formats mean the same way.
@@ -307,7 +372,41 @@ struct CollisionPayload {
 
 using NodePayload =
     std::variant<HelperPayload, BonePayload, AttachmentPayload, LightPayload, CameraPayload,
-                 ParticlePayload, RibbonPayload, EventPayload, CollisionPayload>;
+                 ParticlePayload, RibbonPayload, EventPayload, CollisionPayload,
+                 Wc3ParticleEmitter1Payload, Wc3ParticleEmitter2Payload, Wc3RibbonEmitterPayload,
+                 Sc2ParticleEmitterPayload, Sc2RibbonEmitterPayload>;
+
+/// Every node index @p payload holds, as `f(u32& node, EmitterLink what)` — the
+/// §10.6 referencer row the emitter systems add. @p payload may be const.
+template <class Payload, class F>
+void ForEachNodeLink(Payload& payload, F&& f) {
+    if (auto* particle = std::get_if<Sc2ParticleEmitterPayload>(&payload)) {
+        Sc2ParticleEmitterPayload::forEachNodeLink(*particle, f);
+    } else if (auto* ribbon = std::get_if<Sc2RibbonEmitterPayload>(&payload)) {
+        Sc2RibbonEmitterPayload::forEachNodeLink(*ribbon, f);
+    }
+}
+
+/// Every `Model::materialSlots` index @p payload holds, as `f(u32& slot)` — the
+/// §7.5 row.
+template <class Payload, class F>
+void ForEachMaterialLink(Payload& payload, F&& f) {
+    if (auto* ribbon = std::get_if<Wc3RibbonEmitterPayload>(&payload)) {
+        Wc3RibbonEmitterPayload::forEachMaterialLink(*ribbon, f);
+    } else if (auto* particle = std::get_if<Sc2ParticleEmitterPayload>(&payload)) {
+        Sc2ParticleEmitterPayload::forEachMaterialLink(*particle, f);
+    } else if (auto* sc2Ribbon = std::get_if<Sc2RibbonEmitterPayload>(&payload)) {
+        Sc2RibbonEmitterPayload::forEachMaterialLink(*sc2Ribbon, f);
+    }
+}
+
+/// Every `Document::textures` index @p payload holds, as `f(u32& texture)`.
+template <class Payload, class F>
+void ForEachTextureLink(Payload& payload, F&& f) {
+    if (auto* particle = std::get_if<Wc3ParticleEmitter2Payload>(&payload)) {
+        Wc3ParticleEmitter2Payload::forEachTextureLink(*particle, f);
+    }
+}
 
 /// The payload alternative @p kind requires. `kind` and `payload.index()` are
 /// redundant on purpose — `kind` is the cheap discriminator the disk format and
@@ -316,6 +415,9 @@ using NodePayload =
 constexpr std::size_t PayloadIndexFor(NodeKind kind) {
     return static_cast<std::size_t>(kind);
 }
+
+static_assert(std::variant_size_v<NodePayload> == static_cast<std::size_t>(NodeKind::Count),
+              "one payload alternative per NodeKind, in NodeKind order");
 
 // ============================================================================
 // Node
@@ -444,6 +546,23 @@ struct Node {
             break;
         case NodeKind::CollisionShape:
             v.field("collision", VariantAs<CollisionPayload>(payload));
+            break;
+        // v3: the emitter systems (§10.9). No v2 chunk holds one, so the gate
+        // is the kind itself rather than `since`.
+        case NodeKind::Wc3ParticleEmitter1:
+            v.field("wc3Particle1", VariantAs<Wc3ParticleEmitter1Payload>(payload));
+            break;
+        case NodeKind::Wc3ParticleEmitter2:
+            v.field("wc3Particle2", VariantAs<Wc3ParticleEmitter2Payload>(payload));
+            break;
+        case NodeKind::Wc3RibbonEmitter:
+            v.field("wc3Ribbon", VariantAs<Wc3RibbonEmitterPayload>(payload));
+            break;
+        case NodeKind::Sc2ParticleEmitter:
+            v.field("sc2Particle", VariantAs<Sc2ParticleEmitterPayload>(payload));
+            break;
+        case NodeKind::Sc2RibbonEmitter:
+            v.field("sc2Ribbon", VariantAs<Sc2RibbonEmitterPayload>(payload));
             break;
         case NodeKind::Count:
             break;

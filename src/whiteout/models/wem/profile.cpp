@@ -3,6 +3,8 @@
 
 #include <whiteout/models/wem/profile.h>
 
+#include <whiteout/models/wem/nodes/node.h>
+
 namespace whiteout {
 namespace models {
 namespace wem {
@@ -64,6 +66,22 @@ constexpr std::span<const BlendMode> modes(const BlendMode (&a)[N]) {
     return std::span<const BlendMode>(a, N);
 }
 
+/// §10.9: the nine shared kinds everywhere, and each emitter system in its own
+/// game alone. Both Warcraft III profiles read the one `.mdx` emitter set, and
+/// StarCraft II and Heroes the one `.m3` set.
+NodeKindMask nodeKindsOf(ProfileId id) {
+    switch (id) {
+    case ProfileId::Wc3Classic:
+    case ProfileId::Wc3Reforged:
+        return kSharedNodeKinds | kWc3NodeKinds;
+    case ProfileId::Sc2:
+    case ProfileId::Heroes:
+        return kSharedNodeKinds | kSc2NodeKinds;
+    default:
+        return kSharedNodeKinds;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // The registry. Indexed by ProfileId; `kDescs[i].id == ProfileId(i)` is asserted
 // by wem_profile_test.
@@ -102,6 +120,7 @@ ProfileDesc makeDesc(ProfileId id, const char* name, const char* displayName, co
     d.nativeMaterialKind = native;
     d.supportsLooks = looks;
     d.supportsActors = actors;
+    d.nodeKinds = nodeKindsOf(id);
     return d;
 }
 

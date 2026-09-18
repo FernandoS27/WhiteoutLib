@@ -265,11 +265,42 @@ struct ChunkTagTraits<Matrix44f> {
     static constexpr bool is_trivial = true;
 };
 
-/// v2 adds `Node::poseMatrices` (§10.5's matrix poses).
+/// v2 adds `Node::poseMatrices` (§10.5's matrix poses); v3 the five emitter
+/// system kinds and their payloads (§10.9). An older chunk holds none of them,
+/// so it reads unchanged.
 template <>
 struct ChunkTagTraits<Node> {
     static constexpr u32 value = kTag("NODE");
-    static constexpr u32 max_version = 2;
+    static constexpr u32 max_version = 3;
+    static constexpr bool is_trivial = false;
+};
+
+// --- The emitter payloads' lists (§10.9) ---
+//
+// A payload is written inline in its `NODE`, but a vector inside one is a chunk
+// like every other vector, and its element type needs a tag.
+
+/// `Sc2ParticleEmitterPayload::models`: model particles, by path.
+template <>
+struct ChunkTagTraits<AssetKey> {
+    static constexpr u32 value = kTag("AKEY");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+/// `Sc2ParticleEmitterPayload::splinePoints`.
+template <>
+struct ChunkTagTraits<Sc2Property<Vector3f>> {
+    static constexpr u32 value = kTag("S2P3");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+/// `Sc2RibbonEmitterPayload::splinePoints` (`SRIB`).
+template <>
+struct ChunkTagTraits<Sc2RibbonSplinePoint> {
+    static constexpr u32 value = kTag("S2RS");
+    static constexpr u32 max_version = 1;
     static constexpr bool is_trivial = false;
 };
 
@@ -494,6 +525,9 @@ inline constexpr u32 kKnownChunkTags[] = {
     ChunkTagTraits<Transform>::value,
     ChunkTagTraits<Matrix44f>::value,
     ChunkTagTraits<Node>::value,
+    ChunkTagTraits<AssetKey>::value,
+    ChunkTagTraits<Sc2Property<Vector3f>>::value,
+    ChunkTagTraits<Sc2RibbonSplinePoint>::value,
     ChunkTagTraits<NativeBag::Entry>::value,
     ChunkTagTraits<PoseSchema>::value,
     ChunkTagTraits<Material>::value,

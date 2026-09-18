@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstring>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 
 namespace whiteout {
@@ -42,15 +43,93 @@ void scaleMatrixTranslation(Matrix44f& matrix, f32 factor) {
 
 /// Whether a channel's values are lengths. Everything else a channel can drive
 /// — a rotation, a scale, a colour, an alpha, a UV, a texture index — is
-/// dimensionless and survives a rescale untouched.
-bool isLengthChannel(Channel channel) {
-    switch (channel) {
+/// dimensionless and survives a rescale untouched. An emitter property says for
+/// itself (`EmitterPropertyDesc::length`), which is why the node is asked.
+bool isLengthChannel(const Model& model, const AnimChannel& channel) {
+    switch (channel.target.channel) {
     case Channel::Translation:
     case Channel::AttenuationStart:
     case Channel::AttenuationEnd:
         return true;
+    case Channel::EmitterProperty: {
+        if (channel.target.kind != TrackTarget::Kind::Node ||
+            channel.target.node >= model.nodes.size()) {
+            return false;
+        }
+        const EmitterPropertyDesc* desc =
+            FindEmitterProperty(model.nodes.nodes[channel.target.node].kind, channel.target.sub);
+        return desc != nullptr && desc->length;
+    }
     default:
         return false;
+    }
+}
+
+template <class T>
+void scale(Sc2Property<T>& property, f32 factor) {
+    if constexpr (std::is_same_v<T, f32>) {
+        property.initValue *= factor;
+        property.nullValue *= factor;
+    } else {
+        scale(property.initValue, factor);
+        scale(property.nullValue, factor);
+    }
+}
+
+/// The emitter systems' distances, speeds and accelerations (§10.9) -- the same
+/// fields their `EmitterPropertyDesc` rows mark `length`, plus the static ones no
+/// track can key. What a field means is the system's own, so only a field whose
+/// unit is unambiguous is here: angles, rates, times, colours and counts stay,
+/// and so do the StarCraft II fields nothing has pinned a unit to (noise, the
+/// bounds, `tailLength`, `instanceDistance`).
+void rescaleEmitter(NodePayload& payload, f32 factor) {
+    if (auto* p = std::get_if<Wc3ParticleEmitter1Payload>(&payload)) {
+        p->gravity *= factor;
+        p->speed *= factor;
+    } else if (auto* p2 = std::get_if<Wc3ParticleEmitter2Payload>(&payload)) {
+        p2->speed *= factor;
+        p2->gravity *= factor;
+        p2->width *= factor;
+        p2->length *= factor;
+        p2->start.scaling *= factor;
+        p2->middle.scaling *= factor;
+        p2->end.scaling *= factor;
+    } else if (auto* r = std::get_if<Wc3RibbonEmitterPayload>(&payload)) {
+        r->heightAbove *= factor;
+        r->heightBelow *= factor;
+        r->gravity *= factor;
+    } else if (auto* sp = std::get_if<Sc2ParticleEmitterPayload>(&payload)) {
+        scale(sp->initialSpeed, factor);
+        scale(sp->initialSpeedRandom, factor);
+        sp->killRadius *= factor;
+        sp->gravity *= factor;
+        scale(sp->sizeAnimation, factor);
+        scale(sp->shapeOuter, factor);
+        scale(sp->shapeInner, factor);
+        scale(sp->outerRadius, factor);
+        scale(sp->innerRadius, factor);
+        scale(sp->sizeRandomAnimation, factor);
+        scale(sp->speed.amplitude, factor);
+        scale(sp->size.amplitude, factor);
+        for (Sc2Property<Vector3f>& point : sp->splinePoints) {
+            scale(point, factor);
+        }
+    } else if (auto* sr = std::get_if<Sc2RibbonEmitterPayload>(&payload)) {
+        scale(sr->initialSpeed, factor);
+        scale(sr->initialSpeedRandom, factor);
+        sr->gravityX *= factor;
+        sr->gravityY *= factor;
+        sr->gravity *= factor;
+        scale(sr->sizeAnimation, factor);
+        sr->innerRadius *= factor;
+        scale(sr->maxLength, factor);
+        scale(sr->speed.amplitude, factor);
+        scale(sr->size.amplitude, factor);
+        for (Sc2RibbonSplinePoint& point : sr->splinePoints) {
+            scale(point.emissionOffset, factor);
+            scale(point.velocity, factor);
+            scale(point.velocityVariation.amplitude, factor);
+        }
     }
 }
 
@@ -110,6 +189,8 @@ void rescaleNode(Node& node, f32 factor) {
         scale(collision->shape.box, factor);
         scale(collision->shape.sphere, factor);
         collision->shape.height *= factor;
+    } else {
+        rescaleEmitter(node.payload, factor);
     }
 }
 
@@ -180,7 +261,7 @@ RescaleResult RescaleDocument(Document& document, f32 factor) {
         result.nodesScaled += static_cast<u32>(model.nodes.nodes.size());
 
         for (AnimChannel& channel : model.animChannels.channels) {
-            const bool isLength = isLengthChannel(channel.target.channel);
+            const bool isLength = isLengthChannel(model, channel);
             lengthChannels[modelIndex].emplace(channel.id, isLength);
             if (!isLength || !isFloatType(channel.valueType)) {
                 continue;

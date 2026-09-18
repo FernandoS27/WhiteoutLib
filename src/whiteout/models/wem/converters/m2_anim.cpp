@@ -909,6 +909,11 @@ private:
         default:
             break;
         }
+        // An emitter system's own property: WoW carries none of them, and
+        // `checkNodeKinds` reported the node once rather than once a track.
+        if (channel.target.channel == Channel::EmitterProperty) {
+            return;
+        }
         diagnostics_.warn(DiagCode::AnimTrackDropped,
                           std::string("no `.m2` record animates ") +
                               ToString(channel.target.channel) + " on this node",

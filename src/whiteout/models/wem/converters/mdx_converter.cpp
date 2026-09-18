@@ -103,12 +103,17 @@ NodeKind KindOf(Origin origin) {
         return NodeKind::Light;
     case Origin::Attachment:
         return NodeKind::Attachment;
+    // Warcraft III's own three systems import whole (§10.9). A PopcornFX
+    // emitter is a reference to an effect file WEM does not hold, which is
+    // what the generic kind is for.
     case Origin::ParticleEmitter:
+        return NodeKind::Wc3ParticleEmitter1;
     case Origin::ParticleEmitter2:
+        return NodeKind::Wc3ParticleEmitter2;
     case Origin::CornEmitter:
         return NodeKind::ParticleEmitter;
     case Origin::RibbonEmitter:
-        return NodeKind::RibbonEmitter;
+        return NodeKind::Wc3RibbonEmitter;
     case Origin::Event:
         return NodeKind::Event;
     case Origin::Collision:
@@ -117,6 +122,20 @@ NodeKind KindOf(Origin origin) {
         break;
     }
     return NodeKind::Helper;
+}
+
+/// The node flag bits an emitter kind gives a meaning of its own, which its
+/// payload types (§10.9). The rest of the per-kind aliases stay in the raw word.
+constexpr u32 kFlagUsesMdl = static_cast<u32>(mdx::Node::NodeFlag::EmitterUsesMdl);
+constexpr u32 kFlagUsesTga = static_cast<u32>(mdx::Node::NodeFlag::EmitterUsesTga);
+constexpr u32 kFlagUnshaded = static_cast<u32>(mdx::Node::NodeFlag::Unshaded);
+constexpr u32 kFlagSortPrims = static_cast<u32>(mdx::Node::NodeFlag::SortPrimitives);
+constexpr u32 kFlagLineEmitter = static_cast<u32>(mdx::Node::NodeFlag::LineEmitter);
+constexpr u32 kFlagUnfogged = static_cast<u32>(mdx::Node::NodeFlag::Unfogged);
+constexpr u32 kFlagXyQuad = static_cast<u32>(mdx::Node::NodeFlag::XYQuad);
+
+u32 WithBit(u32 bits, u32 bit, bool on) {
+    return on ? (bits | bit) : (bits & ~bit);
 }
 
 /// The inherit and billboard bits, which M3 spells the same way. Everything else
@@ -285,12 +304,61 @@ void FillPayload(const mdx::Model& source, const PendingNode& pending, Node& nod
     }
     case Origin::ParticleEmitter: {
         const mdx::ParticleEmitter& emitter = source.particleEmitters[pending.sourceIndex];
-        std::get<ParticlePayload>(node.payload).system.path = emitter.spawnModelFileName;
+        auto& payload = std::get<Wc3ParticleEmitter1Payload>(node.payload);
+        payload.emissionRate = emitter.emissionRate;
+        payload.gravity = emitter.gravity;
+        payload.longitude = emitter.longitude;
+        payload.latitude = emitter.latitude;
+        payload.lifespan = emitter.lifespan;
+        payload.speed = emitter.initialVelocity;
+        payload.spawnModel.path = emitter.spawnModelFileName;
+        const u32 bits = static_cast<u32>(emitter.node.flags);
+        payload.usesMdl = (bits & kFlagUsesMdl) != 0;
+        payload.usesTga = (bits & kFlagUsesTga) != 0;
         break;
     }
     case Origin::ParticleEmitter2: {
         const mdx::ParticleEmitter2& emitter = source.particleEmitters2[pending.sourceIndex];
-        std::get<ParticlePayload>(node.payload).system.id = emitter.textureId;
+        auto& payload = std::get<Wc3ParticleEmitter2Payload>(node.payload);
+        payload.speed = emitter.speed;
+        payload.variation = emitter.variation;
+        payload.latitude = emitter.latitude;
+        payload.gravity = emitter.gravity;
+        payload.lifespan = emitter.lifespan;
+        payload.emissionRate = emitter.emissionRate;
+        payload.width = emitter.width;
+        payload.length = emitter.length;
+        payload.filter = static_cast<Wc3ParticleFilter>(emitter.filterMode);
+        payload.rows = emitter.rows;
+        payload.columns = emitter.columns;
+        payload.headOrTail = static_cast<Wc3ParticleHeadOrTail>(emitter.headOrTail);
+        payload.tailLength = emitter.tailLength;
+        payload.time = emitter.time;
+        Wc3ParticleSegment* segments[3] = {&payload.start, &payload.middle, &payload.end};
+        for (int s = 0; s < 3; ++s) {
+            segments[s]->color = emitter.segmentColor[s];
+            segments[s]->alpha = emitter.segmentAlpha[s];
+            segments[s]->scaling = emitter.segmentScaling[s];
+        }
+        const auto interval = [](const std::array<u32, 3>& source) {
+            return Wc3ParticleInterval{source[0], source[1], source[2]};
+        };
+        payload.headLife = interval(emitter.headInterval);
+        payload.headDecay = interval(emitter.headDecayInterval);
+        payload.tailLife = interval(emitter.tailInterval);
+        payload.tailDecay = interval(emitter.tailDecayInterval);
+        // `TEXS` imports one document texture per entry, in order.
+        payload.texture = emitter.textureId < source.textures.size() ? emitter.textureId
+                                                                      : kInvalidIndex;
+        payload.replaceableId = emitter.replaceableId;
+        payload.squirt = emitter.squirt != 0;
+        payload.priorityPlane = emitter.priorityPlane;
+        const u32 bits = static_cast<u32>(emitter.node.flags);
+        payload.unshaded = (bits & kFlagUnshaded) != 0;
+        payload.sortPrimsFarZ = (bits & kFlagSortPrims) != 0;
+        payload.lineEmitter = (bits & kFlagLineEmitter) != 0;
+        payload.unfogged = (bits & kFlagUnfogged) != 0;
+        payload.xyQuad = (bits & kFlagXyQuad) != 0;
         break;
     }
     case Origin::CornEmitter: {
@@ -300,8 +368,20 @@ void FillPayload(const mdx::Model& source, const PendingNode& pending, Node& nod
     }
     case Origin::RibbonEmitter: {
         const mdx::RibbonEmitter& emitter = source.ribbonEmitters[pending.sourceIndex];
-        std::get<RibbonPayload>(node.payload).system.id = emitter.materialId;
-        node.native.set("textureSlot", static_cast<i64>(emitter.textureSlot));
+        auto& payload = std::get<Wc3RibbonEmitterPayload>(node.payload);
+        payload.heightAbove = emitter.heightAbove;
+        payload.heightBelow = emitter.heightBelow;
+        payload.alpha = emitter.alpha;
+        payload.color = emitter.color;
+        payload.lifespan = emitter.lifespan;
+        payload.textureSlot = emitter.textureSlot;
+        payload.emissionRate = emitter.emissionRate;
+        payload.rows = emitter.rows;
+        payload.columns = emitter.columns;
+        // One slot per `MTLS` entry, in order (`SlotName`).
+        payload.materialSlot = emitter.materialId < source.materials.size() ? emitter.materialId
+                                                                            : kInvalidIndex;
+        payload.gravity = emitter.gravity;
         break;
     }
     case Origin::Event: {
@@ -439,8 +519,10 @@ NodeImport ImportNodes(const mdx::Model& source) {
 // ============================================================================
 
 /// Where a node kind's chunk sits in `mdx/writer.cpp`'s emission order — BONE,
-/// LITE, HELP, ATCH, PRE2, RIBB, EVTS, CLID — which is the order MDX assigns
-/// object ids in. `Camera` has no node chunk and so no id, and answers -1.
+/// LITE, HELP, ATCH, PREM, PRE2, RIBB, EVTS, CLID — which is the order MDX
+/// assigns object ids in. `Camera` has no node chunk and so no id, and answers
+/// -1. @p kind is what the node is WRITTEN as (`WrittenKind`), so a system the
+/// profile does not carry ranks as the helper it becomes.
 int ChunkRank(NodeKind kind) {
     switch (kind) {
     case NodeKind::Bone:
@@ -451,22 +533,36 @@ int ChunkRank(NodeKind kind) {
         return 2;
     case NodeKind::Attachment:
         return 3;
-    case NodeKind::ParticleEmitter:
+    case NodeKind::Wc3ParticleEmitter1:
         return 4;
-    case NodeKind::RibbonEmitter:
+    case NodeKind::Wc3ParticleEmitter2:
+    case NodeKind::ParticleEmitter: // written as a PRE2
         return 5;
-    case NodeKind::Event:
+    case NodeKind::Wc3RibbonEmitter:
+    case NodeKind::RibbonEmitter:
         return 6;
-    case NodeKind::CollisionShape:
+    case NodeKind::Event:
         return 7;
+    case NodeKind::CollisionShape:
+        return 8;
     case NodeKind::Camera:
+    case NodeKind::Sc2ParticleEmitter:
+    case NodeKind::Sc2RibbonEmitter:
     case NodeKind::Count:
         break;
     }
     return -1;
 }
 
-constexpr int kLastChunkRank = 7;
+constexpr int kLastChunkRank = 8;
+
+/// What @p kind is written as under @p profile: itself when the profile carries
+/// it, and otherwise its placement alone -- a helper (§10.9). A StarCraft II
+/// particle system in a Warcraft III export keeps the node its children hang
+/// off and loses the system Warcraft III cannot run.
+NodeKind WrittenKind(NodeKind kind, ProfileId profile) {
+    return CarriesNodeKind(profile, kind) ? kind : NodeKind::Helper;
+}
 
 /// Feeds one geoset's skinning into @p builder.
 ///
@@ -971,6 +1067,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
         return result;
     }
     checkRigConvention(document, profile, result.diagnostics);
+    checkNodeKinds(document, profile, result.diagnostics);
     if (document.models.empty()) {
         result.value = mdx::Model{};
         result.value->version = targetVersion;
@@ -1061,7 +1158,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
     for (int rank = 0; rank <= kLastChunkRank; ++rank) {
         for (std::size_t i = 0; i < model.nodes.size(); ++i) {
             // A camera is not a node chunk and carries no id; it is written below.
-            if (ChunkRank(model.nodes.nodes[i].kind) == rank) {
+            if (ChunkRank(WrittenKind(model.nodes.nodes[i].kind, profile)) == rank) {
                 objectIdOf[i] = nextObjectId++;
             }
         }
@@ -1110,7 +1207,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
             model.nodes.rig == RigConvention::PivotRelative
                 ? node.pivot
                 : model.nodes.worldBind(static_cast<u32>(i)).translation;
-        switch (node.kind) {
+        switch (WrittenKind(node.kind, profile)) {
         case NodeKind::Bone: {
             mdx::Bone bone;
             bone.node = buildNode(i);
@@ -1166,6 +1263,105 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
             }
             claim(i, mdx_anim::ExportContext::Slot::Attachment, out.attachments.size());
             out.attachments.push_back(std::move(attachment));
+            break;
+        }
+        case NodeKind::Wc3ParticleEmitter1: {
+            const auto& payload = std::get<Wc3ParticleEmitter1Payload>(node.payload);
+            mdx::ParticleEmitter emitter;
+            emitter.node = buildNode(i);
+            u32 bits = static_cast<u32>(emitter.node.flags);
+            bits = WithBit(bits, kFlagUsesMdl, payload.usesMdl);
+            bits = WithBit(bits, kFlagUsesTga, payload.usesTga);
+            emitter.node.flags = static_cast<mdx::Node::NodeFlag>(bits);
+            emitter.emissionRate = payload.emissionRate;
+            emitter.gravity = payload.gravity;
+            emitter.longitude = payload.longitude;
+            emitter.latitude = payload.latitude;
+            emitter.spawnModelFileName = payload.spawnModel.path;
+            emitter.lifespan = payload.lifespan;
+            emitter.initialVelocity = payload.speed;
+            claim(i, mdx_anim::ExportContext::Slot::ParticleEmitter, out.particleEmitters.size());
+            out.particleEmitters.push_back(std::move(emitter));
+            break;
+        }
+        case NodeKind::Wc3ParticleEmitter2: {
+            const auto& payload = std::get<Wc3ParticleEmitter2Payload>(node.payload);
+            mdx::ParticleEmitter2 emitter;
+            emitter.node = buildNode(i);
+            u32 bits = static_cast<u32>(emitter.node.flags);
+            bits = WithBit(bits, kFlagUnshaded, payload.unshaded);
+            bits = WithBit(bits, kFlagSortPrims, payload.sortPrimsFarZ);
+            bits = WithBit(bits, kFlagLineEmitter, payload.lineEmitter);
+            bits = WithBit(bits, kFlagUnfogged, payload.unfogged);
+            bits = WithBit(bits, kFlagXyQuad, payload.xyQuad);
+            emitter.node.flags = static_cast<mdx::Node::NodeFlag>(bits);
+            emitter.speed = payload.speed;
+            emitter.variation = payload.variation;
+            emitter.latitude = payload.latitude;
+            emitter.gravity = payload.gravity;
+            emitter.lifespan = payload.lifespan;
+            emitter.emissionRate = payload.emissionRate;
+            emitter.length = payload.length;
+            emitter.width = payload.width;
+            emitter.filterMode = static_cast<u32>(payload.filter);
+            emitter.rows = payload.rows;
+            emitter.columns = payload.columns;
+            emitter.headOrTail = static_cast<u32>(payload.headOrTail);
+            emitter.tailLength = payload.tailLength;
+            emitter.time = payload.time;
+            const Wc3ParticleSegment* segments[3] = {&payload.start, &payload.middle,
+                                                     &payload.end};
+            for (int s = 0; s < 3; ++s) {
+                emitter.segmentColor[s] = segments[s]->color;
+                emitter.segmentAlpha[s] = segments[s]->alpha;
+                emitter.segmentScaling[s] = segments[s]->scaling;
+            }
+            const auto interval = [](const Wc3ParticleInterval& source) {
+                return std::array<u32, 3>{source.start, source.end, source.repeat};
+            };
+            emitter.headInterval = interval(payload.headLife);
+            emitter.headDecayInterval = interval(payload.headDecay);
+            emitter.tailInterval = interval(payload.tailLife);
+            emitter.tailDecayInterval = interval(payload.tailDecay);
+            // `TEXS` is the document's textures in order, so the index crosses
+            // as it is. A PRE2 names a texture whatever else it does; an
+            // emitter an editor made without one draws the first.
+            if (payload.texture == kInvalidIndex || payload.texture >= document.textures.size()) {
+                diagnostics.warn(DiagCode::TextureUnresolved,
+                                 "particle emitter '" + node.name +
+                                     "' names no texture; written with the first",
+                                 ElementRef(ElementKind::Node, static_cast<u32>(i)), profile);
+                emitter.textureId = 0;
+            } else {
+                emitter.textureId = payload.texture;
+            }
+            emitter.replaceableId = payload.replaceableId;
+            emitter.squirt = payload.squirt ? 1u : 0u;
+            emitter.priorityPlane = payload.priorityPlane;
+            claim(i, mdx_anim::ExportContext::Slot::ParticleEmitter2, out.particleEmitters2.size());
+            out.particleEmitters2.push_back(std::move(emitter));
+            break;
+        }
+        case NodeKind::Wc3RibbonEmitter: {
+            const auto& payload = std::get<Wc3RibbonEmitterPayload>(node.payload);
+            mdx::RibbonEmitter emitter;
+            emitter.node = buildNode(i);
+            emitter.heightAbove = payload.heightAbove;
+            emitter.heightBelow = payload.heightBelow;
+            emitter.alpha = payload.alpha;
+            emitter.color = payload.color;
+            emitter.lifespan = payload.lifespan;
+            emitter.textureSlot = payload.textureSlot;
+            emitter.emissionRate = payload.emissionRate;
+            emitter.rows = payload.rows;
+            emitter.columns = payload.columns;
+            // One MDX material per slot (below), so the slot is the material.
+            emitter.materialId = payload.materialSlot < model.materialSlots.size()
+                                     ? payload.materialSlot
+                                     : 0u;
+            emitter.gravity = payload.gravity;
+            claim(i, mdx_anim::ExportContext::Slot::RibbonEmitter, out.ribbonEmitters.size());
+            out.ribbonEmitters.push_back(std::move(emitter));
             break;
         }
         case NodeKind::ParticleEmitter: {

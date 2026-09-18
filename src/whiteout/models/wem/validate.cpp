@@ -8,6 +8,7 @@
 #include <whiteout/models/wem/document.h>
 #include <whiteout/models/wem/geometry/checks.h>
 #include <whiteout/models/wem/materials/ops.h>
+#include <whiteout/models/wem/nodes/remove.h>
 
 namespace whiteout {
 namespace models {
@@ -125,6 +126,81 @@ void checkAttachments(const Document& document, Diagnostics& out) {
             } else if (payload->model == m) {
                 out.error(DiagCode::IndexOutOfRange, "attach point rides its own model",
                           ElementRef(ElementKind::Node, static_cast<u32>(n)));
+            }
+        }
+    }
+}
+
+/// §10.9's gate: a node kind no declared profile carries is an emitter system
+/// nothing in the document can run -- the node twin of `checkNativeKinds`. A
+/// document that declares no profile yet has nothing to hold it to.
+void checkNodeKindProfiles(const Document& document, Diagnostics& out) {
+    if (document.profiles.empty()) {
+        return;
+    }
+    ProfileMask declared = kNoProfiles;
+    for (const ProfileId profile : document.profiles) {
+        declared |= ProfileBit(profile);
+    }
+    for (std::size_t m = 0; m < document.models.size(); ++m) {
+        const NodeTree& tree = document.models[m].nodes;
+        for (std::size_t n = 0; n < tree.nodes.size(); ++n) {
+            const NodeKind kind = tree.nodes[n].kind;
+            if ((ProfilesCarryingNodeKind(kind) & declared) != 0) {
+                continue;
+            }
+            out.error(DiagCode::NodeKindNotCarried,
+                      std::string("a ") + ToString(kind) +
+                          " node, which no profile this document declares carries",
+                      ElementRef(ElementKind::Node, static_cast<u32>(n)));
+        }
+    }
+}
+
+/// The emitter systems' joins (§10.9): their node links, their textures, and the
+/// `EmitterProperty` channels that key them. The material slots are §7.5's
+/// table, checked with the rest of it.
+void checkEmitters(const Document& document, Diagnostics& out) {
+    for (const Model& model : document.models) {
+        CheckEmitterLinks(model.nodes, out);
+
+        for (std::size_t n = 0; n < model.nodes.nodes.size(); ++n) {
+            ForEachTextureLink(model.nodes.nodes[n].payload, [&](const u32& texture) {
+                if (texture == kInvalidIndex || texture < document.textures.size()) {
+                    return;
+                }
+                out.error(DiagCode::IndexOutOfRange,
+                          "emitter names texture " + number(texture) + " of " +
+                              number(document.textures.size()),
+                          ElementRef(ElementKind::Node, static_cast<u32>(n)));
+            });
+        }
+
+        // An `EmitterProperty` channel means only what its node's kind says it
+        // means, so a node of the wrong kind, a property the kind does not have,
+        // or a value type the property is not leaves a stream nothing can read.
+        for (const AnimChannel& channel : model.animChannels.channels) {
+            if (channel.target.kind != TrackTarget::Kind::Node ||
+                channel.target.channel != Channel::EmitterProperty ||
+                channel.target.node >= model.nodes.size()) {
+                continue;
+            }
+            const ElementRef where(ElementKind::Channel, channel.id);
+            const NodeKind kind = model.nodes.nodes[channel.target.node].kind;
+            const EmitterPropertyDesc* desc = FindEmitterProperty(kind, channel.target.sub);
+            if (desc == nullptr) {
+                out.error(DiagCode::IndexOutOfRange,
+                          "channel " + number(channel.id) + " keys emitter property " +
+                              number(EmitterPropertyOf(channel.target.sub)) + " of a " +
+                              ToString(kind) + " node, which has none by that number",
+                          where);
+                continue;
+            }
+            if (channel.valueType != desc->type) {
+                out.error(DiagCode::AttributeCountMismatch,
+                          "channel " + number(channel.id) + " keys " + desc->name + " as " +
+                              ToString(channel.valueType) + "; it is " + ToString(desc->type),
+                          where);
             }
         }
     }
@@ -599,12 +675,14 @@ void checkGeometryLimits(const Document& document, Diagnostics& out) {
 //   P6  structural: the child model an attach point rides, and the default look.
 //   P7  structural: the channel table's ids and the sub-track key sizing.
 //       profile:    the animation referencer rows of §10.6 and §7.5.
+//   §10.9 structural: the emitter-system gate, and their links and properties.
 // ---------------------------------------------------------------------------
 
 constexpr ValidationRule kStructuralRules[] = {
-    checkMeshStructure,  checkProfileDeclarations, checkBindingShape,
-    checkMaterialBodies, checkNativeKinds,         checkMaterialReferencers,
-    checkAttachments,    checkAnimation,           nullptr,
+    checkMeshStructure,    checkProfileDeclarations, checkBindingShape,
+    checkMaterialBodies,   checkNativeKinds,         checkMaterialReferencers,
+    checkAttachments,      checkAnimation,           checkNodeKindProfiles,
+    checkEmitters,         nullptr,
 };
 constexpr ValidationRule kManifoldRules[] = {checkMeshManifold, nullptr};
 constexpr ValidationRule kProfileRules[] = {

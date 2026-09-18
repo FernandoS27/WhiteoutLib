@@ -85,6 +85,7 @@ constexpr const char* kDiagCodeNames[] = {
     "BoneShearSplit",
     "BoneShearProjected",
     "NonUniformScaleFlattened",
+    "NodeKindNotCarried",
 
     "MixedInterpolationInTrack",
     "AnimChannelInvalidated",

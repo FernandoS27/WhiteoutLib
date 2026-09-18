@@ -40,6 +40,7 @@
 
 #include "../materials/m3_core.h"
 #include "m3_anim.h"
+#include "m3_emitters.h"
 #include "skin_skeleton.h"
 
 #include <algorithm>
@@ -490,21 +491,52 @@ NodeTree ImportNodes(const m3::Model& source) {
         tree.add(std::move(node));
     }
 
+    // The emitter systems (§10.9), whole: each record a node under the bone it
+    // names, at identity, since the placement is the bone's. A `PARC` is an
+    // emission point of its source's system and imports as a node of the same
+    // kind naming the source; copies follow every `PAR_`, each in its
+    // `copyIndices` order, which is the slot order the engine numbers them in.
+    // `m3_anim::NodeBases` states the same order.
+    const m3_anim::NodeBases bases = m3_anim::NodeBases::Of(source);
+    m3_emitters::ImportLinks links;
+    links.boneCount = boneCount;
+    links.particleBase = bases.particle;
+    links.particleCount = static_cast<u32>(source.particleEmitters.size());
+    links.ribbonBase = bases.ribbon;
+    links.ribbonCount = static_cast<u32>(source.ribbonEmitters.size());
+
     for (std::size_t p = 0; p < source.particleEmitters.size(); ++p) {
+        const m3::ParticleEmitter& emitter = source.particleEmitters[p];
         Node node;
         node.name = "particle_" + std::to_string(p);
-        node.kind = NodeKind::ParticleEmitter;
-        node.resetPayloadForKind();
-        std::get<ParticlePayload>(node.payload).system.id = static_cast<u32>(p);
+        node.kind = NodeKind::Sc2ParticleEmitter;
+        node.parent = links.bone(emitter.boneIndex);
+        node.payload = m3_emitters::ImportParticle(emitter, links);
         tree.add(std::move(node));
+    }
+    for (std::size_t p = 0; p < source.particleEmitters.size(); ++p) {
+        u32 slot = 0;
+        for (const u32 copy : source.particleEmitters[p].copyIndices) {
+            if (copy >= source.particleEmitterCopies.size()) {
+                continue;
+            }
+            const m3::ParticleEmitterCopy& record = source.particleEmitterCopies[copy];
+            Node node;
+            node.name = "particle_" + std::to_string(p) + "_copy_" + std::to_string(++slot);
+            node.kind = NodeKind::Sc2ParticleEmitter;
+            node.parent = links.bone(record.boneIndex);
+            node.payload = m3_emitters::ImportCopy(record, bases.particle + static_cast<u32>(p));
+            tree.add(std::move(node));
+        }
     }
 
     for (std::size_t r = 0; r < source.ribbonEmitters.size(); ++r) {
+        const m3::RibbonEmitter& ribbon = source.ribbonEmitters[r];
         Node node;
         node.name = "ribbon_" + std::to_string(r);
-        node.kind = NodeKind::RibbonEmitter;
-        node.resetPayloadForKind();
-        std::get<RibbonPayload>(node.payload).system.id = static_cast<u32>(r);
+        node.kind = NodeKind::Sc2RibbonEmitter;
+        node.parent = links.bone(ribbon.boneIndex);
+        node.payload = m3_emitters::ImportRibbon(ribbon, links);
         tree.add(std::move(node));
     }
 
@@ -807,6 +839,12 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         return result;
     }
     checkRigConvention(document, profile, result.diagnostics);
+    // Not under `effectNodeBones`: the Warcraft III emitters there are crossed
+    // natively by the caller (`cross/mdx_m3_effects`), onto the bones this
+    // export gives their nodes, so nothing is lost that the report would name.
+    if (!settings.effectNodeBones) {
+        checkNodeKinds(document, profile, result.diagnostics);
+    }
 
     Diagnostics& diagnostics = result.diagnostics;
     m3::Model out;
@@ -967,11 +1005,18 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         case NodeKind::Attachment:
         case NodeKind::Light:
         case NodeKind::Camera:
+        // A StarCraft II emitter record names a bone like these three do, and
+        // the import puts it under that bone at identity.
+        case NodeKind::Sc2ParticleEmitter:
+        case NodeKind::Sc2RibbonEmitter:
             carries = !identityLocal(node) ||
                       (settings.effectNodeBones && (keyedTransform[n] || keyedVisibility[n]));
             break;
         case NodeKind::ParticleEmitter:
         case NodeKind::RibbonEmitter:
+        case NodeKind::Wc3ParticleEmitter1:
+        case NodeKind::Wc3ParticleEmitter2:
+        case NodeKind::Wc3RibbonEmitter:
         case NodeKind::CollisionShape:
             // An emitter record names a bone, and a Warcraft III emitter moves
             // and hides on its own node: the bone is the node (§2.3). So does
@@ -1056,9 +1101,8 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         }
         for (const u32 n : topological) {
             const Node& node = model.nodes.nodes[n];
-            const bool ownVisibility =
-                node.kind == NodeKind::Attachment || node.kind == NodeKind::Light ||
-                node.kind == NodeKind::ParticleEmitter || node.kind == NodeKind::RibbonEmitter;
+            const bool ownVisibility = node.kind == NodeKind::Attachment ||
+                                       node.kind == NodeKind::Light || IsEmitterKind(node.kind);
             if (!ownVisibility || boneOf[n] == 0xFFFFu || !keyedVisibility[n] || !hasChildren[n]) {
                 continue;
             }
@@ -1177,6 +1221,52 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         }
     }
 
+    // The emitter systems' record numbers, first, because they name one another
+    // -- a trail, a collision spawn, a bounce's ribbon, a copy's source -- and a
+    // node's number has to be known before the record that names it is
+    // written. Node order is record order, which keeps a copy's slot.
+    // A copy is numbered only when its source is a particle emitter that gets
+    // a `PAR_` of its own, so a copy of nothing leaves no hole in `PARC`.
+    std::vector<u32> particleOf(nodeCount, kInvalidIndex);
+    std::vector<u32> copyRecordOf(nodeCount, kInvalidIndex);
+    std::vector<u32> ribbonOf(nodeCount, kInvalidIndex);
+    std::vector<u32> recordBone(nodeCount, kInvalidIndex);
+    const auto particleAt = [&](std::size_t n) -> const Sc2ParticleEmitterPayload* {
+        const Node& node = model.nodes.nodes[n];
+        return node.kind == NodeKind::Sc2ParticleEmitter
+                   ? std::get_if<Sc2ParticleEmitterPayload>(&node.payload)
+                   : nullptr;
+    };
+    u32 copyCount = 0;
+    {
+        u32 particles = 0;
+        u32 ribbons = 0;
+        for (std::size_t n = 0; n < nodeCount; ++n) {
+            const Node& node = model.nodes.nodes[n];
+            const u32 carrier = boneOf[n] != 0xFFFFu ? boneOf[n] : nearestBone(n);
+            const u32 bone = visBoneOf[n] != 0xFFFFu ? visBoneOf[n] : carrier;
+            recordBone[n] = bone == 0xFFFFu ? kInvalidIndex : bone;
+            if (const auto* particle = particleAt(n); particle != nullptr && !particle->isCopy()) {
+                particleOf[n] = particles++;
+            } else if (node.kind == NodeKind::Sc2RibbonEmitter &&
+                       std::holds_alternative<Sc2RibbonEmitterPayload>(node.payload)) {
+                ribbonOf[n] = ribbons++;
+            }
+        }
+        for (std::size_t n = 0; n < nodeCount; ++n) {
+            const auto* particle = particleAt(n);
+            if (particle != nullptr && particle->isCopy() && particle->copyOf < nodeCount &&
+                particleOf[particle->copyOf] != kInvalidIndex) {
+                copyRecordOf[n] = copyCount++;
+            }
+        }
+    }
+    out.particleEmitterCopies.resize(copyCount);
+    m3_emitters::ExportLinks emitterLinks;
+    emitterLinks.particleOf = &particleOf;
+    emitterLinks.ribbonOf = &ribbonOf;
+    emitterLinks.boneOf = &recordBone;
+
     for (std::size_t n = 0; n < model.nodes.size(); ++n) {
         const Node& node = model.nodes.nodes[n];
         // The node's own bone when the pass above gave it one (it carries a
@@ -1271,10 +1361,61 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             out.cameras.push_back(std::move(camera));
             break;
         }
+        case NodeKind::Sc2ParticleEmitter: {
+            const auto* payload = std::get_if<Sc2ParticleEmitterPayload>(&node.payload);
+            if (payload == nullptr) {
+                break;
+            }
+            // The record's own properties are AnimRefs on it, so the slot is the
+            // record's even where the node has a bone of its own: its
+            // transform rides that bone through `nodeBone` like a light's.
+            if (payload->isCopy()) {
+                if (copyRecordOf[n] == kInvalidIndex) {
+                    diagnostics.warn(DiagCode::DanglingNodeReference,
+                                     "particle copy '" + node.name +
+                                         "' copies no particle emitter; not written",
+                                     ElementRef(ElementKind::Node, static_cast<u32>(n)), profile);
+                    break;
+                }
+                m3::ParticleEmitterCopy copy = m3_emitters::ExportCopy(*payload);
+                copy.boneIndex = parentBone == 0xFFFFu ? 0u : parentBone;
+                animContext.nodeSlots[n] = {m3_anim::ExportContext::Slot::ParticleCopy,
+                                            copyRecordOf[n]};
+                out.particleEmitterCopies[copyRecordOf[n]] = std::move(copy);
+                break;
+            }
+            m3::ParticleEmitter emitter = m3_emitters::ExportParticle(*payload, emitterLinks);
+            emitter.boneIndex = parentBone == 0xFFFFu ? 0u : parentBone;
+            // A copy names its source, and the source lists its copies: every
+            // node copying this one, in node order -- the slot order.
+            for (std::size_t c = 0; c < nodeCount; ++c) {
+                const auto* other = particleAt(c);
+                if (other != nullptr && copyRecordOf[c] != kInvalidIndex && other->copyOf == n) {
+                    emitter.copyIndices.push_back(copyRecordOf[c]);
+                }
+            }
+            animContext.nodeSlots[n] = {m3_anim::ExportContext::Slot::ParticleEmitter,
+                                        particleOf[n]};
+            out.particleEmitters.push_back(std::move(emitter));
+            break;
+        }
+        case NodeKind::Sc2RibbonEmitter: {
+            const auto* payload = std::get_if<Sc2RibbonEmitterPayload>(&node.payload);
+            if (payload == nullptr) {
+                break;
+            }
+            m3::RibbonEmitter ribbon = m3_emitters::ExportRibbon(*payload, emitterLinks);
+            ribbon.boneIndex = static_cast<u16>(parentBone == 0xFFFFu ? 0u : parentBone);
+            animContext.nodeSlots[n] = {m3_anim::ExportContext::Slot::RibbonEmitter,
+                                        ribbonOf[n]};
+            out.ribbonEmitters.push_back(std::move(ribbon));
+            break;
+        }
         default:
             break;
         }
     }
+
 
     // --- materials ----------------------------------------------------------
     m3_core::Context context;

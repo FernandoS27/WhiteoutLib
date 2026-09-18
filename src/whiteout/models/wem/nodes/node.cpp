@@ -118,8 +118,52 @@ const char* ToString(NodeKind kind) {
         return "event";
     case NodeKind::CollisionShape:
         return "collision_shape";
+    case NodeKind::Wc3ParticleEmitter1:
+        return "wc3_particle_emitter1";
+    case NodeKind::Wc3ParticleEmitter2:
+        return "wc3_particle_emitter2";
+    case NodeKind::Wc3RibbonEmitter:
+        return "wc3_ribbon_emitter";
+    case NodeKind::Sc2ParticleEmitter:
+        return "sc2_particle_emitter";
+    case NodeKind::Sc2RibbonEmitter:
+        return "sc2_ribbon_emitter";
     case NodeKind::Count:
         break;
+    }
+    return "invalid";
+}
+
+bool CarriesNodeKind(ProfileId profile, NodeKind kind) {
+    if (static_cast<u32>(profile) >= static_cast<u32>(ProfileId::Count) ||
+        static_cast<u32>(kind) >= static_cast<u32>(NodeKind::Count)) {
+        return false;
+    }
+    return HasNodeKind(Profile(profile).nodeKinds, kind);
+}
+
+ProfileMask ProfilesCarryingNodeKind(NodeKind kind) {
+    ProfileMask mask = kNoProfiles;
+    for (u32 p = 0; p < static_cast<u32>(ProfileId::Count); ++p) {
+        if (CarriesNodeKind(static_cast<ProfileId>(p), kind)) {
+            mask |= ProfileBit(static_cast<ProfileId>(p));
+        }
+    }
+    return mask;
+}
+
+const char* ToString(EmitterLink link) {
+    switch (link) {
+    case EmitterLink::CopySource:
+        return "copyOf";
+    case EmitterLink::CollisionSpawn:
+        return "collisionSpawn";
+    case EmitterLink::Trail:
+        return "trailLink";
+    case EmitterLink::BounceRibbon:
+        return "ribbonLink";
+    case EmitterLink::SplineBone:
+        return "splinePoints.node";
     }
     return "invalid";
 }
@@ -152,6 +196,21 @@ void Node::resetPayloadForKind() {
         break;
     case NodeKind::CollisionShape:
         payload = CollisionPayload{};
+        break;
+    case NodeKind::Wc3ParticleEmitter1:
+        payload = Wc3ParticleEmitter1Payload{};
+        break;
+    case NodeKind::Wc3ParticleEmitter2:
+        payload = Wc3ParticleEmitter2Payload{};
+        break;
+    case NodeKind::Wc3RibbonEmitter:
+        payload = Wc3RibbonEmitterPayload{};
+        break;
+    case NodeKind::Sc2ParticleEmitter:
+        payload = Sc2ParticleEmitterPayload{};
+        break;
+    case NodeKind::Sc2RibbonEmitter:
+        payload = Sc2RibbonEmitterPayload{};
         break;
     case NodeKind::Count:
         break;

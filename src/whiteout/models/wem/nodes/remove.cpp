@@ -108,6 +108,17 @@ RemoveResult RemoveNode(NodeTree& tree, u32 node, RemovePolicy policy, SkinPolic
         doomed[node] = 1;
         result.removedNodes.push_back(node);
     }
+    // A `PARC` copy is an emission point of its source's system, not a system of
+    // its own: it goes with the source. Left behind, compaction would clear its
+    // `copyOf` and turn it into a whole emitter of default parameters.
+    for (u32 n = 0; n < tree.size(); ++n) {
+        const auto* particle = std::get_if<Sc2ParticleEmitterPayload>(&tree.nodes[n].payload);
+        if (doomed[n] == 0 && !tree.nodes[n].removed && particle != nullptr &&
+            particle->copyOf < doomed.size() && doomed[particle->copyOf] != 0) {
+            doomed[n] = 1;
+            result.removedNodes.push_back(n);
+        }
+    }
     std::sort(result.removedNodes.begin(), result.removedNodes.end());
 
     // Where a doomed bone's influences would go.
@@ -356,6 +367,30 @@ NodeRemaps CompactNodes(NodeTree& tree, NodeReferencers referencers, Diagnostics
         }
     }
 
+    // The emitter payloads' own links (§10.9). A link whose node died names none
+    // afterwards -- which for a trail or a bounce is "no trail", the format's
+    // own answer, and is still worth a line.
+    {
+        u32 dangling = 0;
+        for (Node& node : tree.nodes) {
+            ForEachNodeLink(node.payload, [&](u32& link, EmitterLink) {
+                if (link == kInvalidNode) {
+                    return;
+                }
+                const u32 fresh = link < remaps.nodes.size() ? remaps.nodes[link] : kInvalidNode;
+                link = fresh;
+                if (fresh == kInvalidNode) {
+                    ++dangling;
+                }
+            });
+        }
+        if (dangling != 0) {
+            out.warn(DiagCode::DanglingNodeReference,
+                     number(dangling) + " emitter links named a node that no longer exists",
+                     ElementRef());
+        }
+    }
+
     // ClipEvent::node
     for (u32 c = 0; c < referencers.clips.size(); ++c) {
         Clip& clip = referencers.clips[c];
@@ -382,9 +417,52 @@ NodeRemaps CompactNodes(NodeTree& tree, NodeReferencers referencers, Diagnostics
     return remaps;
 }
 
+void CheckEmitterLinks(const NodeTree& tree, Diagnostics& out) {
+    const u32 count = tree.size();
+    for (u32 n = 0; n < count; ++n) {
+        ForEachNodeLink(tree.nodes[n].payload, [&](const u32& link, EmitterLink what) {
+            if (link == kInvalidNode) {
+                return;
+            }
+            const ElementRef where(ElementKind::Node, n);
+            if (link >= count) {
+                out.error(DiagCode::DanglingNodeReference,
+                          std::string(ToString(what)) + " names node " + number(link) + " of " +
+                              number(count),
+                          where);
+                return;
+            }
+            const Node& target = tree.nodes[link];
+            const auto* particle = std::get_if<Sc2ParticleEmitterPayload>(&target.payload);
+            bool fits = true;
+            switch (what) {
+            case EmitterLink::CopySource:
+                fits = particle != nullptr && !particle->isCopy() && link != n;
+                break;
+            case EmitterLink::CollisionSpawn:
+            case EmitterLink::Trail:
+                fits = particle != nullptr;
+                break;
+            case EmitterLink::BounceRibbon:
+                fits = std::holds_alternative<Sc2RibbonEmitterPayload>(target.payload);
+                break;
+            case EmitterLink::SplineBone:
+                break;
+            }
+            if (!fits) {
+                out.error(DiagCode::DanglingNodeReference,
+                          std::string(ToString(what)) + " names a " + ToString(target.kind) +
+                              " node, which it cannot",
+                          where);
+            }
+        });
+    }
+}
+
 void CheckNodeReferencers(const NodeTree& tree, std::span<const Mesh> meshes, Diagnostics& out,
                           const AnimChannelTable* channels, std::span<const Clip> clips) {
     const u32 count = tree.size();
+    CheckEmitterLinks(tree, out);
     for (u32 m = 0; m < meshes.size(); ++m) {
         const Mesh& mesh = meshes[m];
 

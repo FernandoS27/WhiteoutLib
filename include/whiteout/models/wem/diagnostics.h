@@ -129,6 +129,7 @@ enum class DiagCode : u16 {
     BoneShearSplit,           ///< A bind frame sheared; a helper parent carries the stretch.
     BoneShearProjected,       ///< The shear was projected away — the pose is approximate.
     NonUniformScaleFlattened, ///< A target holding one scale float got the x component.
+    NodeKindNotCarried,       ///< A node kind the profile does not carry (§10.9).
 
     // --- animation (§10.8) ----------------------------------------------------
     MixedInterpolationInTrack, ///< A sub-track mixes interpolation modes (§10.8.2).

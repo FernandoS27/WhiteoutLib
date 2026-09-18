@@ -448,6 +448,7 @@ Result<m2::Model> M2Converter::toM2(const Document& document, ProfileId profile,
         return result;
     }
     checkRigConvention(document, profile, result.diagnostics);
+    checkNodeKinds(document, profile, result.diagnostics);
 
     Diagnostics& diagnostics = result.diagnostics;
     m2::Model out;

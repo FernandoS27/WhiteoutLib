@@ -37,6 +37,11 @@ namespace wem {
 /// everything above the geometry kernel.
 inline constexpr u32 kInvalidIndex = 0xFFFFFFFFu;
 
+/// "No node": a root's parent, and an emitter link that names nothing. Here
+/// rather than in `nodes/node.h` because the emitter payloads (`nodes/emitters.h`)
+/// hold node links and are included by it.
+inline constexpr u32 kInvalidNode = 0xFFFFFFFFu;
+
 // ============================================================================
 // ProfileId
 // ============================================================================
@@ -216,6 +221,11 @@ enum class NativeKind : u8 {
 
 const char* ToString(NativeKind kind);
 
+/// Bit per `NodeKind` (`nodes/node.h`, `NodeKindBit`); `ProfileDesc::nodeKinds`.
+/// A plain word here because `NodeKind` is declared in a header that includes
+/// this one.
+using NodeKindMask = u32;
+
 // ============================================================================
 // ProfileDesc
 // ============================================================================
@@ -273,6 +283,14 @@ struct ProfileDesc {
     NativeKind nativeMaterialKind = NativeKind::None;
     bool supportsLooks = false;
     bool supportsActors = false;
+
+    // --- nodes ---
+    /// Which node kinds this profile carries (§10.9). The nine shared kinds are
+    /// in every mask; an emitter-system kind — `Wc3ParticleEmitter2`,
+    /// `Sc2RibbonEmitter`, … — is in its own game's alone, because its payload
+    /// is that game's particle system and nothing else can run it. `Validate`
+    /// and every exporter read the gate from here and nowhere else.
+    NodeKindMask nodeKinds = 0;
 
     bool acceptsBlendMode(BlendMode mode) const;
 };

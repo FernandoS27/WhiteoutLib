@@ -357,10 +357,12 @@ TEST_CASE("wem mdx an event object's times become clip events", "[wem][anim][mdx
     CHECK(stand->events.size() + walk->events.size() == 2u);
 }
 
-TEST_CASE("wem mdx an emitter's property tracks are out of scope, its visibility is not",
+TEST_CASE("wem mdx an emitter keys its own properties beside its visibility",
           "[wem][anim][mdx]") {
-    // §18: WEM stores an emitter's placement and an `AssetKey`, so animating an
-    // emission rate would be storing the motion of something absent.
+    // §10.9: a PRE2 is a node of its own kind whose payload is the system, so
+    // its emission rate is a property WEM holds and a track can drive -- an
+    // `EmitterProperty` channel naming the property -- while the visibility
+    // stays the shared channel every node kind keys.
     mdx::Model model = makeModel();
     mdx::ParticleEmitter2 emitter;
     emitter.node = makeNode("emitter", 1, 0);
@@ -372,8 +374,14 @@ TEST_CASE("wem mdx an emitter's property tracks are out of scope, its visibility
 
     const Document document = convert(model);
     const AnimChannelTable& table = document.models[0].animChannels;
-    REQUIRE(table.channels.size() == 1u);
+    REQUIRE(table.channels.size() == 2u);
     CHECK(table.channels[0].target.channel == Channel::Visibility);
+    CHECK(table.channels[1].target.channel == Channel::EmitterProperty);
+    CHECK(table.channels[1].target.sub ==
+          EmitterPropertySub(static_cast<u32>(Wc3Particle2Property::EmissionRate)));
+    CHECK(table.channels[1].valueType == geom::AttrType::F32);
+    CHECK(document.models[0].nodes.nodes[table.channels[1].target.node].kind ==
+          NodeKind::Wc3ParticleEmitter2);
 }
 
 TEST_CASE("wem mdx a light keys its ambient term beside its diffuse one", "[wem][anim][mdx]") {

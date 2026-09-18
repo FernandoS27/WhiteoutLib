@@ -54,12 +54,18 @@ namespace wem {
 namespace m3_anim {
 
 /// Where the node import put each satellite array — `ImportNodes`' own order:
-/// bones, attachment points, lights, cameras, particle emitters, ribbons.
+/// bones, attachment points, lights, cameras, particle emitters, their `PARC`
+/// copies, ribbons.
 struct NodeBases {
     u32 bone = 0;
     u32 attachment = 0;
     u32 light = 0;
     u32 camera = 0;
+    u32 particle = 0;
+    /// Every `PAR_`'s copies in turn, each in its `copyIndices` order — the
+    /// slot order the engine numbers them in. An index past `PARC` makes none.
+    u32 particleCopy = 0;
+    u32 ribbon = 0;
 
     static NodeBases Of(const m3::Model& source);
 };
@@ -83,7 +89,18 @@ void Import(const m3::Model& source, const Context& context, Document& document,
 /// keeps a property's `AnimRef` ON the record that owns the property, so the
 /// export has to know which array each node went into.
 struct ExportContext {
-    enum class Slot : u8 { None = 0, Bone, Attachment, Light, Camera };
+    /// `ParticleEmitter`, `ParticleCopy` and `RibbonEmitter` index `PAR_`, `PARC`
+    /// and `RIB_`: an emitter system's properties are AnimRefs on its record.
+    enum class Slot : u8 {
+        None = 0,
+        Bone,
+        Attachment,
+        Light,
+        Camera,
+        ParticleEmitter,
+        ParticleCopy,
+        RibbonEmitter,
+    };
 
     struct NodeSlot {
         Slot slot = Slot::None;

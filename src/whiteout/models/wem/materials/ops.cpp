@@ -390,6 +390,19 @@ void CheckMaterialReferencers(const Model& model, u32 modelIndex, Diagnostics& o
         }
     }
 
+    // --- Emitter payload -> materialSlots (§10.9) -----------------------------
+    for (std::size_t n = 0; n < model.nodes.nodes.size(); ++n) {
+        ForEachMaterialLink(model.nodes.nodes[n].payload, [&](const u32& slot) {
+            if (slot == kInvalidIndex || slot < model.materialSlots.size()) {
+                return;
+            }
+            out.error(DiagCode::IndexOutOfRange,
+                      "emitter names material slot " + number(slot) + " of " +
+                          number(model.materialSlots.size()),
+                      ElementRef(ElementKind::Node, static_cast<u32>(n)));
+        });
+    }
+
     // --- AnimChannel -> target.material ---------------------------------------
     //
     // P6 settled that there is no `Actor` row: the default look is a field on the

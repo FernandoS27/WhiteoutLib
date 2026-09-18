@@ -832,6 +832,25 @@ DeriveResult DeriveProfile(Document& document, ProfileId from, ProfileId to,
     const bool sharedNative = sourceDesc.nativeMaterialKind == targetDesc.nativeMaterialKind &&
                               targetDesc.nativeMaterialKind != NativeKind::None;
 
+    // The node tree is shared, so a derive leaves an emitter system where it is;
+    // what it can say is which ones the new profile will not run (§10.9).
+    // Reported, not removed: the source profile still carries them.
+    for (std::size_t modelIndex = 0; modelIndex < document.models.size(); ++modelIndex) {
+        u32 uncarried = 0;
+        for (const Node& node : document.models[modelIndex].nodes.nodes) {
+            uncarried += CarriesNodeKind(to, node.kind) ? 0u : 1u;
+        }
+        if (uncarried != 0) {
+            result.diagnostics.info(DiagCode::NodeKindNotCarried,
+                                    std::to_string(uncarried) + " nodes are a system " +
+                                        ToString(to) + " does not carry; they stay, for " +
+                                        ToString(from),
+                                    ElementRef(ElementKind::Document,
+                                               static_cast<u32>(modelIndex)),
+                                    to);
+        }
+    }
+
     for (std::size_t modelIndex = 0; modelIndex < document.models.size(); ++modelIndex) {
         Model& model = document.models[modelIndex];
         const ProfileMaterialSet* source = model.setFor(from);

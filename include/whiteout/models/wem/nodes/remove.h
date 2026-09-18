@@ -24,6 +24,7 @@
  * | `MeshSection` | `rigidNode` |
  * | `AnimChannel` | `target.node` |
  * | `ClipEvent` | `node` |
+ * | An emitter-system payload | its node links — `ForEachNodeLink` (§10.9) |
  *
  * P6 settled that there is no `Actor` row: an attach point's child model rides
  * the node's own payload (§10.2), so removing the node takes it along and there
@@ -120,6 +121,11 @@ struct NodeRemaps {
  * mean" is not a question this layer can answer.
  */
 NodeRemaps CompactNodes(NodeTree& tree, NodeReferencers referencers, Diagnostics& out);
+
+/// The emitter-system payloads' node links (§10.9) against the tree: each one in
+/// range, and naming the kind its `EmitterLink` needs — a copy's source a
+/// particle emitter that is not itself a copy, a bounce's ribbon a ribbon.
+void CheckEmitterLinks(const NodeTree& tree, Diagnostics& out);
 
 /// Cross-checks every §10.6 referencer against the tree without changing
 /// anything — the `Validate` half of the table.

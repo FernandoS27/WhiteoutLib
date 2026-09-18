@@ -131,6 +131,17 @@ protected:
      */
     void checkRigConvention(const Document& document, ProfileId profile, Diagnostics& out) const;
 
+    /**
+     * @brief Reports, once per kind, the nodes @p profile does not carry (§10.9).
+     *
+     * The export half of the node-kind gate. A Warcraft III emitter system in a
+     * StarCraft II export, or the reverse, is a system that game cannot run, so
+     * the exporter writes the node's placement and nothing of its payload; this
+     * says how many went that way, so the loss is in the report and not only in
+     * the file. The caller decides what "placement only" is in its format.
+     */
+    void checkNodeKinds(const Document& document, ProfileId profile, Diagnostics& out) const;
+
     // Animation used to be import-only, and every `toX` called a
     // `reportUnwrittenClips` here to say so. The three format exporters write
     // their clips back now (`mdx_anim::Export`, `m2_anim::Export`,

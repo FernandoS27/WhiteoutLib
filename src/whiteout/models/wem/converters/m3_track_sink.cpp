@@ -273,7 +273,11 @@ u32 WriteStream(m3::SubTrackContainer& stc, const StreamSpec& spec, const SubTra
             kept.push_back(k);
         }
     }
-    if (entry >= 0 && !warcraft && (kept.empty() || Ticks(track.times[kept.front()]) > 0)) {
+    // Not a squirt's: SDS6 holds nothing, it fires a burst as the playhead
+    // crosses a key, and a key before the window is one this sequence never
+    // crosses. Folded onto the origin it would fire at every start.
+    if (entry >= 0 && !warcraft && spec.stream != Stream::Sds6 &&
+        (kept.empty() || Ticks(track.times[kept.front()]) > 0)) {
         kept.insert(kept.begin(), static_cast<std::size_t>(entry));
     }
     if (kept.empty()) {

@@ -31,6 +31,16 @@ void AcceptNode(NodeTree& tree, u32 node, NodeVisitor& visitor) {
         visitor.OnEvent(node, target, *event);
     } else if (auto* collision = std::get_if<CollisionPayload>(&target.payload)) {
         visitor.OnCollisionShape(node, target, *collision);
+    } else if (auto* wc3Particle1 = std::get_if<Wc3ParticleEmitter1Payload>(&target.payload)) {
+        visitor.OnWc3ParticleEmitter1(node, target, *wc3Particle1);
+    } else if (auto* wc3Particle2 = std::get_if<Wc3ParticleEmitter2Payload>(&target.payload)) {
+        visitor.OnWc3ParticleEmitter2(node, target, *wc3Particle2);
+    } else if (auto* wc3Ribbon = std::get_if<Wc3RibbonEmitterPayload>(&target.payload)) {
+        visitor.OnWc3RibbonEmitter(node, target, *wc3Ribbon);
+    } else if (auto* sc2Particle = std::get_if<Sc2ParticleEmitterPayload>(&target.payload)) {
+        visitor.OnSc2ParticleEmitter(node, target, *sc2Particle);
+    } else if (auto* sc2Ribbon = std::get_if<Sc2RibbonEmitterPayload>(&target.payload)) {
+        visitor.OnSc2RibbonEmitter(node, target, *sc2Ribbon);
     } else {
         visitor.OnHelper(node, target);
     }

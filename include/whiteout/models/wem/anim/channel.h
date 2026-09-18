@@ -71,6 +71,12 @@ namespace wem {
  * a consumer that cannot enumerate what it might be handed cannot implement the
  * table, and M3 alone would contribute hundreds of AnimRefs on structures WEM
  * does not store at all (§18).
+ *
+ * `EmitterProperty` is the one entry whose meaning the target's node picks: an
+ * emitter system's own properties (§10.9) are shared by no other format, so
+ * rather than a hundred entries here they are one, with `TrackTarget::sub`
+ * naming the property in that kind's closed enum — still enumerable, through
+ * `FindEmitterProperty`.
  */
 enum class Channel : u8 {
     Translation, ///< F32x3. MDX KGTR, M2 `Bone::translation`, M3 BONE, D3 `TranslationCurve`.
@@ -95,10 +101,36 @@ enum class Channel : u8 {
     TextureIndex, ///< U32. MDX KMTF's flipbook frame and KRTX's ribbon slot.
     Emissive,     ///< F32. MDX KMTE.
 
+    /// An emitter system's own property; `sub` says which (§10.9). The type is
+    /// the property's, not this entry's.
+    EmitterProperty,
+
     Count
 };
 
 const char* ToString(Channel channel);
+
+/**
+ * @brief What one `EmitterProperty` channel keys (§10.9).
+ *
+ * The table behind it is the closed vocabulary `Channel` promises: per emitter
+ * kind, one row per enumerator of that kind's property enum (`nodes/emitters.h`).
+ */
+struct EmitterPropertyDesc {
+    const char* name = ""; ///< The payload field it rests in — stable.
+    geom::AttrType type = geom::AttrType::F32; ///< The channel's `valueType`.
+    bool perElement = false; ///< Keyed per element of a list: `EmitterElementOf(sub)`.
+    bool length = false;     ///< A distance, speed or acceleration — `RescaleDocument` scales it.
+};
+
+/// The property `sub` names on a node of @p kind, or null when @p kind has none
+/// by that number. A per-element property answers for any element; whether the
+/// element exists is the payload's question.
+const EmitterPropertyDesc* FindEmitterProperty(NodeKind kind, u32 sub);
+
+/// How many properties @p kind declares; 0 for a kind that is not an emitter
+/// system.
+u32 EmitterPropertyCount(NodeKind kind);
 
 /// The type a channel's values take when the source does not force another —
 /// what an importer starts from and a consumer can assume nothing beyond.

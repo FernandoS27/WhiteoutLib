@@ -5,6 +5,7 @@
 #include "whiteout/models/wem/d3_converter.h"
 
 #include <algorithm>
+#include <array>
 #include <memory>
 #include <vector>
 
@@ -61,6 +62,29 @@ void FormatConverter::checkRigConvention(const Document& document, ProfileId pro
                      ToString(want) + "; run RetargetSkeleton first or the node tracks mean "
                                       "the wrong thing",
                  ElementRef(ElementKind::Document, static_cast<u32>(m)), profile);
+    }
+}
+
+void FormatConverter::checkNodeKinds(const Document& document, ProfileId profile,
+                                     Diagnostics& out) const {
+    std::array<u32, static_cast<std::size_t>(NodeKind::Count)> uncarried{};
+    for (const Model& model : document.models) {
+        for (const Node& node : model.nodes.nodes) {
+            if (static_cast<u32>(node.kind) < uncarried.size() &&
+                !CarriesNodeKind(profile, node.kind)) {
+                ++uncarried[static_cast<std::size_t>(node.kind)];
+            }
+        }
+    }
+    for (std::size_t k = 0; k < uncarried.size(); ++k) {
+        if (uncarried[k] == 0) {
+            continue;
+        }
+        out.info(DiagCode::NodeKindNotCarried,
+                 std::to_string(uncarried[k]) + " " + ToString(static_cast<NodeKind>(k)) +
+                     " nodes: " + ToString(profile) +
+                     " does not carry the system, so only their placement is exported",
+                 ElementRef(ElementKind::Document, 0), profile);
     }
 }
 

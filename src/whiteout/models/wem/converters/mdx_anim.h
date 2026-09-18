@@ -27,13 +27,14 @@
  * flagged `AutoPlay | WorldClocked` — the same three-format unification M2's
  * global sequences and M3's SEQS flag 0x2 arrive at.
  *
- * ### What is deliberately not imported
+ * ### Emitter properties
  *
- * Particle, ribbon and corn emitter **property** tracks — emission rate,
- * lifespan, latitude, widths. §18 puts the systems themselves out of scope: WEM
- * stores the emitter's placement and an `AssetKey`, and animating a property of
- * a system it does not hold would be storing half of one. Emitter *visibility*
- * is imported, because that is a property of the node.
+ * The three Warcraft III emitter systems are node kinds of their own (§10.9), so
+ * their property tracks — emission rate, speed, latitude, the ribbon's heights —
+ * import as `Channel::EmitterProperty` channels on the node, beside the shared
+ * visibility, and export back onto the record. A PopcornFX emitter is only a
+ * reference to an effect WEM does not hold (§18), and its tracks are not
+ * imported.
  */
 
 #include <unordered_map>

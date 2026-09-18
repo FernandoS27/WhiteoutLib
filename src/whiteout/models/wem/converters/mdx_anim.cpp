@@ -105,7 +105,7 @@ public:
         addLayerTracks();
         addGeosetAnimationTracks();
         addEvents();
-        reserveEmitterClips();
+        addEmitterPropertyTracks();
         commit();
     }
 
@@ -302,11 +302,8 @@ private:
         }
     }
 
-    /// What each node kind animates beyond its transform.
-    ///
-    /// The emitters contribute **visibility only**: §18 keeps particle and
-    /// ribbon systems out of WEM, so animating an emission rate would be storing
-    /// the motion of something the document does not contain.
+    /// What each node kind animates beyond its transform. An emitter's own
+    /// properties are `addEmitterPropertyTracks`'.
     void addKindTracks() {
         for (const mdx::Light& light : source_.lights) {
             const u32 node = nodeOf(light.node.objectId);
@@ -529,41 +526,53 @@ private:
         }
     }
 
-    /// The clips an emitter's PROPERTY tracks play under.
+    /// The Warcraft III emitter systems' own property tracks (§10.9), as
+    /// `EmitterProperty` channels on their nodes.
     ///
-    /// WEM does not hold those tracks (§18), but a global sequence only they
-    /// key is still a loop the model runs: without its auto-play clip a
-    /// conversion that crosses the emitter natively (`cross/mdx_m3_effects`)
-    /// has no sequence to put its emission rate in. Last, so every clip the
-    /// tracks above made keeps its place.
-    void reserveEmitterClips() {
-        const auto reserve = [this](const auto& track) {
-            if (track.isUsed && !track.timestamps.empty() &&
-                track.globalSequenceId != kNoGlobalSequence &&
-                track.globalSequenceId < source_.globalSequences.size()) {
-                globalClipFor(track.globalSequenceId);
-            }
+    /// Last, and in this order, because a global sequence only these key gets
+    /// its auto-play clip here: every clip the tracks above made keeps its
+    /// place, and the clips these make land where the pass that only reserved
+    /// them -- before the systems were WEM's -- put them, which the native
+    /// effects crossing (`cross/mdx_m3_effects`) finds its emission rates by.
+    void addEmitterPropertyTracks() {
+        const auto target = [](u32 node, auto property) {
+            return nodeTarget(node, Channel::EmitterProperty,
+                              EmitterPropertySub(static_cast<u32>(property)));
         };
         for (const mdx::ParticleEmitter& emitter : source_.particleEmitters) {
-            reserve(emitter.emissionRateTracks);
-            reserve(emitter.gravityTracks);
-            reserve(emitter.longitudeTracks);
-            reserve(emitter.latitudeTracks);
-            reserve(emitter.lifespanTracks);
-            reserve(emitter.speedTracks);
+            const u32 node = nodeOf(emitter.node.objectId);
+            if (node == kInvalidNode) {
+                continue;
+            }
+            using P = Wc3Particle1Property;
+            addTrack(emitter.emissionRateTracks, target(node, P::EmissionRate));
+            addTrack(emitter.gravityTracks, target(node, P::Gravity));
+            addTrack(emitter.longitudeTracks, target(node, P::Longitude));
+            addTrack(emitter.latitudeTracks, target(node, P::Latitude));
+            addTrack(emitter.lifespanTracks, target(node, P::Lifespan));
+            addTrack(emitter.speedTracks, target(node, P::Speed));
         }
         for (const mdx::ParticleEmitter2& emitter : source_.particleEmitters2) {
-            reserve(emitter.speedTracks);
-            reserve(emitter.variationTracks);
-            reserve(emitter.latitudeTracks);
-            reserve(emitter.gravityTracks);
-            reserve(emitter.emissionRateTracks);
-            reserve(emitter.lengthTracks);
-            reserve(emitter.widthTracks);
+            const u32 node = nodeOf(emitter.node.objectId);
+            if (node == kInvalidNode) {
+                continue;
+            }
+            using P = Wc3Particle2Property;
+            addTrack(emitter.speedTracks, target(node, P::Speed));
+            addTrack(emitter.variationTracks, target(node, P::Variation));
+            addTrack(emitter.latitudeTracks, target(node, P::Latitude));
+            addTrack(emitter.gravityTracks, target(node, P::Gravity));
+            addTrack(emitter.emissionRateTracks, target(node, P::EmissionRate));
+            addTrack(emitter.lengthTracks, target(node, P::Length));
+            addTrack(emitter.widthTracks, target(node, P::Width));
         }
         for (const mdx::RibbonEmitter& ribbon : source_.ribbonEmitters) {
-            reserve(ribbon.heightAboveTracks);
-            reserve(ribbon.heightBelowTracks);
+            const u32 node = nodeOf(ribbon.node.objectId);
+            if (node == kInvalidNode) {
+                continue;
+            }
+            addTrack(ribbon.heightAboveTracks, target(node, Wc3RibbonProperty::HeightAbove));
+            addTrack(ribbon.heightBelowTracks, target(node, Wc3RibbonProperty::HeightBelow));
         }
     }
 
@@ -1198,25 +1207,98 @@ private:
                 return;
             }
             break;
-        case ExportContext::Slot::ParticleEmitter:
-            if (channel.target.channel == Channel::Visibility &&
-                slot.index < out_.particleEmitters.size()) {
-                Emit(merged, out_.particleEmitters[slot.index].visibilityTracks);
+        case ExportContext::Slot::ParticleEmitter: {
+            if (slot.index >= out_.particleEmitters.size()) {
                 return;
             }
-            break;
-        case ExportContext::Slot::ParticleEmitter2:
-            if (channel.target.channel == Channel::Visibility &&
-                slot.index < out_.particleEmitters2.size()) {
-                Emit(merged, out_.particleEmitters2[slot.index].visibilityTracks);
+            mdx::ParticleEmitter& emitter = out_.particleEmitters[slot.index];
+            if (channel.target.channel == Channel::Visibility) {
+                Emit(merged, emitter.visibilityTracks);
                 return;
             }
+            if (channel.target.channel == Channel::EmitterProperty) {
+                using P = Wc3Particle1Property;
+                switch (static_cast<P>(EmitterPropertyOf(channel.target.sub))) {
+                case P::EmissionRate:
+                    Emit(merged, emitter.emissionRateTracks);
+                    return;
+                case P::Gravity:
+                    Emit(merged, emitter.gravityTracks);
+                    return;
+                case P::Longitude:
+                    Emit(merged, emitter.longitudeTracks);
+                    return;
+                case P::Latitude:
+                    Emit(merged, emitter.latitudeTracks);
+                    return;
+                case P::Lifespan:
+                    Emit(merged, emitter.lifespanTracks);
+                    return;
+                case P::Speed:
+                    Emit(merged, emitter.speedTracks);
+                    return;
+                case P::Count:
+                    break;
+                }
+            }
             break;
+        }
+        case ExportContext::Slot::ParticleEmitter2: {
+            if (slot.index >= out_.particleEmitters2.size()) {
+                return;
+            }
+            mdx::ParticleEmitter2& emitter = out_.particleEmitters2[slot.index];
+            if (channel.target.channel == Channel::Visibility) {
+                Emit(merged, emitter.visibilityTracks);
+                return;
+            }
+            if (channel.target.channel == Channel::EmitterProperty) {
+                using P = Wc3Particle2Property;
+                switch (static_cast<P>(EmitterPropertyOf(channel.target.sub))) {
+                case P::Speed:
+                    Emit(merged, emitter.speedTracks);
+                    return;
+                case P::Variation:
+                    Emit(merged, emitter.variationTracks);
+                    return;
+                case P::Latitude:
+                    Emit(merged, emitter.latitudeTracks);
+                    return;
+                case P::Gravity:
+                    Emit(merged, emitter.gravityTracks);
+                    return;
+                case P::EmissionRate:
+                    Emit(merged, emitter.emissionRateTracks);
+                    return;
+                case P::Width:
+                    Emit(merged, emitter.widthTracks);
+                    return;
+                case P::Length:
+                    Emit(merged, emitter.lengthTracks);
+                    return;
+                case P::Count:
+                    break;
+                }
+            }
+            break;
+        }
         case ExportContext::Slot::RibbonEmitter: {
             if (slot.index >= out_.ribbonEmitters.size()) {
                 return;
             }
             mdx::RibbonEmitter& ribbon = out_.ribbonEmitters[slot.index];
+            if (channel.target.channel == Channel::EmitterProperty) {
+                switch (static_cast<Wc3RibbonProperty>(EmitterPropertyOf(channel.target.sub))) {
+                case Wc3RibbonProperty::HeightAbove:
+                    Emit(merged, ribbon.heightAboveTracks);
+                    return;
+                case Wc3RibbonProperty::HeightBelow:
+                    Emit(merged, ribbon.heightBelowTracks);
+                    return;
+                case Wc3RibbonProperty::Count:
+                    break;
+                }
+            }
             switch (channel.target.channel) {
             case Channel::Color:
                 Emit(merged, ribbon.colorTracks);
@@ -1240,6 +1322,12 @@ private:
             break;
         }
 
+        // A system this profile does not carry went out as its placement, and
+        // `checkNodeKinds` already said so once for all of its properties.
+        if (channel.target.channel == Channel::EmitterProperty && wemNode < model_.nodes.size() &&
+            !CarriesNodeKind(profile_, model_.nodes.nodes[wemNode].kind)) {
+            return;
+        }
         diagnostics_.warn(DiagCode::AnimTrackDropped,
                           std::string("no MDX record animates ") +
                               ToString(channel.target.channel) + " on this node",

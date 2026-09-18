@@ -52,6 +52,7 @@ CONFIG = ModuleConfig(
         'include/whiteout/models/wem/geometry/attributes.h',
         'include/whiteout/models/wem/geometry/skin.h',
         'include/whiteout/models/wem/geometry/mesh.h',
+        'include/whiteout/models/wem/nodes/emitters.h',
         'include/whiteout/models/wem/nodes/node.h',
         'include/whiteout/models/wem/nodes/tree.h',
         'include/whiteout/models/wem/anim/channel.h',
@@ -85,5 +86,8 @@ CONFIG = ModuleConfig(
         'AttrLayer', 'AttributeSet', 'ReservedLayer',
         # Visitor plumbing (`reflect.h`), not model surface.
         'ProbeVisitor',
+        # A row of a static table (`FindEmitterProperty`), with `const char*`
+        # names no value binding can own.  Hosts ask the table through C++.
+        'EmitterPropertyDesc',
     ],
 )
