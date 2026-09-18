@@ -839,12 +839,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         return result;
     }
     checkRigConvention(document, profile, result.diagnostics);
-    // Not under `effectNodeBones`: the Warcraft III emitters there are crossed
-    // natively by the caller (`cross/mdx_m3_effects`), onto the bones this
-    // export gives their nodes, so nothing is lost that the report would name.
-    if (!settings.effectNodeBones) {
-        checkNodeKinds(document, profile, result.diagnostics);
-    }
+    checkNodeKinds(document, profile, result.diagnostics);
 
     Diagnostics& diagnostics = result.diagnostics;
     m3::Model out;
@@ -1005,12 +1000,20 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         case NodeKind::Attachment:
         case NodeKind::Light:
         case NodeKind::Camera:
-        // A StarCraft II emitter record names a bone like these three do, and
-        // the import puts it under that bone at identity.
+            carries = !identityLocal(node) ||
+                      (settings.effectNodeBones && (keyedTransform[n] || keyedVisibility[n]));
+            break;
+        // A StarCraft II emitter record names a bone like those three do, and
+        // the import puts it under that bone at identity. A Warcraft III
+        // emitter crossed into one is its bone (§2.3), unless it is a second
+        // record of its parent's system: at identity, keying nothing, drawn
+        // only while the parent is (`cross/wc3_sc2_emitters`).
         case NodeKind::Sc2ParticleEmitter:
         case NodeKind::Sc2RibbonEmitter:
             carries = !identityLocal(node) ||
-                      (settings.effectNodeBones && (keyedTransform[n] || keyedVisibility[n]));
+                      (settings.effectNodeBones &&
+                       (keyedTransform[n] || keyedVisibility[n] ||
+                        node.native.find(kNodeSharesParentVisibility) == nullptr));
             break;
         case NodeKind::ParticleEmitter:
         case NodeKind::RibbonEmitter:
@@ -1231,6 +1234,23 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     std::vector<u32> copyRecordOf(nodeCount, kInvalidIndex);
     std::vector<u32> ribbonOf(nodeCount, kInvalidIndex);
     std::vector<u32> recordBone(nodeCount, kInvalidIndex);
+    // The bone a node's records ride: its visibility leaf, its own bone, or --
+    // for one drawn only while its parent is -- the bone that hides the
+    // parent; the nearest ancestor's otherwise.
+    const auto recordBoneOf = [&](std::size_t n) -> u32 {
+        if (visBoneOf[n] != 0xFFFFu) {
+            return visBoneOf[n];
+        }
+        if (boneOf[n] != 0xFFFFu) {
+            return boneOf[n];
+        }
+        const Node& node = model.nodes.nodes[n];
+        if (node.native.find(kNodeSharesParentVisibility) != nullptr && node.parent < nodeCount &&
+            visBoneOf[node.parent] != 0xFFFFu) {
+            return visBoneOf[node.parent];
+        }
+        return nearestBone(n);
+    };
     const auto particleAt = [&](std::size_t n) -> const Sc2ParticleEmitterPayload* {
         const Node& node = model.nodes.nodes[n];
         return node.kind == NodeKind::Sc2ParticleEmitter
@@ -1243,8 +1263,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         u32 ribbons = 0;
         for (std::size_t n = 0; n < nodeCount; ++n) {
             const Node& node = model.nodes.nodes[n];
-            const u32 carrier = boneOf[n] != 0xFFFFu ? boneOf[n] : nearestBone(n);
-            const u32 bone = visBoneOf[n] != 0xFFFFu ? visBoneOf[n] : carrier;
+            const u32 bone = recordBoneOf(n);
             recordBone[n] = bone == 0xFFFFu ? kInvalidIndex : bone;
             if (const auto* particle = particleAt(n); particle != nullptr && !particle->isCopy()) {
                 particleOf[n] = particles++;
@@ -1273,7 +1292,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         // rest offset), the nearest ancestor's otherwise -- and its visibility
         // leaf over both, since a record there hides with the node.
         const u32 carrier = boneOf[n] != 0xFFFFu ? boneOf[n] : nearestBone(n);
-        const u32 parentBone = visBoneOf[n] != 0xFFFFu ? visBoneOf[n] : carrier;
+        const u32 parentBone = recordBoneOf(n);
         if (map != nullptr) {
             map->nodeBone.resize(nodeCount, kInvalidIndex);
             map->nodeVisBone.resize(nodeCount, kInvalidIndex);

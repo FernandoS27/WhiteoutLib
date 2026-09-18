@@ -532,8 +532,7 @@ private:
     /// Last, and in this order, because a global sequence only these key gets
     /// its auto-play clip here: every clip the tracks above made keeps its
     /// place, and the clips these make land where the pass that only reserved
-    /// them -- before the systems were WEM's -- put them, which the native
-    /// effects crossing (`cross/mdx_m3_effects`) finds its emission rates by.
+    /// them -- before the systems were WEM's -- put them.
     void addEmitterPropertyTracks() {
         const auto target = [](u32 node, auto property) {
             return nodeTarget(node, Channel::EmitterProperty,

@@ -1,18 +1,21 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-/// Warcraft III `.mdx` -> StarCraft II `.m3`: what WEM does not carry
+/// Warcraft III `.mdx` -> StarCraft II `.m3`: the effects
 /// (WC3_TO_SC2_COMPLETION_PLAN.md).
 ///
 /// The node carriers `toM3` makes for Warcraft III's effect, light and camera
-/// nodes, the join a native crossing reads (`M3ExportMap`), the one stream
-/// writer and the one track cut both directions share, and the crossings
-/// themselves. Every claim about a written file is read back from the bytes
-/// the writer produced, never from the struct the converter filled.
+/// nodes, the join the native crossing reads (`M3ExportMap`), the one stream
+/// writer and the one track cut both directions share, the emitter systems
+/// restated inside WEM (`cross/wc3_sc2_emitters`) and the cameras and hit
+/// tests crossed natively (`cross/mdx_m3_effects`). Every claim about a written
+/// file is read back from the bytes the writer produced, never from the struct
+/// the converter filled.
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <map>
 #include <optional>
 #include <set>
 #include <span>
@@ -23,11 +26,15 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <whiteout/models/cross/mdx_m3_effects.h>
+#include <whiteout/models/cross/wc3_sc2_emitters.h>
 #include <whiteout/models/m3/parser.h>
 #include <whiteout/models/m3/writer.h>
 #include <whiteout/models/mdx/structures.h>
 #include <whiteout/models/wem/converters.h>
+#include <whiteout/models/wem/parser.h>
 #include <whiteout/models/wem/retarget.h>
+#include <whiteout/models/wem/validate.h>
+#include <whiteout/models/wem/writer.h>
 
 #include "whiteout/models/wem/converters/m3_track_sink.h"
 #include "whiteout/models/wem/converters/mdx_track_slicer.h"
@@ -614,26 +621,53 @@ TEST_CASE("wem m3 a Warcraft III billboard flag is a BBSC record on the node's b
 
 namespace {
 
-/// `writeAndRead` plus the crossing, the way the export driver calls it: the
-/// document prepared, staged, converted with carriers, then the records.
+/// `writeAndRead` plus the crossings, the way the export driver calls them:
+/// the document prepared, staged, its emitters restated, converted with
+/// carriers, then the cameras and hit tests.
 struct Crossed {
     m3::Model model;
+    std::vector<u8> bytes; ///< The file, as written.
     M3ExportMap map;
-    cross::Wc3EffectReport report;
+    Document staged; ///< What `toM3` was given.
+    struct Report {
+        u32 particleRecords = 0;
+        u32 modelParticleRecords = 0;
+        u32 ribbonRecords = 0;
+        u32 cameraRecords = 0;
+        u32 hitTests = 0;
+        Diagnostics diagnostics; ///< Both crossings'.
+    } report;
 };
 
-Crossed crossAndRead(const mdx::Model& source, std::vector<std::string> textures = {},
-                     std::string teamGlowMask = {}, std::vector<std::string> modelPaths = {}) {
-    MdxConverter converter;
-    Result<Document> imported = converter.fromMdx(source);
-    REQUIRE(imported.ok());
-    Document document = std::move(*imported.value);
+/// What the driver's texture plan does, and the rest of its choices: each
+/// `.mdx` texture named @p textures gets that path, @p teamGlowMask is a
+/// texture of its own, and @p spawned is which spawned models were written.
+struct Plan {
+    std::vector<std::string> textures;
+    std::string teamGlowMask;
+    std::map<std::string, std::string> spawned;
+};
+
+Crossed crossDocument(Document document, const mdx::Model& source, const Plan& plan) {
+    for (std::size_t t = 0; t < plan.textures.size() && t < document.textures.size(); ++t) {
+        document.textures[t].path = plan.textures[t];
+    }
+    cross::Wc3EmitterOptions emitters;
+    if (!plan.teamGlowMask.empty()) {
+        TextureRef mask;
+        mask.path = plan.teamGlowMask;
+        emitters.teamGlowMask = static_cast<u32>(document.textures.size());
+        document.textures.push_back(mask);
+    }
+    emitters.spawnedModels = plan.spawned;
+    emitters.lengthScale = 0.01f;
     Diagnostics prepared;
-    cross::PrepareWc3Effects(source, document, prepared);
+    cross::PrepareWc3Effects(document, prepared);
     document.declare(ProfileId::Sc2);
     REQUIRE(DeriveProfile(document, ProfileId::Wc3Classic, ProfileId::Sc2).ok);
     REQUIRE(RetargetSkeleton(document, ProfileId::Sc2).ok);
     REQUIRE(RescaleDocument(document, 0.01f).ok);
+    const cross::Wc3EmitterReport crossed = cross::CrossWc3Emitters(document, emitters);
 
     M3Converter m3;
     M3ExportSettings settings;
@@ -642,16 +676,36 @@ Crossed crossAndRead(const mdx::Model& source, std::vector<std::string> textures
     Result<m3::Model> converted = m3.toM3(document, ProfileId::Sc2, 29, settings, &out.map);
     REQUIRE(converted.ok());
     cross::Wc3EffectOptions options;
-    options.texturePaths = std::move(textures);
-    options.teamGlowMaskPath = std::move(teamGlowMask);
-    options.modelParticlePaths = std::move(modelPaths);
     options.lengthScale = 0.01f;
-    out.report = cross::CrossWc3Effects(source, document, out.map, options, *converted);
+    const cross::Wc3EffectReport effects =
+        cross::CrossWc3Effects(source, document, out.map, options, *converted);
+    out.report.particleRecords = crossed.particleRecords;
+    out.report.modelParticleRecords = crossed.modelParticleRecords;
+    out.report.ribbonRecords = crossed.ribbonRecords;
+    out.report.cameraRecords = effects.cameraRecords;
+    out.report.hitTests = effects.hitTests;
+    out.report.diagnostics.append(crossed.diagnostics);
+    out.report.diagnostics.append(effects.diagnostics);
     m3::Writer writer;
-    const std::vector<u8> bytes = writer.write(*converted);
+    out.bytes = writer.write(*converted);
     m3::Parser parser;
-    out.model = parser.parse(std::span<const u8>(bytes));
+    out.model = parser.parse(std::span<const u8>(out.bytes));
+    out.staged = std::move(document);
     return out;
+}
+
+Document importMdx(const mdx::Model& source) {
+    MdxConverter converter;
+    Result<Document> imported = converter.fromMdx(source);
+    REQUIRE(imported.ok());
+    return std::move(*imported.value);
+}
+
+Crossed crossAndRead(const mdx::Model& source, std::vector<std::string> textures = {},
+                     std::string teamGlowMask = {},
+                     std::map<std::string, std::string> spawned = {}) {
+    return crossDocument(importMdx(source), source,
+                         Plan{std::move(textures), std::move(teamGlowMask), std::move(spawned)});
 }
 
 /// The keys of the block @p ref names in the container of sequence @p name,
@@ -1135,8 +1189,9 @@ TEST_CASE("wem m3 a model-space XY quad lies in its node's plane, spun at random
 
     // Speed 2 across 0.1 degrees keeps asin(5e-4) / 0.1 degrees = 28.6% of the
     // quads under the turning speed: two records on one bone, the rate split.
+    // The second is a node of its own, so it follows the source's nodes.
     const m3::ParticleEmitter& turned = out.model.particleEmitters[3];
-    const m3::ParticleEmitter& facing = out.model.particleEmitters[4];
+    const m3::ParticleEmitter& facing = out.model.particleEmitters[5];
     CHECK(turned.instanceType == m3::ParticleInstanceType::EmitterOriented);
     CHECK(facing.instanceType == m3::ParticleInstanceType::Billboard);
     CHECK(facing.boneIndex == turned.boneIndex);
@@ -1147,7 +1202,7 @@ TEST_CASE("wem m3 a model-space XY quad lies in its node's plane, spun at random
     CHECK(facing.emissionRate.nullValue == 0.0f);
 
     // No latitude, no XY: every quad faces the camera.
-    const m3::ParticleEmitter& still = out.model.particleEmitters[5];
+    const m3::ParticleEmitter& still = out.model.particleEmitters[4];
     CHECK(still.instanceType == m3::ParticleInstanceType::Billboard);
 }
 
@@ -1717,11 +1772,14 @@ TEST_CASE("wem m3 a model-spawning emitter is a model particle naming the writte
     // Its model was not written.
     mdx::ParticleEmitter orphan = leaves;
     orphan.node = makeNode("SuperSpray02", 3, 0);
+    orphan.spawnModelFileName = "SharedModels\\missing.mdl";
     model.particleEmitters.push_back(orphan);
     setPivot(model, 3, Vector3f{0, 0, 0});
 
-    const Crossed out = crossAndRead(model, {}, {},
-                                     {"Assets/Models/Bones1.m3", "Assets/Models/leaves.m3", ""});
+    const Crossed out =
+        crossAndRead(model, {}, {},
+                     {{"SharedModels\\Bones1.MDL", "Assets/Models/Bones1.m3"},
+                      {"SharedModels\\leaves.mdl", "Assets/Models/leaves.m3"}});
     REQUIRE(out.model.particleEmitters.size() == 2u);
     CHECK(out.report.modelParticleRecords == 2u);
     CHECK(out.report.diagnostics.countOf(DiagCode::FeatureDropped) >= 1u);
@@ -2161,8 +2219,190 @@ TEST_CASE("wem m3 without effects an off-centre ribbon plants no helper", "[wem]
     Document document = std::move(*imported.value);
     const u32 before = document.models.front().nodes.size();
     Diagnostics diagnostics;
-    cross::PrepareWc3Effects(model, document, diagnostics, false);
+    cross::PrepareWc3Effects(document, diagnostics, false);
     CHECK(document.models.front().nodes.size() == before);
-    cross::PrepareWc3Effects(model, document, diagnostics, true);
+    cross::PrepareWc3Effects(document, diagnostics, true);
     CHECK(document.models.front().nodes.size() == before + 1);
+}
+
+// ============================================================================
+// The emitters cross inside WEM
+// ============================================================================
+
+namespace {
+
+/// One of each system: a head-and-tail smoke over a keyed rate, an off-centre
+/// ribbon keying a height, and a model spawner.
+mdx::Model systemsModel() {
+    mdx::Model model = makeModel();
+    mdx::ParticleEmitter2 smoke = makeEmitter("Smoke", 1, 0);
+    smoke.headOrTail = 2;
+    smoke.tailLength = 0.5f;
+    smoke.emissionRateTracks =
+        makeTrack(mdx::InterpolationType::Linear, {0, 1000}, std::vector<f32>{0.0f, 40.0f});
+    model.particleEmitters2.push_back(smoke);
+    setPivot(model, 1, Vector3f{0, 0, 30});
+    mdx::RibbonEmitter trail;
+    trail.node = makeNode("Trail", 2, 0);
+    trail.heightAbove = 12.0f;
+    trail.heightBelow = 8.0f;
+    trail.lifespan = 0.5f;
+    trail.emissionRate = 20;
+    trail.color = Vector3f{1, 1, 1};
+    trail.alpha = 1.0f;
+    trail.materialId = 0;
+    trail.heightAboveTracks =
+        makeTrack(mdx::InterpolationType::Linear, {0, 1000}, std::vector<f32>{12.0f, 24.0f});
+    model.ribbonEmitters.push_back(trail);
+    setPivot(model, 2, Vector3f{0, 0, 40});
+    mdx::ParticleEmitter bones;
+    bones.node = makeNode("Bones", 3, 0);
+    bones.spawnModelFileName = "SharedModels\\Bones1.mdl";
+    bones.emissionRate = 5.0f;
+    bones.lifespan = 1.0f;
+    bones.initialVelocity = 100.0f;
+    bones.latitude = 0.5f;
+    bones.longitude = 3.14159265f;
+    model.particleEmitters.push_back(bones);
+    setPivot(model, 3, Vector3f{0, 0, 50});
+    return model;
+}
+
+Plan systemsPlan() {
+    return Plan{{"Assets/Textures/body.dds"},
+                {},
+                {{"SharedModels\\Bones1.mdl", "Assets/Models/Bones1.m3"}}};
+}
+
+} // namespace
+
+TEST_CASE("wem m3 Warcraft III emitters cross as the StarCraft II nodes toM3 writes",
+          "[wem][m3][particles]") {
+    const mdx::Model model = systemsModel();
+    const Crossed out = crossDocument(importMdx(model), model, systemsPlan());
+    const Model& staged = out.staged.models.front();
+
+    // No Warcraft III system is left; every record is a node of its own.
+    u32 particles = 0;
+    u32 ribbons = 0;
+    for (const Node& node : staged.nodes.nodes) {
+        CHECK_FALSE(node.kind == NodeKind::Wc3ParticleEmitter1);
+        CHECK_FALSE(node.kind == NodeKind::Wc3ParticleEmitter2);
+        CHECK_FALSE(node.kind == NodeKind::Wc3RibbonEmitter);
+        particles += node.kind == NodeKind::Sc2ParticleEmitter ? 1u : 0u;
+        ribbons += node.kind == NodeKind::Sc2RibbonEmitter ? 1u : 0u;
+    }
+    CHECK(particles == 3u); // the smoke's head and tail, and the spawner
+    CHECK(ribbons == 1u);
+    CHECK(out.report.particleRecords == 3u);
+    CHECK(out.report.modelParticleRecords == 1u);
+    CHECK(out.report.ribbonRecords == 1u);
+    REQUIRE(out.model.particleEmitters.size() == 3u);
+    REQUIRE(out.model.ribbonEmitters.size() == 1u);
+
+    // Every keyed property is a StarCraft II property of its record's kind.
+    u32 keyed = 0;
+    for (const AnimChannel& channel : staged.animChannels.channels) {
+        if (channel.target.channel != Channel::EmitterProperty) {
+            continue;
+        }
+        const NodeKind kind = staged.nodes.nodes.at(channel.target.node).kind;
+        CHECK((kind == NodeKind::Sc2ParticleEmitter || kind == NodeKind::Sc2RibbonEmitter));
+        const EmitterPropertyDesc* desc = FindEmitterProperty(kind, channel.target.sub);
+        REQUIRE(desc != nullptr);
+        CHECK(desc->type == channel.valueType);
+        ++keyed;
+    }
+    CHECK(keyed == 3u); // the rate on the head and on the tail, the ribbon's size
+    CHECK_FALSE(Validate(out.staged, ValidateLevel::Structural).hasErrors());
+
+    // The tail rides the smoke's bone and keys the same rate under its own id.
+    const u32 smoke = boneNamed(out.model, "Smoke");
+    REQUIRE(smoke != kInvalidIndex);
+    CHECK(boneNamed(out.model, "Smoke_Tail") == kInvalidIndex);
+    std::vector<const m3::ParticleEmitter*> onSmoke;
+    for (const m3::ParticleEmitter& p : out.model.particleEmitters) {
+        if (p.boneIndex == smoke) {
+            onSmoke.push_back(&p);
+        }
+    }
+    REQUIRE(onSmoke.size() == 2u);
+    CHECK(onSmoke[0]->emissionRate.animId != onSmoke[1]->emissionRate.animId);
+    const auto head = keysOf(out.model, "Stand", onSmoke[0]->emissionRate,
+                             &m3::SubTrackContainer::sdr3, 5);
+    const auto tail = keysOf(out.model, "Stand", onSmoke[1]->emissionRate,
+                             &m3::SubTrackContainer::sdr3, 5);
+    REQUIRE(head.size() == 2u);
+    CHECK(tail == head);
+
+    // Each record's material is a slot of the model, bound in StarCraft II's set.
+    for (const m3::ParticleEmitter& p : out.model.particleEmitters) {
+        CHECK(Resolve(staged, p.materialIndex, ProfileId::Sc2) != nullptr);
+    }
+    CHECK(Resolve(staged, out.model.ribbonEmitters[0].materialIndex, ProfileId::Sc2) != nullptr);
+}
+
+TEST_CASE("wem m3 a crossed emitter follows its WEM payload, not the .mdx",
+          "[wem][m3][particles]") {
+    mdx::Model model = makeModel();
+    model.particleEmitters2.push_back(makeEmitter("Smoke", 1, 0));
+    setPivot(model, 1, Vector3f{0, 0, 0});
+    Document document = importMdx(model);
+    const u32 node = nodeWithObjectId(document, 1);
+    REQUIRE(node != kInvalidIndex);
+    auto& payload =
+        std::get<Wc3ParticleEmitter2Payload>(document.models[0].nodes.nodes[node].payload);
+    payload.speed = 300.0f;
+    payload.filter = Wc3ParticleFilter::Additive;
+
+    const Crossed out =
+        crossDocument(std::move(document), model, Plan{{"Assets/Textures/body.dds"}, {}, {}});
+    REQUIRE(out.model.particleEmitters.size() == 1u);
+    const m3::ParticleEmitter& p = out.model.particleEmitters[0];
+    CHECK(p.initialSpeed.initValue == Catch::Approx(3.0f));
+    CHECK(materialOf(out.model, p.materialIndex).blendMode == m3::BlendMode::AlphaAdd);
+}
+
+TEST_CASE("wem m3 a .wem of a Warcraft III model crosses to the same file",
+          "[wem][m3][particles]") {
+    const mdx::Model model = systemsModel();
+    const Crossed direct = crossDocument(importMdx(model), model, systemsPlan());
+
+    Writer writer;
+    const std::vector<u8> bytes = writer.write(importMdx(model));
+    Parser parser;
+    std::optional<Document> reread = parser.parse(std::span<const u8>(bytes.data(), bytes.size()));
+    REQUIRE(reread.has_value());
+    const Crossed fromWem = crossDocument(std::move(*reread), model, systemsPlan());
+    CHECK(fromWem.model.particleEmitters.size() == 3u);
+    CHECK(fromWem.bytes == direct.bytes);
+}
+
+TEST_CASE("wem m3 a second record hides with its emitter, not with its emitter's children",
+          "[wem][m3][carriers]") {
+    mdx::Model model = makeModel();
+    mdx::ParticleEmitter2 streak = makeEmitter("Streak", 1, 0);
+    streak.headOrTail = 2;
+    streak.visibilityTracks =
+        makeTrack(mdx::InterpolationType::None, {0, 500}, std::vector<f32>{1.0f, 0.0f});
+    model.particleEmitters2.push_back(streak);
+    setPivot(model, 1, Vector3f{0, 0, 30});
+    model.particleEmitters2.push_back(makeEmitter("Spark", 2, 1));
+    setPivot(model, 2, Vector3f{0, 0, 40});
+
+    const Crossed out = crossAndRead(model);
+    const u32 owner = boneNamed(out.model, "Streak");
+    const u32 leaf = boneNamed(out.model, "Streak_Vis");
+    const u32 child = boneNamed(out.model, "Spark");
+    REQUIRE(owner != kInvalidIndex);
+    REQUIRE(leaf != kInvalidIndex);
+    REQUIRE(child != kInvalidIndex);
+    // Node order: the head is Streak itself, then Spark, then the tail's node.
+    REQUIRE(out.model.particleEmitters.size() == 3u);
+    CHECK(out.model.particleEmitters[0].boneIndex == leaf);
+    CHECK(out.model.particleEmitters[1].boneIndex == child);
+    CHECK(out.model.particleEmitters[2].boneIndex == leaf);
+    CHECK(out.model.bones[leaf].visibility.isAnimated());
+    CHECK_FALSE(out.model.bones[owner].visibility.isAnimated());
+    CHECK(out.model.bones[child].parentIndex == owner);
 }

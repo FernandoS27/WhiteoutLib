@@ -274,7 +274,7 @@ struct Wc3ParticleInterval {
 struct Wc3ParticleEmitter2Payload {
     f32 speed = 0;
     f32 variation = 0; ///< Of the speed, as a fraction.
-    f32 latitude = 0;  ///< Radians.
+    f32 latitude = 0;  ///< Degrees, unlike `PREM`'s.
     f32 gravity = 0;
     f32 lifespan = 0; ///< Seconds.
     f32 emissionRate = 0;

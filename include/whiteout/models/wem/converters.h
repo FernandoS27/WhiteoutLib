@@ -119,8 +119,10 @@ struct M3ExportSettings {
     std::vector<u8> textureAlphaClasses;
     /// Warcraft III's node carriers (WC3_TO_SC2_COMPLETION_PLAN.md §2.3).
     ///
-    /// Every particle and ribbon emitter node becomes a bone, and so does an
-    /// attachment, light or camera whose transform or visibility is keyed;
+    /// Every particle and ribbon emitter node becomes a bone -- but a second
+    /// record of its parent's system, an identity child that keys nothing and
+    /// shares its parent's visibility, which rides the parent's -- and so does
+    /// an attachment, light or camera whose transform or visibility is keyed;
     /// a light's and a camera's transform tracks ride that bone. A node whose
     /// visibility is keyed and that has children gets a `<name>_Vis` leaf
     /// bone carrying the visibility alone, because an `.m3` bone hides its

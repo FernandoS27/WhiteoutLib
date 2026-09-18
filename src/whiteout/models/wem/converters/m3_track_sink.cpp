@@ -284,10 +284,12 @@ u32 WriteStream(m3::SubTrackContainer& stc, const StreamSpec& spec, const SubTra
         return kInvalidIndex;
     }
 
+    // Nor does a squirt take the wrap keys below: each would be a burst
+    // nobody keyed.
     std::vector<u8> wrap;
     bool wrapStart = false;
     bool wrapEnd = false;
-    if (warcraft && kept.size() >= 2 && duration > 0.0f) {
+    if (warcraft && spec.stream != Stream::Sds6 && kept.size() >= 2 && duration > 0.0f) {
         const f32 firstTime = track.times[kept.front()];
         const f32 lastTime = track.times[kept.back()];
         wrapStart = Ticks(firstTime) > 0;
