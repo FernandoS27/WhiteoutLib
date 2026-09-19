@@ -15,12 +15,21 @@
  *
  * The slice **keeps the two bracketing keys** — the last key before the window
  * and the first one after it — with their times rebased and therefore negative
- * or past the clip's end. That is what makes the clip evaluate identically to
- * the global track: WC3 interpolates across the window's edges, and a slice that
- * dropped the neighbours would flatten the first and last spans to a hold.
- * §10.8.2 already says a sub-track's times are not clamped to its clip, and this
- * is the case that needs it. Shipped exporters put keys on the boundaries, so on
- * most content the bracket keys are the boundary keys and nothing is added.
+ * or past the clip's end. A bracket key is a neighbour's own key, or one no
+ * window holds, and keeping it is what writes the global track back byte for
+ * byte. §10.8.2 already says a sub-track's times are not clamped to its clip,
+ * and this is the case that needs it. Shipped exporters put keys on the
+ * boundaries, so on most content the bracket keys are the boundary keys and
+ * nothing is added.
+ *
+ * Warcraft III itself never reads them. A sequence sees only the keys inside
+ * its window (`CKeyFrameTrackBase::SetSequenceIndices`, 3.0). Past the last of
+ * them it wraps round to the first; before the first it plays the same wrap
+ * span extrapolated backwards, and jumps to the first key's value when the time
+ * reaches it (`SetAnimTime`). So a clip sampled here toward its bracket keys is
+ * not what the game plays at an unkeyed edge, and the viewer's renderer, which
+ * draws what the game plays, does not read them either
+ * (EDIT_MODE_ANIMATIONS_DESIGN.md §1.5).
  *
  * A track keyed to a `globalSequenceId` is **not** sliced into the sequences: it
  * runs on its own clock, so it becomes one auto-play clip per global sequence,

@@ -134,6 +134,25 @@ TEST_CASE("wem m2 attachments become bone children", "[wem][convert][m2][nodes]"
     CHECK(nodes.worldBind(2).translation.z == 8.0f);
 }
 
+TEST_CASE("wem m2 a bone that ignores its parent's translation keeps its pivot whole",
+          "[wem][convert][m2][nodes]") {
+    // The game puts every bone on its pivot at rest. `worldBind` composes
+    // nothing of the parent's position onto this one, so a pivot difference
+    // would put it, and the attachment under it, the parent's pivot short.
+    m2::Model source = makeModel();
+    source.bones[0].pivot = Vector3f{0, 0, 2};
+    source.bones[1].flags = static_cast<u32>(m2::BoneFlag::IgnoreParentTranslate);
+
+    const M2Converter converter;
+    Result<Document> result = converter.fromM2(source);
+    REQUIRE(result.ok());
+    const NodeTree& nodes = result->models.front().nodes;
+    REQUIRE(nodes.size() == 3);
+    CHECK(nodes.worldBind(0).translation.z == 2.0f);
+    CHECK(nodes.worldBind(1).translation.z == 5.0f);
+    CHECK(nodes.worldBind(2).translation.z == 8.0f);
+}
+
 TEST_CASE("wem m2 a camera keeps where it looks", "[wem][convert][m2][nodes]") {
     m2::Model source = makeModel();
     m2::Camera camera;

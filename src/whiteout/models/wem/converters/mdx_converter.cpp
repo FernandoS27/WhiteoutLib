@@ -23,6 +23,13 @@
  * verbatim beside it. Both are needed: the difference reconstructs the bind
  * pose, and the absolute value is what export writes back and what an animation
  * evaluator needs to reproduce the pivot-relative composition.
+ *
+ * Except where `worldBind` composes nothing of the parent's position: a node
+ * flagged `DontInheritTranslation`, and one flagged `ModelSpace` (the particle
+ * space bit, which WEM reads as "local is world"). Their local translation is
+ * the pivot itself. Warcraft III places every node on its pivot at rest,
+ * whatever its flags, and the difference would put these at `pivot -
+ * parentPivot` instead.
  */
 
 #include "whiteout/models/mdx/parser.h"
@@ -478,8 +485,14 @@ NodeImport ImportNodes(const mdx::Model& source) {
         // gave those nodes an absolute local (their parent pivot as zero),
         // which every consumer of `local` (glTF export, retargets) inherited
         // while the pivot-composing mdx evaluator hid it.
+        //
+        // A node `worldBind` does not compose onto its parent's position keeps
+        // its pivot whole (see the file comment). At an MDX rest every rotation
+        // and scale is the identity, so that is all the flag changes there.
+        const bool absolute = hasFlag(node.flags, NodeFlags::DontInheritTranslation) ||
+                              hasFlag(node.flags, NodeFlags::ModelSpace);
         Vector3f parentPivot{0, 0, 0};
-        if (node.parent != kInvalidNode && node.parent < pending.size()) {
+        if (!absolute && node.parent != kInvalidNode && node.parent < pending.size()) {
             const mdx::Node& parentNode = *pending[node.parent].source;
             if (parentNode.objectId < source.pivotPoints.size()) {
                 parentPivot = source.pivotPoints[parentNode.objectId];

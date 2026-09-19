@@ -739,8 +739,10 @@ TEST_CASE("an mdx-windowed clip slices the engine's way", "[wem][gltf]") {
     SECTION("bracket keys drop and the boundaries wrap last to first") {
         // In-window keys at 0.2s (1,0,0) and 0.8s (3,0,0), brackets outside.
         // FindBracket wraps: segment last->first over (0.2-0.8)+1.0 = 0.4s,
-        // cut by the boundary at u = (1.0-0.8)/0.4 = 0.5 -> value (2,0,0) at
-        // both edges. The bracket values must not appear anywhere.
+        // cut by the end at u = (1.0-0.8)/0.4 = 0.5 -> (2,0,0). Before the
+        // first key the engine measures it from the first key: u = -0.5 at
+        // the start -> (4,0,0), and -0.0025 a millisecond short of the first
+        // key -> (3.005,0,0). The bracket values must not appear anywhere.
         Document document = makeClipFixture(1.0f);
         document.clips[0].native.set("intervalStart", static_cast<i64>(1000));
         document.clips[0].containers[0].subTracks.push_back(makeLinearTrack(
@@ -750,16 +752,18 @@ TEST_CASE("an mdx-windowed clip slices the engine's way", "[wem][gltf]") {
         Result<gltf::Asset> exported = converter.toGltf(document, ProfileId::Generic);
         REQUIRE(exported.ok());
         const auto [times, values] = soleSampler(*exported);
-        REQUIRE(times.size() == 4);
+        REQUIRE(times.size() == 5);
         CHECK(times[0] == 0.0f);
-        CHECK(times[1] == 0.2f);
-        CHECK(times[2] == 0.8f);
-        CHECK(times[3] == 1.0f);
-        REQUIRE(values.size() == 12);
-        CHECK(values[2] == 2.0f);  // Wrap value at the start,
-        CHECK(values[5] == 1.0f);  // the in-window keys,
-        CHECK(values[8] == 3.0f);
-        CHECK(values[11] == 2.0f); // and the same wrap value at the end.
+        CHECK(times[1] == Catch::Approx(0.199f));
+        CHECK(times[2] == 0.2f);
+        CHECK(times[3] == 0.8f);
+        CHECK(times[4] == 1.0f);
+        REQUIRE(values.size() == 15);
+        CHECK(values[2] == Catch::Approx(4.0f));   // The segment extrapolated at the start,
+        CHECK(values[5] == Catch::Approx(3.005f)); // a millisecond short of the first key,
+        CHECK(values[8] == 1.0f);                  // the in-window keys,
+        CHECK(values[11] == 3.0f);
+        CHECK(values[14] == 2.0f);                 // and the wrap cut at the end.
         for (const f32 value : values) {
             CHECK(value != 9.0f);
             CHECK(value != 7.0f);

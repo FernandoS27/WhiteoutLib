@@ -604,6 +604,55 @@ TEST_CASE("wem mdx pivots become local translations", "[wem][convert][mdx][nodes
     CHECK(nodes.worldBind(1).translation.z == 10.0f);
 }
 
+TEST_CASE("wem mdx a node that drops its parent's position keeps its pivot whole",
+          "[wem][convert][mdx][nodes]") {
+    // Warcraft III puts every node on its pivot at rest, whatever its flags.
+    // `worldBind` composes nothing of the parent's position onto a
+    // DontInheritTranslation node or a ModelSpace one, so a pivot difference
+    // there would put it `parentPivot` short of where the game draws it, and
+    // every node under it with it.
+    mdx::Model source = makeModel();
+    source.pivotPoints[0] = Vector3f{0, 0, 4};
+    mdx::Bone held;
+    held.node = makeNode("held", 2, 1);
+    held.node.flags = mdx::Node::NodeFlag::DontInheritTranslation;
+    mdx::Bone under;
+    under.node = makeNode("under", 3, 2);
+    mdx::Bone sparks;
+    sparks.node = makeNode("sparks", 4, 1);
+    sparks.node.flags = mdx::Node::NodeFlag::ModelSpace;
+    source.bones.push_back(held);
+    source.bones.push_back(under);
+    source.bones.push_back(sparks);
+    source.pivotPoints.push_back(Vector3f{2, 0, 25});
+    source.pivotPoints.push_back(Vector3f{2, 1, 30});
+    source.pivotPoints.push_back(Vector3f{-3, 0, 12});
+
+    const MdxConverter converter;
+    Result<Document> result = converter.fromMdx(source);
+    REQUIRE(result.ok());
+    const NodeTree& nodes = result->models.front().nodes;
+    REQUIRE(nodes.size() == 5);
+    for (u32 n = 0; n < nodes.size(); ++n) {
+        INFO(nodes.nodes[n].name);
+        const Vector3f world = nodes.worldBind(n).translation;
+        CHECK(world.x == nodes.nodes[n].pivot.x);
+        CHECK(world.y == nodes.nodes[n].pivot.y);
+        CHECK(world.z == nodes.nodes[n].pivot.z);
+    }
+
+    // The export writes the pivots, not the locals, so the file is unchanged.
+    Result<mdx::Model> exported = converter.toMdx(*result, ProfileId::Wc3Classic);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->pivotPoints.size() == source.pivotPoints.size());
+    for (std::size_t i = 0; i < source.pivotPoints.size(); ++i) {
+        INFO("pivot " << i);
+        CHECK(exported->pivotPoints[i].x == source.pivotPoints[i].x);
+        CHECK(exported->pivotPoints[i].y == source.pivotPoints[i].y);
+        CHECK(exported->pivotPoints[i].z == source.pivotPoints[i].z);
+    }
+}
+
 TEST_CASE("wem mdx reads both skinning conventions", "[wem][convert][mdx][skin]") {
     SECTION("Reforged skinData addresses matrixIndices") {
         mdx::Model source = makeModel();

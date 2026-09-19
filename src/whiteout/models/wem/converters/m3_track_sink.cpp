@@ -254,13 +254,16 @@ u32 WriteStream(m3::SubTrackContainer& stc, const StreamSpec& spec, const SubTra
     //
     // A Warcraft III window is stricter still. Its engine reads only the
     // keys inside the window -- the bracket keys are keys it never sees --
-    // and plays the span after the last one, and the span before the
-    // first, as one segment from the last key back to the first. M3 holds
-    // before its first key and wraps a looping track on its own last
-    // stamp, so a track that does not reach an edge gets a key there
-    // carrying the value the engine shows at it: the start and end key
-    // Warcraft III has on every track, restated for a format that has
-    // defaults. A track with no key inside the window is not written;
+    // and plays the span after the last one as one segment from the last
+    // key back to the first. Before the first key it measures that segment
+    // from the FIRST key (`CKeyFrameTrackBase::SetAnimTime`, 3.0), so it
+    // plays it extrapolated backwards and jumps to the first key's value
+    // there. M3 holds before its first key and wraps a looping track on its
+    // own last stamp, so a track that does not reach an edge gets a key
+    // there carrying the value the engine shows at it -- and, at the start,
+    // one a millisecond short of the first key, so the jump lands inside
+    // that millisecond: the start and end key Warcraft III has on every
+    // track, restated for a format that has defaults. A track with no key inside the window is not written;
     // the engine answers its rest value, and so does the AnimRef's own.
     std::vector<std::size_t> kept;
     std::ptrdiff_t entry = -1;
@@ -287,6 +290,8 @@ u32 WriteStream(m3::SubTrackContainer& stc, const StreamSpec& spec, const SubTra
     // Nor does a squirt take the wrap keys below: each would be a burst
     // nobody keyed.
     std::vector<u8> wrap;
+    std::vector<u8> wrapIn;  ///< The engine's value at the window's start.
+    std::vector<u8> shortOf; ///< Its value a millisecond short of the first key.
     bool wrapStart = false;
     bool wrapEnd = false;
     if (warcraft && spec.stream != Stream::Sds6 && kept.size() >= 2 && duration > 0.0f) {
@@ -301,6 +306,15 @@ u32 WriteStream(m3::SubTrackContainer& stc, const StreamSpec& spec, const SubTra
             const f32 t =
                 segment > 0.0f ? std::clamp((duration - lastTime) / segment, 0.0f, 1.0f) : 0.0f;
             wrap = WrapValue(spec.type, track.interp, at(kept.back()), at(kept.front()), t, size);
+            wrapIn = wrap;
+            if (wrapStart && segment > 0.0f) {
+                wrapIn = WrapValue(spec.type, track.interp, at(kept.back()), at(kept.front()),
+                                   -firstTime / segment, size);
+                if (Ticks(firstTime) > 1 && track.interp != Interpolation::Step) {
+                    shortOf = WrapValue(spec.type, track.interp, at(kept.back()),
+                                        at(kept.front()), -0.001f / segment, size);
+                }
+            }
         }
     }
 
@@ -310,7 +324,11 @@ u32 WriteStream(m3::SubTrackContainer& stc, const StreamSpec& spec, const SubTra
     values.reserve(kept.size() + 2);
     if (wrapStart) {
         stamps.push_back(origin);
-        values.push_back(wrap.data());
+        values.push_back(wrapIn.data());
+        if (!shortOf.empty()) {
+            stamps.push_back(origin + Ticks(track.times[kept.front()]) - 1);
+            values.push_back(shortOf.data());
+        }
     }
     for (std::size_t k : kept) {
         const f32 time = track.times[k] < 0.0f ? 0.0f : track.times[k];

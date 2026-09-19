@@ -1197,8 +1197,8 @@ TEST_CASE("wem m3 a team glow layer is the team emissive op",
     // the team colour arrives twice-weighted at 0.56 (the op reads the layer's
     // own alpha). And it scales the ENGINE's dark team colour, which the
     // source pass never needed -- the oracle's hero glows state mapAlpha 1 and
-    // a 191/255 carrier, and scale the colour by 1.5 to 4; ours says 3, which
-    // is what measures closest to the Warcraft III draw.
+    // a 191/255 carrier, and scale the colour by 1.5 to 4; ours says 2.25,
+    // picked between 1.5 and 3 after seeing both on the Skink hero.
     Material faded = stack("glow", {colorLayer(2, CompositeOp::Set, 0.75f)});
     faded.MutableCommon().blend = BlendMode::Additive;
     Document dim = warcraftDocument(std::move(faded), 2, 2);
@@ -1208,7 +1208,7 @@ TEST_CASE("wem m3 a team glow layer is the team emissive op",
     REQUIRE(halo.emissiveLayer1.has_value());
     CHECK(halo.emissiveBlendMode1 == m3::LayerBlendOp::TeamColorEmissiveAdd);
     CHECK(halo.emissiveLayer1->mapAlpha.initValue == Catch::Approx(1.0f));
-    CHECK(halo.hdrEmissiveMultiplier == Catch::Approx(3.0f));
+    CHECK(halo.hdrEmissiveMultiplier == Catch::Approx(2.25f));
     REQUIRE(halo.alphaLayer1.has_value());
     CHECK(hasFlag(halo.alphaLayer1->flags, m3::TextureLayerFlag::Color));
     CHECK(halo.alphaLayer1->rgbMultiply.initValue == Catch::Approx(0.75f));

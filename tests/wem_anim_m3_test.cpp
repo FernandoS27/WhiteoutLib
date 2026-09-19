@@ -988,13 +988,17 @@ TEST_CASE("wem m3 a Warcraft window is keyed at both edges the way its engine pl
         REQUIRE(written.ok());
         const u32 ref = stcRefFor(*written, 7);
         const auto& block = stcHolding(*written, 7).sd3v[ref & 0xFFFFu];
-        REQUIRE(block.timestamps == std::vector<i32>{0, 200, 800, 1000});
-        // Half way from the last key back to the first: 200 ms into the
-        // 400 ms the wrap segment spans -- at the end, and at the start.
-        CHECK(block.keys[0].z == Catch::Approx(5.0f));
-        CHECK(block.keys[1].z == Catch::Approx(0.0f));
-        CHECK(block.keys[2].z == Catch::Approx(10.0f));
-        CHECK(block.keys[3].z == Catch::Approx(5.0f));
+        REQUIRE(block.timestamps == std::vector<i32>{0, 199, 200, 800, 1000});
+        // At the end, half way from the last key back to the first: 200 ms
+        // into the 400 ms the wrap segment spans. At the start the engine
+        // measures the same segment from the first key, -200 ms of it, so
+        // 10 + (0 - 10) * -0.5; a millisecond short of the first key it is
+        // -1/400 of it, and then the first key itself.
+        CHECK(block.keys[0].z == Catch::Approx(15.0f));
+        CHECK(block.keys[1].z == Catch::Approx(10.025f));
+        CHECK(block.keys[2].z == Catch::Approx(0.0f));
+        CHECK(block.keys[3].z == Catch::Approx(10.0f));
+        CHECK(block.keys[4].z == Catch::Approx(5.0f));
     }
     SECTION("any other clip holds the bracket before it and drops the one after") {
         clip.native = NativeBag{};

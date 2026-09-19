@@ -138,9 +138,13 @@ NodeTree ImportNodes(const m2::Model& source) {
         node.native.set("boneNameCRC", static_cast<i64>(bone.boneNameCRC));
 
         // M2 pivots are absolute model space, like MDX's, so the local
-        // translation is the difference from the parent's.
+        // translation is the difference from the parent's. A bone that ignores
+        // its parent's translation keeps the pivot whole: `worldBind` composes
+        // nothing of the parent's position onto it, and at rest the game puts
+        // every bone on its pivot.
         Vector3f parentPivot{0, 0, 0};
-        if (node.parent != kInvalidNode && node.parent < tree.size()) {
+        if (!hasFlag(node.flags, NodeFlags::DontInheritTranslation) &&
+            node.parent != kInvalidNode && node.parent < tree.size()) {
             parentPivot = tree.nodes[node.parent].pivot;
         }
         node.pivot = bone.pivot;

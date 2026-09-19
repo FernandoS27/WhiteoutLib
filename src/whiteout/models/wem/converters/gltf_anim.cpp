@@ -33,9 +33,10 @@
  * Sub-tracks are not clamped to their clip (clip.h); the slicers below
  * enforce the window at this boundary. An mdx-windowed clip (marked by
  * `intervalStart`/`globalSequenceId` in its native bag) follows the engine's
- * own rule — in-window keys only, last→first wrap across the boundary, rest
- * when the window holds nothing (`FindBracket` in the reference viewer);
- * every other source takes a plain evaluated cut.
+ * own rule — in-window keys only, the last→first wrap past the last key and
+ * the same wrap extrapolated backwards before the first, rest when the window
+ * holds nothing (`FindBracket` in the reference viewer, as read off the 3.0
+ * binary); every other source takes a plain evaluated cut.
  */
 
 #include "gltf_anim.h"
@@ -157,18 +158,12 @@ void EvalAt(const RawKeys& keys, Interpolation interp, bool isRotation, f32 time
 }
 
 /// Warcraft III's slerp, mirrored from the reference evaluator (`Wc3Slerp`):
-/// shortest arc via the sign flip, nlerp under the 0.9 dot threshold.
+/// nlerp once the RAW dot reaches 0.9, and below that the shortest arc via the
+/// sign flip. A pair in opposite hemispheres never takes the nlerp.
 void SlerpQuat(const f32* a, const f32* bIn, f32 t, f32* out) {
     f32 b[4] = {bIn[0], bIn[1], bIn[2], bIn[3]};
     f32 d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
-    if (d < 0.0f) {
-        d = -d;
-        for (f32& c : b) {
-            c = -c;
-        }
-    }
-    d = std::min(d, 1.0f);
-    if (d > 0.9f) {
+    if (d >= 0.9f) {
         f32 lengthSq = 0;
         for (int c = 0; c < 4; ++c) {
             out[c] = a[c] + t * (b[c] - a[c]);
@@ -180,6 +175,13 @@ void SlerpQuat(const f32* a, const f32* bIn, f32 t, f32* out) {
         }
         return;
     }
+    if (d < 0.0f) {
+        d = -d;
+        for (f32& c : b) {
+            c = -c;
+        }
+    }
+    d = std::min(d, 1.0f);
     const f32 theta0 = std::acos(d);
     const f32 theta = theta0 * t;
     const f32 sinTheta0 = std::sin(theta0);
@@ -223,9 +225,11 @@ void HermiteAt(const f32* v0, const f32* out0, const f32* in1, const f32* v1, f3
 
 /// Rebuilds @p keys the way the **Warcraft III engine** samples a sequence
 /// (`FindBracket` in the reference viewer, parity-proven): only keys inside
-/// the window exist; before the first and after the last the value wraps
-/// last→first across the boundary as one continuous segment; and a track with
-/// no in-window key contributes the node's rest value. The bracketing keys
+/// the window exist; after the last the value wraps last→first across the
+/// boundary as one segment; before the first the engine measures that same
+/// segment from the FIRST key, so it plays it extrapolated backwards and
+/// jumps to the first key's value there; and a track with no in-window key
+/// contributes the node's rest value. The bracketing keys
 /// the WEM sub-track carries for the mdx round trip are exactly the keys the
 /// engine never reads — consuming them as curve neighbours splayed every limb
 /// whose window starts between keys.
@@ -279,37 +283,59 @@ bool SliceMdxWindow(RawKeys& keys, Interpolation interp, bool isRotation, f32 du
     f32 seamValue[4] = {0, 0, 0, 0};
     f32 seamSlope[4] = {0, 0, 0, 0};
     f32 segLen = 0.0f;
-    if (needsWrap) {
-        segLen = (firstT - lastT) + duration;
-        uSeam = segLen > 1e-9f ? (duration - lastT) / segLen : 0.0f;
+    // The wrap segment at parameter @p u, any real, and its slope there.
+    const auto wrapAt = [&](f32 u, f32* value, f32* slope) {
         const f32* lastValue = keys.value(last - 1);
         const f32* firstValue = keys.value(first);
         if (interp == Interpolation::Step) {
-            std::memcpy(seamValue, lastValue, keys.comps * sizeof(f32));
+            std::memcpy(value, lastValue, keys.comps * sizeof(f32));
         } else if (cubic && isRotation) {
-            SquadQuat(lastValue, keys.outTan(last - 1), keys.inTan(first), firstValue, uSeam,
-                      seamValue);
+            SquadQuat(lastValue, keys.outTan(last - 1), keys.inTan(first), firstValue, u, value);
         } else if (cubic) {
-            HermiteAt(lastValue, keys.outTan(last - 1), keys.inTan(first), firstValue, uSeam,
-                      keys.comps, seamValue, seamSlope);
+            HermiteAt(lastValue, keys.outTan(last - 1), keys.inTan(first), firstValue, u, keys.comps,
+                      value, slope);
         } else if (isRotation && keys.comps == 4) {
-            SlerpQuat(lastValue, firstValue, uSeam, seamValue);
+            SlerpQuat(lastValue, firstValue, u, value);
         } else {
             for (u32 c = 0; c < keys.comps; ++c) {
-                seamValue[c] = lastValue[c] * (1.0f - uSeam) + firstValue[c] * uSeam;
+                value[c] = lastValue[c] * (1.0f - u) + firstValue[c] * u;
             }
         }
+    };
+    if (needsWrap) {
+        segLen = (firstT - lastT) + duration;
+        uSeam = segLen > 1e-9f ? (duration - lastT) / segLen : 0.0f;
+        wrapAt(uSeam, seamValue, seamSlope);
     }
 
-    // Leading boundary: the wrapped value, entering the window mid-segment.
-    if (needsWrap && firstT > kSnap) {
-        f32 outTan[4] = {0, 0, 0, 0};
+    // Leading boundary. The engine plays the segment measured from the first
+    // key here, from `uSeam - 1` up to 0, and then the first key's own value:
+    // the segment over `[uSeam - 1, -1 ms]` up to a millisecond short of the
+    // first key, and the jump in that millisecond. Every whole millisecond --
+    // the engine's clock -- lands where it plays.
+    bool leading = false;
+    if (needsWrap && firstT > kSnap && segLen > 1e-9f) {
+        leading = true;
+        constexpr f32 kMs = 0.001f;
+        const bool shortOf = interp != Interpolation::Step && firstT > kMs + kSnap;
+        const f32 f0 = uSeam - 1.0f;
+        const f32 f1 = shortOf ? -kMs / segLen : f0;
+        f32 v0[4] = {0, 0, 0, 0}, s0[4] = {0, 0, 0, 0};
+        f32 v1[4] = {0, 0, 0, 0}, s1[4] = {0, 0, 0, 0};
+        wrapAt(f0, v0, s0);
+        wrapAt(f1, v1, s1);
+        f32 out0[4] = {0, 0, 0, 0};
+        f32 in1[4] = {0, 0, 0, 0};
         if (cubic && !isRotation) {
             for (u32 c = 0; c < keys.comps; ++c) {
-                outTan[c] = seamSlope[c] * (1.0f - uSeam);
+                out0[c] = s0[c] * (f1 - f0);
+                in1[c] = s1[c] * (f1 - f0);
             }
         }
-        push(0.0f, seamValue, nullptr, outTan);
+        push(0.0f, v0, nullptr, out0);
+        if (shortOf) {
+            push(firstT - kMs, v1, in1, nullptr);
+        }
     }
     for (std::size_t k = first; k < last; ++k) {
         f32 inTan[4];
@@ -319,9 +345,10 @@ bool SliceMdxWindow(RawKeys& keys, Interpolation interp, bool isRotation, f32 du
         if (cubic && !isRotation && needsWrap) {
             // The cut wrap segment keeps its curve when the per-span tangents
             // facing each cut scale by the kept fraction of the segment.
-            if (k == first && firstT > kSnap) {
+            if (k == first && leading) {
+                // The millisecond's jump, which holds nothing of the segment.
                 for (u32 c = 0; c < keys.comps; ++c) {
-                    inTan[c] *= 1.0f - uSeam;
+                    inTan[c] = 0.0f;
                 }
             }
             if (k + 1 == last && lastT < duration - kSnap) {
