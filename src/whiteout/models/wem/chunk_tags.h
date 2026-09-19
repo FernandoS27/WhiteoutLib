@@ -266,12 +266,16 @@ struct ChunkTagTraits<Matrix44f> {
 };
 
 /// v2 adds `Node::poseMatrices` (§10.5's matrix poses); v3 the five emitter
-/// system kinds and their payloads (§10.9); v4 a camera's target. An older chunk
-/// holds none of them, so it reads unchanged.
+/// system kinds and their payloads (§10.9); v4 a camera's target; v5 a bone's
+/// `gateMesh`, migrated on read from the MDX bag pair an older chunk carried.
+/// An older chunk holds none of them, so it reads unchanged. A NEWER one does
+/// not: records sit back to back, and nothing checks a chunk's version against
+/// this, so a build older than a field misreads every node after the first
+/// record that carries it.
 template <>
 struct ChunkTagTraits<Node> {
     static constexpr u32 value = kTag("NODE");
-    static constexpr u32 max_version = 4;
+    static constexpr u32 max_version = 5;
     static constexpr bool is_trivial = false;
 };
 

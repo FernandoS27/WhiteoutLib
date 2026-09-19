@@ -50,6 +50,7 @@
 #include "geometry/ops.h"
 #include "geometry/render_view.h"
 #include "materials/ops.h"
+#include "meshes/remove.h"
 #include "model.h"
 #include "nodes/remove.h"
 #include "nodes/visitor.h"

@@ -93,6 +93,9 @@ whiteout_add_test(wem_node_test wem_node_test.cpp)
 whiteout_add_test(wem_skeleton_retarget_test wem_skeleton_retarget_test.cpp)
 whiteout_add_test(wem_geometry_corpus_test wem_geometry_corpus_test.cpp)
 whiteout_add_test(wem_ops_test wem_ops_test.cpp)
+# G18: merging meshes into one geoset, the mesh-axis referencer table, and the
+# converter's say on whether toMdx could write the result.
+whiteout_add_test(wem_mesh_ops_test wem_mesh_ops_test.cpp)
 whiteout_add_test(wem_render_identity_test wem_render_identity_test.cpp)
 whiteout_add_test(wem_material_kind_test wem_material_kind_test.cpp)
 whiteout_add_test(wem_material_ops_test wem_material_ops_test.cpp)

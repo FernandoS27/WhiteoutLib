@@ -6,7 +6,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <optional>
 #include <unordered_map>
+#include <utility>
 
 namespace whiteout {
 namespace models {
@@ -1605,6 +1607,104 @@ std::vector<Mesh> SplitMesh(const Mesh& mesh) {
 // Derived data
 // ============================================================================
 
+std::vector<u32> MergeSections(Mesh& mesh, std::span<const u32> sections, u32 keep) {
+    const u32 count = static_cast<u32>(mesh.sections.size());
+    if (keep >= count) {
+        return {};
+    }
+    std::vector<u8> merging(count, 0);
+    merging[keep] = 1;
+    for (const u32 s : sections) {
+        if (s >= count) {
+            return {};
+        }
+        merging[s] = 1;
+    }
+    // "No gate" is stored as well as omitted; the two mean the same.
+    const auto gateOf = [](const MeshSection& section) -> std::optional<i64> {
+        const NativeBag::Entry* entry = section.native.find(kSectionVisibilityNode);
+        if (entry == nullptr || entry->value == kSectionAlwaysDrawn) {
+            return std::nullopt;
+        }
+        return entry->value;
+    };
+    const MeshSection& kept = mesh.sections[keep];
+    for (u32 s = 0; s < count; ++s) {
+        if (merging[s] != 0 && (mesh.sections[s].rigidNode != kept.rigidNode ||
+                                gateOf(mesh.sections[s]) != gateOf(kept))) {
+            return {};
+        }
+    }
+
+    std::vector<u32> remap(count, kInvalidId);
+    for (u32 s = 0, next = 0; s < count; ++s) {
+        if (merging[s] == 0 || s == keep) {
+            remap[s] = next++;
+        }
+    }
+    const u32 into = remap[keep];
+    const auto target = [&](u32 s) {
+        return s < count ? (merging[s] != 0 ? into : remap[s]) : s;
+    };
+    for (u32& s : mesh.faceSections()) {
+        s = target(s);
+    }
+    for (FaceRecord& record : mesh.repairLog.droppedFaces) {
+        record.section = target(record.section);
+    }
+    for (u32 s = count; s-- > 0;) {
+        if (merging[s] != 0 && s != keep) {
+            mesh.sections.erase(mesh.sections.begin() + s);
+        }
+    }
+    mesh.recomputeBounds();
+    return remap;
+}
+
+bool BakeRigidNode(Mesh& mesh, u32 section) {
+    if (section >= mesh.sections.size() || !mesh.sections[section].rigidNode) {
+        return false;
+    }
+    const FaceSet& faces = mesh.faceSet();
+    const std::span<const u32> faceSections = std::as_const(mesh).faceSections();
+    const u32 vertexCount = faces.vertexCount;
+    std::vector<u8> inRigid(vertexCount, 0);
+    std::vector<u8> inOther(vertexCount, 0);
+    std::size_t corner = 0;
+    for (std::size_t f = 0; f < faces.faceCount(); ++f) {
+        const bool mine = (f < faceSections.size() ? faceSections[f] : 0u) == section;
+        for (u32 i = 0; i < faces.faceValence[f]; ++i) {
+            const u32 v = faces.cornerVertex[corner + i];
+            if (v < vertexCount) {
+                (mine ? inRigid : inOther)[v] = 1;
+            }
+        }
+        corner += faces.faceValence[f];
+    }
+    for (u32 v = 0; v < vertexCount; ++v) {
+        if (inRigid[v] != 0 && inOther[v] != 0) {
+            return false;
+        }
+    }
+
+    // CSR is append-only, so the binding is rebuilt in vertex order.
+    const Influence rigid{*mesh.sections[section].rigidNode, 1.0f};
+    SkinBinding baked;
+    baked.reset(0);
+    for (u32 v = 0; v < vertexCount; ++v) {
+        if (inRigid[v] != 0) {
+            baked.appendVertex(std::span<const Influence>(&rigid, 1));
+        } else if (v < mesh.skin.vertexCount()) {
+            baked.appendVertex(std::as_const(mesh.skin).forVertex(v));
+        } else {
+            baked.appendVertex({});
+        }
+    }
+    mesh.skin = std::move(baked);
+    mesh.sections[section].rigidNode.reset();
+    return true;
+}
+
 void RecomputeNormals(Mesh& mesh, f32 angleThreshold) {
     if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
         return;
@@ -1659,6 +1759,9 @@ void RecomputeTangents(Mesh& mesh, u32 uvSet) {
     // Per-face tangent, then averaged over the same smoothing groups the normals
     // use — so a UV seam keeps two tangents at one vertex, which is the point.
     std::vector<Vector3f> faceTangents(topology.faceCount(), Vector3f{1.0f, 0.0f, 0.0f});
+    // The UV-derived bitangent, kept only for its side: a mirrored island's
+    // points against cross(normal, tangent), and that is the handedness.
+    std::vector<Vector3f> faceBitangents(topology.faceCount(), Vector3f{0.0f, 0.0f, 0.0f});
     for (u32 f = 0; f < topology.faceCount(); ++f) {
         if (topology.isDeleted(FaceId(f))) {
             continue;
@@ -1688,6 +1791,8 @@ void RecomputeTangents(Mesh& mesh, u32 uvSet) {
         const f32 r = 1.0f / determinant;
         faceTangents[f] = Vector3f{(e1.x * dv2 - e2.x * dv1) * r, (e1.y * dv2 - e2.y * dv1) * r,
                                    (e1.z * dv2 - e2.z * dv1) * r};
+        faceBitangents[f] = Vector3f{(e2.x * du1 - e1.x * du2) * r, (e2.y * du1 - e1.y * du2) * r,
+                                     (e2.z * du1 - e1.z * du2) * r};
     }
 
     const std::span<const Vector3f> normals =
@@ -1702,12 +1807,16 @@ void RecomputeTangents(Mesh& mesh, u32 uvSet) {
         for (const std::vector<HalfedgeId>& group :
              cornerGroups(mesh, faceNormals, VertexId(v), cosThreshold)) {
             Vector3f sum{0.0f, 0.0f, 0.0f};
+            Vector3f bitangent{0.0f, 0.0f, 0.0f};
             for (HalfedgeId h : group) {
                 const std::size_t f = topology.face(h).index();
                 if (f < faceTangents.size()) {
                     sum.x += faceTangents[f].x;
                     sum.y += faceTangents[f].y;
                     sum.z += faceTangents[f].z;
+                    bitangent.x += faceBitangents[f].x;
+                    bitangent.y += faceBitangents[f].y;
+                    bitangent.z += faceBitangents[f].z;
                 }
             }
             for (HalfedgeId h : group) {
@@ -1726,7 +1835,10 @@ void RecomputeTangents(Mesh& mesh, u32 uvSet) {
                 const f32 dot = sum.x * normal.x + sum.y * normal.y + sum.z * normal.z;
                 const Vector3f orthogonal = normalized(Vector3f{
                     sum.x - normal.x * dot, sum.y - normal.y * dot, sum.z - normal.z * dot});
-                tangents[h.index()] = Vector4f{orthogonal.x, orthogonal.y, orthogonal.z, 1.0f};
+                const Vector3f nxt = whiteout::cross(normal, orthogonal);
+                const f32 side = nxt.x * bitangent.x + nxt.y * bitangent.y + nxt.z * bitangent.z;
+                tangents[h.index()] =
+                    Vector4f{orthogonal.x, orthogonal.y, orthogonal.z, side < 0.0f ? -1.0f : 1.0f};
             }
         }
     }

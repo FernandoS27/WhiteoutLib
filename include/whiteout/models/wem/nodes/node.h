@@ -245,11 +245,18 @@ struct HelperPayload {
 struct BonePayload {
     Extent bounds; ///< D3 ships both a box and a sphere, per bone.
     Sphere sphere;
+    /// MDX's bone -> geoset link: the mesh whose geoset animation gates this
+    /// bone (its subtree is hidden while the mesh's alpha is 0) and, when that
+    /// mesh is `SectionFlags::ProjectedShadow`, places it as a drop shadow.
+    /// `kInvalidIndex`: none. `NODE` v5; an older chunk's link is migrated on
+    /// read (`Node::migrateBoneGate`).
+    u32 gateMesh = kInvalidIndex;
 
     template <class V>
     void reflect(V& v) {
         v.field("bounds", bounds);
         v.field("sphere", sphere);
+        v.since(5).field("gateMesh", gateMesh);
     }
 };
 
@@ -574,6 +581,37 @@ struct Node {
         }
 
         v.field("native", native);
+
+        if constexpr (V::kReading) {
+            if (auto* bone = std::get_if<BonePayload>(&payload)) {
+                migrateBoneGate(*bone);
+            }
+        }
+    }
+
+private:
+    /// A `NODE` written before v5 carried the MDX link as the file's two raw
+    /// indices in `native`. The geoset-animation table they index is not in the
+    /// document, so this trusts `geosetId` — right for every shipped bone but
+    /// the 44 whose `geosetId` names another geoset than their record does.
+    /// Best effort, then; a fresh import resolves the link exactly.
+    void migrateBoneGate(BonePayload& bone) {
+        const auto* geoset = native.find("geosetId");
+        const auto* record = native.find("geosetAnimationId");
+        if (bone.gateMesh != kInvalidIndex || geoset == nullptr || record == nullptr) {
+            return;
+        }
+        constexpr i64 kNone = 0xFFFFFFFF; // mdx::Bone::MULTIPLE_GEOSETS
+        const bool gated = geoset->value != kNone && record->value != kNone;
+        if (gated) {
+            bone.gateMesh = static_cast<u32>(geoset->value);
+        }
+        // What v5 keeps: `geosetId` only where the export would not write it
+        // back by itself, which for a bone with no gate is a non-sentinel one.
+        const bool keepGeoset = !gated && geoset->value != kNone;
+        std::erase_if(native.entries, [&](const NativeBag::Entry& entry) {
+            return entry.name == "geosetAnimationId" || (entry.name == "geosetId" && !keepGeoset);
+        });
     }
 };
 

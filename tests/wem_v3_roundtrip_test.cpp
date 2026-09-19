@@ -425,6 +425,126 @@ TEST_CASE("wem a camera's target survives write and read", "[wem][format][nodes]
     CHECK(std::get<CameraPayload>(node.payload).target == Vector3f(12, -3, 45));
 }
 
+TEST_CASE("wem a bone gate survives write and read", "[wem][format][nodes]") {
+    Document original = makeDocument();
+    NodeTree& nodes = original.models.front().nodes;
+    REQUIRE_FALSE(nodes.ofKind(NodeKind::Bone).empty());
+    const u32 bone = nodes.ofKind(NodeKind::Bone)[0];
+    std::get<BonePayload>(nodes.nodes[bone].payload).gateMesh = 1;
+
+    std::vector<std::string> issues;
+    const Document reread = readDocument(writeDocument(original), issues);
+    CHECK(issues.empty());
+    const Node& node = reread.models.front().nodes.nodes[bone];
+    REQUIRE(node.kind == NodeKind::Bone);
+    CHECK(std::get<BonePayload>(node.payload).gateMesh == 1u);
+    CHECK(dump(original) == dump(reread));
+}
+
+namespace {
+
+/// Turns a v5 file into the v4 file an older writer produced: the four bytes of
+/// @p pattern -- a bone's `gateMesh`, set to it so it can be found -- are cut
+/// out of the `NODE` chunk, the rest of the chunk slides back over them and its
+/// tail is refilled with the alignment fill, so no offset moves; then the chunk
+/// is stamped v4.
+void cutGateFromNodeChunk(std::vector<u8>& bytes, u32 pattern) {
+    WEMHeader header{};
+    std::memcpy(&header, bytes.data(), sizeof(header));
+    std::vector<IndexEntry> entries(header.indexCount);
+    std::memcpy(entries.data(), bytes.data() + header.indexOffset,
+                entries.size() * sizeof(IndexEntry));
+
+    for (u32 i = 0; i < header.indexCount; ++i) {
+        IndexEntry& entry = entries[i];
+        if (entry.tag != ChunkTagTraits<Node>::value) {
+            continue;
+        }
+        u32 end = header.indexOffset > entry.offset ? header.indexOffset : u32(bytes.size());
+        for (const IndexEntry& other : entries) {
+            if (other.offset > entry.offset && other.offset < end) {
+                end = other.offset;
+            }
+        }
+        u32 at = end;
+        u32 found = 0;
+        for (u32 p = entry.offset; p + 4 <= end; ++p) {
+            u32 word = 0;
+            std::memcpy(&word, bytes.data() + p, 4);
+            if (word == pattern) {
+                at = p;
+                ++found;
+            }
+        }
+        if (found == 0) {
+            continue;
+        }
+        REQUIRE(found == 1u);
+        std::memmove(bytes.data() + at, bytes.data() + at + 4, end - at - 4);
+        std::memset(bytes.data() + end - 4, 0xAA, 4);
+        entry.version = 4;
+        std::memcpy(bytes.data() + header.indexOffset + i * sizeof(IndexEntry), &entry,
+                    sizeof(IndexEntry));
+        return;
+    }
+    FAIL("no NODE chunk holds the pattern");
+}
+
+} // namespace
+
+TEST_CASE("wem a v4 bone reads its gate from the MDX bag pair", "[wem][format][nodes]") {
+    // What every `.wem` written before v5 holds: the file's raw pair in the bag.
+    Document original = makeDocument();
+    NodeTree& nodes = original.models.front().nodes;
+    const u32 gated = nodes.ofKind(NodeKind::Bone)[0];
+    const u32 ungated = nodes.add(makeNode("ungated", NodeKind::Bone, 0));
+    const u32 unlinked = nodes.add(makeNode("unlinked", NodeKind::Bone, 0));
+    const auto seed = [&](u32 node, u32 pattern, i64 geosetId, i64 record) {
+        std::get<BonePayload>(nodes.nodes[node].payload).gateMesh = pattern;
+        nodes.nodes[node].native.set("geosetId", geosetId);
+        nodes.nodes[node].native.set("geosetAnimationId", record);
+    };
+    seed(gated, 0x5EA7C0DE, 2, 7);
+    seed(ungated, 0x5EA7C0DF, 3, 0xFFFFFFFF);
+    seed(unlinked, 0x5EA7C0E0, 0xFFFFFFFF, 0xFFFFFFFF);
+
+    std::vector<u8> bytes = writeDocument(original);
+    for (const u32 pattern : {0x5EA7C0DEu, 0x5EA7C0DFu, 0x5EA7C0E0u}) {
+        cutGateFromNodeChunk(bytes, pattern);
+    }
+
+    std::vector<std::string> issues;
+    const Document reread = readDocument(bytes, issues);
+    CHECK(issues.empty());
+    const NodeTree& read = reread.models.front().nodes;
+    REQUIRE(read.size() == nodes.size());
+    // Everything around the cut reads as it was written.
+    for (u32 i = 0; i < read.size(); ++i) {
+        CHECK(read.nodes[i].name == nodes.nodes[i].name);
+        CHECK(read.nodes[i].kind == nodes.nodes[i].kind);
+        CHECK(read.nodes[i].native.value("sourceIndex") == 7);
+    }
+
+    const auto gateOf = [&](u32 node) { return std::get<BonePayload>(read.nodes[node].payload).gateMesh; };
+    // Trusted to `geosetId`: best effort, as the migration says.
+    CHECK(gateOf(gated) == 2u);
+    CHECK(read.nodes[gated].native.find("geosetId") == nullptr);
+    CHECK(read.nodes[gated].native.find("geosetAnimationId") == nullptr);
+    // No record, so no gate -- and the file's geoset, which the export would
+    // not write back by itself, stays.
+    CHECK(gateOf(ungated) == kInvalidIndex);
+    REQUIRE(read.nodes[ungated].native.find("geosetId") != nullptr);
+    CHECK(read.nodes[ungated].native.find("geosetId")->value == 3);
+    CHECK(read.nodes[ungated].native.find("geosetAnimationId") == nullptr);
+    CHECK(gateOf(unlinked) == kInvalidIndex);
+    CHECK(read.nodes[unlinked].native.find("geosetId") == nullptr);
+    CHECK(read.nodes[unlinked].native.find("geosetAnimationId") == nullptr);
+
+    // And a v5 write of the migrated document keeps what the migration made.
+    const Document again = readDocument(writeDocument(reread), issues);
+    CHECK(dump(again) == dump(reread));
+}
+
 TEST_CASE("wem a v3 file says it is v3", "[wem][format][v3]") {
     const std::vector<u8> bytes = writeDocument(makeDocument());
     REQUIRE(bytes.size() >= 32);

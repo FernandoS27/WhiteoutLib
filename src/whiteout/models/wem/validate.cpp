@@ -8,6 +8,7 @@
 #include <whiteout/models/wem/document.h>
 #include <whiteout/models/wem/geometry/checks.h>
 #include <whiteout/models/wem/materials/ops.h>
+#include <whiteout/models/wem/meshes/remove.h>
 #include <whiteout/models/wem/nodes/remove.h>
 
 namespace whiteout {
@@ -484,6 +485,13 @@ void checkMaterialReferencers(const Document& document, Diagnostics& out) {
     CheckTextureReferencers(document, out);
 }
 
+/// The §5.12 referencer table, per model: the mesh axis.
+void checkMeshReferencers(const Document& document, Diagnostics& out) {
+    for (const Model& model : document.models) {
+        CheckMeshReferencers(model, out);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Manifold
 // ---------------------------------------------------------------------------
@@ -691,7 +699,7 @@ constexpr ValidationRule kStructuralRules[] = {
     checkMeshStructure,    checkProfileDeclarations, checkBindingShape,
     checkMaterialBodies,   checkNativeKinds,         checkMaterialReferencers,
     checkAttachments,      checkAnimation,           checkNodeKindProfiles,
-    checkEmitters,         nullptr,
+    checkEmitters,         checkMeshReferencers,     nullptr,
 };
 constexpr ValidationRule kManifoldRules[] = {checkMeshManifold, nullptr};
 constexpr ValidationRule kProfileRules[] = {

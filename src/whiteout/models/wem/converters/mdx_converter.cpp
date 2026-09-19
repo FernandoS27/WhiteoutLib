@@ -59,6 +59,15 @@ namespace {
 
 constexpr ProfileId kMdxProfiles[] = {ProfileId::Wc3Classic, ProfileId::Wc3Reforged};
 
+// A section's geoset-animation leftovers in its native bag, spelled here and
+// nowhere else (`geosetTint` / `setGeosetTint`). Floats are their bit patterns.
+constexpr const char* kGeosetColorR = "geosetColorR";
+constexpr const char* kGeosetColorG = "geosetColorG";
+constexpr const char* kGeosetColorB = "geosetColorB";
+constexpr const char* kGeosetAlpha = "geosetAlpha";
+/// The record's flags word without `DropShadow`, when it is not plain `Color`.
+constexpr const char* kGeosetAnimFlags = "geosetAnimFlags";
+
 Extent ToExtent(const mdx::Extent& source) {
     Extent out;
     out.minimum = source.minimum;
@@ -275,9 +284,24 @@ void FillPayload(const mdx::Model& source, const PendingNode& pending, Node& nod
 
     switch (pending.origin) {
     case Origin::Bone: {
+        // The gate is resolved as the renderer and the game resolve it: through
+        // the record, with the bone's own `geosetId` read only against the
+        // sentinel. A geoset is a mesh here, so its index is the mesh's.
         const mdx::Bone& bone = source.bones[pending.sourceIndex];
-        node.native.set("geosetId", static_cast<i64>(bone.geosetId));
-        node.native.set("geosetAnimationId", static_cast<i64>(bone.geosetAnimationId));
+        auto& payload = std::get<BonePayload>(node.payload);
+        if (bone.geosetId != mdx::Bone::MULTIPLE_GEOSETS &&
+            bone.geosetAnimationId < source.geosetAnimations.size() &&
+            source.geosetAnimations[bone.geosetAnimationId].geosetId < source.geosets.size()) {
+            payload.gateMesh = source.geosetAnimations[bone.geosetAnimationId].geosetId;
+        }
+        // The file's `geosetId`, where the export would not write it back by
+        // itself: a gated bone naming another geoset than its record does, and
+        // an ungated one naming a geoset at all. Nothing reads either.
+        const u32 written = payload.gateMesh != kInvalidIndex ? payload.gateMesh
+                                                              : mdx::Bone::MULTIPLE_GEOSETS;
+        if (bone.geosetId != written) {
+            node.native.set("geosetId", static_cast<i64>(bone.geosetId));
+        }
         break;
     }
     case Origin::Light: {
@@ -720,6 +744,92 @@ std::vector<u32> TextureWrapBits(const Document& document, const ProfileMaterial
     return bits;
 }
 
+/// The geoset animations' flags words and the bones' links to them, written
+/// once every record exists (EDIT_MODE_MESH_DESIGN.md §7.6). A bone's link is
+/// derived from its `gateMesh` rather than carried: the table the file's raw
+/// indices named is rebuilt by this export, so they would name other records.
+void LinkGeosetAnimations(const Model& model, const mdx_anim::ExportContext& context,
+                          mdx::Model& out, Diagnostics& diagnostics) {
+    using Flag = mdx::GeosetAnimation::Flag;
+    const auto recordOf = [&out](u32 geoset, bool create) -> u32 {
+        for (std::size_t r = 0; r < out.geosetAnimations.size(); ++r) {
+            if (out.geosetAnimations[r].geosetId == geoset) {
+                return static_cast<u32>(r);
+            }
+        }
+        if (!create) {
+            return kInvalidIndex;
+        }
+        mdx::GeosetAnimation created;
+        created.geosetId = geoset;
+        created.flags = Flag::Color;
+        out.geosetAnimations.push_back(std::move(created));
+        return static_cast<u32>(out.geosetAnimations.size() - 1);
+    };
+    const auto gateOf = [&model](std::size_t node) {
+        const auto* bone = std::get_if<BonePayload>(&model.nodes.nodes[node].payload);
+        return bone != nullptr ? bone->gateMesh : kInvalidIndex;
+    };
+
+    // A mesh a bone gates gets a record whatever else it carries: the game
+    // reads that record's flags through the bone.
+    std::vector<u8> gated(model.meshes.size(), 0);
+    for (std::size_t i = 0; i < model.nodes.size(); ++i) {
+        if (gateOf(i) < gated.size()) {
+            gated[gateOf(i)] = 1;
+        }
+    }
+
+    const u32 dropShadow = static_cast<u32>(Flag::DropShadow);
+    for (std::size_t m = 0; m < context.geosetsOfMesh.size() && m < model.meshes.size(); ++m) {
+        const Mesh& mesh = model.meshes[m];
+        for (std::size_t k = 0; k < context.geosetsOfMesh[m].size(); ++k) {
+            const u32 s = k < context.sectionOfGeoset[m].size() ? context.sectionOfGeoset[m][k]
+                                                                : kInvalidIndex;
+            const MeshSection* section = s < mesh.sections.size() ? &mesh.sections[s] : nullptr;
+            const NativeBag::Entry* word =
+                section != nullptr ? section->native.find(kGeosetAnimFlags) : nullptr;
+            const bool shadow =
+                section != nullptr && hasFlag(section->flags, SectionFlags::ProjectedShadow);
+            const bool needed = word != nullptr || shadow || (gated[m] != 0 && k == 0);
+            const u32 r = recordOf(context.geosetsOfMesh[m][k], needed);
+            if (r == kInvalidIndex) {
+                continue;
+            }
+            u32 flags = word != nullptr ? static_cast<u32>(word->value) & ~dropShadow
+                                        : static_cast<u32>(Flag::Color);
+            if (shadow) {
+                flags |= dropShadow;
+            }
+            out.geosetAnimations[r].flags = static_cast<Flag>(flags);
+        }
+    }
+
+    for (std::size_t i = 0; i < model.nodes.size() && i < context.nodeSlots.size(); ++i) {
+        const mdx_anim::ExportContext::NodeSlot& slot = context.nodeSlots[i];
+        if (slot.slot != mdx_anim::ExportContext::Slot::Bone || slot.index >= out.bones.size()) {
+            continue;
+        }
+        mdx::Bone& bone = out.bones[slot.index];
+        const u32 mesh = gateOf(i);
+        const NativeBag::Entry* kept = model.nodes.nodes[i].native.find("geosetId");
+        if (mesh < context.geosetsOfMesh.size() && !context.geosetsOfMesh[mesh].empty()) {
+            const u32 first = context.geosetsOfMesh[mesh].front();
+            bone.geosetId = kept != nullptr ? static_cast<u32>(kept->value) : first;
+            bone.geosetAnimationId = recordOf(first, true);
+            continue;
+        }
+        if (mesh != kInvalidIndex) {
+            diagnostics.warn(DiagCode::IndexOutOfRange,
+                             "bone is gated by mesh " + std::to_string(mesh) +
+                                 ", which does not exist; written with no gate",
+                             ElementRef(ElementKind::Node, static_cast<u32>(i)));
+        }
+        bone.geosetId = kept != nullptr ? static_cast<u32>(kept->value) : mdx::Bone::MULTIPLE_GEOSETS;
+        bone.geosetAnimationId = mdx::Bone::MULTIPLE_GEOSETS;
+    }
+}
+
 } // namespace
 
 // ============================================================================
@@ -757,7 +867,122 @@ MdxExportMap MdxExportMapOf(const Document& document, u32 model, ProfileId profi
         }
     }
     map.clipSequence = mdx_anim::ClipSequences(document, model);
+
+    // One geoset per section, in mesh order, and one for a mesh with none: the
+    // render view splits by section and always yields that many ranges.
+    // `toMdx` numbers from this, so the two cannot disagree.
+    const auto& meshes = document.models[model].meshes;
+    map.geosetsOfMesh.resize(meshes.size());
+    u32 geoset = 0;
+    for (std::size_t m = 0; m < meshes.size(); ++m) {
+        const std::size_t count = std::max<std::size_t>(1, meshes[m].sections.size());
+        for (std::size_t k = 0; k < count; ++k) {
+            map.geosetsOfMesh[m].push_back(geoset++);
+        }
+    }
     return map;
+}
+
+// ============================================================================
+// A geoset's static colour and alpha
+// ============================================================================
+
+GeosetTint MdxConverter::geosetTint(const MeshSection& section) const {
+    const auto value = [&](const char* key) -> const NativeBag::Entry* {
+        return section.native.find(key);
+    };
+    const auto real = [](const NativeBag::Entry* entry) {
+        return std::bit_cast<f32>(static_cast<u32>(entry->value));
+    };
+    GeosetTint tint;
+    const NativeBag::Entry* r = value(kGeosetColorR);
+    const NativeBag::Entry* g = value(kGeosetColorG);
+    const NativeBag::Entry* b = value(kGeosetColorB);
+    if (r != nullptr && g != nullptr && b != nullptr) {
+        tint.color = Vector3f{real(r), real(g), real(b)};
+    }
+    if (const NativeBag::Entry* a = value(kGeosetAlpha)) {
+        tint.alpha = real(a);
+    }
+    tint.hidden = hasFlag(section.flags, SectionFlags::Hidden);
+    return tint;
+}
+
+void MdxConverter::setGeosetTint(MeshSection& section, const GeosetTint& tint) const {
+    const bool hidden = tint.hidden || tint.alpha <= 0.0f;
+    const f32 alpha = tint.alpha > 0.0f ? tint.alpha : geosetTint(section).alpha;
+    const auto bits = [](f32 v) { return static_cast<i64>(std::bit_cast<u32>(v)); };
+
+    // Written back where the import puts them -- after `selectionFlags` -- so
+    // that a bag edited back to its imported value compares equal to it: the
+    // bag keeps insertion order and two orders are two bags.
+    std::vector<NativeBag::Entry>& entries = section.native.entries;
+    std::size_t at = entries.size();
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        const std::string& name = entries[i].name;
+        if (name == kGeosetColorR || name == kGeosetColorG || name == kGeosetColorB ||
+            name == kGeosetAlpha) {
+            at = std::min(at, i);
+        }
+    }
+    std::erase_if(entries, [](const NativeBag::Entry& entry) {
+        return entry.name == kGeosetColorR || entry.name == kGeosetColorG ||
+               entry.name == kGeosetColorB || entry.name == kGeosetAlpha;
+    });
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        if (entries[i].name == "selectionFlags") {
+            at = i + 1;
+        }
+    }
+    at = std::min(at, entries.size());
+
+    std::vector<NativeBag::Entry> added;
+    const Vector3f& c = tint.color;
+    if (c.x != 1.0f || c.y != 1.0f || c.z != 1.0f) {
+        added.push_back({kGeosetColorR, bits(c.x), {}});
+        added.push_back({kGeosetColorG, bits(c.y), {}});
+        added.push_back({kGeosetColorB, bits(c.z), {}});
+    }
+    if (alpha != 1.0f) {
+        added.push_back({kGeosetAlpha, bits(alpha), {}});
+    }
+    entries.insert(entries.begin() + static_cast<std::ptrdiff_t>(at), added.begin(), added.end());
+
+    const u32 without = static_cast<u32>(section.flags) & ~static_cast<u32>(SectionFlags::Hidden);
+    section.flags = static_cast<SectionFlags>(without);
+    if (hidden) {
+        section.flags |= SectionFlags::Hidden;
+    }
+}
+
+GeosetFlags MdxConverter::geosetFlags(const MeshSection& section) const {
+    GeosetFlags flags;
+    if (const NativeBag::Entry* selection = section.native.find("selectionFlags")) {
+        flags.selection = static_cast<u32>(selection->value);
+    }
+    if (const NativeBag::Entry* word = section.native.find(kGeosetAnimFlags)) {
+        flags.animation = static_cast<u32>(word->value) & ~GeosetFlags::kDropShadow;
+    }
+    if (hasFlag(section.flags, SectionFlags::ProjectedShadow)) {
+        flags.animation |= GeosetFlags::kDropShadow;
+    }
+    return flags;
+}
+
+void MdxConverter::setGeosetFlags(MeshSection& section, const GeosetFlags& flags) const {
+    section.native.set("selectionFlags", static_cast<i64>(flags.selection));
+    const u32 rest = flags.animation & ~GeosetFlags::kDropShadow;
+    std::erase_if(section.native.entries,
+                  [](const NativeBag::Entry& entry) { return entry.name == kGeosetAnimFlags; });
+    if (rest != static_cast<u32>(mdx::GeosetAnimation::Flag::Color)) {
+        section.native.set(kGeosetAnimFlags, static_cast<i64>(rest));
+    }
+    const u32 without =
+        static_cast<u32>(section.flags) & ~static_cast<u32>(SectionFlags::ProjectedShadow);
+    section.flags = static_cast<SectionFlags>(without);
+    if ((flags.animation & GeosetFlags::kDropShadow) != 0) {
+        section.flags |= SectionFlags::ProjectedShadow;
+    }
 }
 
 // ============================================================================
@@ -849,34 +1074,42 @@ Result<Document> MdxConverter::fromMdx(const mdx::Model& source) const {
         section.native.set("selectionFlags", static_cast<i64>(geoset.selectionFlags));
         // A geoset Warcraft III hides carries a static alpha of zero -- the
         // only per-geoset visibility the format has -- and a static alpha is
-        // not a track, so nothing else in this import would have seen it.
-        for (const mdx::GeosetAnimation& animation : source.geosetAnimations) {
-            if (animation.geosetId == g && !animation.alphaTracks.isUsed &&
-                animation.alpha <= 0.0f) {
-                section.flags |= SectionFlags::Hidden;
-                break;
-            }
-        }
-        // The rest of a geoset animation is no track either: a static tint and
-        // a static partial alpha, which Warcraft III multiplies into the geoset
-        // and a keyed one answers outside its keys. Kept bit for bit; the
-        // colour is red first, as the renderer and Blizzard's conversions read
-        // it (`mdx_anim.cpp`, `SwapRedBlue`).
+        // not a track, so nothing else in this import would have seen it. The
+        // rest of the geoset's first record is no track either: a static tint
+        // and a static partial alpha, which Warcraft III multiplies into the
+        // geoset and a keyed one answers outside its keys. Kept bit for bit;
+        // the colour is red first, as the renderer and Blizzard's conversions
+        // read it (`mdx_anim.cpp`, `SwapRedBlue`).
+        const mdx::GeosetAnimation* record = nullptr;
+        GeosetTint tint;
         for (const mdx::GeosetAnimation& animation : source.geosetAnimations) {
             if (animation.geosetId != g) {
                 continue;
             }
-            const auto bits = [](f32 value) { return static_cast<i64>(std::bit_cast<u32>(value)); };
-            const Vector3f& c = animation.color;
-            if (c.x != 1.0f || c.y != 1.0f || c.z != 1.0f) {
-                section.native.set("geosetColorR", bits(c.x));
-                section.native.set("geosetColorG", bits(c.y));
-                section.native.set("geosetColorB", bits(c.z));
+            if (record == nullptr) {
+                record = &animation;
+                tint.color = animation.color;
+                if (animation.alpha > 0.0f) {
+                    tint.alpha = animation.alpha;
+                }
             }
-            if (animation.alpha > 0.0f && animation.alpha != 1.0f) {
-                section.native.set("geosetAlpha", bits(animation.alpha));
+            if (!animation.alphaTracks.isUsed && animation.alpha <= 0.0f) {
+                tint.hidden = true;
             }
-            break;
+        }
+        setGeosetTint(section, tint);
+        // The record's flags word: `DropShadow` is the section's flag, and the
+        // rest rides the bag when it is anything but the `Color` every record
+        // the export makes carries -- 251 shipped records set bits 0x18.
+        if (record != nullptr) {
+            const u32 word = static_cast<u32>(record->flags);
+            const u32 dropShadow = static_cast<u32>(mdx::GeosetAnimation::Flag::DropShadow);
+            if ((word & dropShadow) != 0) {
+                section.flags |= SectionFlags::ProjectedShadow;
+            }
+            if ((word & ~dropShadow) != static_cast<u32>(mdx::GeosetAnimation::Flag::Color)) {
+                section.native.set(kGeosetAnimFlags, static_cast<i64>(word & ~dropShadow));
+            }
         }
         const u32 sectionIndex = builder.addSection(std::move(section));
 
@@ -994,7 +1227,7 @@ void WriteGeosetSkin(mdx::Geoset& geoset, const std::vector<u32>& sourceOf,
                      const std::vector<std::array<u32, 4>>& boneIndices,
                      const std::vector<std::array<f32, 4>>& boneWeights,
                      const std::vector<u32>& objectIdOf, bool skinChunk, u32 mesh,
-                     Diagnostics& diagnostics) {
+                     Diagnostics& diagnostics, bool reportSets = true) {
     if (boneIndices.empty() || boneWeights.empty()) {
         return;
     }
@@ -1067,7 +1300,7 @@ void WriteGeosetSkin(mdx::Geoset& geoset, const std::vector<u32>& sourceOf,
         groupOf[v] = entry->second;
     }
 
-    if (!sets) {
+    if (!sets && reportSets) {
         diagnostics.warn(DiagCode::BonePaletteLimit,
                          "section binds more than 256 distinct bone sets; the group encoding "
                          "keeps only the heaviest bone per vertex",
@@ -1121,6 +1354,193 @@ void WriteGeosetSkin(mdx::Geoset& geoset, const std::vector<u32>& sourceOf,
                 static_cast<u16>(std::clamp(entry.weights[k], 0.0f, 1.0f) * 255.0f + 0.5f);
         }
     }
+}
+
+namespace {
+
+/// The render view every geoset is cut from: split by section, skinned through
+/// the model's skeleton, with the four streams a geoset holds.
+geom::RenderMeshDesc GeosetRenderDesc(ProfileId profile, const NodeTree& nodes) {
+    geom::RenderMeshDesc desc;
+    desc.attributes = {
+        {geom::names::kPosition, utils::AttributeClass::Position, utils::AttributeEncoding::Float32,
+         3, 0},
+        {geom::names::kNormal, utils::AttributeClass::Normal, utils::AttributeEncoding::Float32, 3,
+         0},
+        {geom::names::uv(0), utils::AttributeClass::UV, utils::AttributeEncoding::Float32, 2, 0},
+        // `TANG` exists from v900 and an HD material's normal map is meaningless
+        // without it: the shader reads the tangent frame off this chunk, and a
+        // Reforged model that carried a normal map and no tangents shaded as
+        // though every face were flat. Import has always read them (§5.4's
+        // `kTangent` corner layer); export dropped them on the floor.
+        {geom::names::kTangent, utils::AttributeClass::Tangent, utils::AttributeEncoding::Float32,
+         4, 0},
+    };
+    desc.includeSkin = true;
+    desc.maxInfluences = Profile(profile).maxBoneInfluences;
+    // Node indices, not palette slots: a byte wraps node 256 onto node 0, and a
+    // model of more nodes than that skins its later bones to its first ones.
+    desc.blendIndexEncoding = utils::AttributeEncoding::UInt16;
+    desc.splitBySection = true;
+    const SkinSkeleton skinSkeleton(nodes);
+    skinSkeleton.describe(desc);
+    return desc;
+}
+
+/// One mesh's render view, unpacked once for every range in it.
+struct GeosetStreams {
+    std::vector<Vector3f> positions;
+    std::vector<Vector3f> normals;
+    std::vector<Vector2f> uv0;
+    std::vector<Vector4f> tangents;
+    std::vector<std::array<u32, 4>> boneIndices;
+    std::vector<std::array<f32, 4>> boneWeights;
+
+    GeosetStreams(const geom::RenderMesh& render, const Mesh& mesh, u32 targetVersion)
+        : positions(render.vertices.getPositions()), normals(render.vertices.getNormals()),
+          uv0(render.vertices.getUVs(0)), boneIndices(render.vertices.getBoneIndices()),
+          boneWeights(render.vertices.getBoneWeights()) {
+        // Only when the source actually authored them. A mesh with no tangent
+        // layer would otherwise get a chunk of zeroes, which is worse than the
+        // absence the reader already handles.
+        if (targetVersion > 800 &&
+            mesh.attributes.has(geom::names::kTangent, geom::Domain::Halfedge)) {
+            tangents = render.vertices.getTangents();
+        }
+    }
+};
+
+constexpr u32 kUnmappedVertex = ~0u;
+
+/**
+ * @brief One render range as the geoset `toMdx` writes: its own vertex slice in
+ *        first-use order, its faces, its bounds and its skin.
+ *
+ * Shared by the export and by `checkGeoset`, so what the check refuses is what
+ * the export would have said. @p localOf is one slot per GPU vertex, all
+ * `kUnmappedVertex`, and left that way: two sections can share a vertex when
+ * their corner attributes agree, so the map is not a simple offset.
+ */
+mdx::Geoset BuildGeosetFromRange(const Mesh& mesh, u32 meshIndex, const geom::RenderMesh& render,
+                                 const GeosetStreams& streams, const geom::RenderRange& range,
+                                 std::vector<u32>& localOf, const std::vector<u32>& objectIdOf,
+                                 bool skinChunk, bool reportSets, Diagnostics& diagnostics) {
+    const MeshSection* section =
+        range.section < mesh.sections.size() ? &mesh.sections[range.section] : nullptr;
+
+    mdx::Geoset geoset;
+    geoset.lod = mesh.lodLevel;
+    geoset.lodName = section != nullptr && !section->name.empty() ? section->name : mesh.name;
+
+    std::vector<u32> sourceOf;
+    sourceOf.reserve(range.indexCount);
+    geoset.faces.reserve(range.indexCount);
+    bool wide = false;
+    const u32 end = range.firstIndex + range.indexCount;
+    for (u32 i = range.firstIndex; i < end && i < render.indices.size(); ++i) {
+        const u32 source = render.indices[i];
+        if (source >= localOf.size()) {
+            geoset.faces.push_back(0);
+            continue;
+        }
+        if (localOf[source] == kUnmappedVertex) {
+            localOf[source] = static_cast<u32>(sourceOf.size());
+            sourceOf.push_back(source);
+        }
+        const u32 local = localOf[source];
+        wide = wide || local > 0xFFFFu;
+        geoset.faces.push_back(static_cast<u16>(local & 0xFFFFu));
+    }
+    for (const u32 source : sourceOf) {
+        localOf[source] = kUnmappedVertex;
+    }
+    if (wide) {
+        diagnostics.warn(DiagCode::IndexWidthExceeded,
+                         "section needs more than 65535 vertices for one geoset",
+                         ElementRef(ElementKind::Mesh, meshIndex));
+    }
+    geoset.faceTypeGroups.push_back(4);
+    geoset.faceGroups.push_back(static_cast<u32>(geoset.faces.size()));
+
+    const auto& positions = streams.positions;
+    const auto& normals = streams.normals;
+    const auto& uv0 = streams.uv0;
+    const auto& tangents = streams.tangents;
+    geoset.vertexPositions.reserve(sourceOf.size());
+    geoset.vertexNormals.reserve(sourceOf.size());
+    if (!tangents.empty()) {
+        geoset.tangents.reserve(sourceOf.size());
+    }
+    std::vector<Vector2f> uvs;
+    if (!uv0.empty()) {
+        uvs.reserve(sourceOf.size());
+    }
+    Extent bounds;
+    ResetExtent(bounds);
+    for (const u32 source : sourceOf) {
+        const Vector3f position = source < positions.size() ? positions[source] : Vector3f(0, 0, 0);
+        geoset.vertexPositions.push_back(position);
+        GrowExtent(bounds, position);
+        geoset.vertexNormals.push_back(source < normals.size() ? normals[source]
+                                                               : Vector3f(0, 0, 1));
+        if (!tangents.empty()) {
+            geoset.tangents.push_back(source < tangents.size() ? tangents[source]
+                                                               : Vector4f(1, 0, 0, 1));
+        }
+        if (!uv0.empty()) {
+            uvs.push_back(source < uv0.size() ? uv0[source] : Vector2f(0, 0));
+        }
+    }
+    if (!uvs.empty()) {
+        geoset.textureCoordinateSets.push_back(std::move(uvs));
+    }
+    // Derived, like every other bound in WEM. It is also the one thing the
+    // merged geoset could not state: a section's own volume.
+    if (!sourceOf.empty()) {
+        FinishExtent(bounds);
+        geoset.extent = FromExtent(bounds);
+    } else {
+        geoset.extent = FromExtent(mesh.bounds);
+    }
+
+    WriteGeosetSkin(geoset, sourceOf, streams.boneIndices, streams.boneWeights, objectIdOf,
+                    skinChunk, meshIndex, diagnostics, reportSets);
+    return geoset;
+}
+
+} // namespace
+
+Diagnostics MdxConverter::checkGeoset(const Document& document, u32 model, const Mesh& mesh,
+                                      ProfileId profile, u32 targetVersion,
+                                      u32* writtenVertices) const {
+    Diagnostics out;
+    if (writtenVertices != nullptr) {
+        *writtenVertices = 0;
+    }
+    if (model >= document.models.size()) {
+        out.error(DiagCode::IndexOutOfRange, "the document has no model " + std::to_string(model));
+        return out;
+    }
+    const Model& owner = document.models[model];
+    const std::vector<u32> objectIdOf = MdxExportMapOf(document, model, profile).nodeObjectId;
+    const geom::RenderMesh render =
+        geom::BuildRenderMesh(mesh, GeosetRenderDesc(profile, owner.nodes));
+    out.append(render.diagnostics);
+    const bool skinChunk = targetVersion > 800;
+    const GeosetStreams streams(render, mesh, targetVersion);
+    std::vector<u32> localOf(render.vertexCount(), kUnmappedVertex);
+    for (const geom::RenderRange& range : render.ranges) {
+        // The group encoding's 256-set limit means something only where the
+        // groups are the skin: at v800. Above it `SKIN` is, and the warning is
+        // noise (the export still says it; that is its own fix).
+        const mdx::Geoset geoset =
+            BuildGeosetFromRange(mesh, kInvalidIndex, render, streams, range, localOf, objectIdOf,
+                                 skinChunk, /*reportSets=*/!skinChunk, out);
+        if (writtenVertices != nullptr) {
+            *writtenVertices += static_cast<u32>(geoset.vertexPositions.size());
+        }
+    }
+    return out;
 }
 
 // ============================================================================
@@ -1268,12 +1688,8 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
         case NodeKind::Bone: {
             mdx::Bone bone;
             bone.node = buildNode(i);
-            if (const auto* geosetId = node.native.find("geosetId")) {
-                bone.geosetId = static_cast<u32>(geosetId->value);
-            }
-            if (const auto* animId = node.native.find("geosetAnimationId")) {
-                bone.geosetAnimationId = static_cast<u32>(animId->value);
-            }
+            // `geosetId` and `geosetAnimationId` are written once every
+            // geoset animation exists (`LinkGeosetAnimations`).
             claim(i, mdx_anim::ExportContext::Slot::Bone, out.bones.size());
             out.bones.push_back(std::move(bone));
             break;
@@ -1564,157 +1980,69 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
     // Each geoset takes a DISJOINT vertex slice in first-use order, so its
     // faces index its own array (the rule `toM3` already follows for a region),
     // and its own bone palette, because in MDX both are per geoset.
-    geom::RenderMeshDesc desc;
-    desc.attributes = {
-        {geom::names::kPosition, utils::AttributeClass::Position, utils::AttributeEncoding::Float32,
-         3, 0},
-        {geom::names::kNormal, utils::AttributeClass::Normal, utils::AttributeEncoding::Float32, 3,
-         0},
-        {geom::names::uv(0), utils::AttributeClass::UV, utils::AttributeEncoding::Float32, 2, 0},
-        // `TANG` exists from v900 and an HD material's normal map is meaningless
-        // without it: the shader reads the tangent frame off this chunk, and a
-        // Reforged model that carried a normal map and no tangents shaded as
-        // though every face were flat. Import has always read them (§5.4's
-        // `kTangent` corner layer); export dropped them on the floor.
-        {geom::names::kTangent, utils::AttributeClass::Tangent, utils::AttributeEncoding::Float32,
-         4, 0},
-    };
-    desc.includeSkin = true;
-    desc.maxInfluences = Profile(profile).maxBoneInfluences;
-    desc.splitBySection = true;
-    const SkinSkeleton skinSkeleton(model.nodes);
-    skinSkeleton.describe(desc);
+    const geom::RenderMeshDesc desc = GeosetRenderDesc(profile, model.nodes);
 
     // `SKIN` and `TANG` are written only above 800 (mdx/writer.cpp), so at 800
     // the group encoding is the only skinning the file carries.
     const bool skinChunk = targetVersion > 800;
-    animContext.geosetsOfMesh.assign(model.meshes.size(), {});
+    // Numbered by the export map, which is what a host marks geosets through.
+    animContext.geosetsOfMesh = exportMap.geosetsOfMesh;
     animContext.sectionOfGeoset.assign(model.meshes.size(), {});
-    // The geosets a hidden section produced, turned into geoset animations once
-    // every geoset exists.
+    // The geosets a hidden or tinted section produced, turned into geoset
+    // animations once every geoset exists.
     std::vector<u32> hiddenGeosets;
-    std::vector<std::pair<u32, const MeshSection*>> tintedGeosets;
+    std::vector<std::pair<u32, GeosetTint>> tintedGeosets;
+    // What a geoset takes from its section, called just before it is pushed.
+    const auto takeSection = [&](mdx::Geoset& geoset, const MeshSection* section) {
+        if (section == nullptr) {
+            return;
+        }
+        geoset.materialId = section->materialSlot;
+        geoset.selectionGroup = section->selectionGroup;
+        if (const auto* flags = section->native.find("selectionFlags")) {
+            geoset.selectionFlags = static_cast<u32>(flags->value);
+        }
+        const GeosetTint tint = geosetTint(*section);
+        const u32 index = static_cast<u32>(out.geosets.size());
+        if (tint.hidden) {
+            hiddenGeosets.push_back(index);
+        }
+        if (tint.color != Vector3f(1.0f, 1.0f, 1.0f) || tint.alpha != 1.0f) {
+            tintedGeosets.emplace_back(index, tint);
+        }
+    };
 
-    constexpr u32 kUnmapped = ~0u;
     for (std::size_t m = 0; m < model.meshes.size(); ++m) {
         const Mesh& mesh = model.meshes[m];
         const geom::RenderMesh render = geom::BuildRenderMesh(mesh, desc);
         diagnostics.append(render.diagnostics);
+        if (render.ranges.empty()) {
+            // The render view failed and said why. The map promised this mesh
+            // its geosets, so they are written empty rather than renumbering
+            // every geoset after them.
+            for (std::size_t k = 0; k < animContext.geosetsOfMesh[m].size(); ++k) {
+                const MeshSection* section = k < mesh.sections.size() ? &mesh.sections[k] : nullptr;
+                mdx::Geoset geoset;
+                geoset.lod = mesh.lodLevel;
+                geoset.lodName =
+                    section != nullptr && !section->name.empty() ? section->name : mesh.name;
+                geoset.extent = FromExtent(mesh.bounds);
+                takeSection(geoset, section);
+                animContext.sectionOfGeoset[m].push_back(static_cast<u32>(k));
+                out.geosets.push_back(std::move(geoset));
+            }
+            continue;
+        }
 
-        const std::vector<Vector3f> positions = render.vertices.getPositions();
-        const std::vector<Vector3f> normals = render.vertices.getNormals();
-        const std::vector<Vector2f> uv0 = render.vertices.getUVs(0);
-        // Only when the source actually authored them. A mesh with no tangent
-        // layer would otherwise get a chunk of zeroes, which is worse than the
-        // absence the reader already handles.
-        const bool hasTangents = targetVersion > 800 &&
-                                 mesh.attributes.has(geom::names::kTangent, geom::Domain::Halfedge);
-        const std::vector<Vector4f> tangents =
-            hasTangents ? render.vertices.getTangents() : std::vector<Vector4f>();
-        const std::vector<std::array<u32, 4>> boneIndices = render.vertices.getBoneIndices();
-        const std::vector<std::array<f32, 4>> boneWeights = render.vertices.getBoneWeights();
-
-        // One slot per GPU vertex, cleared after each range rather than
-        // reallocated: two sections can share a vertex when their corner
-        // attributes agree, so the map is not a simple offset.
-        std::vector<u32> localOf(render.vertexCount(), kUnmapped);
-
+        const GeosetStreams streams(render, mesh, targetVersion);
+        std::vector<u32> localOf(render.vertexCount(), kUnmappedVertex);
         for (const geom::RenderRange& range : render.ranges) {
             const MeshSection* section =
                 range.section < mesh.sections.size() ? &mesh.sections[range.section] : nullptr;
-
-            mdx::Geoset geoset;
-            geoset.lod = mesh.lodLevel;
-            geoset.lodName =
-                section != nullptr && !section->name.empty() ? section->name : mesh.name;
-
-            std::vector<u32> sourceOf;
-            sourceOf.reserve(range.indexCount);
-            geoset.faces.reserve(range.indexCount);
-            bool wide = false;
-            const u32 end = range.firstIndex + range.indexCount;
-            for (u32 i = range.firstIndex; i < end && i < render.indices.size(); ++i) {
-                const u32 source = render.indices[i];
-                if (source >= localOf.size()) {
-                    geoset.faces.push_back(0);
-                    continue;
-                }
-                if (localOf[source] == kUnmapped) {
-                    localOf[source] = static_cast<u32>(sourceOf.size());
-                    sourceOf.push_back(source);
-                }
-                const u32 local = localOf[source];
-                wide = wide || local > 0xFFFFu;
-                geoset.faces.push_back(static_cast<u16>(local & 0xFFFFu));
-            }
-            for (const u32 source : sourceOf) {
-                localOf[source] = kUnmapped;
-            }
-            if (wide) {
-                diagnostics.warn(DiagCode::IndexWidthExceeded,
-                                 "section needs more than 65535 vertices for one geoset",
-                                 ElementRef(ElementKind::Mesh, static_cast<u32>(m)));
-            }
-            geoset.faceTypeGroups.push_back(4);
-            geoset.faceGroups.push_back(static_cast<u32>(geoset.faces.size()));
-
-            geoset.vertexPositions.reserve(sourceOf.size());
-            geoset.vertexNormals.reserve(sourceOf.size());
-            if (!tangents.empty()) {
-                geoset.tangents.reserve(sourceOf.size());
-            }
-            std::vector<Vector2f> uvs;
-            if (!uv0.empty()) {
-                uvs.reserve(sourceOf.size());
-            }
-            Extent bounds;
-            ResetExtent(bounds);
-            for (const u32 source : sourceOf) {
-                const Vector3f position =
-                    source < positions.size() ? positions[source] : Vector3f(0, 0, 0);
-                geoset.vertexPositions.push_back(position);
-                GrowExtent(bounds, position);
-                geoset.vertexNormals.push_back(source < normals.size() ? normals[source]
-                                                                       : Vector3f(0, 0, 1));
-                if (!tangents.empty()) {
-                    geoset.tangents.push_back(source < tangents.size() ? tangents[source]
-                                                                       : Vector4f(1, 0, 0, 1));
-                }
-                if (!uv0.empty()) {
-                    uvs.push_back(source < uv0.size() ? uv0[source] : Vector2f(0, 0));
-                }
-            }
-            if (!uvs.empty()) {
-                geoset.textureCoordinateSets.push_back(std::move(uvs));
-            }
-            // Derived, like every other bound in WEM. It is also the one thing
-            // the merged geoset could not state: a section's own volume.
-            if (!sourceOf.empty()) {
-                FinishExtent(bounds);
-                geoset.extent = FromExtent(bounds);
-            } else {
-                geoset.extent = FromExtent(mesh.bounds);
-            }
-
-            WriteGeosetSkin(geoset, sourceOf, boneIndices, boneWeights, objectIdOf, skinChunk,
-                            static_cast<u32>(m), diagnostics);
-
-            if (section != nullptr) {
-                geoset.materialId = section->materialSlot;
-                geoset.selectionGroup = section->selectionGroup;
-                if (const auto* flags = section->native.find("selectionFlags")) {
-                    geoset.selectionFlags = static_cast<u32>(flags->value);
-                }
-                if (hasFlag(section->flags, SectionFlags::Hidden)) {
-                    hiddenGeosets.push_back(static_cast<u32>(out.geosets.size()));
-                }
-                if (section->native.find("geosetColorR") != nullptr ||
-                    section->native.find("geosetAlpha") != nullptr) {
-                    tintedGeosets.emplace_back(static_cast<u32>(out.geosets.size()), section);
-                }
-            }
-
-            animContext.geosetsOfMesh[m].push_back(static_cast<u32>(out.geosets.size()));
+            mdx::Geoset geoset =
+                BuildGeosetFromRange(mesh, static_cast<u32>(m), render, streams, range, localOf,
+                                     objectIdOf, skinChunk, /*reportSets=*/true, diagnostics);
+            takeSection(geoset, section);
             animContext.sectionOfGeoset[m].push_back(range.section);
             out.geosets.push_back(std::move(geoset));
         }
@@ -1732,9 +2060,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
         out.geosetAnimations.push_back(std::move(animation));
     }
     // A static tint or partial alpha goes back onto the geoset's record.
-    for (const auto& [geoset, section] : tintedGeosets) {
-        const NativeBag::Entry* r = section->native.find("geosetColorR");
-        const NativeBag::Entry* a = section->native.find("geosetAlpha");
+    for (const auto& [geoset, tint] : tintedGeosets) {
         mdx::GeosetAnimation* animation = nullptr;
         for (mdx::GeosetAnimation& existing : out.geosetAnimations) {
             if (existing.geosetId == geoset) {
@@ -1748,24 +2074,18 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
             out.geosetAnimations.push_back(std::move(created));
             animation = &out.geosetAnimations.back();
         }
-        const auto value = [](const NativeBag::Entry* entry) {
-            return std::bit_cast<f32>(static_cast<u32>(entry->value));
-        };
-        if (r != nullptr) {
-            const NativeBag::Entry* g = section->native.find("geosetColorG");
-            const NativeBag::Entry* b = section->native.find("geosetColorB");
-            if (g != nullptr && b != nullptr) {
-                animation->color = Vector3f{value(r), value(g), value(b)};
-            }
-        }
-        if (a != nullptr && !hasFlag(section->flags, SectionFlags::Hidden)) {
-            animation->alpha = value(a);
+        animation->color = tint.color;
+        // A hidden geoset writes 0 and keeps the document's alpha for later.
+        if (!tint.hidden) {
+            animation->alpha = tint.alpha;
         }
     }
 
     // Last, because a geoset animation names a geoset and an event object has
     // to exist before its times can be written onto it.
     mdx_anim::Export(document, 0, profile, animContext, out, diagnostics);
+    // And after it, because the keyed records are only now all made.
+    LinkGeosetAnimations(model, animContext, out, diagnostics);
 
     result.value = std::move(out);
     return result;

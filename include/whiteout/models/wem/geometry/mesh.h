@@ -58,6 +58,8 @@ enum class SectionFlags : u32 {
     ClothSimulated = 0x2,  ///< The section's vertices are driven by cloth.
     ClothInfluenced = 0x4, ///< The section is deformed by cloth it does not own.
     Billboard = 0x8,       ///< The section is oriented per view rather than by its node.
+    /// MDX's GEOA `DropShadow`: the bones linked to this mesh
+    /// (`BonePayload::gateMesh`) are placed as a drop shadow.
     ProjectedShadow = 0x10,
 };
 

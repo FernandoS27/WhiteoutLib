@@ -775,3 +775,371 @@ TEST_CASE("wem mdx round trip keeps geometry, nodes and slots", "[wem][convert][
     REQUIRE(out.materials.size() == 1);
     CHECK(out.geosets[0].materialId == 0);
 }
+
+// ---------------------------------------------------------------------------
+// The bone's link to its geoset, the flags word, the tint API and the geoset
+// numbering (EDIT_MODE_MESH_PLAN.md L1)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+constexpr u32 kSentinel = mdx::Bone::MULTIPLE_GEOSETS;
+
+/// The geoset a bone's gate hides with, resolved as the renderer and the game
+/// resolve it (`mdx_model_adapter.cpp`, `IAnimCreateObjects`): through the
+/// record, with the bone's own `geosetId` read only against the sentinel.
+u32 gateGeosetOf(const mdx::Model& model, const mdx::Bone& bone) {
+    if (bone.geosetId == kSentinel || bone.geosetAnimationId >= model.geosetAnimations.size()) {
+        return kInvalidIndex;
+    }
+    const u32 geoset = model.geosetAnimations[bone.geosetAnimationId].geosetId;
+    return geoset < model.geosets.size() ? geoset : kInvalidIndex;
+}
+
+const mdx::GeosetAnimation* recordFor(const mdx::Model& model, u32 geoset) {
+    for (const mdx::GeosetAnimation& record : model.geosetAnimations) {
+        if (record.geosetId == geoset) {
+            return &record;
+        }
+    }
+    return nullptr;
+}
+
+mdx::GeosetAnimation::Flag flagsOf(u32 word) {
+    return static_cast<mdx::GeosetAnimation::Flag>(word);
+}
+
+/// Four quads, four bones, and a geoset-animation table whose order is NOT the
+/// geosets': record 0 names geoset 2 and record 1 geoset 0, so a raw index read
+/// as a geoset, or carried through a rebuilt table, lands on the wrong one.
+///
+/// - bone 0: record 0, so geoset 2.
+/// - bone 1: `geosetId` 1 but record 1, so geoset 0 -- one of the 44 shipped
+///   bones whose two fields disagree.
+/// - bone 2: names geoset 1 and no record: no gate.
+/// - bone 3: no link at all.
+///
+/// Geoset 2's record carries `DropShadow` and the unnamed bits 0x18; geoset 3's
+/// carries a flags word of 0 and nothing else.
+mdx::Model makeGatedModel() {
+    mdx::Model model = makeModel();
+    model.version = 800;
+    const mdx::Geoset quad = model.geosets.front();
+    model.geosets.clear();
+    for (u32 g = 0; g < 4; ++g) {
+        mdx::Geoset geoset = quad;
+        geoset.lodName = "geoset_" + std::to_string(g);
+        for (Vector3f& position : geoset.vertexPositions) {
+            position.x += static_cast<f32>(g) * 4.0f;
+        }
+        model.geosets.push_back(geoset);
+    }
+
+    mdx::GeosetAnimation shadowed;
+    shadowed.geosetId = 2;
+    shadowed.color = Vector3f{0.5f, 0.25f, 1.0f};
+    shadowed.flags = flagsOf(0x1B); // DropShadow | Color | 0x18
+    mdx::GeosetAnimation half;
+    half.geosetId = 0;
+    half.alpha = 0.5f;
+    half.flags = mdx::GeosetAnimation::Flag::Color;
+    mdx::GeosetAnimation bare;
+    bare.geosetId = 3;
+    bare.flags = flagsOf(0);
+    model.geosetAnimations = {shadowed, half, bare};
+
+    model.bones.clear();
+    const auto bone = [&](const char* name, u32 objectId, u32 geosetId, u32 record) {
+        mdx::Bone b;
+        b.node = makeNode(name, objectId, mdx::Node::NO_PARENT);
+        b.geosetId = geosetId;
+        b.geosetAnimationId = record;
+        model.bones.push_back(b);
+    };
+    bone("byRecord", 0, 2, 0);
+    bone("disagreeing", 1, 1, 1);
+    bone("noRecord", 2, 1, kSentinel);
+    bone("unlinked", 3, kSentinel, kSentinel);
+    model.pivotPoints = {Vector3f{0, 0, 0}, Vector3f{0, 0, 1}, Vector3f{0, 0, 2},
+                         Vector3f{0, 0, 3}};
+    return model;
+}
+
+u32 boneNodeNamed(const Document& document, const std::string& name) {
+    const NodeTree& nodes = document.models.front().nodes;
+    for (u32 i = 0; i < nodes.size(); ++i) {
+        if (nodes.nodes[i].name == name) {
+            return i;
+        }
+    }
+    return kInvalidIndex;
+}
+
+const mdx::Bone* boneNamed(const mdx::Model& model, const std::string& name) {
+    for (const mdx::Bone& bone : model.bones) {
+        if (bone.node.name == name) {
+            return &bone;
+        }
+    }
+    return nullptr;
+}
+
+std::vector<std::string> keysOf(const NativeBag& bag) {
+    std::vector<std::string> keys;
+    for (const NativeBag::Entry& entry : bag.entries) {
+        keys.push_back(entry.name);
+    }
+    return keys;
+}
+
+} // namespace
+
+TEST_CASE("wem mdx a bone gate is resolved through its record", "[wem][convert][mdx][gate]") {
+    const mdx::Model source = makeGatedModel();
+    const MdxConverter converter;
+    Result<Document> imported = converter.fromMdx(source);
+    REQUIRE(imported.ok());
+
+    const auto gateMesh = [&](const char* name) {
+        const u32 node = boneNodeNamed(*imported, name);
+        REQUIRE(node != kInvalidIndex);
+        return std::get<BonePayload>(imported->models[0].nodes.nodes[node].payload).gateMesh;
+    };
+    CHECK(gateMesh("byRecord") == 2u);
+    CHECK(gateMesh("disagreeing") == 0u);
+    CHECK(gateMesh("noRecord") == kInvalidIndex);
+    CHECK(gateMesh("unlinked") == kInvalidIndex);
+
+    // The raw pair is not carried: it would name records of a table the export
+    // rebuilds.
+    for (const Node& node : imported->models[0].nodes.nodes) {
+        CHECK(node.native.find("geosetAnimationId") == nullptr);
+    }
+
+    Result<mdx::Model> exported = converter.toMdx(*imported, ProfileId::Wc3Classic, 800);
+    REQUIRE(exported.ok());
+    // The rebuilt table puts geoset 0's record first, so bone 0's old index 0
+    // would now gate geoset 0: the fixture is only worth running if so.
+    REQUIRE_FALSE(exported->geosetAnimations.empty());
+    CHECK(exported->geosetAnimations[0].geosetId == 0u);
+
+    for (const mdx::Bone& original : source.bones) {
+        INFO(original.node.name);
+        const mdx::Bone* written = boneNamed(*exported, original.node.name);
+        REQUIRE(written != nullptr);
+        CHECK(gateGeosetOf(*exported, *written) == gateGeosetOf(source, original));
+    }
+}
+
+TEST_CASE("wem mdx a bone with a disagreeing geosetId keeps it", "[wem][convert][mdx][gate]") {
+    const MdxConverter converter;
+    Result<Document> imported = converter.fromMdx(makeGatedModel());
+    REQUIRE(imported.ok());
+    const Document& document = *imported;
+    // Kept only where the export would not write it back by itself.
+    const auto kept = [&](const char* name) {
+        return document.models[0].nodes.nodes[boneNodeNamed(document, name)].native.find(
+            "geosetId");
+    };
+    CHECK(kept("byRecord") == nullptr);
+    REQUIRE(kept("disagreeing") != nullptr);
+    CHECK(kept("disagreeing")->value == 1);
+    REQUIRE(kept("noRecord") != nullptr);
+    CHECK(kept("noRecord")->value == 1);
+    CHECK(kept("unlinked") == nullptr);
+
+    Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic, 800);
+    REQUIRE(exported.ok());
+    CHECK(boneNamed(*exported, "byRecord")->geosetId == 2u);
+    CHECK(boneNamed(*exported, "disagreeing")->geosetId == 1u);
+    CHECK(boneNamed(*exported, "noRecord")->geosetId == 1u);
+    CHECK(boneNamed(*exported, "noRecord")->geosetAnimationId == kSentinel);
+    CHECK(boneNamed(*exported, "unlinked")->geosetId == kSentinel);
+    CHECK(boneNamed(*exported, "unlinked")->geosetAnimationId == kSentinel);
+}
+
+TEST_CASE("wem mdx a gate on a geoset with no record gets one", "[wem][convert][mdx][gate]") {
+    const MdxConverter converter;
+    Result<Document> imported = converter.fromMdx(makeGatedModel());
+    REQUIRE(imported.ok());
+    Document document = *imported;
+    // Geoset 1 carries nothing a record would hold.
+    const u32 node = boneNodeNamed(document, "noRecord");
+    std::get<BonePayload>(document.models[0].nodes.nodes[node].payload).gateMesh = 1;
+
+    Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic, 800);
+    REQUIRE(exported.ok());
+    const mdx::GeosetAnimation* record = recordFor(*exported, 1);
+    REQUIRE(record != nullptr);
+    CHECK(record->flags == mdx::GeosetAnimation::Flag::Color);
+    CHECK(record->alpha == 1.0f);
+    CHECK(gateGeosetOf(*exported, *boneNamed(*exported, "noRecord")) == 1u);
+}
+
+TEST_CASE("wem mdx DropShadow and the unnamed flag bits survive", "[wem][convert][mdx][gate]") {
+    const MdxConverter converter;
+    Result<Document> imported = converter.fromMdx(makeGatedModel());
+    REQUIRE(imported.ok());
+    const Model& model = imported->models[0];
+    const MeshSection& shadowed = model.meshes[2].sections[0];
+    CHECK(hasFlag(shadowed.flags, SectionFlags::ProjectedShadow));
+    REQUIRE(shadowed.native.find("geosetAnimFlags") != nullptr);
+    CHECK(shadowed.native.find("geosetAnimFlags")->value == 0x1A);
+    // A plain `Color` word is what the export writes anyway, so it rides nothing.
+    CHECK(model.meshes[0].sections[0].native.find("geosetAnimFlags") == nullptr);
+    CHECK_FALSE(hasFlag(model.meshes[0].sections[0].flags, SectionFlags::ProjectedShadow));
+
+    Result<mdx::Model> exported = converter.toMdx(*imported, ProfileId::Wc3Classic, 800);
+    REQUIRE(exported.ok());
+    REQUIRE(recordFor(*exported, 2) != nullptr);
+    CHECK(static_cast<u32>(recordFor(*exported, 2)->flags) == 0x1Bu);
+    // A record whose only content was its flags word comes back with it.
+    REQUIRE(recordFor(*exported, 3) != nullptr);
+    CHECK(static_cast<u32>(recordFor(*exported, 3)->flags) == 0u);
+    CHECK(static_cast<u32>(recordFor(*exported, 0)->flags) == 0x2u);
+    CHECK(recordFor(*exported, 0)->alpha == 0.5f);
+    CHECK(recordFor(*exported, 2)->color == Vector3f(0.5f, 0.25f, 1.0f));
+
+    // And a second trip is a fixed point.
+    Result<Document> again = converter.fromMdx(*exported);
+    REQUIRE(again.ok());
+    Result<mdx::Model> twice = converter.toMdx(*again, ProfileId::Wc3Classic, 800);
+    REQUIRE(twice.ok());
+    REQUIRE(twice->geosetAnimations.size() == exported->geosetAnimations.size());
+    for (std::size_t r = 0; r < twice->geosetAnimations.size(); ++r) {
+        CHECK(twice->geosetAnimations[r].geosetId == exported->geosetAnimations[r].geosetId);
+        CHECK(twice->geosetAnimations[r].flags == exported->geosetAnimations[r].flags);
+    }
+}
+
+TEST_CASE("wem mdx the export map numbers geosets as toMdx writes them",
+          "[wem][convert][mdx][geometry]") {
+    Document document = makeSectionedDocument(3);
+    Model& model = document.models[0];
+    model.meshes.push_back(model.meshes[0]);
+    model.meshes[1].sections[0].name = "second_0";
+    Node& gate = model.nodes.nodes[0];
+    gate.payload = BonePayload{};
+    std::get<BonePayload>(gate.payload).gateMesh = 1;
+
+    const MdxExportMap map = MdxExportMapOf(document, 0, ProfileId::Wc3Classic);
+    REQUIRE(map.geosetsOfMesh.size() == 2);
+    CHECK(map.geosetsOfMesh[0] == std::vector<u32>{0, 1, 2});
+    CHECK(map.geosetsOfMesh[1] == std::vector<u32>{3, 4, 5});
+
+    const MdxConverter converter;
+    Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic, 800);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->geosets.size() == 6);
+    CHECK(exported->geosets[1].lodName == "part_1");
+    CHECK(exported->geosets[3].lodName == "second_0");
+    // The gate lands on the first geoset the mesh became.
+    const mdx::Bone* bone = boneNamed(*exported, "bone_0");
+    REQUIRE(bone != nullptr);
+    CHECK(bone->geosetId == 3u);
+    CHECK(gateGeosetOf(*exported, *bone) == 3u);
+}
+
+TEST_CASE("wem mdx the geoset tint is written as the import writes it",
+          "[wem][convert][mdx][tint]") {
+    const MdxConverter converter;
+    MeshSection section;
+    section.native.set("selectionFlags", 4);
+    section.native.set("geosetAnimFlags", 0x1A);
+
+    SECTION("set and get") {
+        const GeosetTint tint{Vector3f{0.5f, 0.25f, 1.0f}, 0.5f, false};
+        converter.setGeosetTint(section, tint);
+        CHECK(converter.geosetTint(section) == tint);
+        // The import's order: the tint keys follow `selectionFlags`.
+        CHECK(keysOf(section.native) ==
+              std::vector<std::string>{"selectionFlags", "geosetColorR", "geosetColorG",
+                                       "geosetColorB", "geosetAlpha", "geosetAnimFlags"});
+    }
+    SECTION("white and opaque erase") {
+        converter.setGeosetTint(section, GeosetTint{Vector3f{0.5f, 0.5f, 0.5f}, 0.5f, false});
+        converter.setGeosetTint(section, GeosetTint{});
+        CHECK(keysOf(section.native) ==
+              std::vector<std::string>{"selectionFlags", "geosetAnimFlags"});
+        CHECK(converter.geosetTint(section) == GeosetTint{});
+    }
+    SECTION("hidden keeps the alpha for when it is shown") {
+        converter.setGeosetTint(section, GeosetTint{Vector3f{1, 1, 1}, 0.5f, true});
+        CHECK(hasFlag(section.flags, SectionFlags::Hidden));
+        CHECK(converter.geosetTint(section).alpha == 0.5f);
+        // Typing 0 is Hidden too, and leaves the stored alpha alone.
+        converter.setGeosetTint(section, GeosetTint{Vector3f{1, 1, 1}, 0.5f, false});
+        converter.setGeosetTint(section, GeosetTint{Vector3f{1, 1, 1}, 0.0f, false});
+        CHECK(hasFlag(section.flags, SectionFlags::Hidden));
+        CHECK(converter.geosetTint(section).alpha == 0.5f);
+        converter.setGeosetTint(section, GeosetTint{Vector3f{1, 1, 1}, 0.5f, false});
+        CHECK_FALSE(hasFlag(section.flags, SectionFlags::Hidden));
+    }
+    SECTION("an edit back to the imported value compares equal") {
+        Result<Document> imported = converter.fromMdx(makeGatedModel());
+        REQUIRE(imported.ok());
+        MeshSection& shadowed = imported->models[0].meshes[2].sections[0];
+        const NativeBag before = shadowed.native;
+        const GeosetTint was = converter.geosetTint(shadowed);
+        converter.setGeosetTint(shadowed, GeosetTint{});
+        converter.setGeosetTint(shadowed, was);
+        CHECK(keysOf(shadowed.native) == keysOf(before));
+        REQUIRE(shadowed.native.entries.size() == before.entries.size());
+        for (std::size_t i = 0; i < before.entries.size(); ++i) {
+            CHECK(shadowed.native.entries[i].value == before.entries[i].value);
+        }
+    }
+}
+
+TEST_CASE("wem mdx a hidden geoset writes alpha 0 and keeps its own for later",
+          "[wem][convert][mdx][tint]") {
+    Document document = makeSectionedDocument(2);
+    const MdxConverter converter;
+    MeshSection& section = document.models[0].meshes[0].sections[1];
+    converter.setGeosetTint(section, GeosetTint{Vector3f{1, 1, 1}, 0.5f, true});
+
+    Result<mdx::Model> hidden = converter.toMdx(document, ProfileId::Wc3Classic, 800);
+    REQUIRE(hidden.ok());
+    REQUIRE(recordFor(*hidden, 1) != nullptr);
+    CHECK(recordFor(*hidden, 1)->alpha == 0.0f);
+
+    converter.setGeosetTint(section, GeosetTint{Vector3f{1, 1, 1}, 0.5f, false});
+    Result<mdx::Model> shown = converter.toMdx(document, ProfileId::Wc3Classic, 800);
+    REQUIRE(shown.ok());
+    REQUIRE(recordFor(*shown, 1) != nullptr);
+    CHECK(recordFor(*shown, 1)->alpha == 0.5f);
+}
+
+TEST_CASE("wem mdx the geoset flag words are written as the import writes them",
+          "[wem][convert][mdx][tint]") {
+    const MdxConverter converter;
+    Result<Document> imported = converter.fromMdx(makeGatedModel());
+    REQUIRE(imported.ok());
+    Document document = *imported;
+    MeshSection& plain = document.models[0].meshes[1].sections[0];
+    CHECK(converter.geosetFlags(plain) == GeosetFlags{});
+
+    // Unselectable, a drop shadow and an unnamed bit, on a geoset with no record.
+    const GeosetFlags wanted{GeosetFlags::kUnselectable, 0x2 | 0x8 | GeosetFlags::kDropShadow};
+    converter.setGeosetFlags(plain, wanted);
+    CHECK(converter.geosetFlags(plain) == wanted);
+    CHECK(hasFlag(plain.flags, SectionFlags::ProjectedShadow));
+
+    Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic, 800);
+    REQUIRE(exported.ok());
+    CHECK(exported->geosets[1].selectionFlags == GeosetFlags::kUnselectable);
+    REQUIRE(recordFor(*exported, 1) != nullptr);
+    CHECK(static_cast<u32>(recordFor(*exported, 1)->flags) == 0xBu);
+
+    Result<Document> again = converter.fromMdx(*exported);
+    REQUIRE(again.ok());
+    CHECK(converter.geosetFlags(again->models[0].meshes[1].sections[0]) == wanted);
+
+    // Back to plain: the bag says nothing again, and the record goes.
+    converter.setGeosetFlags(plain, GeosetFlags{});
+    CHECK(plain.native.find("geosetAnimFlags") == nullptr);
+    CHECK_FALSE(hasFlag(plain.flags, SectionFlags::ProjectedShadow));
+    Result<mdx::Model> plainAgain = converter.toMdx(document, ProfileId::Wc3Classic, 800);
+    REQUIRE(plainAgain.ok());
+    CHECK(recordFor(*plainAgain, 1) == nullptr);
+}

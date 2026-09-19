@@ -1571,6 +1571,147 @@ TEST_CASE("wem mdx the export map agrees with toMdx across the corpus",
     CHECK(mismatches == 0u);
 }
 
+TEST_CASE("wem mdx bone gates and geoset flags survive the corpus round trip",
+          "[wem][anim][mdx][corpus][gate]") {
+    // G19 (EDIT_MODE_MESH_PLAN.md L1). A bone's link to its geoset hides the
+    // parts of the rig that hang there while the geoset is invisible, and the
+    // export rebuilds the geoset-animation table the file's raw indices named:
+    // carried raw, 1,252 of 3,627 gates moved to another geoset and 160 fell off
+    // the table. Every gate is resolved the way the renderer and the game
+    // resolve it, before and after, at the profile the file is written for.
+    const auto files = test::gather("WEM_MDX_CORPUS_DIR", ".mdx", {"MDL", "Wc3Mdx"});
+    if (files.empty()) {
+        WARN("no .mdx corpus found; set WEM_MDX_CORPUS_DIR");
+        return;
+    }
+    const std::size_t limit = test::sweepLimit(files.size(), 200);
+    constexpr u32 kSentinel = mdx::Bone::MULTIPLE_GEOSETS;
+    const auto gateOf = [](const mdx::Model& model, const mdx::Bone& bone) {
+        if (bone.geosetId == kSentinel || bone.geosetAnimationId >= model.geosetAnimations.size()) {
+            return kInvalidIndex;
+        }
+        const u32 geoset = model.geosetAnimations[bone.geosetAnimationId].geosetId;
+        return geoset < model.geosets.size() ? geoset : kInvalidIndex;
+    };
+    const auto firstRecord = [](const mdx::Model& model, u32 geoset) -> const mdx::GeosetAnimation* {
+        for (const mdx::GeosetAnimation& record : model.geosetAnimations) {
+            if (record.geosetId == geoset) {
+                return &record;
+            }
+        }
+        return nullptr;
+    };
+
+    struct Counts {
+        u32 exports = 0;
+        u32 gated = 0;
+        u32 same = 0;
+        u32 moved = 0;
+        u32 lost = 0;
+        u32 dropShadow = 0;
+        u32 dropShadowKept = 0;
+        u32 unnamedBits = 0; ///< Records whose word carries bits beyond 0x3.
+        u32 unnamedKept = 0;
+    };
+    Counts atDefault;
+    Counts atOther;
+    std::vector<std::string> failing;
+    const MdxConverter converter;
+    for (std::size_t i = 0; i < limit; ++i) {
+        if (test::isKnownBad(files[i])) {
+            continue;
+        }
+        test::trace(files[i]);
+        const std::vector<u8> bytes = test::readCorpusFile(files[i]);
+        if (bytes.empty()) {
+            continue;
+        }
+        mdx::Model source;
+        try {
+            mdx::Parser parser;
+            source = parser.parse(std::span<const u8>(bytes.data(), bytes.size()));
+        } catch (const std::exception&) {
+            continue; // the parser suite's business
+        }
+        const Result<Document> converted = converter.fromMdx(source);
+        if (!converted.ok() || converted->models.empty()) {
+            continue;
+        }
+        const Document& document = *converted.value;
+        for (const ProfileId profile : document.profiles) {
+            // Reforged is written at v1000 by the host (`MdxVersionForWemProfile`).
+            const u32 version = profile == ProfileId::Wc3Reforged ? 1000u : 800u;
+            const Result<mdx::Model> exported = converter.toMdx(document, profile, version);
+            if (!exported.ok()) {
+                continue;
+            }
+            Counts& counts = profile == document.defaultProfile ? atDefault : atOther;
+            ++counts.exports;
+            // Bones are written in node order, which `fromMdx` took from the
+            // object ids, so the i-th bone out is the i-th in.
+            const bool paired = exported->bones.size() == source.bones.size();
+            for (std::size_t b = 0; paired && b < source.bones.size(); ++b) {
+                const u32 before = gateOf(source, source.bones[b]);
+                if (before == kInvalidIndex) {
+                    continue;
+                }
+                ++counts.gated;
+                const u32 after = gateOf(*exported, exported->bones[b]);
+                if (after == before && exported->bones[b].node.name == source.bones[b].node.name) {
+                    ++counts.same;
+                } else if (after == kInvalidIndex) {
+                    ++counts.lost;
+                } else {
+                    ++counts.moved;
+                }
+                if (after != before && failing.size() < 8) {
+                    failing.push_back(test::pathText(files[i].filename()) + " '" +
+                                      source.bones[b].node.name + "': geoset " +
+                                      std::to_string(before) + " -> " +
+                                      (after == kInvalidIndex ? std::string("none")
+                                                              : std::to_string(after)));
+                }
+            }
+            for (u32 g = 0; g < source.geosets.size(); ++g) {
+                const mdx::GeosetAnimation* was = firstRecord(source, g);
+                if (was == nullptr) {
+                    continue;
+                }
+                const u32 word = static_cast<u32>(was->flags);
+                const mdx::GeosetAnimation* now = firstRecord(*exported, g);
+                const u32 wrote = now != nullptr ? static_cast<u32>(now->flags) : 0x2u;
+                if ((word & 0x1u) != 0) {
+                    ++counts.dropShadow;
+                    counts.dropShadowKept += (wrote & 0x1u) != 0 ? 1u : 0u;
+                }
+                if ((word & ~0x3u) != 0) {
+                    ++counts.unnamedBits;
+                    counts.unnamedKept += now != nullptr && wrote == word ? 1u : 0u;
+                }
+            }
+        }
+    }
+    const auto report = [](const char* label, const Counts& c) {
+        std::cout << "mdx bone gates " << label << ": " << c.exports << " exports, " << c.gated
+                  << " gated bones, " << c.same << " unchanged, " << c.moved << " moved, "
+                  << c.lost << " unresolvable; DropShadow " << c.dropShadowKept << " of "
+                  << c.dropShadow << " kept; unnamed flag words " << c.unnamedKept << " of "
+                  << c.unnamedBits << " kept" << std::endl;
+    };
+    report("at the default profile", atDefault);
+    report("at the other profile", atOther);
+    for (const std::string& line : failing) {
+        std::cout << "  " << line << std::endl;
+    }
+    REQUIRE(atDefault.exports > 0u);
+    for (const Counts* c : {&atDefault, &atOther}) {
+        CHECK(c->moved == 0u);
+        CHECK(c->lost == 0u);
+        CHECK(c->dropShadowKept == c->dropShadow);
+        CHECK(c->unnamedKept == c->unnamedBits);
+    }
+}
+
 TEST_CASE("wem mdx flipbooks and light ambients cross the corpus", "[wem][anim][mdx][corpus]") {
     // A flipbook lives on the layer before v1100 and on each sub-texture from
     // it; a light's ambient colour and its two intensities have no payload

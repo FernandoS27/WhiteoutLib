@@ -426,6 +426,7 @@ add_library(whiteout_lib
     src/whiteout/models/wem/nodes/tree.cpp
     src/whiteout/models/wem/nodes/visitor.cpp
     src/whiteout/models/wem/nodes/remove.cpp
+    src/whiteout/models/wem/meshes/remove.cpp
     src/whiteout/models/wem/anim/channel.cpp
     src/whiteout/models/wem/anim/clip.cpp
     src/whiteout/models/wem/materials/texture.cpp

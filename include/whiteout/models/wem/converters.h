@@ -56,6 +56,36 @@ struct MaterialBlockResult {
     Diagnostics diagnostics;
 };
 
+/// A geoset's static colour and alpha as the Mesh workspace edits them
+/// (EDIT_MODE_MESH_DESIGN.md §6.2). Hidden and alpha are two values: the file
+/// writes 0 for a hidden geoset, and the document keeps its alpha for when it
+/// is shown again.
+struct GeosetTint {
+    Vector3f color{1.0f, 1.0f, 1.0f}; ///< Red first, as the file's static colour.
+    f32 alpha = 1.0f;                 ///< The opacity when shown.
+    bool hidden = false;              ///< `SectionFlags::Hidden`: written as alpha 0.
+
+    bool operator==(const GeosetTint&) const = default;
+};
+
+/// A geoset's two flag words as the Mesh workspace edits them
+/// (EDIT_MODE_MESH_DESIGN.md §6.3): every bit, named or not, so one nobody has
+/// named can still be reached and still round-trips.
+struct GeosetFlags {
+    /// The geoset's `selectionFlags`. 0x4 is Unselectable: the game's click
+    /// ray skips the geoset (`IModelTestRay`).
+    u32 selection = 0;
+    /// Its geoset animation's flags. 0x1 is `DropShadow` (the section's
+    /// `ProjectedShadow`), 0x2 `Color`, which every record the export makes
+    /// carries; the rest are kept as the file had them.
+    u32 animation = 0x2;
+
+    static constexpr u32 kUnselectable = 0x4;
+    static constexpr u32 kDropShadow = 0x1;
+
+    bool operator==(const GeosetFlags&) const = default;
+};
+
 /// A native block and the document textures its making appended — which the
 /// caller records so an undo can pop exactly those.
 struct MaterialBlockDraft {
@@ -73,6 +103,9 @@ struct MdxExportMap {
     /// Per `Document::clips` entry: its index in `sequences`; `kInvalidIndex`
     /// for a global loop or another model's clip.
     std::vector<u32> clipSequence;
+    /// Per mesh: the geosets `toMdx` writes for it, in order. One per section;
+    /// a mesh with no sections still writes one (EDIT_MODE_MESH_DESIGN.md §4.4).
+    std::vector<std::vector<u32>> geosetsOfMesh;
 };
 
 /// @ref MdxExportMap for `document.models[model]` written as @p profile,
@@ -155,6 +188,50 @@ public:
     /// game has no neutral for. @p appended, when given, says whether it was.
     u32 internStockTexture(Document& document, mdx::Layer::SlotType slot,
                            bool* appended = nullptr) const;
+
+    // ---- A geoset's static colour and alpha (EDIT_MODE_MESH_DESIGN.md §6.2) ----
+    //
+    // The section keeps them in its native bag and flags, in the import's own
+    // representation, so an edit back to the imported value compares equal.
+    // `fromMdx` and `toMdx` go through these two as well: the bag keys are
+    // this converter's vocabulary and are spelled nowhere else.
+
+    /// White, 1 and shown for a section that carries none of them.
+    GeosetTint geosetTint(const MeshSection& section) const;
+
+    /// Writes @p tint as the import would have. White and an alpha of 1 carry
+    /// no bag entry. An alpha of 0 or less is Hidden, and leaves the stored
+    /// alpha as it was, so showing the geoset again gives its opacity back.
+    void setGeosetTint(MeshSection& section, const GeosetTint& tint) const;
+
+    /// The section's two flag words; `selection` 0 and `animation` `Color`
+    /// for a section that carries neither.
+    GeosetFlags geosetFlags(const MeshSection& section) const;
+
+    /// Writes @p flags as the import would have: `DropShadow` as the section's
+    /// `ProjectedShadow`, the rest of the animation word in the bag only when
+    /// it is not plain `Color`.
+    void setGeosetFlags(MeshSection& section, const GeosetFlags& flags) const;
+
+    /**
+     * @brief What `toMdx` would say writing @p mesh, as one of
+     *        `document.models[model]`'s, at @p profile and @p targetVersion —
+     *        without writing it.
+     *
+     * The same code path the export runs per geoset (the render view, the
+     * vertex slice, the skin encoding), on a mesh that need not be in the
+     * document yet: a merge asks it of a trial merge (EDIT_MODE_MESH_DESIGN.md
+     * §7.2). The limits that matter come back by code, as warnings, because the
+     * export itself writes on past them: `IndexWidthExceeded` (more than 65,536
+     * vertices in one geoset, whose indices are then truncated) and
+     * `BonePaletteLimit` (more than 256 bones in a palette, or — at v800 only,
+     * where the groups are the skin — more than 256 bone sets).
+     * @p writtenVertices, when given, receives the vertices the geosets hold
+     * after the split at seams.
+     */
+    Diagnostics checkGeoset(const Document& document, u32 model, const Mesh& mesh,
+                            ProfileId profile, u32 targetVersion,
+                            u32* writtenVertices = nullptr) const;
 };
 
 // ============================================================================

@@ -192,6 +192,32 @@ Mesh MergeMeshes(std::span<const Mesh> meshes);
 /// mesh, so the result indexes like `Mesh::sections`.
 std::vector<Mesh> SplitMesh(const Mesh& mesh);
 
+/**
+ * @brief Relabels every face of @p sections to @p keep and removes the others,
+ *        renumbering the rest — the face layer and the repair log alike.
+ *
+ * What `MergeMeshes` leaves undone when the goal is one draw section: it keeps
+ * every input's section, and an exporter writes one draw per section. The kept
+ * section's metadata is the result's.
+ *
+ * @return the section remap (`remap[old]` = new index, `kInvalidId` for a
+ *         removed section, whose faces are now @p keep's). Empty, mesh
+ *         untouched, when the sections disagree on `rigidNode` or on the
+ *         visibility gate (`kSectionVisibilityNode`), or an index is out of
+ *         range.
+ */
+std::vector<u32> MergeSections(Mesh& mesh, std::span<const u32> sections, u32 keep);
+
+/**
+ * @brief Writes a rigid section's binding into the skin: every vertex of
+ *        @p section gets `{rigidNode, 1}`, and `rigidNode` is cleared.
+ *
+ * @return false, mesh untouched, when the section is not rigid, or a vertex of
+ *         it is shared with another section's faces — one vertex cannot bind
+ *         both ways.
+ */
+bool BakeRigidNode(Mesh& mesh, u32 section);
+
 // ============================================================================
 // Derived data — connectivity untouched
 // ============================================================================
@@ -208,6 +234,8 @@ std::vector<Mesh> SplitMesh(const Mesh& mesh);
 void RecomputeNormals(Mesh& mesh, f32 angleThreshold = 1.047197551f);
 
 /// Rewrites the `tangent` Halfedge layer (F32x4, w = handedness) from @p uvSet.
+/// `w` is -1 where the UV-derived bitangent opposes `cross(normal, tangent)` —
+/// a mirrored island — so `bitangent = w * cross(normal, tangent)` everywhere.
 /// Does nothing when the mesh has no such UV layer.
 void RecomputeTangents(Mesh& mesh, u32 uvSet = 0);
 
