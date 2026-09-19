@@ -893,6 +893,19 @@ private:
     }
 
     void buildWindows() {
+        // A global loop without a stored id takes the first one past every
+        // stored id, not the next slot in document order: that slot may belong
+        // to a loop further down, and the two would then share one clock.
+        u32 nextGlobal = 0;
+        for (const Clip& clip : document_.clips) {
+            if (clip.model == modelIndex_ && IsGlobalClip(clip)) {
+                const i64 stored = clip.native.value("globalSequenceId", -1);
+                if (stored >= 0) {
+                    nextGlobal = std::max(nextGlobal, static_cast<u32>(stored) + 1u);
+                }
+            }
+        }
+
         u32 nextFree = 0;
         for (std::size_t c = 0; c < document_.clips.size(); ++c) {
             const Clip& clip = document_.clips[c];
@@ -904,8 +917,7 @@ private:
 
             if (IsGlobalClip(clip)) {
                 const i64 stored = clip.native.value("globalSequenceId", -1);
-                const u32 id = stored >= 0 ? static_cast<u32>(stored)
-                                           : static_cast<u32>(out_.globalSequences.size());
+                const u32 id = stored >= 0 ? static_cast<u32>(stored) : nextGlobal++;
                 if (out_.globalSequences.size() <= id) {
                     out_.globalSequences.resize(id + 1, 0);
                 }

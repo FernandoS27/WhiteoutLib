@@ -10,6 +10,7 @@
 /// with **zero validation errors** — because a green conversion proves a track
 /// parsed, never that its keys landed on the right channel.
 
+#include <algorithm>
 #include <cstring>
 #include <iostream>
 #include <optional>
@@ -781,6 +782,39 @@ TEST_CASE("wem mdx export re-times a clip that never had a window", "[wem][anim]
     // is placed rather than dropped, and it is the only one reported.
     CHECK(exported->sequences.size() == document.clips.size());
     CHECK(exported.diagnostics.countOf(DiagCode::AnimClipRetimed) == 1u);
+}
+
+TEST_CASE("wem mdx export never gives a new global loop a stored loop's id", "[wem][anim][mdx]") {
+    // A global loop that carries no id (an editor's, or another format's) comes
+    // first in the document, and a stored loop after it owns id 0. Handing out
+    // the next slot in document order would put both on sequence 0: one clock,
+    // one duration, and two loops' keys merged onto it.
+    mdx::Model model = makeModel();
+    model.globalSequences = {4000, 2000};
+    model.bones[0].node.translationTracks = makeTrack<Vector3f>(
+        mdx::InterpolationType::Linear, {0, 4000}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 5}});
+    model.bones[0].node.translationTracks.globalSequenceId = 0;
+    model.bones[0].node.rotationTracks = makeTrack<Quaternion>(
+        mdx::InterpolationType::Linear, {0, 2000},
+        {Quaternion{0, 0, 0, 1}, Quaternion{0, 0, 0.70710678f, 0.70710678f}});
+    model.bones[0].node.rotationTracks.globalSequenceId = 1;
+
+    Document document = convert(model);
+    auto unnumbered = std::find_if(document.clips.begin(), document.clips.end(),
+                                   [](const Clip& clip) { return clip.name == "globalSequence_1"; });
+    REQUIRE(unnumbered != document.clips.end());
+    unnumbered->native = NativeBag{};
+    std::rotate(document.clips.begin(), unnumbered, unnumbered + 1);
+
+    MdxConverter converter;
+    const Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->globalSequences.size() == 2u);
+    const mdx::Node& node = exported->bones[0].node;
+    CHECK(node.translationTracks.globalSequenceId == 0u);
+    CHECK(node.rotationTracks.globalSequenceId == 1u);
+    CHECK(exported->globalSequences[0] == 4000u);
+    CHECK(exported->globalSequences[1] == 2000u);
 }
 
 TEST_CASE("wem mdx export keys both edges of a window its track does not reach",
