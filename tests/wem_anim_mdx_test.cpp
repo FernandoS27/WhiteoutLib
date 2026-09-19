@@ -11,6 +11,7 @@
 /// parsed, never that its keys landed on the right channel.
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <iostream>
 #include <optional>
@@ -21,6 +22,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <whiteout/models/mdx/parser.h>
+#include <whiteout/models/mdx/writer.h>
 #include <whiteout/models/wem/converters.h>
 #include <whiteout/models/wem/validate.h>
 
@@ -1229,6 +1231,118 @@ TEST_CASE("wem mdx a second HD layer keeps its tracks through the native block",
     CHECK(alpha.keys_data[1] == Catch::Approx(0.25f));
 }
 
+namespace {
+
+/// A two-frame flipbook, stepped.
+mdx::Track<u32> flipbookTrack() {
+    return makeTrack<u32>(mdx::InterpolationType::None, {0, 500}, {0u, 1u});
+}
+
+/// Where the writer reads a layer's flipbook at @p version (`writer.cpp`).
+const mdx::Track<u32>& writtenFlipbook(const mdx::Layer& layer, u32 version) {
+    return version >= 1100 && !layer.subTextures.empty() ? layer.subTextures[0].tracks
+                                                         : layer.textureIdTracks;
+}
+
+u32 countChannels(const Document& document, Channel channel) {
+    u32 count = 0;
+    for (const AnimChannel& declared : document.models[0].animChannels.channels) {
+        count += declared.target.channel == channel ? 1u : 0u;
+    }
+    return count;
+}
+
+} // namespace
+
+TEST_CASE("wem mdx a flipbook crosses from where each version keeps it", "[wem][anim][mdx]") {
+    // The parser leaves a v800 layer's KMTF on the layer, moves a v900-1000
+    // one onto sub-texture 0 and reads a v1100 one there. The import read only
+    // the layer's own, so every Reforged-era flipbook became no channel, and
+    // the export wrote the track where the writer drops it from v1100 on.
+    for (const u32 version : {800u, 1200u}) {
+        CAPTURE(version);
+        mdx::Model model = makeModel();
+        model.version = version;
+        mdx::Texture second;
+        second.fileName = "textures/frame1.blp";
+        model.textures.push_back(second);
+        mdx::Layer& layer = model.materials[0].layers[0];
+        if (version >= 1100) {
+            mdx::Layer::SubTexture sub;
+            sub.textureId = 0;
+            sub.slot = mdx::Layer::SlotType::DiffuseMap;
+            sub.tracks = flipbookTrack();
+            layer.subTextures.push_back(sub);
+        } else {
+            layer.textureIdTracks = flipbookTrack();
+        }
+
+        const Document document = convert(model);
+        const AnimChannelTable& table = document.models[0].animChannels;
+        REQUIRE(countChannels(document, Channel::TextureIndex) >= 1u);
+        ProfileId profile = ProfileId::Wc3Classic;
+        for (const AnimChannel& declared : table.channels) {
+            if (declared.target.channel == Channel::TextureIndex) {
+                CHECK(declared.target.kind == TrackTarget::Kind::MaterialLayer);
+                CHECK(declared.target.sub == 0u);
+                CHECK(declared.valueType == geom::AttrType::U32);
+                profile = declared.target.material.profile;
+            }
+        }
+
+        MdxConverter converter;
+        const Result<mdx::Model> exported = converter.toMdx(document, profile, version);
+        REQUIRE(exported.ok());
+        REQUIRE_FALSE(exported->materials.empty());
+        REQUIRE_FALSE(exported->materials[0].layers.empty());
+        const mdx::Layer& out = exported->materials[0].layers[0];
+        const mdx::Track<u32>& written = writtenFlipbook(out, version);
+        REQUIRE(written.isUsed);
+        CHECK(written.timestamps == std::vector<u32>{0u, 500u});
+        CHECK(written.keys_data == std::vector<u32>{0u, 1u});
+
+        // And through the bytes: what the writer writes, the parser reads back.
+        mdx::Writer writer;
+        const std::vector<u8> bytes = writer.write(*exported);
+        mdx::Parser parser;
+        const mdx::Model reread = parser.parse(std::span<const u8>(bytes.data(), bytes.size()));
+        REQUIRE_FALSE(reread.materials.empty());
+        REQUIRE_FALSE(reread.materials[0].layers.empty());
+        const mdx::Track<u32>& back = writtenFlipbook(reread.materials[0].layers[0], version);
+        REQUIRE(back.isUsed);
+        CHECK(back.timestamps == std::vector<u32>{0u, 500u});
+        CHECK(back.keys_data == std::vector<u32>{0u, 1u});
+    }
+}
+
+TEST_CASE("wem mdx a flipbook on another HD slot is reported, not silently dropped",
+          "[wem][anim][mdx]") {
+    // A `MaterialLayer` target names a layer and has no field for a slot, so an
+    // HD layer's normal-map flipbook has nowhere to go yet. Slot 0 still does.
+    mdx::Model model = makeModel();
+    model.version = 1200;
+    mdx::Layer layer;
+    layer.filterMode = mdx::Layer::FilterMode::None;
+    layer.shader = mdx::Layer::ShaderType::HD;
+    layer.is_hd = true;
+    layer.textureAnimationId = 0xFFFFFFFF;
+    for (u32 s = 0; s < 6; ++s) {
+        mdx::Layer::SubTexture sub;
+        sub.textureId = 0;
+        sub.slot = static_cast<mdx::Layer::SlotType>(s);
+        layer.subTextures.push_back(sub);
+    }
+    layer.subTextures[0].tracks = flipbookTrack();
+    layer.subTextures[2].tracks = flipbookTrack();
+    model.materials[0].layers[0] = layer;
+
+    MdxConverter converter;
+    const Result<Document> result = converter.fromMdx(model);
+    REQUIRE(result.ok());
+    CHECK(countChannels(*result.value, Channel::TextureIndex) == 1u);
+    CHECK(result.diagnostics.countOf(DiagCode::AnimTrackDropped) == 1u);
+}
+
 TEST_CASE("wem mdx export gives each layer back its own texture animation",
           "[wem][anim][mdx][uv]") {
     // The file's TXAN table is not kept: export rebuilds it from the UV
@@ -1455,4 +1569,136 @@ TEST_CASE("wem mdx the export map agrees with toMdx across the corpus",
     }
     REQUIRE(exports > 0u);
     CHECK(mismatches == 0u);
+}
+
+TEST_CASE("wem mdx flipbooks and light ambients cross the corpus", "[wem][anim][mdx][corpus]") {
+    // A flipbook lives on the layer before v1100 and on each sub-texture from
+    // it; a light's ambient colour and its two intensities have no payload
+    // field. Both used to be lost on every Reforged-era file.
+    const auto files = test::gather("WEM_MDX_CORPUS_DIR", ".mdx", {"MDL", "Wc3Mdx"});
+    if (files.empty()) {
+        WARN("no .mdx corpus found; set WEM_MDX_CORPUS_DIR");
+        return;
+    }
+    const std::size_t limit = test::sweepLimit(files.size(), 200);
+    u32 bySlot[7] = {}; // [0] the layer's own KMTF, [1 + s] sub-texture s
+    u32 flipbookMaterials = 0;
+    u32 missedMaterials = 0;
+    u32 channels = 0;
+    u32 written = 0;
+    u32 lights = 0;
+    u32 lightMisses = 0;
+    u32 fractionalIntensities = 0;
+    std::vector<std::string> failing;
+
+    MdxConverter converter;
+    for (std::size_t i = 0; i < limit; ++i) {
+        if (test::isKnownBad(files[i])) {
+            continue;
+        }
+        test::trace(files[i]);
+        const std::vector<u8> bytes = test::readCorpusFile(files[i]);
+        if (bytes.empty()) {
+            continue;
+        }
+        mdx::Parser parser;
+        const mdx::Model source = parser.parse(std::span<const u8>(bytes.data(), bytes.size()));
+        Result<Document> converted = converter.fromMdx(source);
+        if (!converted.ok() || converted->models.empty()) {
+            continue;
+        }
+        const Document& document = *converted.value;
+        const std::string name = test::pathText(files[i].filename());
+
+        // Every material with a slot-0 flipbook gets a channel on some layer.
+        std::vector<bool> keyed(source.materials.size(), false);
+        for (const AnimChannel& declared : document.models[0].animChannels.channels) {
+            if (declared.target.kind == TrackTarget::Kind::MaterialLayer &&
+                declared.target.channel == Channel::TextureIndex) {
+                ++channels;
+                if (declared.target.material.slot < keyed.size()) {
+                    keyed[declared.target.material.slot] = true;
+                }
+            }
+        }
+        for (std::size_t m = 0; m < source.materials.size(); ++m) {
+            bool flipbook = false;
+            for (const mdx::Layer& layer : source.materials[m].layers) {
+                bySlot[0] += layer.textureIdTracks.isUsed ? 1u : 0u;
+                flipbook = flipbook || layer.textureIdTracks.isUsed;
+                for (std::size_t s = 0; s < layer.subTextures.size() && s < 6; ++s) {
+                    bySlot[1 + s] += layer.subTextures[s].tracks.isUsed ? 1u : 0u;
+                }
+                flipbook = flipbook ||
+                           (!layer.subTextures.empty() && layer.subTextures[0].tracks.isUsed);
+            }
+            if (flipbook) {
+                ++flipbookMaterials;
+                if (!keyed[m]) {
+                    ++missedMaterials;
+                    if (failing.size() < 8) {
+                        failing.push_back(name + ": material " + std::to_string(m) +
+                                          " flipbooks and has no channel");
+                    }
+                }
+            }
+        }
+
+        // The export writes every one of them back, where the writer reads it.
+        for (const ProfileMaterialSet& set : document.models[0].profileSets) {
+            const Result<mdx::Model> exported = converter.toMdx(document, set.profile, source.version);
+            if (!exported.ok()) {
+                continue;
+            }
+            for (const mdx::Material& material : exported->materials) {
+                for (const mdx::Layer& layer : material.layers) {
+                    written += writtenFlipbook(layer, source.version).isUsed ? 1u : 0u;
+                }
+            }
+            if (set.profile != document.models[0].profileSets.front().profile) {
+                continue;
+            }
+            // A light's static ambient, by its node's name.
+            for (const mdx::Light& light : source.lights) {
+                ++lights;
+                const f32 intensities[] = {light.ambientIntensity, light.shadowIntensity};
+                for (const f32 value : intensities) {
+                    const f32 milli = value * 1000.0f;
+                    fractionalIntensities += std::abs(milli - std::round(milli)) > 1e-3f ? 1u : 0u;
+                }
+                const mdx::Light* back = nullptr;
+                for (const mdx::Light& candidate : exported->lights) {
+                    if (candidate.node.name == light.node.name) {
+                        back = &candidate;
+                    }
+                }
+                const bool same = back != nullptr && back->ambientColor == light.ambientColor &&
+                                  std::abs(back->ambientIntensity - light.ambientIntensity) <= 1e-3f &&
+                                  std::abs(back->shadowIntensity - light.shadowIntensity) <= 1e-3f;
+                if (!same) {
+                    ++lightMisses;
+                    if (failing.size() < 8) {
+                        failing.push_back(name + ": light " + light.node.name +
+                                          " lost its ambient or shadow");
+                    }
+                }
+            }
+        }
+    }
+
+    std::cout << "mdx flipbooks: layer KMTF " << bySlot[0] << ", sub-texture KMTF by slot";
+    for (u32 s = 1; s < 7; ++s) {
+        std::cout << " " << bySlot[s];
+    }
+    std::cout << "; " << flipbookMaterials << " materials flipbook, " << missedMaterials
+              << " without a channel; " << channels << " channels, " << written
+              << " written back" << std::endl;
+    std::cout << "mdx light ambients: " << lights << " lights, " << lightMisses << " lost, "
+              << fractionalIntensities << " intensities not whole thousandths" << std::endl;
+    for (const std::string& line : failing) {
+        std::cout << "  " << line << std::endl;
+    }
+    CHECK(missedMaterials == 0u);
+    CHECK(written == channels);
+    CHECK(lightMisses == 0u);
 }

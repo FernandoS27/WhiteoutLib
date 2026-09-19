@@ -507,6 +507,44 @@ TEST_CASE("wem mdx a camera keeps where it looks", "[wem][convert][mdx][nodes]")
     CHECK(out.farClippingPlane == 2000.0f);
 }
 
+TEST_CASE("wem mdx a light keeps its ambient term and its shadow", "[wem][convert][mdx][nodes]") {
+    // The import kept the two intensities in thousandths and not the colour,
+    // and the export wrote none of the three: a rebuilt light had no ambient.
+    mdx::Model source = makeModel();
+    source.pivotPoints.push_back(Vector3f{0, 0, 0});
+    source.pivotPoints.push_back(Vector3f{0, 0, 0});
+    mdx::Light lamp;
+    lamp.node = makeNode("lamp", 2, 0);
+    lamp.ambientColor = Vector3f{0.2f, 0.4f, 0.6f};
+    lamp.ambientIntensity = 0.75f;
+    lamp.shadowIntensity = 0.25f;
+    source.lights.push_back(lamp);
+    // 0.7f is 0.69999999: a truncation to thousandths kept 0.699.
+    mdx::Light dim;
+    dim.node = makeNode("dim", 3, 0);
+    dim.ambientIntensity = 0.7f;
+    source.lights.push_back(dim);
+
+    const MdxConverter converter;
+    Result<Document> imported = converter.fromMdx(source);
+    REQUIRE(imported.ok());
+    Result<mdx::Model> exported = converter.toMdx(*imported, ProfileId::Wc3Classic, 1200);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->lights.size() == 2);
+    for (const mdx::Light& in : source.lights) {
+        const mdx::Light* out = nullptr;
+        for (const mdx::Light& candidate : exported->lights) {
+            if (candidate.node.name == in.node.name) {
+                out = &candidate;
+            }
+        }
+        REQUIRE(out != nullptr);
+        CHECK(out->ambientColor == in.ambientColor);
+        CHECK(out->ambientIntensity == in.ambientIntensity);
+        CHECK(out->shadowIntensity == in.shadowIntensity);
+    }
+}
+
 TEST_CASE("wem mdx import produces one model with a classic set", "[wem][convert][mdx]") {
     // A v800 file: an SD model's format.
     mdx::Model source = makeModel();

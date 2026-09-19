@@ -299,8 +299,21 @@ void FillPayload(const mdx::Model& source, const PendingNode& pending, Node& nod
         payload.intensity = light.intensity;
         payload.attenuationStart = light.attenuationStart;
         payload.attenuationEnd = light.attenuationEnd;
-        node.native.set("ambientIntensity", static_cast<i64>(light.ambientIntensity * 1000.0f));
-        node.native.set("shadowIntensity", static_cast<i64>(light.shadowIntensity * 1000.0f));
+        // Rounded, not truncated: 0.7f is 0.69999999, and a truncation kept 0.699.
+        SetMilli(node.native, "ambientIntensity", light.ambientIntensity);
+        SetMilli(node.native, "shadowIntensity", light.shadowIntensity);
+        // The ambient term's colour has no payload field. Kept bit for bit, red
+        // first as the static colour is stored (the keys are blue first,
+        // `mdx_anim.cpp`), and only when it is not the record's black.
+        {
+            const auto bits = [](f32 value) { return static_cast<i64>(std::bit_cast<u32>(value)); };
+            const Vector3f& c = light.ambientColor;
+            if (c.x != 0.0f || c.y != 0.0f || c.z != 0.0f) {
+                node.native.set("ambientColorR", bits(c.x));
+                node.native.set("ambientColorG", bits(c.y));
+                node.native.set("ambientColorB", bits(c.z));
+            }
+        }
         break;
     }
     case Origin::Attachment: {
@@ -1290,6 +1303,21 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
                     diagnostics.warn(DiagCode::FeatureDropped,
                                      "WC3 has no spot light; written as omni",
                                      ElementRef(ElementKind::Node, static_cast<u32>(i)));
+                }
+            }
+            // The import's ambient and shadow keys; an absent key leaves the
+            // record's default.
+            light.ambientIntensity = Milli(node.native, "ambientIntensity", light.ambientIntensity);
+            light.shadowIntensity = Milli(node.native, "shadowIntensity", light.shadowIntensity);
+            {
+                const auto* r = node.native.find("ambientColorR");
+                const auto* g = node.native.find("ambientColorG");
+                const auto* b = node.native.find("ambientColorB");
+                if (r != nullptr && g != nullptr && b != nullptr) {
+                    const auto value = [](const auto* entry) {
+                        return std::bit_cast<f32>(static_cast<u32>(entry->value));
+                    };
+                    light.ambientColor = Vector3f(value(r), value(g), value(b));
                 }
             }
             claim(i, mdx_anim::ExportContext::Slot::Light, out.lights.size());

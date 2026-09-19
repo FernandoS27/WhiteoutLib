@@ -401,12 +401,42 @@ private:
             target.channel = Channel::Alpha;
             addTrack(layer.alphaTracks, target);
             target.channel = Channel::TextureIndex;
-            addTrack(layer.textureIdTracks, target);
+            addTrack(FlipbookOf(layer), target);
+            reportSlotFlipbooks(layer, profile, slot, ordinal);
             target.channel = Channel::Emissive;
             addTrack(layer.emissiveGainTracks, target);
 
             addFresnelTracks(layer, profile, slot, ordinal, material);
             addUvTracks(layer, profile, slot, ordinal, material);
+        }
+    }
+
+    /// A layer's flipbook, where the parser left it. A v800 layer keys its own
+    /// KMTF; the parser moves a v900–1000 layer's onto its sub-textures
+    /// (`upgradeMaterials`) and reads a v1100 layer's there directly. Slot 0 is
+    /// the colour map, which is what the layer's texture is.
+    static const mdx::Track<u32>& FlipbookOf(const mdx::Layer& layer) {
+        if (layer.textureIdTracks.isUsed || layer.subTextures.empty()) {
+            return layer.textureIdTracks;
+        }
+        return layer.subTextures[0].tracks;
+    }
+
+    /// An HD layer can flipbook its other slots too (normal, ORM, emissive,
+    /// team colour, reflections). A `MaterialLayer` target has no field for a
+    /// slot, so those are reported rather than dropped without a word.
+    void reportSlotFlipbooks(const mdx::Layer& layer, ProfileId profile, u32 slot, u32 ordinal) {
+        std::string slots;
+        for (std::size_t s = 1; s < layer.subTextures.size(); ++s) {
+            if (layer.subTextures[s].tracks.isUsed) {
+                slots += (slots.empty() ? "" : ", ") + std::to_string(s);
+            }
+        }
+        if (!slots.empty()) {
+            out_.warn(DiagCode::AnimTrackDropped,
+                      "layer " + std::to_string(ordinal) + " flipbooks texture slot(s) " + slots +
+                          ", and a layer track can name only its colour map",
+                      ElementRef(ElementKind::Slot, slot), profile);
         }
     }
 
@@ -1554,7 +1584,14 @@ private:
             Emit(merged, layer->alphaTracks);
             return;
         case Channel::TextureIndex:
-            Emit(merged, layer->textureIdTracks);
+            // Where the writer reads it for the version written: from v1100 a
+            // layer's KMTF lives on each sub-texture and the layer's own is not
+            // written (`writer.cpp`). Slot 0 is the colour map, as on import.
+            if (out_.version >= 1100 && !layer->subTextures.empty()) {
+                Emit(merged, layer->subTextures[0].tracks);
+            } else {
+                Emit(merged, layer->textureIdTracks);
+            }
             return;
         case Channel::Emissive:
             Emit(merged, layer->emissiveGainTracks);
