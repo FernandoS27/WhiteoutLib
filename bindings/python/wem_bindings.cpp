@@ -256,6 +256,7 @@ Codes are grouped by area and never renumbered once shipped: the recorded expect
         .value("ANIM_TRACK_DROPPED", whiteout::models::wem::DiagCode::AnimTrackDropped, R"doc(A track the target format cannot express.)doc")
         .value("ANIM_TRACK_APPROXIMATED", whiteout::models::wem::DiagCode::AnimTrackApproximated, R"doc(A track was written, but not as it was held.)doc")
         .value("ANIM_CLIP_RETIMED", whiteout::models::wem::DiagCode::AnimClipRetimed, R"doc(A clip was placed on a timeline it did not come from.)doc")
+        .value("ANIM_TCB_BAKED", whiteout::models::wem::DiagCode::AnimTcbBaked, R"doc(TCB parameters written as the Hermite tangents they produce.)doc")
         .value("EVENT_PAYLOAD_MISMATCH", whiteout::models::wem::DiagCode::EventPayloadMismatch, R"doc(`ActorEvent` kind and payload group disagree (§9.5).)doc")
         .value("ASSET_UNRESOLVED", whiteout::models::wem::DiagCode::AssetUnresolved, R"doc(An `AssetKey` the `AssetSource` could not load.)doc")
         .value("HARDPOINT_UNRESOLVED", whiteout::models::wem::DiagCode::HardpointUnresolved, R"doc(A hardpoint names a node the model does not have.)doc")
@@ -750,6 +751,9 @@ WoW's and SC2's 100 are unit conversions; D3's 17 is a framing constant fitted s
         .def_readwrite("container_kinds", &whiteout::models::wem::ProfileDesc::containerKinds, R"doc(Kinds the CONTAINER can carry that the shading does not contract to.
 
 `commonKinds` is what this profile's renderer takes; a file format can be wider. An `.mdx` holds the classic SD layer stack beside the Reforged HD slot map, and a material chooses between them by name, so Reforged reads `PBRDeferred` and *writes* either. `DeriveProfile` reaches for this only when the preferred conversion would throw part of the material away — four Diablo III combiner stages folded into one base-colour slot are three quarters of a wing lost, and four MDX layers are exactly the four stages.)doc")
+        .def_readwrite("content_kinds", &whiteout::models::wem::ProfileDesc::contentKinds, R"doc(Kinds this profile's OWN content is written in beyond `commonKinds`: what `Validate` holds a set to, and what a derive never aims at.
+
+A Reforged (HD) model uses all four of Warcraft III's model shaders — SD and SD on HD beside HD and Crystal — so its sets hold the classic kinds an `.mdx` SD stack imports as. A material derived INTO Reforged from another format is not SD content, and still aims at the HD slot map.)doc")
         .def_readwrite("native_material_kind", &whiteout::models::wem::ProfileDesc::nativeMaterialKind)
         .def_readwrite("supports_looks", &whiteout::models::wem::ProfileDesc::supportsLooks)
         .def_readwrite("supports_actors", &whiteout::models::wem::ProfileDesc::supportsActors)
@@ -1113,7 +1117,7 @@ Deterministic and idempotent. Fails only on a non-manifold face set, which `Mesh
         .def(py::init<>())
         .def_readwrite("speed", &whiteout::models::wem::Wc3ParticleEmitter2Payload::speed)
         .def_readwrite("variation", &whiteout::models::wem::Wc3ParticleEmitter2Payload::variation, R"doc(Of the speed, as a fraction.)doc")
-        .def_readwrite("latitude", &whiteout::models::wem::Wc3ParticleEmitter2Payload::latitude, R"doc(Radians.)doc")
+        .def_readwrite("latitude", &whiteout::models::wem::Wc3ParticleEmitter2Payload::latitude, R"doc(Degrees, unlike `PREM`'s.)doc")
         .def_readwrite("gravity", &whiteout::models::wem::Wc3ParticleEmitter2Payload::gravity)
         .def_readwrite("lifespan", &whiteout::models::wem::Wc3ParticleEmitter2Payload::lifespan, R"doc(Seconds.)doc")
         .def_readwrite("emission_rate", &whiteout::models::wem::Wc3ParticleEmitter2Payload::emissionRate)
@@ -1431,6 +1435,7 @@ Both halves are optional and independent. `asset` is what the source named — a
         .def_readwrite("fov", &whiteout::models::wem::CameraPayload::fov)
         .def_readwrite("near_clip", &whiteout::models::wem::CameraPayload::nearClip)
         .def_readwrite("far_clip", &whiteout::models::wem::CameraPayload::farClip)
+        .def_readwrite("target", &whiteout::models::wem::CameraPayload::target, R"doc(Where the camera looks, in model space. MDX and M2 store one; M3 and glTF aim a camera by its node's orientation instead, and leave this at the origin — which is also what a v3 `NODE` reads as.)doc")
     ;
 
     py::class_<whiteout::models::wem::ParticlePayload>(m, "ParticlePayload")
@@ -1561,6 +1566,7 @@ Empty is a normal state — a model with no animation carries no channels.)doc")
         .def_readwrite("interp", &whiteout::models::wem::SubTrack::interp)
         .def_readwrite("times", &whiteout::models::wem::SubTrack::times)
         .def_readwrite("values", &whiteout::models::wem::SubTrack::values, R"doc(`times.size() * ValuesPerKey(interp) * AttrTypeSize(channel's valueType)` bytes. The type is on the channel because every sub-track that drives one must agree about it, and storing it here would let two disagree.)doc")
+        .def_readwrite("tcb", &whiteout::models::wem::SubTrack::tcb, R"doc(TCB parameters, three per key (tension, continuity, bias), or empty. Only meaningful on a `Hermite` sub-track: the tangents in `values` are the ones these produce, so a consumer that ignores this field plays the same curve. An editor keeps them to derive the tangents again when a key changes; a format without TCB drops them and keeps the curve.)doc")
     ;
 
     py::class_<whiteout::models::wem::SubTrackContainer>(m, "SubTrackContainer", R"doc(One layer of a clip. M3's STC_.

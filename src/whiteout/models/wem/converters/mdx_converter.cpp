@@ -697,6 +697,44 @@ std::vector<u32> TextureWrapBits(const Document& document, const ProfileMaterial
 } // namespace
 
 // ============================================================================
+// MdxExportMapOf
+// ============================================================================
+
+MdxExportMap MdxExportMapOf(const Document& document, u32 model, ProfileId profile) {
+    MdxExportMap map;
+    if (model >= document.models.size()) {
+        return map;
+    }
+
+    // MDX numbers a node by the chunk it lands in, so every bone comes first,
+    // then the lights, then the helpers, in `mdx/writer.cpp`'s emission order.
+    // That is not cosmetic: `MATS` names an object id, and a reader that takes
+    // one for an index into the bone array gets the right node only while the
+    // bones are 0..n-1. Ours does exactly that (`resolveBoneIdx` asks
+    // `BoneIndexToNodeIndex` first), and so does every other tool, because no
+    // Blizzard file has ever been numbered any other way.
+    //
+    // Numbering in node order interleaved the kinds, which cost nothing until
+    // `RetargetSkeleton` began inserting a shear helper immediately before the
+    // bone it stretches — three of them, in the middle of the bone list. From
+    // then on a StarCraft II model skinned nearly every vertex to a bone three
+    // places off, which is a torn skeleton, not a wrong pose.
+    const auto& nodes = document.models[model].nodes;
+    map.nodeObjectId.assign(nodes.size(), kInvalidIndex);
+    u32 next = 0;
+    for (int rank = 0; rank <= kLastChunkRank; ++rank) {
+        for (std::size_t i = 0; i < nodes.size(); ++i) {
+            // A camera is not a node chunk and carries no id.
+            if (ChunkRank(WrittenKind(nodes.nodes[i].kind, profile)) == rank) {
+                map.nodeObjectId[i] = next++;
+            }
+        }
+    }
+    map.clipSequence = mdx_anim::ClipSequences(document, model);
+    return map;
+}
+
+// ============================================================================
 // fromMdx
 // ============================================================================
 
@@ -1143,27 +1181,16 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
         animContext.nodeSlots[node] = {slot, static_cast<u32>(index)};
     };
 
-    // MDX numbers a node by the chunk it lands in, so every bone comes first,
-    // then the lights, then the helpers, in `mdx/writer.cpp`'s emission order.
-    // That is not cosmetic: `MATS` names an object id, and a reader that takes
-    // one for an index into the bone array gets the right node only while the
-    // bones are 0..n-1. Ours does exactly that (`resolveBoneIdx` asks
-    // `BoneIndexToNodeIndex` first), and so does every other tool, because no
-    // Blizzard file has ever been numbered any other way.
-    //
-    // Numbering in node order interleaved the kinds, which cost nothing until
-    // `RetargetSkeleton` began inserting a shear helper immediately before the
-    // bone it stretches — three of them, in the middle of the bone list. From
-    // then on a StarCraft II model skinned nearly every vertex to a bone three
-    // places off, which is a torn skeleton, not a wrong pose.
-    std::vector<u32> objectIdOf(model.nodes.size(), mdx::Node::NO_PARENT);
+    // The numbering, and the sequence each clip becomes, are `MdxExportMap`'s,
+    // so a caller that asks where a node or clip went gets this export's answer.
+    // A camera has no id (`kInvalidIndex`, which is also `NO_PARENT`).
+    const MdxExportMap exportMap = MdxExportMapOf(document, 0, profile);
+    const std::vector<u32>& objectIdOf = exportMap.nodeObjectId;
+    animContext.clipSequence = exportMap.clipSequence;
     u32 nextObjectId = 0;
-    for (int rank = 0; rank <= kLastChunkRank; ++rank) {
-        for (std::size_t i = 0; i < model.nodes.size(); ++i) {
-            // A camera is not a node chunk and carries no id; it is written below.
-            if (ChunkRank(WrittenKind(model.nodes.nodes[i].kind, profile)) == rank) {
-                objectIdOf[i] = nextObjectId++;
-            }
+    for (const u32 id : objectIdOf) {
+        if (id != kInvalidIndex) {
+            nextObjectId = std::max(nextObjectId, id + 1u);
         }
     }
     out.pivotPoints.assign(nextObjectId, Vector3f{0, 0, 0});

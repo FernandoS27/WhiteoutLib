@@ -839,14 +839,25 @@ TEST_CASE("wem mdx export keys both edges of a window its track does not reach",
     const u32 end = exported->sequences[0].intervalEnd;
     CHECK(end - start == static_cast<u32>(duration * 1000.0f + 0.5f));
 
+    // The window lands after Walk's, and Walk still carries its bracket copy
+    // of the 800 ms key at its old place, where no window plays it. Only the
+    // keys inside the window are this clip's.
     const mdx::Track<Vector3f>& track = exported->bones[0].node.translationTracks;
-    REQUIRE(track.timestamps.size() == 4u);
-    CHECK(track.timestamps[0] == start);
-    CHECK(track.timestamps[1] == start + 200u);
-    CHECK(track.timestamps[2] == start + 800u);
-    CHECK(track.timestamps[3] == end);
-    CHECK(track.keys_data[0].z == Catch::Approx(0.0f));
-    CHECK(track.keys_data[3].z == Catch::Approx(5.0f));
+    std::vector<u32> times;
+    std::vector<f32> z;
+    for (std::size_t k = 0; k < track.timestamps.size(); ++k) {
+        if (track.timestamps[k] >= start && track.timestamps[k] <= end) {
+            times.push_back(track.timestamps[k]);
+            z.push_back(track.keys_data[k].z);
+        }
+    }
+    REQUIRE(times.size() == 4u);
+    CHECK(times[0] == start);
+    CHECK(times[1] == start + 200u);
+    CHECK(times[2] == start + 800u);
+    CHECK(times[3] == end);
+    CHECK(z[0] == Catch::Approx(0.0f));
+    CHECK(z[3] == Catch::Approx(5.0f));
 }
 
 TEST_CASE("wem mdx export drops a clip's keys past its window and samples the edge",
@@ -902,6 +913,265 @@ TEST_CASE("wem mdx export lets the moving clip name a shared track's interpolati
     CHECK(exported->bones[0].node.translationTracks.interpolationType ==
           mdx::InterpolationType::Linear);
     CHECK(exported.diagnostics.countOf(DiagCode::AnimTrackApproximated) == 1u);
+}
+
+// ============================================================================
+// Where the export puts things, and what it writes for an edited clip
+// ============================================================================
+
+namespace {
+
+/// Every node record @p model holds, by object id; null for an id nothing
+/// holds. @p duplicates counts ids two records claim.
+std::vector<const mdx::Node*> nodesById(const mdx::Model& model, u32& duplicates) {
+    std::vector<const mdx::Node*> byId;
+    const auto put = [&](const mdx::Node& node) {
+        if (byId.size() <= node.objectId) {
+            byId.resize(node.objectId + 1u, nullptr);
+        }
+        duplicates += byId[node.objectId] != nullptr ? 1u : 0u;
+        byId[node.objectId] = &node;
+    };
+    for (const auto& record : model.bones) put(record.node);
+    for (const auto& record : model.lights) put(record.node);
+    for (const auto& record : model.helpers) put(record.node);
+    for (const auto& record : model.attachments) put(record.node);
+    for (const auto& record : model.particleEmitters) put(record.node);
+    for (const auto& record : model.particleEmitters2) put(record.node);
+    for (const auto& record : model.ribbonEmitters) put(record.node);
+    for (const auto& record : model.cornEmitters) put(record.node);
+    for (const auto& record : model.eventObjects) put(record.node);
+    for (const auto& record : model.collisionShapes) put(record.node);
+    return byId;
+}
+
+/// How many of @p document's nodes and clips @p map puts somewhere other than
+/// where @p exported has them.
+u32 mapMismatches(const Document& document, const MdxExportMap& map, const mdx::Model& exported) {
+    u32 wrong = 0;
+    const Model& model = document.models[0];
+    const std::vector<const mdx::Node*> byId = nodesById(exported, wrong);
+    if (map.nodeObjectId.size() != model.nodes.size() ||
+        map.clipSequence.size() != document.clips.size()) {
+        return wrong + 1u;
+    }
+    for (std::size_t i = 0; i < model.nodes.size(); ++i) {
+        const u32 id = map.nodeObjectId[i];
+        if (model.nodes.nodes[i].kind == NodeKind::Camera) {
+            wrong += id != kInvalidIndex ? 1u : 0u;
+        } else if (id >= byId.size() || byId[id] == nullptr ||
+                   byId[id]->name != model.nodes.nodes[i].name) {
+            ++wrong;
+        }
+    }
+    for (std::size_t c = 0; c < document.clips.size(); ++c) {
+        const Clip& clip = document.clips[c];
+        const u32 sequence = map.clipSequence[c];
+        const bool global = hasFlag(clip.flags, ClipFlags::AutoPlay) &&
+                            hasFlag(clip.flags, ClipFlags::WorldClocked);
+        if (clip.model != 0u || global) {
+            wrong += sequence != kInvalidIndex ? 1u : 0u;
+        } else if (sequence >= exported.sequences.size() ||
+                   exported.sequences[sequence].name != clip.name) {
+            ++wrong;
+        }
+    }
+    return wrong;
+}
+
+} // namespace
+
+TEST_CASE("wem mdx the export map says where toMdx puts nodes and clips", "[wem][anim][mdx]") {
+    // A global loop between two animations: it is a clip in the document but no
+    // sequence in the file, so the animation after it is sequence 1, not 2.
+    mdx::Model model = makeModel();
+    model.globalSequences = {500};
+    model.bones[0].node.translationTracks = makeTrack<Vector3f>(
+        mdx::InterpolationType::Linear, {0, 500}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 5}});
+    model.bones[0].node.translationTracks.globalSequenceId = 0;
+    mdx::Helper helper;
+    helper.node = makeNode("helper", 1, 0);
+    model.helpers.push_back(helper);
+    model.pivotPoints.push_back(Vector3f{0, 0, 1});
+
+    Document document = convert(model);
+    auto loop = std::find_if(document.clips.begin(), document.clips.end(), [](const Clip& clip) {
+        return hasFlag(clip.flags, ClipFlags::WorldClocked);
+    });
+    REQUIRE(loop != document.clips.end());
+    const Clip moved = *loop;
+    document.clips.erase(loop);
+    document.clips.insert(document.clips.begin() + 1, moved);
+    REQUIRE(document.clips[0].name == "Stand");
+    REQUIRE(document.clips[2].name == "Walk");
+
+    const MdxExportMap map = MdxExportMapOf(document, 0, ProfileId::Wc3Classic);
+    REQUIRE(map.clipSequence.size() == 3u);
+    CHECK(map.clipSequence[0] == 0u);
+    CHECK(map.clipSequence[1] == kInvalidIndex);
+    CHECK(map.clipSequence[2] == 1u);
+
+    MdxConverter converter;
+    const Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->sequences.size() == 2u);
+    CHECK(exported->sequences[1].name == "Walk");
+    CHECK(mapMismatches(document, map, *exported) == 0u);
+    CHECK(MdxExportMapOf(document, 1, ProfileId::Wc3Classic).nodeObjectId.empty());
+}
+
+TEST_CASE("wem mdx a clip without a window lands after every stored window",
+          "[wem][anim][mdx]") {
+    // An editor takes a clip's window away, and that clip can be anywhere in the
+    // list. Placed after only the windows ahead of it, the middle one here would
+    // land on top of the last.
+    mdx::Model model = makeModel();
+    mdx::Sequence fly;
+    fly.name = "Fly";
+    fly.intervalStart = 4000;
+    fly.intervalEnd = 5000;
+    model.sequences.push_back(fly);
+    model.bones[0].node.translationTracks = makeTrack<Vector3f>(
+        mdx::InterpolationType::Linear, {2000, 3000}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 5}});
+
+    Document document = convert(model);
+    REQUIRE(document.clips.size() == 3u);
+    REQUIRE(document.clips[1].name == "Walk");
+    document.clips[1].native = NativeBag{};
+
+    MdxConverter converter;
+    const Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic);
+    REQUIRE(exported.ok());
+    const std::vector<mdx::Sequence>& sequences = exported->sequences;
+    REQUIRE(sequences.size() == 3u);
+    CHECK(sequences[1].name == "Walk");
+    CHECK(sequences[1].intervalStart == 6000u);
+    CHECK(sequences[1].intervalEnd == 7000u);
+    for (std::size_t a = 0; a < sequences.size(); ++a) {
+        for (std::size_t b = a + 1; b < sequences.size(); ++b) {
+            CHECK((sequences[a].intervalEnd < sequences[b].intervalStart ||
+                   sequences[b].intervalEnd < sequences[a].intervalStart));
+        }
+    }
+    CHECK(exported.diagnostics.countOf(DiagCode::AnimClipRetimed) == 1u);
+
+    // Its keys went with it, and the key at 3000 is at the new window's end.
+    const mdx::Track<Vector3f>& track = exported->bones[0].node.translationTracks;
+    CHECK(std::find(track.timestamps.begin(), track.timestamps.end(), 7000u) !=
+          track.timestamps.end());
+}
+
+namespace {
+
+/// The first clip of @p model's document, alone and without a window, exported:
+/// what an editor's clip looks like on its way out.
+mdx::Model exportWindowless(const mdx::Model& model) {
+    Document document = convert(model);
+    REQUIRE_FALSE(document.clips.empty());
+    document.clips.resize(1);
+    document.clips[0].native = NativeBag{};
+    MdxConverter converter;
+    Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->sequences.size() == 1u);
+    REQUIRE(exported->sequences[0].intervalStart == 0u);
+    return std::move(*exported.value);
+}
+
+template <class T>
+bool same(const T& a, const T& b) {
+    return std::memcmp(&a, &b, sizeof(T)) == 0;
+}
+
+} // namespace
+
+TEST_CASE("wem mdx a made-up edge of a tangent stream is written as a hold",
+          "[wem][anim][mdx]") {
+    // Keys at 300 and 700 in a 1 s clip: the export makes up the keys at 0 and
+    // 1000. Each is the hold the source plays there, so its tangents are flat,
+    // and so is the tangent of the real key that faces it. The two tangents
+    // between the real keys are untouched.
+    mdx::Model model = makeModel();
+
+    SECTION("a Hermite vector: flat is zero") {
+        const Vector3f v0{0, 0, 1}, in0{1, 2, 3}, out0{4, 5, 6};
+        const Vector3f v1{0, 0, 2}, in1{7, 8, 9}, out1{10, 11, 12};
+        model.bones[0].node.translationTracks = makeTrack<Vector3f>(
+            mdx::InterpolationType::Hermite, {300, 700}, {v0, in0, out0, v1, in1, out1});
+        const mdx::Model exported = exportWindowless(model);
+        const mdx::Track<Vector3f>& track = exported.bones[0].node.translationTracks;
+        CHECK(track.interpolationType == mdx::InterpolationType::Hermite);
+        REQUIRE(track.timestamps == std::vector<u32>{0, 300, 700, 1000});
+        const auto keys = track.tangentKeys();
+        const Vector3f zero{0, 0, 0};
+        CHECK(same(keys[0].value, v0));
+        CHECK(same(keys[0].inTan, zero));
+        CHECK(same(keys[0].outTan, zero));
+        CHECK(same(keys[1].inTan, zero));
+        CHECK(same(keys[1].outTan, out0));
+        CHECK(same(keys[2].inTan, in1));
+        CHECK(same(keys[2].outTan, zero));
+        CHECK(same(keys[3].value, v1));
+        CHECK(same(keys[3].inTan, zero));
+        CHECK(same(keys[3].outTan, zero));
+    }
+
+    SECTION("a Bezier vector: flat is the key's own value") {
+        const Vector3f v0{0, 0, 1}, in0{1, 2, 3}, out0{4, 5, 6};
+        const Vector3f v1{0, 0, 2}, in1{7, 8, 9}, out1{10, 11, 12};
+        model.bones[0].node.translationTracks = makeTrack<Vector3f>(
+            mdx::InterpolationType::Bezier, {300, 700}, {v0, in0, out0, v1, in1, out1});
+        const mdx::Model exported = exportWindowless(model);
+        const mdx::Track<Vector3f>& track = exported.bones[0].node.translationTracks;
+        CHECK(track.interpolationType == mdx::InterpolationType::Bezier);
+        REQUIRE(track.timestamps == std::vector<u32>{0, 300, 700, 1000});
+        const auto keys = track.tangentKeys();
+        CHECK(same(keys[0].inTan, v0));
+        CHECK(same(keys[0].outTan, v0));
+        CHECK(same(keys[1].inTan, v0));
+        CHECK(same(keys[1].outTan, out0));
+        CHECK(same(keys[2].inTan, in1));
+        CHECK(same(keys[2].outTan, v1));
+        CHECK(same(keys[3].inTan, v1));
+        CHECK(same(keys[3].outTan, v1));
+    }
+
+    SECTION("a Hermite quaternion: flat is the key's own value, squad's control point") {
+        const Quaternion q0{0, 0, 0, 1}, a0{0.1f, 0, 0, 0.995f}, b0{0.2f, 0, 0, 0.98f};
+        const Quaternion q1{0, 0, 0.70710678f, 0.70710678f}, a1{0, 0.1f, 0, 0.995f},
+            b1{0, 0.2f, 0, 0.98f};
+        model.bones[0].node.rotationTracks = makeTrack<Quaternion>(
+            mdx::InterpolationType::Hermite, {300, 700}, {q0, a0, b0, q1, a1, b1});
+        const mdx::Model exported = exportWindowless(model);
+        const mdx::Track<Quaternion>& track = exported.bones[0].node.rotationTracks;
+        CHECK(track.interpolationType == mdx::InterpolationType::Hermite);
+        REQUIRE(track.timestamps == std::vector<u32>{0, 300, 700, 1000});
+        const auto keys = track.tangentKeys();
+        CHECK(same(keys[0].inTan, q0));
+        CHECK(same(keys[0].outTan, q0));
+        CHECK(same(keys[1].inTan, q0));
+        CHECK(same(keys[1].outTan, b0));
+        CHECK(same(keys[2].inTan, a1));
+        CHECK(same(keys[2].outTan, q1));
+        CHECK(same(keys[3].inTan, q1));
+        CHECK(same(keys[3].outTan, q1));
+    }
+
+    SECTION("a lone key is flat on both sides") {
+        const Vector3f v{0, 0, 3}, in{1, 2, 3}, out{4, 5, 6};
+        model.bones[0].node.translationTracks =
+            makeTrack<Vector3f>(mdx::InterpolationType::Hermite, {500}, {v, in, out});
+        const mdx::Model exported = exportWindowless(model);
+        const mdx::Track<Vector3f>& track = exported.bones[0].node.translationTracks;
+        REQUIRE(track.timestamps == std::vector<u32>{0, 500, 1000});
+        const auto keys = track.tangentKeys();
+        const Vector3f zero{0, 0, 0};
+        for (const auto& key : keys) {
+            CHECK(same(key.value, v));
+            CHECK(same(key.inTan, zero));
+            CHECK(same(key.outTan, zero));
+        }
+    }
 }
 
 // ============================================================================
@@ -1129,4 +1399,60 @@ TEST_CASE("wem mdx animation survives the corpus", "[wem][anim][mdx][corpus]") {
     // The one that is not a count: a channel table nothing can resolve is what a
     // green conversion would hide (§16's testing note).
     CHECK(validationErrors == 0u);
+}
+
+TEST_CASE("wem mdx the export map agrees with toMdx across the corpus",
+          "[wem][anim][mdx][corpus]") {
+    // A host finds a document node in the renderer through this map, so a node
+    // the map sends to another record is a marker on the wrong bone.
+    const auto files = test::gather("WEM_MDX_CORPUS_DIR", ".mdx", {"MDL", "Wc3Mdx"});
+    if (files.empty()) {
+        WARN("no .mdx corpus found; set WEM_MDX_CORPUS_DIR");
+        return;
+    }
+    const std::size_t limit = test::sweepLimit(files.size(), 200);
+    u32 exports = 0;
+    u32 nodes = 0;
+    u32 clips = 0;
+    u32 mismatches = 0;
+    std::vector<std::string> failing;
+    MdxConverter converter;
+    for (std::size_t i = 0; i < limit; ++i) {
+        if (test::isKnownBad(files[i])) {
+            continue;
+        }
+        test::trace(files[i]);
+        const std::vector<u8> bytes = test::readCorpusFile(files[i]);
+        if (bytes.empty()) {
+            continue;
+        }
+        const Result<Document> converted =
+            converter.importFromBytes(std::span<const u8>(bytes.data(), bytes.size()));
+        if (!converted.ok() || converted->models.empty()) {
+            continue;
+        }
+        for (const ProfileId profile : {ProfileId::Wc3Classic, ProfileId::Wc3Reforged}) {
+            const Result<mdx::Model> exported = converter.toMdx(*converted.value, profile);
+            if (!exported.ok()) {
+                continue;
+            }
+            ++exports;
+            nodes += static_cast<u32>(converted->models[0].nodes.size());
+            clips += static_cast<u32>(converted->clips.size());
+            const u32 wrong = mapMismatches(
+                *converted.value, MdxExportMapOf(*converted.value, 0, profile), *exported);
+            mismatches += wrong;
+            if (wrong != 0 && failing.size() < 8) {
+                failing.push_back(test::pathText(files[i].filename()) + ": " +
+                                  std::to_string(wrong));
+            }
+        }
+    }
+    std::cout << "mdx export map: " << exports << " exports, " << nodes << " nodes, " << clips
+              << " clips, " << mismatches << " misplaced" << std::endl;
+    for (const std::string& line : failing) {
+        std::cout << "  " << line << std::endl;
+    }
+    REQUIRE(exports > 0u);
+    CHECK(mismatches == 0u);
 }

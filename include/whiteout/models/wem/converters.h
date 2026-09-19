@@ -63,6 +63,22 @@ struct MaterialBlockDraft {
     u32 texturesAppended = 0;
 };
 
+/// Where `toMdx` puts what the document names, for a caller that has to find a
+/// document node or clip in the `.mdx` it built (EDIT_MODE_ANIMATIONS_DESIGN.md
+/// §4.1). `toMdx` numbers from this same answer, so the two cannot disagree.
+struct MdxExportMap {
+    /// Per node: the `objectId` `toMdx` gives it; `kInvalidIndex` for a node
+    /// with none (a camera).
+    std::vector<u32> nodeObjectId;
+    /// Per `Document::clips` entry: its index in `sequences`; `kInvalidIndex`
+    /// for a global loop or another model's clip.
+    std::vector<u32> clipSequence;
+};
+
+/// @ref MdxExportMap for `document.models[model]` written as @p profile,
+/// computed without exporting. Empty when the document has no such model.
+MdxExportMap MdxExportMapOf(const Document& document, u32 model, ProfileId profile);
+
 /**
  * @brief Warcraft III `.mdx`, both directions, serving both WC3 profiles.
  *

@@ -128,7 +128,20 @@ struct ExportContext {
     /// stated rather than assumed, because the two are only equal as long as
     /// nothing between them reorders a layer.
     std::vector<std::vector<u32>> layerOfOrdinal;
+
+    /// Per `Document::clips` entry, the sequence it becomes: `MdxExportMap`'s
+    /// answer, which `Export` places the sequences by.
+    std::vector<u32> clipSequence;
 };
+
+/// Whether @p clip is a global loop: an auto-play clip on a clock that is not
+/// the host play's, which is what a global sequence is.
+bool IsGlobalLoop(const Clip& clip);
+
+/// Per `Document::clips` entry, its index in the `sequences` `Export` writes
+/// for @p model: the model's clips that are not global loops, in document
+/// order. `kInvalidIndex` for a global loop or another model's clip.
+std::vector<u32> ClipSequences(const Document& document, u32 model);
 
 /// Writes `document`'s clips back onto `out` as sequences, global sequences and
 /// per-record tracks — the inverse of @ref Import (design §10.8.3).

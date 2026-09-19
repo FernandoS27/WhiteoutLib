@@ -540,3 +540,44 @@ TEST_CASE("skeleton retarget does not step a channel the source never keyed") {
     REQUIRE(spineTrack != nullptr);
     CHECK(spineTrack->interp == Interpolation::Step);
 }
+
+TEST_CASE("skeleton retarget writes new tracks that carry no TCB") {
+    // The retarget samples every source curve at the union of its key times
+    // and writes Linear, Slerp or Step, so it keeps no parameters that would no
+    // longer describe any tangents (EDIT_MODE_ANIMATIONS_DESIGN.md §3.3). The
+    // head's translation is made TCB with tension 1, whose tangents are zero.
+    Document after = MakeExplicitRig(Vector3f{1.5f, 1.5f, 1.5f});
+    const AnimChannel* head = FindChannel(after.models[0].animChannels, 2, Channel::Translation);
+    REQUIRE(head != nullptr);
+    const u32 headId = head->id;
+    bool converted = false;
+    for (SubTrack& track : after.clips[0].containers[0].subTracks) {
+        if (track.channel != headId) {
+            continue;
+        }
+        const std::size_t stride = 3 * sizeof(f32);
+        std::vector<u8> smooth;
+        for (std::size_t k = 0; k < track.times.size(); ++k) {
+            const auto from = track.values.begin() + static_cast<std::ptrdiff_t>(k * stride);
+            smooth.insert(smooth.end(), from, from + static_cast<std::ptrdiff_t>(stride));
+            smooth.insert(smooth.end(), 2 * stride, u8{0});
+        }
+        track.values = std::move(smooth);
+        track.interp = Interpolation::Hermite;
+        track.tcb.assign(3 * track.times.size(), 0.0f);
+        for (std::size_t k = 0; k < track.times.size(); ++k) {
+            track.tcb[3 * k] = 1.0f;
+        }
+        converted = true;
+    }
+    REQUIRE(converted);
+    REQUIRE(RetargetSkeleton(after, ProfileId::Wc3Classic).ok);
+    for (const Clip& clip : after.clips) {
+        for (const SubTrackContainer& container : clip.containers) {
+            for (const SubTrack& track : container.subTracks) {
+                CHECK(track.tcb.empty());
+                CHECK(track.interp != Interpolation::Hermite);
+            }
+        }
+    }
+}

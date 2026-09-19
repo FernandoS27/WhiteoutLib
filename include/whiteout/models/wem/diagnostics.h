@@ -138,6 +138,7 @@ enum class DiagCode : u16 {
     AnimTrackDropped,          ///< A track the target format cannot express.
     AnimTrackApproximated,     ///< A track was written, but not as it was held.
     AnimClipRetimed,           ///< A clip was placed on a timeline it did not come from.
+    AnimTcbBaked,              ///< TCB parameters written as the Hermite tangents they produce.
 
     // --- actors (§9) ----------------------------------------------------------
     EventPayloadMismatch, ///< `ActorEvent` kind and payload group disagree (§9.5).

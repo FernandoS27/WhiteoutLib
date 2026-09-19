@@ -434,10 +434,11 @@ struct ChunkTagTraits<AnimChannel> {
     static constexpr bool is_trivial = false;
 };
 
+/// v2 adds `SubTrack::tcb`.
 template <>
 struct ChunkTagTraits<SubTrack> {
     static constexpr u32 value = kTag("STRK");
-    static constexpr u32 max_version = 1;
+    static constexpr u32 max_version = 2;
     static constexpr bool is_trivial = false;
 };
 

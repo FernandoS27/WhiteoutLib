@@ -267,14 +267,31 @@ void checkAnimation(const Document& document, Diagnostics& out) {
                         ElementRef(ElementKind::Track, static_cast<u32>(c), static_cast<u32>(k)));
                     continue;
                 }
-                if (track.wellSized(channel->valueType)) {
+                const ElementRef at(ElementKind::Track, static_cast<u32>(c), static_cast<u32>(k));
+                if (!track.wellSized(channel->valueType)) {
+                    out.error(DiagCode::AttributeCountMismatch,
+                              "a sub-track holds " + number(track.values.size()) + " bytes for " +
+                                  number(track.keyCount()) + " " + ToString(track.interp) +
+                                  " keys of " + ToString(channel->valueType),
+                              at);
+                }
+                // TCB parameters are three per key, and only a Hermite curve's
+                // tangents can be the ones they produce.
+                if (track.tcb.empty()) {
                     continue;
                 }
-                out.error(DiagCode::AttributeCountMismatch,
-                          "a sub-track holds " + number(track.values.size()) + " bytes for " +
-                              number(track.keyCount()) + " " + ToString(track.interp) +
-                              " keys of " + ToString(channel->valueType),
-                          ElementRef(ElementKind::Track, static_cast<u32>(c), static_cast<u32>(k)));
+                if (track.interp != Interpolation::Hermite) {
+                    out.error(DiagCode::MixedInterpolationInTrack,
+                              "a " + std::string(ToString(track.interp)) +
+                                  " sub-track carries TCB parameters, which only a Hermite one can",
+                              at);
+                }
+                if (track.tcb.size() != 3 * track.keyCount()) {
+                    out.error(DiagCode::AttributeCountMismatch,
+                              "a sub-track holds " + number(track.tcb.size()) + " TCB parameters for " +
+                                  number(track.keyCount()) + " keys",
+                              at);
+                }
             }
         }
     }

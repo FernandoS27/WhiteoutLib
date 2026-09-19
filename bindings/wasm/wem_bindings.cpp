@@ -211,6 +211,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("AnimTrackDropped", whiteout::models::wem::DiagCode::AnimTrackDropped)
         .value("AnimTrackApproximated", whiteout::models::wem::DiagCode::AnimTrackApproximated)
         .value("AnimClipRetimed", whiteout::models::wem::DiagCode::AnimClipRetimed)
+        .value("AnimTcbBaked", whiteout::models::wem::DiagCode::AnimTcbBaked)
         .value("EventPayloadMismatch", whiteout::models::wem::DiagCode::EventPayloadMismatch)
         .value("AssetUnresolved", whiteout::models::wem::DiagCode::AssetUnresolved)
         .value("HardpointUnresolved", whiteout::models::wem::DiagCode::HardpointUnresolved)
@@ -637,6 +638,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("allowsVertexColor", &whiteout::models::wem::ProfileDesc::allowsVertexColor)
         .property("commonKinds", &whiteout::models::wem::ProfileDesc::commonKinds)
         .property("containerKinds", &whiteout::models::wem::ProfileDesc::containerKinds)
+        .property("contentKinds", &whiteout::models::wem::ProfileDesc::contentKinds)
         .property("nativeMaterialKind", &whiteout::models::wem::ProfileDesc::nativeMaterialKind)
         .property("supportsLooks", &whiteout::models::wem::ProfileDesc::supportsLooks)
         .property("supportsActors", &whiteout::models::wem::ProfileDesc::supportsActors)
@@ -1291,6 +1293,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("fov", &whiteout::models::wem::CameraPayload::fov)
         .property("nearClip", &whiteout::models::wem::CameraPayload::nearClip)
         .property("farClip", &whiteout::models::wem::CameraPayload::farClip)
+        .property("target", &whiteout::models::wem::CameraPayload::target)
     ;
 
     class_<whiteout::models::wem::ParticlePayload>("WemParticlePayload")
@@ -1401,6 +1404,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("interp", &whiteout::models::wem::SubTrack::interp)
         .property("times", &whiteout::models::wem::SubTrack::times)
         .property("values", &whiteout::models::wem::SubTrack::values)
+        .property("tcb", &whiteout::models::wem::SubTrack::tcb)
     ;
 
     class_<whiteout::models::wem::SubTrackContainer>("WemSubTrackContainer")

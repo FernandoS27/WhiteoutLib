@@ -325,6 +325,32 @@ TEST_CASE("wem a rescale moves translation keys and no others", "[wem][rescale]"
     CHECK_THAT(scaledRest, WithinAbs(500.0f, 1e-2f));
 }
 
+TEST_CASE("wem a rescale scales a TCB track's tangents and not its parameters", "[wem][rescale]") {
+    // A Hermite tangent is a length like the value it flanks; tension,
+    // continuity and bias have no units, so the curve they chose is the same
+    // curve at the new scale (EDIT_MODE_ANIMATIONS_DESIGN.md §3.3).
+    Document document = makeRescaleDocument();
+    Model& model = document.models[0];
+    Clip& clip = document.clips[0];
+    const u32 translation = addTrack(model, clip, 1, Channel::Translation, {1.0f, 2.0f, 3.0f});
+    SubTrack& track = clip.containers[0].subTracks.back();
+    const std::vector<f32> key = {1.0f, 2.0f, 3.0f, 0.5f, 0.0f, 0.0f, 0.25f, 0.0f, 0.0f};
+    track.interp = Interpolation::Hermite;
+    track.values.resize(key.size() * sizeof(f32));
+    std::memcpy(track.values.data(), key.data(), track.values.size());
+    const std::vector<f32> tcb = {0.5f, -0.25f, 1.0f};
+    track.tcb = tcb;
+
+    REQUIRE(RescaleDocument(document, 100.0f).ok);
+
+    const std::vector<f32> scaled = readTrack(document.clips[0], translation);
+    REQUIRE(scaled.size() == 9u);
+    CHECK_THAT(scaled[2], WithinAbs(300.0f, 1e-2f));
+    CHECK_THAT(scaled[3], WithinAbs(50.0f, 1e-3f));
+    CHECK_THAT(scaled[6], WithinAbs(25.0f, 1e-3f));
+    CHECK(document.clips[0].containers[0].subTracks.back().tcb == tcb);
+}
+
 // ============================================================================
 // The invariant the whole thing exists for
 // ============================================================================

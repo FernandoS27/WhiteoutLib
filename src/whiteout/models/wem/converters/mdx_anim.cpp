@@ -618,6 +618,24 @@ void Import(const mdx::Model& source, const Context& context, Document& document
 // the end of the timeline. That is a real re-timing and it is reported.
 // ============================================================================
 
+bool IsGlobalLoop(const Clip& clip) {
+    // The three-format unification, read backwards: an auto-play clip on a
+    // clock that is not the host play's is what a global sequence is.
+    return hasFlag(clip.flags, ClipFlags::AutoPlay) && hasFlag(clip.flags, ClipFlags::WorldClocked);
+}
+
+std::vector<u32> ClipSequences(const Document& document, u32 model) {
+    std::vector<u32> sequence(document.clips.size(), kInvalidIndex);
+    u32 next = 0;
+    for (std::size_t c = 0; c < document.clips.size(); ++c) {
+        const Clip& clip = document.clips[c];
+        if (clip.model == model && !IsGlobalLoop(clip)) {
+            sequence[c] = next++;
+        }
+    }
+    return sequence;
+}
+
 namespace {
 
 constexpr f32 kMilliseconds = 1000.0f;
@@ -885,28 +903,43 @@ private:
         }
     }
 
-    static bool IsGlobalClip(const Clip& clip) {
-        // The three-format unification, read backwards: an auto-play clip on a
-        // clock that is not the host play's is what a global sequence is.
-        return hasFlag(clip.flags, ClipFlags::AutoPlay) &&
-               hasFlag(clip.flags, ClipFlags::WorldClocked);
-    }
-
     void buildWindows() {
+        // What a new clip must not land on, found before anything is placed.
         // A global loop without a stored id takes the first one past every
         // stored id, not the next slot in document order: that slot may belong
-        // to a loop further down, and the two would then share one clock.
+        // to a loop further down, and the two would then share one clock. A
+        // clip without a window goes after every stored window for the same
+        // reason: one placed after only the windows EARLIER in the document
+        // could land on top of a later one.
         u32 nextGlobal = 0;
+        u32 nextFree = 0;
         for (const Clip& clip : document_.clips) {
-            if (clip.model == modelIndex_ && IsGlobalClip(clip)) {
+            if (clip.model != modelIndex_) {
+                continue;
+            }
+            if (IsGlobalLoop(clip)) {
                 const i64 stored = clip.native.value("globalSequenceId", -1);
                 if (stored >= 0) {
                     nextGlobal = std::max(nextGlobal, static_cast<u32>(stored) + 1u);
                 }
+                continue;
+            }
+            const i64 start = clip.native.value("intervalStart", -1);
+            const i64 end = clip.native.value("intervalEnd", -1);
+            if (start >= 0 && end >= start) {
+                nextFree = std::max(nextFree, static_cast<u32>(end) + 1000u);
             }
         }
 
-        u32 nextFree = 0;
+        const std::vector<u32>& sequenceOf = context_.clipSequence;
+        u32 sequenceCount = 0;
+        for (const u32 sequence : sequenceOf) {
+            if (sequence != kInvalidIndex) {
+                sequenceCount = std::max(sequenceCount, sequence + 1u);
+            }
+        }
+        out_.sequences.resize(sequenceCount);
+
         for (std::size_t c = 0; c < document_.clips.size(); ++c) {
             const Clip& clip = document_.clips[c];
             if (clip.model != modelIndex_) {
@@ -915,7 +948,7 @@ private:
             Window window;
             window.clip = static_cast<u32>(c);
 
-            if (IsGlobalClip(clip)) {
+            if (IsGlobalLoop(clip)) {
                 const i64 stored = clip.native.value("globalSequenceId", -1);
                 const u32 id = stored >= 0 ? static_cast<u32>(stored) : nextGlobal++;
                 if (out_.globalSequences.size() <= id) {
@@ -925,6 +958,9 @@ private:
                 window.globalSequenceId = id;
                 windows_.push_back(window);
                 continue;
+            }
+            if (c >= sequenceOf.size() || sequenceOf[c] >= out_.sequences.size()) {
+                continue; // The map gives it no sequence.
             }
 
             mdx::Sequence sequence;
@@ -963,7 +999,7 @@ private:
             window.start = sequence.intervalStart;
             window.end = sequence.intervalEnd;
             windows_.push_back(window);
-            out_.sequences.push_back(std::move(sequence));
+            out_.sequences[sequenceOf[c]] = std::move(sequence);
         }
     }
 
@@ -1032,6 +1068,18 @@ private:
                                   ElementRef(ElementKind::Track, channel.id), profile_);
             }
         }
+        // MDX has no TCB. The tangents the parameters produced are what is
+        // written, so the curve survives and only how it was chosen does not.
+        for (const Part& part : parts) {
+            if (part.track->tcb.empty()) {
+                continue;
+            }
+            diagnostics_.info(DiagCode::AnimTcbBaked,
+                              "clip '" + part.clip->name +
+                                  "' keys a channel with TCB; written as the Hermite tangents it gives",
+                              ElementRef(ElementKind::Track, channel.id), profile_);
+            break;
+        }
 
         for (const Part& part : parts) {
             const Window& window = *part.window;
@@ -1068,6 +1116,7 @@ private:
             // 3.7 s clip, through `Morph`).
             bool keyedStart = false;
             bool keyedEnd = false;
+            std::vector<std::pair<u32, std::size_t>> inside; ///< (time, key)
             for (std::size_t k = 0; k < track.times.size(); ++k) {
                 const f32 t = track.times[k];
                 if (t < -1e-4f || t > clip.duration + 1e-4f) {
@@ -1078,17 +1127,69 @@ private:
                     start, end);
                 keyedStart = keyedStart || time == start;
                 keyedEnd = keyedEnd || time == end;
-                merged.add(time, at(k));
+                inside.emplace_back(time, k);
             }
+
+            // A made-up edge is the hold the source plays there, so on a
+            // tangent stream it is written flat -- and so is the side of its
+            // real neighbour that faces it, the one tangent that drives only
+            // the made-up span. Zero tangents there would keep the neighbour's
+            // own slope (a Hermite overshoot), bend a Bezier toward the origin
+            // and send a squad toward a zero quaternion.
+            const bool smooth = merged.valuesPerKey == 3u;
+            const bool derivative =
+                merged.interp == Interpolation::Hermite && channel.valueType != geom::AttrType::Quat;
+            for (std::size_t i = 0; i < inside.size(); ++i) {
+                const auto [time, k] = inside[i];
+                const bool flatIn = smooth && !keyedStart && i == 0;
+                const bool flatOut = smooth && !keyedEnd && i + 1 == inside.size();
+                if (!flatIn && !flatOut) {
+                    merged.add(time, at(k));
+                    continue;
+                }
+                merged.add(time, merged.own(Flattened(std::vector<u8>(at(k), at(k) + stride),
+                                                      merged.valueSize, derivative, flatIn,
+                                                      flatOut)));
+            }
+            const auto edge = [&](f32 t) {
+                std::vector<u8> value = SampleValue(track, channel.valueType, t);
+                return merged.own(smooth ? Flattened(std::move(value), merged.valueSize, derivative,
+                                                     true, true)
+                                         : std::move(value));
+            };
             if (!keyedStart) {
-                merged.add(start, merged.own(SampleValue(track, channel.valueType, 0.0f)));
+                merged.add(start, edge(0.0f));
             }
             if (!keyedEnd) {
-                merged.add(end, merged.own(SampleValue(track, channel.valueType, clip.duration)));
+                merged.add(end, edge(clip.duration));
             }
         }
         merged.finish();
         return merged;
+    }
+
+    /// @p key, laid out `{value, inTan, outTan}`, with the named tangents made
+    /// flat: zero when they are derivatives (@p derivative), and the key's own
+    /// value when they are positions -- a Bezier handle, or a quaternion's
+    /// squad control point, which is what both smooth modes are on a rotation.
+    static std::vector<u8> Flattened(std::vector<u8> key, std::size_t valueSize, bool derivative,
+                                     bool in, bool out) {
+        key.resize(3 * valueSize, 0);
+        const auto flatten = [&](std::size_t slot) {
+            u8* tangent = key.data() + slot * valueSize;
+            if (derivative) {
+                std::fill(tangent, tangent + valueSize, u8{0});
+            } else {
+                std::copy(key.data(), key.data() + valueSize, tangent);
+            }
+        };
+        if (in) {
+            flatten(1);
+        }
+        if (out) {
+            flatten(2);
+        }
+        return key;
     }
 
     void emitChannel(const AnimChannel& channel) {

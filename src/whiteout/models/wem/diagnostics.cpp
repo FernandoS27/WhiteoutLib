@@ -93,6 +93,7 @@ constexpr const char* kDiagCodeNames[] = {
     "AnimTrackDropped",
     "AnimTrackApproximated",
     "AnimClipRetimed",
+    "AnimTcbBaked",
 
     "EventPayloadMismatch",
     "AssetUnresolved",

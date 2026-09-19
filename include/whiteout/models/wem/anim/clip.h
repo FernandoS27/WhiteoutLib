@@ -88,6 +88,13 @@ struct SubTrack {
     /// must agree about it, and storing it here would let two disagree.
     std::vector<u8> values;
 
+    /// TCB parameters, three per key (tension, continuity, bias), or empty.
+    /// Only meaningful on a `Hermite` sub-track: the tangents in `values` are
+    /// the ones these produce, so a consumer that ignores this field plays the
+    /// same curve. An editor keeps them to derive the tangents again when a key
+    /// changes; a format without TCB drops them and keeps the curve.
+    std::vector<f32> tcb;
+
     std::size_t keyCount() const {
         return times.size();
     }
@@ -104,6 +111,9 @@ struct SubTrack {
         v.field("interp", interp);
         v.field("times", times);
         v.field("values", values);
+        // v2: a sub-track written before this field carries no TCB parameters,
+        // which is what empty means.
+        v.since(2).field("tcb", tcb);
     }
 };
 
