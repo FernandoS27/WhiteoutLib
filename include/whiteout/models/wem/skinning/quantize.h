@@ -65,6 +65,9 @@ struct ClassicSkin {
     u32 snapped = 0;
     /// Vertices moved to another group by the 256 limit.
     u32 merged = 0;
+    /// Which ones, ascending: an editor's Classic section selects them, and a
+    /// count alone cannot be pointed at (EDIT_MODE_SKIN_DESIGN.md §12.6).
+    std::vector<u32> mergedVertices;
     /// Groups merged away by the 256 limit.
     u32 mergedGroups = 0;
     /// Vertices whose shares outnumber `maxBones` once the bleed is pruned:

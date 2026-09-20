@@ -241,6 +241,11 @@ ClassicSkin QuantizeClassic(std::span<const std::vector<geom::Influence>> vertic
             usage[victim] = 0;
         }
         result.merged = static_cast<u32>(std::count(moved.begin(), moved.end(), true));
+        for (std::size_t v = 0; v < moved.size(); ++v) {
+            if (moved[v]) {
+                result.mergedVertices.push_back(static_cast<u32>(v));
+            }
+        }
 
         std::vector<u32> compact(total, kNoNode);
         std::vector<std::vector<u32>> survivors;
