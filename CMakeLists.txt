@@ -433,6 +433,7 @@ add_library(whiteout_lib
     src/whiteout/models/wem/skinning/ops.cpp
     src/whiteout/models/wem/skinning/deform.cpp
     src/whiteout/models/wem/skinning/mirror.cpp
+    src/whiteout/models/wem/skinning/generate.cpp
     src/whiteout/models/wem/anim/channel.cpp
     src/whiteout/models/wem/anim/clip.cpp
     src/whiteout/models/wem/materials/texture.cpp

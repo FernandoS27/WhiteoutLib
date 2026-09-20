@@ -60,6 +60,19 @@ inline constexpr f32 kMinWeight = 1e-4f;
 struct SkinScope {
     std::span<const u32> points;
     std::span<const f32> strength;
+    /**
+     * @brief Bones held as though locked, for this operation alone (§8.1).
+     *
+     * A generator writes a *bone set*, and a point's weight on a bone outside
+     * that set is kept: "regenerate the arm without touching the chest" is a
+     * scope and three bones. That is exactly what a lock already means, so it
+     * is the lock that answers it rather than a second rule -- `L` in §6.1
+     * gains these bones, and every operation keeps its one normalisation.
+     *
+     * Unlike `Node::skin.locked` it is not saved and not shown: it lives for
+     * the length of one call.
+     */
+    std::span<const u32> heldBones;
 
     f32 strengthOf(std::size_t index) const {
         return index < strength.size() ? strength[index] : 1.0f;

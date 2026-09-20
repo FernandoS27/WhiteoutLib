@@ -62,12 +62,20 @@ struct Skeleton {
 /// What every operation carries: the locks, the skeleton and the counters.
 class Writer {
 public:
-    Writer(Mesh& mesh, const NodeTree& nodes, const PointTable& points)
+    Writer(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
+           std::span<const u32> heldBones = {})
         : mesh_(mesh), nodes_(nodes), points_(points), skeleton_(nodes),
-          vertexLocked_(mesh.attributes.get<u8>(geom::names::kSkinLocked, geom::Domain::Vertex)) {}
+          vertexLocked_(mesh.attributes.get<u8>(geom::names::kSkinLocked, geom::Domain::Vertex)),
+          heldBones_(heldBones) {}
 
     bool boneLocked(u32 bone) const {
-        return bone < nodes_.size() && nodes_.nodes[bone].skin.locked;
+        if (bone < nodes_.size() && nodes_.nodes[bone].skin.locked) {
+            return true;
+        }
+        // The caller's own set, held for this call alone. A bone set is short --
+        // the checked rows of the bone list -- so a linear scan beats building
+        // a lookup per operation.
+        return std::find(heldBones_.begin(), heldBones_.end(), bone) != heldBones_.end();
     }
 
     /// The point's weights, taken from its first member: every member is written
@@ -123,6 +131,14 @@ public:
                       }
                       return a.bone < b.bone;
                   });
+        if (mesh_.skin.offsets.empty() && !weights.empty()) {
+            // A mesh no file skinned at all. An EMPTY binding is not a binding
+            // of empty vertices -- `assignVertex` splices into an array that
+            // has no row for the vertex yet and does nothing -- so the first
+            // weight written to such a mesh is what makes it skinned. Without
+            // this, skinning a fresh part from scratch silently writes nothing.
+            mesh_.skin.reset(mesh_.vertexCount());
+        }
         for (const u32 vertex : points_.membersOf(point)) {
             mesh_.skin.assignVertex(vertex, weights);
         }
@@ -253,7 +269,7 @@ private:
         u32 guard = 0;
         while (node != kInvalidNode && node < nodes_.size() && guard++ < nodes_.size()) {
             const Node& candidate = nodes_.nodes[node];
-            if (candidate.kind == NodeKind::Bone && !candidate.skin.locked && node != bone) {
+            if (candidate.kind == NodeKind::Bone && !boneLocked(node) && node != bone) {
                 return node;
             }
             node = candidate.parent;
@@ -266,6 +282,7 @@ private:
     const PointTable& points_;
     Skeleton skeleton_;
     std::span<const u8> vertexLocked_;
+    std::span<const u32> heldBones_;
 };
 
 /// The shape every value-writing operation has: read the point, ask @p rule for
@@ -274,7 +291,7 @@ template <class Rule>
 SkinResult WriteEach(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
                      const SkinScope& scope, u32 bone, Rule&& rule) {
     SkinResult result;
-    Writer writer(mesh, nodes, points);
+    Writer writer(mesh, nodes, points, scope.heldBones);
     if (bone != kInvalidNode && writer.boneLocked(bone)) {
         // A locked bone's weight never moves, whatever is asked of it.
         result.locked = static_cast<u32>(scope.points.size());
@@ -315,7 +332,7 @@ f32 Smoothstep(f32 t) {
 SkinResult Rigid(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
                  const SkinScope& scope, u32 bone) {
     SkinResult result;
-    Writer writer(mesh, nodes, points);
+    Writer writer(mesh, nodes, points, scope.heldBones);
     if (writer.boneLocked(bone)) {
         result.locked = static_cast<u32>(scope.points.size());
         return result;
@@ -377,7 +394,7 @@ SkinResult Remove(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
 SkinResult Normalize(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
                      const SkinScope& scope) {
     SkinResult result;
-    Writer writer(mesh, nodes, points);
+    Writer writer(mesh, nodes, points, scope.heldBones);
     for (const u32 point : scope.points) {
         if (point >= points.pointCount) {
             continue;
@@ -397,7 +414,7 @@ SkinResult Normalize(Mesh& mesh, const NodeTree& nodes, const PointTable& points
 SkinResult Prune(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
                  const SkinScope& scope, f32 epsilon) {
     SkinResult result;
-    Writer writer(mesh, nodes, points);
+    Writer writer(mesh, nodes, points, scope.heldBones);
     for (const u32 point : scope.points) {
         if (point >= points.pointCount) {
             continue;
@@ -420,7 +437,7 @@ SkinResult Prune(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
 SkinResult Limit(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
                  const SkinScope& scope, u32 width) {
     SkinResult result;
-    Writer writer(mesh, nodes, points);
+    Writer writer(mesh, nodes, points, scope.heldBones);
     for (const u32 point : scope.points) {
         if (point >= points.pointCount) {
             continue;
@@ -441,7 +458,7 @@ SkinResult Limit(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
 SkinResult Replace(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
                    const SkinScope& scope, u32 from, u32 to) {
     SkinResult result;
-    Writer writer(mesh, nodes, points);
+    Writer writer(mesh, nodes, points, scope.heldBones);
     if (writer.boneLocked(from) || writer.boneLocked(to) || from == to) {
         result.locked = static_cast<u32>(scope.points.size());
         return result;
@@ -498,7 +515,7 @@ Neighbourhood ReadNeighbourhood(const Writer& writer, const PointTable& points,
 SkinResult Smooth(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
                   const SkinScope& scope, f32 strength, u32 passes) {
     SkinResult result;
-    Writer writer(mesh, nodes, points);
+    Writer writer(mesh, nodes, points, scope.heldBones);
     Neighbourhood around = ReadNeighbourhood(writer, points, scope);
     for (u32 pass = 0; pass < passes; ++pass) {
         std::map<u32, Weights> next;
@@ -561,7 +578,7 @@ SkinResult Smooth(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
 SkinResult Sharpen(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
                    const SkinScope& scope, f32 strength) {
     SkinResult result;
-    Writer writer(mesh, nodes, points);
+    Writer writer(mesh, nodes, points, scope.heldBones);
     const Neighbourhood around = ReadNeighbourhood(writer, points, scope);
     for (std::size_t i = 0; i < scope.points.size(); ++i) {
         const u32 point = scope.points[i];
@@ -600,7 +617,7 @@ SkinResult Sharpen(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
 SkinResult Unify(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
                  const SkinScope& scope) {
     SkinResult result;
-    Writer writer(mesh, nodes, points);
+    Writer writer(mesh, nodes, points, scope.heldBones);
     for (const u32 point : scope.points) {
         if (point >= points.pointCount) {
             continue;
@@ -636,7 +653,7 @@ SkinResult Soften(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
     if (boneA == boneB || scope.points.empty()) {
         return result;
     }
-    Writer writer(mesh, nodes, points);
+    Writer writer(mesh, nodes, points, scope.heldBones);
 
     // The band plus one ring: the points the distances are measured over, and
     // where the two ends are looked for.

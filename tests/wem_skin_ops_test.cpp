@@ -540,3 +540,76 @@ TEST_CASE("S2 Soften blends a band between two rigid parts", "[wem][skin][ops]")
     }
     checkNormalAndSorted(mesh);
 }
+
+// ============================================================================
+// The two things a generator needs of the algebra (§8.1, §8.3)
+// ============================================================================
+
+TEST_CASE("S2 a mesh no file skinned at all can be skinned", "[wem][skin][ops]") {
+    // An EMPTY binding is not a binding of empty vertices: `assignVertex`
+    // splices into an array with no row for the vertex yet, so before this was
+    // handled at the write, skinning a fresh part wrote nothing at all and said
+    // it had changed every point.
+    const NodeTree rig = makeRig();
+    Mesh mesh = makeStrip(2, {});
+    REQUIRE(mesh.skin.empty());
+
+    const skinning::PointTable points = skinning::BuildPointTable(mesh);
+    std::vector<u32> all(points.pointCount);
+    for (u32 point = 0; point < points.pointCount; ++point) {
+        all[point] = point;
+    }
+
+    const skinning::SkinResult result = skinning::Rigid(mesh, rig, points, {all, {}}, kArm);
+    CHECK(result.changed == points.pointCount);
+    REQUIRE_FALSE(mesh.skin.empty());
+    CHECK(mesh.skin.vertexCount() == mesh.vertexCount());
+    for (u32 v = 0; v < mesh.vertexCount(); ++v) {
+        CHECK(near(weightOn(mesh, v, kArm), 1.0f));
+    }
+    checkNormalAndSorted(mesh);
+}
+
+TEST_CASE("S2 a held bone keeps its weight exactly as a locked one does",
+          "[wem][skin][ops]") {
+    // A generator writes a BONE SET, and a point's weight on a bone outside it
+    // is kept (§8.1). That is what a lock already means, so `SkinScope` says it
+    // with a lock rather than with a second rule.
+    const NodeTree rig = makeRig();
+    Mesh mesh = makeStrip(2, {{kChest, 0.5f}, {kArm, 0.5f}});
+    const skinning::PointTable points = skinning::BuildPointTable(mesh);
+    std::vector<u32> all(points.pointCount);
+    for (u32 point = 0; point < points.pointCount; ++point) {
+        all[point] = point;
+    }
+
+    const std::vector<u32> held{kChest};
+    const skinning::SkinResult result =
+        skinning::Rigid(mesh, rig, points, {all, {}, held}, kHand);
+    CHECK(result.changed == points.pointCount);
+    for (u32 v = 0; v < mesh.vertexCount(); ++v) {
+        CHECK(near(weightOn(mesh, v, kChest), 0.5f)); // outside the set, kept
+        CHECK(near(weightOn(mesh, v, kHand), 0.5f));  // the target took the rest
+        CHECK(near(weightOn(mesh, v, kArm), 0.0f));   // inside the set, replaced
+    }
+    checkNormalAndSorted(mesh);
+
+    SECTION("and the parent the last unlocked weight falls back to is never a held one") {
+        // Lowering the only unlocked influence sends its weight to the nearest
+        // Bone ancestor that may take it. The chest is held, so the fallback
+        // has to walk past it to the root rather than quietly writing a bone
+        // the caller said to leave alone.
+        Mesh single = makeStrip(1, {{kArm, 1.0f}});
+        const skinning::PointTable table = skinning::BuildPointTable(single);
+        std::vector<u32> scope(table.pointCount);
+        for (u32 point = 0; point < table.pointCount; ++point) {
+            scope[point] = point;
+        }
+        skinning::Set(single, rig, table, {scope, {}, held}, kArm, 0.25f);
+        for (u32 v = 0; v < single.vertexCount(); ++v) {
+            CHECK(near(weightOn(single, v, kArm), 0.25f));
+            CHECK(near(weightOn(single, v, kChest), 0.0f));
+            CHECK(near(weightOn(single, v, kRoot), 0.75f));
+        }
+    }
+}
