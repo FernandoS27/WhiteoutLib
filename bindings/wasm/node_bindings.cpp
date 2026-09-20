@@ -187,10 +187,6 @@ EMSCRIPTEN_BINDINGS(whiteout_node) {
         .function("waitIdle", &utils::SimpleThreadPool::waitIdle)
         .function("threadCount", &utils::SimpleThreadPool::threadCount);
 
-    // Bare WorkerPool base — exposed so other constructors can accept
-    // either concrete or abstract pool references (cast on the JS side).
-    class_<interfaces::WorkerPool>("WorkerPool");
-
     // ── HttpHandler (subclassable from JS) ───────────────────────────────
     // The JS object passed to `Module.HttpHandler.implement({...})` must
     // expose:

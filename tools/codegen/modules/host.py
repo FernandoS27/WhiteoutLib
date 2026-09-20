@@ -60,7 +60,9 @@ CONFIG = ModuleConfig(
                                  # C# trampoline lives in Whiteout/Host/VirtualPathFileSystem.cs
         'HttpResponse',          # bytes-friendly kwargs ctor lives in module.cpp;
                                  # C# record lives in Whiteout/Host/HttpResponse.cs
-        'WorkerPool',            # C# trampoline lives in Whiteout/Host/WorkerPool.cs
+        'WorkerPool',            # Python base lives in module.cpp;
+                                 # Embind base lives in bindings/wasm/bindings.cpp;
+                                 # C# trampoline lives in Whiteout/Host/WorkerPool.cs
     ],
     # auto_bind is OFF — every host type opts in explicitly via `@bind`
     # so we don't accidentally drag in CascFileSystem, TimelineSemaphore,

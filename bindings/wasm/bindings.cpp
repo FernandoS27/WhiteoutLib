@@ -150,6 +150,13 @@ EMSCRIPTEN_BINDINGS(whiteout) {
     // `.base<VirtualPathFileSystem>()` in their bindings.
     class_<interfaces::VirtualPathFileSystem>("VirtualPathFileSystem");
 
+    // ── Abstract WorkerPool base class ───────────────────────────────────
+    // Registered in both builds: the web build has no concrete pool, but
+    // Embind still refuses to call any function taking a `WorkerPool*`
+    // (MpqStorage.open, VertexBufferBuilder.build, ...) until the pointee
+    // type is known, even when JS passes null.
+    class_<interfaces::WorkerPool>("WorkerPool");
+
 #ifndef WHITEOUT_WASM_NODE_BUILD
     // ── In-memory VirtualPathFileSystem (web build only) ─────────────────
     // Used by `m2.parse({path: bytes}, mainPath)` to give the M2 parser

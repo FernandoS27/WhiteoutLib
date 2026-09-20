@@ -171,6 +171,15 @@ void bind_supplementary(py::module_& m) {
         .def("add_file", &InMemoryFs::addFile)
         .def("file_exists", &InMemoryFs::fileExists);
 
+    // ── WorkerPool base ─────────────────────────────────────────────────
+    // Skipped by the codegen for the sake of the C# trampoline, but
+    // SimpleThreadPool (codegen'd) names it as its base, and pybind11
+    // refuses to import a module whose base type was never registered.
+    py::class_<interfaces::WorkerPool>(m, "WorkerPool",
+        "Abstract worker pool. Concrete implementation: SimpleThreadPool.")
+        .def("wait_idle", &interfaces::WorkerPool::waitIdle)
+        .def("thread_count", &interfaces::WorkerPool::threadCount);
+
     // ── HttpHandler base + Python trampoline ────────────────────────────
     // PyHttpHandler lets Python users subclass HttpHandler and override
     // get_async / get_range_async / capabilities — required for plugging
