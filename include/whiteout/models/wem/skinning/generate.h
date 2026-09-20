@@ -32,6 +32,7 @@
 #include "../nodes/tree.h"
 #include "ops.h"
 #include "points.h"
+#include "setup.h"
 
 namespace whiteout {
 namespace models {
@@ -98,6 +99,12 @@ struct GenerateOptions {
     /// Drop the "a whole island goes to one bone" rule: each point then goes to
     /// its own nearest segment (§8.3).
     bool splitIslands = false;
+    /// The default envelope of each bone of the set, in `BoneSegments::bones`
+    /// order, for the bones with none saved (§8.2). Empty measures them on the
+    /// mesh being written -- right for a model of one mesh and wrong for one
+    /// whose bones reach several, so a caller with more than one mesh measures
+    /// over all of them once and passes the answer in.
+    std::vector<Envelope> defaults;
 };
 
 /// What a generator did, beside `SkinResult`'s counts.
@@ -118,6 +125,102 @@ struct GenerateResult {
  */
 GenerateResult RigidPerIsland(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
                               std::span<const u32> scope, const GenerateOptions& options = {});
+
+// ---- Envelopes (§8.2) --------------------------------------------------------
+
+/// Where a position falls on a bone: how far it is from the nearest point of
+/// the bone's nearest segment, and how far along that segment the point lies --
+/// `0` at the bone's own joint, `1` at the child's. The `along` is what makes
+/// the two radii a capsule that can be wider at one end than the other.
+///
+/// The sphere radius a leaf carries for `NearestBone` is NOT taken off here:
+/// the envelope's own radii say how far its influence reaches, and subtracting
+/// the sphere as well would count the same half-segment twice.
+struct SegmentReach {
+    f32 distance = 0.0f;
+    f32 along = 0.0f;
+};
+
+/// @p position's reach on @p bone, over whichever of its segments is nearest.
+/// A bone with no segment in @p segments is infinitely far away.
+SegmentReach ReachOfBone(const BoneSegments& segments, u32 bone, const Vector3f& position);
+
+/// The weight @p envelope gives at @p reach: 1 within the inner radius, 0 past
+/// the outer one, and the falloff between, with both radii interpolated along
+/// the segment (§8.2). Gaussian is `exp(-x² / 2σ²)` with `x` the distance past
+/// the inner radius and `σ` a third of the gap, cut to 0 at the outer radius.
+f32 EnvelopeWeight(const Envelope& envelope, const SegmentReach& reach);
+
+/// §8.2's three presets.
+/// @bind
+enum class EnvelopePreset : u8 {
+    Mechanical, ///< The Voronoi boundary, Hard: every point to its nearest bone.
+    Organic,    ///< 0.6x / 1.6x the median, Smooth: joints that bend.
+    Hybrid,     ///< 1.0x / 1.3x, Smooth: a rigid body with a short blend.
+};
+
+/// One mesh and its table, for a measurement that spans a model. An envelope
+/// is ONE capsule per bone (§8.2), so a bone that reaches three meshes has to
+/// be measured over all three: measured on one, a shoulder that happens to be
+/// bare in the mesh the caller picked comes back with no radius at all.
+struct MeshPoints {
+    const Mesh* mesh = nullptr;
+    const PointTable* points = nullptr;
+};
+
+/// The same measure over several meshes at once.
+std::vector<Envelope> MeasureEnvelopes(std::span<const MeshPoints> meshes,
+                                       const BoneSegments& segments,
+                                       EnvelopePreset preset = EnvelopePreset::Organic);
+
+/**
+ * @brief Every bone of @p segments measured under @p preset, in its order
+ *        (§8.2).
+ *
+ * The measure is the median distance from a bone's segments to the points that
+ * are nearer to it than to any other -- its Voronoi cell -- taken separately
+ * over the half of the cell nearer each end, so a capsule wide at the shoulder
+ * and narrow at the elbow is what a shoulder measures. A half with no points of
+ * its own borrows the other's.
+ *
+ * `Mechanical` measures the cell's outer EDGE rather than its middle, since its
+ * envelope is meant to hold the whole cell and nothing past it.
+ *
+ * A bone whose cell is empty gets an envelope of zero radius, which reaches
+ * nothing: the honest answer for a bone with no geometry near it, and one
+ * §8.1's fallback then handles.
+ *
+ * All of them at once because the cell is one walk over the mesh: measuring
+ * sixty bones one at a time would walk it sixty times.
+ */
+std::vector<Envelope> MeasureEnvelopes(const Mesh& mesh, const PointTable& points,
+                                       const BoneSegments& segments,
+                                       EnvelopePreset preset = EnvelopePreset::Organic);
+
+/// One bone's, for a panel asking about the primary. `MeasureEnvelopes` when
+/// there is more than one to ask about.
+Envelope MeasureEnvelope(std::span<const MeshPoints> meshes, const BoneSegments& segments,
+                         u32 bone, EnvelopePreset preset = EnvelopePreset::Organic);
+
+/**
+ * @brief Envelope weights (§8.2): each bone writes the points its capsule
+ *        reaches, and the result is normalised over the bones that reached.
+ *
+ * A bone uses its saved envelope (`Node::skin.envelope`) when it has one and a
+ * measured `Organic` one when it has not, so a model reopened next week
+ * generates what it generated before.
+ *
+ * **A Hard envelope takes a point whole.** Where two Hard envelopes both reach
+ * a point the nearer bone gets it and the other gets nothing -- that is what
+ * makes the Mechanical preset the Voronoi assignment its row promises rather
+ * than an even split down every overlap. A Smooth, Linear or Gaussian envelope
+ * overlapping is a blend, which is what those are for.
+ *
+ * A point no envelope reaches goes rigid to the nearest bone and is counted
+ * (§8.1), never left empty.
+ */
+GenerateResult EnvelopeWeights(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
+                               std::span<const u32> scope, const GenerateOptions& options = {});
 
 } // namespace skinning
 } // namespace wem

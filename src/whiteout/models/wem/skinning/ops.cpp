@@ -368,6 +368,87 @@ SkinResult Rigid(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
     return result;
 }
 
+SkinResult Assign(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
+                  const SkinScope& scope, const PointWeights& given) {
+    SkinResult result;
+    Writer writer(mesh, nodes, points, scope.heldBones);
+    for (std::size_t i = 0; i < scope.points.size(); ++i) {
+        const u32 point = scope.points[i];
+        if (point >= points.pointCount) {
+            continue;
+        }
+        if (writer.locked(point)) {
+            ++result.locked;
+            continue;
+        }
+        const f32 strength = std::clamp(scope.strengthOf(i), 0.0f, 1.0f);
+        if (strength <= 0.0f) {
+            continue;
+        }
+        const Weights held = writer.read(point);
+        const f32 locked = writer.lockedShare(held);
+        const f32 room = std::max(0.0f, 1.0f - locked);
+
+        // What was asked for, minus the bones no operation may write. A locked
+        // bone named by a transfer or a paste is dropped here rather than in
+        // the write, so the rest of the set still shares the whole of `1 - L`.
+        Weights wanted;
+        f32 total = 0.0f;
+        for (const geom::Influence& influence : given.of(i)) {
+            if (!(influence.weight > 0.0f) || !std::isfinite(influence.weight)) {
+                continue;
+            }
+            if (writer.boneLocked(influence.bone)) {
+                continue;
+            }
+            SetWeight(wanted, influence.bone,
+                      WeightOf(wanted, influence.bone) + influence.weight);
+            total += influence.weight;
+        }
+        if (total <= 0.0f) {
+            // Nothing writable was asked for, so the point keeps what it has --
+            // §6.1's last case, counted rather than blanked.
+            ++result.refused;
+            continue;
+        }
+
+        Weights out;
+        for (const geom::Influence& influence : held) {
+            if (writer.boneLocked(influence.bone)) {
+                out.push_back(influence);
+            }
+        }
+        // Every bone either side names, once: the lerp has to run over the
+        // union, or a bone only the old set holds would keep its full weight
+        // through a partial dab.
+        std::vector<u32> bones;
+        for (const geom::Influence& influence : held) {
+            if (!writer.boneLocked(influence.bone)) {
+                bones.push_back(influence.bone);
+            }
+        }
+        for (const geom::Influence& influence : wanted) {
+            if (std::find(bones.begin(), bones.end(), influence.bone) == bones.end()) {
+                bones.push_back(influence.bone);
+            }
+        }
+        for (const u32 bone : bones) {
+            const f32 to = WeightOf(wanted, bone) * room / total;
+            const f32 from = WeightOf(held, bone);
+            const f32 value = from + (to - from) * strength;
+            if (value > 0.0f) {
+                out.push_back({bone, value});
+            }
+        }
+        writer.normalise(out);
+        writer.limit(out, point, kToolInfluenceLimit);
+        writer.normalise(out);
+        writer.write(point, std::move(out));
+        ++result.changed;
+    }
+    return result;
+}
+
 SkinResult Set(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
                const SkinScope& scope, u32 bone, f32 value) {
     return WriteEach(mesh, nodes, points, scope, bone,

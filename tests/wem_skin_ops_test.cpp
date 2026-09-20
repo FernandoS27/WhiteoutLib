@@ -613,3 +613,84 @@ TEST_CASE("S2 a held bone keeps its weight exactly as a locked one does",
         }
     }
 }
+
+// ============================================================================
+// Assign: a SET replaces the unlocked share (§7.4, §7.6, §8.2)
+// ============================================================================
+
+TEST_CASE("S2 Assign scales a set into the unlocked share", "[wem][skin][ops]") {
+    NodeTree tree = makeRig();
+    Mesh mesh = makeStrip(1, {{kRoot, 1.0f}});
+    const skinning::PointTable points = skinning::BuildPointTable(mesh);
+    const std::vector<u32> scope = allPoints(points);
+
+    // Deliberately not normalised: what a transfer's barycentric blend or an
+    // envelope's falloffs hand over are proportions, not weights.
+    const std::vector<geom::Influence> set{{kArm, 3.0f}, {kHand, 1.0f}};
+    skinning::PointWeights given;
+    for (u32 p = 0; p < points.pointCount; ++p) {
+        given.add(set);
+    }
+    skinning::SkinScope span;
+    span.points = scope;
+
+    const skinning::SkinResult result = skinning::Assign(mesh, tree, points, span, given);
+    CHECK(result.changed == points.pointCount);
+    CHECK(result.refused == 0u);
+    checkNormalAndSorted(mesh);
+    CHECK(near(weightOn(mesh, 0, kArm), 0.75f));
+    CHECK(near(weightOn(mesh, 0, kHand), 0.25f));
+    CHECK(near(weightOn(mesh, 0, kRoot), 0.0f));
+
+    SECTION("a strength is a blend from what the point held toward it") {
+        Mesh half = makeStrip(1, {{kRoot, 1.0f}});
+        const std::vector<f32> strengths(points.pointCount, 0.5f);
+        skinning::SkinScope partial;
+        partial.points = scope;
+        partial.strength = strengths;
+        skinning::Assign(half, tree, points, partial, given);
+        checkNormalAndSorted(half);
+        CHECK(near(weightOn(half, 0, kRoot), 0.5f));
+        CHECK(near(weightOn(half, 0, kArm), 0.375f));
+        CHECK(near(weightOn(half, 0, kHand), 0.125f));
+    }
+}
+
+TEST_CASE("S2 Assign keeps a locked bone and drops it from what it was given",
+          "[wem][skin][ops]") {
+    NodeTree tree = makeRig();
+    tree.nodes[kChest].skin.locked = true;
+    Mesh mesh = makeStrip(1, {{kChest, 0.4f}, {kRoot, 0.6f}});
+    const skinning::PointTable points = skinning::BuildPointTable(mesh);
+    const std::vector<u32> scope = allPoints(points);
+
+    // The set names the locked bone as well, and heavily. It is dropped, and
+    // the rest of the set shares the whole of `1 - L` rather than a part of it.
+    const std::vector<geom::Influence> set{{kChest, 5.0f}, {kArm, 1.0f}};
+    skinning::PointWeights given;
+    for (u32 p = 0; p < points.pointCount; ++p) {
+        given.add(set);
+    }
+    skinning::SkinScope span;
+    span.points = scope;
+    const skinning::SkinResult result = skinning::Assign(mesh, tree, points, span, given);
+    CHECK(result.changed == points.pointCount);
+    checkNormalAndSorted(mesh);
+    CHECK(near(weightOn(mesh, 0, kChest), 0.4f));
+    CHECK(near(weightOn(mesh, 0, kArm), 0.6f));
+    CHECK(near(weightOn(mesh, 0, kRoot), 0.0f));
+
+    SECTION("a set of nothing but locked bones is refused and changes nothing") {
+        const std::vector<geom::Influence> only{{kChest, 1.0f}};
+        skinning::PointWeights locked;
+        for (u32 p = 0; p < points.pointCount; ++p) {
+            locked.add(only);
+        }
+        Mesh untouched = makeStrip(1, {{kChest, 0.4f}, {kRoot, 0.6f}});
+        const skinning::SkinResult refused =
+            skinning::Assign(untouched, tree, points, span, locked);
+        CHECK(refused.changed == 0u);
+        CHECK(refused.refused == points.pointCount);
+        CHECK(near(weightOn(untouched, 0, kRoot), 0.6f));
+    }
+}

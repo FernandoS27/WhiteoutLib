@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <utility>
 
 namespace whiteout {
 namespace models {
@@ -244,6 +245,326 @@ GenerateResult RigidPerIsland(Mesh& mesh, const NodeTree& nodes, const PointTabl
         }
     }
 
+    for (const auto& [bone, list] : byBone) {
+        const SkinScope span{list, {}, held};
+        result.weights += Rigid(mesh, nodes, points, span, bone);
+    }
+    return result;
+}
+
+namespace {
+
+/// The reach of one segment: the distance to its nearest point and how far
+/// along it that point lies. `DistanceToSegment` answers only the first, and an
+/// envelope needs both.
+SegmentReach ReachOfSegment(const Vector3f& position, const Vector3f& start,
+                            const Vector3f& end) {
+    const Vector3f along{end.x - start.x, end.y - start.y, end.z - start.z};
+    const f32 length = along.x * along.x + along.y * along.y + along.z * along.z;
+    f32 t = 0.0f;
+    if (length > 0.0f) {
+        const Vector3f to{position.x - start.x, position.y - start.y, position.z - start.z};
+        t = std::clamp((to.x * along.x + to.y * along.y + to.z * along.z) / length, 0.0f, 1.0f);
+    }
+    const Vector3f closest{start.x + along.x * t, start.y + along.y * t, start.z + along.z * t};
+    const Vector3f gap{position.x - closest.x, position.y - closest.y, position.z - closest.z};
+    return {std::sqrt(gap.x * gap.x + gap.y * gap.y + gap.z * gap.z), t};
+}
+
+f32 Median(std::vector<f32>& values) {
+    if (values.empty()) {
+        return 0.0f;
+    }
+    const std::size_t middle = values.size() / 2;
+    std::nth_element(values.begin(), values.begin() + middle, values.end());
+    return values[middle];
+}
+
+} // namespace
+
+SegmentReach ReachOfBone(const BoneSegments& segments, u32 bone, const Vector3f& position) {
+    SegmentReach best{std::numeric_limits<f32>::max(), 0.0f};
+    for (const BoneSegments::Segment& segment : segments.segments) {
+        if (segment.bone != bone) {
+            continue;
+        }
+        const SegmentReach reach = ReachOfSegment(position, segment.start, segment.end);
+        if (reach.distance < best.distance) {
+            best = reach;
+        }
+    }
+    return best;
+}
+
+f32 EnvelopeWeight(const Envelope& envelope, const SegmentReach& reach) {
+    const f32 t = std::clamp(reach.along, 0.0f, 1.0f);
+    const f32 inner = envelope.innerStart + (envelope.innerEnd - envelope.innerStart) * t;
+    const f32 outer = envelope.outerStart + (envelope.outerEnd - envelope.outerStart) * t;
+    if (!(outer > 0.0f)) {
+        return 0.0f;
+    }
+    if (reach.distance <= inner) {
+        return 1.0f;
+    }
+    if (!(reach.distance < outer)) {
+        return 0.0f;
+    }
+    if (!(outer > inner)) {
+        // Inner at or past outer: there is no band to fall off over, so the
+        // envelope is the hard one its radii describe.
+        return 1.0f;
+    }
+    const f32 x = (reach.distance - inner) / (outer - inner);
+    switch (envelope.falloff) {
+    case EnvelopeFalloff::Hard:
+        return 1.0f;
+    case EnvelopeFalloff::Linear:
+        return 1.0f - x;
+    case EnvelopeFalloff::Gaussian: {
+        // Sigma is a third of the gap, so the bell has fallen to about 1 % of
+        // its height by the outer radius and the cut there is not a step.
+        const f32 sigma = 1.0f / 3.0f;
+        return std::exp(-(x * x) / (2.0f * sigma * sigma));
+    }
+    case EnvelopeFalloff::Smooth:
+    default:
+        break;
+    }
+    const f32 s = 1.0f - x;
+    return s * s * (3.0f - 2.0f * s);
+}
+
+std::vector<Envelope> MeasureEnvelopes(const Mesh& mesh, const PointTable& points,
+                                       const BoneSegments& segments, EnvelopePreset preset) {
+    const MeshPoints one[1]{{&mesh, &points}};
+    return MeasureEnvelopes(one, segments, preset);
+}
+
+std::vector<Envelope> MeasureEnvelopes(std::span<const MeshPoints> meshes,
+                                       const BoneSegments& segments, EnvelopePreset preset) {
+    std::vector<Envelope> out(segments.bones.size());
+    const EnvelopeFalloff falloff = preset == EnvelopePreset::Mechanical
+                                        ? EnvelopeFalloff::Hard
+                                        : EnvelopeFalloff::Smooth;
+    for (Envelope& envelope : out) {
+        envelope.falloff = falloff;
+    }
+    if (segments.bones.empty()) {
+        return out;
+    }
+
+    std::vector<u32> slotOf(segments.bones.back() + 1, kInvalidIndex);
+    for (std::size_t i = 0; i < segments.bones.size(); ++i) {
+        slotOf[segments.bones[i]] = static_cast<u32>(i);
+    }
+
+    // The Voronoi cells in ONE walk per mesh: `NearestBone` per point, then
+    // each point's distance filed under the half of its own bone's segment it
+    // is nearer to.
+    std::vector<std::vector<f32>> nearStart(segments.bones.size());
+    std::vector<std::vector<f32>> nearEnd(segments.bones.size());
+    for (const MeshPoints& entry : meshes) {
+        if (entry.mesh == nullptr || entry.points == nullptr) {
+            continue;
+        }
+        const std::span<const Vector3f> positions =
+            entry.mesh->attributes.get<Vector3f>(geom::names::kPosition, geom::Domain::Vertex);
+        for (u32 point = 0; point < entry.points->pointCount; ++point) {
+            const Vector3f at = PositionOf(positions, *entry.points, point);
+            const u32 bone = NearestBone(segments, at);
+            if (bone >= slotOf.size() || slotOf[bone] == kInvalidIndex) {
+                continue;
+            }
+            const u32 slot = slotOf[bone];
+            const SegmentReach reach = ReachOfBone(segments, bone, at);
+            if (!std::isfinite(reach.distance)) {
+                continue;
+            }
+            (reach.along < 0.5f ? nearStart[slot] : nearEnd[slot]).push_back(reach.distance);
+        }
+    }
+
+    f32 innerScale = 0.6f;
+    f32 outerScale = 1.6f;
+    switch (preset) {
+    case EnvelopePreset::Mechanical:
+        innerScale = 1.0f;
+        outerScale = 1.0f;
+        break;
+    case EnvelopePreset::Hybrid:
+        innerScale = 1.0f;
+        outerScale = 1.3f;
+        break;
+    case EnvelopePreset::Organic:
+    default:
+        break;
+    }
+    const auto measure = [preset](std::vector<f32>& values) {
+        if (values.empty()) {
+            return 0.0f;
+        }
+        if (preset == EnvelopePreset::Mechanical) {
+            // The cell EDGE: the envelope is meant to hold the whole of it.
+            return *std::max_element(values.begin(), values.end());
+        }
+        return Median(values);
+    };
+    for (std::size_t i = 0; i < out.size(); ++i) {
+        f32 start = measure(nearStart[i]);
+        f32 end = measure(nearEnd[i]);
+        if (!(start > 0.0f)) {
+            start = end;
+        }
+        if (!(end > 0.0f)) {
+            end = start;
+        }
+        out[i].innerStart = start * innerScale;
+        out[i].innerEnd = end * innerScale;
+        out[i].outerStart = start * outerScale;
+        out[i].outerEnd = end * outerScale;
+    }
+    return out;
+}
+
+Envelope MeasureEnvelope(std::span<const MeshPoints> meshes, const BoneSegments& segments,
+                         u32 bone, EnvelopePreset preset) {
+    const std::vector<Envelope> all = MeasureEnvelopes(meshes, segments, preset);
+    for (std::size_t i = 0; i < segments.bones.size(); ++i) {
+        if (segments.bones[i] == bone) {
+            return all[i];
+        }
+    }
+    Envelope out;
+    out.falloff = preset == EnvelopePreset::Mechanical ? EnvelopeFalloff::Hard
+                                                       : EnvelopeFalloff::Smooth;
+    return out;
+}
+
+GenerateResult EnvelopeWeights(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
+                               std::span<const u32> scope, const GenerateOptions& options) {
+    GenerateResult result;
+    const BoneSegments segments = BuildBoneSegments(nodes, options.bones);
+
+    std::vector<u32> all;
+    if (scope.empty()) {
+        all.resize(points.pointCount);
+        for (u32 point = 0; point < points.pointCount; ++point) {
+            all[point] = point;
+        }
+        scope = all;
+    }
+    if (segments.empty()) {
+        result.unreached = static_cast<u32>(scope.size());
+        return result;
+    }
+
+    const std::span<const Vector3f> positions =
+        mesh.attributes.get<Vector3f>(geom::names::kPosition, geom::Domain::Vertex);
+
+    // The saved envelope where there is one, the default where there is not.
+    // The caller's defaults are preferred, because a model of several meshes
+    // has to measure over all of them (§8.2).
+    std::vector<Envelope> envelopes =
+        options.defaults.size() == segments.bones.size()
+            ? options.defaults
+            : MeasureEnvelopes(mesh, points, segments, EnvelopePreset::Organic);
+    for (std::size_t i = 0; i < segments.bones.size(); ++i) {
+        const u32 bone = segments.bones[i];
+        if (bone < nodes.size() && nodes.nodes[bone].skin.envelope.has_value()) {
+            envelopes[i] = *nodes.nodes[bone].skin.envelope;
+        }
+    }
+
+    std::vector<u32> held;
+    if (!options.bones.empty()) {
+        std::vector<u8> inSet(nodes.size(), 0);
+        for (const u32 bone : segments.bones) {
+            inSet[bone] = 1;
+        }
+        for (u32 node = 0; node < nodes.size(); ++node) {
+            if (inSet[node] == 0 && nodes.nodes[node].kind == NodeKind::Bone) {
+                held.push_back(node);
+            }
+        }
+    }
+
+    // The radius `NearestBone` measures a bone's volume with: 0 for a real
+    // segment and the sphere's for a leaf (§8.2). The Hard rule below has to
+    // break its tie with exactly this, or the mechanical preset would hand a
+    // hand's points to the forearm whose segment ENDS on the hand's joint.
+    std::vector<f32> radiusOf(segments.bones.size(), 0.0f);
+    for (const BoneSegments::Segment& segment : segments.segments) {
+        for (std::size_t i = 0; i < segments.bones.size(); ++i) {
+            if (segments.bones[i] == segment.bone) {
+                radiusOf[i] = std::max(radiusOf[i], segment.radius);
+                break;
+            }
+        }
+    }
+
+    std::vector<u32> wrote;
+    PointWeights given;
+    std::vector<std::pair<u32, std::vector<u32>>> byBone; // the unreached, per nearest bone
+    const auto addRigid = [&byBone](u32 bone, u32 point) {
+        for (auto& [at, list] : byBone) {
+            if (at == bone) {
+                list.push_back(point);
+                return;
+            }
+        }
+        byBone.push_back({bone, {point}});
+    };
+
+    std::vector<geom::Influence> reached;
+    for (const u32 point : scope) {
+        if (point >= points.pointCount) {
+            continue;
+        }
+        const Vector3f at = PositionOf(positions, points, point);
+        reached.clear();
+        // The Hard rule: a point inside more than one Hard envelope goes whole
+        // to the nearer bone. One running best rather than a second pass, since
+        // only a handful of bones are ever near one point.
+        u32 hardBone = kInvalidNode;
+        f32 hardDistance = std::numeric_limits<f32>::max();
+        for (std::size_t i = 0; i < segments.bones.size(); ++i) {
+            const u32 bone = segments.bones[i];
+            const SegmentReach reach = ReachOfBone(segments, bone, at);
+            const f32 weight = EnvelopeWeight(envelopes[i], reach);
+            if (!(weight > 0.0f)) {
+                continue;
+            }
+            if (envelopes[i].falloff == EnvelopeFalloff::Hard) {
+                const f32 signedDistance = reach.distance - radiusOf[i];
+                if (signedDistance < hardDistance) {
+                    hardDistance = signedDistance;
+                    hardBone = bone;
+                }
+                continue;
+            }
+            reached.push_back({bone, weight});
+        }
+        if (hardBone != kInvalidNode) {
+            reached.push_back({hardBone, 1.0f});
+        }
+        if (reached.empty()) {
+            ++result.unreached;
+            const u32 bone = NearestBone(segments, at);
+            if (bone != kInvalidNode) {
+                addRigid(bone, point);
+            }
+            continue;
+        }
+        wrote.push_back(point);
+        given.add(reached);
+    }
+
+    if (!wrote.empty()) {
+        SkinScope span;
+        span.points = wrote;
+        span.heldBones = held;
+        result.weights += Assign(mesh, nodes, points, span, given);
+    }
     for (const auto& [bone, list] : byBone) {
         const SkinScope span{list, {}, held};
         result.weights += Rigid(mesh, nodes, points, span, bone);

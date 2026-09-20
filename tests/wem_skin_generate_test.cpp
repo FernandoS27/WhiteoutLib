@@ -494,3 +494,137 @@ TEST_CASE("S7: Rigid per Island against the shipped HD models' rigid islands",
     CHECK(agreement > 20.0);
     CHECK(toRoot < rigidIslands / 4);
 }
+
+// ============================================================================
+// Envelopes (§8.2)
+// ============================================================================
+
+namespace {
+
+/// root -> mid -> tip, ten units apart along x.
+NodeTree makeLimbRig() {
+    NodeTree tree;
+    const u32 root = AddBone(tree, "root", kInvalidNode, {0, 0, 0});
+    const u32 mid = AddBone(tree, "mid", root, {10, 0, 0});
+    AddBone(tree, "tip", mid, {20, 0, 0});
+    return tree;
+}
+
+/// Ten small boxes along that rig, each its own island -- so Rigid per Island
+/// has to give every one of them a single bone, and an envelope does not.
+Mesh makeLimbMesh() {
+    geom::MeshBuilder builder = StartMesh("limb");
+    for (u32 i = 0; i < 10; ++i) {
+        AddBox(builder, {1.0f + 2.0f * static_cast<f32>(i), 0, 0}, 0.9f);
+    }
+    return builder.build().mesh;
+}
+
+u32 influenceCount(const Mesh& mesh, u32 vertex) {
+    return static_cast<u32>(mesh.skin.forVertex(vertex).size());
+}
+
+} // namespace
+
+TEST_CASE("an envelope is one inside and nothing outside", "[wem][skin][generate]") {
+    Envelope envelope;
+    envelope.innerStart = 1.0f;
+    envelope.innerEnd = 1.0f;
+    envelope.outerStart = 3.0f;
+    envelope.outerEnd = 3.0f;
+    envelope.falloff = EnvelopeFalloff::Linear;
+
+    CHECK(skinning::EnvelopeWeight(envelope, {0.5f, 0.0f}) == 1.0f);
+    CHECK(skinning::EnvelopeWeight(envelope, {1.0f, 0.0f}) == 1.0f);
+    CHECK(skinning::EnvelopeWeight(envelope, {3.5f, 0.0f}) == 0.0f);
+    CHECK(std::abs(skinning::EnvelopeWeight(envelope, {2.0f, 0.0f}) - 0.5f) < 1e-5f);
+
+    SECTION("the radii are interpolated ALONG the segment") {
+        envelope.innerEnd = 0.0f;
+        envelope.outerEnd = 0.4f;
+        // The same distance is inside at the start and past the end at the end.
+        CHECK(skinning::EnvelopeWeight(envelope, {0.9f, 0.0f}) == 1.0f);
+        CHECK(skinning::EnvelopeWeight(envelope, {0.9f, 1.0f}) == 0.0f);
+    }
+
+    SECTION("Hard is one right up to the outer radius") {
+        envelope.falloff = EnvelopeFalloff::Hard;
+        CHECK(skinning::EnvelopeWeight(envelope, {2.9f, 0.0f}) == 1.0f);
+        CHECK(skinning::EnvelopeWeight(envelope, {3.1f, 0.0f}) == 0.0f);
+    }
+
+    SECTION("a Gaussian falls but does not reach zero before the outer radius") {
+        envelope.falloff = EnvelopeFalloff::Gaussian;
+        const f32 half = skinning::EnvelopeWeight(envelope, {2.0f, 0.0f});
+        CHECK(half > 0.0f);
+        CHECK(half < 1.0f);
+        CHECK(skinning::EnvelopeWeight(envelope, {2.9f, 0.0f}) < half);
+        CHECK(skinning::EnvelopeWeight(envelope, {3.0f, 0.0f}) == 0.0f);
+    }
+}
+
+TEST_CASE("envelopes blend where Rigid per Island cannot", "[wem][skin][generate]") {
+    const NodeTree tree = makeLimbRig();
+    Mesh rigid = makeLimbMesh();
+    const skinning::PointTable points = skinning::BuildPointTable(rigid);
+    REQUIRE(points.islandCount == 10u);
+
+    skinning::RigidPerIsland(rigid, tree, points, {}, {});
+    for (u32 vertex = 0; vertex < rigid.vertexCount(); ++vertex) {
+        CHECK(influenceCount(rigid, vertex) == 1u);
+    }
+
+    Mesh soft = makeLimbMesh();
+    const skinning::GenerateResult result = skinning::EnvelopeWeights(soft, tree, points, {}, {});
+    CHECK(result.weights.changed > 0u);
+    u32 shared = 0;
+    for (u32 vertex = 0; vertex < soft.vertexCount(); ++vertex) {
+        shared += influenceCount(soft, vertex) > 1u ? 1u : 0u;
+    }
+    CHECK(shared > 0u);
+}
+
+TEST_CASE("the mechanical preset gives a point wholly to its nearest bone",
+          "[wem][skin][generate]") {
+    NodeTree tree = makeLimbRig();
+    Mesh mesh = makeLimbMesh();
+    const skinning::PointTable points = skinning::BuildPointTable(mesh);
+    const skinning::BoneSegments segments = skinning::BuildBoneSegments(tree, {});
+    const std::vector<Envelope> measured = skinning::MeasureEnvelopes(
+        mesh, points, segments, skinning::EnvelopePreset::Mechanical);
+    const skinning::MeshPoints one[1]{{&mesh, &points}};
+    CHECK(skinning::MeasureEnvelope(one, segments, segments.bones.front(),
+                                    skinning::EnvelopePreset::Mechanical) == measured.front());
+    REQUIRE(measured.size() == segments.bones.size());
+    for (std::size_t i = 0; i < segments.bones.size(); ++i) {
+        CHECK(measured[i].falloff == EnvelopeFalloff::Hard);
+        CHECK(measured[i].innerStart == measured[i].outerStart);
+        tree.nodes[segments.bones[i]].skin.envelope = measured[i];
+    }
+
+    skinning::EnvelopeWeights(mesh, tree, points, {}, {});
+    const std::span<const Vector3f> positions =
+        mesh.attributes.get<Vector3f>(geom::names::kPosition, geom::Domain::Vertex);
+    for (u32 vertex = 0; vertex < mesh.vertexCount(); ++vertex) {
+        REQUIRE(influenceCount(mesh, vertex) == 1u);
+        CHECK(mesh.skin.forVertex(vertex)[0].bone ==
+              skinning::NearestBone(segments, positions[vertex]));
+    }
+}
+
+TEST_CASE("a saved envelope is what the generator reads", "[wem][skin][generate]") {
+    NodeTree tree = makeLimbRig();
+    Mesh mesh = makeLimbMesh();
+    const skinning::PointTable points = skinning::BuildPointTable(mesh);
+    // An envelope of no radius reaches nothing, so every point falls through to
+    // §8.1's rule -- rigid to the nearest bone, and counted.
+    for (Node& node : tree.nodes) {
+        node.skin.envelope = Envelope{};
+    }
+    const skinning::GenerateResult result = skinning::EnvelopeWeights(mesh, tree, points, {}, {});
+    CHECK(result.unreached == points.pointCount);
+    CHECK(result.weights.changed == points.pointCount);
+    for (u32 vertex = 0; vertex < mesh.vertexCount(); ++vertex) {
+        CHECK(influenceCount(mesh, vertex) == 1u);
+    }
+}

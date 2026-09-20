@@ -99,6 +99,51 @@ struct SkinResult {
 SkinResult Rigid(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
                  const SkinScope& scope, u32 bone);
 
+/**
+ * @brief A set of influences per point of a scope, laid out CSR.
+ *
+ * What the `i`th point of `SkinScope::points` is given is
+ * `values[offsets[i] .. offsets[i + 1])`. Transfer, Paste and the envelope
+ * generator each produce one of these, so `Assign` has one shape to read.
+ */
+struct PointWeights {
+    std::vector<u32> offsets; ///< `points.size() + 1` entries, ascending.
+    std::vector<geom::Influence> values;
+
+    std::span<const geom::Influence> of(std::size_t index) const {
+        if (index + 1 >= offsets.size() || offsets[index + 1] > values.size()) {
+            return {};
+        }
+        return std::span<const geom::Influence>(values).subspan(
+            offsets[index], offsets[index + 1] - offsets[index]);
+    }
+
+    /// Add one point's set, in the scope's order.
+    void add(std::span<const geom::Influence> weights) {
+        if (offsets.empty()) {
+            offsets.push_back(0);
+        }
+        values.insert(values.end(), weights.begin(), weights.end());
+        offsets.push_back(static_cast<u32>(values.size()));
+    }
+};
+
+/**
+ * @brief `Rigid` over a SET rather than one bone: @p given replaces the point's
+ *        unlocked share, scaled into `1 - L`.
+ *
+ * One operation because four commands want exactly it -- Paste and Paste
+ * Nearest (§7.4), Transfer and To LODs (§7.6), and the envelope generator
+ * (§8.2) -- and each of them would otherwise have written §6.1 out again.
+ *
+ * A locked or held bone in @p given is dropped from what was asked for rather
+ * than overriding the lock, and the point keeps its own weight on it.
+ * `SkinScope::strength` blends from what the point holds toward what it is
+ * given, which is what a brush dab and an envelope preview need.
+ */
+SkinResult Assign(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
+                  const SkinScope& scope, const PointWeights& given);
+
 /// §6.1 with `r = value`.
 SkinResult Set(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
                const SkinScope& scope, u32 bone, f32 value);

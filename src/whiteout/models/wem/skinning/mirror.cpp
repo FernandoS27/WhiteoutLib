@@ -4,9 +4,12 @@
 #include <whiteout/models/wem/skinning/mirror.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
+#include <limits>
 #include <unordered_map>
+#include <utility>
 
 namespace whiteout {
 namespace models {
@@ -315,6 +318,157 @@ std::vector<u32> BuildPointMirror(const Mesh& mesh, const PointTable& points, Mi
             }
         }
         out[p] = best;
+    }
+    return out;
+}
+
+std::vector<u32> BuildPointMirrorTopology(const Mesh& mesh, const PointTable& points,
+                                          MirrorAxis axis) {
+    std::vector<u32> out = BuildPointMirror(mesh, points, axis);
+    const std::span<const Vector3f> positions =
+        mesh.attributes.get<Vector3f>(geom::names::kPosition, geom::Domain::Vertex);
+    if (points.pointCount == 0 || positions.empty()) {
+        return out;
+    }
+    std::vector<Vector3f> at(points.pointCount);
+    Vector3f low{0, 0, 0};
+    Vector3f high{0, 0, 0};
+    for (u32 p = 0; p < points.pointCount; ++p) {
+        const std::span<const u32> members = points.membersOf(p);
+        at[p] = !members.empty() && members[0] < positions.size() ? positions[members[0]]
+                                                                  : Vector3f{0, 0, 0};
+        if (p == 0) {
+            low = at[p];
+            high = at[p];
+        }
+        low = Vector3f{std::min(low.x, at[p].x), std::min(low.y, at[p].y),
+                       std::min(low.z, at[p].z)};
+        high = Vector3f{std::max(high.x, at[p].x), std::max(high.y, at[p].y),
+                        std::max(high.z, at[p].z)};
+    }
+
+    // A point already claimed as somebody's mirror is not offered again: two
+    // points of one half must not both take the same point of the other.
+    std::vector<u8> taken(points.pointCount, 0);
+    std::vector<std::pair<u32, u32>> front;
+    for (u32 p = 0; p < points.pointCount; ++p) {
+        const u32 other = out[p];
+        if (other == kInvalidIndex || other >= points.pointCount) {
+            continue;
+        }
+        taken[other] = 1;
+        if (out[other] == p) {
+            front.push_back({p, other});
+        }
+    }
+
+    if (front.empty()) {
+        // Nothing matched by position at all, so one seed has to be guessed.
+        // The same hash grid, at 2 % of the diagonal rather than a thousandth:
+        // bounded work, and a mesh whose halves are further apart than that
+        // everywhere is not a mirrored mesh at all.
+        const f32 diagonal = std::sqrt(DistanceSquared(low, high));
+        const f32 cell = std::max(diagonal * 0.02f, 1e-6f);
+        const auto cellOf = [cell](const Vector3f& p) {
+            return std::array<i64, 3>{static_cast<i64>(std::floor(p.x / cell)),
+                                      static_cast<i64>(std::floor(p.y / cell)),
+                                      static_cast<i64>(std::floor(p.z / cell))};
+        };
+        struct Hash {
+            std::size_t operator()(const std::array<i64, 3>& key) const {
+                std::size_t h = 1469598103934665603ull;
+                for (const i64 word : key) {
+                    h = (h ^ static_cast<std::size_t>(word)) * 1099511628211ull;
+                }
+                return h;
+            }
+        };
+        std::unordered_map<std::array<i64, 3>, std::vector<u32>, Hash> grid;
+        grid.reserve(points.pointCount);
+        for (u32 p = 0; p < points.pointCount; ++p) {
+            grid[cellOf(at[p])].push_back(p);
+        }
+        u32 bestA = kInvalidIndex;
+        u32 bestB = kInvalidIndex;
+        f32 best = cell * cell;
+        for (u32 p = 0; p < points.pointCount; ++p) {
+            const Vector3f want = Mirrored(at[p], axis);
+            const std::array<i64, 3> key = cellOf(want);
+            for (i64 dx = -1; dx <= 1; ++dx) {
+                for (i64 dy = -1; dy <= 1; ++dy) {
+                    for (i64 dz = -1; dz <= 1; ++dz) {
+                        const auto found =
+                            grid.find(std::array<i64, 3>{key[0] + dx, key[1] + dy, key[2] + dz});
+                        if (found == grid.end()) {
+                            continue;
+                        }
+                        for (const u32 q : found->second) {
+                            const f32 distance = DistanceSquared(at[q], want);
+                            if (distance < best) {
+                                best = distance;
+                                bestA = p;
+                                bestB = q;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (bestA == kInvalidIndex) {
+            return out;
+        }
+        out[bestA] = bestB;
+        out[bestB] = bestA;
+        taken[bestA] = 1;
+        taken[bestB] = 1;
+        front.push_back({bestA, bestB});
+    }
+
+    for (std::size_t head = 0; head < front.size(); ++head) {
+        const std::pair<u32, u32> pair = front[head];
+        const std::span<const u32> ringP = points.ringOf(pair.first);
+        const std::span<const u32> ringQ = points.ringOf(pair.second);
+        for (const u32 n : ringP) {
+            if (n >= points.pointCount || out[n] != kInvalidIndex) {
+                continue;
+            }
+            const Vector3f from = at[pair.first];
+            const Vector3f edge{at[n].x - from.x, at[n].y - from.y, at[n].z - from.z};
+            const Vector3f want = Mirrored(edge, axis);
+            const f32 lengthP = std::sqrt(DistanceSquared(at[n], from));
+            u32 best = kInvalidIndex;
+            f32 bestError = std::numeric_limits<f32>::max();
+            f32 bestLength = 0.0f;
+            for (const u32 m : ringQ) {
+                if (m >= points.pointCount || taken[m] != 0 || out[m] != kInvalidIndex) {
+                    continue;
+                }
+                const Vector3f there = at[pair.second];
+                const Vector3f other{at[m].x - there.x, at[m].y - there.y, at[m].z - there.z};
+                const f32 error =
+                    DistanceSquared(Vector3f{want.x - other.x, want.y - other.y, want.z - other.z},
+                                    Vector3f{0, 0, 0});
+                if (error < bestError) {
+                    bestError = error;
+                    best = m;
+                    bestLength = std::sqrt(DistanceSquared(at[m], there));
+                }
+            }
+            if (best == kInvalidIndex) {
+                continue;
+            }
+            // Accepted when the mismatch is under half of the two edges: a pair
+            // that far apart is the same edge distorted, and anything worse is
+            // a different edge, which would spread a wrong answer outward.
+            if (std::sqrt(bestError) > 0.5f * (lengthP + bestLength)) {
+                continue;
+            }
+            out[n] = best;
+            out[best] = n;
+            taken[n] = 1;
+            taken[best] = 1;
+            front.push_back({n, best});
+        }
     }
     return out;
 }

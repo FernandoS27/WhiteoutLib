@@ -16,6 +16,7 @@
 
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <whiteout/common_types.h>
@@ -62,6 +63,31 @@ std::vector<BoneMirror> BuildBoneMirror(const NodeTree& nodes, MirrorAxis axis =
 /// to itself.
 std::vector<u32> BuildPointMirror(const Mesh& mesh, const PointTable& points,
                                   MirrorAxis axis = MirrorAxis::Y);
+
+/**
+ * @brief The topology fallback (§7.5), for a mesh whose halves are not
+ *        positionally symmetric.
+ *
+ * `BuildPointMirror` asks where a point's mirror OUGHT to be and looks there.
+ * A mesh whose halves were modelled apart, or sculpted after the mirror, has no
+ * point within a thousandth of the diagonal of that place, and the position map
+ * comes back empty -- even though the two halves are the same mesh with the
+ * same ring, and every point does have a mirror.
+ *
+ * So the correspondence is walked instead of looked up: from a pair that IS
+ * matched, each unmatched neighbour of one side is paired with the neighbour of
+ * the other whose EDGE best mirrors it, and those pairs are walked out in turn.
+ * The comparison is of two short vectors rather than two positions, so a half
+ * moved, scaled or jittered as a whole never accumulates an error.
+ *
+ * It starts from the position map's own pairs and fills only what they missed,
+ * so a symmetric mesh gets the exact answer and pays one ring walk for nothing.
+ * With no positional pair at all it seeds from the closest mirrored point
+ * within 2 % of the diagonal -- the best guess available, which the walk then
+ * either spreads from or stops at.
+ */
+std::vector<u32> BuildPointMirrorTopology(const Mesh& mesh, const PointTable& points,
+                                          MirrorAxis axis = MirrorAxis::Y);
 
 } // namespace skinning
 } // namespace wem

@@ -164,6 +164,7 @@ whiteout_add_test(wem_skin_points_test wem_skin_points_test.cpp)
 whiteout_add_test(wem_bvh_test wem_bvh_test.cpp)
 # S7: Rigid per Island, and the share it agrees with the artist on.
 whiteout_add_test(wem_skin_generate_test wem_skin_generate_test.cpp)
+whiteout_add_test(wem_skin_transfer_test wem_skin_transfer_test.cpp)
 whiteout_add_test(wem_skin_setup_test wem_skin_setup_test.cpp)
 target_include_directories(wem_skin_setup_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 whiteout_add_test(wem_convert_corpus_test wem_convert_corpus_test.cpp)

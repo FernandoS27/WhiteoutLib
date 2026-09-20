@@ -216,3 +216,88 @@ TEST_CASE("S3 a point with no mirror is counted, not guessed", "[wem][skin][mirr
     }
     CHECK(unmatched == points.pointCount);
 }
+
+TEST_CASE("S3 halves jittered past the tolerance still map by topology",
+          "[wem][skin][mirror]") {
+    // A grid over x in [0, 4] and y in [-2, 2], symmetric about y = 0 and
+    // CONNECTED across it -- which is what lets a walk cross from one half to
+    // the other.
+    geom::MeshBuilder builder = startMesh("grid");
+    for (i32 ix = 0; ix < 4; ++ix) {
+        for (i32 iy = -2; iy < 2; ++iy) {
+            const f32 x = static_cast<f32>(ix);
+            const f32 y = static_cast<f32>(iy);
+            const Vector3f a{x, y, 0};
+            const Vector3f b{x + 1.0f, y, 0};
+            const Vector3f c{x + 1.0f, y + 1.0f, 0};
+            const Vector3f d{x, y + 1.0f, 0};
+            // The quad's DIAGONAL is mirrored too. A grid whose quads all split
+            // the same way has a one-ring that is not symmetric about the
+            // plane -- the corner across the diagonal has no mirror in the ring
+            // at all -- and no walk over it could be right. A mirrored mesh has
+            // mirrored topology by construction; this is how one is built.
+            if (iy < 0) {
+                addTriangle(builder, a, b, d);
+                addTriangle(builder, b, c, d);
+            } else {
+                addTriangle(builder, a, b, c);
+                addTriangle(builder, a, c, d);
+            }
+        }
+    }
+    Mesh mesh = builder.build().mesh;
+
+    SECTION("a symmetric mesh maps the same either way") {
+        const skinning::PointTable points = skinning::BuildPointTable(mesh);
+        const std::vector<u32> plain = skinning::BuildPointMirror(mesh, points);
+        const std::vector<u32> walked = skinning::BuildPointMirrorTopology(mesh, points);
+        CHECK(walked == plain);
+        for (const u32 other : plain) {
+            CHECK(other != kInvalidIndex);
+        }
+    }
+
+    SECTION("one half moved off its mirror is still walked to") {
+        // Every vertex above the plane is displaced by about a twentieth of an
+        // edge -- nine times the map's own thousandth-of-the-diagonal, so
+        // nothing above the plane has a positional mirror any more.
+        const std::span<Vector3f> positions =
+            mesh.attributes.get<Vector3f>(geom::names::kPosition, geom::Domain::Vertex);
+        for (Vector3f& at : positions) {
+            if (at.y <= 0.5f) {
+                continue;
+            }
+            const f32 wobble = std::sin(7.0f * at.x + 13.0f * at.y);
+            at.x += 0.05f * wobble;
+            at.y += 0.05f * std::cos(5.0f * at.x);
+            at.z += 0.05f * wobble;
+        }
+        const skinning::PointTable points = skinning::BuildPointTable(mesh);
+        const std::vector<u32> plain = skinning::BuildPointMirror(mesh, points);
+        const std::span<const Vector3f> at =
+            mesh.attributes.get<Vector3f>(geom::names::kPosition, geom::Domain::Vertex);
+
+        u32 matched = 0;
+        for (u32 p = 0; p < points.pointCount; ++p) {
+            matched += plain[p] != kInvalidIndex ? 1u : 0u;
+        }
+        // Only the row ON the plane still matches, and only to itself.
+        CHECK(matched == 5u);
+
+        const std::vector<u32> walked = skinning::BuildPointMirrorTopology(mesh, points);
+        u32 unmatched = 0;
+        for (u32 p = 0; p < points.pointCount; ++p) {
+            if (walked[p] == kInvalidIndex) {
+                ++unmatched;
+                continue;
+            }
+            CHECK(walked[walked[p]] == p);
+            const Vector3f& here = at[points.membersOf(p)[0]];
+            const Vector3f& there = at[points.membersOf(walked[p])[0]];
+            // The pair it found is the one across the plane at the same x.
+            CHECK(std::abs(here.x - there.x) < 0.2f);
+            CHECK(std::abs(here.y + there.y) < 0.2f);
+        }
+        CHECK(unmatched == 0u);
+    }
+}
