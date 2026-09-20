@@ -144,6 +144,37 @@ def platform_tag() -> str:
     return plat
 
 
+def macos_binary_arch(ext: Path) -> str | None:
+    """Architecture of a Mach-O file as a wheel-tag component, or None."""
+    try:
+        out = subprocess.run(["lipo", "-archs", str(ext)],
+                             capture_output=True, text=True, check=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    archs = sorted(out.split())
+    if archs == ["arm64", "x86_64"]:
+        return "universal2"
+    return archs[0] if len(archs) == 1 else None
+
+
+def retag_for_macos_cross_build(plat: str, ext: Path) -> str:
+    """Re-point a macOS platform tag at the architecture actually built.
+
+    CI cross-compiles the arm64 extension on an Intel worker, where
+    `sys_tags()` reports x86_64 — pip would then refuse to install the wheel
+    on exactly the machines it was built for.
+    """
+    arch = macos_binary_arch(ext)
+    m = re.match(r"^macosx_(\d+)_(\d+)_(.+)$", plat)
+    if arch is None or m is None or m.group(3) == arch:
+        return plat
+    major, minor = int(m.group(1)), int(m.group(2))
+    # arm64 slices don't exist below macOS 11; pip rejects macosx_10_*_arm64.
+    if arch in ("arm64", "universal2") and major < 11:
+        major, minor = 11, 0
+    return f"macosx_{major}_{minor}_{arch}"
+
+
 # ── Stage + pack ──────────────────────────────────────────────────────────
 
 
@@ -280,6 +311,11 @@ def main() -> int:
                              "to the parent of this script's directory.")
     parser.add_argument("--build-tag", default="",
                         help="Optional build number tag (PEP 427); typically empty.")
+    parser.add_argument("--plat-tag", default="",
+                        help="Override the PEP-425 platform tag (e.g. "
+                             "macosx_11_0_arm64). Defaults to the running "
+                             "interpreter's, corrected on macOS to match the "
+                             "architecture of the built extension.")
     args = parser.parse_args()
 
     build_dir = args.build_dir.resolve()
@@ -312,8 +348,13 @@ def main() -> int:
         #    headers, lib/cmake exports, share/licenses — all unwelcome here).
         prune_non_wheel_content(stage)
 
-        # 4. Compute the wheel tag from the running interpreter.
-        tag = f"{python_tag()}-{abi_tag()}-{platform_tag()}"
+        # 4. Compute the wheel tag from the running interpreter, then let
+        #    the staged extension correct the platform part (macOS
+        #    cross-builds).
+        plat = args.plat_tag or platform_tag()
+        if not args.plat_tag and sys.platform == "darwin":
+            plat = retag_for_macos_cross_build(plat, ext)
+        tag = f"{python_tag()}-{abi_tag()}-{plat}"
         print(f"wheel tag: {tag}")
 
         # 5. Write <name>-<ver>.dist-info/.

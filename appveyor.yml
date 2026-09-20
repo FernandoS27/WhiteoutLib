@@ -4,6 +4,10 @@ version: 1.0.{build}
 # plus a dedicated WASM job (emscripten on Ubuntu) that emits a Node.js
 # npm package.
 #
+# The macOS job cross-compiles for Apple Silicon: every macOS runner
+# AppVeyor offers is Intel, so the arm64 artefacts are built but never
+# executed. tools/build-ci.sh has the constraints that keeps workable.
+#
 # Each "native" image emits per-platform packages (Java natives classifier
 # jar + Python wheel). The Linux native job additionally emits the universal
 # main Java jar — bytecode is platform-independent, so it only needs to be
@@ -34,10 +38,9 @@ environment:
   # (OOM-prone: 7 GB RAM, pybind11 wrappers peak ~2 GB each) and 4 on
   # macOS; tools/build-ci.ps1 defaults to 4 on Windows. CI can still
   # override via the env var if a future runner has more RAM.
-  # JDK 22+ is required for stable FFM. AppVeyor's Ubuntu/macOS images
-  # already ship a recent JDK; Windows uses chocolatey via install step.
-  # Brew's stable openjdk formulas are openjdk@25 / @21 / @17 — there is
-  # no @22, so pin to @25 (newer LTS with stable FFM).
+  # JDK 22+ is required for stable FFM; 25 is the current LTS. Windows
+  # picks a staged JDK or falls back to chocolatey, Linux uses apt, macOS
+  # fetches a Temurin tarball — all in the install step below.
   JAVA_VERSION: "25"
   # Emscripten version used by the WASM job. Pinning avoids surprise
   # binary-size or codegen changes between emsdk releases.
@@ -222,22 +225,80 @@ install:
         echo "Using: $(${CXX:-g++} --version | head -n1)"
       fi
   - sh:  |
-      # macOS: AppleClang is preinstalled; install JDK + Maven via brew.
-      # `brew install` is idempotent — formulas already on the image are
-      # left in place. The `|| true` swallows the no-op "already installed".
+      # macOS: AppleClang and Python 3.12 are preinstalled; the JDK and
+      # Maven come from prebuilt tarballs.
+      #
+      # Deliberately brew-free. Homebrew demoted macOS 14 x86_64 — this
+      # image, and the newest one AppVeyor offers — to Tier 3 and stopped
+      # publishing bottles for it, so `brew install` compiles from source.
+      # Provisioning this way consumed ~59 of the 60-minute job cap and the
+      # job was killed before the build finished configuring.
       if [ "$(uname -s)" = "Darwin" ]; then
-        brew update >/dev/null
-        # python@3.12 is the pinned CI Python (see build-ci.{ps1,sh} and
-        # the Linux install above). Install it explicitly so the candidate
-        # loop below picks 3.12 rather than brew's default newer python3.
-        brew install --quiet python@3.12 openjdk@${JAVA_VERSION} maven || true
-        # openjdk@NN is keg-only; expose its bin/ on PATH so `java`/`javac`
-        # resolve to the installed version rather than the image's default.
-        JDK_PREFIX="$(brew --prefix openjdk@${JAVA_VERSION} 2>/dev/null || true)"
-        if [ -n "$JDK_PREFIX" ] && [ -d "$JDK_PREFIX/bin" ]; then
-          export PATH="$JDK_PREFIX/bin:$PATH"
+        # `brew update` is what rebuilds PowerShell from source: it migrates
+        # the powershell cask to the formula of the same name. Suppress the
+        # implicit update that any later `brew install` would trigger.
+        export HOMEBREW_NO_AUTO_UPDATE=1
+        export HOMEBREW_NO_INSTALL_UPGRADE=1
+        export HOMEBREW_NO_INSTALL_CLEANUP=1
+        export HOMEBREW_NO_ENV_HINTS=1
+
+        TOOLS="${APPVEYOR_BUILD_FOLDER}/.ci-tools"
+        mkdir -p "$TOOLS"
+
+        # JDK: only needed for find_package(JNI)'s headers here — the macOS
+        # job builds no bytecode, so `javac --release 22` (which drives the
+        # JAVA_VERSION pin) is the package job's concern. Reuse a suitable
+        # preinstalled JDK when the image has one; the images currently top
+        # out at Temurin 21, so expect the download.
+        #
+        # x64 on purpose even though the build targets arm64: this JDK runs
+        # on the builder, and bindings/c/CMakeLists.txt consumes only
+        # JNI_INCLUDE_DIRS (no JNI_LIBRARIES), so nothing arch-specific from
+        # it is linked into the cross-compiled output.
+        JAVA_HOME="$(/usr/libexec/java_home -v "${JAVA_VERSION}" 2>/dev/null || true)"
+        if [ -z "$JAVA_HOME" ]; then
+          jdk_url="https://api.adoptium.net/v3/binary/latest/${JAVA_VERSION}/ga/mac/x64/jdk/hotspot/normal/eclipse"
+          echo "no preinstalled JDK ${JAVA_VERSION}; fetching Temurin tarball"
+          mkdir -p "$TOOLS/jdk"
+          curl -fsSL --retry 3 --retry-delay 5 "$jdk_url" \
+              | tar xzf - -C "$TOOLS/jdk" --strip-components=1
+          # macOS Temurin ships as an .app-style bundle (<release>/Contents/Home);
+          # don't assume it, the linux-layout tarballs are flat.
+          if [ -x "$TOOLS/jdk/Contents/Home/bin/java" ]; then
+            JAVA_HOME="$TOOLS/jdk/Contents/Home"
+          else
+            JAVA_HOME="$TOOLS/jdk"
+          fi
         fi
-        echo "PATH=$PATH" >> macos_env.env
+        [ -x "$JAVA_HOME/bin/java" ] || { echo "JDK ${JAVA_VERSION} unavailable at $JAVA_HOME" >&2; exit 1; }
+        export JAVA_HOME
+        export PATH="$JAVA_HOME/bin:$PATH"
+
+        # Maven isn't used by the macOS job's after_build today, but keep the
+        # environment equivalent across native jobs. archive.apache.org (not
+        # dlcdn) because dlcdn drops releases as new ones land.
+        MAVEN_VERSION=3.9.9
+        if ! command -v mvn >/dev/null 2>&1; then
+          mvn_url="https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz"
+          mkdir -p "$TOOLS/maven"
+          curl -fsSL "$mvn_url" | tar xzf - -C "$TOOLS/maven" --strip-components=1
+          export PATH="$TOOLS/maven/bin:$PATH"
+          command -v mvn >/dev/null 2>&1 || { echo "maven ${MAVEN_VERSION} unpack failed" >&2; exit 1; }
+        fi
+
+        # python@3.12 is the pinned CI Python (see build-ci.{ps1,sh} and the
+        # Linux install above); the image ships 3.12.1, which the candidate
+        # loop below picks up. Only install if it somehow isn't there — and
+        # accept the source build in that case, since there's no alternative.
+        command -v python3.12 >/dev/null 2>&1 || brew install --quiet python@3.12 || true
+
+        # Quoted: `set -a; . macos_env.env` would otherwise split an
+        # unquoted PATH containing the Xcode.app entries on whitespace.
+        {
+          echo "JAVA_HOME=\"$JAVA_HOME\""
+          echo "PATH=\"$PATH\""
+          echo "HOMEBREW_NO_AUTO_UPDATE=1"
+        } >> macos_env.env
         java -version
       fi
   - sh:  |
@@ -425,7 +486,12 @@ for:
           # this step needs it.
           if ! command -v jq >/dev/null 2>&1; then
               if command -v brew >/dev/null; then
-                  brew install --quiet jq
+                  # Runs before macos_env.env is sourced, so re-assert the
+                  # no-auto-update guard: a bare `brew install` on a Tier 3
+                  # macOS would trigger the source rebuilds described in
+                  # `install:`.
+                  HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 \
+                      brew install --quiet jq
               elif command -v apt-get >/dev/null; then
                   sudo apt-get install -y --no-install-recommends jq
               else

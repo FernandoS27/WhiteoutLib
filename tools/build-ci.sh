@@ -95,7 +95,27 @@ fi
 
 # ── 2. Configure ─────────────────────────────────────────────────────────
 
+# macOS targets Apple Silicon, but every macOS runner AppVeyor offers is
+# Intel (macos-sonoma, x86_64), so the arm64 slice is cross-compiled. That
+# only works because nothing here executes what it builds: tests are OFF,
+# examples are built but never run, and the .pyi stubs come from the
+# source-level codegen rather than by importing the extension. Keep it that
+# way — an Intel host cannot run arm64 code (Rosetta only goes the other
+# direction), so adding a smoke-test that imports the module or runs an
+# example would break this job, not just slow it down.
+#
+# Set WHITEOUT_OSX_ARCHS to override, e.g. "x86_64;arm64" for a universal
+# binary or "x86_64" when building natively on an Intel Mac.
+cmake_platform_args=()
+if [ "$(uname -s)" = "Darwin" ]; then
+    cmake_platform_args+=(
+        -DCMAKE_OSX_ARCHITECTURES="${WHITEOUT_OSX_ARCHS:-arm64}"
+        -DCMAKE_OSX_DEPLOYMENT_TARGET="${WHITEOUT_OSX_DEPLOYMENT_TARGET:-11.0}"
+    )
+fi
+
 cmake -S "${repo_root}" -B "${build_dir}" \
+    "${cmake_platform_args[@]+"${cmake_platform_args[@]}"}" \
     -DCMAKE_BUILD_TYPE=Release \
     -DPython_EXECUTABLE="${PYTHON}" \
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
@@ -185,4 +205,24 @@ if [ -z "${py_ext}" ]; then
     echo "FATAL: Python extension not produced by the build " \
          "(likely OOM during pybind11 compilation; reduce parallelism)" >&2
     exit 1
+fi
+
+# The macOS outputs are cross-compiled and can't be executed on the Intel
+# builder, so their architecture is the only property CI can verify — and
+# it's the one that silently breaks consumers. A dylib that quietly came
+# out x86_64 would ship under runtimes/osx-arm64/ and fail at dlopen on
+# every Apple Silicon machine, with nothing upstream to catch it.
+if [ "$(uname -s)" = "Darwin" ]; then
+    want_archs="${WHITEOUT_OSX_ARCHS:-arm64}"
+    for artefact in "${native_lib}" "${py_ext}"; do
+        got="$(lipo -archs "${artefact}" 2>/dev/null || true)"
+        [ -n "${got}" ] || { echo "FATAL: lipo could not read ${artefact}" >&2; exit 1; }
+        for want in $(printf '%s\n' "${want_archs}" | tr ';' ' '); do
+            case " ${got} " in
+                *" ${want} "*) ;;
+                *) echo "FATAL: ${artefact} is [${got}], expected ${want}" >&2; exit 1 ;;
+            esac
+        done
+        echo "arch ok: $(basename "${artefact}") [${got}]"
+    done
 fi
