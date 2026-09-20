@@ -50,6 +50,32 @@ void SkinBinding::appendVertex(std::span<const Influence> values) {
     offsets.push_back(static_cast<u32>(influences.size()));
 }
 
+void SkinBinding::assignVertex(u32 vertex, std::span<const Influence> values) {
+    if (vertex + 1 >= offsets.size()) {
+        return;
+    }
+    const u32 begin = offsets[vertex];
+    const u32 end = offsets[vertex + 1];
+
+    // Copy first: `values` may be a view into this very array (a caller reading
+    // `forVertex` and writing it back), and the splice below invalidates it.
+    std::vector<Influence> sorted(values.begin(), values.end());
+    std::stable_sort(sorted.begin(), sorted.end(), [](const Influence& a, const Influence& b) {
+        if (a.weight != b.weight) {
+            return a.weight > b.weight;
+        }
+        return a.bone < b.bone;
+    });
+
+    influences.erase(influences.begin() + begin, influences.begin() + end);
+    influences.insert(influences.begin() + begin, sorted.begin(), sorted.end());
+
+    const i64 shift = static_cast<i64>(sorted.size()) - static_cast<i64>(end - begin);
+    for (std::size_t v = vertex + 1; v < offsets.size(); ++v) {
+        offsets[v] = static_cast<u32>(static_cast<i64>(offsets[v]) + shift);
+    }
+}
+
 void SkinBinding::appendCopyOf(u32 source) {
     // Copy into a temporary first: `forVertex` returns a view into `influences`,
     // and the insert below can reallocate it.

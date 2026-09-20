@@ -2,11 +2,26 @@
 # One DiagCode per line, sorted. Counts are deliberately absent: they scale
 # with the file cap and the set of codes does not. `limit` is the cap this was
 # recorded at, so a smaller run knows it may legitimately see fewer codes.
+#
+# Moved 2026-09-19 by EDIT_MODE_SKIN's SL1, which gave `Validate` the skin rows
+# of the node table and the weights' values. Neither code is a new loss; both
+# are the check finding what `.m2` import already did:
+#  - DanglingNodeReference: a character `.m2` past 255 bones stores a vertex's
+#    bone as a BYTE and the section's own lookup resolves it, but import binds
+#    the byte itself, so tens of thousands of influences name a node outside the
+#    tree (darkirondwarffemale.m2: 34,391). That is why validation_errors went
+#    from 1 to 25. It is a `.m2` import defect, recorded here and left for the
+#    World of Warcraft work; nothing in Warcraft III reaches it.
+#  - SkinInfluenceDuplicated: a file naming one bone in two of a vertex's four
+#    lanes. Import now merges them into one influence of the summed weight,
+#    which is what the game blends, and the check says where it happened.
 limit=250
-validation_errors=1
+validation_errors=25
 AnimTrackDropped
+DanglingNodeReference
 IndexOutOfRange
 IndexWidthExceeded
 LayerDropped
 LossyKindConversion
 MaterialSlotUnused
+SkinInfluenceDuplicated

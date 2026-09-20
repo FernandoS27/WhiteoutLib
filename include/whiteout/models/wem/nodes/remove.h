@@ -140,6 +140,13 @@ void RemapNodeReferencers(NodeTree& tree, std::span<const u32> remap, NodeRefere
 /// particle emitter that is not itself a copy, a bounce's ribbon a ribbon.
 void CheckEmitterLinks(const NodeTree& tree, Diagnostics& out);
 
+/// The skin rows of the table against the tree: an influence or a rigid
+/// section naming a node outside it is an error. An influence on a node that
+/// is not a bone is a **warning** (EDIT_MODE_SKIN_DESIGN.md §6.4): §5.6 asks for
+/// bones, but a helper keeps its object id, the file skins it, and shipped
+/// content does it -- so a document holding one is not malformed.
+void CheckSkinReferencers(const NodeTree& tree, std::span<const Mesh> meshes, Diagnostics& out);
+
 /// Cross-checks every §10.6 referencer against the tree without changing
 /// anything — the `Validate` half of the table.
 void CheckNodeReferencers(const NodeTree& tree, std::span<const Mesh> meshes, Diagnostics& out,

@@ -3,6 +3,7 @@
 
 #include <whiteout/models/wem/validate.h>
 
+#include <cmath>
 #include <string>
 
 #include <whiteout/models/wem/document.h>
@@ -492,6 +493,62 @@ void checkMeshReferencers(const Document& document, Diagnostics& out) {
     }
 }
 
+/// The skin rows of the §10.6 node table: what an influence may name
+/// (EDIT_MODE_SKIN_DESIGN.md §6.4). The emitter and animation rows are checked
+/// by their own rules, so they are not run twice.
+void checkSkinReferencers(const Document& document, Diagnostics& out) {
+    for (const Model& model : document.models) {
+        CheckSkinReferencers(model.nodes, model.meshes, out);
+    }
+}
+
+/// What one vertex's influences may hold (EDIT_MODE_SKIN_DESIGN.md §6.4): a
+/// weight that is negative or not finite is an error, a bone named twice a
+/// warning, and influences out of the documented heaviest-first order a note,
+/// because the render view and every editor operation read that order.
+void checkSkinValues(const Document& document, Diagnostics& out) {
+    for (const Model& model : document.models) {
+        for (u32 m = 0; m < model.meshes.size(); ++m) {
+            const geom::SkinBinding& skin = model.meshes[m].skin;
+            u32 invalid = 0;
+            u32 duplicated = 0;
+            u32 unsorted = 0;
+            for (u32 v = 0; v < skin.vertexCount(); ++v) {
+                const std::span<const geom::Influence> influences = skin.forVertex(v);
+                bool bad = false;
+                bool twice = false;
+                bool disordered = false;
+                for (std::size_t i = 0; i < influences.size(); ++i) {
+                    bad = bad || !std::isfinite(influences[i].weight) || influences[i].weight < 0.0f;
+                    disordered = disordered || (i + 1 < influences.size() &&
+                                                influences[i].weight < influences[i + 1].weight);
+                    for (std::size_t j = i + 1; j < influences.size(); ++j) {
+                        twice = twice || influences[i].bone == influences[j].bone;
+                    }
+                }
+                invalid += bad ? 1 : 0;
+                duplicated += twice ? 1 : 0;
+                unsorted += disordered ? 1 : 0;
+            }
+            const ElementRef where(ElementKind::Mesh, m);
+            if (invalid != 0) {
+                out.error(DiagCode::SkinWeightInvalid,
+                          number(invalid) + " vertices hold a negative or non-finite weight",
+                          where);
+            }
+            if (duplicated != 0) {
+                out.warn(DiagCode::SkinInfluenceDuplicated,
+                         number(duplicated) + " vertices name a bone twice", where);
+            }
+            if (unsorted != 0) {
+                out.info(DiagCode::SkinInfluencesUnsorted,
+                         number(unsorted) + " vertices hold their influences out of weight order",
+                         where);
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Manifold
 // ---------------------------------------------------------------------------
@@ -693,13 +750,69 @@ void checkGeometryLimits(const Document& document, Diagnostics& out) {
 //   P7  structural: the channel table's ids and the sub-track key sizing.
 //       profile:    the animation referencer rows of §10.6 and §7.5.
 //   §10.9 structural: the emitter-system gate, and their links and properties.
+//   Skin  structural: the skin rows of the node table, the weights' values
+//                     (EDIT_MODE_SKIN_DESIGN.md §6.4) and the saved setup (§13.4).
 // ---------------------------------------------------------------------------
+
+/// The saved skin setup against the document it describes
+/// (EDIT_MODE_SKIN_DESIGN.md §13.4). A mirror override naming a node is checked
+/// with the other node links, so what is left is the shapes: the deltas parallel
+/// to the poses, a pose's clip, an envelope's radii, and a pin a group could
+/// hold.
+void checkSkinSetup(const Document& document, Diagnostics& out) {
+    for (std::size_t m = 0; m < document.models.size(); ++m) {
+        const Model& model = document.models[m];
+        const std::size_t poses = model.testPoses.size();
+        for (u32 n = 0; n < model.nodes.size(); ++n) {
+            const NodeSkinSetup& setup = model.nodes.nodes[n].skin;
+            const ElementRef where(ElementKind::Node, n);
+            if (!setup.poseDeltas.empty() && setup.poseDeltas.size() != poses) {
+                out.error(DiagCode::SkinSetupInvalid,
+                          "the node holds " + number(setup.poseDeltas.size()) +
+                              " pose deltas for " + number(poses) + " test poses",
+                          where);
+            }
+            if (setup.envelope.has_value()) {
+                const Envelope& envelope = *setup.envelope;
+                if (envelope.innerStart > envelope.outerStart ||
+                    envelope.innerEnd > envelope.outerEnd) {
+                    out.error(DiagCode::SkinSetupInvalid,
+                              "the envelope's inner radius exceeds its outer one", where);
+                }
+            }
+        }
+        for (std::size_t p = 0; p < poses; ++p) {
+            const TestPose& pose = model.testPoses[p];
+            if (pose.clip != kInvalidIndex && pose.clip >= document.clips.size()) {
+                out.error(DiagCode::SkinSetupInvalid,
+                          "test pose '" + pose.name + "' names clip " + number(pose.clip) +
+                              " of " + number(document.clips.size()),
+                          ElementRef(ElementKind::Document, static_cast<u32>(m)));
+            }
+        }
+        for (u32 mesh = 0; mesh < model.meshes.size(); ++mesh) {
+            const std::span<const u16> pins = model.meshes[mesh].attributes.get<u16>(
+                geom::names::kClassicBones, geom::Domain::Vertex);
+            u32 tooMany = 0;
+            for (const u16 pin : pins) {
+                // 0 is the quantizer's own choice; a group holds at most eight.
+                tooMany += pin > 8 ? 1 : 0;
+            }
+            if (tooMany != 0) {
+                out.error(DiagCode::SkinSetupInvalid,
+                          number(tooMany) + " classic pins ask for more than 8 bones",
+                          ElementRef(ElementKind::Mesh, mesh));
+            }
+        }
+    }
+}
 
 constexpr ValidationRule kStructuralRules[] = {
     checkMeshStructure,    checkProfileDeclarations, checkBindingShape,
     checkMaterialBodies,   checkNativeKinds,         checkMaterialReferencers,
     checkAttachments,      checkAnimation,           checkNodeKindProfiles,
-    checkEmitters,         checkMeshReferencers,     nullptr,
+    checkEmitters,         checkMeshReferencers,     checkSkinReferencers,
+    checkSkinValues,       checkSkinSetup,           nullptr,
 };
 constexpr ValidationRule kManifoldRules[] = {checkMeshManifold, nullptr};
 constexpr ValidationRule kProfileRules[] = {

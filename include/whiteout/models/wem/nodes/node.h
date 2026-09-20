@@ -45,6 +45,7 @@
 #include "../asset_key.h"
 #include "../bounds.h"
 #include "../native_bag.h"
+#include "../skinning/setup.h"
 #include "../profile.h"
 #include "emitters.h"
 
@@ -399,6 +400,23 @@ void ForEachNodeLink(Payload& payload, F&& f) {
     }
 }
 
+/// Every node index @p node holds, as `f(u32& link, EmitterLink)`: its
+/// payload's emitter links and the skin setup's mirror override (§13.4).
+///
+/// The node overload is the one the referencer table walks, so a row added to a
+/// node is remapped, checked and cleared on a removal without a second list to
+/// keep in step. The payload overload above stays for a caller that has only a
+/// payload in hand.
+template <class NodeT, class F>
+    requires requires(NodeT& node) {
+        node.payload;
+        node.skin;
+    }
+void ForEachNodeLink(NodeT& node, F&& f) {
+    ForEachNodeLink(node.payload, f);
+    f(node.skin.mirror, EmitterLink::SkinMirror);
+}
+
 /// Every `Model::materialSlots` index @p payload holds, as `f(u32& slot)` — the
 /// §7.5 row.
 template <class Payload, class F>
@@ -484,6 +502,11 @@ struct Node {
 
     NodePayload payload;
     NodeNative native;
+
+    /// How this node is skinned with (EDIT_MODE_SKIN_DESIGN.md §13.4): its lock,
+    /// envelope, joint, mirror override and pose deltas. Empty on import, and on
+    /// a `NODE` written before v6. No file carries any of it.
+    NodeSkinSetup skin;
 
     /**
      * @brief Transient removal marker (§10.6).
@@ -581,6 +604,10 @@ struct Node {
         }
 
         v.field("native", native);
+        // v6: the skin setup (EDIT_MODE_SKIN_DESIGN.md §13.4). A chunk written
+        // before it has none, and an empty setup is exactly what "nobody has
+        // skinned this model here yet" means.
+        v.since(6).field("skin", skin);
 
         if constexpr (V::kReading) {
             if (auto* bone = std::get_if<BonePayload>(&payload)) {

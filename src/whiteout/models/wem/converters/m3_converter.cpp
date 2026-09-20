@@ -37,6 +37,7 @@
 #include "whiteout/models/wem/converters.h"
 #include "whiteout/models/wem/geometry/builder.h"
 #include "whiteout/models/wem/geometry/render_view.h"
+#include "whiteout/models/wem/skinning/quantize.h"
 
 #include "../materials/m3_core.h"
 #include "m3_anim.h"
@@ -245,41 +246,6 @@ m3::BoneFlag FromNodeFlags(NodeFlags, u32 rawFallback) {
 
 std::string SlotName(std::size_t materialMapIndex) {
     return "material_" + std::to_string(materialMapIndex);
-}
-
-/// A vertex's bone weights as the bytes it stores: in proportion and summing to
-/// exactly 255, as 1,002,734 shipped vertices do against a few hundred in one
-/// file. Rounding each weight alone wrote a two-bone Warcraft III vertex 128 + 128.
-std::array<u8, 4> QuantizeWeights(const std::array<f32, 4>& weights, std::size_t count) {
-    std::array<u8, 4> out{0, 0, 0, 0};
-    f32 total = 0.0f;
-    for (std::size_t k = 0; k < count; ++k) {
-        total += weights[k];
-    }
-    if (count == 0 || total <= 0.0f) {
-        return out;
-    }
-    std::array<f32, 4> remainder{};
-    u32 assigned = 0;
-    for (std::size_t k = 0; k < count; ++k) {
-        const f32 exact = weights[k] / total * 255.0f;
-        out[k] = static_cast<u8>(std::floor(exact));
-        remainder[k] = exact - static_cast<f32>(out[k]);
-        assigned += out[k];
-    }
-    // What rounding down left goes to the largest remainders, the earlier slot on a tie.
-    while (assigned < 255) {
-        std::size_t best = 0;
-        for (std::size_t k = 1; k < count; ++k) {
-            if (remainder[k] > remainder[best]) {
-                best = k;
-            }
-        }
-        ++out[best];
-        remainder[best] -= 1.0f;
-        ++assigned;
-    }
-    return out;
 }
 
 /// One vertex of the `.m3` blob, as the parser reads it back.
@@ -1528,6 +1494,9 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     };
     desc.includeSkin = true;
     desc.maxInfluences = Profile(profile).maxBoneInfluences;
+    // Node indices, not bone slots: a byte wraps node 256 onto node 0 before
+    // `boneOf` ever sees it.
+    desc.blendIndexEncoding = utils::AttributeEncoding::UInt16;
     const SkinSkeleton skinSkeleton(model.nodes);
     skinSkeleton.describe(desc);
 
@@ -2035,7 +2004,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                         shares[k] = influences[k].first;
                         indices[k] = influences[k].second;
                     }
-                    const std::array<u8, 4> weights = QuantizeWeights(shares, count);
+                    const std::array<u8, 4> weights = skinning::QuantizeWeights(shares, count);
                     rigid = rigid && count <= 1;
                     // A mesh with no tangent layer -- one imported from a format that
                     // has none -- gets the neutral frame the format's own default is.

@@ -92,9 +92,9 @@ TEST_CASE("wem profile geometry limits", "[wem][profile]") {
     CHECK(generic.allowsNgons);
     CHECK(generic.indexWidth == wem::IndexWidth::U32);
 
-    // "4 on the GPU everywhere; D3 writes 3."
+    // "4 on the GPU everywhere; D3 writes 3." Classic's groups hold 8.
     CHECK(wem::Profile(wem::ProfileId::Diablo3).maxBoneInfluences == 3);
-    CHECK(wem::Profile(wem::ProfileId::Wc3Classic).maxBoneInfluences == 4);
+    CHECK(wem::Profile(wem::ProfileId::Wc3Classic).maxBoneInfluences == 8);
     CHECK(wem::Profile(wem::ProfileId::Wow).maxBoneInfluences == 4);
     CHECK(wem::Profile(wem::ProfileId::Sc2).maxBoneInfluences == 4);
 

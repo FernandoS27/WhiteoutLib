@@ -618,15 +618,18 @@ TEST_CASE("wem checkGeoset says what toMdx says about the limits", "[wem][mesh][
                 document, 0, document.models[0].meshes[0], ProfileId::Wc3Classic, version);
             const Result<mdx::Model> exported =
                 converter.toMdx(document, ProfileId::Wc3Classic, version);
-            REQUIRE(exported.ok());
-            const u32 exportWide = exported.diagnostics.countOf(DiagCode::IndexWidthExceeded);
-            const u32 exportPalette = exported.diagnostics.countOf(DiagCode::BonePaletteLimit);
-            CHECK(checked.countOf(DiagCode::IndexWidthExceeded) == exportWide);
-            // The one difference, deliberate (C8): above v800 the export's
-            // "sets" warning is noise, and the check does not repeat it.
-            const bool setsNoise = std::string(shape) != "wide" && version > 800;
-            const u32 expectedPalette = setsNoise ? exportPalette - 1 : exportPalette;
-            CHECK(checked.countOf(DiagCode::BonePaletteLimit) == expectedPalette);
+            // A `SKIN` palette the file cannot index is refused rather than
+            // written with the weight dropped (EDIT_MODE_SKIN_DESIGN.md §12.1);
+            // past 256 classic groups the Skin Quantizer merges, and writes.
+            const bool refused = std::string(shape) == "palette" && version > 800;
+            CHECK(exported.ok() == !refused);
+            CHECK(checked.hasErrors() == refused);
+            CHECK(checked.countOf(DiagCode::IndexWidthExceeded) ==
+                  exported.diagnostics.countOf(DiagCode::IndexWidthExceeded));
+            // No difference left: the export's old "sets" warning above v800
+            // went with the quantizer (the Mesh plan's C8).
+            CHECK(checked.countOf(DiagCode::BonePaletteLimit) ==
+                  exported.diagnostics.countOf(DiagCode::BonePaletteLimit));
         }
     }
     // And each fixture trips the limit it is named for.

@@ -130,6 +130,12 @@ struct Model {
     std::vector<ProfileMaterialSet> profileSets;
     Extent bounds;
 
+    /// The saved test poses of the Skin workspace (EDIT_MODE_SKIN_DESIGN.md
+    /// §11.5). Each node's departure from a pose is its own
+    /// `Node::skin.poseDeltas[i]`, so removing a node takes its deltas with it.
+    /// No file carries them.
+    std::vector<TestPose> testPoses;
+
     /// The set for @p profile, or null. Sets are unordered in the vector and
     /// there is at most one per profile — a second is a structural error.
     const ProfileMaterialSet* setFor(ProfileId profile) const;
@@ -158,6 +164,9 @@ struct Model {
         v.field("animSet", animSet);
         v.field("profileSets", profileSets);
         v.field("bounds", bounds);
+        // v3: the Skin workspace's test poses. A `MODL` written before it has
+        // none, which is what an unskinned document holds anyway.
+        v.since(3).field("testPoses", testPoses);
     }
 };
 

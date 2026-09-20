@@ -1327,6 +1327,8 @@ geom::RenderMeshDesc D3VertexDesc() {
     };
     desc.includeSkin = true;
     desc.maxInfluences = Profile(ProfileId::Diablo3).maxBoneInfluences;
+    // Node indices, not bone slots: a byte wraps node 256 onto node 0.
+    desc.blendIndexEncoding = utils::AttributeEncoding::UInt16;
     desc.splitBySection = true;
     return desc;
 }

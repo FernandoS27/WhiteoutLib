@@ -55,6 +55,13 @@
 #include "nodes/remove.h"
 #include "nodes/visitor.h"
 #include "retarget.h"
+#include "geometry/bvh.h"
+#include "skinning/deform.h"
+#include "skinning/mirror.h"
+#include "skinning/ops.h"
+#include "skinning/points.h"
+#include "skinning/quantize.h"
+#include "skinning/setup.h"
 
 #include "converters.h"
 #include "d3_converter.h"

@@ -64,6 +64,10 @@ enum class EmitterLink : u8 {
     Trail,          ///< A `Sc2ParticleEmitter`.
     BounceRibbon,   ///< A `Sc2RibbonEmitter`.
     SplineBone,     ///< Any node; a bone in every shipped file.
+    /// Not an emitter link: `NodeSkinSetup::mirror`, the skin setup's override
+    /// of §7.5's mirror map. It rides this walk because the referencer table is
+    /// one walk, and it must name a `Bone`.
+    SkinMirror,
 };
 
 const char* ToString(EmitterLink link);

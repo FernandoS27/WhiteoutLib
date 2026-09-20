@@ -155,6 +155,15 @@ whiteout_add_test(wem_convert_gltf_test wem_convert_gltf_test.cpp)
 target_include_directories(wem_convert_gltf_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 whiteout_add_test(mdx_m3_effects_test mdx_m3_effects_test.cpp)
 target_include_directories(mdx_m3_effects_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# EDIT_MODE_SKIN S1: what a Warcraft III file holds for each vertex's skin.
+whiteout_add_test(wem_skin_export_test wem_skin_export_test.cpp)
+target_include_directories(wem_skin_export_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# EDIT_MODE_SKIN S2/S3/S4: the weight algebra, the points and the BVH.
+whiteout_add_test(wem_skin_ops_test wem_skin_ops_test.cpp)
+whiteout_add_test(wem_skin_points_test wem_skin_points_test.cpp)
+whiteout_add_test(wem_bvh_test wem_bvh_test.cpp)
+whiteout_add_test(wem_skin_setup_test wem_skin_setup_test.cpp)
+target_include_directories(wem_skin_setup_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 whiteout_add_test(wem_convert_corpus_test wem_convert_corpus_test.cpp)
 target_include_directories(wem_convert_corpus_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # The expected-loss goldens live beside the test sources, and the sweep has to

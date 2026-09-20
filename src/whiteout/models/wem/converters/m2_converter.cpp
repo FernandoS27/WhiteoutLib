@@ -36,6 +36,7 @@
 #include "whiteout/models/wem/converters.h"
 #include "whiteout/models/wem/geometry/builder.h"
 #include "whiteout/models/wem/geometry/render_view.h"
+#include "whiteout/models/wem/skinning/quantize.h"
 
 #include "../materials/m2_core.h"
 #include "m2_anim.h"
@@ -599,6 +600,9 @@ Result<m2::Model> M2Converter::toM2(const Document& document, ProfileId profile,
     };
     desc.includeSkin = true;
     desc.maxInfluences = Profile(profile).maxBoneInfluences;
+    // Node indices, not bone slots: a byte wraps node 256 onto node 0 before
+    // `boneOf` ever sees it.
+    desc.blendIndexEncoding = utils::AttributeEncoding::UInt16;
     desc.wantU16Indices = true;
     const SkinSkeleton skinSkeleton(model.nodes);
     skinSkeleton.describe(desc);
@@ -623,13 +627,18 @@ Result<m2::Model> M2Converter::toM2(const Document& document, ProfileId profile,
             vertex.normal = v < normals.size() ? normals[v] : Vector3f{0, 0, 1};
             vertex.texCoords[0] = v < uv0.size() ? uv0[v] : Vector2f{0, 0};
             vertex.texCoords[1] = v < uv1.size() ? uv1[v] : Vector2f{0, 0};
-            for (std::size_t k = 0; k < 4; ++k) {
-                if (v < boneIndices.size() && v < boneWeights.size()) {
+            if (v < boneIndices.size() && v < boneWeights.size()) {
+                // One rounding for the four, so the bytes sum to 255.
+                std::array<f32, 4> shares{};
+                for (std::size_t k = 0; k < 4; ++k) {
                     const u32 node = boneIndices[v][k];
                     const u32 bone = node < boneOf.size() ? boneOf[node] : 0xFFFFu;
                     vertex.boneIndices[k] = bone == 0xFFFFu ? 0u : static_cast<u8>(bone);
-                    vertex.boneWeights[k] =
-                        static_cast<u8>(std::clamp(boneWeights[v][k], 0.0f, 1.0f) * 255.0f + 0.5f);
+                    shares[k] = std::clamp(boneWeights[v][k], 0.0f, 1.0f);
+                }
+                const std::array<u8, 4> bytes = skinning::QuantizeWeights(shares, 4);
+                for (std::size_t k = 0; k < 4; ++k) {
+                    vertex.boneWeights[k] = bytes[k];
                 }
             }
             out.vertices.push_back(vertex);

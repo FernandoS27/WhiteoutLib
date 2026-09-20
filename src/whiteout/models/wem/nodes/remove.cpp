@@ -373,13 +373,14 @@ void RemapNodeReferencers(NodeTree& tree, std::span<const u32> remap, NodeRefere
         }
     }
 
-    // The emitter payloads' own links (§10.9). A link whose node died names none
-    // afterwards -- which for a trail or a bounce is "no trail", the format's
-    // own answer, and is still worth a line.
+    // The node links: the emitter payloads' own (§10.9) and the skin setup's
+    // mirror override (§13.4). A link whose node died names none afterwards --
+    // which for a trail or a bounce is "no trail", the format's own answer, and
+    // for a mirror override "no override", and is still worth a line.
     {
         u32 dangling = 0;
         for (Node& node : tree.nodes) {
-            ForEachNodeLink(node.payload, [&](u32& link, EmitterLink) {
+            ForEachNodeLink(node, [&](u32& link, EmitterLink) {
                 if (link == kInvalidNode) {
                     return;
                 }
@@ -392,7 +393,7 @@ void RemapNodeReferencers(NodeTree& tree, std::span<const u32> remap, NodeRefere
         }
         if (dangling != 0) {
             out.warn(DiagCode::DanglingNodeReference,
-                     number(dangling) + " emitter links named a node that no longer exists",
+                     number(dangling) + " node links named a node that no longer exists",
                      ElementRef());
         }
     }
@@ -424,7 +425,7 @@ void RemapNodeReferencers(NodeTree& tree, std::span<const u32> remap, NodeRefere
 void CheckEmitterLinks(const NodeTree& tree, Diagnostics& out) {
     const u32 count = tree.size();
     for (u32 n = 0; n < count; ++n) {
-        ForEachNodeLink(tree.nodes[n].payload, [&](const u32& link, EmitterLink what) {
+        ForEachNodeLink(tree.nodes[n], [&](const u32& link, EmitterLink what) {
             if (link == kInvalidNode) {
                 return;
             }
@@ -452,6 +453,11 @@ void CheckEmitterLinks(const NodeTree& tree, Diagnostics& out) {
                 break;
             case EmitterLink::SplineBone:
                 break;
+            // §13.4: a mirror override maps one bone's weights onto another's,
+            // so the other has to be a bone.
+            case EmitterLink::SkinMirror:
+                fits = target.kind == NodeKind::Bone;
+                break;
             }
             if (!fits) {
                 out.error(DiagCode::DanglingNodeReference,
@@ -463,10 +469,8 @@ void CheckEmitterLinks(const NodeTree& tree, Diagnostics& out) {
     }
 }
 
-void CheckNodeReferencers(const NodeTree& tree, std::span<const Mesh> meshes, Diagnostics& out,
-                          const AnimChannelTable* channels, std::span<const Clip> clips) {
+void CheckSkinReferencers(const NodeTree& tree, std::span<const Mesh> meshes, Diagnostics& out) {
     const u32 count = tree.size();
-    CheckEmitterLinks(tree, out);
     for (u32 m = 0; m < meshes.size(); ++m) {
         const Mesh& mesh = meshes[m];
 
@@ -486,9 +490,9 @@ void CheckNodeReferencers(const NodeTree& tree, std::span<const Mesh> meshes, Di
                       ElementRef(ElementKind::Mesh, m));
         }
         if (notABone != 0) {
-            out.error(DiagCode::DanglingNodeReference,
-                      number(notABone) + " influences name a node that is not a bone",
-                      ElementRef(ElementKind::Mesh, m));
+            out.warn(DiagCode::DanglingNodeReference,
+                     number(notABone) + " influences name a node that is not a bone",
+                     ElementRef(ElementKind::Mesh, m));
         }
 
         for (u32 s = 0; s < mesh.sections.size(); ++s) {
@@ -500,6 +504,13 @@ void CheckNodeReferencers(const NodeTree& tree, std::span<const Mesh> meshes, Di
             }
         }
     }
+}
+
+void CheckNodeReferencers(const NodeTree& tree, std::span<const Mesh> meshes, Diagnostics& out,
+                          const AnimChannelTable* channels, std::span<const Clip> clips) {
+    const u32 count = tree.size();
+    CheckEmitterLinks(tree, out);
+    CheckSkinReferencers(tree, meshes, out);
 
     if (channels != nullptr) {
         for (const AnimChannel& channel : channels->channels) {

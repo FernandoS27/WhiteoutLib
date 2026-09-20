@@ -129,6 +129,15 @@ inline constexpr const char* kSeam = "seam";               ///< Edge / Bool.
 inline constexpr const char* kSection = "section";         ///< Face / U32, authoritative (§5.5).
 inline constexpr const char* kSmoothGroup = "smoothGroup"; ///< Face / U32.
 
+// The Skin workspace's per-vertex setup (EDIT_MODE_SKIN_DESIGN.md §13.4). They
+// are layers rather than side tables because a layer is what a merge carries
+// and a split copies -- and because no exporter writes a layer it did not ask
+// for by name, so none of this reaches a file.
+inline constexpr const char* kSkinLocked = "skinLocked";     ///< Vertex / Bool, §6.2.
+inline constexpr const char* kClassicBones = "classicBones"; ///< Vertex / U16, §12.6.
+/// The prefix of a saved selection's layer, `selection.<name>` (§3.7).
+inline constexpr const char* kSelectionPrefix = "selection.";
+
 /// "uv0", "uv1", … Valid for @p index < 8; the string is built, not interned.
 std::string uv(u32 index);
 /// "color0", "color1", …
@@ -145,8 +154,16 @@ struct ReservedLayer {
     }
 };
 
-/// The reserved-name table (§5.4), including the `uvN` / `colorN` families.
+/// The reserved-name table (§5.4), including the `uvN` / `colorN` families and
+/// the `selection.<name>` one.
 ReservedLayer LookupReserved(const std::string& name);
+
+/// The name of the saved selection @p set: `selection.<set>`.
+std::string selectionLayer(const std::string& set);
+
+/// The set a `selection.<name>` layer holds, or an empty string for any other
+/// name.
+std::string selectionSetOf(const std::string& layer);
 
 // ============================================================================
 // AttributeSet

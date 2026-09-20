@@ -107,6 +107,11 @@ constexpr const char* kDiagCodeNames[] = {
 
     "GeometryRescaled",
     "LevelOfDetailDropped",
+
+    "SkinInfluenceDuplicated",
+    "SkinWeightInvalid",
+    "SkinInfluencesUnsorted",
+    "SkinSetupInvalid",
 };
 
 static_assert(sizeof(kDiagCodeNames) / sizeof(kDiagCodeNames[0]) ==

@@ -16,6 +16,7 @@
  * which none of these do.
  */
 
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -26,6 +27,7 @@
 #include "../mdx/types.h"
 #include "converter_base.h"
 #include "native/mdx_native.h"
+#include "skinning/quantize.h"
 
 namespace whiteout {
 namespace models {
@@ -112,6 +114,45 @@ struct MdxExportMap {
 /// computed without exporting. Empty when the document has no such model.
 MdxExportMap MdxExportMapOf(const Document& document, u32 model, ProfileId profile);
 
+/// Per geoset `toMdx` writes for `document.models[model]` (numbered as
+/// `MdxExportMap::geosetsOfMesh` numbers them): the WEM vertex of each of its
+/// vertices, in the geoset's own order (EDIT_MODE_SKIN_DESIGN.md §12.4). Built
+/// by the code the export slices geosets with, so there is one answer. It
+/// builds every mesh's render view, so a host asks at a rebuild, not per frame.
+std::vector<std::vector<u32>> MdxGeosetVertices(const Document& document, u32 model,
+                                                ProfileId profile);
+
+/// One influence as a Warcraft III file holds it (EDIT_MODE_SKIN_DESIGN.md §12.3).
+struct WrittenInfluence {
+    u32 node = 0;   ///< Global index into `Model::nodes`.
+    f32 weight = 0; ///< What the game blends with: the byte / 255, or 1/k in a group.
+    u8 byte = 0;    ///< The `SKIN` byte; 0 in a classic group.
+
+    bool operator==(const WrittenInfluence&) const = default;
+};
+
+/// One geoset's skin as the file holds it.
+struct WrittenGeosetSkin {
+    /// Per geoset vertex, its WEM vertex: `MdxGeosetVertices`'s numbering.
+    std::vector<u32> vertices;
+    /// Per geoset vertex, what it binds, heaviest first. Empty for a vertex that
+    /// binds no node the file writes.
+    std::vector<std::vector<WrittenInfluence>> influences;
+    /// Classic only: the Skin Quantizer's groups and counts.
+    skinning::ClassicSkin classic;
+};
+
+/// One mesh's skin as the file holds it: `MdxConverter::writtenSkin`.
+struct WrittenSkin {
+    bool classic = false; ///< Matrix groups, not `SKIN`.
+    /// The mesh's geosets, in `MdxExportMap::geosetsOfMesh` order.
+    std::vector<WrittenGeosetSkin> geosets;
+    /// Vertices with more influences than the encoding holds: folded to four
+    /// for `SKIN`, the heaviest eight kept for a group.
+    u32 overLimit = 0;
+    Diagnostics diagnostics;
+};
+
 /**
  * @brief Warcraft III `.mdx`, both directions, serving both WC3 profiles.
  *
@@ -137,8 +178,34 @@ public:
 
     /// @p profile picks which set's materials are written and which sections
     /// are drawn; @p targetVersion is the `.mdx` version stamped on the result.
+    ///
+    /// The skin is `writtenSkin`'s: the Skin Quantizer's groups at v800 and
+    /// below, `SKIN` above. @p skinAs `Wc3Classic` writes the classic groups
+    /// above v800 too, and no `SKIN`: everything else stays @p profile's. That
+    /// is how an editor shows the classic file in a Reforged session
+    /// (EDIT_MODE_SKIN_DESIGN.md §12.6); the export dialog never sets it.
+    ///
+    /// Fails, naming the mesh, when a geoset's skin cannot be written as asked:
+    /// a `SKIN` palette past 256 bones below v1400, or classic pins that alone
+    /// need more than 256 groups.
     Result<mdx::Model> toMdx(const Document& document, ProfileId profile,
-                             u32 targetVersion = 800) const;
+                             u32 targetVersion = 800,
+                             std::optional<ProfileId> skinAs = std::nullopt) const;
+
+    /**
+     * @brief What the file holds for each vertex of @p mesh (EDIT_MODE_SKIN_DESIGN.md
+     *        §12.3): the one answer `toMdx` writes and an editor shows.
+     *
+     * The skin is @p skinAs's, @p profile's own when absent: the Skin
+     * Quantizer's group with the mesh's `classicBones` pins for `Wc3Classic`,
+     * and otherwise `SKIN`, folded to four over the skeleton and quantised to
+     * bytes that sum to 255. It answers for the version each profile is written
+     * at -- Classic at v800, Reforged above -- and so for every file a host
+     * writes. A vertex binds only nodes the file writes, and a duplicate bone is
+     * merged.
+     */
+    WrittenSkin writtenSkin(const Document& document, u32 model, ProfileId profile, u32 mesh,
+                            std::optional<ProfileId> skinAs = std::nullopt) const;
 
     // ---- Editing a Warcraft III material (EDIT_MODE_MATERIALS_DESIGN.md §6) ----
     //
@@ -224,8 +291,9 @@ public:
      * §7.2). The limits that matter come back by code, as warnings, because the
      * export itself writes on past them: `IndexWidthExceeded` (more than 65,536
      * vertices in one geoset, whose indices are then truncated) and
-     * `BonePaletteLimit` (more than 256 bones in a palette, or — at v800 only,
-     * where the groups are the skin — more than 256 bone sets).
+     * `BonePaletteLimit`: at v800, where the groups are the skin, a warning
+     * that the Skin Quantizer merged groups past 256; above it, an error for a
+     * palette of more than 256 bones below v1400, which the export refuses.
      * @p writtenVertices, when given, receives the vertices the geosets hold
      * after the split at seams.
      */

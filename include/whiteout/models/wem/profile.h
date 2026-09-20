@@ -259,7 +259,7 @@ struct ProfileDesc {
     f32 sceneScale = 1.0f;
 
     // --- geometry limits ---
-    u32 maxBoneInfluences = 4; ///< 4 on the GPU everywhere; D3 writes 3.
+    u32 maxBoneInfluences = 4; ///< 4 on the GPU; D3 writes 3; a classic group holds 8.
     u32 maxUvSets = 1;
     u32 maxBonesPerPalette = 0; ///< 0 = unlimited.
     IndexWidth indexWidth = IndexWidth::U16;

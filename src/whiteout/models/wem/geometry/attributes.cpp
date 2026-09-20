@@ -30,6 +30,9 @@ constexpr ReservedRow kReserved[] = {
     {names::kSeam, Domain::Edge, AttrType::Bool},
     {names::kSection, Domain::Face, AttrType::U32},
     {names::kSmoothGroup, Domain::Face, AttrType::U32},
+    // The Skin workspace's (EDIT_MODE_SKIN_DESIGN.md §13.4).
+    {names::kSkinLocked, Domain::Vertex, AttrType::Bool},
+    {names::kClassicBones, Domain::Vertex, AttrType::U16},
 };
 
 /// True when @p name is @p prefix followed by one or more decimal digits.
@@ -188,7 +191,24 @@ ReservedLayer LookupReserved(const std::string& name) {
     if (isIndexedFamily(name, "color")) {
         return ReservedLayer{Domain::Halfedge, AttrType::U8x4};
     }
+    // A saved selection is a family with a free tail rather than a number: the
+    // set's name is the user's (§3.7).
+    if (!selectionSetOf(name).empty()) {
+        return ReservedLayer{Domain::Vertex, AttrType::Bool};
+    }
     return ReservedLayer{};
+}
+
+std::string selectionLayer(const std::string& set) {
+    return std::string(names::kSelectionPrefix) + set;
+}
+
+std::string selectionSetOf(const std::string& layer) {
+    const std::size_t prefix = std::strlen(names::kSelectionPrefix);
+    if (layer.size() <= prefix || layer.compare(0, prefix, names::kSelectionPrefix) != 0) {
+        return {};
+    }
+    return layer.substr(prefix);
 }
 
 // ============================================================================

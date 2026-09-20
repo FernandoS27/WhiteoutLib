@@ -131,7 +131,7 @@ const std::array<ProfileDesc, static_cast<std::size_t>(ProfileId::Count)>& descs
         // to be wider than every source it can be derived from. n-gons and U32
         // indices are allowed here and nowhere else, because an authored or
         // retargeted document is allowed to be richer than any single game.
-        makeDesc(ProfileId::Generic, "generic", "Generic", nullptr, CoordSpace::Blizzard, 1.0f, 4,
+        makeDesc(ProfileId::Generic, "generic", "Generic", nullptr, CoordSpace::Blizzard, 1.0f, 8,
                  8, 0, IndexWidth::U32, /*ngons*/ true, /*vcolor*/ true, modes(kAllBlendModes),
                  kAllMaterialKinds, NativeKind::None,
                  /*looks*/ true, /*actors*/ true,
@@ -142,8 +142,11 @@ const std::array<ProfileDesc, static_cast<std::size_t>(ProfileId::Count)>& descs
 
         // Warcraft III, SD. One UV set; the layer stack is Composite, and collapses
         // to Combiners when the whole stack folds into one draw (§7.2.2).
+        // Eight influences: a classic matrix group averages every bone it names,
+        // and Blizzard's own SD art names up to eight (EDIT_MODE_SKIN_DESIGN.md
+        // §1.3). The Skin Quantizer writes them; nothing folds them first.
         makeDesc(ProfileId::Wc3Classic, "wc3_classic", "Warcraft III (Classic)", "mdx",
-                 CoordSpace::Blizzard, 1.0f, 4, 1, 0, IndexWidth::U16, false, false,
+                 CoordSpace::Blizzard, 1.0f, 8, 1, 0, IndexWidth::U16, false, false,
                  modes(kMdxBlendModes), kComposite | kCombiners, NativeKind::Mdx, false, false),
 
         // Warcraft III, HD. Same container, PBR shading: `SlotType` renames onto

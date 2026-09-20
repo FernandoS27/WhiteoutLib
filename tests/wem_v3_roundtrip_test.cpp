@@ -490,6 +490,49 @@ void cutGateFromNodeChunk(std::vector<u8>& bytes, u32 pattern) {
     FAIL("no NODE chunk holds the pattern");
 }
 
+/// The other half of an older `NODE`: every record's empty skin setup (v6,
+/// EDIT_MODE_SKIN_DESIGN.md §13.4) cut out, so what is left is the record a
+/// build before it wrote. The setup is the record's last field and an empty one
+/// is a known 19 bytes -- `locked`, two empty optionals, an invalid `mirror` and
+/// the null reference of an empty vector -- so it can be found and cut whole.
+void cutSkinFromNodeChunk(std::vector<u8>& bytes) {
+    constexpr u8 kEmptySetup[19] = {0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF, 0, 0, 0,
+                                    0, 0, 0, 0,    0,    0,    0,    0, 0};
+    WEMHeader header{};
+    std::memcpy(&header, bytes.data(), sizeof(header));
+    std::vector<IndexEntry> entries(header.indexCount);
+    std::memcpy(entries.data(), bytes.data() + header.indexOffset,
+                entries.size() * sizeof(IndexEntry));
+
+    for (const IndexEntry& entry : entries) {
+        if (entry.tag != ChunkTagTraits<Node>::value) {
+            continue;
+        }
+        u32 end = header.indexOffset > entry.offset ? header.indexOffset : u32(bytes.size());
+        for (const IndexEntry& other : entries) {
+            if (other.offset > entry.offset && other.offset < end) {
+                end = other.offset;
+            }
+        }
+        std::vector<u32> found;
+        for (u32 at = entry.offset; at + sizeof(kEmptySetup) <= end; ++at) {
+            if (std::memcmp(bytes.data() + at, kEmptySetup, sizeof(kEmptySetup)) == 0) {
+                found.push_back(at);
+                at += static_cast<u32>(sizeof(kEmptySetup)) - 1;
+            }
+        }
+        REQUIRE(found.size() == entry.count);
+        for (auto at = found.rbegin(); at != found.rend(); ++at) {
+            std::memmove(bytes.data() + *at, bytes.data() + *at + sizeof(kEmptySetup),
+                         end - *at - sizeof(kEmptySetup));
+        }
+        std::memset(bytes.data() + end - sizeof(kEmptySetup) * found.size(), 0xAA,
+                    sizeof(kEmptySetup) * found.size());
+        return;
+    }
+    FAIL("no NODE chunk to cut the setup from");
+}
+
 } // namespace
 
 TEST_CASE("wem a v4 bone reads its gate from the MDX bag pair", "[wem][format][nodes]") {
@@ -509,6 +552,8 @@ TEST_CASE("wem a v4 bone reads its gate from the MDX bag pair", "[wem][format][n
     seed(unlinked, 0x5EA7C0E0, 0xFFFFFFFF, 0xFFFFFFFF);
 
     std::vector<u8> bytes = writeDocument(original);
+    // A v4 record holds neither the gate (v5) nor the skin setup (v6).
+    cutSkinFromNodeChunk(bytes);
     for (const u32 pattern : {0x5EA7C0DEu, 0x5EA7C0DFu, 0x5EA7C0E0u}) {
         cutGateFromNodeChunk(bytes, pattern);
     }

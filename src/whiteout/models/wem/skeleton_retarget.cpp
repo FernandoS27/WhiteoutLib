@@ -809,6 +809,15 @@ void ToPivotRelative(Model& model, std::vector<Clip*>& clips, const ElementRef& 
                 }
             }
         }
+        // The payload and skin rows, through the walk the table itself uses:
+        // this copy missed the emitter links until it did.
+        for (Node& node : model.nodes.nodes) {
+            ForEachNodeLink(node, [&](u32& link, EmitterLink) {
+                if (link != kInvalidNode && link < remap.size()) {
+                    link = remap[link];
+                }
+            });
+        }
         for (AnimChannel& channel : model.animChannels.channels) {
             if (channel.target.kind == TrackTarget::Kind::Node &&
                 channel.target.node < remap.size()) {

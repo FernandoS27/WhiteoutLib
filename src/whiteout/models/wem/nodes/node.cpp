@@ -164,6 +164,8 @@ const char* ToString(EmitterLink link) {
         return "ribbonLink";
     case EmitterLink::SplineBone:
         return "splinePoints.node";
+    case EmitterLink::SkinMirror:
+        return "skin.mirror";
     }
     return "invalid";
 }

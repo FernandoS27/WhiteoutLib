@@ -37,6 +37,7 @@
 #include "whiteout/models/wem/converters.h"
 #include "whiteout/models/wem/geometry/builder.h"
 #include "whiteout/models/wem/geometry/render_view.h"
+#include "whiteout/models/wem/skinning/quantize.h"
 
 #include "../materials/mdx_core.h"
 #include "../native/mdx_copy.h"
@@ -626,6 +627,11 @@ NodeKind WrittenKind(NodeKind kind, ProfileId profile) {
 /// matrix *group*, not a weight list. WEM stores the run at 1/N rather than the
 /// renderer's averaged pseudo-bone, because `SkinBinding` is variable width and
 /// `maxBoneInfluences` is a limit export checks, not one import enforces.
+///
+/// A bone named twice in one vertex is one influence of the summed weight: a
+/// group `{A, A, B}` is `{A: ⅔, B: ⅓}`, which is what the game blends
+/// (`BuildPrimBone` adds one matrix per entry). The weights are unchanged; what
+/// changes is that every operation may assume one entry per bone.
 void ImportSkin(const mdx::Geoset& geoset, const NodeImport& nodes, geom::MeshBuilder& builder,
                 std::size_t vertexCount, Diagnostics& out, std::size_t geosetIndex) {
     const auto resolveMatrix = [&](u32 raw) -> u32 {
@@ -638,6 +644,25 @@ void ImportSkin(const mdx::Geoset& geoset, const NodeImport& nodes, geom::MeshBu
                      ElementRef(ElementKind::Mesh, static_cast<u32>(geosetIndex)));
         }
         return node;
+    };
+
+    // One vertex's influences, a repeated bone summed, handed over in order.
+    std::vector<geom::Influence> merged;
+    const auto add = [&merged](u32 node, f32 weight) {
+        for (geom::Influence& influence : merged) {
+            if (influence.bone == node) {
+                influence.weight += weight;
+                return;
+            }
+        }
+        merged.push_back({node, weight});
+    };
+    const auto flush = [&](std::size_t v) {
+        for (const geom::Influence& influence : merged) {
+            builder.addInfluence(geom::VertexId(static_cast<u32>(v)), influence.bone,
+                                 influence.weight);
+        }
+        merged.clear();
     };
 
     if (!geoset.skinData.empty()) {
@@ -653,9 +678,10 @@ void ImportSkin(const mdx::Geoset& geoset, const NodeImport& nodes, geom::MeshBu
                 }
                 const u32 node = resolveMatrix(geoset.skinData[base + k]);
                 if (node != kInvalidNode) {
-                    builder.addInfluence(geom::VertexId(static_cast<u32>(v)), node, weight);
+                    add(node, weight);
                 }
             }
+            flush(v);
         }
         return;
     }
@@ -682,9 +708,10 @@ void ImportSkin(const mdx::Geoset& geoset, const NodeImport& nodes, geom::MeshBu
         for (u32 k = 0; k < count && (groupStart[group] + k) < geoset.matrixIndices.size(); ++k) {
             const u32 node = resolveMatrix(groupStart[group] + k);
             if (node != kInvalidNode) {
-                builder.addInfluence(geom::VertexId(static_cast<u32>(v)), node, weight);
+                add(node, weight);
             }
         }
+        flush(v);
     }
 }
 
@@ -1200,167 +1227,20 @@ Result<Document> MdxConverter::fromMdx(const mdx::Model& source) const {
     return result;
 }
 
-/**
- * @brief Writes one geoset's `GNDX` / `MTGC` / `MATS` and, above version 800,
- *        its `SKIN`.
- *
- * Two encodings of the same fact, and both go in every file because the writer
- * emits all three group chunks unconditionally.
- *
- * - **`GNDX`/`MTGC`/`MATS`** is what Warcraft III classic skins with, and it
- *   has no weights: `MTGC` gives the size of each group, `MATS` is the groups
- *   concatenated, and a vertex names a group whose bones are averaged
- *   **uniformly**. So a group IS the set of bones a vertex binds, and identical
- *   sets share one. `Ace.mdx` needs 100 of them for 6,148 vertices.
- * - **`SKIN`** carries four (bone, weight) pairs per vertex and indexes `MATS`
- *   directly, which is why a Reforged file writes the degenerate form of the
- *   groups instead: `LadyAlexstraszaReforged.mdx` has `MATS` = the identity
- *   over all 242 bones, `MTGC` = 242 ones, and `GNDX` pointing each vertex at
- *   one of them. This reproduces exactly that shape.
- *
- * `GNDX` is a byte, so no more than 256 groups can be named. Past that the
- * set encoding falls back to the dominant-bone one, which is a real loss of
- * blending for a classic file and none at all for a Reforged one -- where
- * `SKIN` is what the renderer reads.
- */
-void WriteGeosetSkin(mdx::Geoset& geoset, const std::vector<u32>& sourceOf,
-                     const std::vector<std::array<u32, 4>>& boneIndices,
-                     const std::vector<std::array<f32, 4>>& boneWeights,
-                     const std::vector<u32>& objectIdOf, bool skinChunk, u32 mesh,
-                     Diagnostics& diagnostics, bool reportSets = true) {
-    if (boneIndices.empty() || boneWeights.empty()) {
-        return;
-    }
-
-    // Per geoset vertex, the object ids it binds and their weights, already
-    // resolved through the node -> object renumbering and with the unbound
-    // influences (weight 0, or a node this export dropped) removed.
-    struct Bound {
-        std::vector<u32> ids;
-        std::vector<f32> weights;
-        u32 dominant = 0; ///< Index into `ids` of the heaviest influence.
-    };
-    std::vector<Bound> bound(sourceOf.size());
-    std::vector<u32> palette;
-    std::unordered_map<u32, u32> paletteOf;
-
-    for (std::size_t v = 0; v < sourceOf.size(); ++v) {
-        const u32 source = sourceOf[v];
-        if (source >= boneIndices.size() || source >= boneWeights.size()) {
-            continue;
-        }
-        Bound& entry = bound[v];
-        f32 best = -1.0f;
-        for (std::size_t k = 0; k < boneIndices[source].size(); ++k) {
-            const f32 weight = k < boneWeights[source].size() ? boneWeights[source][k] : 0.0f;
-            if (weight <= 0.0f) {
-                continue;
-            }
-            const u32 node = boneIndices[source][k];
-            const u32 objectId = node < objectIdOf.size() ? objectIdOf[node] : mdx::Node::NO_PARENT;
-            if (objectId == mdx::Node::NO_PARENT) {
-                continue;
-            }
-            if (weight > best) {
-                best = weight;
-                entry.dominant = static_cast<u32>(entry.ids.size());
-            }
-            entry.ids.push_back(objectId);
-            entry.weights.push_back(weight);
-            if (paletteOf.try_emplace(objectId, static_cast<u32>(palette.size())).second) {
-                palette.push_back(objectId);
-            }
-        }
-    }
-    if (palette.empty()) {
-        return;
-    }
-
-    // The set encoding, attempted first: a group is a sorted set of object ids,
-    // deduplicated across the geoset.
-    std::vector<u32> groupOf(sourceOf.size(), 0);
-    std::vector<std::vector<u32>> groups;
-    std::map<std::vector<u32>, u32> groupIndex;
-    bool sets = true;
-    for (std::size_t v = 0; v < bound.size() && sets; ++v) {
-        std::vector<u32> key = bound[v].ids;
-        std::sort(key.begin(), key.end());
-        key.erase(std::unique(key.begin(), key.end()), key.end());
-        if (key.empty()) {
-            key.push_back(palette.front());
-        }
-        const auto [entry, inserted] = groupIndex.try_emplace(key, static_cast<u32>(groups.size()));
-        if (inserted) {
-            if (groups.size() >= 256) {
-                sets = false;
-                break;
-            }
-            groups.push_back(key);
-        }
-        groupOf[v] = entry->second;
-    }
-
-    if (!sets && reportSets) {
-        diagnostics.warn(DiagCode::BonePaletteLimit,
-                         "section binds more than 256 distinct bone sets; the group encoding "
-                         "keeps only the heaviest bone per vertex",
-                         ElementRef(ElementKind::Mesh, mesh));
-    }
-
-    if (sets && !skinChunk) {
-        geoset.matrixGroups.reserve(groups.size());
-        for (const std::vector<u32>& group : groups) {
-            geoset.matrixGroups.push_back(static_cast<u32>(group.size()));
-            geoset.matrixIndices.insert(geoset.matrixIndices.end(), group.begin(), group.end());
-        }
-        geoset.vertexGroups.reserve(sourceOf.size());
-        for (const u32 group : groupOf) {
-            geoset.vertexGroups.push_back(static_cast<u8>(group));
-        }
-        return;
-    }
-
-    // `MATS` is the palette itself from here on, because `SKIN` addresses it --
-    // which leaves `MTGC` no choice but one group per bone, and `GNDX` no
-    // choice but the heaviest.
-    if (palette.size() > 256) {
-        diagnostics.warn(DiagCode::BonePaletteLimit,
-                         "section binds " + std::to_string(palette.size()) +
-                             " bones; a geoset palette holds 256",
-                         ElementRef(ElementKind::Mesh, mesh));
-    }
-    geoset.matrixIndices = palette;
-    geoset.matrixGroups.assign(palette.size(), 1u);
-    geoset.vertexGroups.reserve(sourceOf.size());
-    for (const Bound& entry : bound) {
-        const u32 slot =
-            entry.dominant < entry.ids.size() ? paletteOf[entry.ids[entry.dominant]] : 0u;
-        geoset.vertexGroups.push_back(static_cast<u8>(std::min<u32>(slot, 0xFFu)));
-    }
-
-    if (!skinChunk) {
-        return;
-    }
-    geoset.skinData.assign(sourceOf.size() * 8, 0);
-    for (std::size_t v = 0; v < bound.size(); ++v) {
-        const Bound& entry = bound[v];
-        for (std::size_t k = 0; k < entry.ids.size() && k < 4; ++k) {
-            const u32 slot = paletteOf[entry.ids[k]];
-            if (slot > 0xFFu) {
-                continue;
-            }
-            geoset.skinData[v * 8 + k] = static_cast<u16>(slot);
-            geoset.skinData[v * 8 + 4 + k] =
-                static_cast<u16>(std::clamp(entry.weights[k], 0.0f, 1.0f) * 255.0f + 0.5f);
-        }
-    }
-}
-
 namespace {
 
-/// The render view every geoset is cut from: split by section, skinned through
-/// the model's skeleton, with the four streams a geoset holds.
-geom::RenderMeshDesc GeosetRenderDesc(ProfileId profile, const NodeTree& nodes) {
+// ============================================================================
+// What a geoset binds (EDIT_MODE_SKIN_DESIGN.md §12)
+// ============================================================================
+
+/// The render view every geoset is cut from: split by section, with the four
+/// streams a geoset holds.
+///
+/// It carries no skin. What a vertex binds is `GeosetSkin`'s, read from
+/// `Mesh::skin` through `vertexToWemVertex`, so no byte lane and no four-wide
+/// getter stands between the document and the file: a classic group of eight
+/// bones reaches the quantizer whole, and node 300 stays node 300.
+geom::RenderMeshDesc GeosetRenderDesc() {
     geom::RenderMeshDesc desc;
     desc.attributes = {
         {geom::names::kPosition, utils::AttributeClass::Position, utils::AttributeEncoding::Float32,
@@ -1376,14 +1256,7 @@ geom::RenderMeshDesc GeosetRenderDesc(ProfileId profile, const NodeTree& nodes) 
         {geom::names::kTangent, utils::AttributeClass::Tangent, utils::AttributeEncoding::Float32,
          4, 0},
     };
-    desc.includeSkin = true;
-    desc.maxInfluences = Profile(profile).maxBoneInfluences;
-    // Node indices, not palette slots: a byte wraps node 256 onto node 0, and a
-    // model of more nodes than that skins its later bones to its first ones.
-    desc.blendIndexEncoding = utils::AttributeEncoding::UInt16;
     desc.splitBySection = true;
-    const SkinSkeleton skinSkeleton(nodes);
-    skinSkeleton.describe(desc);
     return desc;
 }
 
@@ -1393,13 +1266,10 @@ struct GeosetStreams {
     std::vector<Vector3f> normals;
     std::vector<Vector2f> uv0;
     std::vector<Vector4f> tangents;
-    std::vector<std::array<u32, 4>> boneIndices;
-    std::vector<std::array<f32, 4>> boneWeights;
 
     GeosetStreams(const geom::RenderMesh& render, const Mesh& mesh, u32 targetVersion)
         : positions(render.vertices.getPositions()), normals(render.vertices.getNormals()),
-          uv0(render.vertices.getUVs(0)), boneIndices(render.vertices.getBoneIndices()),
-          boneWeights(render.vertices.getBoneWeights()) {
+          uv0(render.vertices.getUVs(0)) {
         // Only when the source actually authored them. A mesh with no tangent
         // layer would otherwise get a chunk of zeroes, which is worse than the
         // absence the reader already handles.
@@ -1412,19 +1282,313 @@ struct GeosetStreams {
 
 constexpr u32 kUnmappedVertex = ~0u;
 
+/// One render range's vertex slice: each geoset vertex's GPU vertex, in
+/// first-use order, and the faces over them.
+struct GeosetSlice {
+    std::vector<u32> sourceOf;
+    /// Local indices; `kUnmappedVertex` for a corner past the view.
+    std::vector<u32> faces;
+};
+
+/// @p localOf is one slot per GPU vertex, all `kUnmappedVertex`, and left that
+/// way: two sections can share a vertex when their corner attributes agree, so
+/// the map is not a simple offset.
+GeosetSlice SliceRange(const geom::RenderMesh& render, const geom::RenderRange& range,
+                       std::vector<u32>& localOf) {
+    GeosetSlice slice;
+    slice.sourceOf.reserve(range.indexCount);
+    slice.faces.reserve(range.indexCount);
+    const u32 end = range.firstIndex + range.indexCount;
+    for (u32 i = range.firstIndex; i < end && i < render.indices.size(); ++i) {
+        const u32 source = render.indices[i];
+        if (source >= localOf.size()) {
+            slice.faces.push_back(kUnmappedVertex);
+            continue;
+        }
+        if (localOf[source] == kUnmappedVertex) {
+            localOf[source] = static_cast<u32>(slice.sourceOf.size());
+            slice.sourceOf.push_back(source);
+        }
+        slice.faces.push_back(localOf[source]);
+    }
+    for (const u32 source : slice.sourceOf) {
+        localOf[source] = kUnmappedVertex;
+    }
+    return slice;
+}
+
+/// The WEM vertex of each vertex of @p slice.
+std::vector<u32> WemVerticesOf(const geom::RenderMesh& render, const GeosetSlice& slice) {
+    std::vector<u32> vertices;
+    vertices.reserve(slice.sourceOf.size());
+    for (const u32 source : slice.sourceOf) {
+        vertices.push_back(source < render.vertexToWemVertex.size()
+                               ? render.vertexToWemVertex[source]
+                               : kUnmappedVertex);
+    }
+    return vertices;
+}
+
+/// What one mesh's geosets need to say what they bind.
+struct SkinContext {
+    const Mesh& mesh;
+    const std::vector<u32>& objectIdOf;
+    const SkinSkeleton& skeleton;
+    std::span<const Vector3f> positions; ///< The mesh's, per WEM vertex.
+    bool classic = false;                ///< Groups (the Skin Quantizer), not `SKIN`.
+    std::span<const u16> pins;           ///< `classicBones`, per WEM vertex; empty for none.
+};
+
+/// A vertex's document influences on the nodes the file writes: a zero,
+/// negative or non-finite weight and a node with no object id dropped, a
+/// duplicate bone merged, heaviest first with ties by node.
+std::vector<geom::Influence> WritableInfluences(std::span<const geom::Influence> influences,
+                                                const std::vector<u32>& objectIdOf) {
+    std::vector<geom::Influence> out;
+    for (const geom::Influence& influence : influences) {
+        if (!(influence.weight > 0.0f) || !std::isfinite(influence.weight) ||
+            influence.bone >= objectIdOf.size() ||
+            objectIdOf[influence.bone] == mdx::Node::NO_PARENT) {
+            continue;
+        }
+        const auto same = std::find_if(out.begin(), out.end(), [&](const geom::Influence& kept) {
+            return kept.bone == influence.bone;
+        });
+        if (same != out.end()) {
+            same->weight += influence.weight;
+        } else {
+            out.push_back(influence);
+        }
+    }
+    std::sort(out.begin(), out.end(), [](const geom::Influence& a, const geom::Influence& b) {
+        if (a.weight != b.weight) {
+            return a.weight > b.weight;
+        }
+        return a.bone < b.bone;
+    });
+    return out;
+}
+
+/// The skin one geoset holds: @p vertices are its vertices' WEM vertices, in
+/// the geoset's order, and @p overLimit counts those past the encoding's width.
+WrittenGeosetSkin GeosetSkin(const SkinContext& context, const MeshSection* section,
+                             std::span<const u32> vertices, u32& overLimit) {
+    WrittenGeosetSkin out;
+    out.vertices.assign(vertices.begin(), vertices.end());
+    out.influences.resize(vertices.size());
+
+    // A rigid section binds every vertex to one node and never reads the skin
+    // (§5.6), exactly as the render view did.
+    const std::optional<u32> rigid = section != nullptr ? section->rigidNode : std::nullopt;
+    std::vector<std::vector<geom::Influence>> gathered(vertices.size());
+    for (std::size_t i = 0; i < vertices.size(); ++i) {
+        if (rigid.has_value()) {
+            const geom::Influence one{*rigid, 1.0f};
+            gathered[i] = WritableInfluences(std::span<const geom::Influence>(&one, 1),
+                                             context.objectIdOf);
+        } else {
+            gathered[i] = WritableInfluences(context.mesh.skin.forVertex(vertices[i]),
+                                             context.objectIdOf);
+        }
+    }
+
+    if (context.classic) {
+        skinning::ClassicLimits limits;
+        limits.maxBones = Profile(ProfileId::Wc3Classic).maxBoneInfluences;
+        std::vector<u16> pins;
+        if (!context.pins.empty()) {
+            pins.reserve(vertices.size());
+            for (const u32 vertex : vertices) {
+                pins.push_back(vertex < context.pins.size() ? context.pins[vertex] : u16{0});
+            }
+        }
+        out.classic = skinning::QuantizeClassic(gathered, pins, limits);
+        // What the group could not hold, counted after the prune: a bleed
+        // share is never in a group whatever the vertex has.
+        overLimit += out.classic.wide;
+        for (std::size_t i = 0; i < out.classic.groupOf.size() && i < vertices.size(); ++i) {
+            const std::vector<u32>& group = out.classic.groups[out.classic.groupOf[i]];
+            const f32 share = 1.0f / static_cast<f32>(group.size());
+            for (const u32 node : group) {
+                out.influences[i].push_back({node, share, 0});
+            }
+        }
+        return out;
+    }
+
+    // `SKIN`: four lanes, folded over the skeleton past them, then one rounding
+    // for the four so the bytes sum to 255.
+    for (std::size_t i = 0; i < vertices.size(); ++i) {
+        std::vector<geom::Influence> kept = std::move(gathered[i]);
+        if (kept.size() > 4) {
+            ++overLimit;
+            const Vector3f position = vertices[i] < context.positions.size()
+                                          ? context.positions[vertices[i]]
+                                          : Vector3f{0, 0, 0};
+            kept = geom::FoldInfluences(kept, 4, position, context.skeleton.parents,
+                                        context.skeleton.pivots);
+        }
+        std::array<f32, 4> shares{};
+        for (std::size_t k = 0; k < kept.size() && k < 4; ++k) {
+            shares[k] = kept[k].weight;
+        }
+        const std::array<u8, 4> bytes = skinning::QuantizeWeights(shares, kept.size());
+        std::vector<WrittenInfluence>& written = out.influences[i];
+        for (std::size_t k = 0; k < kept.size() && k < 4; ++k) {
+            if (bytes[k] != 0) {
+                written.push_back({kept[k].bone, static_cast<f32>(bytes[k]) / 255.0f, bytes[k]});
+            }
+        }
+        std::stable_sort(written.begin(), written.end(),
+                         [](const WrittenInfluence& a, const WrittenInfluence& b) {
+                             if (a.byte != b.byte) {
+                                 return a.byte > b.byte;
+                             }
+                             return a.node < b.node;
+                         });
+    }
+    return out;
+}
+
+/// What the quantizer did to one geoset, said once: the 256-group merge, or the
+/// pins' refusal.
+void ReportClassic(const skinning::ClassicSkin& classic, u32 mesh, Diagnostics& diagnostics) {
+    if (classic.pinsOverflow) {
+        diagnostics.error(DiagCode::BonePaletteLimit,
+                          "the classic pins alone need more than 256 groups in one geoset",
+                          ElementRef(ElementKind::Mesh, mesh));
+    } else if (classic.mergedGroups != 0) {
+        diagnostics.warn(DiagCode::BonePaletteLimit,
+                         "section needs " +
+                             std::to_string(classic.groups.size() + classic.mergedGroups) +
+                             " bone groups; " + std::to_string(classic.mergedGroups) +
+                             " merged into their nearest, moving " +
+                             std::to_string(classic.merged) + " vertices",
+                         ElementRef(ElementKind::Mesh, mesh));
+    }
+}
+
+/// Once per mesh: the vertices whose influences the encoding could not hold.
+void ReportInfluenceLimit(u32 overLimit, bool classic, u32 mesh, Diagnostics& diagnostics) {
+    if (overLimit == 0) {
+        return;
+    }
+    const u32 width = classic ? Profile(ProfileId::Wc3Classic).maxBoneInfluences : 4u;
+    diagnostics.warn(DiagCode::BoneInfluenceLimit,
+                     std::to_string(overLimit) + " vertex/vertices carry more than " +
+                         std::to_string(width) + " influences; " +
+                         (classic ? "their group keeps the heaviest"
+                                  : "the surplus folded into the nearest joints"),
+                     ElementRef(ElementKind::Mesh, mesh));
+}
+
+/**
+ * @brief Writes one geoset's `GNDX` / `MTGC` / `MATS` and, for Reforged, its
+ *        `SKIN`, from `GeosetSkin`'s answer.
+ *
+ * Two encodings of the same fact, and all three group chunks go in every file
+ * because the writer emits them unconditionally.
+ *
+ * - **Classic** (@p classic): `GNDX`/`MTGC`/`MATS` is what Warcraft III classic
+ *   skins with, and it has no weights: `MTGC` gives the size of each group,
+ *   `MATS` is the groups concatenated, and a vertex names a group whose bones
+ *   are averaged **uniformly**. The groups are the Skin Quantizer's, never a
+ *   repeat (Q2), at most 256 because `GNDX` is a byte.
+ * - **`SKIN`** carries four (bone, weight) pairs per vertex and indexes `MATS`
+ *   directly, which is why a Reforged file writes the degenerate form of the
+ *   groups instead: `LadyAlexstraszaReforged.mdx` has `MATS` = the identity
+ *   over all 242 bones, `MTGC` = 242 ones, and `GNDX` pointing each vertex at
+ *   its heaviest. Below v1400 a `SKIN` slot is a byte, so a palette past 256
+ *   is refused, naming the mesh, rather than dropping the weight.
+ *
+ * @return false when the geoset cannot be written as asked; the error is said.
+ */
+bool WriteGeosetSkin(mdx::Geoset& geoset, const WrittenGeosetSkin& skin,
+                     const std::vector<u32>& objectIdOf, bool classic, u32 targetVersion,
+                     u32 mesh, Diagnostics& diagnostics) {
+    if (classic) {
+        const skinning::ClassicSkin& groups = skin.classic;
+        ReportClassic(groups, mesh, diagnostics);
+        if (groups.pinsOverflow) {
+            return false;
+        }
+        if (groups.groups.empty()) {
+            return true;
+        }
+        geoset.matrixGroups.reserve(groups.groups.size());
+        for (const std::vector<u32>& group : groups.groups) {
+            geoset.matrixGroups.push_back(static_cast<u32>(group.size()));
+            for (const u32 node : group) {
+                geoset.matrixIndices.push_back(objectIdOf[node]);
+            }
+        }
+        geoset.vertexGroups.reserve(groups.groupOf.size());
+        for (const u32 group : groups.groupOf) {
+            geoset.vertexGroups.push_back(static_cast<u8>(group));
+        }
+        return true;
+    }
+
+    std::vector<u32> palette;
+    std::unordered_map<u32, u32> paletteOf;
+    for (const std::vector<WrittenInfluence>& influences : skin.influences) {
+        for (const WrittenInfluence& influence : influences) {
+            const u32 objectId = objectIdOf[influence.node];
+            if (paletteOf.try_emplace(objectId, static_cast<u32>(palette.size())).second) {
+                palette.push_back(objectId);
+            }
+        }
+    }
+    if (palette.empty()) {
+        return true;
+    }
+    if (palette.size() > 256 && targetVersion < 1400) {
+        diagnostics.error(DiagCode::BonePaletteLimit,
+                          "section binds " + std::to_string(palette.size()) +
+                              " bones; a geoset palette holds 256 below v1400",
+                          ElementRef(ElementKind::Mesh, mesh));
+        return false;
+    }
+    geoset.matrixIndices = palette;
+    geoset.matrixGroups.assign(palette.size(), 1u);
+    geoset.vertexGroups.reserve(skin.influences.size());
+    geoset.skinData.assign(skin.influences.size() * 8, 0);
+    for (std::size_t v = 0; v < skin.influences.size(); ++v) {
+        const std::vector<WrittenInfluence>& influences = skin.influences[v];
+        // `GNDX` names the heaviest; `SKIN` is what the game reads, so a slot a
+        // byte cannot name (v1400 and later only) is clamped here alone.
+        const u32 heaviest =
+            influences.empty() ? 0u : paletteOf[objectIdOf[influences.front().node]];
+        geoset.vertexGroups.push_back(static_cast<u8>(std::min<u32>(heaviest, 0xFFu)));
+        for (std::size_t k = 0; k < influences.size() && k < 4; ++k) {
+            geoset.skinData[v * 8 + k] =
+                static_cast<u16>(paletteOf[objectIdOf[influences[k].node]]);
+            geoset.skinData[v * 8 + 4 + k] = influences[k].byte;
+        }
+    }
+    return true;
+}
+
+/// The `classicBones` pins of @p mesh, per vertex; empty when it has none
+/// (EDIT_MODE_SKIN_DESIGN.md §12.6). The one part of the skin setup a file sees,
+/// and only ever through the classic groups.
+std::span<const u16> ClassicPinsOf(const Mesh& mesh) {
+    return mesh.attributes.get<u16>(geom::names::kClassicBones, geom::Domain::Vertex);
+}
+
 /**
  * @brief One render range as the geoset `toMdx` writes: its own vertex slice in
  *        first-use order, its faces, its bounds and its skin.
  *
  * Shared by the export and by `checkGeoset`, so what the check refuses is what
- * the export would have said. @p localOf is one slot per GPU vertex, all
- * `kUnmappedVertex`, and left that way: two sections can share a vertex when
- * their corner attributes agree, so the map is not a simple offset.
+ * the export would have said. @p refused is set when the skin cannot be
+ * written as asked.
  */
 mdx::Geoset BuildGeosetFromRange(const Mesh& mesh, u32 meshIndex, const geom::RenderMesh& render,
                                  const GeosetStreams& streams, const geom::RenderRange& range,
-                                 std::vector<u32>& localOf, const std::vector<u32>& objectIdOf,
-                                 bool skinChunk, bool reportSets, Diagnostics& diagnostics) {
+                                 std::vector<u32>& localOf, const SkinContext& skin,
+                                 u32 targetVersion, u32& overLimit, bool& refused,
+                                 Diagnostics& diagnostics) {
     const MeshSection* section =
         range.section < mesh.sections.size() ? &mesh.sections[range.section] : nullptr;
 
@@ -1432,27 +1596,14 @@ mdx::Geoset BuildGeosetFromRange(const Mesh& mesh, u32 meshIndex, const geom::Re
     geoset.lod = mesh.lodLevel;
     geoset.lodName = section != nullptr && !section->name.empty() ? section->name : mesh.name;
 
-    std::vector<u32> sourceOf;
-    sourceOf.reserve(range.indexCount);
-    geoset.faces.reserve(range.indexCount);
+    const GeosetSlice slice = SliceRange(render, range, localOf);
+    const std::vector<u32>& sourceOf = slice.sourceOf;
+    geoset.faces.reserve(slice.faces.size());
     bool wide = false;
-    const u32 end = range.firstIndex + range.indexCount;
-    for (u32 i = range.firstIndex; i < end && i < render.indices.size(); ++i) {
-        const u32 source = render.indices[i];
-        if (source >= localOf.size()) {
-            geoset.faces.push_back(0);
-            continue;
-        }
-        if (localOf[source] == kUnmappedVertex) {
-            localOf[source] = static_cast<u32>(sourceOf.size());
-            sourceOf.push_back(source);
-        }
-        const u32 local = localOf[source];
-        wide = wide || local > 0xFFFFu;
-        geoset.faces.push_back(static_cast<u16>(local & 0xFFFFu));
-    }
-    for (const u32 source : sourceOf) {
-        localOf[source] = kUnmappedVertex;
+    for (const u32 local : slice.faces) {
+        const u32 index = local == kUnmappedVertex ? 0u : local;
+        wide = wide || index > 0xFFFFu;
+        geoset.faces.push_back(static_cast<u16>(index & 0xFFFFu));
     }
     if (wide) {
         diagnostics.warn(DiagCode::IndexWidthExceeded,
@@ -1503,12 +1654,82 @@ mdx::Geoset BuildGeosetFromRange(const Mesh& mesh, u32 meshIndex, const geom::Re
         geoset.extent = FromExtent(mesh.bounds);
     }
 
-    WriteGeosetSkin(geoset, sourceOf, streams.boneIndices, streams.boneWeights, objectIdOf,
-                    skinChunk, meshIndex, diagnostics, reportSets);
+    const WrittenGeosetSkin written =
+        GeosetSkin(skin, section, WemVerticesOf(render, slice), overLimit);
+    if (!WriteGeosetSkin(geoset, written, skin.objectIdOf, skin.classic, targetVersion, meshIndex,
+                         diagnostics)) {
+        refused = true;
+    }
     return geoset;
 }
 
 } // namespace
+
+// ============================================================================
+// What the file holds for each vertex (EDIT_MODE_SKIN_DESIGN.md §12.3-12.4)
+// ============================================================================
+
+std::vector<std::vector<u32>> MdxGeosetVertices(const Document& document, u32 model,
+                                                ProfileId profile) {
+    std::vector<std::vector<u32>> out;
+    if (model >= document.models.size()) {
+        return out;
+    }
+    // Every section is written whatever the profile draws, so the slices are
+    // the same for both Warcraft III profiles; the parameter names the file.
+    (void)profile;
+    for (const Mesh& mesh : document.models[model].meshes) {
+        const geom::RenderMesh render = geom::BuildRenderMesh(mesh, GeosetRenderDesc());
+        if (render.ranges.empty()) {
+            out.resize(out.size() + std::max<std::size_t>(1, mesh.sections.size()));
+            continue;
+        }
+        std::vector<u32> localOf(render.vertexCount(), kUnmappedVertex);
+        for (const geom::RenderRange& range : render.ranges) {
+            out.push_back(WemVerticesOf(render, SliceRange(render, range, localOf)));
+        }
+    }
+    return out;
+}
+
+WrittenSkin MdxConverter::writtenSkin(const Document& document, u32 model, ProfileId profile,
+                                      u32 mesh, std::optional<ProfileId> skinAs) const {
+    WrittenSkin result;
+    result.classic = skinAs.value_or(profile) == ProfileId::Wc3Classic;
+    if (model >= document.models.size() || mesh >= document.models[model].meshes.size()) {
+        result.diagnostics.error(DiagCode::IndexOutOfRange, "no such model or mesh");
+        return result;
+    }
+    const Model& owner = document.models[model];
+    const Mesh& target = owner.meshes[mesh];
+    const std::vector<u32> objectIdOf = MdxExportMapOf(document, model, profile).nodeObjectId;
+    const geom::RenderMesh render = geom::BuildRenderMesh(target, GeosetRenderDesc());
+    if (render.ranges.empty()) {
+        result.geosets.resize(std::max<std::size_t>(1, target.sections.size()));
+        return result;
+    }
+    const SkinSkeleton skeleton(owner.nodes);
+    const SkinContext context{target,
+                              objectIdOf,
+                              skeleton,
+                              target.attributes.get<Vector3f>(geom::names::kPosition,
+                                                              geom::Domain::Vertex),
+                              result.classic,
+                              ClassicPinsOf(target)};
+    std::vector<u32> localOf(render.vertexCount(), kUnmappedVertex);
+    for (const geom::RenderRange& range : render.ranges) {
+        const MeshSection* section =
+            range.section < target.sections.size() ? &target.sections[range.section] : nullptr;
+        result.geosets.push_back(GeosetSkin(context, section,
+                                            WemVerticesOf(render, SliceRange(render, range, localOf)),
+                                            result.overLimit));
+        if (result.classic) {
+            ReportClassic(result.geosets.back().classic, mesh, result.diagnostics);
+        }
+    }
+    ReportInfluenceLimit(result.overLimit, result.classic, mesh, result.diagnostics);
+    return result;
+}
 
 Diagnostics MdxConverter::checkGeoset(const Document& document, u32 model, const Mesh& mesh,
                                       ProfileId profile, u32 targetVersion,
@@ -1523,23 +1744,29 @@ Diagnostics MdxConverter::checkGeoset(const Document& document, u32 model, const
     }
     const Model& owner = document.models[model];
     const std::vector<u32> objectIdOf = MdxExportMapOf(document, model, profile).nodeObjectId;
-    const geom::RenderMesh render =
-        geom::BuildRenderMesh(mesh, GeosetRenderDesc(profile, owner.nodes));
+    const geom::RenderMesh render = geom::BuildRenderMesh(mesh, GeosetRenderDesc());
     out.append(render.diagnostics);
-    const bool skinChunk = targetVersion > 800;
     const GeosetStreams streams(render, mesh, targetVersion);
+    const SkinSkeleton skeleton(owner.nodes);
+    const SkinContext skin{mesh,
+                           objectIdOf,
+                           skeleton,
+                           mesh.attributes.get<Vector3f>(geom::names::kPosition,
+                                                         geom::Domain::Vertex),
+                           targetVersion <= 800,
+                           ClassicPinsOf(mesh)};
     std::vector<u32> localOf(render.vertexCount(), kUnmappedVertex);
+    u32 overLimit = 0;
+    bool refused = false;
     for (const geom::RenderRange& range : render.ranges) {
-        // The group encoding's 256-set limit means something only where the
-        // groups are the skin: at v800. Above it `SKIN` is, and the warning is
-        // noise (the export still says it; that is its own fix).
         const mdx::Geoset geoset =
-            BuildGeosetFromRange(mesh, kInvalidIndex, render, streams, range, localOf, objectIdOf,
-                                 skinChunk, /*reportSets=*/!skinChunk, out);
+            BuildGeosetFromRange(mesh, kInvalidIndex, render, streams, range, localOf, skin,
+                                 targetVersion, overLimit, refused, out);
         if (writtenVertices != nullptr) {
             *writtenVertices += static_cast<u32>(geoset.vertexPositions.size());
         }
     }
+    ReportInfluenceLimit(overLimit, skin.classic, kInvalidIndex, out);
     return out;
 }
 
@@ -1548,7 +1775,7 @@ Diagnostics MdxConverter::checkGeoset(const Document& document, u32 model, const
 // ============================================================================
 
 Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profile,
-                                       u32 targetVersion) const {
+                                       u32 targetVersion, std::optional<ProfileId> skinAs) const {
     Result<mdx::Model> result;
     if (!checkExportProfile(document, profile, result.diagnostics)) {
         return result;
@@ -1980,11 +2207,14 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
     // Each geoset takes a DISJOINT vertex slice in first-use order, so its
     // faces index its own array (the rule `toM3` already follows for a region),
     // and its own bone palette, because in MDX both are per geoset.
-    const geom::RenderMeshDesc desc = GeosetRenderDesc(profile, model.nodes);
+    const geom::RenderMeshDesc desc = GeosetRenderDesc();
 
     // `SKIN` and `TANG` are written only above 800 (mdx/writer.cpp), so at 800
-    // the group encoding is the only skinning the file carries.
-    const bool skinChunk = targetVersion > 800;
+    // the group encoding is the only skinning the file carries. Above it, a
+    // caller previewing the classic file asks for the groups alone (§12.3).
+    const bool classic = targetVersion <= 800 || skinAs == ProfileId::Wc3Classic;
+    const SkinSkeleton skinSkeleton(model.nodes);
+    bool refused = false;
     // Numbered by the export map, which is what a host marks geosets through.
     animContext.geosetsOfMesh = exportMap.geosetsOfMesh;
     animContext.sectionOfGeoset.assign(model.meshes.size(), {});
@@ -2035,17 +2265,31 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
         }
 
         const GeosetStreams streams(render, mesh, targetVersion);
+        const SkinContext skin{mesh,
+                               objectIdOf,
+                               skinSkeleton,
+                               mesh.attributes.get<Vector3f>(geom::names::kPosition,
+                                                             geom::Domain::Vertex),
+                               classic,
+                               ClassicPinsOf(mesh)};
         std::vector<u32> localOf(render.vertexCount(), kUnmappedVertex);
+        u32 overLimit = 0;
         for (const geom::RenderRange& range : render.ranges) {
             const MeshSection* section =
                 range.section < mesh.sections.size() ? &mesh.sections[range.section] : nullptr;
             mdx::Geoset geoset =
                 BuildGeosetFromRange(mesh, static_cast<u32>(m), render, streams, range, localOf,
-                                     objectIdOf, skinChunk, /*reportSets=*/true, diagnostics);
+                                     skin, targetVersion, overLimit, refused, diagnostics);
             takeSection(geoset, section);
             animContext.sectionOfGeoset[m].push_back(range.section);
             out.geosets.push_back(std::move(geoset));
         }
+        ReportInfluenceLimit(overLimit, classic, static_cast<u32>(m), diagnostics);
+    }
+    // A geoset whose skin cannot be written as asked fails the export, named;
+    // a file that binds the wrong bones is worse than none.
+    if (refused) {
+        return result;
     }
 
     // A hidden section becomes a static alpha of zero, which is the only

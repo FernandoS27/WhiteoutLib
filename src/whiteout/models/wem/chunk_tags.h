@@ -184,11 +184,12 @@ struct ChunkTagTraits<Document> {
     static constexpr bool is_trivial = false;
 };
 
-/// v2 adds `NodeTree::rig`, which is reflected inline in the model's body.
+/// v2 adds `NodeTree::rig`, which is reflected inline in the model's body; v3
+/// the Skin workspace's `testPoses` (EDIT_MODE_SKIN_DESIGN.md §13.4).
 template <>
 struct ChunkTagTraits<Model> {
     static constexpr u32 value = kTag("MODL");
-    static constexpr u32 max_version = 2;
+    static constexpr u32 max_version = 3;
     static constexpr bool is_trivial = false;
 };
 
@@ -267,7 +268,8 @@ struct ChunkTagTraits<Matrix44f> {
 
 /// v2 adds `Node::poseMatrices` (§10.5's matrix poses); v3 the five emitter
 /// system kinds and their payloads (§10.9); v4 a camera's target; v5 a bone's
-/// `gateMesh`, migrated on read from the MDX bag pair an older chunk carried.
+/// `gateMesh`, migrated on read from the MDX bag pair an older chunk carried;
+/// v6 the skin setup (EDIT_MODE_SKIN_DESIGN.md §13.4).
 /// An older chunk holds none of them, so it reads unchanged. A NEWER one does
 /// not: records sit back to back, and nothing checks a chunk's version against
 /// this, so a build older than a field misreads every node after the first
@@ -275,7 +277,7 @@ struct ChunkTagTraits<Matrix44f> {
 template <>
 struct ChunkTagTraits<Node> {
     static constexpr u32 value = kTag("NODE");
-    static constexpr u32 max_version = 5;
+    static constexpr u32 max_version = 6;
     static constexpr bool is_trivial = false;
 };
 
@@ -283,6 +285,23 @@ struct ChunkTagTraits<Node> {
 //
 // A payload is written inline in its `NODE`, but a vector inside one is a chunk
 // like every other vector, and its element type needs a tag.
+
+/// The Skin workspace's saved setup (§13.4). A `PoseDelta` is seven floats
+/// with nothing to name inside them, so it is trivial; a `TestPose` carries a
+/// name and is not.
+template <>
+struct ChunkTagTraits<PoseDelta> {
+    static constexpr u32 value = kTag("PDLT");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = true;
+};
+
+template <>
+struct ChunkTagTraits<TestPose> {
+    static constexpr u32 value = kTag("TPOS");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
 
 /// `Sc2ParticleEmitterPayload::models`: model particles, by path.
 template <>
@@ -530,6 +549,8 @@ inline constexpr u32 kKnownChunkTags[] = {
     ChunkTagTraits<Transform>::value,
     ChunkTagTraits<Matrix44f>::value,
     ChunkTagTraits<Node>::value,
+    ChunkTagTraits<PoseDelta>::value,
+    ChunkTagTraits<TestPose>::value,
     ChunkTagTraits<AssetKey>::value,
     ChunkTagTraits<Sc2Property<Vector3f>>::value,
     ChunkTagTraits<Sc2RibbonSplinePoint>::value,

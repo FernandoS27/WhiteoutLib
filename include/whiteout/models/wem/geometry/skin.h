@@ -87,6 +87,20 @@ struct SkinBinding {
     /// vertex order, which is how importers and `VertexSplit` both work.
     void appendVertex(std::span<const Influence> values);
 
+    /**
+     * @brief Replaces one vertex's influences, whatever their count.
+     *
+     * The binding is CSR, so this splices: every later vertex's influences move
+     * and every later offset shifts. It is what an editor writes through --
+     * `appendVertex` only ever grows the array, and a `reset(n)` before it
+     * yields n + k vertices rather than k.
+     *
+     * The vertex is left sorted heaviest first, with ties by bone, which is the
+     * order `SkinBinding` documents and the render view relies on. A vertex past
+     * the binding is ignored; an empty binding stays empty.
+     */
+    void assignVertex(u32 vertex, std::span<const Influence> values);
+
     /// Appends a vertex whose influences copy @p source's — what a
     /// `VertexSplit` needs, since a split always creates its vertex at the end.
     void appendCopyOf(u32 source);

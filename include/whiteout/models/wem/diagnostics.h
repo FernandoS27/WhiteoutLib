@@ -156,6 +156,12 @@ enum class DiagCode : u16 {
     GeometryRescaled,     ///< Every length in the document was restated at another scale.
     LevelOfDetailDropped, ///< A mesh above the base level of detail was not carried.
 
+    // --- skin values (EDIT_MODE_SKIN_DESIGN.md §6.4) ---------------------------
+    SkinInfluenceDuplicated, ///< One vertex names a bone twice.
+    SkinWeightInvalid,       ///< A weight is negative, NaN or infinite.
+    SkinInfluencesUnsorted,  ///< A vertex's influences are not heaviest first.
+    SkinSetupInvalid,        ///< The saved skin setup disagrees with the document (§13.4).
+
     Count
 };
 
