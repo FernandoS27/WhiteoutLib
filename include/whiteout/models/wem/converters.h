@@ -153,6 +153,13 @@ struct WrittenSkin {
     Diagnostics diagnostics;
 };
 
+/// The `.mdx` version a file for @p profile is written at: 800 for classic, and
+/// for Reforged 1800 — Warcraft III 3.0's, the version every file it ships is
+/// at — and never older, since v1300 and v1600 hold a light's shadow range and
+/// falloff and v1400 a skin past 256 bones. Zero for a profile that is not
+/// Warcraft III.
+u32 MdxFileVersion(ProfileId profile);
+
 /**
  * @brief Warcraft III `.mdx`, both directions, serving both WC3 profiles.
  *
@@ -177,7 +184,8 @@ public:
     Result<Document> fromMdx(const mdx::Model& source) const;
 
     /// @p profile picks which set's materials are written and which sections
-    /// are drawn; @p targetVersion is the `.mdx` version stamped on the result.
+    /// are drawn; @p targetVersion is the `.mdx` version stamped on the result,
+    /// and 0 is @p profile's own (`MdxFileVersion`).
     ///
     /// The skin is `writtenSkin`'s: the Skin Quantizer's groups at v800 and
     /// below, `SKIN` above. @p skinAs `Wc3Classic` writes the classic groups
@@ -189,7 +197,7 @@ public:
     /// a `SKIN` palette past 256 bones below v1400, or classic pins that alone
     /// need more than 256 groups.
     Result<mdx::Model> toMdx(const Document& document, ProfileId profile,
-                             u32 targetVersion = 800,
+                             u32 targetVersion = 0,
                              std::optional<ProfileId> skinAs = std::nullopt) const;
 
     /**

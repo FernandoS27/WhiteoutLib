@@ -127,6 +127,7 @@ enum class NodeKind : u8 {
     Wc3RibbonEmitter,    ///< MDX `RIBB`.
     Sc2ParticleEmitter,  ///< M3 `PAR_`, and each `PARC` copy of one.
     Sc2RibbonEmitter,    ///< M3 `RIB_` with its `SRIB` spline.
+    Wc3CornEmitter,      ///< MDX `CORN`: a PopcornFX effect (Reforged). `NODE` v7.
     Count
 };
 
@@ -148,10 +149,14 @@ inline constexpr NodeKindMask kSharedNodeKinds =
     NodeKindBit(NodeKind::RibbonEmitter) | NodeKindBit(NodeKind::Event) |
     NodeKindBit(NodeKind::CollisionShape);
 
-/// Warcraft III's three emitter systems — `Wc3Classic` and `Wc3Reforged`.
-inline constexpr NodeKindMask kWc3NodeKinds = NodeKindBit(NodeKind::Wc3ParticleEmitter1) |
-                                              NodeKindBit(NodeKind::Wc3ParticleEmitter2) |
-                                              NodeKindBit(NodeKind::Wc3RibbonEmitter);
+/// Warcraft III's four emitter systems — `Wc3Classic` and `Wc3Reforged`.
+///
+/// `CORN` is Reforged's, but not the HD look's alone: 3.0's SD assets carry it
+/// too (823 of the 841 SD v1800 models sampled), so both profiles
+/// run it, as both read the one `.mdx` emitter set.
+inline constexpr NodeKindMask kWc3NodeKinds =
+    NodeKindBit(NodeKind::Wc3ParticleEmitter1) | NodeKindBit(NodeKind::Wc3ParticleEmitter2) |
+    NodeKindBit(NodeKind::Wc3RibbonEmitter) | NodeKindBit(NodeKind::Wc3CornEmitter);
 
 /// StarCraft II's two — `Sc2` and `Heroes`.
 inline constexpr NodeKindMask kSc2NodeKinds =
@@ -167,7 +172,8 @@ ProfileMask ProfilesCarryingNodeKind(NodeKind kind);
 /// A particle system of any family: the generic reference or a game's own.
 constexpr bool IsParticleEmitterKind(NodeKind kind) {
     return kind == NodeKind::ParticleEmitter || kind == NodeKind::Wc3ParticleEmitter1 ||
-           kind == NodeKind::Wc3ParticleEmitter2 || kind == NodeKind::Sc2ParticleEmitter;
+           kind == NodeKind::Wc3ParticleEmitter2 || kind == NodeKind::Sc2ParticleEmitter ||
+           kind == NodeKind::Wc3CornEmitter;
 }
 
 /// A ribbon system of any family.
@@ -180,7 +186,7 @@ constexpr bool IsEmitterKind(NodeKind kind) {
     return IsParticleEmitterKind(kind) || IsRibbonEmitterKind(kind);
 }
 
-/// A kind whose payload is a game's whole emitter system — the gated five.
+/// A kind whose payload is a game's whole emitter system — the gated six.
 constexpr bool IsEmitterSystemKind(NodeKind kind) {
     return HasNodeKind(kWc3NodeKinds | kSc2NodeKinds, kind);
 }
@@ -300,6 +306,22 @@ struct LightPayload {
     f32 hotSpot = 0; ///< Spot cone inner angle.
     f32 falloff = 0; ///< Spot cone outer angle.
 
+    // Warcraft III 3.0's own terms, under the World Editor's MDL keywords.
+    // `NODE` v7; an older chunk reads the defaults, which is what the game
+    // substitutes for a light that predates them.
+
+    /// MDX v1300: the light casts shadows, over `shadowCastingStart` ..
+    /// `shadowCastingEnd` from it — its shadow cube's near and far.
+    bool shadowCasting = false;
+    f32 shadowCastingStart = 0;
+    f32 shadowCastingEnd = 0;
+    /// MDX v1600: the distance falloff, a factor of
+    /// `exp(-damping d²) / (1 + linearFalloff d + quadraticFalloff d²)` —
+    /// unrelated to the spot cone's `falloff`.
+    f32 quadraticFalloff = 0.0005f;
+    f32 linearFalloff = 0;
+    f32 damping = 0.00001f;
+
     template <class V>
     void reflect(V& v) {
         v.field("kind", kind);
@@ -309,6 +331,12 @@ struct LightPayload {
         v.field("attenuationEnd", attenuationEnd);
         v.field("hotSpot", hotSpot);
         v.field("falloff", falloff);
+        v.since(7).field("shadowCasting", shadowCasting);
+        v.since(7).field("shadowCastingStart", shadowCastingStart);
+        v.since(7).field("shadowCastingEnd", shadowCastingEnd);
+        v.since(7).field("quadraticFalloff", quadraticFalloff);
+        v.since(7).field("linearFalloff", linearFalloff);
+        v.since(7).field("damping", damping);
     }
 };
 
@@ -387,7 +415,7 @@ using NodePayload =
     std::variant<HelperPayload, BonePayload, AttachmentPayload, LightPayload, CameraPayload,
                  ParticlePayload, RibbonPayload, EventPayload, CollisionPayload,
                  Wc3ParticleEmitter1Payload, Wc3ParticleEmitter2Payload, Wc3RibbonEmitterPayload,
-                 Sc2ParticleEmitterPayload, Sc2RibbonEmitterPayload>;
+                 Sc2ParticleEmitterPayload, Sc2RibbonEmitterPayload, Wc3CornEmitterPayload>;
 
 /// Every node index @p payload holds, as `f(u32& node, EmitterLink what)` — the
 /// §10.6 referencer row the emitter systems add. @p payload may be const.
@@ -598,6 +626,10 @@ struct Node {
             break;
         case NodeKind::Sc2RibbonEmitter:
             v.field("sc2Ribbon", VariantAs<Sc2RibbonEmitterPayload>(payload));
+            break;
+        // v7, gated like v3's by the kind: no older chunk holds one.
+        case NodeKind::Wc3CornEmitter:
+            v.field("wc3Corn", VariantAs<Wc3CornEmitterPayload>(payload));
             break;
         case NodeKind::Count:
             break;

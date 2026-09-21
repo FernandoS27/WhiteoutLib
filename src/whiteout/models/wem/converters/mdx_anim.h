@@ -41,9 +41,10 @@
  * The three Warcraft III emitter systems are node kinds of their own (§10.9), so
  * their property tracks — emission rate, speed, latitude, the ribbon's heights —
  * import as `Channel::EmitterProperty` channels on the node, beside the shared
- * visibility, and export back onto the record. A PopcornFX emitter is only a
- * reference to an effect WEM does not hold (§18), and its tracks are not
- * imported.
+ * visibility, and export back onto the record. So do Reforged's PopcornFX
+ * emitter's: its effect is a file WEM does not hold, but the multipliers the
+ * model keys on it (KPPL, KPPE, KPPS) are `Wc3CornProperty` channels, and its
+ * colour, alpha and visibility the shared ones.
  */
 
 #include <unordered_map>

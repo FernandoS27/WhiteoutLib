@@ -222,6 +222,10 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("OperationUnsupported", whiteout::models::wem::DiagCode::OperationUnsupported)
         .value("GeometryRescaled", whiteout::models::wem::DiagCode::GeometryRescaled)
         .value("LevelOfDetailDropped", whiteout::models::wem::DiagCode::LevelOfDetailDropped)
+        .value("SkinInfluenceDuplicated", whiteout::models::wem::DiagCode::SkinInfluenceDuplicated)
+        .value("SkinWeightInvalid", whiteout::models::wem::DiagCode::SkinWeightInvalid)
+        .value("SkinInfluencesUnsorted", whiteout::models::wem::DiagCode::SkinInfluencesUnsorted)
+        .value("SkinSetupInvalid", whiteout::models::wem::DiagCode::SkinSetupInvalid)
         .value("Count", whiteout::models::wem::DiagCode::Count);
 
     enum_<whiteout::models::wem::ElementKind>("WemElementKind")
@@ -362,7 +366,8 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("CollisionSpawn", whiteout::models::wem::EmitterLink::CollisionSpawn)
         .value("Trail", whiteout::models::wem::EmitterLink::Trail)
         .value("BounceRibbon", whiteout::models::wem::EmitterLink::BounceRibbon)
-        .value("SplineBone", whiteout::models::wem::EmitterLink::SplineBone);
+        .value("SplineBone", whiteout::models::wem::EmitterLink::SplineBone)
+        .value("SkinMirror", whiteout::models::wem::EmitterLink::SkinMirror);
 
     enum_<whiteout::models::wem::Wc3Particle1Property>("WemWc3Particle1Property")
         .value("EmissionRate", whiteout::models::wem::Wc3Particle1Property::EmissionRate)
@@ -387,6 +392,12 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("HeightAbove", whiteout::models::wem::Wc3RibbonProperty::HeightAbove)
         .value("HeightBelow", whiteout::models::wem::Wc3RibbonProperty::HeightBelow)
         .value("Count", whiteout::models::wem::Wc3RibbonProperty::Count);
+
+    enum_<whiteout::models::wem::Wc3CornProperty>("WemWc3CornProperty")
+        .value("Lifespan", whiteout::models::wem::Wc3CornProperty::Lifespan)
+        .value("EmissionRate", whiteout::models::wem::Wc3CornProperty::EmissionRate)
+        .value("Speed", whiteout::models::wem::Wc3CornProperty::Speed)
+        .value("Count", whiteout::models::wem::Wc3CornProperty::Count);
 
     enum_<whiteout::models::wem::Sc2ParticleProperty>("WemSc2ParticleProperty")
         .value("InitialSpeed", whiteout::models::wem::Sc2ParticleProperty::InitialSpeed)
@@ -547,6 +558,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("Wc3RibbonEmitter", whiteout::models::wem::NodeKind::Wc3RibbonEmitter)
         .value("Sc2ParticleEmitter", whiteout::models::wem::NodeKind::Sc2ParticleEmitter)
         .value("Sc2RibbonEmitter", whiteout::models::wem::NodeKind::Sc2RibbonEmitter)
+        .value("Wc3CornEmitter", whiteout::models::wem::NodeKind::Wc3CornEmitter)
         .value("Count", whiteout::models::wem::NodeKind::Count);
 
     enum_<whiteout::models::wem::NodeFlags>("WemNodeFlags")
@@ -600,6 +612,11 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("TextureIndex", whiteout::models::wem::Channel::TextureIndex)
         .value("Emissive", whiteout::models::wem::Channel::Emissive)
         .value("EmitterProperty", whiteout::models::wem::Channel::EmitterProperty)
+        .value("ShadowCastingStart", whiteout::models::wem::Channel::ShadowCastingStart)
+        .value("ShadowCastingEnd", whiteout::models::wem::Channel::ShadowCastingEnd)
+        .value("QuadraticFalloff", whiteout::models::wem::Channel::QuadraticFalloff)
+        .value("LinearFalloff", whiteout::models::wem::Channel::LinearFalloff)
+        .value("Damping", whiteout::models::wem::Channel::Damping)
         .value("Count", whiteout::models::wem::Channel::Count);
 
     enum_<whiteout::models::wem::Interpolation>("WemInterpolation")
@@ -903,6 +920,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .function("maxInfluences", &whiteout::models::wem::geom::SkinBinding::maxInfluences)
         .function("reset", &whiteout::models::wem::geom::SkinBinding::reset)
         .function("appendVertex", &whiteout::models::wem::geom::SkinBinding::appendVertex)
+        .function("assignVertex", &whiteout::models::wem::geom::SkinBinding::assignVertex)
         .function("appendCopyOf", &whiteout::models::wem::geom::SkinBinding::appendCopyOf)
         .function("remapVertices",
                   optional_override([](
@@ -1032,6 +1050,22 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("columns", &whiteout::models::wem::Wc3RibbonEmitterPayload::columns)
         .property("materialSlot", &whiteout::models::wem::Wc3RibbonEmitterPayload::materialSlot)
         .property("gravity", &whiteout::models::wem::Wc3RibbonEmitterPayload::gravity)
+    ;
+
+    class_<whiteout::models::wem::Wc3CornEmitterPayload>("WemWc3CornEmitterPayload")
+        .constructor<>()
+        .property("lifespan", &whiteout::models::wem::Wc3CornEmitterPayload::lifespan)
+        .property("emissionRate", &whiteout::models::wem::Wc3CornEmitterPayload::emissionRate)
+        .property("speed", &whiteout::models::wem::Wc3CornEmitterPayload::speed)
+        .property("color", &whiteout::models::wem::Wc3CornEmitterPayload::color)
+        .property("alpha", &whiteout::models::wem::Wc3CornEmitterPayload::alpha)
+        .property("replaceableId", &whiteout::models::wem::Wc3CornEmitterPayload::replaceableId)
+        .property("effect", &whiteout::models::wem::Wc3CornEmitterPayload::effect)
+        .property("animVisibilityGuide", &whiteout::models::wem::Wc3CornEmitterPayload::animVisibilityGuide)
+        .property("unshaded", &whiteout::models::wem::Wc3CornEmitterPayload::unshaded)
+        .property("sortPrimsFarZ", &whiteout::models::wem::Wc3CornEmitterPayload::sortPrimsFarZ)
+        .property("unfogged", &whiteout::models::wem::Wc3CornEmitterPayload::unfogged)
+        .property("popcornScaling", &whiteout::models::wem::Wc3CornEmitterPayload::popcornScaling)
     ;
 
     class_<whiteout::models::wem::Sc2Variation>("WemSc2Variation")
@@ -1269,6 +1303,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .constructor<>()
         .property("bounds", &whiteout::models::wem::BonePayload::bounds)
         .property("sphere", &whiteout::models::wem::BonePayload::sphere)
+        .property("gateMesh", &whiteout::models::wem::BonePayload::gateMesh)
     ;
 
     class_<whiteout::models::wem::AttachmentPayload>("WemAttachmentPayload")
@@ -1286,6 +1321,12 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("attenuationEnd", &whiteout::models::wem::LightPayload::attenuationEnd)
         .property("hotSpot", &whiteout::models::wem::LightPayload::hotSpot)
         .property("falloff", &whiteout::models::wem::LightPayload::falloff)
+        .property("shadowCasting", &whiteout::models::wem::LightPayload::shadowCasting)
+        .property("shadowCastingStart", &whiteout::models::wem::LightPayload::shadowCastingStart)
+        .property("shadowCastingEnd", &whiteout::models::wem::LightPayload::shadowCastingEnd)
+        .property("quadraticFalloff", &whiteout::models::wem::LightPayload::quadraticFalloff)
+        .property("linearFalloff", &whiteout::models::wem::LightPayload::linearFalloff)
+        .property("damping", &whiteout::models::wem::LightPayload::damping)
     ;
 
     class_<whiteout::models::wem::CameraPayload>("WemCameraPayload")

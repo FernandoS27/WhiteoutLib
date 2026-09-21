@@ -19,14 +19,19 @@
  * - a point no bone reaches goes Rigid to the nearest bone by segment distance
  *   and is counted, never left empty.
  *
- * Only Rigid per Island is here so far (§8.3). Envelopes, Heat and the voxel
- * geodesic attach to the same two structs.
+ * Rigid per Island (§8.3) and Envelopes (§8.2) write as they decide. Heat (§8.4)
+ * and the voxel geodesic (§8.5) take seconds on a character, so they are split
+ * in two: a `Solve*` that reads a snapshot and writes nothing, and
+ * `WriteGenerated`, which the host calls once the run is over. That is what lets
+ * a run go to a task and be cancelled with nothing to undo.
  */
 
+#include <functional>
 #include <span>
 #include <vector>
 
 #include <whiteout/common_types.h>
+#include <whiteout/interfaces.h>
 
 #include "../geometry/mesh.h"
 #include "../nodes/tree.h"
@@ -105,6 +110,12 @@ struct GenerateOptions {
     /// whose bones reach several, so a caller with more than one mesh measures
     /// over all of them once and passes the answer in.
     std::vector<Envelope> defaults;
+    /// The geodesic's grid: cells along the longest axis of what it voxelises
+    /// (§8.5).
+    u32 voxelResolution = 96;
+    /// The geodesic's falloff `k` in `w = d^-k` (§8.5): the larger, the shorter
+    /// a blend reaches.
+    f32 geodesicFalloff = 4.0f;
 };
 
 /// What a generator did, beside `SkinResult`'s counts.
@@ -112,6 +123,7 @@ struct GenerateResult {
     SkinResult weights;
     u32 islands = 0;  ///< Islands it decided.
     u32 unreached = 0;///< Points no bone reached, which went to the nearest.
+    bool cancelled = false; ///< The run was stopped, and nothing was written.
 };
 
 /**
@@ -221,6 +233,149 @@ Envelope MeasureEnvelope(std::span<const MeshPoints> meshes, const BoneSegments&
  */
 GenerateResult EnvelopeWeights(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
                                std::span<const u32> scope, const GenerateOptions& options = {});
+
+// ---- The heavy generators (§8.1, §8.4-8.5) -----------------------------------
+
+/**
+ * @brief How a run that can take more than a frame is watched and stopped
+ *        (§8.1's heavy runs).
+ *
+ * Nothing here knows what a task or a progress bar is. The host wraps its own in
+ * these two callbacks, and a test passes none.
+ */
+struct GenerateControl {
+    /// Asked between units of work and inside the long ones: true stops the
+    /// run, and a stopped run decides nothing. It may be asked from a pool
+    /// thread, so it has to be safe to call from any thread.
+    std::function<bool()> cancelled;
+    /// Told that `done` of `total` units are finished. Only ever called on the
+    /// thread that started the run.
+    std::function<void(u32 done, u32 total)> progress;
+    /// Where the bones are solved in parallel (§8.4). Null solves them on the
+    /// calling thread. The answer is the same either way: each bone is solved
+    /// alone and they are gathered in bone order.
+    interfaces::WorkerPool* pool = nullptr;
+
+    bool stopped() const {
+        return cancelled && cancelled();
+    }
+};
+
+/// One mesh of a run: the mesh, its table, and the points to write. An empty
+/// scope is every point (§8.1).
+struct MeshScope {
+    const Mesh* mesh = nullptr;
+    const PointTable* points = nullptr;
+    std::span<const u32> scope;
+};
+
+/**
+ * @brief What a generator decided for one mesh, before any of it is written.
+ *
+ * Every point of the scope has an answer here, including the ones no bone
+ * reached: those are given their nearest bone whole (§8.1) and counted, so
+ * `WriteGenerated` has one shape to write and nothing is ever left empty.
+ */
+struct GeneratedWeights {
+    std::vector<u32> points; ///< The points decided, in the scope's order.
+    PointWeights given;      ///< What each of them is given.
+    u32 islands = 0;         ///< The islands the run decided.
+    u32 unreached = 0;       ///< Points no bone reached, sent to the nearest.
+};
+
+/// A whole run: one entry per mesh asked about, in the order asked. A stopped
+/// run has no entries at all, so there is nothing a caller could half-write.
+struct GeneratedRun {
+    std::vector<GeneratedWeights> meshes;
+    bool cancelled = false;
+};
+
+/**
+ * @brief Pinocchio's bone heat (§8.4), per bone `i`:
+ *        `(L + A·H) w_i = A·H·p_i`.
+ *
+ * - `L` is the cotangent Laplacian of the welded ring (§3.2): the symmetric
+ *   matrix whose edge weight is `(cot α + cot β) / 2`, clamped at 0. A
+ *   degenerate face adds a uniform `1/2` per edge instead.
+ * - `H` is `1 / d_j²`, `d_j` being the distance from point `j` to the nearest
+ *   bone segment it can SEE: the segment from the point to that bone's nearest
+ *   point crosses no face of the mesh (§3.6's ray query). That is what keeps
+ *   the heat of one leg out of the other.
+ * - `p_ij` is 1 when bone `i` is that bone, else 0.
+ * - `A` is each point's barycentric area. §8.4 writes the system as
+ *   `(-Δ + H) w = H p`, with `Δ = -A⁻¹ L`; multiplied through by `A` it is the
+ *   same system, symmetric, and free of the model's scale -- `L` is a ratio
+ *   and `A/d²` is one too, so a model drawn ten times larger gets the same
+ *   weights.
+ *
+ * Solved by Jacobi-preconditioned conjugate gradients, one right-hand side per
+ * bone that is some point's nearest visible bone. A bone that is nobody's
+ * solves to zero exactly, so it is not solved at all.
+ *
+ * The matrix is block-diagonal by connected piece -- an island, or part of one
+ * when a clamped edge cuts it -- and each piece is solved alone. **A piece no
+ * point of which sees any bone has `H = 0` and a singular system**; it is not
+ * solved but goes Rigid per Island's way (§8.3): wholly to the bone most of its
+ * points are nearest to, and counted as unreached. Sending such a piece's
+ * points each to its own nearest bone, as §8.1 says for one lost point, would
+ * tear a floating plate between two bones the first time they moved apart.
+ *
+ * Visibility is tested against the point's OWN mesh. A mesh is one part of the
+ * model, so an armour plate over the body is not hidden from the bones by the
+ * body under it, and it takes the heat of the body it covers.
+ *
+ * A whole piece is solved even when the scope holds only some of it -- the
+ * system couples every point to its ring -- but only the scope is answered.
+ */
+GeneratedRun SolveHeat(std::span<const MeshScope> meshes, const NodeTree& nodes,
+                       const GenerateOptions& options = {}, const GenerateControl& control = {});
+
+/**
+ * @brief Geodesic voxel binding (§8.5; Dionne and de Lasa, 2013): distance to a
+ *        bone measured through the model's VOLUME rather than over its surface.
+ *
+ * 1. Every mesh of the run is voxelised on one grid, `voxelResolution` cells
+ *    along its longest axis. The cells a triangle crosses are the shell.
+ * 2. The solid is the shell plus what is inside it. A flood fill from outside
+ *    finds the outside of a closed surface; a Warcraft III model is seldom
+ *    closed, and the fill leaks through the first gap wider than a cell and
+ *    finds nothing inside at all. So a cell is also inside when two of the
+ *    three axis-aligned lines through it cross the shell an odd number of times
+ *    on BOTH sides of it -- the parity vote that stands up to open meshes. A
+ *    line through a hole has an odd total and can say nothing, and a cape
+ *    cannot make the air behind it solid on one line's say-so.
+ * 3. Per bone, Dijkstra through the solid, 26-connected, from the cells its
+ *    segments cross, stopped at three times the bone's length. A leaf's seeds
+ *    are its sphere (§8.2), at `distance - radius`, as `NearestBone` measures.
+ * 4. A point's distance to a bone is read trilinearly at its position from the
+ *    cells the walk reached, and `w = d^-k`, normalised. `d` is held at half a
+ *    cell at least, since the grid cannot tell two points closer than that
+ *    apart.
+ *
+ * A point no bone's walk reached goes wholly to its nearest bone and is
+ * counted (§8.1).
+ */
+GeneratedRun SolveGeodesic(std::span<const MeshScope> meshes, const NodeTree& nodes,
+                           const GenerateOptions& options = {},
+                           const GenerateControl& control = {});
+
+/// Write what a solve decided (§8.1): pruned at 0.01, then `Assign`ed, which
+/// keeps the locks and the bones outside the set, limits to four and
+/// normalises. The bone set is @p options' -- the one the solve was given.
+GenerateResult WriteGenerated(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
+                              const GeneratedWeights& weights,
+                              const GenerateOptions& options = {});
+
+/// Solve and write one mesh: `SolveHeat` then `WriteGenerated`. A stopped run
+/// writes nothing and says so.
+GenerateResult HeatWeights(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
+                           std::span<const u32> scope, const GenerateOptions& options = {},
+                           const GenerateControl& control = {});
+
+/// Solve and write one mesh: `SolveGeodesic` then `WriteGenerated`.
+GenerateResult GeodesicWeights(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
+                               std::span<const u32> scope, const GenerateOptions& options = {},
+                               const GenerateControl& control = {});
 
 } // namespace skinning
 } // namespace wem

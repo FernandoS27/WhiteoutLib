@@ -1639,8 +1639,8 @@ TEST_CASE("wem mdx bone gates and geoset flags survive the corpus round trip",
         }
         const Document& document = *converted.value;
         for (const ProfileId profile : document.profiles) {
-            // Reforged is written at v1000 by the host (`MdxVersionForWemProfile`).
-            const u32 version = profile == ProfileId::Wc3Reforged ? 1000u : 800u;
+            // Reforged is written at v1800 by the host (`MdxVersionForWemProfile`).
+            const u32 version = profile == ProfileId::Wc3Reforged ? 1800u : 800u;
             const Result<mdx::Model> exported = converter.toMdx(document, profile, version);
             if (!exported.ok()) {
                 continue;

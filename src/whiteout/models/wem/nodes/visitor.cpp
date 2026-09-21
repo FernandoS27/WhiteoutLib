@@ -41,6 +41,8 @@ void AcceptNode(NodeTree& tree, u32 node, NodeVisitor& visitor) {
         visitor.OnSc2ParticleEmitter(node, target, *sc2Particle);
     } else if (auto* sc2Ribbon = std::get_if<Sc2RibbonEmitterPayload>(&target.payload)) {
         visitor.OnSc2RibbonEmitter(node, target, *sc2Ribbon);
+    } else if (auto* wc3Corn = std::get_if<Wc3CornEmitterPayload>(&target.payload)) {
+        visitor.OnWc3CornEmitter(node, target, *wc3Corn);
     } else {
         visitor.OnHelper(node, target);
     }

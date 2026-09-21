@@ -17,6 +17,7 @@
 
 #include "wem_material_fixture.h"
 
+#include <cmath>
 #include <cstring>
 
 using namespace whiteout;
@@ -26,6 +27,7 @@ using namespace wemfix;
 namespace {
 
 using Catch::Matchers::WithinAbs;
+using Catch::Matchers::WithinRel;
 
 /// Append a node of @p kind with a distinguishable transform, and return its
 /// index.
@@ -246,6 +248,58 @@ TEST_CASE("wem a rescale moves every length in the document", "[wem][rescale]") 
 
     // A model 100x as many units long has units a hundredth the size.
     CHECK_THAT(document.unitScale, WithinAbs(0.01f, 1e-6f));
+}
+
+TEST_CASE("wem a rescale keeps a light's falloff over the rescaled model", "[wem][rescale]") {
+    // `exp(-damping d²) / (1 + linear d + quadratic d²)`: at k times the
+    // distance, the same falloff needs each coefficient over k to the power of
+    // its term. The shadow range is a pair of distances like the attenuation.
+    Document document = makeRescaleDocument();
+    Model& model = document.models[0];
+    auto& light = std::get<LightPayload>(model.nodes.nodes[2].payload);
+    light.shadowCastingStart = 5.0f;
+    light.shadowCastingEnd = 50.0f;
+    light.quadraticFalloff = 0.02f;
+    light.linearFalloff = 0.3f;
+    light.damping = 0.004f;
+
+    AnimChannel falloff;
+    falloff.id = 900;
+    falloff.target.node = 2;
+    falloff.target.channel = Channel::QuadraticFalloff;
+    falloff.valueType = geom::AttrType::F32;
+    model.animChannels.add(falloff);
+    SubTrack keys;
+    keys.channel = 900;
+    keys.interp = Interpolation::Linear;
+    keys.times = {0.0f};
+    keys.values.resize(sizeof(f32));
+    const f32 keyed = 0.02f;
+    std::memcpy(keys.values.data(), &keyed, sizeof(f32));
+    document.clips[0].containers[0].subTracks.push_back(keys);
+
+    const f32 k = 10.0f;
+    REQUIRE(RescaleDocument(document, k).ok);
+    CHECK_THAT(light.shadowCastingStart, WithinAbs(5.0f * k, 1e-4f));
+    CHECK_THAT(light.shadowCastingEnd, WithinAbs(50.0f * k, 1e-3f));
+    CHECK_THAT(light.linearFalloff, WithinAbs(0.3f / k, 1e-7f));
+    CHECK_THAT(light.quadraticFalloff, WithinAbs(0.02f / (k * k), 1e-8f));
+    CHECK_THAT(light.damping, WithinAbs(0.004f / (k * k), 1e-9f));
+    // Where a light of the model sits d from a point, it now sits k d away, and
+    // the factor there has not moved.
+    const auto factor = [](const LightPayload& l, f32 d) {
+        return std::exp(-l.damping * d * d) / (1 + l.linearFalloff * d + l.quadraticFalloff * d * d);
+    };
+    LightPayload before;
+    before.quadraticFalloff = 0.02f;
+    before.linearFalloff = 0.3f;
+    before.damping = 0.004f;
+    CHECK_THAT(factor(light, 7.0f * k), WithinRel(factor(before, 7.0f), 1e-4f));
+
+    const SubTrack& scaled = document.clips[0].containers[0].subTracks.back();
+    f32 value = 0;
+    std::memcpy(&value, scaled.values.data(), sizeof(f32));
+    CHECK_THAT(value, WithinAbs(0.02f / (k * k), 1e-8f));
 }
 
 TEST_CASE("wem a rescale carries a clip's move speed", "[wem][rescale]") {

@@ -50,15 +50,18 @@ using mdx_slice::ValueTrait;
 
 /// A colour track with red and blue exchanged, tangents and all.
 ///
-/// Warcraft III stores every keyed colour -- KGAC, KLAC, KLBC and KRCO -- blue
-/// first, and the static colour beside it red first; WEM's colour channels are
+/// Warcraft III stores every keyed colour -- KGAC, KLAC, KLBC, KRCO and KPPC --
+/// blue first, and the static colour beside it red first; WEM's colour channels are
 /// RGB. Blizzard's own StarCraft II conversions name the exchanged key on all
 /// 222 keyed geoset colours they carry and the plain static on all 604 static
 /// ones. Lights have no such witness (Blizzard dropped 167 of 168), but the day
 /// and night suns read only one way: Lordaeron's midnight key (0.80, 0.53, 0.31)
 /// is moonlight blue exchanged, and its noon ambient (0.98, 0.84, 0.84) a
 /// sky-blue fill rather than pink. No shipped ribbon keys its colour. The native
-/// renderer reads all four the same way (`mdx_model_adapter.cpp`). The exchange
+/// renderer reads all four the same way (`mdx_model_adapter.cpp`). No shipped
+/// CORN keys its colour, but 3.0's reader treats KPPC exactly as KRCO: both
+/// reverse the static colour into memory and keep the keys as read
+/// (`ReadBinParticleEmitterPopcorn`, `ReadBinRibbonEmitter`). The exchange
 /// is its own inverse, so the import and the export call the one function.
 mdx::Track<Vector3f> SwapRedBlue(mdx::Track<Vector3f> track) {
     for (Vector3f& value : track.keys_data) {
@@ -320,6 +323,12 @@ private:
             // term. Same channel, `sub` 1 — which is what `sub` is for on a node.
             addTrack(SwapRedBlue(light.ambientColorTracks), nodeTarget(node, Channel::Color, 1));
             addTrack(light.ambientIntensityTracks, nodeTarget(node, Channel::Intensity, 1));
+            // 3.0's shadow range (v1300) and distance falloff (v1600).
+            addTrack(light.shadowCastingStartTracks, nodeTarget(node, Channel::ShadowCastingStart));
+            addTrack(light.shadowCastingEndTracks, nodeTarget(node, Channel::ShadowCastingEnd));
+            addTrack(light.quadraticFalloffTracks, nodeTarget(node, Channel::QuadraticFalloff));
+            addTrack(light.linearFalloffTracks, nodeTarget(node, Channel::LinearFalloff));
+            addTrack(light.dampingTracks, nodeTarget(node, Channel::Damping));
         }
         for (const mdx::Attachment& attachment : source_.attachments) {
             const u32 node = nodeOf(attachment.node.objectId);
@@ -603,6 +612,22 @@ private:
             }
             addTrack(ribbon.heightAboveTracks, target(node, Wc3RibbonProperty::HeightAbove));
             addTrack(ribbon.heightBelowTracks, target(node, Wc3RibbonProperty::HeightBelow));
+        }
+        // A PopcornFX emitter's multipliers, and the three it shares a channel
+        // for. Its tracks were not imported at all before its kind existed, so
+        // appending them here moves no earlier clip.
+        for (const mdx::CornEmitter& emitter : source_.cornEmitters) {
+            const u32 node = nodeOf(emitter.node.objectId);
+            if (node == kInvalidNode) {
+                continue;
+            }
+            using P = Wc3CornProperty;
+            addTrack(emitter.lifeSpanTracks, target(node, P::Lifespan));
+            addTrack(emitter.emissionRateTracks, target(node, P::EmissionRate));
+            addTrack(emitter.speedTracks, target(node, P::Speed));
+            addTrack(SwapRedBlue(emitter.colorTracks), nodeTarget(node, Channel::Color));
+            addTrack(emitter.alphaTracks, nodeTarget(node, Channel::Alpha));
+            addTrack(emitter.visibilityTracks, nodeTarget(node, Channel::Visibility));
         }
     }
 
@@ -1353,6 +1378,23 @@ private:
             case Channel::Visibility:
                 Emit(merged, light.visibilityTracks);
                 return;
+            // Written from v1300/v1600 only (`mdx/writer.cpp`), like the
+            // fields they key.
+            case Channel::ShadowCastingStart:
+                Emit(merged, light.shadowCastingStartTracks);
+                return;
+            case Channel::ShadowCastingEnd:
+                Emit(merged, light.shadowCastingEndTracks);
+                return;
+            case Channel::QuadraticFalloff:
+                Emit(merged, light.quadraticFalloffTracks);
+                return;
+            case Channel::LinearFalloff:
+                Emit(merged, light.linearFalloffTracks);
+                return;
+            case Channel::Damping:
+                Emit(merged, light.dampingTracks);
+                return;
             default:
                 break;
             }
@@ -1470,6 +1512,42 @@ private:
                 return;
             case Channel::Visibility:
                 Emit(merged, ribbon.visibilityTracks);
+                return;
+            default:
+                break;
+            }
+            break;
+        }
+        case ExportContext::Slot::CornEmitter: {
+            if (slot.index >= out_.cornEmitters.size()) {
+                return;
+            }
+            mdx::CornEmitter& emitter = out_.cornEmitters[slot.index];
+            if (channel.target.channel == Channel::EmitterProperty) {
+                switch (static_cast<Wc3CornProperty>(EmitterPropertyOf(channel.target.sub))) {
+                case Wc3CornProperty::Lifespan:
+                    Emit(merged, emitter.lifeSpanTracks);
+                    return;
+                case Wc3CornProperty::EmissionRate:
+                    Emit(merged, emitter.emissionRateTracks);
+                    return;
+                case Wc3CornProperty::Speed:
+                    Emit(merged, emitter.speedTracks);
+                    return;
+                case Wc3CornProperty::Count:
+                    break;
+                }
+            }
+            switch (channel.target.channel) {
+            case Channel::Color:
+                Emit(merged, emitter.colorTracks);
+                emitter.colorTracks = SwapRedBlue(std::move(emitter.colorTracks));
+                return;
+            case Channel::Alpha:
+                Emit(merged, emitter.alphaTracks);
+                return;
+            case Channel::Visibility:
+                Emit(merged, emitter.visibilityTracks);
                 return;
             default:
                 break;

@@ -986,6 +986,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         case NodeKind::Wc3ParticleEmitter1:
         case NodeKind::Wc3ParticleEmitter2:
         case NodeKind::Wc3RibbonEmitter:
+        case NodeKind::Wc3CornEmitter:
         case NodeKind::CollisionShape:
             // An emitter record names a bone, and a Warcraft III emitter moves
             // and hides on its own node: the bone is the node (§2.3). So does

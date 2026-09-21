@@ -11,8 +11,12 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <whiteout/models/mdx/parser.h>
 #include <whiteout/models/wem/converters.h>
 #include <whiteout/models/wem/geometry/builder.h>
+#include <whiteout/models/wem/parser.h>
+#include <whiteout/models/wem/retarget.h>
+#include <whiteout/models/wem/writer.h>
 
 using namespace whiteout;
 using namespace whiteout::models::wem;
@@ -543,6 +547,161 @@ TEST_CASE("wem mdx a light keeps its ambient term and its shadow", "[wem][conver
         CHECK(out->ambientIntensity == in.ambientIntensity);
         CHECK(out->shadowIntensity == in.shadowIntensity);
     }
+}
+
+TEST_CASE("wem mdx a light keeps 3.0's shadow range and falloff", "[wem][convert][mdx][nodes]") {
+    // WEM had no field for v1300's shadow casting or v1600's falloff, so every
+    // Reforged light an edit rebuilt lost its shadow and took the game's
+    // pre-1600 falloff (39-102 of the 306 lights in 1,382 shipped v1800 files).
+    mdx::Model source = makeModel();
+    source.version = 1800;
+    mdx::Sequence stand;
+    stand.name = "Stand";
+    stand.intervalStart = 0;
+    stand.intervalEnd = 1000;
+    source.sequences.push_back(stand);
+    source.pivotPoints.push_back(Vector3f{0, 0, 40});
+    mdx::Light lamp;
+    lamp.node = makeNode("lamp", 2, 0);
+    lamp.shadowCasting = true;
+    lamp.shadowCastingStart = 12.5f;
+    lamp.shadowCastingEnd = 900.0f;
+    lamp.quadraticFalloff = 0.002f;
+    lamp.linearFalloff = 0.03f;
+    lamp.damping = 0.0004f;
+    const auto keyed = [](f32 a, f32 b) {
+        mdx::Track<f32> track;
+        track.isUsed = true;
+        track.interpolationType = mdx::InterpolationType::Linear;
+        track.timestamps = {0, 1000};
+        track.keys_data = {a, b};
+        track.keyCount = 2;
+        return track;
+    };
+    lamp.shadowCastingStartTracks = keyed(12.5f, 20.0f);
+    lamp.shadowCastingEndTracks = keyed(900.0f, 450.0f);
+    lamp.quadraticFalloffTracks = keyed(0.002f, 0.004f);
+    lamp.linearFalloffTracks = keyed(0.03f, 0.0f);
+    lamp.dampingTracks = keyed(0.0004f, 0.0008f);
+    source.lights.push_back(lamp);
+
+    const MdxConverter converter;
+    Result<Document> imported = converter.fromMdx(source);
+    REQUIRE(imported.ok());
+    const Model& model = imported->models[0];
+    u32 node = kInvalidNode;
+    for (u32 n = 0; n < model.nodes.size(); ++n) {
+        if (model.nodes.nodes[n].name == "lamp") {
+            node = n;
+        }
+    }
+    REQUIRE(node != kInvalidNode);
+    const auto& payload = std::get<LightPayload>(model.nodes.nodes[node].payload);
+    CHECK(payload.shadowCasting);
+    CHECK(payload.shadowCastingStart == 12.5f);
+    CHECK(payload.shadowCastingEnd == 900.0f);
+    CHECK(payload.quadraticFalloff == 0.002f);
+    CHECK(payload.linearFalloff == 0.03f);
+    CHECK(payload.damping == 0.0004f);
+    for (const Channel channel : {Channel::ShadowCastingStart, Channel::ShadowCastingEnd,
+                                  Channel::QuadraticFalloff, Channel::LinearFalloff,
+                                  Channel::Damping}) {
+        INFO(ToString(channel));
+        u32 found = 0;
+        for (const AnimChannel& declared : model.animChannels.channels) {
+            found += declared.target.node == node && declared.target.channel == channel ? 1 : 0;
+        }
+        CHECK(found == 1u);
+    }
+
+    // Through the file: `NODE` v7 carries the six fields.
+    Writer writer;
+    const std::vector<u8> bytes = writer.write(*imported);
+    Parser parser;
+    std::optional<Document> reread = parser.parse(std::span<const u8>(bytes.data(), bytes.size()));
+    REQUIRE(reread.has_value());
+
+    Result<mdx::Model> exported = converter.toMdx(*reread, ProfileId::Wc3Classic, 1800);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->lights.size() == 1u);
+    const mdx::Light& out = exported->lights[0];
+    CHECK(out.shadowCasting);
+    CHECK(out.shadowCastingStart == lamp.shadowCastingStart);
+    CHECK(out.shadowCastingEnd == lamp.shadowCastingEnd);
+    CHECK(out.quadraticFalloff == lamp.quadraticFalloff);
+    CHECK(out.linearFalloff == lamp.linearFalloff);
+    CHECK(out.damping == lamp.damping);
+    const auto same = [](const mdx::Track<f32>& a, const mdx::Track<f32>& b) {
+        return a.isUsed == b.isUsed && a.timestamps == b.timestamps && a.keys_data == b.keys_data;
+    };
+    CHECK(same(out.shadowCastingStartTracks, lamp.shadowCastingStartTracks));
+    CHECK(same(out.shadowCastingEndTracks, lamp.shadowCastingEndTracks));
+    CHECK(same(out.quadraticFalloffTracks, lamp.quadraticFalloffTracks));
+    CHECK(same(out.linearFalloffTracks, lamp.linearFalloffTracks));
+    CHECK(same(out.dampingTracks, lamp.dampingTracks));
+}
+
+TEST_CASE("wem mdx a file is written at its profile's version, and Reforged's is 3.0's",
+          "[wem][convert][mdx]") {
+    CHECK(MdxFileVersion(ProfileId::Wc3Classic) == 800);
+    CHECK(MdxFileVersion(ProfileId::Wc3Reforged) == 1800);
+    CHECK(MdxFileVersion(ProfileId::Sc2) == 0);
+
+    // A light's falloff is what a file older than v1600 has no room for.
+    mdx::Model source = makeModel();
+    source.pivotPoints.push_back(Vector3f{0, 0, 40});
+    mdx::Light lamp;
+    lamp.node = makeNode("lamp", 2, 0);
+    lamp.damping = 0.0004f;
+    source.lights.push_back(lamp);
+    const MdxConverter converter;
+    Result<Document> imported = converter.fromMdx(source);
+    REQUIRE(imported.ok());
+    Document& document = *imported.value;
+    if (!document.carries(ProfileId::Wc3Reforged)) {
+        REQUIRE(DeriveProfile(document, ProfileId::Wc3Classic, ProfileId::Wc3Reforged).ok);
+    }
+
+    // Asked for no version, which is what every caller that does not care asks.
+    const auto written = [&](ProfileId profile) {
+        Result<std::vector<u8>> bytes = converter.exportToBytes(document, profile);
+        REQUIRE(bytes.ok());
+        mdx::Parser parser(mdx::Parser::UpgradeMode::PreserveOriginal);
+        return parser.parse(std::span<const u8>(bytes->data(), bytes->size()));
+    };
+    const mdx::Model reforged = written(ProfileId::Wc3Reforged);
+    CHECK(reforged.version == 1800);
+    REQUIRE(reforged.lights.size() == 1u);
+    CHECK(reforged.lights[0].damping == 0.0004f);
+    CHECK(written(ProfileId::Wc3Classic).version == 800);
+    const Result<mdx::Model> model = converter.toMdx(document, ProfileId::Wc3Reforged);
+    REQUIRE(model.ok());
+    CHECK(model->version == 1800);
+}
+
+TEST_CASE("wem mdx a light from before 1600 keeps the falloff the game gives it",
+          "[wem][convert][mdx][nodes]") {
+    // A light with no falloff of its own plays the game's substitutes; a light
+    // made from nothing starts at the same numbers, not at a falloff of zero.
+    const LightPayload made;
+    CHECK(made.quadraticFalloff == 0.0005f);
+    CHECK(made.linearFalloff == 0.0f);
+    CHECK(made.damping == 0.00001f);
+    CHECK_FALSE(made.shadowCasting);
+
+    mdx::Model source = makeModel();
+    source.pivotPoints.push_back(Vector3f{0, 0, 0});
+    mdx::Light lamp;
+    lamp.node = makeNode("lamp", 2, 0);
+    source.lights.push_back(lamp);
+    const MdxConverter converter;
+    Result<Document> imported = converter.fromMdx(source);
+    REQUIRE(imported.ok());
+    Result<mdx::Model> exported = converter.toMdx(*imported, ProfileId::Wc3Classic, 1800);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->lights.size() == 1u);
+    CHECK(exported->lights[0].quadraticFalloff == 0.0005f);
+    CHECK(exported->lights[0].damping == 0.00001f);
 }
 
 TEST_CASE("wem mdx import produces one model with a classic set", "[wem][convert][mdx]") {

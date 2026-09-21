@@ -4,27 +4,27 @@
 #include <whiteout/models/wem/skinning/generate.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <limits>
 #include <utility>
+
+#include <whiteout/utils/job_group.h>
+
+#include "generate_common.h"
 
 namespace whiteout {
 namespace models {
 namespace wem {
 namespace skinning {
 
-namespace {
+namespace detail {
 
-/// @p node's joint in model space. The bind matrix rather than `Node::pivot`,
-/// so a rig that binds with matrices answers the same question -- and it is the
-/// formula `ops.cpp`'s fold already uses, so the two cannot drift.
 Vector3f JointOf(const NodeTree& nodes, u32 node) {
     const Matrix44f bind = Matrix44f::inverse(nodes.inverseBindMatrix(node));
     return Vector3f{bind.data[3][0], bind.data[3][1], bind.data[3][2]};
 }
 
-/// A point's position: its first member's, which is the vertex every other
-/// member is co-located with to within the weld tolerance (§3.2).
 Vector3f PositionOf(std::span<const Vector3f> positions, const PointTable& points, u32 point) {
     const std::span<const u32> members = points.membersOf(point);
     if (members.empty() || members[0] >= positions.size()) {
@@ -32,6 +32,142 @@ Vector3f PositionOf(std::span<const Vector3f> positions, const PointTable& point
     }
     return positions[members[0]];
 }
+
+std::vector<u32> ScopeOrEvery(const PointTable& points, std::span<const u32> scope) {
+    if (!scope.empty()) {
+        return std::vector<u32>(scope.begin(), scope.end());
+    }
+    std::vector<u32> all(points.pointCount);
+    for (u32 point = 0; point < points.pointCount; ++point) {
+        all[point] = point;
+    }
+    return all;
+}
+
+std::vector<u32> HeldBones(const NodeTree& nodes, const BoneSegments& segments,
+                           std::span<const u32> asked) {
+    std::vector<u32> held;
+    if (asked.empty()) {
+        return held;
+    }
+    std::vector<u8> inSet(nodes.size(), 0);
+    for (const u32 bone : segments.bones) {
+        inSet[bone] = 1;
+    }
+    for (u32 node = 0; node < nodes.size(); ++node) {
+        if (inSet[node] == 0 && nodes.nodes[node].kind == NodeKind::Bone) {
+            held.push_back(node);
+        }
+    }
+    return held;
+}
+
+std::vector<u32> TrianglesOf(const Mesh& mesh) {
+    const geom::FaceSet& faces = mesh.faceSet();
+    std::vector<u32> out;
+    std::size_t corner = 0;
+    for (const u32 valence : faces.faceValence) {
+        for (u32 i = 2; i < valence; ++i) {
+            out.push_back(faces.cornerVertex[corner]);
+            out.push_back(faces.cornerVertex[corner + i - 1]);
+            out.push_back(faces.cornerVertex[corner + i]);
+        }
+        corner += valence;
+    }
+    return out;
+}
+
+u32 VoteBone(const BoneSegments& segments, std::span<const Vector3f> positions,
+             const PointTable& points, std::span<const u32> members) {
+    std::vector<std::pair<u32, u32>> votes; // bone, count
+    for (const u32 point : members) {
+        const u32 bone = NearestBone(segments, PositionOf(positions, points, point));
+        if (bone == kInvalidNode) {
+            continue;
+        }
+        bool counted = false;
+        for (auto& [voted, count] : votes) {
+            if (voted == bone) {
+                ++count;
+                counted = true;
+                break;
+            }
+        }
+        if (!counted) {
+            votes.push_back({bone, 1});
+        }
+    }
+    u32 winner = kInvalidNode;
+    u32 best = 0;
+    for (const auto& [bone, count] : votes) {
+        if (count > best || (count == best && bone < winner)) {
+            best = count;
+            winner = bone;
+        }
+    }
+    return winner;
+}
+
+bool RunJobs(u32 count, const GenerateControl& control, u32& done, u32 total,
+             const std::function<void(u32)>& job) {
+    std::atomic<u32> next{0};
+    std::atomic<u32> finished{0};
+    std::atomic<bool> stopped{false};
+    // One loop for every thread: take the next index until there is none, or
+    // until someone has seen the stop.
+    const auto take = [&]() -> bool {
+        if (stopped.load(std::memory_order_acquire)) {
+            return false;
+        }
+        if (control.stopped()) {
+            stopped.store(true, std::memory_order_release);
+            return false;
+        }
+        const u32 index = next.fetch_add(1, std::memory_order_relaxed);
+        if (index >= count) {
+            return false;
+        }
+        job(index);
+        finished.fetch_add(1, std::memory_order_acq_rel);
+        return true;
+    };
+
+    utils::JobGroup group;
+    if (control.pool != nullptr && count > 1) {
+        const u32 helpers =
+            std::min<u32>(static_cast<u32>(control.pool->threadCount()), count - 1);
+        group.add(helpers);
+        for (u32 i = 0; i < helpers; ++i) {
+            interfaces::WorkerTask task;
+            task.fn = [&]() {
+                while (take()) {
+                }
+                group.done();
+            };
+            control.pool->submit(task);
+        }
+    }
+    // The calling thread works too, and it is the one that reports: a progress
+    // bar is not a thread-safe thing to hand a pool.
+    while (take()) {
+        if (control.progress) {
+            control.progress(done + finished.load(std::memory_order_acquire), total);
+        }
+    }
+    group.wait();
+    done += finished.load(std::memory_order_acquire);
+    if (control.progress) {
+        control.progress(done, total);
+    }
+    return !stopped.load(std::memory_order_acquire);
+}
+
+} // namespace detail
+
+namespace {
+
+using detail::JointOf;
+using detail::PositionOf;
 
 } // namespace
 
@@ -571,6 +707,74 @@ GenerateResult EnvelopeWeights(Mesh& mesh, const NodeTree& nodes, const PointTab
     }
     return result;
 }
+
+// ---- The heavy generators' write (§8.1) ---------------------------------------
+
+/// §8.1's prune: a share under this, of the point's own total, is not written.
+constexpr f32 kGeneratedPrune = 0.01f;
+
+GenerateResult WriteGenerated(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
+                              const GeneratedWeights& weights, const GenerateOptions& options) {
+    GenerateResult result;
+    result.islands = weights.islands;
+    result.unreached = weights.unreached;
+    if (weights.points.empty()) {
+        return result;
+    }
+    const BoneSegments segments = BuildBoneSegments(nodes, options.bones);
+    const std::vector<u32> held = detail::HeldBones(nodes, segments, options.bones);
+
+    // The prune first, relative to the point's own total, so that `Assign`'s
+    // limit folds four real influences rather than a tail of crumbs. A point
+    // whose every share is under the bar keeps its heaviest: pruning it to
+    // nothing would leave it for `Assign` to refuse.
+    PointWeights pruned;
+    std::vector<geom::Influence> kept;
+    for (std::size_t i = 0; i < weights.points.size(); ++i) {
+        kept.clear();
+        const std::span<const geom::Influence> given = weights.given.of(i);
+        f32 total = 0.0f;
+        const geom::Influence* heaviest = nullptr;
+        for (const geom::Influence& influence : given) {
+            if (!(influence.weight > 0.0f) || !std::isfinite(influence.weight)) {
+                continue;
+            }
+            total += influence.weight;
+            if (heaviest == nullptr || influence.weight > heaviest->weight) {
+                heaviest = &influence;
+            }
+        }
+        for (const geom::Influence& influence : given) {
+            if (influence.weight > 0.0f && influence.weight >= total * kGeneratedPrune) {
+                kept.push_back(influence);
+            }
+        }
+        if (kept.empty() && heaviest != nullptr) {
+            kept.push_back(*heaviest);
+        }
+        pruned.add(kept);
+    }
+
+    SkinScope scope;
+    scope.points = weights.points;
+    scope.heldBones = held;
+    result.weights = Assign(mesh, nodes, points, scope, pruned);
+    return result;
+}
+
+namespace detail {
+
+GenerateResult WriteOneMesh(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
+                            const GeneratedRun& run, const GenerateOptions& options) {
+    if (run.cancelled || run.meshes.empty()) {
+        GenerateResult stopped;
+        stopped.cancelled = run.cancelled;
+        return stopped;
+    }
+    return WriteGenerated(mesh, nodes, points, run.meshes.front(), options);
+}
+
+} // namespace detail
 
 } // namespace skinning
 } // namespace wem

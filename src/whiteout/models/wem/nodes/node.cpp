@@ -128,6 +128,8 @@ const char* ToString(NodeKind kind) {
         return "sc2_particle_emitter";
     case NodeKind::Sc2RibbonEmitter:
         return "sc2_ribbon_emitter";
+    case NodeKind::Wc3CornEmitter:
+        return "wc3_corn_emitter";
     case NodeKind::Count:
         break;
     }
@@ -213,6 +215,9 @@ void Node::resetPayloadForKind() {
         break;
     case NodeKind::Sc2RibbonEmitter:
         payload = Sc2RibbonEmitterPayload{};
+        break;
+    case NodeKind::Wc3CornEmitter:
+        payload = Wc3CornEmitterPayload{};
         break;
     case NodeKind::Count:
         break;

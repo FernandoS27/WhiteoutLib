@@ -267,6 +267,10 @@ Codes are grouped by area and never renumbered once shipped: the recorded expect
         .value("OPERATION_UNSUPPORTED", whiteout::models::wem::DiagCode::OperationUnsupported, R"doc(The converter does not implement this direction at all.)doc")
         .value("GEOMETRY_RESCALED", whiteout::models::wem::DiagCode::GeometryRescaled, R"doc(Every length in the document was restated at another scale.)doc")
         .value("LEVEL_OF_DETAIL_DROPPED", whiteout::models::wem::DiagCode::LevelOfDetailDropped, R"doc(A mesh above the base level of detail was not carried.)doc")
+        .value("SKIN_INFLUENCE_DUPLICATED", whiteout::models::wem::DiagCode::SkinInfluenceDuplicated, R"doc(One vertex names a bone twice.)doc")
+        .value("SKIN_WEIGHT_INVALID", whiteout::models::wem::DiagCode::SkinWeightInvalid, R"doc(A weight is negative, NaN or infinite.)doc")
+        .value("SKIN_INFLUENCES_UNSORTED", whiteout::models::wem::DiagCode::SkinInfluencesUnsorted, R"doc(A vertex's influences are not heaviest first.)doc")
+        .value("SKIN_SETUP_INVALID", whiteout::models::wem::DiagCode::SkinSetupInvalid, R"doc(The saved skin setup disagrees with the document (§13.4).)doc")
         .value("COUNT", whiteout::models::wem::DiagCode::Count)
     ;
 
@@ -430,7 +434,7 @@ Deliberate: Reforged HD is the only shipped PBR content among the six games, so 
         .value("CLOTH_SIMULATED", whiteout::models::wem::SectionFlags::ClothSimulated, R"doc(The section's vertices are driven by cloth.)doc")
         .value("CLOTH_INFLUENCED", whiteout::models::wem::SectionFlags::ClothInfluenced, R"doc(The section is deformed by cloth it does not own.)doc")
         .value("BILLBOARD", whiteout::models::wem::SectionFlags::Billboard, R"doc(The section is oriented per view rather than by its node.)doc")
-        .value("PROJECTED_SHADOW", whiteout::models::wem::SectionFlags::ProjectedShadow)
+        .value("PROJECTED_SHADOW", whiteout::models::wem::SectionFlags::ProjectedShadow, R"doc(MDX's GEOA `DropShadow`: the bones linked to this mesh (`BonePayload::gateMesh`) are placed as a drop shadow.)doc")
     ;
 
     py::enum_<whiteout::models::wem::EmitterLink>(m, "EmitterLink", R"doc(What one of a payload's node links points at, so `Validate` can hold it to the kind it has to be and say which link is wrong.)doc")
@@ -439,6 +443,7 @@ Deliberate: Reforged HD is the only shipped PBR content among the six games, so 
         .value("TRAIL", whiteout::models::wem::EmitterLink::Trail, R"doc(A `Sc2ParticleEmitter`.)doc")
         .value("BOUNCE_RIBBON", whiteout::models::wem::EmitterLink::BounceRibbon, R"doc(A `Sc2RibbonEmitter`.)doc")
         .value("SPLINE_BONE", whiteout::models::wem::EmitterLink::SplineBone, R"doc(Any node; a bone in every shipped file.)doc")
+        .value("SKIN_MIRROR", whiteout::models::wem::EmitterLink::SkinMirror, R"doc(Not an emitter link: `NodeSkinSetup::mirror`, the skin setup's override of §7.5's mirror map. It rides this walk because the referencer table is one walk, and it must name a `Bone`.)doc")
     ;
 
     py::enum_<whiteout::models::wem::Wc3Particle1Property>(m, "Wc3Particle1Property", R"doc(MDX `PREM` tracks (KPEE, KPEG, KPLN, KPLT, KPEL, KPES).)doc")
@@ -466,6 +471,13 @@ Deliberate: Reforged HD is the only shipped PBR content among the six games, so 
         .value("HEIGHT_ABOVE", whiteout::models::wem::Wc3RibbonProperty::HeightAbove)
         .value("HEIGHT_BELOW", whiteout::models::wem::Wc3RibbonProperty::HeightBelow)
         .value("COUNT", whiteout::models::wem::Wc3RibbonProperty::Count)
+    ;
+
+    py::enum_<whiteout::models::wem::Wc3CornProperty>(m, "Wc3CornProperty", R"doc(MDX `CORN` tracks beyond the shared channels (KPPL, KPPE, KPPS).)doc")
+        .value("LIFESPAN", whiteout::models::wem::Wc3CornProperty::Lifespan)
+        .value("EMISSION_RATE", whiteout::models::wem::Wc3CornProperty::EmissionRate)
+        .value("SPEED", whiteout::models::wem::Wc3CornProperty::Speed)
+        .value("COUNT", whiteout::models::wem::Wc3CornProperty::Count)
     ;
 
     py::enum_<whiteout::models::wem::Sc2ParticleProperty>(m, "Sc2ParticleProperty", R"doc(M3 `PAR_` AnimRefs, and a `PARC` copy's two. `SplinePoint` is per element.)doc")
@@ -635,6 +647,7 @@ Deliberate: Reforged HD is the only shipped PBR content among the six games, so 
         .value("WC3_RIBBON_EMITTER", whiteout::models::wem::NodeKind::Wc3RibbonEmitter, R"doc(MDX `RIBB`.)doc")
         .value("SC2_PARTICLE_EMITTER", whiteout::models::wem::NodeKind::Sc2ParticleEmitter, R"doc(M3 `PAR_`, and each `PARC` copy of one.)doc")
         .value("SC2_RIBBON_EMITTER", whiteout::models::wem::NodeKind::Sc2RibbonEmitter, R"doc(M3 `RIB_` with its `SRIB` spline.)doc")
+        .value("WC3_CORN_EMITTER", whiteout::models::wem::NodeKind::Wc3CornEmitter, R"doc(MDX `CORN`: a PopcornFX effect (Reforged). `NODE` v7.)doc")
         .value("COUNT", whiteout::models::wem::NodeKind::Count)
     ;
 
@@ -704,7 +717,12 @@ Closed on purpose. A source property with no entry here is **dropped with an `An
         .value("TEXTURE_INDEX", whiteout::models::wem::Channel::TextureIndex, R"doc(U32. MDX KMTF's flipbook frame and KRTX's ribbon slot.)doc")
         .value("EMISSIVE", whiteout::models::wem::Channel::Emissive, R"doc(F32. MDX KMTE.)doc")
         .value("EMITTER_PROPERTY", whiteout::models::wem::Channel::EmitterProperty, R"doc(An emitter system's own property; `sub` says which (§10.9). The type is the property's, not this entry's.)doc")
-        .value("COUNT", whiteout::models::wem::Channel::Count, R"doc(An emitter system's own property; `sub` says which (§10.9). The type is the property's, not this entry's.)doc")
+        .value("SHADOW_CASTING_START", whiteout::models::wem::Channel::ShadowCastingStart, R"doc(F32. MDX KLSS (v1300).)doc")
+        .value("SHADOW_CASTING_END", whiteout::models::wem::Channel::ShadowCastingEnd, R"doc(F32. MDX KLSE (v1300).)doc")
+        .value("QUADRATIC_FALLOFF", whiteout::models::wem::Channel::QuadraticFalloff, R"doc(F32. MDX KLQF (v1600).)doc")
+        .value("LINEAR_FALLOFF", whiteout::models::wem::Channel::LinearFalloff, R"doc(F32. MDX KLLF (v1600).)doc")
+        .value("DAMPING", whiteout::models::wem::Channel::Damping, R"doc(F32. MDX KLDA (v1600).)doc")
+        .value("COUNT", whiteout::models::wem::Channel::Count)
     ;
 
     py::enum_<whiteout::models::wem::Interpolation>(m, "Interpolation")
@@ -741,7 +759,7 @@ Closed on purpose. A source property with no entry here is **dropped with an `An
         .def_readwrite("scene_scale", &whiteout::models::wem::ProfileDesc::sceneScale, R"doc(The RENDERER's framing constant. Documentation, not an operation.
 
 WoW's and SC2's 100 are unit conversions; D3's 17 is a framing constant fitted so a 7.3-unit Barbarian lands where WC3's camera constants expect a character. Neither belongs baked into WEM geometry, and a retarget that treats them as interchangeable gets the scale wrong by 6x. Applied only when `RetargetOptions::rescale` explicitly asks for it.)doc")
-        .def_readwrite("max_bone_influences", &whiteout::models::wem::ProfileDesc::maxBoneInfluences, R"doc(4 on the GPU everywhere; D3 writes 3.)doc")
+        .def_readwrite("max_bone_influences", &whiteout::models::wem::ProfileDesc::maxBoneInfluences, R"doc(4 on the GPU; D3 writes 3; a classic group holds 8.)doc")
         .def_readwrite("max_uv_sets", &whiteout::models::wem::ProfileDesc::maxUvSets)
         .def_readwrite("max_bones_per_palette", &whiteout::models::wem::ProfileDesc::maxBonesPerPalette, R"doc(0 = unlimited.)doc")
         .def_readwrite("index_width", &whiteout::models::wem::ProfileDesc::indexWidth)
@@ -1036,6 +1054,11 @@ The importer's path, and only the importer's: this is the call that says "I am d
         .def("max_influences", &whiteout::models::wem::geom::SkinBinding::maxInfluences, R"doc(Widest influence count over all vertices — what an exporter compares against `ProfileDesc::maxBoneInfluences`.)doc")
         .def("reset", &whiteout::models::wem::geom::SkinBinding::reset, py::arg("vertexCount"), R"doc(Starts an empty binding for @p vertexCount vertices, all unskinned.)doc")
         .def("append_vertex", &whiteout::models::wem::geom::SkinBinding::appendVertex, py::arg("values"), R"doc(Appends one vertex's influences at the end. Valid only while building in vertex order, which is how importers and `VertexSplit` both work.)doc")
+        .def("assign_vertex", &whiteout::models::wem::geom::SkinBinding::assignVertex, py::arg("vertex"), py::arg("values"), R"doc(Replaces one vertex's influences, whatever their count.
+
+The binding is CSR, so this splices: every later vertex's influences move and every later offset shifts. It is what an editor writes through -- `appendVertex` only ever grows the array, and a `reset(n)` before it yields n + k vertices rather than k.
+
+The vertex is left sorted heaviest first, with ties by bone, which is the order `SkinBinding` documents and the render view relies on. A vertex past the binding is ignored; an empty binding stays empty.)doc")
         .def("append_copy_of", &whiteout::models::wem::geom::SkinBinding::appendCopyOf, py::arg("source"), R"doc(Appends a vertex whose influences copy @p source's — what a `VertexSplit` needs, since a split always creates its vertex at the end.)doc")
         .def("remap_vertices",
             [](whiteout::models::wem::geom::SkinBinding& self, py::array_t<whiteout::u32, py::array::c_style | py::array::forcecast> __py_arr_0, whiteout::u32 newCount) {
@@ -1162,6 +1185,26 @@ Its colour, alpha and flipbook cell key on the shared `Color`, `Alpha` and `Text
         .def_readwrite("columns", &whiteout::models::wem::Wc3RibbonEmitterPayload::columns)
         .def_readwrite("material_slot", &whiteout::models::wem::Wc3RibbonEmitterPayload::materialSlot, R"doc(-> `Model::materialSlots`.)doc")
         .def_readwrite("gravity", &whiteout::models::wem::Wc3RibbonEmitterPayload::gravity)
+    ;
+
+    py::class_<whiteout::models::wem::Wc3CornEmitterPayload>(m, "Wc3CornEmitterPayload", R"doc(`CORN`: a PopcornFX effect run at the node (Reforged).
+
+The effect itself is a `.pkb` WEM does not hold, named by `effect`; what the model owns is the five numbers the game hands the effect every frame. They are MULTIPLIERS on the effect's own values (the game's reader names each track so: "lifespan multiplier keys", ...), which is why they rest at 1.
+
+Its colour, alpha and visibility key on the shared `Color`, `Alpha` and `Visibility` channels and rest here; lifespan, emission rate and speed are `Wc3CornProperty` channels. A keyed colour is blue first in the file, like every other Warcraft III colour key (`ReadBinParticleEmitterPopcorn` keeps the keys as read and reverses only the static colour); the channel is RGB.)doc")
+        .def(py::init<>())
+        .def_readwrite("lifespan", &whiteout::models::wem::Wc3CornEmitterPayload::lifespan, R"doc(Multiplies the effect's particle lifespan.)doc")
+        .def_readwrite("emission_rate", &whiteout::models::wem::Wc3CornEmitterPayload::emissionRate, R"doc(Multiplies its emission rate.)doc")
+        .def_readwrite("speed", &whiteout::models::wem::Wc3CornEmitterPayload::speed, R"doc(Multiplies its particle speed.)doc")
+        .def_readwrite("color", &whiteout::models::wem::Wc3CornEmitterPayload::color, R"doc(Multiplies its colour. RGB, red first.)doc")
+        .def_readwrite("alpha", &whiteout::models::wem::Wc3CornEmitterPayload::alpha, R"doc(Multiplies its alpha.)doc")
+        .def_readwrite("replaceable_id", &whiteout::models::wem::Wc3CornEmitterPayload::replaceableId, R"doc(The team colour/glow the effect's textures take.)doc")
+        .def_readwrite("effect", &whiteout::models::wem::Wc3CornEmitterPayload::effect, R"doc(The PopcornFX effect, by path — a `.pkb`.)doc")
+        .def_readwrite("anim_visibility_guide", &whiteout::models::wem::Wc3CornEmitterPayload::animVisibilityGuide, R"doc(The effect's animation-visibility guide, by name. Opaque here: the engine resolves it against the effect.)doc")
+        .def_readwrite("unshaded", &whiteout::models::wem::Wc3CornEmitterPayload::unshaded, R"doc(0x8000.)doc")
+        .def_readwrite("sort_prims_far_z", &whiteout::models::wem::Wc3CornEmitterPayload::sortPrimsFarZ, R"doc(0x10000.)doc")
+        .def_readwrite("unfogged", &whiteout::models::wem::Wc3CornEmitterPayload::unfogged, R"doc(0x20000.)doc")
+        .def_readwrite("popcorn_scaling", &whiteout::models::wem::Wc3CornEmitterPayload::popcornScaling, R"doc(0x40000: the node's scale reaches the effect.)doc")
     ;
 
     py::class_<whiteout::models::wem::Sc2Variation>(m, "Sc2Variation", R"doc(One of the per-particle variation channels: a curve type, and the amplitude and frequency it runs at.)doc")
@@ -1405,6 +1448,7 @@ Its bone is the node's parent. The record's second `u16` beside the bone is the 
         .def(py::init<>())
         .def_readwrite("bounds", &whiteout::models::wem::BonePayload::bounds, R"doc(D3 ships both a box and a sphere, per bone.)doc")
         .def_readwrite("sphere", &whiteout::models::wem::BonePayload::sphere)
+        .def_readwrite("gate_mesh", &whiteout::models::wem::BonePayload::gateMesh, R"doc(MDX's bone -> geoset link: the mesh whose geoset animation gates this bone (its subtree is hidden while the mesh's alpha is 0) and, when that mesh is `SectionFlags::ProjectedShadow`, places it as a drop shadow. `kInvalidIndex`: none. `NODE` v5; an older chunk's link is migrated on read (`Node::migrateBoneGate`).)doc")
     ;
 
     py::class_<whiteout::models::wem::AttachmentPayload>(m, "AttachmentPayload", R"doc(An attach point, and what is riding it.
@@ -1428,6 +1472,12 @@ Both halves are optional and independent. `asset` is what the source named — a
         .def_readwrite("attenuation_end", &whiteout::models::wem::LightPayload::attenuationEnd)
         .def_readwrite("hot_spot", &whiteout::models::wem::LightPayload::hotSpot, R"doc(Spot cone inner angle.)doc")
         .def_readwrite("falloff", &whiteout::models::wem::LightPayload::falloff, R"doc(Spot cone outer angle.)doc")
+        .def_readwrite("shadow_casting", &whiteout::models::wem::LightPayload::shadowCasting, R"doc(MDX v1300: the light casts shadows, over `shadowCastingStart` .. `shadowCastingEnd` from it — its shadow cube's near and far.)doc")
+        .def_readwrite("shadow_casting_start", &whiteout::models::wem::LightPayload::shadowCastingStart)
+        .def_readwrite("shadow_casting_end", &whiteout::models::wem::LightPayload::shadowCastingEnd)
+        .def_readwrite("quadratic_falloff", &whiteout::models::wem::LightPayload::quadraticFalloff, R"doc(MDX v1600: the distance falloff, a factor of `exp(-damping d²) / (1 + linearFalloff d + quadraticFalloff d²)` — unrelated to the spot cone's `falloff`.)doc")
+        .def_readwrite("linear_falloff", &whiteout::models::wem::LightPayload::linearFalloff)
+        .def_readwrite("damping", &whiteout::models::wem::LightPayload::damping)
     ;
 
     py::class_<whiteout::models::wem::CameraPayload>(m, "CameraPayload")

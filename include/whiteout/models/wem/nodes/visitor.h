@@ -190,6 +190,11 @@ struct NodeVisitor {
         (void)node;
         (void)payload;
     }
+    virtual void OnWc3CornEmitter(u32 id, Node& node, Wc3CornEmitterPayload& payload) {
+        (void)id;
+        (void)node;
+        (void)payload;
+    }
 };
 
 /// Array order.

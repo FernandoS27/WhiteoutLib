@@ -122,15 +122,15 @@ NodeKind KindOf(Origin origin) {
         return NodeKind::Light;
     case Origin::Attachment:
         return NodeKind::Attachment;
-    // Warcraft III's own three systems import whole (§10.9). A PopcornFX
-    // emitter is a reference to an effect file WEM does not hold, which is
-    // what the generic kind is for.
+    // Warcraft III's own four systems import whole (§10.9). A PopcornFX
+    // emitter's effect is a file WEM does not hold, but its record is the
+    // model's, and a kind of its own keeps it.
     case Origin::ParticleEmitter:
         return NodeKind::Wc3ParticleEmitter1;
     case Origin::ParticleEmitter2:
         return NodeKind::Wc3ParticleEmitter2;
     case Origin::CornEmitter:
-        return NodeKind::ParticleEmitter;
+        return NodeKind::Wc3CornEmitter;
     case Origin::RibbonEmitter:
         return NodeKind::Wc3RibbonEmitter;
     case Origin::Event:
@@ -152,6 +152,10 @@ constexpr u32 kFlagSortPrims = static_cast<u32>(mdx::Node::NodeFlag::SortPrimiti
 constexpr u32 kFlagLineEmitter = static_cast<u32>(mdx::Node::NodeFlag::LineEmitter);
 constexpr u32 kFlagUnfogged = static_cast<u32>(mdx::Node::NodeFlag::Unfogged);
 constexpr u32 kFlagXyQuad = static_cast<u32>(mdx::Node::NodeFlag::XYQuad);
+// CORN's two bits past the shared pair, which PRE2 reads as `LineEmitter` and
+// `Unfogged`.
+constexpr u32 kFlagCornUnfogged = static_cast<u32>(mdx::Node::NodeFlag::PopcornUnfogged);
+constexpr u32 kFlagCornScaling = static_cast<u32>(mdx::Node::NodeFlag::PopcornScaling);
 
 u32 WithBit(u32 bits, u32 bit, bool on) {
     return on ? (bits | bit) : (bits & ~bit);
@@ -324,6 +328,14 @@ void FillPayload(const mdx::Model& source, const PendingNode& pending, Node& nod
         payload.intensity = light.intensity;
         payload.attenuationStart = light.attenuationStart;
         payload.attenuationEnd = light.attenuationEnd;
+        // The parser fills a pre-1300/1600 light with the game's own
+        // substitutes, so these are the values it plays at any version.
+        payload.shadowCasting = light.shadowCasting;
+        payload.shadowCastingStart = light.shadowCastingStart;
+        payload.shadowCastingEnd = light.shadowCastingEnd;
+        payload.quadraticFalloff = light.quadraticFalloff;
+        payload.linearFalloff = light.linearFalloff;
+        payload.damping = light.damping;
         // Rounded, not truncated: 0.7f is 0.69999999, and a truncation kept 0.699.
         SetMilli(node.native, "ambientIntensity", light.ambientIntensity);
         SetMilli(node.native, "shadowIntensity", light.shadowIntensity);
@@ -410,7 +422,20 @@ void FillPayload(const mdx::Model& source, const PendingNode& pending, Node& nod
     }
     case Origin::CornEmitter: {
         const mdx::CornEmitter& emitter = source.cornEmitters[pending.sourceIndex];
-        std::get<ParticlePayload>(node.payload).system.path = emitter.path;
+        auto& payload = std::get<Wc3CornEmitterPayload>(node.payload);
+        payload.lifespan = emitter.lifeSpan;
+        payload.emissionRate = emitter.emissionRate;
+        payload.speed = emitter.speed;
+        payload.color = emitter.color;
+        payload.alpha = emitter.alpha;
+        payload.replaceableId = emitter.replaceableId;
+        payload.effect.path = emitter.path;
+        payload.animVisibilityGuide = emitter.animVisibilityGuide;
+        const u32 bits = static_cast<u32>(emitter.node.flags);
+        payload.unshaded = (bits & kFlagUnshaded) != 0;
+        payload.sortPrimsFarZ = (bits & kFlagSortPrims) != 0;
+        payload.unfogged = (bits & kFlagCornUnfogged) != 0;
+        payload.popcornScaling = (bits & kFlagCornScaling) != 0;
         break;
     }
     case Origin::RibbonEmitter: {
@@ -572,11 +597,12 @@ NodeImport ImportNodes(const mdx::Model& source) {
 // Geometry
 // ============================================================================
 
-/// Where a node kind's chunk sits in `mdx/writer.cpp`'s emission order — BONE,
-/// LITE, HELP, ATCH, PREM, PRE2, RIBB, EVTS, CLID — which is the order MDX
-/// assigns object ids in. `Camera` has no node chunk and so no id, and answers
-/// -1. @p kind is what the node is WRITTEN as (`WrittenKind`), so a system the
-/// profile does not carry ranks as the helper it becomes.
+/// Where a node kind's chunk sits in the order MDX assigns object ids in —
+/// BONE, LITE, HELP, ATCH, PREM, PRE2, CORN, RIBB, EVTS, CLID. CORN is where
+/// Reforged's own files number it, between PRE2 and RIBB, which is also where
+/// 3.0's chunk table reads it. `Camera` has no node chunk and so no id, and
+/// answers -1. @p kind is what the node is WRITTEN as (`WrittenKind`), so a
+/// system the profile does not carry ranks as the helper it becomes.
 int ChunkRank(NodeKind kind) {
     switch (kind) {
     case NodeKind::Bone:
@@ -592,13 +618,15 @@ int ChunkRank(NodeKind kind) {
     case NodeKind::Wc3ParticleEmitter2:
     case NodeKind::ParticleEmitter: // written as a PRE2
         return 5;
+    case NodeKind::Wc3CornEmitter:
+        return 6;
     case NodeKind::Wc3RibbonEmitter:
     case NodeKind::RibbonEmitter:
-        return 6;
-    case NodeKind::Event:
         return 7;
-    case NodeKind::CollisionShape:
+    case NodeKind::Event:
         return 8;
+    case NodeKind::CollisionShape:
+        return 9;
     case NodeKind::Camera:
     case NodeKind::Sc2ParticleEmitter:
     case NodeKind::Sc2RibbonEmitter:
@@ -608,7 +636,7 @@ int ChunkRank(NodeKind kind) {
     return -1;
 }
 
-constexpr int kLastChunkRank = 8;
+constexpr int kLastChunkRank = 9;
 
 /// What @p kind is written as under @p profile: itself when the profile carries
 /// it, and otherwise its placement alone -- a helper (§10.9). A StarCraft II
@@ -1774,8 +1802,22 @@ Diagnostics MdxConverter::checkGeoset(const Document& document, u32 model, const
 // toMdx
 // ============================================================================
 
+u32 MdxFileVersion(ProfileId profile) {
+    switch (profile) {
+    case ProfileId::Wc3Classic:
+        return 800;
+    case ProfileId::Wc3Reforged:
+        return 1800;
+    default:
+        return 0;
+    }
+}
+
 Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profile,
                                        u32 targetVersion, std::optional<ProfileId> skinAs) const {
+    if (targetVersion == 0) {
+        targetVersion = MdxFileVersion(profile);
+    }
     Result<mdx::Model> result;
     if (!checkExportProfile(document, profile, result.diagnostics)) {
         return result;
@@ -1942,6 +1984,14 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
                 light.intensity = payload->intensity;
                 light.attenuationStart = payload->attenuationStart;
                 light.attenuationEnd = payload->attenuationEnd;
+                // Written from v1300/v1600 only (`mdx/writer.cpp`); below, the
+                // game substitutes its own, which are the payload's defaults.
+                light.shadowCasting = payload->shadowCasting;
+                light.shadowCastingStart = payload->shadowCastingStart;
+                light.shadowCastingEnd = payload->shadowCastingEnd;
+                light.quadraticFalloff = payload->quadraticFalloff;
+                light.linearFalloff = payload->linearFalloff;
+                light.damping = payload->damping;
                 if (payload->kind == LightKind::Spot) {
                     diagnostics.warn(DiagCode::FeatureDropped,
                                      "WC3 has no spot light; written as omni",
@@ -2077,6 +2127,28 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
             emitter.gravity = payload.gravity;
             claim(i, mdx_anim::ExportContext::Slot::RibbonEmitter, out.ribbonEmitters.size());
             out.ribbonEmitters.push_back(std::move(emitter));
+            break;
+        }
+        case NodeKind::Wc3CornEmitter: {
+            const auto& payload = std::get<Wc3CornEmitterPayload>(node.payload);
+            mdx::CornEmitter emitter;
+            emitter.node = buildNode(i);
+            u32 bits = static_cast<u32>(emitter.node.flags);
+            bits = WithBit(bits, kFlagUnshaded, payload.unshaded);
+            bits = WithBit(bits, kFlagSortPrims, payload.sortPrimsFarZ);
+            bits = WithBit(bits, kFlagCornUnfogged, payload.unfogged);
+            bits = WithBit(bits, kFlagCornScaling, payload.popcornScaling);
+            emitter.node.flags = static_cast<mdx::Node::NodeFlag>(bits);
+            emitter.lifeSpan = payload.lifespan;
+            emitter.emissionRate = payload.emissionRate;
+            emitter.speed = payload.speed;
+            emitter.color = payload.color;
+            emitter.alpha = payload.alpha;
+            emitter.replaceableId = payload.replaceableId;
+            emitter.path = payload.effect.path;
+            emitter.animVisibilityGuide = payload.animVisibilityGuide;
+            claim(i, mdx_anim::ExportContext::Slot::CornEmitter, out.cornEmitters.size());
+            out.cornEmitters.push_back(std::move(emitter));
             break;
         }
         case NodeKind::ParticleEmitter: {
@@ -2359,6 +2431,9 @@ bool MdxConverter::supportsExport() const {
     return true;
 }
 
+// Classic's. The version a file is written at depends on the profile, which
+// this cannot see: `exportToBytes` and `toMdx` resolve 0 through
+// `MdxFileVersion`, so a Reforged file is never written at this one.
 u32 MdxConverter::defaultExportVersion() const {
     return 800;
 }
@@ -2375,8 +2450,7 @@ Result<Document> MdxConverter::importFromBytes(std::span<const u8> data) const {
 
 Result<std::vector<u8>> MdxConverter::exportToBytes(const Document& document, ProfileId profile,
                                                     u32 version) const {
-    Result<mdx::Model> converted =
-        toMdx(document, profile, version == 0 ? defaultExportVersion() : version);
+    Result<mdx::Model> converted = toMdx(document, profile, version);
     Result<std::vector<u8>> result;
     result.diagnostics = std::move(converted.diagnostics);
     if (!converted.ok()) {

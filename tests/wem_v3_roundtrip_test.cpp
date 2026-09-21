@@ -533,6 +533,53 @@ void cutSkinFromNodeChunk(std::vector<u8>& bytes) {
     FAIL("no NODE chunk to cut the setup from");
 }
 
+/// The third half of an older `NODE`: every default light's 3.0 terms (v7) cut
+/// out -- `shadowCasting` as one byte, then the shadow range and the three
+/// falloff floats. A default light's are the game's substitutes, 0.0005 and
+/// 1e-5, which no other field of the fixture holds, so the run can be found
+/// and cut whole.
+void cutLightTermsFromNodeChunk(std::vector<u8>& bytes, u32 lights) {
+    u8 terms[21] = {};
+    const f32 quadratic = 0.0005f;
+    const f32 damping = 0.00001f;
+    std::memcpy(terms + 9, &quadratic, sizeof(f32));
+    std::memcpy(terms + 17, &damping, sizeof(f32));
+
+    WEMHeader header{};
+    std::memcpy(&header, bytes.data(), sizeof(header));
+    std::vector<IndexEntry> entries(header.indexCount);
+    std::memcpy(entries.data(), bytes.data() + header.indexOffset,
+                entries.size() * sizeof(IndexEntry));
+
+    for (const IndexEntry& entry : entries) {
+        if (entry.tag != ChunkTagTraits<Node>::value) {
+            continue;
+        }
+        u32 end = header.indexOffset > entry.offset ? header.indexOffset : u32(bytes.size());
+        for (const IndexEntry& other : entries) {
+            if (other.offset > entry.offset && other.offset < end) {
+                end = other.offset;
+            }
+        }
+        std::vector<u32> found;
+        for (u32 at = entry.offset; at + sizeof(terms) <= end; ++at) {
+            if (std::memcmp(bytes.data() + at, terms, sizeof(terms)) == 0) {
+                found.push_back(at);
+                at += static_cast<u32>(sizeof(terms)) - 1;
+            }
+        }
+        REQUIRE(found.size() == lights);
+        for (auto at = found.rbegin(); at != found.rend(); ++at) {
+            std::memmove(bytes.data() + *at, bytes.data() + *at + sizeof(terms),
+                         end - *at - sizeof(terms));
+        }
+        std::memset(bytes.data() + end - sizeof(terms) * found.size(), 0xAA,
+                    sizeof(terms) * found.size());
+        return;
+    }
+    FAIL("no NODE chunk to cut the light terms from");
+}
+
 } // namespace
 
 TEST_CASE("wem a v4 bone reads its gate from the MDX bag pair", "[wem][format][nodes]") {
@@ -552,7 +599,9 @@ TEST_CASE("wem a v4 bone reads its gate from the MDX bag pair", "[wem][format][n
     seed(unlinked, 0x5EA7C0E0, 0xFFFFFFFF, 0xFFFFFFFF);
 
     std::vector<u8> bytes = writeDocument(original);
-    // A v4 record holds neither the gate (v5) nor the skin setup (v6).
+    // A v4 record holds neither the gate (v5), the skin setup (v6) nor a
+    // light's 3.0 terms (v7).
+    cutLightTermsFromNodeChunk(bytes, static_cast<u32>(nodes.ofKind(NodeKind::Light).size()));
     cutSkinFromNodeChunk(bytes);
     for (const u32 pattern : {0x5EA7C0DEu, 0x5EA7C0DFu, 0x5EA7C0E0u}) {
         cutGateFromNodeChunk(bytes, pattern);

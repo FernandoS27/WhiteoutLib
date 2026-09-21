@@ -105,6 +105,16 @@ enum class Channel : u8 {
     /// the property's, not this entry's.
     EmitterProperty,
 
+    // A Warcraft III 3.0 light's shadow range and distance falloff
+    // (`LightPayload`). Only MDX keys them, but they are a light's properties
+    // and not a system's, so they sit beside `AttenuationStart`/`End` rather
+    // than behind a `sub`.
+    ShadowCastingStart, ///< F32. MDX KLSS (v1300).
+    ShadowCastingEnd,   ///< F32. MDX KLSE (v1300).
+    QuadraticFalloff,   ///< F32. MDX KLQF (v1600).
+    LinearFalloff,      ///< F32. MDX KLLF (v1600).
+    Damping,            ///< F32. MDX KLDA (v1600).
+
     Count
 };
 

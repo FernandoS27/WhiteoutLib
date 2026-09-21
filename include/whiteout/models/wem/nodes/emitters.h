@@ -16,6 +16,10 @@
  * (`ProfileDesc::nodeKinds`). The generic `ParticlePayload`/`RibbonPayload` stay
  * for the formats WEM still only names a system for (§18).
  *
+ * Reforged's `CORN` is the one in between: its effect is a PopcornFX file WEM
+ * does not hold, but the record around it — the multipliers, their tracks, the
+ * flags — is the model's, so it is a kind of its own too (revision 12).
+ *
  * The node rules hold unchanged:
  *
  * - **The placement is the node.** An MDX emitter is a node chunk already; an
@@ -24,7 +28,8 @@
  *   clip keys is a `Channel::EmitterProperty` channel on the node whose `sub`
  *   is the property's enumerator below (`EmitterPropertySub`). A property the
  *   formats share keeps its shared channel — an emitter's `Visibility`, a
- *   Warcraft III ribbon's `Color`, `Alpha` and `TextureIndex`.
+ *   Warcraft III ribbon's `Color`, `Alpha` and `TextureIndex`, a `CORN`'s
+ *   `Color` and `Alpha`.
  * - **Cross-references are WEM indices.** A material is a `Model::materialSlots`
  *   index, a texture a `Document::textures` index, and another emitter or a bone
  *   a node index — each a §10.6 / §7.5 referencer, enumerated by the static
@@ -110,6 +115,9 @@ enum class Wc3Particle2Property : u32 {
 
 /// MDX `RIBB` tracks beyond the shared channels (KRHA, KRHB).
 enum class Wc3RibbonProperty : u32 { HeightAbove, HeightBelow, Count };
+
+/// MDX `CORN` tracks beyond the shared channels (KPPL, KPPE, KPPS).
+enum class Wc3CornProperty : u32 { Lifespan, EmissionRate, Speed, Count };
 
 /// M3 `PAR_` AnimRefs, and a `PARC` copy's two. `SplinePoint` is per element.
 enum class Sc2ParticleProperty : u32 {
@@ -388,6 +396,57 @@ struct Wc3RibbonEmitterPayload {
         v.field("columns", columns);
         v.field("materialSlot", materialSlot);
         v.field("gravity", gravity);
+    }
+};
+
+/**
+ * @brief `CORN`: a PopcornFX effect run at the node (Reforged).
+ *
+ * The effect itself is a `.pkb` WEM does not hold, named by `effect`; what the
+ * model owns is the five numbers the game hands the effect every frame. They
+ * are MULTIPLIERS on the effect's own values (the game's reader names each
+ * track so: "lifespan multiplier keys", ...), which is why they rest at 1.
+ *
+ * Its colour, alpha and visibility key on the shared `Color`, `Alpha` and
+ * `Visibility` channels and rest here; lifespan, emission rate and speed are
+ * `Wc3CornProperty` channels. A keyed colour is blue first in the file, like
+ * every other Warcraft III colour key (`ReadBinParticleEmitterPopcorn` keeps the
+ * keys as read and reverses only the static colour); the channel is RGB.
+ */
+struct Wc3CornEmitterPayload {
+    f32 lifespan = 1;        ///< Multiplies the effect's particle lifespan.
+    f32 emissionRate = 1;    ///< Multiplies its emission rate.
+    f32 speed = 1;           ///< Multiplies its particle speed.
+    Vector3f color{1, 1, 1}; ///< Multiplies its colour. RGB, red first.
+    f32 alpha = 1;           ///< Multiplies its alpha.
+    u32 replaceableId = 0;   ///< The team colour/glow the effect's textures take.
+
+    AssetKey effect; ///< The PopcornFX effect, by path — a `.pkb`.
+    /// The effect's animation-visibility guide, by name. Opaque here: the
+    /// engine resolves it against the effect.
+    std::string animVisibilityGuide;
+
+    // The node flag bits CORN gives meanings of its own. 0x20000 and 0x40000
+    // are NOT PRE2's: PRE2 reads them as `LineEmitter` and `Unfogged`.
+    bool unshaded = false;       ///< 0x8000.
+    bool sortPrimsFarZ = false;  ///< 0x10000.
+    bool unfogged = false;       ///< 0x20000.
+    bool popcornScaling = false; ///< 0x40000: the node's scale reaches the effect.
+
+    template <class V>
+    void reflect(V& v) {
+        v.field("lifespan", lifespan);
+        v.field("emissionRate", emissionRate);
+        v.field("speed", speed);
+        v.field("color", color);
+        v.field("alpha", alpha);
+        v.field("replaceableId", replaceableId);
+        v.field("effect", effect);
+        v.field("animVisibilityGuide", animVisibilityGuide);
+        v.field("unshaded", unshaded);
+        v.field("sortPrimsFarZ", sortPrimsFarZ);
+        v.field("unfogged", unfogged);
+        v.field("popcornScaling", popcornScaling);
     }
 };
 

@@ -434,6 +434,8 @@ add_library(whiteout_lib
     src/whiteout/models/wem/skinning/deform.cpp
     src/whiteout/models/wem/skinning/mirror.cpp
     src/whiteout/models/wem/skinning/generate.cpp
+    src/whiteout/models/wem/skinning/generate_heat.cpp
+    src/whiteout/models/wem/skinning/generate_geodesic.cpp
     src/whiteout/models/wem/skinning/transfer.cpp
     src/whiteout/models/wem/anim/channel.cpp
     src/whiteout/models/wem/anim/clip.cpp

@@ -41,28 +41,46 @@ void scaleMatrixTranslation(Matrix44f& matrix, f32 factor) {
     matrix.data[3][2] *= factor;
 }
 
-/// Whether a channel's values are lengths. Everything else a channel can drive
-/// — a rotation, a scale, a colour, an alpha, a UV, a texture index — is
-/// dimensionless and survives a rescale untouched. An emitter property says for
-/// itself (`EmitterPropertyDesc::length`), which is why the node is asked.
-bool isLengthChannel(const Model& model, const AnimChannel& channel) {
+/// The power of length a channel's values carry: 1 for a distance, 0 for
+/// everything dimensionless — a rotation, a scale, a colour, an alpha, a UV, a
+/// texture index — which survives a rescale untouched. An emitter property says
+/// for itself (`EmitterPropertyDesc::length`), which is why the node is asked.
+///
+/// A Warcraft III light's falloff is the one negative power: it is a factor of
+/// `exp(-damping d²) / (1 + linear d + quadratic d²)`, and it falls off over the
+/// rescaled model as it did over the original only when each coefficient carries
+/// the inverse of its term's length.
+int lengthPower(const Model& model, const AnimChannel& channel) {
     switch (channel.target.channel) {
     case Channel::Translation:
     case Channel::AttenuationStart:
     case Channel::AttenuationEnd:
-        return true;
+    case Channel::ShadowCastingStart:
+    case Channel::ShadowCastingEnd:
+        return 1;
+    case Channel::LinearFalloff:
+        return -1;
+    case Channel::QuadraticFalloff:
+    case Channel::Damping:
+        return -2;
     case Channel::EmitterProperty: {
         if (channel.target.kind != TrackTarget::Kind::Node ||
             channel.target.node >= model.nodes.size()) {
-            return false;
+            return 0;
         }
         const EmitterPropertyDesc* desc =
             FindEmitterProperty(model.nodes.nodes[channel.target.node].kind, channel.target.sub);
-        return desc != nullptr && desc->length;
+        return desc != nullptr && desc->length ? 1 : 0;
     }
     default:
-        return false;
+        return 0;
     }
+}
+
+/// @p factor raised to @p power: what a value carrying that power of length is
+/// multiplied by.
+f32 powerOf(f32 factor, int power) {
+    return power == 1 ? factor : std::pow(factor, static_cast<f32>(power));
 }
 
 template <class T>
@@ -180,6 +198,12 @@ void rescaleNode(Node& node, f32 factor) {
     } else if (auto* light = std::get_if<LightPayload>(&node.payload)) {
         light->attenuationStart *= factor;
         light->attenuationEnd *= factor;
+        light->shadowCastingStart *= factor;
+        light->shadowCastingEnd *= factor;
+        // Per distance and per area (`lengthPower`).
+        light->linearFalloff /= factor;
+        light->quadraticFalloff /= factor * factor;
+        light->damping /= factor * factor;
     } else if (auto* camera = std::get_if<CameraPayload>(&node.payload)) {
         // `fov` is an angle and stays; the two clip planes are distances from
         // the camera and move with the model, and the target is a point in it.
@@ -234,10 +258,11 @@ RescaleResult RescaleDocument(Document& document, f32 factor) {
         document.unitScale /= factor;
     }
 
-    // Which channels of which model are lengths, so a clip's sub-tracks can be
-    // filtered without searching the table per key. A channel id is only
-    // meaningful inside one model (§10.8), which is why the map is per model.
-    std::vector<std::unordered_map<u32, bool>> lengthChannels(document.models.size());
+    // What each channel of each model is multiplied by -- 1 for one that is
+    // not a length -- so a clip's sub-tracks can be filtered without searching
+    // the table per key. A channel id is only meaningful inside one model
+    // (§10.8), which is why the map is per model.
+    std::vector<std::unordered_map<u32, f32>> lengthChannels(document.models.size());
 
     for (std::size_t modelIndex = 0; modelIndex < document.models.size(); ++modelIndex) {
         Model& model = document.models[modelIndex];
@@ -262,14 +287,15 @@ RescaleResult RescaleDocument(Document& document, f32 factor) {
         result.nodesScaled += static_cast<u32>(model.nodes.nodes.size());
 
         for (AnimChannel& channel : model.animChannels.channels) {
-            const bool isLength = isLengthChannel(model, channel);
-            lengthChannels[modelIndex].emplace(channel.id, isLength);
-            if (!isLength || !isFloatType(channel.valueType)) {
+            const int power = lengthPower(model, channel);
+            const f32 multiplier = powerOf(factor, power);
+            lengthChannels[modelIndex].emplace(channel.id, multiplier);
+            if (power == 0 || !isFloatType(channel.valueType)) {
                 continue;
             }
             // The rest value an opaque container contributes for an un-keyed
             // channel (§10.8.1) is a value of the channel like any other.
-            result.keysScaled += scaleFloats(channel.initValue, factor);
+            result.keysScaled += scaleFloats(channel.initValue, multiplier);
         }
     }
 
@@ -289,14 +315,14 @@ RescaleResult RescaleDocument(Document& document, f32 factor) {
         for (SubTrackContainer& container : clip.containers) {
             for (SubTrack& track : container.subTracks) {
                 const auto found = lengths.find(track.channel);
-                if (found == lengths.end() || !found->second) {
+                if (found == lengths.end() || found->second == 1.0f) {
                     continue;
                 }
                 const AnimChannel* channel = model.animChannels.find(track.channel);
                 if (channel == nullptr || !isFloatType(channel->valueType)) {
                     continue;
                 }
-                result.keysScaled += scaleFloats(track.values, factor);
+                result.keysScaled += scaleFloats(track.values, found->second);
             }
         }
     }

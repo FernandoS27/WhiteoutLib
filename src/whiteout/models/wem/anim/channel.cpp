@@ -46,6 +46,15 @@ constexpr EmitterPropertyDesc kWc3Ribbon[] = {
 };
 static_assert(std::size(kWc3Ribbon) == static_cast<std::size_t>(Wc3RibbonProperty::Count));
 
+// Multipliers on the effect's own values, so none of them is a length: a
+// rescale leaves a factor alone.
+constexpr EmitterPropertyDesc kWc3Corn[] = {
+    {"lifespan", AttrType::F32},
+    {"emissionRate", AttrType::F32},
+    {"speed", AttrType::F32},
+};
+static_assert(std::size(kWc3Corn) == static_cast<std::size_t>(Wc3CornProperty::Count));
+
 constexpr EmitterPropertyDesc kSc2Particle[] = {
     {"initialSpeed", AttrType::F32, false, kLength},
     {"initialSpeedRandom", AttrType::F32, false, kLength},
@@ -155,6 +164,8 @@ std::span<const EmitterPropertyDesc> PropertiesOf(NodeKind kind) {
         return kWc3Particle2;
     case NodeKind::Wc3RibbonEmitter:
         return kWc3Ribbon;
+    case NodeKind::Wc3CornEmitter:
+        return kWc3Corn;
     case NodeKind::Sc2ParticleEmitter:
         return kSc2Particle;
     case NodeKind::Sc2RibbonEmitter:
@@ -218,6 +229,16 @@ const char* ToString(Channel channel) {
         return "emissive";
     case Channel::EmitterProperty:
         return "emitterProperty";
+    case Channel::ShadowCastingStart:
+        return "shadowCastingStart";
+    case Channel::ShadowCastingEnd:
+        return "shadowCastingEnd";
+    case Channel::QuadraticFalloff:
+        return "quadraticFalloff";
+    case Channel::LinearFalloff:
+        return "linearFalloff";
+    case Channel::Damping:
+        return "damping";
     case Channel::Count:
         break;
     }
@@ -261,6 +282,11 @@ geom::AttrType DefaultValueType(Channel channel) {
     case Channel::Weight:
     case Channel::Emissive:
     case Channel::EmitterProperty: // the property's own type -- FindEmitterProperty
+    case Channel::ShadowCastingStart:
+    case Channel::ShadowCastingEnd:
+    case Channel::QuadraticFalloff:
+    case Channel::LinearFalloff:
+    case Channel::Damping:
     case Channel::Count:
         break;
     }

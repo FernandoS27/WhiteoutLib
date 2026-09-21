@@ -817,6 +817,9 @@ public:
                     ribbon(n);
                 }
                 break;
+            // A `.wem` written before `CORN` had a kind of its own holds one
+            // as the generic reference.
+            case NodeKind::Wc3CornEmitter:
             case NodeKind::ParticleEmitter:
                 ++popcorn;
                 break;

@@ -210,6 +210,45 @@ mdx::Model makeMdx() {
     return model;
 }
 
+/// A v1800 model with a PRE2, a PopcornFX emitter and a ribbon -- CORN between
+/// the two, where Reforged numbers it -- and every CORN field and track set to
+/// something its default is not. The colour keys are blue first, as the file
+/// stores them.
+mdx::Model makeReforgedMdx() {
+    mdx::Model model = makeMdx();
+    model.version = 1800;
+    model.particleEmitters.clear();
+    model.particleEmitters2[0].node.objectId = 1;
+    model.ribbonEmitters[0].node.objectId = 3;
+
+    mdx::CornEmitter corn;
+    corn.node = mdxNode("corn", 2, 0);
+    // Unfogged without scaling, so reading either bit as the other shows.
+    corn.node.flags = mdx::Node::NodeFlag::ParticleEmitter | mdx::Node::NodeFlag::Unshaded |
+                      mdx::Node::NodeFlag::PopcornUnfogged;
+    corn.lifeSpan = 1.5f;
+    corn.emissionRate = 0.5f;
+    corn.speed = 2.0f;
+    corn.color = Vector3f{1.0f, 0.5f, 0.25f};
+    corn.alpha = 0.75f;
+    corn.replaceableId = 1;
+    corn.path = "Abilities\\Spells\\Fire\\fire.pkb";
+    corn.animVisibilityGuide = "Stand";
+    corn.lifeSpanTracks = mdxTrack<f32>({0, 1000}, {1.5f, 3.0f});
+    corn.emissionRateTracks = mdxTrack<f32>({0, 500}, {0.5f, 0.0f});
+    corn.speedTracks = mdxTrack<f32>({0, 1000}, {2.0f, 1.0f});
+    corn.colorTracks = mdxTrack<Vector3f>({0, 1000}, {Vector3f{0.25f, 0.5f, 1.0f},
+                                                      Vector3f{0.0f, 0.0f, 1.0f}});
+    corn.alphaTracks = mdxTrack<f32>({0, 1000}, {0.75f, 0.0f});
+    corn.visibilityTracks = mdxTrack<f32>({0, 800}, {1.0f, 0.0f});
+    corn.visibilityTracks.interpolationType = mdx::InterpolationType::None;
+    model.cornEmitters.push_back(corn);
+
+    model.pivotPoints = {Vector3f{0, 0, 0}, Vector3f{0, 5, 0}, Vector3f{0, 0, 20},
+                         Vector3f{1, 2, 3}};
+    return model;
+}
+
 template <class T>
 m3::AnimRef<T> ref(u32 animId, const T& initValue, const T& nullValue = T{}) {
     m3::AnimRef<T> out;
@@ -438,6 +477,8 @@ TEST_CASE("wem every emitter system declares a closed property table", "[wem][no
           static_cast<u32>(Wc3Particle2Property::Count));
     CHECK(EmitterPropertyCount(NodeKind::Wc3RibbonEmitter) ==
           static_cast<u32>(Wc3RibbonProperty::Count));
+    CHECK(EmitterPropertyCount(NodeKind::Wc3CornEmitter) ==
+          static_cast<u32>(Wc3CornProperty::Count));
     CHECK(EmitterPropertyCount(NodeKind::Sc2ParticleEmitter) ==
           static_cast<u32>(Sc2ParticleProperty::Count));
     CHECK(EmitterPropertyCount(NodeKind::Sc2RibbonEmitter) ==
@@ -454,6 +495,14 @@ TEST_CASE("wem every emitter system declares a closed property table", "[wem][no
         FindEmitterProperty(NodeKind::Sc2RibbonEmitter, Sub(Sc2RibbonProperty::ColorMid));
     REQUIRE(color != nullptr);
     CHECK(color->type == geom::AttrType::F32x4);
+    // A CORN's properties multiply its effect's own, so none is a length.
+    for (u32 p = 0; p < static_cast<u32>(Wc3CornProperty::Count); ++p) {
+        const EmitterPropertyDesc* multiplier =
+            FindEmitterProperty(NodeKind::Wc3CornEmitter, EmitterPropertySub(p));
+        REQUIRE(multiplier != nullptr);
+        CHECK(multiplier->type == geom::AttrType::F32);
+        CHECK_FALSE(multiplier->length);
+    }
 
     // An element is only a per-element property's to name.
     CHECK(FindEmitterProperty(NodeKind::Sc2ParticleEmitter,
@@ -600,6 +649,15 @@ TEST_CASE("wem every emitter payload survives the binary round trip", "[wem][nod
     sr.splinePoints[0].velocityVariation.frequency.initValue = 8.0f;
     model.nodes.add(std::move(rib));
 
+    Node corn = makeNode("corn", NodeKind::Wc3CornEmitter, 0);
+    auto& wc = std::get<Wc3CornEmitterPayload>(corn.payload);
+    wc.emissionRate = 0.25f;
+    wc.color = Vector3f{0.5f, 0.25f, 1.0f};
+    wc.effect.path = "fx.pkb";
+    wc.animVisibilityGuide = "Birth";
+    wc.popcornScaling = true;
+    model.nodes.add(std::move(corn));
+
     const std::vector<u8> bytes = write(document);
     const Document back = read(bytes);
     // A field the reader skipped would be written back as its default, so the
@@ -627,6 +685,13 @@ TEST_CASE("wem every emitter payload survives the binary round trip", "[wem][nod
     const auto& rsr = std::get<Sc2RibbonEmitterPayload>(tree.nodes[6].payload);
     REQUIRE(rsr.splinePoints.size() == 1u);
     CHECK(rsr.splinePoints[0].velocityVariation.frequency.initValue == 8.0f);
+    const auto& rwc = std::get<Wc3CornEmitterPayload>(tree.nodes[7].payload);
+    CHECK(rwc.emissionRate == 0.25f);
+    CHECK(rwc.color.z == 1.0f);
+    CHECK(rwc.effect.path == "fx.pkb");
+    CHECK(rwc.animVisibilityGuide == "Birth");
+    CHECK(rwc.popcornScaling);
+    CHECK_FALSE(rwc.unfogged);
 }
 
 // ============================================================================
@@ -745,6 +810,142 @@ TEST_CASE("wem mdx carries all three Warcraft III systems both ways", "[wem][nod
     // own order.
     CHECK(e1.node.objectId < e2.node.objectId);
     CHECK(e2.node.objectId < er.node.objectId);
+}
+
+TEST_CASE("wem mdx carries a PopcornFX emitter both ways", "[wem][node][emitter]") {
+    // CORN imported as a generic reference holding only its path, and exported
+    // as an empty PRE2: every Reforged effect an edit rebuilt was gone (1,374
+    // of 1,382 shipped v1800 files lost every one).
+    const mdx::Model source = makeReforgedMdx();
+    const Document document = fromMdx(source);
+    const Model& model = document.models[0];
+    CHECK_FALSE(Validate(document, ValidateLevel::Profile).hasErrors());
+
+    const u32 cornNode = nodeNamed(model, "corn");
+    REQUIRE(cornNode != kInvalidNode);
+    CHECK(model.nodes.nodes[cornNode].kind == NodeKind::Wc3CornEmitter);
+    const auto& payload = std::get<Wc3CornEmitterPayload>(model.nodes.nodes[cornNode].payload);
+    CHECK(payload.lifespan == 1.5f);
+    CHECK(payload.emissionRate == 0.5f);
+    CHECK(payload.speed == 2.0f);
+    CHECK(payload.color.x == 1.0f);
+    CHECK(payload.color.z == 0.25f);
+    CHECK(payload.alpha == 0.75f);
+    CHECK(payload.replaceableId == 1u);
+    CHECK(payload.effect.path == source.cornEmitters[0].path);
+    CHECK(payload.animVisibilityGuide == "Stand");
+    CHECK(payload.unshaded);
+    CHECK_FALSE(payload.sortPrimsFarZ);
+    // 0x20000 and 0x40000 are CORN's own, not PRE2's `LineEmitter`/`Unfogged`.
+    CHECK(payload.unfogged);
+    CHECK_FALSE(payload.popcornScaling);
+
+    // The three multipliers are its own properties; colour, alpha and
+    // visibility the shared channels, the colour RGB like every other.
+    for (const Wc3CornProperty property :
+         {Wc3CornProperty::Lifespan, Wc3CornProperty::EmissionRate, Wc3CornProperty::Speed}) {
+        CHECK(channelFor(model, cornNode, EmitterPropertySub(static_cast<u32>(property))) !=
+              nullptr);
+    }
+    const AnimChannel* colour = nullptr;
+    u32 shared = 0;
+    for (const AnimChannel& channel : model.animChannels.channels) {
+        if (channel.target.node != cornNode) {
+            continue;
+        }
+        if (channel.target.channel == Channel::Color) {
+            colour = &channel;
+        }
+        shared += channel.target.channel == Channel::Color ||
+                          channel.target.channel == Channel::Alpha ||
+                          channel.target.channel == Channel::Visibility
+                      ? 1
+                      : 0;
+    }
+    CHECK(shared == 3u);
+    REQUIRE(colour != nullptr);
+    const SubTrack* colourKeys = nullptr;
+    for (const SubTrackContainer& container : document.clips[0].containers) {
+        colourKeys = colourKeys != nullptr ? colourKeys : container.find(colour->id);
+    }
+    REQUIRE(colourKeys != nullptr);
+    Vector3f first{};
+    std::memcpy(&first, colourKeys->values.data(), sizeof(Vector3f));
+    CHECK(first.x == 1.0f); // red first once it is WEM's
+    CHECK(first.z == 0.25f);
+
+    // Through the file and back out, record for record.
+    const Document reread = read(write(document));
+    MdxConverter converter;
+    Result<mdx::Model> back = converter.toMdx(reread, ProfileId::Wc3Reforged, 1800);
+    REQUIRE(back.ok());
+    CHECK(back->particleEmitters2.size() == 1u); // no CORN written as a PRE2
+    REQUIRE(back->cornEmitters.size() == 1u);
+    const mdx::CornEmitter& out = back->cornEmitters[0];
+    const mdx::CornEmitter& in = source.cornEmitters[0];
+    CHECK(out.node.name == in.node.name);
+    CHECK(static_cast<u32>(out.node.flags) == static_cast<u32>(in.node.flags));
+    CHECK(out.lifeSpan == in.lifeSpan);
+    CHECK(out.emissionRate == in.emissionRate);
+    CHECK(out.speed == in.speed);
+    CHECK(out.color == in.color);
+    CHECK(out.alpha == in.alpha);
+    CHECK(out.replaceableId == in.replaceableId);
+    CHECK(out.path == in.path);
+    CHECK(out.animVisibilityGuide == in.animVisibilityGuide);
+    const auto sameTrack = [](const auto& a, const auto& b) {
+        return a.isUsed == b.isUsed && a.timestamps == b.timestamps &&
+               a.keys_data == b.keys_data && a.interpolationType == b.interpolationType;
+    };
+    CHECK(sameTrack(out.lifeSpanTracks, in.lifeSpanTracks));
+    CHECK(sameTrack(out.emissionRateTracks, in.emissionRateTracks));
+    CHECK(sameTrack(out.speedTracks, in.speedTracks));
+    CHECK(sameTrack(out.colorTracks, in.colorTracks)); // blue first again
+    CHECK(sameTrack(out.alphaTracks, in.alphaTracks));
+    CHECK(sameTrack(out.visibilityTracks, in.visibilityTracks));
+
+    // Numbered where Reforged numbers it: after PRE2, before RIBB.
+    REQUIRE(back->ribbonEmitters.size() == 1u);
+    CHECK(back->particleEmitters2[0].node.objectId < out.node.objectId);
+    CHECK(out.node.objectId < back->ribbonEmitters[0].node.objectId);
+    CHECK(back->pivotPoints[out.node.objectId] == source.pivotPoints[in.node.objectId]);
+
+    // An edit to a typed flag wins over the raw word the import kept.
+    Document edited = reread;
+    Model& editedModel = edited.models[0];
+    auto& flags =
+        std::get<Wc3CornEmitterPayload>(editedModel.nodes.nodes[nodeNamed(editedModel, "corn")].payload);
+    flags.unfogged = false;
+    flags.popcornScaling = true;
+    Result<mdx::Model> flipped = converter.toMdx(edited, ProfileId::Wc3Reforged, 1800);
+    REQUIRE(flipped.ok());
+    REQUIRE(flipped->cornEmitters.size() == 1u);
+    const u32 bits = static_cast<u32>(flipped->cornEmitters[0].node.flags);
+    CHECK((bits & static_cast<u32>(mdx::Node::NodeFlag::PopcornUnfogged)) == 0u);
+    CHECK((bits & static_cast<u32>(mdx::Node::NodeFlag::PopcornScaling)) != 0u);
+}
+
+TEST_CASE("wem a PopcornFX emitter crosses to StarCraft II as its placement",
+          "[wem][node][emitter]") {
+    Document document = fromMdx(makeReforgedMdx());
+    REQUIRE(DeriveProfile(document, ProfileId::Wc3Classic, ProfileId::Sc2).ok);
+    M3Converter converter;
+    Result<m3::Model> out = converter.toM3(document, ProfileId::Sc2);
+    REQUIRE(out.ok());
+    // StarCraft II runs no PopcornFX: the node is written as its placement,
+    // said once for the kind, and none of its channels becomes a stream.
+    bool named = false;
+    for (const Diagnostic& entry : out.diagnostics.byCode(DiagCode::NodeKindNotCarried)) {
+        named = named || entry.message.find("wc3_corn_emitter") != std::string::npos;
+    }
+    CHECK(named);
+    const Model& model = document.models[0];
+    const u32 cornNode = nodeNamed(model, "corn");
+    for (const AnimChannel& channel : model.animChannels.channels) {
+        if (channel.target.node == cornNode && channel.target.channel == Channel::EmitterProperty) {
+            CHECK(streamOf(*out, channel.id) == kInvalidIndex);
+        }
+    }
 }
 
 // ============================================================================
