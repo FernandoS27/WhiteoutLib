@@ -30,12 +30,24 @@ endif()
 
 find_package(pybind11 CONFIG REQUIRED)
 
+# The large modules are split across several TUs by codegen (pybind_parts
+# in tools/codegen/modules/<mod>.py); keep these lists in step with it.
 pybind11_add_module(whiteout MODULE
     module.cpp
     mdx_bindings.cpp
+    mdx_bindings_1.cpp
     m2_bindings.cpp
+    m2_bindings_1.cpp
+    m2_bindings_2.cpp
+    m2_bindings_3.cpp
     m3_bindings.cpp
+    m3_bindings_1.cpp
+    m3_bindings_2.cpp
+    m3_bindings_3.cpp
+    m3_bindings_4.cpp
     wem_bindings.cpp
+    wem_bindings_1.cpp
+    wem_bindings_2.cpp
     textures_bindings.cpp
     utils_bindings.cpp
     host_bindings.cpp

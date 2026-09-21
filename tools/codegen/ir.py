@@ -308,6 +308,7 @@ class ModuleConfig:
     headers: list[str]               # paths relative to repo root
     output_path: str                 # Embind output (path relative to repo root)
     pybind_output_path: str = ''     # pybind11 output (defaults to bindings/python/<name>_bindings.cpp)
+    pybind_parts: int = 1            # pybind11 TUs: <out>.cpp + <out>_1.cpp.. (see emit_pybind.PART_BUDGET_GB)
     dts_output_path: str = ''        # TypeScript .d.ts output (defaults to packages/js-ts/types/<name>.d.ts)
     pyi_output_path: str = ''        # Python .pyi stub (defaults to packages/python/whiteout-stubs/<name>.pyi)
     c_header_output_path: str = ''   # C ABI header (defaults to bindings/c/whiteout_<name>.h)

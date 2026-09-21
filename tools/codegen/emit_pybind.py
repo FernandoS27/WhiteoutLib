@@ -640,7 +640,60 @@ def _vector_py_name(v: TypeRef, prefix: str) -> str:
     return _py_name(js, prefix)
 
 
+# GCC 15.2 peak RSS (GB) of a binding TU at the CI flags (-O3 -flto), fitted
+# over whole and split m2/m3/wem/mdx TUs. bind_vector dominates: each one
+# instantiates pybind11's full list interface.
+_TU_BASE_GB = 0.41
+_STMT_COST_GB = (
+    (re.compile(r'\.def_read(?:write|only)\('), 0.0015),
+    (re.compile(r'\.def(?:_static|_property|_property_readonly)?\('), 0.0033),
+    (re.compile(r'\.value\('), 0.0010),
+    (re.compile(r'py::bind_vector<|bindBufferVector<'), 0.0446),
+)
+
+# AppVeyor's Linux worker (~7 GB) compiles two TUs at once; a part above
+# this gets the runner OOM-killed, which AppVeyor reports as a green job.
+PART_BUDGET_GB = 1.75
+
+
+def _stmt_cost(text: str) -> float:
+    return sum(len(rx.findall(text)) * gb for rx, gb in _STMT_COST_GB)
+
+
+def _partition(costs: list[float], parts: int) -> list[int]:
+    """Contiguous split into `parts` non-empty runs minimising the largest
+    run; returns the start index of each run."""
+    n = len(costs)
+    parts = max(1, min(parts, n))
+    prefix = [0.0]
+    for c in costs:
+        prefix.append(prefix[-1] + c)
+    inf = float('inf')
+    best = [[inf] * (n + 1) for _ in range(parts + 1)]
+    cut = [[0] * (n + 1) for _ in range(parts + 1)]
+    best[0][0] = 0.0
+    for k in range(1, parts + 1):
+        for i in range(k, n + 1):
+            for j in range(k - 1, i):
+                v = max(best[k - 1][j], prefix[i] - prefix[j])
+                if v < best[k][i]:
+                    best[k][i], cut[k][i] = v, j
+    starts, i = [], n
+    for k in range(parts, 0, -1):
+        i = cut[k][i]
+        starts.append(i)
+    return starts[::-1]
+
+
 def emit(module: BindModule) -> str:
+    return emit_parts(module)[0][0]
+
+
+def emit_parts(module: BindModule, parts: int = 1) -> list[tuple[str, float]]:
+    """One (source, estimated peak GB) per translation unit. Part 0 defines
+    `bind_<module>` and calls `bind_<module>_<k>` for the rest in order, so
+    registration order — which base classes and default args rely on — is
+    unchanged by the split."""
     ns = module.cpp_namespace
     prefix = module.js_prefix
     skip = set(module.skip_class_js_names)
@@ -690,7 +743,13 @@ def emit(module: BindModule) -> str:
     if needs_buffer_vector:
         _emit_buffer_vector_helper(buf)
 
-    buf.write(f'void bind_{module.name}(py::module_& m) {{\n')
+    preamble = buf.getvalue()
+    stmts: list[str] = []
+
+    def _stmt(emit_fn, *args):
+        out = StringIO()
+        emit_fn(out, *args)
+        stmts.append(out.getvalue())
 
     # Constants.
     if module.constants:
@@ -700,25 +759,24 @@ def emit(module: BindModule) -> str:
             # Drop the module prefix and rewrite as PEP 8 UPPER_SNAKE_CASE
             # (Python convention for module-level constants).
             py_const = to_upper_snake(_py_name(c.js_name, prefix))
-            if c.doc:
-                buf.write(f'    // {c.doc}\n')
-            buf.write(f'    m.attr("{py_const}") = static_cast<{cast_t}>({expr});\n')
-        buf.write('\n')
+            doc = f'    // {c.doc}\n' if c.doc else ''
+            stmts.append(f'{doc}    m.attr("{py_const}") = static_cast<{cast_t}>({expr});\n')
+        stmts[-1] += '\n'
 
     # Enums.
     enums = [e for e in module.enums if e.js_name not in skip]
     for e in enums:
-        _emit_enum(buf, e, ns, prefix)
+        _stmt(_emit_enum, e, ns, prefix)
 
     # Value-object math types first.
     value_classes = [c for c in module.classes if c.is_value_object and c.js_name not in skip]
     other_classes = [c for c in module.classes if not c.is_value_object and c.js_name not in skip]
     for c in value_classes:
-        _emit_class(buf, c, ns, prefix)
+        _stmt(_emit_class, c, ns, prefix)
 
     # Class types.
     for c in other_classes:
-        _emit_class(buf, c, ns, prefix)
+        _stmt(_emit_class, c, ns, prefix)
 
     # Vector containers.
     #
@@ -740,7 +798,7 @@ def emit(module: BindModule) -> str:
         if info is not None and v.element.kind == TypeKind.PRIMITIVE:
             # Primitive scalar vector: pybind11's bind_vector already wires
             # up a 1D buffer protocol when given py::buffer_protocol().
-            buf.write(
+            stmts.append(
                 f'    py::bind_vector<std::vector<{elem_cpp}>>'
                 f'(m, "{py}", py::buffer_protocol());\n'
             )
@@ -749,16 +807,33 @@ def emit(module: BindModule) -> str:
             # the bindBufferVector helper which builds a 2D shape with the
             # right (rows=N, cols=Components) layout.
             scalar_cpp, _scalar_fmt, components = info
-            buf.write(
+            stmts.append(
                 f'    bindBufferVector<{elem_cpp}, {scalar_cpp}, {components}>'
                 f'(m, "{py}");\n'
             )
         else:
-            buf.write(f'    py::bind_vector<std::vector<{elem_cpp}>>(m, "{py}");\n')
-    buf.write('\n')
+            stmts.append(f'    py::bind_vector<std::vector<{elem_cpp}>>(m, "{py}");\n')
 
-    buf.write('}\n')
-    return buf.getvalue()
+    # Every part repeats the full preamble: the PYBIND11_MAKE_OPAQUE set must
+    # be identical in every TU that sees these vector types (ODR).
+    fn = f'bind_{module.name}'
+    starts = _partition([_stmt_cost(s) for s in stmts], parts)
+    ends = starts[1:] + [len(stmts)]
+    last = len(starts) - 1
+    result = []
+    for k, (lo, hi) in enumerate(zip(starts, ends)):
+        body = ''.join(stmts[lo:hi]) + ('\n' if k == last else '')
+        if k == 0:
+            decls = ''.join(f'void {fn}_{j}(py::module_& m);\n' for j in range(1, last + 1))
+            calls = ''.join(f'    {fn}_{j}(m);\n' for j in range(1, last + 1))
+            text = (preamble + (decls + '\n' if decls else '')
+                    + f'void {fn}(py::module_& m) {{\n' + body + calls + '}\n')
+        else:
+            text = (preamble
+                    + f'// Part {k} of {fn}(), which calls the parts in order.\n'
+                    + f'void {fn}_{k}(py::module_& m) {{\n' + body + '}\n')
+        result.append((text, _TU_BASE_GB + sum(_stmt_cost(s) for s in stmts[lo:hi])))
+    return result
 
 
 # ── Buffer-protocol element descriptors ────────────────────────────────────

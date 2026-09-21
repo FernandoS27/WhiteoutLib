@@ -707,7 +707,7 @@ for:
               bindings/c/whiteout_*.h \
               bindings/c/whiteout_*.cpp \
               bindings/java/src/main/java \
-              bindings/python/*_bindings.cpp \
+              bindings/python/*_bindings*.cpp \
               bindings/csharp/Whiteout \
               packages/python/whiteout-stubs
 
@@ -868,15 +868,23 @@ for:
                       [ -n "${jobs_ready[$key]:-}" ] && continue
                       IFS='|' read -r p1 p2 <<< "${want[$key]}"
                       if [ -n "${p2}" ]; then
-                          filter='.build.jobs[] | select((.name | contains($p1)) and (.name | contains($p2))) | .jobId + " " + .status'
+                          filter='.build.jobs[] | select((.name | contains($p1)) and (.name | contains($p2))) | .jobId + " " + .status + " " + (.artifactsCount // 0 | tostring)'
                           info="$(echo "${resp}" | jq -r --arg p1 "${p1}" --arg p2 "${p2}" "${filter}" | head -n1)"
                       else
-                          filter='.build.jobs[] | select(.name | contains($p1)) | .jobId + " " + .status'
+                          filter='.build.jobs[] | select(.name | contains($p1)) | .jobId + " " + .status + " " + (.artifactsCount // 0 | tostring)'
                           info="$(echo "${resp}" | jq -r --arg p1 "${p1}" "${filter}" | head -n1)"
                       fi
                       jobid="$(echo "${info}" | cut -d' ' -f1)"
                       status="$(echo "${info}" | cut -d' ' -f2)"
-                      if [ "${status}" = "success" ]; then
+                      artifacts="$(echo "${info}" | cut -d' ' -f3)"
+                      if [ "${status}" = "success" ] && [ "${artifacts}" = "0" ]; then
+                          # A runner that loses its agent mid-build (e.g. OOM) still
+                          # reports success, just with nothing uploaded.
+                          echo "  ${key} job ${jobid} reported success but uploaded no artifacts;" \
+                               "its build was likely killed — see" \
+                               "https://ci.appveyor.com/project/${APPVEYOR_ACCOUNT_NAME}/${APPVEYOR_PROJECT_SLUG}/builds/${APPVEYOR_BUILD_ID}/job/${jobid}" >&2
+                          exit 1
+                      elif [ "${status}" = "success" ]; then
                           jobs_ready[$key]=1
                           jobs_id[$key]="${jobid}"
                           echo "  ${key} job ready (${jobid})"

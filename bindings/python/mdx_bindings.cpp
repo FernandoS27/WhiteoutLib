@@ -127,6 +127,8 @@ auto bindBufferVector(py::module_& m, const char* name) {
 }
 
 } // namespace
+void bind_mdx_1(py::module_& m);
+
 void bind_mdx(py::module_& m) {
     py::enum_<whiteout::mdx::InterpolationType>(m, "InterpolationType")
         .value("NONE", whiteout::mdx::InterpolationType::None)
@@ -960,29 +962,5 @@ Tracks store animation data as a series of keyframes. The interpolation type det
     bindBufferVector<whiteout::Vector2f, float, 2>(m, "VectorVector2f");
     bindBufferVector<whiteout::Vector3f, float, 3>(m, "VectorVector3f");
     bindBufferVector<whiteout::Vector4f, float, 4>(m, "VectorVector4f");
-    py::bind_vector<std::vector<whiteout::f32>>(m, "VectorF32", py::buffer_protocol());
-    py::bind_vector<std::vector<whiteout::mdx::Attachment>>(m, "VectorMdxAttachment");
-    py::bind_vector<std::vector<whiteout::mdx::Bone>>(m, "VectorMdxBone");
-    py::bind_vector<std::vector<whiteout::mdx::Camera>>(m, "VectorMdxCamera");
-    py::bind_vector<std::vector<whiteout::mdx::CollisionShape>>(m, "VectorMdxCollisionShape");
-    py::bind_vector<std::vector<whiteout::mdx::CornEmitter>>(m, "VectorMdxCornEmitter");
-    py::bind_vector<std::vector<whiteout::mdx::EventObject>>(m, "VectorMdxEventObject");
-    py::bind_vector<std::vector<whiteout::mdx::Extent>>(m, "VectorMdxExtent");
-    py::bind_vector<std::vector<whiteout::mdx::FaceEffect>>(m, "VectorMdxFaceEffect");
-    py::bind_vector<std::vector<whiteout::mdx::Geoset>>(m, "VectorMdxGeoset");
-    py::bind_vector<std::vector<whiteout::mdx::GeosetAnimation>>(m, "VectorMdxGeosetAnimation");
-    py::bind_vector<std::vector<whiteout::mdx::Helper>>(m, "VectorMdxHelper");
-    py::bind_vector<std::vector<whiteout::mdx::Layer::SubTexture>>(m, "VectorMdxLayerSubTexture");
-    py::bind_vector<std::vector<whiteout::mdx::Layer>>(m, "VectorMdxLayer");
-    py::bind_vector<std::vector<whiteout::mdx::Light>>(m, "VectorMdxLight");
-    py::bind_vector<std::vector<whiteout::mdx::Material>>(m, "VectorMdxMaterial");
-    py::bind_vector<std::vector<whiteout::mdx::ParticleEmitter2>>(m, "VectorMdxParticleEmitter2");
-    py::bind_vector<std::vector<whiteout::mdx::ParticleEmitter>>(m, "VectorMdxParticleEmitter");
-    py::bind_vector<std::vector<whiteout::mdx::RibbonEmitter>>(m, "VectorMdxRibbonEmitter");
-    py::bind_vector<std::vector<whiteout::mdx::Sequence>>(m, "VectorMdxSequence");
-    py::bind_vector<std::vector<whiteout::mdx::Sound>>(m, "VectorMdxSound");
-    py::bind_vector<std::vector<whiteout::mdx::SoundEmitter>>(m, "VectorMdxSoundEmitter");
-    py::bind_vector<std::vector<whiteout::mdx::Texture>>(m, "VectorMdxTexture");
-    py::bind_vector<std::vector<whiteout::mdx::TextureAnimation>>(m, "VectorMdxTextureAnimation");
-
+    bind_mdx_1(m);
 }

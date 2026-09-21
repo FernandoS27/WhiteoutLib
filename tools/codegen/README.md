@@ -19,6 +19,12 @@ python -m tools.codegen.codegen m2  --backend pybind11
 python -m tools.codegen.codegen m3  --backend pybind11
 ```
 
+Modules with `pybind_parts=N` in their config are split into `N` translation
+units (`<module>_bindings.cpp` plus `<module>_bindings_1.cpp` …) to bound
+GCC's peak memory per TU. Codegen fails when a part's estimate exceeds
+`PART_BUDGET_GB` in `emit_pybind.py`; raise `pybind_parts` and list the new
+files in `bindings/python/CMakeLists.txt`.
+
 `scripts/build-wasm.ps1` runs the Embind codegen automatically before
 `cmake --build`. `scripts/build-python.ps1` does the equivalent for the
 pybind11 backend, builds the `.pyd`, and stages it into `bindings/python/`.

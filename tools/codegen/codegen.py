@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import re
 import sys
 from pathlib import Path
 
@@ -51,6 +52,34 @@ def _write_files(args, files: dict) -> int:
               f'({len(text)} bytes)')
     print(f'Total: {len(files)} files, {total_bytes} bytes')
     return 0
+
+
+def _write_pybind(args, config, out_rel: str, parts: list) -> int:
+    from tools.codegen.emit_pybind import PART_BUDGET_GB
+    over = [k for k, (_, gb) in enumerate(parts) if gb > PART_BUDGET_GB]
+    if over:
+        worst = max(gb for _, gb in parts)
+        print(f'error: {config.name} pybind11 part(s) {over} estimated at up to '
+              f'{worst:.2f} GB of GCC peak memory, over the {PART_BUDGET_GB} GB '
+              f'budget. Raise pybind_parts (now {config.pybind_parts}) in '
+              f'tools/codegen/modules/{config.name}.py and list the new part '
+              f'files in bindings/python/CMakeLists.txt.', file=sys.stderr)
+        return 1
+
+    stem = out_rel[:-len('.cpp')]
+    files = {(out_rel if k == 0 else f'{stem}_{k}.cpp'): text
+             for k, (text, _) in enumerate(parts)}
+    if not args.stdout:
+        out_dir = (args.repo_root / out_rel).resolve().parent
+        part_re = re.compile(re.escape(Path(stem).name) + r'_\d+\.cpp')
+        keep = {Path(rel).name for rel in files}
+        for stale in sorted(out_dir.iterdir()):
+            if part_re.fullmatch(stale.name) and stale.name not in keep:
+                stale.unlink()
+                print(f'Removed {stale.relative_to(args.repo_root)}')
+    if len(files) == 1:
+        return _write(args, out_rel, parts[0][0])
+    return _write_files(args, files)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -100,8 +129,10 @@ def main(argv: list[str] | None = None) -> int:
         from tools.codegen import emit_embind as emitter
         out_rel = config.output_path
     elif args.backend == 'pybind11':
-        from tools.codegen import emit_pybind as emitter
+        from tools.codegen import emit_pybind
         out_rel = config.pybind_output_path or f'bindings/python/{config.name}_bindings.cpp'
+        return _write_pybind(args, config, out_rel,
+                             emit_pybind.emit_parts(module, config.pybind_parts))
     elif args.backend == 'pyi':
         from tools.codegen import emit_pyi as emitter
         # PEP 561 stub package alongside the .pyd extension. Lives inside

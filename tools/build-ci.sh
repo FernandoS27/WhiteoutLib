@@ -132,14 +132,13 @@ cmake -S "${repo_root}" -B "${build_dir}" \
 
 # ── 3. Build ─────────────────────────────────────────────────────────────
 #
-# pybind11 template instantiations in `bindings/python/{m2,m3}_bindings.cpp`
-# each use ~2 GB of RSS at peak. AppVeyor's Linux workers have 2 vCPUs and
-# ~7 GB of RAM; four concurrent compiles cross the OOM threshold and the
-# kernel kills one job mid-flight. The remaining compiles often finish,
-# then `cmake --build` reports a non-zero exit but AppVeyor's runner has
-# already lost the agent and ends up reporting exit 0 to the orchestrator.
-# Net effect: the Linux job is marked "success" with NO artifacts, the
-# package job then fails ~30 minutes later with "missing linux native".
+# AppVeyor's Linux workers have 2 vCPUs and ~7 GB of RAM. When concurrent
+# pybind11 compiles exceed that, the runner loses its agent: every compile
+# is killed, the step still reports exit 0, after_build never runs, and the
+# job goes green with NO artifacts (the package job then fails on
+# "missing linux native"). Codegen splits the large binding modules so no
+# TU peaks above ~2 GB (see PART_BUDGET_GB in tools/codegen/emit_pybind.py);
+# that only holds at this parallelism.
 #
 # Cap parallelism on Linux to match vCPU count (2), unless CI explicitly
 # overrides via CMAKE_BUILD_PARALLEL_LEVEL. macOS workers have more RAM

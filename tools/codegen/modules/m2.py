@@ -29,6 +29,7 @@ CONFIG = ModuleConfig(
         'include/whiteout/models/m2/writer.h',
     ],
     output_path='bindings/wasm/m2_bindings.cpp',
+    pybind_parts=4,
     include_dirs=['include'],
     skip_vector_js_names=[
         'VectorU8', 'VectorString',

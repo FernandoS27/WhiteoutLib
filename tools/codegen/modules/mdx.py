@@ -21,6 +21,7 @@ CONFIG = ModuleConfig(
         'include/whiteout/models/mdx/writer.h',
     ],
     output_path='bindings/wasm/mdx_bindings.cpp',
+    pybind_parts=2,
     include_dirs=['include'],
     # bindings.cpp registers these — don't double-register here.
     skip_vector_js_names=['VectorU8', 'VectorString'],
