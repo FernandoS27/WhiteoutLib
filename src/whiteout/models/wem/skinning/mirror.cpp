@@ -156,6 +156,47 @@ std::string MirroredName(const std::string& name) {
     return {};
 }
 
+NameSide SideOfName(const std::string& name) {
+    // `MirroredName`'s two passes, reporting which word they would swap.
+    const auto sideOf = [&](std::size_t begin, std::size_t length) {
+        for (const auto& pair : kSides) {
+            for (int side = 0; side < 2; ++side) {
+                if (EqualNoCase(name, begin, length, pair[side])) {
+                    return side == 0 ? NameSide::Left : NameSide::Right;
+                }
+            }
+        }
+        return NameSide::None;
+    };
+    const std::vector<Token> tokens = Tokens(name);
+    for (const Token& token : tokens) {
+        const NameSide side = sideOf(token.begin, token.end - token.begin);
+        if (side != NameSide::None) {
+            return side;
+        }
+    }
+    for (const Token& token : tokens) {
+        const std::size_t length = token.end - token.begin;
+        for (const auto& pair : kSides) {
+            for (int side = 0; side < 2; ++side) {
+                const std::size_t wordLength = std::char_traits<char>::length(pair[side]);
+                if (wordLength >= length) {
+                    continue;
+                }
+                const unsigned char next =
+                    static_cast<unsigned char>(name[token.begin + wordLength]);
+                if (!std::isupper(next) && !std::isdigit(next)) {
+                    continue;
+                }
+                if (EqualNoCase(name, token.begin, wordLength, pair[side])) {
+                    return side == 0 ? NameSide::Left : NameSide::Right;
+                }
+            }
+        }
+    }
+    return NameSide::None;
+}
+
 namespace {
 
 f32 Axis(const Vector3f& p, MirrorAxis axis) {

@@ -367,7 +367,8 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("Trail", whiteout::models::wem::EmitterLink::Trail)
         .value("BounceRibbon", whiteout::models::wem::EmitterLink::BounceRibbon)
         .value("SplineBone", whiteout::models::wem::EmitterLink::SplineBone)
-        .value("SkinMirror", whiteout::models::wem::EmitterLink::SkinMirror);
+        .value("SkinMirror", whiteout::models::wem::EmitterLink::SkinMirror)
+        .value("RigRidesWith", whiteout::models::wem::EmitterLink::RigRidesWith);
 
     enum_<whiteout::models::wem::Wc3Particle1Property>("WemWc3Particle1Property")
         .value("EmissionRate", whiteout::models::wem::Wc3Particle1Property::EmissionRate)

@@ -73,6 +73,10 @@ enum class EmitterLink : u8 {
     /// of §7.5's mirror map. It rides this walk because the referencer table is
     /// one walk, and it must name a `Bone`.
     SkinMirror,
+    /// Not an emitter link either: `NodeRig::ridesWith`, the node a rig record
+    /// rides (EDIT_MODE_AUTO_IK_DESIGN.md §3.3). A bone or a helper, never the
+    /// node itself.
+    RigRidesWith,
 };
 
 const char* ToString(EmitterLink link);

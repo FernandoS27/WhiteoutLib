@@ -458,6 +458,12 @@ void CheckEmitterLinks(const NodeTree& tree, Diagnostics& out) {
             case EmitterLink::SkinMirror:
                 fits = target.kind == NodeKind::Bone;
                 break;
+            // A rider rides a joint of another figure: a bone or a helper,
+            // and never itself.
+            case EmitterLink::RigRidesWith:
+                fits = (target.kind == NodeKind::Bone || target.kind == NodeKind::Helper) &&
+                       link != n;
+                break;
             }
             if (!fits) {
                 out.error(DiagCode::DanglingNodeReference,
@@ -466,6 +472,21 @@ void CheckEmitterLinks(const NodeTree& tree, Diagnostics& out) {
                           where);
             }
         });
+    }
+
+    // `ridesWith` is carried in its own order (a face rides a rider who rides a
+    // mount), so a loop in it has no first node to carry.
+    for (u32 n = 0; n < count; ++n) {
+        u32 at = tree.nodes[n].rig.ridesWith;
+        for (u32 steps = 0; at < count && steps <= count; ++steps) {
+            if (at == n) {
+                out.error(DiagCode::DanglingNodeReference,
+                          "rig.ridesWith loops back to node " + number(n),
+                          ElementRef(ElementKind::Node, n));
+                break;
+            }
+            at = tree.nodes[at].rig.ridesWith;
+        }
     }
 }
 

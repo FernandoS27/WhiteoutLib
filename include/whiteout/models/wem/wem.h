@@ -56,6 +56,8 @@
 #include "nodes/visitor.h"
 #include "retarget.h"
 #include "geometry/bvh.h"
+#include "rigging/detect.h"
+#include "rigging/record.h"
 #include "skinning/deform.h"
 #include "skinning/mirror.h"
 #include "skinning/ops.h"

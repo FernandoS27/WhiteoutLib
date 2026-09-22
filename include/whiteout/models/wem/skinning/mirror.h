@@ -54,6 +54,11 @@ struct BoneMirror {
 /// prefix or a suffix: `Bone_Arm_L`, `Bip01 L Thigh`, `LeftHand`, `hand.l`.
 std::string MirroredName(const std::string& name);
 
+/// Which side @p name's left/right token says, read by exactly the rules
+/// `MirroredName` swaps by, so the rig and the mirror map agree on a name.
+enum class NameSide : u8 { None, Left, Right };
+NameSide SideOfName(const std::string& name);
+
 /// Per node, its mirror (§7.5). @p axis is the plane the model is mirrored
 /// across; the position fallback accepts a pivot within 1 % of the model's size.
 std::vector<BoneMirror> BuildBoneMirror(const NodeTree& nodes, MirrorAxis axis = MirrorAxis::Y);

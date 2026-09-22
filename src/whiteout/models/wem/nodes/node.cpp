@@ -170,6 +170,8 @@ const char* ToString(EmitterLink link) {
         return "splinePoints.node";
     case EmitterLink::SkinMirror:
         return "skin.mirror";
+    case EmitterLink::RigRidesWith:
+        return "rig.ridesWith";
     }
     return "invalid";
 }

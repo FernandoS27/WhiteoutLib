@@ -437,6 +437,10 @@ add_library(whiteout_lib
     src/whiteout/models/wem/skinning/generate_heat.cpp
     src/whiteout/models/wem/skinning/generate_geodesic.cpp
     src/whiteout/models/wem/skinning/transfer.cpp
+    src/whiteout/models/wem/rigging/record.cpp
+    src/whiteout/models/wem/rigging/detect.cpp
+    src/whiteout/models/wem/rigging/names.cpp
+    src/whiteout/models/wem/rigging/shape.cpp
     src/whiteout/models/wem/anim/channel.cpp
     src/whiteout/models/wem/anim/clip.cpp
     src/whiteout/models/wem/materials/texture.cpp

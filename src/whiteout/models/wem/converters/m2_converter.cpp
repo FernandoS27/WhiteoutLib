@@ -38,13 +38,16 @@
 #include "whiteout/models/wem/geometry/render_view.h"
 #include "whiteout/models/wem/skinning/quantize.h"
 
+#include "../../../common/checksum.h"
 #include "../materials/m2_core.h"
 #include "m2_anim.h"
 #include "skin_skeleton.h"
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <string>
+#include <unordered_set>
 #include <variant>
 
 namespace whiteout {
@@ -243,6 +246,32 @@ M2ParticleEmitterPayload ImportParticle(const m2::Model& source, std::size_t ind
 
 /// Bones first, then every record that hangs off one.
 ///
+/// The key bones' roles by id, spelled as the M2 spec's key-bone table spells
+/// them. A key bone's `boneNameCRC` is the CRC32 of exactly this name
+/// (measured on Corpus/WoW: every key bone's most common CRC is its role's),
+/// so the name is known rather than guessed — and it is only used when the
+/// bone's own CRC says so (EDIT_MODE_AUTO_IK_DESIGN.md §3.5). A wrong entry
+/// here therefore costs nothing: its CRC fails and the bone keeps `bone_N`.
+const char* KeyBoneName(i32 key) {
+    static constexpr const char* kFirst[] = {
+        "ArmL",          "ArmR",          "ShoulderL",    "ShoulderR",   "SpineLow",     "Waist",
+        "Head",          "Jaw",           "IndexFingerR", "MiddleFingerR", "PinkyFingerR", "RingFingerR",
+        "ThumbR",        "IndexFingerL",  "MiddleFingerL", "PinkyFingerL", "RingFingerL",  "ThumbL",
+    };
+    static constexpr const char* kWheels[] = {"Wheel1", "Wheel2", "Wheel3", "Wheel4",
+                                              "Wheel5", "Wheel6", "Wheel7", "Wheel8"};
+    if (key >= 0 && key < static_cast<i32>(std::size(kFirst))) {
+        return kFirst[key];
+    }
+    if (key == 26) {
+        return "Root";
+    }
+    if (key >= 27 && key <= 34) {
+        return kWheels[key - 27];
+    }
+    return nullptr;
+}
+
 /// Bone indices keep their source numbering because `Vertex::boneIndices` and
 /// `boneCombos` both address that array; the attached records go after, so the
 /// join survives.
@@ -281,6 +310,27 @@ NodeTree ImportNodes(const m2::Model& source) {
                      bone.pivot.z - parentPivot.z};
         node.poses.push_back(node.local);
         tree.add(std::move(node));
+    }
+
+    // A key bone is named by its role when its CRC says that is its name and
+    // no other bone already has it; every other bone keeps `bone_N`. Export
+    // writes the CRC back from `native`, so an M2 round trip is unchanged.
+    std::unordered_set<std::string> taken;
+    for (const Node& node : tree.nodes) {
+        taken.insert(node.name);
+    }
+    for (std::size_t b = 0; b < source.bones.size(); ++b) {
+        const char* name = KeyBoneName(source.bones[b].keyBoneId);
+        if (name == nullptr || taken.count(name) != 0) {
+            continue;
+        }
+        const u32 crc = ::whiteout::crc32(reinterpret_cast<const u8*>(name), std::strlen(name));
+        if (crc != source.bones[b].boneNameCRC) {
+            continue;
+        }
+        taken.erase(tree.nodes[b].name);
+        tree.nodes[b].name = name;
+        taken.insert(name);
     }
 
     const u32 boneCount = tree.size();

@@ -507,6 +507,7 @@ Deliberate: Reforged HD is the only shipped PBR content among the six games, so 
         .value("BOUNCE_RIBBON", whiteout::models::wem::EmitterLink::BounceRibbon, R"doc(A `Sc2RibbonEmitter`.)doc")
         .value("SPLINE_BONE", whiteout::models::wem::EmitterLink::SplineBone, R"doc(Any node; a bone in every shipped file.)doc")
         .value("SKIN_MIRROR", whiteout::models::wem::EmitterLink::SkinMirror, R"doc(Not an emitter link: `NodeSkinSetup::mirror`, the skin setup's override of §7.5's mirror map. It rides this walk because the referencer table is one walk, and it must name a `Bone`.)doc")
+        .value("RIG_RIDES_WITH", whiteout::models::wem::EmitterLink::RigRidesWith, R"doc(Not an emitter link either: `NodeRig::ridesWith`, the node a rig record rides (EDIT_MODE_AUTO_IK_DESIGN.md §3.3). A bone or a helper, never the node itself.)doc")
     ;
 
     py::enum_<whiteout::models::wem::Wc3Particle1Property>(m, "Wc3Particle1Property", R"doc(MDX `PREM` tracks (KPEE, KPEG, KPLN, KPLT, KPEL, KPES).)doc")

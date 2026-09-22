@@ -47,6 +47,7 @@
 #include "../native_bag.h"
 #include "../skinning/setup.h"
 #include "../profile.h"
+#include "../rigging/record.h"
 #include "emitters.h"
 
 namespace whiteout {
@@ -434,7 +435,8 @@ void ForEachNodeLink(Payload& payload, F&& f) {
 }
 
 /// Every node index @p node holds, as `f(u32& link, EmitterLink)`: its
-/// payload's emitter links and the skin setup's mirror override (§13.4).
+/// payload's emitter links, the skin setup's mirror override (§13.4) and the
+/// rig record's `ridesWith`.
 ///
 /// The node overload is the one the referencer table walks, so a row added to a
 /// node is remapped, checked and cleared on a removal without a second list to
@@ -444,10 +446,12 @@ template <class NodeT, class F>
     requires requires(NodeT& node) {
         node.payload;
         node.skin;
+        node.rig;
     }
 void ForEachNodeLink(NodeT& node, F&& f) {
     ForEachNodeLink(node.payload, f);
     f(node.skin.mirror, EmitterLink::SkinMirror);
+    f(node.rig.ridesWith, EmitterLink::RigRidesWith);
 }
 
 /// Every `Model::materialSlots` index @p payload holds, as `f(u32& slot)` — the
@@ -542,6 +546,12 @@ struct Node {
     /// envelope, joint, mirror override and pose deltas. Empty on import, and on
     /// a `NODE` written before v6. No file carries any of it.
     NodeSkinSetup skin;
+
+    /// What the node is to its rig (EDIT_MODE_AUTO_IK_DESIGN.md §3.3): its
+    /// role, side, limb, what it rides and when it plants. Filled when a model
+    /// enters the editor, empty on a `NODE` written before v10. No file carries
+    /// any of it.
+    NodeRig rig;
 
     /**
      * @brief Transient removal marker (§10.6).
@@ -651,6 +661,10 @@ struct Node {
         // before it has none, and an empty setup is exactly what "nobody has
         // skinned this model here yet" means.
         v.since(6).field("skin", skin);
+        // v10: the rig record (EDIT_MODE_AUTO_IK_DESIGN.md §3.3), the same way:
+        // an empty record is what "nobody has detected this rig" means, and the
+        // editor detects one on entry.
+        v.since(10).field("rig", rig);
 
         if constexpr (V::kReading) {
             if (auto* bone = std::get_if<BonePayload>(&payload)) {
