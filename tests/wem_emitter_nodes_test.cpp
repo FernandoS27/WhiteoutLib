@@ -18,6 +18,7 @@
 
 #include <whiteout/models/cross/m2_wc3_emitters.h>
 #include <whiteout/models/m2/structures.h>
+#include <whiteout/models/mdx/parser.h>
 #include <whiteout/models/wem/converters.h>
 #include <whiteout/models/wem/nodes/remove.h>
 #include <whiteout/models/wem/parser.h>
@@ -962,6 +963,51 @@ TEST_CASE("wem mdx carries a PopcornFX emitter both ways", "[wem][node][emitter]
     CHECK((bits & static_cast<u32>(mdx::Node::NodeFlag::PopcornScaling)) != 0u);
 }
 
+TEST_CASE("wem a v800 file writes a PopcornFX emitter as its placement", "[wem][node][emitter]") {
+    // The classic game has no CORN chunk, and the writer wrote one at any
+    // version: a classic export carried a chunk its reader does not know and
+    // numbered the nodes after it past the ones the game counts.
+    mdx::Model source = makeReforgedMdx();
+    source.ribbonEmitters[0].node.parentId = 2; // hangs off the emitter
+    const Document document = fromMdx(source);
+    MdxConverter converter;
+
+    // In memory the node stays: the SD look of a 3.0 model is drawn at 800.
+    const Result<mdx::Model> view = converter.toMdx(document, ProfileId::Wc3Classic, 800);
+    REQUIRE(view.ok());
+    CHECK(view->cornEmitters.size() == 1u);
+
+    const Result<std::vector<u8>> classic =
+        converter.exportToBytes(document, ProfileId::Wc3Classic, 800);
+    REQUIRE(classic.ok());
+    CHECK(classic.diagnostics.countOf(DiagCode::NodeKindNotCarried) == 1u);
+    // Its KPP tracks went with it, quietly: none is reported as dropped.
+    CHECK(classic.diagnostics.countOf(DiagCode::AnimTrackDropped) == 0u);
+    mdx::Parser parser;
+    const mdx::Model back = parser.parse(*classic.value);
+    CHECK(back.cornEmitters.empty());
+    const mdx::Helper* helper = nullptr;
+    for (const mdx::Helper& h : back.helpers) {
+        helper = h.node.name == "corn" ? &h : helper;
+    }
+    REQUIRE(helper != nullptr);
+    REQUIRE(back.ribbonEmitters.size() == 1u);
+    CHECK(back.ribbonEmitters[0].node.parentId == helper->node.objectId);
+    // Every id the file names is one it holds.
+    CHECK(back.pivotPoints.size() == back.helpers.size() + back.bones.size() +
+                                         back.particleEmitters2.size() +
+                                         back.ribbonEmitters.size() + back.attachments.size() +
+                                         back.lights.size() + back.eventObjects.size() +
+                                         back.collisionShapes.size() +
+                                         back.particleEmitters.size());
+
+    // A Reforged file keeps it.
+    const Result<std::vector<u8>> reforged =
+        converter.exportToBytes(document, ProfileId::Wc3Reforged, 1800);
+    REQUIRE(reforged.ok());
+    CHECK(parser.parse(*reforged.value).cornEmitters.size() == 1u);
+}
+
 TEST_CASE("wem a PopcornFX emitter crosses to StarCraft II as its placement",
           "[wem][node][emitter]") {
     Document document = fromMdx(makeReforgedMdx());
@@ -1372,6 +1418,69 @@ TEST_CASE("wem m2 an emitter is a node on its bone, its record whole", "[wem][no
                          DiagCode::NodeKindNotCarried));
 }
 
+TEST_CASE("wem m2 an extended emitter's dead zSource track is not imported",
+          "[wem][node][emitter]") {
+    // With EXPT/EXP2 the record's zSource is stamped with the sentinel 255 and
+    // the extension holds the value. Keyed, the channel beat the payload and
+    // every particle flew away from a source 255 units overhead.
+    m2::Model source = makeM2WithEmitter();
+    m2::ParticleEmitter& e = source.particleEmitters[0];
+    e.zSource.timestamps = {{0}};
+    e.zSource.values = {{255.0f}};
+    const auto zSourceChannel = [](const Model& model) {
+        return channelFor(model, m2EmitterNode(model),
+                          EmitterPropertySub(static_cast<u32>(M2ParticleProperty::ZSource)));
+    };
+    M2Converter converter;
+    {
+        // No extension: the record's track is the live one.
+        Result<Document> converted = converter.fromM2(source, 272);
+        REQUIRE(converted.ok());
+        CHECK(zSourceChannel(converted.value->models[0]) != nullptr);
+    }
+    e.extension = m2::ParticleEmitterExtension{};
+    e.extension->zSource = 0.5f;
+    Result<Document> converted = converter.fromM2(source, 272);
+    REQUIRE(converted.ok());
+    const Model& model = converted.value->models[0];
+    CHECK(zSourceChannel(model) == nullptr);
+    CHECK(std::get<M2ParticleEmitterPayload>(model.nodes.nodes[m2EmitterNode(model)].payload)
+              .zSource == 0.5f);
+}
+
+TEST_CASE("wem m2 a multi-texture emitter keeps its layers' scale and scroll",
+          "[wem][node][emitter]") {
+    // The client's fixed point, not the container's: the scale byte is b/32
+    // (unsigned), a scroll word sign-magnitude 6.9. Before, neither reached
+    // WEM, and an export could not know how the layers move.
+    m2::Model source = makeM2WithEmitter();
+    m2::ParticleEmitter& e = source.particleEmitters[0];
+    e.multiTexScale = {fixed8_5::from_raw(static_cast<i8>(static_cast<u8>(0xA0))), // 160 / 32
+                       fixed8_5::from_raw(16)};                                    // 0.5
+    e.multiTexScrollMid[0] = {fixed16_9::from_raw(0x8080), fixed16_9::from_raw(0x0100)};
+    e.multiTexScrollRange[1] = {fixed16_9::from_raw(0x0040), fixed16_9::from_raw(0x8200)};
+    M2Converter converter;
+    Result<Document> converted = converter.fromM2(source, 272);
+    REQUIRE(converted.ok());
+    const Model& model = converted.value->models[0];
+    const auto& p =
+        std::get<M2ParticleEmitterPayload>(model.nodes.nodes[m2EmitterNode(model)].payload);
+    CHECK(p.texture2Scale == 5.0f);
+    CHECK(p.texture3Scale == 0.5f);
+    CHECK(p.texture2ScrollMid.x == -0.25f); // bit 15 is the sign
+    CHECK(p.texture2ScrollMid.y == 0.5f);
+    CHECK(p.texture3ScrollRange.x == 0.125f);
+    CHECK(p.texture3ScrollRange.y == -1.0f);
+
+    // And through a file: NODE v9.
+    const Document back = read(write(*converted.value));
+    const auto& q = std::get<M2ParticleEmitterPayload>(
+        back.models[0].nodes.nodes[m2EmitterNode(back.models[0])].payload);
+    CHECK(q.texture2Scale == 5.0f);
+    CHECK(q.texture2ScrollMid.x == -0.25f);
+    CHECK(q.texture3ScrollRange.y == -1.0f);
+}
+
 TEST_CASE("wem an m2 emitter crosses to a PRE2 in place", "[wem][node][emitter]") {
     M2Converter converter;
     Result<Document> converted = converter.fromM2(makeM2WithEmitter(), 272);
@@ -1455,6 +1564,48 @@ Wc3ParticleEmitter2Payload crossEdited(const std::function<void(M2ParticleEmitte
 }
 
 } // namespace
+
+TEST_CASE("wem m2 a cell track interpolates and rounds as the client does",
+          "[wem][node][emitter]") {
+    // Retail InterpolateTrackU16: linear between the keys FindTrackKeys picks,
+    // then cvtss2si -- nearest, ties to even.
+    const std::vector<f32> two = {0.0f, 1.0f};
+    const std::vector<u32> ramp = {0, 3};
+    CHECK(cross::M2CellAt(two, ramp, 0.0f) == 0);
+    CHECK(cross::M2CellAt(two, ramp, 0.15f) == 0); // 0.45
+    CHECK(cross::M2CellAt(two, ramp, 0.2f) == 1);  // 0.6: truncation said 0
+    CHECK(cross::M2CellAt(two, ramp, 0.5f) == 2);  // 1.5, ties to even
+    CHECK(cross::M2CellAt(two, ramp, 0.9f) == 3);  // 2.7
+    // Two keys read t as is, whatever their times say.
+    CHECK(cross::M2CellAt({0.0f, 0.5f}, ramp, 0.5f) == 2);
+    // Three split at the middle key.
+    const std::vector<f32> three = {0.0f, 0.25f, 1.0f};
+    const std::vector<u32> up = {0, 4, 8};
+    CHECK(cross::M2CellAt(three, up, 0.125f) == 2);
+    CHECK(cross::M2CellAt(three, up, 0.625f) == 6);
+    // More search; Dimensius' 0 4 12 30 63 sweeps the sheet rather than
+    // holding five cells.
+    const std::vector<f32> five = {0.0f, 0.25f, 0.5f, 0.75f, 1.0f};
+    const std::vector<u32> dimensius = {0, 4, 12, 30, 63};
+    CHECK(cross::M2CellAt(five, dimensius, 0.375f) == 8);
+    CHECK(cross::M2CellAt(five, dimensius, 0.875f) == 46); // 46.5, ties to even
+    CHECK(cross::M2CellAt(five, dimensius, 1.0f) == 63);
+    CHECK(cross::M2CellAt({0.0f}, {5}, 0.7f) == 5);
+    CHECK(cross::M2CellAt({}, {}, 0.7f) == 0);
+
+    // The crossing's PRE2 runs are the sweep's ends, not the keys inside.
+    const Wc3ParticleEmitter2Payload p = crossEdited([&](M2ParticleEmitterPayload& m) {
+        m.rows = 8;
+        m.columns = 8;
+        m.headCellTimes = five;
+        m.headCells = dimensius;
+        m.alphaTimes = {0.0f, 0.5f, 1.0f};
+    });
+    CHECK(p.headLife.start == 0u);
+    CHECK(p.headLife.end == 12u); // just short of the middle key
+    CHECK(p.headDecay.start == 12u);
+    CHECK(p.headDecay.end == 63u);
+}
 
 TEST_CASE("wem an m2 particle lying along its velocity crosses as a PRE2 tail",
           "[wem][node][emitter]") {

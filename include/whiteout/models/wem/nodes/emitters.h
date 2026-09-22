@@ -539,6 +539,17 @@ struct M2ParticleEmitterPayload {
     f32 windTime = 0;
     std::vector<Vector3f> splinePoints;
 
+    /// A multi-texture record's second and third layers. Each spans `Scale`
+    /// tiles across the quad from an origin drawn at birth, anywhere in the
+    /// tile, and scrolls `ScrollMid + r * ScrollRange` UV a second, with one
+    /// draw r in [-1, 1] per layer and particle.
+    f32 texture2Scale = 0;
+    f32 texture3Scale = 0;
+    Vector2f texture2ScrollMid{0, 0};
+    Vector2f texture3ScrollMid{0, 0};
+    Vector2f texture2ScrollRange{0, 0};
+    Vector2f texture3ScrollRange{0, 0};
+
     template <class Self, class F>
     static void forEachTextureLink(Self& self, F&& f) {
         f(self.texture);
@@ -594,6 +605,12 @@ struct M2ParticleEmitterPayload {
         v.field("wind", wind);
         v.field("windTime", windTime);
         v.field("splinePoints", splinePoints);
+        v.since(9).field("texture2Scale", texture2Scale);
+        v.since(9).field("texture3Scale", texture3Scale);
+        v.since(9).field("texture2ScrollMid", texture2ScrollMid);
+        v.since(9).field("texture3ScrollMid", texture3ScrollMid);
+        v.since(9).field("texture2ScrollRange", texture2ScrollRange);
+        v.since(9).field("texture3ScrollRange", texture3ScrollRange);
     }
 };
 

@@ -222,6 +222,12 @@ The lifetime curves are the record's fake-animation blocks: times over the parti
         .def_readwrite("wind", &whiteout::models::wem::M2ParticleEmitterPayload::wind)
         .def_readwrite("wind_time", &whiteout::models::wem::M2ParticleEmitterPayload::windTime)
         .def_readwrite("spline_points", &whiteout::models::wem::M2ParticleEmitterPayload::splinePoints)
+        .def_readwrite("texture2_scale", &whiteout::models::wem::M2ParticleEmitterPayload::texture2Scale, R"doc(A multi-texture record's second and third layers. Each spans `Scale` tiles across the quad from an origin drawn at birth, anywhere in the tile, and scrolls `ScrollMid + r * ScrollRange` UV a second, with one draw r in [-1, 1] per layer and particle.)doc")
+        .def_readwrite("texture3_scale", &whiteout::models::wem::M2ParticleEmitterPayload::texture3Scale)
+        .def_readwrite("texture2_scroll_mid", &whiteout::models::wem::M2ParticleEmitterPayload::texture2ScrollMid)
+        .def_readwrite("texture3_scroll_mid", &whiteout::models::wem::M2ParticleEmitterPayload::texture3ScrollMid)
+        .def_readwrite("texture2_scroll_range", &whiteout::models::wem::M2ParticleEmitterPayload::texture2ScrollRange)
+        .def_readwrite("texture3_scroll_range", &whiteout::models::wem::M2ParticleEmitterPayload::texture3ScrollRange)
     ;
 
     py::class_<whiteout::models::wem::Sc2Variation>(m, "Sc2Variation", R"doc(One of the per-particle variation channels: a curve type, and the amplitude and frequency it runs at.)doc")

@@ -98,30 +98,23 @@ Vector3f VisibleMeanColor(const M2ParticleEmitterPayload& m, f32 from, f32 to) {
     return {sum.x / weight, sum.y / weight, sum.z / weight};
 }
 
-/// The cells a held cell track shows over [from, to): the first and the last,
-/// which `PRE2` then plays through evenly.
+/// How far inside its end a run reads its last cell: a key standing exactly on
+/// the end belongs to the next run.
+constexpr f32 kRunEdge = 1e-3f;
+
+/// The cells a cell track sweeps over [from, to): where it stands at the start
+/// and just inside the end, which `PRE2` then plays through evenly. The client
+/// interpolates between keys (`M2CellAt`), so a run spans every cell between
+/// them — Dimensius' `0 4 12 30 63` is the whole 8x8 sheet, not five held cells.
 Wc3ParticleInterval CellRun(const std::vector<f32>& times, const std::vector<u32>& cells, f32 from,
                             f32 to) {
-    const std::size_t n = std::min(times.size(), cells.size());
     Wc3ParticleInterval run;
     run.repeat = 1;
-    if (n == 0) {
+    if (std::min(times.size(), cells.size()) == 0) {
         return run;
     }
-    const auto cellAt = [&](f32 t) {
-        u32 cell = cells[0];
-        for (std::size_t k = 0; k < n && times[k] <= t; ++k) {
-            cell = cells[k];
-        }
-        return cell;
-    };
-    run.start = cellAt(from);
-    run.end = run.start;
-    for (std::size_t k = 0; k < n; ++k) {
-        if (times[k] >= from && times[k] < to) {
-            run.end = cells[k];
-        }
-    }
+    run.start = static_cast<u32>(M2CellAt(times, cells, from));
+    run.end = static_cast<u32>(M2CellAt(times, cells, std::max(std::min(to, 1.0f) - kRunEdge, from)));
     return run;
 }
 
@@ -207,17 +200,7 @@ private:
                                     : Wc3ParticleHeadOrTail::Head;
         p.tailLength = m.tailLength;
 
-        // Three segments out of curves of any length: birth, the middle key,
-        // death. The curves' middle keys need not agree, and alpha's decides
-        // how much the particle shows: TitanArgus' fire peaks at 0.79 a sixth
-        // into its life, which the colour's middle key (0.46) sampled as 0.52.
-        p.time = 0.5f;
-        for (const std::vector<f32>* times : {&m.alphaTimes, &m.colorTimes, &m.scaleTimes}) {
-            if (times->size() == 3) {
-                p.time = std::clamp((*times)[1], 0.01f, 0.99f);
-                break;
-            }
-        }
+        p.time = M2EmitterMiddleTime(m);
         // Twinkle is a size multiplier the game always applies, uniform over
         // its [min, max], and a share of the particles it blinks out; PRE2 has
         // neither, so the means go into the size and the alpha.
@@ -520,6 +503,56 @@ M2EmitterReport CrossM2Emitters(wem::Document& staged, const M2EmitterOptions& o
         Crossing(staged, m, options, report).run();
     }
     return report;
+}
+
+f32 M2EmitterMiddleTime(const wem::M2ParticleEmitterPayload& emitter) {
+    // Three segments out of curves of any length: birth, the middle key,
+    // death. The curves' middle keys need not agree, and alpha's decides how
+    // much the particle shows: TitanArgus' fire peaks at 0.79 a sixth into its
+    // life, which the colour's middle key (0.46) sampled as 0.52.
+    for (const std::vector<f32>* times :
+         {&emitter.alphaTimes, &emitter.colorTimes, &emitter.scaleTimes}) {
+        if (times->size() == 3) {
+            return std::clamp((*times)[1], 0.01f, 0.99f);
+        }
+    }
+    return 0.5f;
+}
+
+i32 M2CellAt(const std::vector<f32>& times, const std::vector<u32>& cells, f32 t) {
+    const std::size_t n = std::min(times.size(), cells.size());
+    if (n == 0) {
+        return 0;
+    }
+    if (n == 1) {
+        return static_cast<i32>(cells[0]);
+    }
+    // FindTrackKeys (0x141962160): two keys are taken to span the life, three
+    // split at the middle one, and more search for the last key at or before t
+    // short of the final one. None of the three clamps.
+    std::size_t key = 0;
+    f32 pct = t;
+    if (n == 3) {
+        const f32 middle = times[1];
+        if (t >= middle) {
+            key = 1;
+            pct = middle < 1.0f ? (t - middle) / (1.0f - middle) : 0.0f;
+        } else {
+            pct = middle > 0.0f ? t / middle : 0.0f;
+        }
+    } else if (n > 3) {
+        while (key + 2 < n && t >= times[key + 1]) {
+            ++key;
+        }
+        const f32 span = times[key + 1] - times[key];
+        pct = span != 0.0f ? (t - times[key]) / span : 0.0f;
+    }
+    // In the client's order: the integer difference, scaled, then the base.
+    const i32 from = static_cast<i32>(cells[key]);
+    const i32 to = static_cast<i32>(cells[key + 1]);
+    const f32 value = static_cast<f32>(to - from) * pct + static_cast<f32>(from);
+    // cvtss2si under the default MXCSR: nearest, ties to even.
+    return static_cast<i32>(std::nearbyint(value));
 }
 
 } // namespace cross

@@ -407,7 +407,13 @@ private:
         addTrack(emitter.emissionRate, property(P::EmissionRate));
         addTrack(emitter.emissionAreaWidth, property(P::Width));
         addTrack(emitter.emissionAreaLength, property(P::Length));
-        addTrack(emitter.zSource, property(P::ZSource));
+        // Once EXPT/EXP2 is present the record's own zSource is dead, stamped
+        // with the sentinel 255 (30,718 shipped emitters), and the value is the
+        // extension's constant (`m2_converter`): keyed, it aimed every particle
+        // down, away from a source 255 units overhead.
+        if (!emitter.extension) {
+            addTrack(emitter.zSource, property(P::ZSource));
+        }
         addTrack(emitter.enabledIn, nodeTarget(node, Channel::Visibility));
 
         // Gravity keys a vector: decoded here once, whichever way the record packs it.

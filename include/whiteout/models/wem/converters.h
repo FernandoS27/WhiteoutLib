@@ -164,6 +164,19 @@ struct WrittenSkin {
 /// Warcraft III.
 u32 MdxFileVersion(ProfileId profile);
 
+/// Makes @p document writable as an `.mdx` FILE of @p version. At v800 and
+/// below — the classic game, which has no PopcornFX and no `CORN` chunk — every
+/// `Wc3CornEmitter` becomes its placement, a helper, and its channels other than
+/// its transform go with their keys; one `NodeKindNotCarried` warning says how
+/// many. Returns that count (0 above v800).
+///
+/// For a file only, and so not inside `toMdx`: the in-memory view of a 3.0
+/// model's SD look is `Wc3Classic` drawn at v800, and runs its `CORN` as the
+/// game does. Before `toMdx` rather than after, because the helper has to take
+/// its object id in `HELP`'s place, or whatever hangs off the emitter would
+/// name an id the file never writes.
+u32 RetireNodesUnwritableAt(Document& document, u32 version, Diagnostics& out);
+
 /**
  * @brief Warcraft III `.mdx`, both directions, serving both WC3 profiles.
  *

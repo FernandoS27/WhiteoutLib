@@ -1875,6 +1875,65 @@ u32 MdxFileVersion(ProfileId profile) {
     }
 }
 
+u32 RetireNodesUnwritableAt(Document& document, u32 version, Diagnostics& out) {
+    if (version > 800) {
+        return 0;
+    }
+    u32 retired = 0;
+    for (u32 m = 0; m < document.models.size(); ++m) {
+        Model& model = document.models[m];
+        std::vector<u32> dropped;
+        for (u32 n = 0; n < model.nodes.size(); ++n) {
+            Node& node = model.nodes.nodes[n];
+            if (node.kind != NodeKind::Wc3CornEmitter || node.removed) {
+                continue;
+            }
+            node.kind = NodeKind::Helper;
+            node.resetPayloadForKind();
+            ++retired;
+            // A helper keeps its transform and nothing else: MDX gives it no
+            // visibility, and the rest was the effect's.
+            auto& channels = model.animChannels.channels;
+            for (auto it = channels.begin(); it != channels.end();) {
+                const Channel channel = it->target.channel;
+                if (it->target.kind == TrackTarget::Kind::Node && it->target.node == n &&
+                    channel != Channel::Translation && channel != Channel::Rotation &&
+                    channel != Channel::Scale) {
+                    dropped.push_back(it->id);
+                    it = channels.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        }
+        if (dropped.empty()) {
+            continue;
+        }
+        for (Clip& clip : document.clips) {
+            if (clip.model != m) {
+                continue;
+            }
+            for (SubTrackContainer& container : clip.containers) {
+                auto& tracks = container.subTracks;
+                tracks.erase(std::remove_if(tracks.begin(), tracks.end(),
+                                            [&](const SubTrack& t) {
+                                                return std::find(dropped.begin(), dropped.end(),
+                                                                 t.channel) != dropped.end();
+                                            }),
+                             tracks.end());
+            }
+        }
+    }
+    if (retired != 0) {
+        out.warn(DiagCode::NodeKindNotCarried,
+                 std::to_string(retired) +
+                     " PopcornFX emitters: an .mdx older than v900 has no CORN chunk, so only "
+                     "their placement is written, as helpers",
+                 ElementRef(ElementKind::Document, 0));
+    }
+    return retired;
+}
+
 Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profile,
                                        u32 targetVersion, std::optional<ProfileId> skinAs) const {
     if (targetVersion == 0) {
@@ -2530,9 +2589,29 @@ Result<Document> MdxConverter::importFromBytes(std::span<const u8> data) const {
 
 Result<std::vector<u8>> MdxConverter::exportToBytes(const Document& document, ProfileId profile,
                                                     u32 version) const {
-    Result<mdx::Model> converted = toMdx(document, profile, version);
+    if (version == 0) {
+        version = MdxFileVersion(profile);
+    }
     Result<std::vector<u8>> result;
-    result.diagnostics = std::move(converted.diagnostics);
+    // A file: what its version cannot hold goes before the numbering. Copied
+    // only when there is something to retire.
+    const auto carriesCorn = [&] {
+        for (const Model& model : document.models) {
+            for (const Node& node : model.nodes.nodes) {
+                if (node.kind == NodeKind::Wc3CornEmitter && !node.removed) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+    std::optional<Document> writable;
+    if (version <= 800 && carriesCorn()) {
+        writable = document;
+        RetireNodesUnwritableAt(*writable, version, result.diagnostics);
+    }
+    Result<mdx::Model> converted = toMdx(writable ? *writable : document, profile, version);
+    result.diagnostics.append(converted.diagnostics);
     if (!converted.ok()) {
         return result;
     }

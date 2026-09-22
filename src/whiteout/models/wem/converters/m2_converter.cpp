@@ -217,6 +217,27 @@ M2ParticleEmitterPayload ImportParticle(const m2::Model& source, std::size_t ind
     }
     p.windTime = e.windTime;
     p.splinePoints = e.splinePoints;
+
+    // The two extra layers' fixed point is the client's, not the container's:
+    // the scale byte is unsigned b/32, and a scroll word is sign-magnitude,
+    // bit 15 the sign over 6.9 fixed point. Read as the generic unsigned form,
+    // a negative scroll would be a fast positive one.
+    const auto scale = [](const fixed8_5& b) {
+        return static_cast<f32>(static_cast<u8>(b.raw)) / 32.0f;
+    };
+    const auto scroll = [](const std::array<fixed16_9, 2>& w) {
+        const auto value = [](u16 raw) {
+            const f32 magnitude = static_cast<f32>(raw & 0x7FFFu) / 512.0f;
+            return (raw & 0x8000u) != 0 ? -magnitude : magnitude;
+        };
+        return Vector2f{value(w[0].raw), value(w[1].raw)};
+    };
+    p.texture2Scale = scale(e.multiTexScale[0]);
+    p.texture3Scale = scale(e.multiTexScale[1]);
+    p.texture2ScrollMid = scroll(e.multiTexScrollMid[0]);
+    p.texture3ScrollMid = scroll(e.multiTexScrollMid[1]);
+    p.texture2ScrollRange = scroll(e.multiTexScrollRange[0]);
+    p.texture3ScrollRange = scroll(e.multiTexScrollRange[1]);
     return p;
 }
 

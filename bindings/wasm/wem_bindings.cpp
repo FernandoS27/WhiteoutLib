@@ -1130,6 +1130,12 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("wind", &whiteout::models::wem::M2ParticleEmitterPayload::wind)
         .property("windTime", &whiteout::models::wem::M2ParticleEmitterPayload::windTime)
         .property("splinePoints", &whiteout::models::wem::M2ParticleEmitterPayload::splinePoints)
+        .property("texture2Scale", &whiteout::models::wem::M2ParticleEmitterPayload::texture2Scale)
+        .property("texture3Scale", &whiteout::models::wem::M2ParticleEmitterPayload::texture3Scale)
+        .property("texture2ScrollMid", &whiteout::models::wem::M2ParticleEmitterPayload::texture2ScrollMid)
+        .property("texture3ScrollMid", &whiteout::models::wem::M2ParticleEmitterPayload::texture3ScrollMid)
+        .property("texture2ScrollRange", &whiteout::models::wem::M2ParticleEmitterPayload::texture2ScrollRange)
+        .property("texture3ScrollRange", &whiteout::models::wem::M2ParticleEmitterPayload::texture3ScrollRange)
     ;
 
     class_<whiteout::models::wem::Sc2Variation>("WemSc2Variation")
