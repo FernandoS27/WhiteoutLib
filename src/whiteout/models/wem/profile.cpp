@@ -77,6 +77,8 @@ NodeKindMask nodeKindsOf(ProfileId id) {
     case ProfileId::Sc2:
     case ProfileId::Heroes:
         return kSharedNodeKinds | kSc2NodeKinds;
+    case ProfileId::Wow:
+        return kSharedNodeKinds | kWowNodeKinds;
     default:
         return kSharedNodeKinds;
     }

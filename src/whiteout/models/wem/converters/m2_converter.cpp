@@ -114,6 +114,112 @@ NodeFlags ToNodeFlags(u32 boneFlags) {
     return out;
 }
 
+/// A track's value where the model rests: the first key of the first sequence
+/// that keys it, or @p fallback.
+template <class T>
+T RestOf(const m2::AnimationTrack<T>& track, T fallback) {
+    for (const std::vector<T>& keys : track.values) {
+        if (!keys.empty()) {
+            return keys.front();
+        }
+    }
+    return fallback;
+}
+
+/// A lifetime block's times: the client's `fixed16`, raw / 32767 over 0..1
+/// (`unorm16`'s own conversion halves them), or evenly spread where missing.
+template <class Block>
+std::vector<f32> LifetimeTimes(const Block& block) {
+    std::vector<f32> times;
+    const std::size_t n = block.values.size();
+    for (std::size_t k = 0; k < n; ++k) {
+        times.push_back(k < block.timestamps.size()
+                            ? static_cast<f32>(block.timestamps[k].value) / 32767.0f
+                            : (n > 1 ? static_cast<f32>(k) / static_cast<f32>(n - 1) : 0.0f));
+    }
+    return times;
+}
+
+M2ParticleEmitterPayload ImportParticle(const m2::Model& source, std::size_t index) {
+    const m2::ParticleEmitter& e = source.particleEmitters[index];
+    const u32 flags = static_cast<u32>(e.flags);
+    const auto has = [flags](m2::ParticleFlag bit) { return (flags & static_cast<u32>(bit)) != 0; };
+    const auto texture = [&](u32 id) {
+        return id < source.textures.size() ? id : kInvalidIndex;
+    };
+
+    M2ParticleEmitterPayload p;
+    p.particleId = static_cast<i32>(e.particleId);
+    p.flags = flags;
+    // A multi-texture record packs three 5-bit indices into the field; any
+    // other indexes the texture array with all sixteen bits.
+    if (has(m2::ParticleFlag::MultiTexture)) {
+        p.texture = texture(e.textureId & 0x1Fu);
+        p.texture2 = texture((e.textureId >> 5) & 0x1Fu);
+        p.texture3 = texture((e.textureId >> 10) & 0x1Fu);
+    } else {
+        p.texture = texture(e.textureId);
+    }
+    p.blend = static_cast<u32>(e.blendingType);
+    p.emitterType = static_cast<u32>(e.emitterType);
+    p.colorIndex = e.particleColorIndex;
+    p.rows = e.rows > 0 ? e.rows : 1;
+    p.columns = e.columns > 0 ? e.columns : 1;
+    p.priorityPlane = e.textureTilerotation;
+
+    p.speed = RestOf(e.emissionSpeed, 0.0f);
+    p.speedVariation = RestOf(e.speedVariation, 0.0f);
+    p.verticalRange = RestOf(e.verticalRange, 0.0f);
+    p.horizontalRange = RestOf(e.horizontalRange, 0.0f);
+    p.gravity = m2_anim::ParticleGravity(RestOf(e.gravity, 0.0f),
+                                         has(m2::ParticleFlag::CompressedGravity));
+    p.lifespan = RestOf(e.lifespan, 1.0f);
+    p.lifespanVariation = e.lifespanVariation;
+    p.emissionRate = RestOf(e.emissionRate, 0.0f);
+    p.emissionRateVariation = e.emissionRateVariation;
+    p.width = RestOf(e.emissionAreaWidth, 0.0f);
+    p.length = RestOf(e.emissionAreaLength, 0.0f);
+    p.zSource = e.extension ? e.extension->zSource : RestOf(e.zSource, 0.0f);
+
+    p.colorTimes = LifetimeTimes(e.colorTrack);
+    for (const Vector3f& c : e.colorTrack.values) {
+        p.colors.push_back({c.x / 255.0f, c.y / 255.0f, c.z / 255.0f}); // stored 0..255
+    }
+    p.alphaTimes = LifetimeTimes(e.alphaTrack);
+    for (const unorm16& a : e.alphaTrack.values) {
+        p.alphas.push_back(static_cast<f32>(a.value) / 32767.0f);
+    }
+    p.scaleTimes = LifetimeTimes(e.scaleTrack);
+    p.scales = e.scaleTrack.values;
+    p.scaleVariation = e.scaleVary;
+    // Sprite-sheet cells, read as plain integers despite the block's type.
+    p.headCellTimes = LifetimeTimes(e.headUVScroll);
+    for (const unorm16& cell : e.headUVScroll.values) {
+        p.headCells.push_back(cell.value);
+    }
+    p.tailCellTimes = LifetimeTimes(e.tailUVScroll);
+    for (const unorm16& cell : e.tailUVScroll.values) {
+        p.tailCells.push_back(cell.value);
+    }
+
+    p.tailLength = e.tailLength;
+    p.twinkleSpeed = e.twinkleSpeed;
+    p.twinklePercent = e.twinklePercent;
+    p.twinkleScale = e.twinkleScale;
+    p.drag = e.drag;
+    p.baseSpin = e.baseSpin;
+    p.baseSpinVariation = e.baseSpinVariation;
+    p.spin = e.spinSpeed;
+    p.spinVariation = e.spinSpeedVariation;
+    // The static wind blows only while the record does not ask for the world's.
+    if (!has(m2::ParticleFlag::DynamicWind)) {
+        p.wind = e.windVector;
+    }
+    p.windTime = e.windTime;
+    p.splinePoints = e.splinePoints;
+    return p;
+}
+
 /// Bones first, then every record that hangs off one.
 ///
 /// Bone indices keep their source numbering because `Vertex::boneIndices` and
@@ -235,6 +341,18 @@ NodeTree ImportNodes(const m2::Model& source) {
         node.native.set("cameraType", static_cast<i64>(camera.type));
         node.local.translation = camera.positionBase;
         node.poses.push_back(node.local);
+        tree.add(std::move(node));
+    }
+
+    // After the cameras, so every base `m2_anim::NodeBases` names before them holds.
+    for (std::size_t e = 0; e < source.particleEmitters.size(); ++e) {
+        Node node;
+        node.name = "particle_" + std::to_string(e);
+        node.kind = NodeKind::M2ParticleEmitter;
+        node.resetPayloadForKind();
+        node.payload = ImportParticle(source, e);
+        const m2::ParticleEmitter& emitter = source.particleEmitters[e];
+        attach(emitter.boneId, emitter.position, node);
         tree.add(std::move(node));
     }
 

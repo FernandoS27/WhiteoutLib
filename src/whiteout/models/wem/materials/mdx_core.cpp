@@ -783,6 +783,28 @@ void exportFromNative(const native::MdxMaterial& block, u32 modelVersion, mdx::M
     }
 }
 
+/// From v1100 a layer's texture lives only in its sub-texture list (the parser
+/// zeroes `textureId`), so a layer the kind mapping built on the legacy field
+/// moves it there -- the spelling shipped classic layers use. Left in place,
+/// every layer of a v1800 export read as texture 0.
+void placeTexturesForVersion(u32 modelVersion, mdx::Material& dst) {
+    if (modelVersion < 1100) {
+        return;
+    }
+    for (Layer& layer : dst.layers) {
+        if (!layer.subTextures.empty()) {
+            continue;
+        }
+        Layer::SubTexture sub;
+        sub.textureId = layer.textureId;
+        sub.slot = Layer::SlotType::DiffuseMap;
+        sub.tracks = std::move(layer.textureIdTracks);
+        layer.subTextures.push_back(std::move(sub));
+        layer.textureId = 0;
+        layer.textureIdTracks = {};
+    }
+}
+
 /// Adds @p layer to @p dst under the compositing intent @p mode.
 ///
 /// An `.mdx` layer is a **pass over the whole geoset**, not a step in a register
@@ -966,11 +988,15 @@ void exportCombiners(const CombinersBody& body, const CommonMaterial& common,
             // and its alpha carries the shape — and dropping it left the wing
             // as its two masks, which is a bright sheet rather than a wing.
             if (!dst.layers.empty()) {
-                out.warn(DiagCode::LayerDropped,
-                         "combiner stage " + number(i) +
-                             " passes the colour through, and an MDX layer is a draw: there is "
-                             "no pass that contributes nothing",
-                         layerRef(static_cast<u32>(i)));
+                // Alpha too is an identity (a masked fold baked into the seed):
+                // dropping it loses nothing, so there is nothing to report.
+                if (stage.alpha != CombinerOp::Pass) {
+                    out.warn(DiagCode::LayerDropped,
+                             "combiner stage " + number(i) +
+                                 " passes the colour through, and an MDX layer is a draw: there "
+                                 "is no pass that contributes nothing",
+                             layerRef(static_cast<u32>(i)));
+                }
                 continue;
             }
             mode = Layer::FilterMode::None;
@@ -1003,6 +1029,11 @@ void exportCombiners(const CombinersBody& body, const CommonMaterial& common,
         layer.textureId = context.toMdx(stage.input.texture);
         layer.coordId = stage.input.uvSet;
         layer.alpha = stage.input.weight;
+        // A sphere-mapped stage says so, as `exportComposite`'s layers do;
+        // without the flag the layer reads `coordId` as the mesh's own UVs.
+        if (stage.input.mapping == UVMappingMode::EnvSphere) {
+            layer.shadingFlags |= Layer::ShadingFlag::SphereEnvMap;
+        }
         // The same two flags `exportComposite` writes. A scrolling stage is the
         // case that needs them: `mdx_anim` gives it a TXAN whose offset walks
         // past 1, and a clamped layer holds its last column there forever.
@@ -1269,6 +1300,8 @@ mdx::Material ExportMaterial(const Material& material, ProfileId profile, const 
         if (material.nativeKind() == NativeKind::Mdx) {
             exportFromNative(std::get<native::MdxMaterial>(material.Native()), context.modelVersion,
                              dst);
+            // A block parsed from a v800 file holds no sub-textures.
+            placeTexturesForVersion(context.modelVersion, dst);
             // The block holds this profile's layers in ordinal order (§7.3), and
             // import numbers an HD layer by its position too, so here the map
             // really is the identity.
@@ -1386,6 +1419,7 @@ mdx::Material ExportMaterial(const Material& material, ProfileId profile, const 
         set(Layer::ShadingFlag::NoDepthTest, shading->noDepthTest);
         set(Layer::ShadingFlag::NoDepthSet, shading->noDepthWrite);
     }
+    placeTexturesForVersion(context.modelVersion, dst);
     return dst;
 }
 

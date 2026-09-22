@@ -451,6 +451,153 @@ struct Wc3CornEmitterPayload {
 };
 
 // ============================================================================
+// World of Warcraft — carried by `Wow`
+// ============================================================================
+
+/// `M2Particle` tracks. `Gravity` is a vector: a record flagged with compressed
+/// gravity keys a direction and a magnitude, and a plain one keys -Z.
+enum class M2ParticleProperty : u32 {
+    Speed,
+    SpeedVariation,
+    VerticalRange,   ///< Radians, the cone about +Z.
+    HorizontalRange, ///< Radians, the azimuth the cone sweeps.
+    Gravity,         ///< F32x3, model units per second squared.
+    Lifespan,        ///< Seconds.
+    EmissionRate,
+    Width,  ///< The emission area along the record's X.
+    Length, ///< ...and its Y. A sphere reads the two as its min and max radius.
+    ZSource,
+    Count
+};
+
+/**
+ * @brief `M2Particle`: WoW's emitter — Warcraft III's `PRE2` grown up.
+ *
+ * The record's own frame and flags. The emitter sits on its node the way the
+ * game places it: turned a quarter about Z (`baseFlip`), so the record's X is
+ * the node's Y. `flags` is the record's word as the file holds it (its bits
+ * are `m2::ParticleFlag`); what they mean to another system is the crossing's
+ * to decide, not a field's.
+ *
+ * The lifetime curves are the record's fake-animation blocks: times over the
+ * particle's life in 0..1, colours 0..1 red first, alpha 0..1, sizes in model
+ * units, cells as sprite-sheet indices.
+ */
+struct M2ParticleEmitterPayload {
+    i32 particleId = -1;
+    u32 flags = 0;
+    /// -> `Document::textures`. A multi-texture record (`flags` bit
+    /// 0x10000000) binds all three; any other only the first.
+    u32 texture = kInvalidIndex;
+    u32 texture2 = kInvalidIndex;
+    u32 texture3 = kInvalidIndex;
+    u32 blend = 0;       ///< The M2 material blend numbering: 2 alpha, 4 add, ...
+    u32 emitterType = 1; ///< 1 plane, 2 sphere, 3 spline, 4 bone.
+    /// 11..13 recolour from the creature display's particle colours, which a
+    /// host resolves into `colors`.
+    u32 colorIndex = 0;
+    u32 rows = 1;
+    u32 columns = 1;
+    i32 priorityPlane = 0;
+
+    // Rest values of the tracks (`M2ParticleProperty`).
+    f32 speed = 0;
+    f32 speedVariation = 0;
+    f32 verticalRange = 0;
+    f32 horizontalRange = 0;
+    Vector3f gravity{0, 0, 0};
+    f32 lifespan = 1;
+    f32 lifespanVariation = 0;
+    f32 emissionRate = 0;
+    f32 emissionRateVariation = 0;
+    f32 width = 0;
+    f32 length = 0;
+    f32 zSource = 0;
+
+    std::vector<f32> colorTimes;
+    std::vector<Vector3f> colors;
+    std::vector<f32> alphaTimes;
+    std::vector<f32> alphas;
+    std::vector<f32> scaleTimes;
+    std::vector<Vector2f> scales;
+    Vector2f scaleVariation{0, 0};
+    std::vector<f32> headCellTimes;
+    std::vector<u32> headCells;
+    std::vector<f32> tailCellTimes;
+    std::vector<u32> tailCells;
+
+    f32 tailLength = 0;
+    f32 twinkleSpeed = 0;
+    f32 twinklePercent = 1;
+    Vector2f twinkleScale{0, 0};
+    f32 drag = 0;
+    f32 baseSpin = 0;
+    f32 baseSpinVariation = 0;
+    f32 spin = 0;
+    f32 spinVariation = 0;
+    Vector3f wind{0, 0, 0};
+    f32 windTime = 0;
+    std::vector<Vector3f> splinePoints;
+
+    template <class Self, class F>
+    static void forEachTextureLink(Self& self, F&& f) {
+        f(self.texture);
+        f(self.texture2);
+        f(self.texture3);
+    }
+
+    template <class V>
+    void reflect(V& v) {
+        v.field("particleId", particleId);
+        v.field("flags", flags);
+        v.field("texture", texture);
+        v.field("texture2", texture2);
+        v.field("texture3", texture3);
+        v.field("blend", blend);
+        v.field("emitterType", emitterType);
+        v.field("colorIndex", colorIndex);
+        v.field("rows", rows);
+        v.field("columns", columns);
+        v.field("priorityPlane", priorityPlane);
+        v.field("speed", speed);
+        v.field("speedVariation", speedVariation);
+        v.field("verticalRange", verticalRange);
+        v.field("horizontalRange", horizontalRange);
+        v.field("gravity", gravity);
+        v.field("lifespan", lifespan);
+        v.field("lifespanVariation", lifespanVariation);
+        v.field("emissionRate", emissionRate);
+        v.field("emissionRateVariation", emissionRateVariation);
+        v.field("width", width);
+        v.field("length", length);
+        v.field("zSource", zSource);
+        v.field("colorTimes", colorTimes);
+        v.field("colors", colors);
+        v.field("alphaTimes", alphaTimes);
+        v.field("alphas", alphas);
+        v.field("scaleTimes", scaleTimes);
+        v.field("scales", scales);
+        v.field("scaleVariation", scaleVariation);
+        v.field("headCellTimes", headCellTimes);
+        v.field("headCells", headCells);
+        v.field("tailCellTimes", tailCellTimes);
+        v.field("tailCells", tailCells);
+        v.field("tailLength", tailLength);
+        v.field("twinkleSpeed", twinkleSpeed);
+        v.field("twinklePercent", twinklePercent);
+        v.field("twinkleScale", twinkleScale);
+        v.field("drag", drag);
+        v.field("baseSpin", baseSpin);
+        v.field("baseSpinVariation", baseSpinVariation);
+        v.field("spin", spin);
+        v.field("spinVariation", spinVariation);
+        v.field("wind", wind);
+        v.field("windTime", windTime);
+        v.field("splinePoints", splinePoints);
+    }
+};
+
+// ============================================================================
 // StarCraft II — carried by `Sc2` and `Heroes`
 // ============================================================================
 

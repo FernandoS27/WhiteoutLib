@@ -3,6 +3,7 @@
 
 #include "m2_anim.h"
 
+#include <cmath>
 #include <cstring>
 #include <string>
 #include <variant>
@@ -262,6 +263,12 @@ private:
             }
             used = emit(track, 0, interp, id, clips_[clip]);
         } else {
+            // Every sequence, not only those with an inner array of their own:
+            // one past the end reads array 0 (`M2SubArray`, the client's
+            // `if (seqIdx >= count) seqIdx = 0`). Blizzard writes a constant
+            // that way, one array and one key, and keying it in clip 0 alone
+            // left TitanArgus's other clips at Warcraft III's defaults: its
+            // smoke's colour black and its emitters' rates 0.
             for (std::size_t s = 0; s < clips_.size() && s < source_.sequences.size(); ++s) {
                 used = emit(track, s, interp, id, clips_[s]) || used;
             }
@@ -280,11 +287,14 @@ private:
     template <class T>
     static bool emit(const m2::AnimationTrack<T>& track, std::size_t index, Interpolation interp,
                      u32 id, Clip& clip) {
-        if (index >= track.timestamps.size() || index >= track.values.size()) {
+        // Each list clamps on its own count, as the client's reads do.
+        const std::size_t timesAt = index < track.timestamps.size() ? index : 0;
+        const std::size_t valuesAt = index < track.values.size() ? index : 0;
+        if (timesAt >= track.timestamps.size() || valuesAt >= track.values.size()) {
             return false;
         }
-        const std::vector<u32>& times = track.timestamps[index];
-        const std::vector<T>& values = track.values[index];
+        const std::vector<u32>& times = track.timestamps[timesAt];
+        const std::vector<T>& values = track.values[valuesAt];
         if (times.empty() || values.size() < times.size()) {
             return false;
         }
@@ -374,6 +384,46 @@ private:
                 addTrack(source_.cameras[c].positions, nodeTarget(node, Channel::Translation));
             }
         }
+        for (std::size_t e = 0; e < source_.particleEmitters.size(); ++e) {
+            const u32 node = context_.bases.particle + static_cast<u32>(e);
+            if (node >= model_.nodes.size()) {
+                continue;
+            }
+            addParticleTracks(source_.particleEmitters[e], node);
+        }
+    }
+
+    void addParticleTracks(const m2::ParticleEmitter& emitter, u32 node) {
+        using P = M2ParticleProperty;
+        const auto property = [&](P p) {
+            return nodeTarget(node, Channel::EmitterProperty,
+                              EmitterPropertySub(static_cast<u32>(p)));
+        };
+        addTrack(emitter.emissionSpeed, property(P::Speed));
+        addTrack(emitter.speedVariation, property(P::SpeedVariation));
+        addTrack(emitter.verticalRange, property(P::VerticalRange));
+        addTrack(emitter.horizontalRange, property(P::HorizontalRange));
+        addTrack(emitter.lifespan, property(P::Lifespan));
+        addTrack(emitter.emissionRate, property(P::EmissionRate));
+        addTrack(emitter.emissionAreaWidth, property(P::Width));
+        addTrack(emitter.emissionAreaLength, property(P::Length));
+        addTrack(emitter.zSource, property(P::ZSource));
+        addTrack(emitter.enabledIn, nodeTarget(node, Channel::Visibility));
+
+        // Gravity keys a vector: decoded here once, whichever way the record packs it.
+        const bool compressed = (static_cast<u32>(emitter.flags) &
+                                 static_cast<u32>(m2::ParticleFlag::CompressedGravity)) != 0;
+        m2::AnimationTrack<Vector3f> gravity;
+        gravity.interpolationType = emitter.gravity.interpolationType;
+        gravity.globalSequenceId = emitter.gravity.globalSequenceId;
+        gravity.timestamps = emitter.gravity.timestamps;
+        for (const std::vector<f32>& keys : emitter.gravity.values) {
+            std::vector<Vector3f>& out = gravity.values.emplace_back();
+            for (const f32 key : keys) {
+                out.push_back(ParticleGravity(key, compressed));
+            }
+        }
+        addTrack(gravity, property(P::Gravity));
     }
 
     /// The three material tracks, reached through the resolved native block.
@@ -535,7 +585,31 @@ NodeBases NodeBases::Of(const m2::Model& source) {
     bases.event = bases.light + static_cast<u32>(source.lights.size());
     bases.ribbon = bases.event + static_cast<u32>(source.events.size());
     bases.camera = bases.ribbon + static_cast<u32>(source.ribbonEmitters.size());
+    bases.particle = bases.camera + static_cast<u32>(source.cameras.size());
     return bases;
+}
+
+Vector3f ParticleGravity(f32 key, bool compressed) {
+    if (!compressed) {
+        return {0.0f, 0.0f, -key};
+    }
+    // Bit for bit, arithmetic order included: the client folds `1 - dx*dx`
+    // before subtracting `dy*dy`, and takes the Z hemisphere from the
+    // magnitude's sign rather than storing it in the direction.
+    u8 raw[4];
+    std::memcpy(raw, &key, 4);
+    const f32 dx = static_cast<f32>(static_cast<i8>(raw[0])) * 0.0078125f;
+    const f32 dy = static_cast<f32>(static_cast<i8>(raw[1])) * 0.0078125f;
+    i16 mz = 0;
+    std::memcpy(&mz, raw + 2, 2);
+    f32 magnitude = static_cast<f32>(mz) * 0.042385526f;
+    const f32 zz = (1.0f - dx * dx) - dy * dy;
+    f32 dz = std::sqrt(zz > 0.0f ? zz : 0.0f);
+    if (magnitude < 0.0f) {
+        dz = -dz;
+        magnitude = -magnitude;
+    }
+    return {dx * magnitude, dy * magnitude, dz * magnitude};
 }
 
 void Import(const m2::Model& source, const Context& context, Document& document, u32 model,
@@ -805,8 +879,28 @@ private:
         if (!any) {
             dst.timestamps.clear();
             dst.values.clear();
+        } else if (SameInEverySequence(dst)) {
+            // One array is what the client reads for every sequence past it,
+            // and the shape the import unfolded into every clip.
+            dst.timestamps.resize(1);
+            dst.values.resize(1);
         }
         return any;
+    }
+
+    template <class T>
+    static bool SameInEverySequence(const m2::AnimationTrack<T>& track) {
+        for (std::size_t s = 1; s < track.timestamps.size(); ++s) {
+            const std::vector<T>& values = track.values[s];
+            if (track.timestamps[s] != track.timestamps[0] ||
+                values.size() != track.values[0].size() ||
+                (!values.empty() &&
+                 std::memcmp(values.data(), track.values[0].data(), values.size() * sizeof(T)) !=
+                     0)) {
+                return false;
+            }
+        }
+        return track.timestamps.size() > 1;
     }
 
     template <class T>

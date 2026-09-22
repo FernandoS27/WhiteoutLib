@@ -601,8 +601,10 @@ TEST_CASE("wem m3 a Warcraft III billboard flag is a BBSC record on the node's b
     // model's X, and its X is the model's -Y.
     CHECK(lockY->billboardType == 0);
     CHECK(lockX->billboardType == 1);
+    // Against the look, as the client builds them; a camera-anchored node,
+    // which slides toward the eye, faces the eye.
     for (const auto* record : {free, lockX, lockY, lockZ, anchored}) {
-        CHECK(record->cameraLookAt == 1);
+        CHECK(record->cameraLookAt == (record == anchored ? 1 : 0));
         CHECK(record->forward.w == Catch::Approx(1.0f));
     }
     CHECK(lockY->up.w == Catch::Approx(1.0f));

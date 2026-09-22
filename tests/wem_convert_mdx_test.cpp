@@ -1302,3 +1302,108 @@ TEST_CASE("wem mdx the geoset flag words are written as the import writes them",
     REQUIRE(plainAgain.ok());
     CHECK(recordFor(*plainAgain, 1) == nullptr);
 }
+
+namespace {
+
+/// One quad whose second UV set seams where the first does not: each triangle
+/// maps to its own half of the second map, so the shared diagonal takes two
+/// `uv1` values. With @p constantUv1 every corner's `uv1` is (0, 0), as an M2
+/// body mesh ships it.
+Document makeTwoUvDocument(bool constantUv1) {
+    geom::MeshBuilder builder;
+    MeshSection section;
+    section.name = "card";
+    section.materialSlot = 0;
+    section.profiles = ProfileBit(ProfileId::Wc3Classic) | ProfileBit(ProfileId::Wc3Reforged);
+    builder.addSection(std::move(section));
+    const geom::VertexId v[4] = {
+        builder.addVertex(Vector3f{0, 0, 0}), builder.addVertex(Vector3f{1, 0, 0}),
+        builder.addVertex(Vector3f{1, 1, 0}), builder.addVertex(Vector3f{0, 1, 0})};
+    for (const geom::VertexId vertex : v) {
+        builder.addInfluence(vertex, 0, 1.0f);
+    }
+    const Vector2f uv0[4] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+    const u32 triangles[2][3] = {{0, 1, 2}, {0, 2, 3}};
+    for (u32 t = 0; t < 2; ++t) {
+        const geom::FaceId face =
+            builder.addTriangle(v[triangles[t][0]], v[triangles[t][1]], v[triangles[t][2]], 0);
+        for (u32 c = 0; c < 3; ++c) {
+            const Vector2f first = uv0[triangles[t][c]];
+            builder.setCornerAttr(face, c, geom::names::kNormal, Vector3f{0, 0, 1});
+            builder.setCornerAttr(face, c, geom::names::uv(0), first);
+            builder.setCornerAttr(face, c, geom::names::uv(1),
+                                  constantUv1 ? Vector2f{0, 0}
+                                              : Vector2f{first.x * 0.5f + 0.5f * t, first.y});
+        }
+    }
+
+    Document document;
+    document.declare(ProfileId::Wc3Classic);
+    document.defaultProfile = ProfileId::Wc3Classic;
+    document.name = "two_uv";
+    document.textures.push_back(TextureRef{});
+
+    Model model;
+    model.name = "two_uv";
+    model.meshes.push_back(builder.build().mesh);
+    model.addSlot("card");
+    ProfileMaterialSet set;
+    set.profile = ProfileId::Wc3Classic;
+    set.looks.looks.push_back(Look{});
+    set.resizeBindings(1);
+    Material material;
+    material.name = "card";
+    set.slotBindings[0].byLook[0] = 0;
+    set.materials.push_back(std::move(material));
+    model.profileSets.push_back(std::move(set));
+    Node bone;
+    bone.name = "root";
+    bone.kind = NodeKind::Bone;
+    bone.parent = kInvalidNode;
+    model.nodes.nodes.push_back(std::move(bone));
+    document.models.push_back(std::move(model));
+    REQUIRE(DeriveProfile(document, ProfileId::Wc3Classic, ProfileId::Wc3Reforged).ok);
+    return document;
+}
+
+} // namespace
+
+TEST_CASE("wem mdx Reforged writes a second UV set that varies, and seams on it",
+          "[wem][convert][mdx][geometry]") {
+    // An M2 stage fed by T2 exports as `coordId 1`; a geoset with one UVAS set
+    // left that layer sampling nothing the source meant.
+    const MdxConverter converter;
+    const Document document = makeTwoUvDocument(false);
+
+    Result<mdx::Model> reforged = converter.toMdx(document, ProfileId::Wc3Reforged);
+    REQUIRE(reforged.ok());
+    REQUIRE(reforged->geosets.size() == 1);
+    const mdx::Geoset& geoset = reforged->geosets[0];
+    REQUIRE(geoset.textureCoordinateSets.size() == 2);
+    // The diagonal's two ends split on uv1: four corners become six vertices.
+    CHECK(geoset.vertexPositions.size() == 6);
+    CHECK(geoset.textureCoordinateSets[1].size() == 6);
+    bool rightHalf = false;
+    for (const Vector2f& uv : geoset.textureCoordinateSets[1]) {
+        rightHalf = rightHalf || uv.x > 0.5f;
+    }
+    CHECK(rightHalf);
+    // What Edit Mode maps a file vertex through is what the export wrote.
+    const auto vertices = MdxGeosetVertices(document, 0, ProfileId::Wc3Reforged);
+    REQUIRE(vertices.size() == 1);
+    CHECK(vertices[0].size() == geoset.vertexPositions.size());
+
+    // Classic reads one set, so nothing splits on the second.
+    Result<mdx::Model> classic = converter.toMdx(document, ProfileId::Wc3Classic, 800);
+    REQUIRE(classic.ok());
+    REQUIRE(classic->geosets.size() == 1);
+    CHECK(classic->geosets[0].textureCoordinateSets.size() == 1);
+    CHECK(classic->geosets[0].vertexPositions.size() == 4);
+    CHECK(MdxGeosetVertices(document, 0, ProfileId::Wc3Classic)[0].size() == 4);
+
+    // A second set that never varies carries nothing and is not written.
+    Result<mdx::Model> constant = converter.toMdx(makeTwoUvDocument(true), ProfileId::Wc3Reforged);
+    REQUIRE(constant.ok());
+    CHECK(constant->geosets[0].textureCoordinateSets.size() == 1);
+    CHECK(constant->geosets[0].vertexPositions.size() == 4);
+}

@@ -112,6 +112,19 @@ void rescaleEmitter(NodePayload& payload, f32 factor) {
         p2->start.scaling *= factor;
         p2->middle.scaling *= factor;
         p2->end.scaling *= factor;
+    } else if (auto* m2 = std::get_if<M2ParticleEmitterPayload>(&payload)) {
+        m2->speed *= factor;
+        m2->gravity = {m2->gravity.x * factor, m2->gravity.y * factor, m2->gravity.z * factor};
+        m2->width *= factor;
+        m2->length *= factor;
+        m2->zSource *= factor;
+        for (Vector2f& size : m2->scales) {
+            size = {size.x * factor, size.y * factor};
+        }
+        for (Vector3f& point : m2->splinePoints) {
+            point = {point.x * factor, point.y * factor, point.z * factor};
+        }
+        m2->wind = {m2->wind.x * factor, m2->wind.y * factor, m2->wind.z * factor};
     } else if (auto* r = std::get_if<Wc3RibbonEmitterPayload>(&payload)) {
         r->heightAbove *= factor;
         r->heightBelow *= factor;

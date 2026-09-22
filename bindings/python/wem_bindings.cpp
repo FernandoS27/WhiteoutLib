@@ -51,6 +51,8 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::f32>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::string>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u8>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u32>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Vector2f>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Vector3f>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimChannel>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimSet>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimTag>);
@@ -88,6 +90,64 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::UnknownChunk>);
 
 namespace py = pybind11;
 
+
+namespace {
+
+// Buffer-protocol vector wrapper for std::vector<Elem> where Elem is laid
+// out as `Components` contiguous Scalars (Vector3f, Quaternion, ColorBGRA…).
+//
+// pybind11's bind_vector<> wires up py::buffer_protocol() automatically,
+// but stl_bind.h's auto-buffer-info path static-asserts on element types
+// lacking a format_descriptor — Vector3f/Quaternion don't have one.
+// We provide the same Python surface (append, extend, clear, __getitem__,
+// __setitem__, __iter__, __len__, __bool__) plus a 2D buffer view.
+template <typename Elem, typename Scalar, py::ssize_t Components>
+auto bindBufferVector(py::module_& m, const char* name) {
+    using Vec = std::vector<Elem>;
+    py::class_<Vec> cls(m, name, py::buffer_protocol());
+    cls.def(py::init<>());
+    cls.def("__len__",  [](const Vec& v) { return v.size(); });
+    cls.def("__bool__", [](const Vec& v) { return !v.empty(); });
+    cls.def("__getitem__", [](const Vec& v, std::size_t i) -> Elem {
+        if (i >= v.size()) throw py::index_error();
+        return v[i];
+    });
+    cls.def("__setitem__", [](Vec& v, std::size_t i, const Elem& val) {
+        if (i >= v.size()) throw py::index_error();
+        v[i] = val;
+    });
+    cls.def("__iter__", [](Vec& v) {
+        return py::make_iterator(v.begin(), v.end());
+    }, py::keep_alive<0, 1>());
+    cls.def("append",   [](Vec& v, const Elem& val) { v.push_back(val); });
+    cls.def("extend",   [](Vec& v, const Vec& o) {
+        v.insert(v.end(), o.begin(), o.end());
+    });
+    cls.def("clear",    &Vec::clear);
+    cls.def_buffer([](Vec& v) -> py::buffer_info {
+        if constexpr (Components == 1) {
+            return py::buffer_info(
+                v.data(),
+                static_cast<py::ssize_t>(sizeof(Scalar)),
+                py::format_descriptor<Scalar>::format(),
+                1,
+                { static_cast<py::ssize_t>(v.size()) },
+                { static_cast<py::ssize_t>(sizeof(Scalar)) });
+        } else {
+            return py::buffer_info(
+                v.data(),
+                static_cast<py::ssize_t>(sizeof(Scalar)),
+                py::format_descriptor<Scalar>::format(),
+                2,
+                { static_cast<py::ssize_t>(v.size()), Components },
+                { static_cast<py::ssize_t>(sizeof(Elem)),
+                  static_cast<py::ssize_t>(sizeof(Scalar)) });
+        }
+    });
+    return cls;
+}
+
+} // namespace
 void bind_wem_1(py::module_& m);
 void bind_wem_2(py::module_& m);
 
@@ -595,6 +655,20 @@ Deliberate: Reforged HD is the only shipped PBR content among the six games, so 
         .value("BOTH", whiteout::models::wem::Wc3ParticleHeadOrTail::Both)
     ;
 
+    py::enum_<whiteout::models::wem::M2ParticleProperty>(m, "M2ParticleProperty", R"doc(`M2Particle` tracks. `Gravity` is a vector: a record flagged with compressed gravity keys a direction and a magnitude, and a plain one keys -Z.)doc")
+        .value("SPEED", whiteout::models::wem::M2ParticleProperty::Speed)
+        .value("SPEED_VARIATION", whiteout::models::wem::M2ParticleProperty::SpeedVariation)
+        .value("VERTICAL_RANGE", whiteout::models::wem::M2ParticleProperty::VerticalRange, R"doc(Radians, the cone about +Z.)doc")
+        .value("HORIZONTAL_RANGE", whiteout::models::wem::M2ParticleProperty::HorizontalRange, R"doc(Radians, the azimuth the cone sweeps.)doc")
+        .value("GRAVITY", whiteout::models::wem::M2ParticleProperty::Gravity, R"doc(F32x3, model units per second squared.)doc")
+        .value("LIFESPAN", whiteout::models::wem::M2ParticleProperty::Lifespan, R"doc(Seconds.)doc")
+        .value("EMISSION_RATE", whiteout::models::wem::M2ParticleProperty::EmissionRate)
+        .value("WIDTH", whiteout::models::wem::M2ParticleProperty::Width, R"doc(The emission area along the record's X.)doc")
+        .value("LENGTH", whiteout::models::wem::M2ParticleProperty::Length, R"doc(...and its Y. A sphere reads the two as its min and max radius.)doc")
+        .value("Z_SOURCE", whiteout::models::wem::M2ParticleProperty::ZSource)
+        .value("COUNT", whiteout::models::wem::M2ParticleProperty::Count)
+    ;
+
     py::enum_<whiteout::models::wem::Sc2EmitterShape>(m, "Sc2EmitterShape", R"doc(`PAR_` emission shapes, by the file's own value.)doc")
         .value("POINT", whiteout::models::wem::Sc2EmitterShape::Point)
         .value("PLANE", whiteout::models::wem::Sc2EmitterShape::Plane)
@@ -651,6 +725,7 @@ Deliberate: Reforged HD is the only shipped PBR content among the six games, so 
         .value("SC2_PARTICLE_EMITTER", whiteout::models::wem::NodeKind::Sc2ParticleEmitter, R"doc(M3 `PAR_`, and each `PARC` copy of one.)doc")
         .value("SC2_RIBBON_EMITTER", whiteout::models::wem::NodeKind::Sc2RibbonEmitter, R"doc(M3 `RIB_` with its `SRIB` spline.)doc")
         .value("WC3_CORN_EMITTER", whiteout::models::wem::NodeKind::Wc3CornEmitter, R"doc(MDX `CORN`: a PopcornFX effect (Reforged). `NODE` v7.)doc")
+        .value("M2_PARTICLE_EMITTER", whiteout::models::wem::NodeKind::M2ParticleEmitter, R"doc(M2 `M2Particle`. `NODE` v8.)doc")
         .value("COUNT", whiteout::models::wem::NodeKind::Count)
     ;
 
@@ -1171,6 +1246,23 @@ Deterministic and idempotent. Fails only on a non-manifold face set, which `Mesh
         .def_readwrite("line_emitter", &whiteout::models::wem::Wc3ParticleEmitter2Payload::lineEmitter, R"doc(0x20000.)doc")
         .def_readwrite("unfogged", &whiteout::models::wem::Wc3ParticleEmitter2Payload::unfogged, R"doc(0x40000.)doc")
         .def_readwrite("xy_quad", &whiteout::models::wem::Wc3ParticleEmitter2Payload::xyQuad, R"doc(0x100000.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::Wc3RibbonEmitterPayload>(m, "Wc3RibbonEmitterPayload", R"doc(`RIBB`: a strip swept between `heightAbove` and `heightBelow` of the node.
+
+Its colour, alpha and flipbook cell key on the shared `Color`, `Alpha` and `TextureIndex` channels and rest here.)doc")
+        .def(py::init<>())
+        .def_readwrite("height_above", &whiteout::models::wem::Wc3RibbonEmitterPayload::heightAbove)
+        .def_readwrite("height_below", &whiteout::models::wem::Wc3RibbonEmitterPayload::heightBelow)
+        .def_readwrite("alpha", &whiteout::models::wem::Wc3RibbonEmitterPayload::alpha)
+        .def_readwrite("color", &whiteout::models::wem::Wc3RibbonEmitterPayload::color, R"doc(RGB, red first.)doc")
+        .def_readwrite("lifespan", &whiteout::models::wem::Wc3RibbonEmitterPayload::lifespan, R"doc(Seconds a segment lives.)doc")
+        .def_readwrite("texture_slot", &whiteout::models::wem::Wc3RibbonEmitterPayload::textureSlot, R"doc(The flipbook cell.)doc")
+        .def_readwrite("emission_rate", &whiteout::models::wem::Wc3RibbonEmitterPayload::emissionRate, R"doc(Segments a second.)doc")
+        .def_readwrite("rows", &whiteout::models::wem::Wc3RibbonEmitterPayload::rows)
+        .def_readwrite("columns", &whiteout::models::wem::Wc3RibbonEmitterPayload::columns)
+        .def_readwrite("material_slot", &whiteout::models::wem::Wc3RibbonEmitterPayload::materialSlot, R"doc(-> `Model::materialSlots`.)doc")
+        .def_readwrite("gravity", &whiteout::models::wem::Wc3RibbonEmitterPayload::gravity)
     ;
 
     bind_wem_1(m);

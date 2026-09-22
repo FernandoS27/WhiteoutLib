@@ -51,6 +51,8 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::f32>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::string>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u8>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u32>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Vector2f>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Vector3f>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimChannel>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimSet>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimTag>);
@@ -88,8 +90,67 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::UnknownChunk>);
 
 namespace py = pybind11;
 
+
+namespace {
+
+// Buffer-protocol vector wrapper for std::vector<Elem> where Elem is laid
+// out as `Components` contiguous Scalars (Vector3f, Quaternion, ColorBGRA…).
+//
+// pybind11's bind_vector<> wires up py::buffer_protocol() automatically,
+// but stl_bind.h's auto-buffer-info path static-asserts on element types
+// lacking a format_descriptor — Vector3f/Quaternion don't have one.
+// We provide the same Python surface (append, extend, clear, __getitem__,
+// __setitem__, __iter__, __len__, __bool__) plus a 2D buffer view.
+template <typename Elem, typename Scalar, py::ssize_t Components>
+auto bindBufferVector(py::module_& m, const char* name) {
+    using Vec = std::vector<Elem>;
+    py::class_<Vec> cls(m, name, py::buffer_protocol());
+    cls.def(py::init<>());
+    cls.def("__len__",  [](const Vec& v) { return v.size(); });
+    cls.def("__bool__", [](const Vec& v) { return !v.empty(); });
+    cls.def("__getitem__", [](const Vec& v, std::size_t i) -> Elem {
+        if (i >= v.size()) throw py::index_error();
+        return v[i];
+    });
+    cls.def("__setitem__", [](Vec& v, std::size_t i, const Elem& val) {
+        if (i >= v.size()) throw py::index_error();
+        v[i] = val;
+    });
+    cls.def("__iter__", [](Vec& v) {
+        return py::make_iterator(v.begin(), v.end());
+    }, py::keep_alive<0, 1>());
+    cls.def("append",   [](Vec& v, const Elem& val) { v.push_back(val); });
+    cls.def("extend",   [](Vec& v, const Vec& o) {
+        v.insert(v.end(), o.begin(), o.end());
+    });
+    cls.def("clear",    &Vec::clear);
+    cls.def_buffer([](Vec& v) -> py::buffer_info {
+        if constexpr (Components == 1) {
+            return py::buffer_info(
+                v.data(),
+                static_cast<py::ssize_t>(sizeof(Scalar)),
+                py::format_descriptor<Scalar>::format(),
+                1,
+                { static_cast<py::ssize_t>(v.size()) },
+                { static_cast<py::ssize_t>(sizeof(Scalar)) });
+        } else {
+            return py::buffer_info(
+                v.data(),
+                static_cast<py::ssize_t>(sizeof(Scalar)),
+                py::format_descriptor<Scalar>::format(),
+                2,
+                { static_cast<py::ssize_t>(v.size()), Components },
+                { static_cast<py::ssize_t>(sizeof(Elem)),
+                  static_cast<py::ssize_t>(sizeof(Scalar)) });
+        }
+    });
+    return cls;
+}
+
+} // namespace
 // Part 2 of bind_wem(), which calls the parts in order.
 void bind_wem_2(py::module_& m) {
+    py::bind_vector<std::vector<whiteout::models::wem::ClipEvent>>(m, "VectorWemClipEvent");
     py::bind_vector<std::vector<whiteout::models::wem::CombinerStage>>(m, "VectorWemCombinerStage");
     py::bind_vector<std::vector<whiteout::models::wem::CompositeLayer>>(m, "VectorWemCompositeLayer");
     py::bind_vector<std::vector<whiteout::models::wem::Diagnostic>>(m, "VectorWemDiagnostic");

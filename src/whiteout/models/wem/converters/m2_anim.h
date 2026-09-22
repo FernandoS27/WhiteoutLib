@@ -54,7 +54,7 @@ namespace m2_anim {
 
 /// Where the node import put each satellite array. Recomputed rather than
 /// passed, in `ImportNodes`' own order — bones, attachments, lights, events,
-/// ribbons, cameras.
+/// ribbons, cameras, particle emitters.
 struct NodeBases {
     u32 bone = 0;
     u32 attachment = 0;
@@ -62,6 +62,7 @@ struct NodeBases {
     u32 event = 0;
     u32 ribbon = 0;
     u32 camera = 0;
+    u32 particle = 0;
 
     static NodeBases Of(const m2::Model& source);
 };
@@ -75,6 +76,11 @@ struct Context {
 
 void Import(const m2::Model& source, const Context& context, Document& document, u32 model,
             Diagnostics& out);
+
+/// One `M2Particle` gravity key as a vector. A plain key is a magnitude along
+/// -Z; a record flagged with compressed gravity packs a direction and a
+/// magnitude into the float's bits (`CM2Shared::DecompressParticleSequence`).
+Vector3f ParticleGravity(f32 key, bool compressed);
 
 /// Where each WEM node landed in the `.m2` being written.
 ///

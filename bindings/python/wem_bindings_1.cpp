@@ -51,6 +51,8 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::f32>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::string>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u8>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u32>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Vector2f>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Vector3f>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimChannel>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimSet>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimTag>);
@@ -88,25 +90,66 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::UnknownChunk>);
 
 namespace py = pybind11;
 
+
+namespace {
+
+// Buffer-protocol vector wrapper for std::vector<Elem> where Elem is laid
+// out as `Components` contiguous Scalars (Vector3f, Quaternion, ColorBGRA…).
+//
+// pybind11's bind_vector<> wires up py::buffer_protocol() automatically,
+// but stl_bind.h's auto-buffer-info path static-asserts on element types
+// lacking a format_descriptor — Vector3f/Quaternion don't have one.
+// We provide the same Python surface (append, extend, clear, __getitem__,
+// __setitem__, __iter__, __len__, __bool__) plus a 2D buffer view.
+template <typename Elem, typename Scalar, py::ssize_t Components>
+auto bindBufferVector(py::module_& m, const char* name) {
+    using Vec = std::vector<Elem>;
+    py::class_<Vec> cls(m, name, py::buffer_protocol());
+    cls.def(py::init<>());
+    cls.def("__len__",  [](const Vec& v) { return v.size(); });
+    cls.def("__bool__", [](const Vec& v) { return !v.empty(); });
+    cls.def("__getitem__", [](const Vec& v, std::size_t i) -> Elem {
+        if (i >= v.size()) throw py::index_error();
+        return v[i];
+    });
+    cls.def("__setitem__", [](Vec& v, std::size_t i, const Elem& val) {
+        if (i >= v.size()) throw py::index_error();
+        v[i] = val;
+    });
+    cls.def("__iter__", [](Vec& v) {
+        return py::make_iterator(v.begin(), v.end());
+    }, py::keep_alive<0, 1>());
+    cls.def("append",   [](Vec& v, const Elem& val) { v.push_back(val); });
+    cls.def("extend",   [](Vec& v, const Vec& o) {
+        v.insert(v.end(), o.begin(), o.end());
+    });
+    cls.def("clear",    &Vec::clear);
+    cls.def_buffer([](Vec& v) -> py::buffer_info {
+        if constexpr (Components == 1) {
+            return py::buffer_info(
+                v.data(),
+                static_cast<py::ssize_t>(sizeof(Scalar)),
+                py::format_descriptor<Scalar>::format(),
+                1,
+                { static_cast<py::ssize_t>(v.size()) },
+                { static_cast<py::ssize_t>(sizeof(Scalar)) });
+        } else {
+            return py::buffer_info(
+                v.data(),
+                static_cast<py::ssize_t>(sizeof(Scalar)),
+                py::format_descriptor<Scalar>::format(),
+                2,
+                { static_cast<py::ssize_t>(v.size()), Components },
+                { static_cast<py::ssize_t>(sizeof(Elem)),
+                  static_cast<py::ssize_t>(sizeof(Scalar)) });
+        }
+    });
+    return cls;
+}
+
+} // namespace
 // Part 1 of bind_wem(), which calls the parts in order.
 void bind_wem_1(py::module_& m) {
-    py::class_<whiteout::models::wem::Wc3RibbonEmitterPayload>(m, "Wc3RibbonEmitterPayload", R"doc(`RIBB`: a strip swept between `heightAbove` and `heightBelow` of the node.
-
-Its colour, alpha and flipbook cell key on the shared `Color`, `Alpha` and `TextureIndex` channels and rest here.)doc")
-        .def(py::init<>())
-        .def_readwrite("height_above", &whiteout::models::wem::Wc3RibbonEmitterPayload::heightAbove)
-        .def_readwrite("height_below", &whiteout::models::wem::Wc3RibbonEmitterPayload::heightBelow)
-        .def_readwrite("alpha", &whiteout::models::wem::Wc3RibbonEmitterPayload::alpha)
-        .def_readwrite("color", &whiteout::models::wem::Wc3RibbonEmitterPayload::color, R"doc(RGB, red first.)doc")
-        .def_readwrite("lifespan", &whiteout::models::wem::Wc3RibbonEmitterPayload::lifespan, R"doc(Seconds a segment lives.)doc")
-        .def_readwrite("texture_slot", &whiteout::models::wem::Wc3RibbonEmitterPayload::textureSlot, R"doc(The flipbook cell.)doc")
-        .def_readwrite("emission_rate", &whiteout::models::wem::Wc3RibbonEmitterPayload::emissionRate, R"doc(Segments a second.)doc")
-        .def_readwrite("rows", &whiteout::models::wem::Wc3RibbonEmitterPayload::rows)
-        .def_readwrite("columns", &whiteout::models::wem::Wc3RibbonEmitterPayload::columns)
-        .def_readwrite("material_slot", &whiteout::models::wem::Wc3RibbonEmitterPayload::materialSlot, R"doc(-> `Model::materialSlots`.)doc")
-        .def_readwrite("gravity", &whiteout::models::wem::Wc3RibbonEmitterPayload::gravity)
-    ;
-
     py::class_<whiteout::models::wem::Wc3CornEmitterPayload>(m, "Wc3CornEmitterPayload", R"doc(`CORN`: a PopcornFX effect run at the node (Reforged).
 
 The effect itself is a `.pkb` WEM does not hold, named by `effect`; what the model owns is the five numbers the game hands the effect every frame. They are MULTIPLIERS on the effect's own values (the game's reader names each track so: "lifespan multiplier keys", ...), which is why they rest at 1.
@@ -125,6 +168,60 @@ Its colour, alpha and visibility key on the shared `Color`, `Alpha` and `Visibil
         .def_readwrite("sort_prims_far_z", &whiteout::models::wem::Wc3CornEmitterPayload::sortPrimsFarZ, R"doc(0x10000.)doc")
         .def_readwrite("unfogged", &whiteout::models::wem::Wc3CornEmitterPayload::unfogged, R"doc(0x20000.)doc")
         .def_readwrite("popcorn_scaling", &whiteout::models::wem::Wc3CornEmitterPayload::popcornScaling, R"doc(0x40000: the node's scale reaches the effect.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::M2ParticleEmitterPayload>(m, "M2ParticleEmitterPayload", R"doc(`M2Particle`: WoW's emitter — Warcraft III's `PRE2` grown up.
+
+The record's own frame and flags. The emitter sits on its node the way the game places it: turned a quarter about Z (`baseFlip`), so the record's X is the node's Y. `flags` is the record's word as the file holds it (its bits are `m2::ParticleFlag`); what they mean to another system is the crossing's to decide, not a field's.
+
+The lifetime curves are the record's fake-animation blocks: times over the particle's life in 0..1, colours 0..1 red first, alpha 0..1, sizes in model units, cells as sprite-sheet indices.)doc")
+        .def(py::init<>())
+        .def_readwrite("particle_id", &whiteout::models::wem::M2ParticleEmitterPayload::particleId)
+        .def_readwrite("flags", &whiteout::models::wem::M2ParticleEmitterPayload::flags)
+        .def_readwrite("texture", &whiteout::models::wem::M2ParticleEmitterPayload::texture, R"doc(-> `Document::textures`. A multi-texture record (`flags` bit 0x10000000) binds all three; any other only the first.)doc")
+        .def_readwrite("texture2", &whiteout::models::wem::M2ParticleEmitterPayload::texture2)
+        .def_readwrite("texture3", &whiteout::models::wem::M2ParticleEmitterPayload::texture3)
+        .def_readwrite("blend", &whiteout::models::wem::M2ParticleEmitterPayload::blend, R"doc(The M2 material blend numbering: 2 alpha, 4 add, ...)doc")
+        .def_readwrite("emitter_type", &whiteout::models::wem::M2ParticleEmitterPayload::emitterType, R"doc(1 plane, 2 sphere, 3 spline, 4 bone.)doc")
+        .def_readwrite("color_index", &whiteout::models::wem::M2ParticleEmitterPayload::colorIndex, R"doc(11..13 recolour from the creature display's particle colours, which a host resolves into `colors`.)doc")
+        .def_readwrite("rows", &whiteout::models::wem::M2ParticleEmitterPayload::rows)
+        .def_readwrite("columns", &whiteout::models::wem::M2ParticleEmitterPayload::columns)
+        .def_readwrite("priority_plane", &whiteout::models::wem::M2ParticleEmitterPayload::priorityPlane)
+        .def_readwrite("speed", &whiteout::models::wem::M2ParticleEmitterPayload::speed)
+        .def_readwrite("speed_variation", &whiteout::models::wem::M2ParticleEmitterPayload::speedVariation)
+        .def_readwrite("vertical_range", &whiteout::models::wem::M2ParticleEmitterPayload::verticalRange)
+        .def_readwrite("horizontal_range", &whiteout::models::wem::M2ParticleEmitterPayload::horizontalRange)
+        .def_readwrite("gravity", &whiteout::models::wem::M2ParticleEmitterPayload::gravity)
+        .def_readwrite("lifespan", &whiteout::models::wem::M2ParticleEmitterPayload::lifespan)
+        .def_readwrite("lifespan_variation", &whiteout::models::wem::M2ParticleEmitterPayload::lifespanVariation)
+        .def_readwrite("emission_rate", &whiteout::models::wem::M2ParticleEmitterPayload::emissionRate)
+        .def_readwrite("emission_rate_variation", &whiteout::models::wem::M2ParticleEmitterPayload::emissionRateVariation)
+        .def_readwrite("width", &whiteout::models::wem::M2ParticleEmitterPayload::width)
+        .def_readwrite("length", &whiteout::models::wem::M2ParticleEmitterPayload::length)
+        .def_readwrite("z_source", &whiteout::models::wem::M2ParticleEmitterPayload::zSource)
+        .def_readwrite("color_times", &whiteout::models::wem::M2ParticleEmitterPayload::colorTimes)
+        .def_readwrite("colors", &whiteout::models::wem::M2ParticleEmitterPayload::colors)
+        .def_readwrite("alpha_times", &whiteout::models::wem::M2ParticleEmitterPayload::alphaTimes)
+        .def_readwrite("alphas", &whiteout::models::wem::M2ParticleEmitterPayload::alphas)
+        .def_readwrite("scale_times", &whiteout::models::wem::M2ParticleEmitterPayload::scaleTimes)
+        .def_readwrite("scales", &whiteout::models::wem::M2ParticleEmitterPayload::scales)
+        .def_readwrite("scale_variation", &whiteout::models::wem::M2ParticleEmitterPayload::scaleVariation)
+        .def_readwrite("head_cell_times", &whiteout::models::wem::M2ParticleEmitterPayload::headCellTimes)
+        .def_readwrite("head_cells", &whiteout::models::wem::M2ParticleEmitterPayload::headCells)
+        .def_readwrite("tail_cell_times", &whiteout::models::wem::M2ParticleEmitterPayload::tailCellTimes)
+        .def_readwrite("tail_cells", &whiteout::models::wem::M2ParticleEmitterPayload::tailCells)
+        .def_readwrite("tail_length", &whiteout::models::wem::M2ParticleEmitterPayload::tailLength)
+        .def_readwrite("twinkle_speed", &whiteout::models::wem::M2ParticleEmitterPayload::twinkleSpeed)
+        .def_readwrite("twinkle_percent", &whiteout::models::wem::M2ParticleEmitterPayload::twinklePercent)
+        .def_readwrite("twinkle_scale", &whiteout::models::wem::M2ParticleEmitterPayload::twinkleScale)
+        .def_readwrite("drag", &whiteout::models::wem::M2ParticleEmitterPayload::drag)
+        .def_readwrite("base_spin", &whiteout::models::wem::M2ParticleEmitterPayload::baseSpin)
+        .def_readwrite("base_spin_variation", &whiteout::models::wem::M2ParticleEmitterPayload::baseSpinVariation)
+        .def_readwrite("spin", &whiteout::models::wem::M2ParticleEmitterPayload::spin)
+        .def_readwrite("spin_variation", &whiteout::models::wem::M2ParticleEmitterPayload::spinVariation)
+        .def_readwrite("wind", &whiteout::models::wem::M2ParticleEmitterPayload::wind)
+        .def_readwrite("wind_time", &whiteout::models::wem::M2ParticleEmitterPayload::windTime)
+        .def_readwrite("spline_points", &whiteout::models::wem::M2ParticleEmitterPayload::splinePoints)
     ;
 
     py::class_<whiteout::models::wem::Sc2Variation>(m, "Sc2Variation", R"doc(One of the per-particle variation channels: a curve type, and the amplitude and frequency it runs at.)doc")
@@ -763,5 +860,4 @@ Colours are RGBA in 0..1, the channel convention; a `u16` squirt count widens to
     py::bind_vector<std::vector<whiteout::models::wem::AnimTag>>(m, "VectorWemAnimTag");
     py::bind_vector<std::vector<whiteout::models::wem::AssetKey>>(m, "VectorWemAssetKey");
     py::bind_vector<std::vector<whiteout::models::wem::Clip>>(m, "VectorWemClip");
-    py::bind_vector<std::vector<whiteout::models::wem::ClipEvent>>(m, "VectorWemClipEvent");
 }

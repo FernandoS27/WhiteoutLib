@@ -55,6 +55,20 @@ constexpr EmitterPropertyDesc kWc3Corn[] = {
 };
 static_assert(std::size(kWc3Corn) == static_cast<std::size_t>(Wc3CornProperty::Count));
 
+constexpr EmitterPropertyDesc kM2Particle[] = {
+    {"speed", AttrType::F32, false, kLength},
+    {"speedVariation", AttrType::F32},
+    {"verticalRange", AttrType::F32},
+    {"horizontalRange", AttrType::F32},
+    {"gravity", AttrType::F32x3, false, kLength},
+    {"lifespan", AttrType::F32},
+    {"emissionRate", AttrType::F32},
+    {"width", AttrType::F32, false, kLength},
+    {"length", AttrType::F32, false, kLength},
+    {"zSource", AttrType::F32, false, kLength},
+};
+static_assert(std::size(kM2Particle) == static_cast<std::size_t>(M2ParticleProperty::Count));
+
 constexpr EmitterPropertyDesc kSc2Particle[] = {
     {"initialSpeed", AttrType::F32, false, kLength},
     {"initialSpeedRandom", AttrType::F32, false, kLength},
@@ -170,6 +184,8 @@ std::span<const EmitterPropertyDesc> PropertiesOf(NodeKind kind) {
         return kSc2Particle;
     case NodeKind::Sc2RibbonEmitter:
         return kSc2Ribbon;
+    case NodeKind::M2ParticleEmitter:
+        return kM2Particle;
     default:
         return {};
     }

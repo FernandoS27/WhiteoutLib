@@ -1105,10 +1105,11 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     //
     // A Warcraft III node states which way it billboards in its flags; a
     // StarCraft II bone states it in a BBSC record. Both evaluate in model
-    // space, before the children compose onto the result, and both aim from
-    // the node at the eye -- Warcraft III takes `camera - pivot`, so every
-    // record asks `cameraLookAt`, not the view direction Blizzard's own
-    // conversions mostly chose.
+    // space, before the children compose onto the result, and both face
+    // against the camera's LOOK, not toward the eye -- the Warcraft III client
+    // builds every billboard from `normalize(target - eye)`, one direction per
+    // model -- so a record asks `cameraLookAt` only for a camera-anchored node,
+    // which is what Blizzard's own conversions chose too.
     //
     // The axes cross through the basis change: Warcraft III's +X (the facing
     // axis) is StarCraft II's -Y and its +Y is +X, so a node locked to its Y
@@ -1160,7 +1161,9 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             }
             m3::BillboardBehavior record;
             record.boneIndex = static_cast<u16>(boneOf[n]);
-            record.cameraLookAt = 1;
+            // A camera-anchored node slides out along the ray to the eye, so it
+            // is the one that faces the eye: Blizzard's lookAt 1 on 15 of 16.
+            record.cameraLookAt = anchored ? 1 : 0;
             record.up = Quaternion{0, 0, 0, 1};
             record.forward = Quaternion{0, 0, 0, 1};
             // Warcraft III tests the free billboard first, then X, Y and Z.

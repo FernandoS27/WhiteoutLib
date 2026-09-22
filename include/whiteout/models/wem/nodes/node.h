@@ -128,6 +128,7 @@ enum class NodeKind : u8 {
     Sc2ParticleEmitter,  ///< M3 `PAR_`, and each `PARC` copy of one.
     Sc2RibbonEmitter,    ///< M3 `RIB_` with its `SRIB` spline.
     Wc3CornEmitter,      ///< MDX `CORN`: a PopcornFX effect (Reforged). `NODE` v7.
+    M2ParticleEmitter,   ///< M2 `M2Particle`. `NODE` v8.
     Count
 };
 
@@ -162,6 +163,9 @@ inline constexpr NodeKindMask kWc3NodeKinds =
 inline constexpr NodeKindMask kSc2NodeKinds =
     NodeKindBit(NodeKind::Sc2ParticleEmitter) | NodeKindBit(NodeKind::Sc2RibbonEmitter);
 
+/// World of Warcraft's — `Wow`. Its ribbons stay the generic reference.
+inline constexpr NodeKindMask kWowNodeKinds = NodeKindBit(NodeKind::M2ParticleEmitter);
+
 /// Whether @p profile carries a node of @p kind — the §10.9 gate, read off
 /// `ProfileDesc::nodeKinds`.
 bool CarriesNodeKind(ProfileId profile, NodeKind kind);
@@ -173,7 +177,7 @@ ProfileMask ProfilesCarryingNodeKind(NodeKind kind);
 constexpr bool IsParticleEmitterKind(NodeKind kind) {
     return kind == NodeKind::ParticleEmitter || kind == NodeKind::Wc3ParticleEmitter1 ||
            kind == NodeKind::Wc3ParticleEmitter2 || kind == NodeKind::Sc2ParticleEmitter ||
-           kind == NodeKind::Wc3CornEmitter;
+           kind == NodeKind::Wc3CornEmitter || kind == NodeKind::M2ParticleEmitter;
 }
 
 /// A ribbon system of any family.
@@ -186,9 +190,9 @@ constexpr bool IsEmitterKind(NodeKind kind) {
     return IsParticleEmitterKind(kind) || IsRibbonEmitterKind(kind);
 }
 
-/// A kind whose payload is a game's whole emitter system — the gated six.
+/// A kind whose payload is a game's whole emitter system — the gated seven.
 constexpr bool IsEmitterSystemKind(NodeKind kind) {
-    return HasNodeKind(kWc3NodeKinds | kSc2NodeKinds, kind);
+    return HasNodeKind(kWc3NodeKinds | kSc2NodeKinds | kWowNodeKinds, kind);
 }
 
 /**
@@ -415,7 +419,8 @@ using NodePayload =
     std::variant<HelperPayload, BonePayload, AttachmentPayload, LightPayload, CameraPayload,
                  ParticlePayload, RibbonPayload, EventPayload, CollisionPayload,
                  Wc3ParticleEmitter1Payload, Wc3ParticleEmitter2Payload, Wc3RibbonEmitterPayload,
-                 Sc2ParticleEmitterPayload, Sc2RibbonEmitterPayload, Wc3CornEmitterPayload>;
+                 Sc2ParticleEmitterPayload, Sc2RibbonEmitterPayload, Wc3CornEmitterPayload,
+                 M2ParticleEmitterPayload>;
 
 /// Every node index @p payload holds, as `f(u32& node, EmitterLink what)` — the
 /// §10.6 referencer row the emitter systems add. @p payload may be const.
@@ -463,6 +468,8 @@ template <class Payload, class F>
 void ForEachTextureLink(Payload& payload, F&& f) {
     if (auto* particle = std::get_if<Wc3ParticleEmitter2Payload>(&payload)) {
         Wc3ParticleEmitter2Payload::forEachTextureLink(*particle, f);
+    } else if (auto* m2 = std::get_if<M2ParticleEmitterPayload>(&payload)) {
+        M2ParticleEmitterPayload::forEachTextureLink(*m2, f);
     }
 }
 
@@ -630,6 +637,10 @@ struct Node {
         // v7, gated like v3's by the kind: no older chunk holds one.
         case NodeKind::Wc3CornEmitter:
             v.field("wc3Corn", VariantAs<Wc3CornEmitterPayload>(payload));
+            break;
+        // v8, the same way.
+        case NodeKind::M2ParticleEmitter:
+            v.field("m2Particle", VariantAs<M2ParticleEmitterPayload>(payload));
             break;
         case NodeKind::Count:
             break;

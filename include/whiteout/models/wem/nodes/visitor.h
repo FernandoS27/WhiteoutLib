@@ -195,6 +195,11 @@ struct NodeVisitor {
         (void)node;
         (void)payload;
     }
+    virtual void OnM2ParticleEmitter(u32 id, Node& node, M2ParticleEmitterPayload& payload) {
+        (void)id;
+        (void)node;
+        (void)payload;
+    }
 };
 
 /// Array order.

@@ -397,6 +397,19 @@ TEST_CASE("wem a chain's base layer takes the material's blend", "[wem][material
     CHECK(diagnostics.byCode(DiagCode::LayerDropped).size() == 1);
 }
 
+TEST_CASE("wem a sphere-mapped stage says so on its layer", "[wem][materials][mdx]") {
+    // Without the flag the layer reads `coordId` as the mesh's own UVs: the
+    // nightborne's sphere-mapped rune sheen landed as a white patch down a leg.
+    Material material = makeChain({CombinerOp::Opaque, CombinerOp::AddAlpha});
+    material.MutableCommon().combiners()->stages[1].input.mapping = UVMappingMode::EnvSphere;
+    Diagnostics diagnostics;
+    const mdx::Material exported =
+        mdx_core::ExportMaterial(material, ProfileId::Wc3Classic, makeContext(), diagnostics);
+    REQUIRE(exported.layers.size() == 2);
+    CHECK_FALSE(hasFlag(exported.layers[0].shadingFlags, Layer::ShadingFlag::SphereEnvMap));
+    CHECK(hasFlag(exported.layers[1].shadingFlags, Layer::ShadingFlag::SphereEnvMap));
+}
+
 TEST_CASE("wem a mid-chain replace restarts the stack", "[wem][materials][mdx]") {
     // An `.mdx` layer is a PASS. `None` on a later layer is not an identity and
     // not a chain-replace: it is an opaque draw of the whole geoset, and every
@@ -423,10 +436,13 @@ TEST_CASE("wem a passing stage draws only when it is the base", "[wem][materials
     // later one is dropped — while the FIRST is the register's only value and
     // therefore what the chain draws. Dropping that left a wing as its two
     // masks, which is a bright sheet rather than a wing.
+    Material material =
+        makeChain({CombinerOp::Pass, CombinerOp::Mod, CombinerOp::Pass}, BlendMode::AdditiveAlpha);
+    // Diablo III's trailing stage is an alpha mask: colour passes, alpha does not.
+    material.MutableCommon().combiners()->stages[2].alpha = CombinerOp::Mod;
     Diagnostics diagnostics;
-    const mdx::Material exported = mdx_core::ExportMaterial(
-        makeChain({CombinerOp::Pass, CombinerOp::Mod, CombinerOp::Pass}, BlendMode::AdditiveAlpha),
-        ProfileId::Wc3Classic, makeContext(), diagnostics);
+    const mdx::Material exported =
+        mdx_core::ExportMaterial(material, ProfileId::Wc3Classic, makeContext(), diagnostics);
     // One layer: the static mod stage over the additive base drops (the same
     // statement the "base layer takes the material's blend" case makes), and
     // the trailing pass drops as before.
@@ -434,6 +450,17 @@ TEST_CASE("wem a passing stage draws only when it is the base", "[wem][materials
     CHECK(exported.layers[0].textureId == 0);
     CHECK(exported.layers[0].filterMode == Layer::FilterMode::AddAlpha);
     CHECK(diagnostics.byCode(DiagCode::LayerDropped).size() == 2);
+}
+
+TEST_CASE("wem a stage that passes colour and alpha drops without a word", "[wem][materials][mdx]") {
+    // What a masked env fold leaves once its sheen is baked into the seed: an
+    // identity in both channels, so dropping it loses nothing to report.
+    Diagnostics diagnostics;
+    const mdx::Material exported = mdx_core::ExportMaterial(
+        makeChain({CombinerOp::Opaque, CombinerOp::Pass}), ProfileId::Wc3Classic, makeContext(),
+        diagnostics);
+    REQUIRE(exported.layers.size() == 1);
+    CHECK(diagnostics.byCode(DiagCode::LayerDropped).empty());
 }
 
 TEST_CASE("wem an animated mod stage over an additive base still drops",
@@ -538,4 +565,33 @@ TEST_CASE("wem a layer this export wrote names no texture animation", "[wem][mat
     REQUIRE(exported.layers.size() == 2);
     CHECK(exported.layers[0].textureAnimationId == 0xFFFFFFFFu);
     CHECK(exported.layers[1].textureAnimationId == 0xFFFFFFFFu);
+}
+
+TEST_CASE("wem from v1100 a chain layer's texture is its first sub-texture", "[wem][materials][mdx]") {
+    // The parser zeroes a v1100+ layer's `textureId` and reads only the
+    // sub-texture list, so a v1800 export that set the legacy field drew
+    // texture 0 on every layer (TitanArgus' effect cards wore his skin).
+    Material material = makeChain({CombinerOp::Opaque, CombinerOp::Mod}, BlendMode::AlphaBlend);
+    material.MutableCommon().combiners()->stages[0].input.texture = 3;
+    material.MutableCommon().combiners()->stages[1].input.texture = 5;
+
+    Diagnostics diagnostics;
+    const mdx::Material reforged = mdx_core::ExportMaterial(
+        material, ProfileId::Wc3Reforged, makeContext(8, 1800), diagnostics);
+    REQUIRE(reforged.layers.size() == 2);
+    for (std::size_t i = 0; i < 2; ++i) {
+        REQUIRE(reforged.layers[i].subTextures.size() == 1);
+        CHECK(reforged.layers[i].subTextures[0].slot == Layer::SlotType::DiffuseMap);
+        CHECK(reforged.layers[i].textureId == 0);
+    }
+    CHECK(reforged.layers[0].subTextures[0].textureId == 3);
+    CHECK(reforged.layers[1].subTextures[0].textureId == 5);
+
+    // Below v1100 a file has no sub-texture list and the legacy field is the texture.
+    const mdx::Material v1000 = mdx_core::ExportMaterial(
+        material, ProfileId::Wc3Reforged, makeContext(8, 1000), diagnostics);
+    REQUIRE(v1000.layers.size() == 2);
+    CHECK(v1000.layers[0].subTextures.empty());
+    CHECK(v1000.layers[0].textureId == 3);
+    CHECK(v1000.layers[1].textureId == 5);
 }

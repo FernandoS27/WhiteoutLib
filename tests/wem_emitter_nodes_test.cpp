@@ -16,6 +16,8 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <whiteout/models/cross/m2_wc3_emitters.h>
+#include <whiteout/models/m2/structures.h>
 #include <whiteout/models/wem/converters.h>
 #include <whiteout/models/wem/nodes/remove.h>
 #include <whiteout/models/wem/parser.h>
@@ -25,6 +27,7 @@
 
 using namespace whiteout;
 using namespace whiteout::models::wem;
+namespace cross = whiteout::models::cross;
 
 namespace {
 
@@ -448,13 +451,15 @@ TEST_CASE("wem emitter systems are gated by the profile registry", "[wem][node][
         const ProfileId profile = static_cast<ProfileId>(p);
         const bool warcraft = profile == ProfileId::Wc3Classic || profile == ProfileId::Wc3Reforged;
         const bool starcraft = profile == ProfileId::Sc2 || profile == ProfileId::Heroes;
+        const bool wow = profile == ProfileId::Wow;
         INFO(ToString(profile));
         for (u32 k = 0; k < static_cast<u32>(NodeKind::Count); ++k) {
             const NodeKind kind = static_cast<NodeKind>(k);
             INFO(ToString(kind));
             const bool expected = HasNodeKind(kSharedNodeKinds, kind) ||
                                   (warcraft && HasNodeKind(kWc3NodeKinds, kind)) ||
-                                  (starcraft && HasNodeKind(kSc2NodeKinds, kind));
+                                  (starcraft && HasNodeKind(kSc2NodeKinds, kind)) ||
+                                  (wow && HasNodeKind(kWowNodeKinds, kind));
             CHECK(CarriesNodeKind(profile, kind) == expected);
         }
     }
@@ -468,6 +473,9 @@ TEST_CASE("wem emitter systems are gated by the profile registry", "[wem][node][
     CHECK_FALSE(IsEmitterSystemKind(NodeKind::RibbonEmitter));
     CHECK(IsRibbonEmitterKind(NodeKind::Sc2RibbonEmitter));
     CHECK(IsParticleEmitterKind(NodeKind::Wc3ParticleEmitter1));
+    CHECK(ProfilesCarryingNodeKind(NodeKind::M2ParticleEmitter) == ProfileBit(ProfileId::Wow));
+    CHECK(IsEmitterSystemKind(NodeKind::M2ParticleEmitter));
+    CHECK(IsParticleEmitterKind(NodeKind::M2ParticleEmitter));
 }
 
 TEST_CASE("wem every emitter system declares a closed property table", "[wem][node][emitter]") {
@@ -483,6 +491,14 @@ TEST_CASE("wem every emitter system declares a closed property table", "[wem][no
           static_cast<u32>(Sc2ParticleProperty::Count));
     CHECK(EmitterPropertyCount(NodeKind::Sc2RibbonEmitter) ==
           static_cast<u32>(Sc2RibbonProperty::Count));
+    CHECK(EmitterPropertyCount(NodeKind::M2ParticleEmitter) ==
+          static_cast<u32>(M2ParticleProperty::Count));
+    // WoW's gravity keys a vector, and a rescale restates it.
+    const EmitterPropertyDesc* gravity = FindEmitterProperty(
+        NodeKind::M2ParticleEmitter, EmitterPropertySub(static_cast<u32>(M2ParticleProperty::Gravity)));
+    REQUIRE(gravity != nullptr);
+    CHECK(gravity->type == geom::AttrType::F32x3);
+    CHECK(gravity->length);
     CHECK(EmitterPropertyCount(NodeKind::Bone) == 0u);
     CHECK(EmitterPropertyCount(NodeKind::ParticleEmitter) == 0u);
 
@@ -649,6 +665,18 @@ TEST_CASE("wem every emitter payload survives the binary round trip", "[wem][nod
     sr.splinePoints[0].velocityVariation.frequency.initValue = 8.0f;
     model.nodes.add(std::move(rib));
 
+    document.declare(ProfileId::Wow);
+    Node m2 = makeNode("m2", NodeKind::M2ParticleEmitter, 0);
+    auto& mp = std::get<M2ParticleEmitterPayload>(m2.payload);
+    mp.flags = 0x60830431u;
+    mp.gravity = Vector3f{0, 0.5f, -2};
+    mp.alphaTimes = {0, 0.175f, 1};
+    mp.alphas = {0, 0.787f, 0};
+    mp.scales = {Vector2f{0.4f, 0.4f}};
+    mp.headCells = {3};
+    mp.splinePoints = {Vector3f{1, 2, 3}};
+    model.nodes.add(std::move(m2));
+
     Node corn = makeNode("corn", NodeKind::Wc3CornEmitter, 0);
     auto& wc = std::get<Wc3CornEmitterPayload>(corn.payload);
     wc.emissionRate = 0.25f;
@@ -685,7 +713,16 @@ TEST_CASE("wem every emitter payload survives the binary round trip", "[wem][nod
     const auto& rsr = std::get<Sc2RibbonEmitterPayload>(tree.nodes[6].payload);
     REQUIRE(rsr.splinePoints.size() == 1u);
     CHECK(rsr.splinePoints[0].velocityVariation.frequency.initValue == 8.0f);
-    const auto& rwc = std::get<Wc3CornEmitterPayload>(tree.nodes[7].payload);
+    const auto& rm2 = std::get<M2ParticleEmitterPayload>(tree.nodes[7].payload);
+    CHECK(rm2.flags == 0x60830431u);
+    CHECK(rm2.gravity.y == 0.5f);
+    CHECK(rm2.alphas == std::vector<f32>{0, 0.787f, 0});
+    REQUIRE(rm2.scales.size() == 1u);
+    CHECK(rm2.scales[0].x == 0.4f);
+    CHECK(rm2.headCells == std::vector<u32>{3});
+    REQUIRE(rm2.splinePoints.size() == 1u);
+    CHECK(rm2.splinePoints[0].z == 3.0f);
+    const auto& rwc = std::get<Wc3CornEmitterPayload>(tree.nodes[8].payload);
     CHECK(rwc.emissionRate == 0.25f);
     CHECK(rwc.color.z == 1.0f);
     CHECK(rwc.effect.path == "fx.pkb");
@@ -1202,4 +1239,357 @@ TEST_CASE("wem a rescale restates an emitter's lengths and nothing else",
     f32 first = 0;
     std::memcpy(&first, keys->values.data(), sizeof(f32));
     CHECK(first == 240.0f);
+}
+
+// ============================================================================
+// World of Warcraft
+// ============================================================================
+
+namespace {
+
+/// One bone, one triangle, and one particle emitter hung off the bone.
+m2::Model makeM2WithEmitter() {
+    m2::Model model;
+    model.modelName = "fx";
+    m2::Sequence stand;
+    stand.duration = 1000;
+    model.sequences.push_back(stand);
+    m2::Bone bone;
+    bone.parentBoneId = -1;
+    bone.pivot = Vector3f{0, 0, 1};
+    model.bones.push_back(bone);
+    for (const char* name : {"body.blp", "fire.blp"}) {
+        m2::Texture texture;
+        texture.filename = name;
+        model.textures.push_back(texture);
+    }
+    model.textureCombos = {0};
+    model.textureCoordCombos = {0};
+    model.textureWeightCombos = {0};
+    model.textureTransformCombos = {0xFFFF};
+    model.materials.push_back(m2::Material{});
+    model.vertices.resize(3);
+    for (std::size_t v = 0; v < 3; ++v) {
+        model.vertices[v].position = Vector3f{static_cast<f32>(v), 0, 0};
+        model.vertices[v].boneWeights = {255, 0, 0, 0};
+    }
+    m2::SkinProfile skin;
+    skin.vertices = {0, 1, 2};
+    skin.indices = {0, 1, 2};
+    m2::SkinSection submesh;
+    submesh.indexCount = 3;
+    submesh.vertexCount = 3;
+    skin.submeshes.push_back(submesh);
+    m2::Batch batch;
+    batch.textureCount = 1;
+    skin.batches.push_back(batch);
+    model.skinProfiles.push_back(std::move(skin));
+
+    m2::ParticleEmitter emitter;
+    emitter.flags = static_cast<m2::ParticleFlag>(0x10u | 0x20000u); // rides its emitter; head
+    emitter.boneId = 0;
+    emitter.position = Vector3f{0, 0, 3};
+    emitter.textureId = 1;
+    emitter.blendingType = static_cast<m2::ParticleBlending>(4); // SRC_ALPHA, ONE
+    emitter.emitterType = m2::ParticleEmitterType::Plane;
+    emitter.rows = 2;
+    emitter.columns = 2;
+    const auto track = [](f32 value) {
+        m2::AnimationTrack<f32> t;
+        t.timestamps = {{0}};
+        t.values = {{value}};
+        return t;
+    };
+    emitter.emissionSpeed = track(0.5f);
+    emitter.verticalRange = track(0.5f);
+    emitter.gravity = track(2.0f);
+    emitter.lifespan = track(2.0f);
+    emitter.emissionRate = track(25.0f);
+    emitter.emissionAreaWidth = track(1.0f);
+    emitter.emissionAreaLength = track(3.0f);
+    emitter.colorTrack.timestamps = {unorm16::from_raw(0), unorm16::from_raw(16383),
+                                     unorm16::from_raw(32767)};
+    emitter.colorTrack.values = {Vector3f{255, 0, 0}, Vector3f{0, 255, 0}, Vector3f{0, 0, 255}};
+    emitter.alphaTrack.timestamps = {unorm16::from_raw(0), unorm16::from_raw(5734),
+                                     unorm16::from_raw(32767)};
+    emitter.alphaTrack.values = {unorm16::from_raw(0), unorm16::from_raw(32767),
+                                 unorm16::from_raw(0)};
+    emitter.scaleTrack.timestamps = {unorm16::from_raw(0)};
+    emitter.scaleTrack.values = {Vector2f{0.4f, 0.4f}};
+    emitter.headUVScroll.timestamps = {unorm16::from_raw(0), unorm16::from_raw(32767)};
+    emitter.headUVScroll.values = {unorm16::from_raw(1), unorm16::from_raw(3)};
+    emitter.twinkleScale = Vector2f{1.2f, 1.2f};
+    model.particleEmitters.push_back(emitter);
+    return model;
+}
+
+u32 m2EmitterNode(const Model& model) {
+    for (u32 n = 0; n < model.nodes.size(); ++n) {
+        if (IsParticleEmitterKind(model.nodes.nodes[n].kind)) {
+            return n;
+        }
+    }
+    return kInvalidNode;
+}
+
+} // namespace
+
+TEST_CASE("wem m2 an emitter is a node on its bone, its record whole", "[wem][node][emitter]") {
+    // Before: fromM2 read no emitter at all, and a WoW creature's fire and
+    // sparkles never reached any export.
+    M2Converter converter;
+    Result<Document> converted = converter.fromM2(makeM2WithEmitter(), 272);
+    REQUIRE(converted.ok());
+    const Model& model = converted.value->models[0];
+    const u32 n = m2EmitterNode(model);
+    REQUIRE(n != kInvalidNode);
+    const Node& node = model.nodes.nodes[n];
+    CHECK(node.kind == NodeKind::M2ParticleEmitter);
+    CHECK(node.parent == 0u);
+    CHECK(node.pivot.z == 3.0f);
+    const auto& p = std::get<M2ParticleEmitterPayload>(node.payload);
+    CHECK(p.texture == 1u);
+    CHECK(p.blend == 4u);
+    CHECK(p.rows == 2u);
+    CHECK(p.gravity.z == -2.0f); // a plain key pulls down -Z
+    CHECK(p.emissionRate == 25.0f);
+    // Lifetime blocks: fixed16 times, 0..255 colours, raw cells.
+    REQUIRE(p.colors.size() == 3u);
+    CHECK(p.colors[1].y == 1.0f);
+    REQUIRE(p.alphaTimes.size() == 3u);
+    CHECK(p.alphaTimes[1] == Catch::Approx(0.175f).margin(0.001f));
+    CHECK(p.alphas[1] == 1.0f);
+    CHECK(p.headCells == std::vector<u32>{1, 3});
+    // Keyed properties are the kind's own channels.
+    CHECK(channelFor(model, n, EmitterPropertySub(static_cast<u32>(M2ParticleProperty::Speed))) !=
+          nullptr);
+    const AnimChannel* gravity =
+        channelFor(model, n, EmitterPropertySub(static_cast<u32>(M2ParticleProperty::Gravity)));
+    REQUIRE(gravity != nullptr);
+    CHECK(gravity->valueType == geom::AttrType::F32x3);
+    // Only World of Warcraft runs it, and the document declares it.
+    CHECK_FALSE(hasError(Validate(*converted.value, ValidateLevel::Structural),
+                         DiagCode::NodeKindNotCarried));
+}
+
+TEST_CASE("wem an m2 emitter crosses to a PRE2 in place", "[wem][node][emitter]") {
+    M2Converter converter;
+    Result<Document> converted = converter.fromM2(makeM2WithEmitter(), 272);
+    REQUIRE(converted.ok());
+    Document& document = *converted.value;
+    Model& model = document.models[0];
+    const u32 n = m2EmitterNode(model);
+    REQUIRE(n != kInvalidNode);
+    const u32 latitude =
+        channelFor(model, n, EmitterPropertySub(static_cast<u32>(M2ParticleProperty::VerticalRange)))
+            ->id;
+    const u32 lifespan =
+        channelFor(model, n, EmitterPropertySub(static_cast<u32>(M2ParticleProperty::Lifespan)))->id;
+
+    const cross::M2EmitterReport report = cross::CrossM2Emitters(document);
+    CHECK(report.particles == 1u);
+
+    const Node& node = model.nodes.nodes[n];
+    REQUIRE(node.kind == NodeKind::Wc3ParticleEmitter2);
+    CHECK(node.parent == 0u);
+    const auto& p = std::get<Wc3ParticleEmitter2Payload>(node.payload);
+    CHECK(p.filter == Wc3ParticleFilter::Additive);
+    CHECK(p.speed == 0.5f);
+    CHECK(p.latitude == Catch::Approx(28.6479f));
+    CHECK(p.gravity == 2.0f);
+    // WoW turns the record a quarter about Z: its width is PRE2's length.
+    CHECK(p.width == 3.0f);
+    CHECK(p.length == 1.0f);
+    CHECK(p.texture == 1u);
+    CHECK(p.rows == 2u);
+    CHECK(p.headOrTail == Wc3ParticleHeadOrTail::Head);
+    // The middle segment is alpha's middle key, where the particle peaks.
+    CHECK(p.time == Catch::Approx(0.175f).margin(0.001f));
+    CHECK(p.middle.alpha == 255);
+    CHECK(p.start.alpha == 0);
+    // Twinkle's constant multiplier rides the size.
+    CHECK(p.start.scaling == Catch::Approx(0.48f));
+    CHECK(p.headLife.start == 1u);
+    CHECK(p.headDecay.end == 3u);
+    // File bit 0x10 rides the emitter: PRE2's model space, the local its world.
+    CHECK(hasFlag(node.flags, NodeFlags::ModelSpace));
+    CHECK(node.local.translation.z == node.pivot.z);
+
+    // Channels: renamed and restated, or gone with their keys.
+    const AnimChannel* lat = model.animChannels.find(latitude);
+    REQUIRE(lat != nullptr);
+    CHECK(lat->target.sub == EmitterPropertySub(static_cast<u32>(Wc3Particle2Property::Latitude)));
+    f32 key = 0;
+    for (const Clip& clip : document.clips) {
+        for (const SubTrackContainer& container : clip.containers) {
+            if (const SubTrack* track = container.find(latitude)) {
+                std::memcpy(&key, track->values.data(), sizeof(f32));
+            }
+            CHECK(container.find(lifespan) == nullptr);
+        }
+    }
+    CHECK(key == Catch::Approx(28.6479f));
+    CHECK(model.animChannels.find(lifespan) == nullptr);
+    const AnimChannel* gravity = channelFor(
+        model, n, EmitterPropertySub(static_cast<u32>(Wc3Particle2Property::Gravity)));
+    REQUIRE(gravity != nullptr);
+    CHECK(gravity->valueType == geom::AttrType::F32);
+}
+
+namespace {
+
+/// The fixture imported, its emitter's record handed to @p edit, then crossed.
+Wc3ParticleEmitter2Payload crossEdited(const std::function<void(M2ParticleEmitterPayload&)>& edit,
+                                       const cross::M2EmitterOptions& options = {},
+                                       Document* keep = nullptr) {
+    M2Converter converter;
+    Result<Document> converted = converter.fromM2(makeM2WithEmitter(), 272);
+    REQUIRE(converted.ok());
+    Document& document = keep != nullptr ? (*keep = *converted.value) : *converted.value;
+    Model& model = document.models[0];
+    const u32 n = m2EmitterNode(model);
+    REQUIRE(n != kInvalidNode);
+    edit(std::get<M2ParticleEmitterPayload>(model.nodes.nodes[n].payload));
+    CHECK(cross::CrossM2Emitters(document, options).particles == 1u);
+    return std::get<Wc3ParticleEmitter2Payload>(model.nodes.nodes[n].payload);
+}
+
+} // namespace
+
+TEST_CASE("wem an m2 particle lying along its velocity crosses as a PRE2 tail",
+          "[wem][node][emitter]") {
+    // Dimensius' needles: velocity-oriented (0x4) and far longer than wide. A
+    // PRE2 head is a square facing the camera, and they came out as wide
+    // sparkles; PRE2's tail is the quad that lies along the velocity.
+    const Wc3ParticleEmitter2Payload p = crossEdited([](M2ParticleEmitterPayload& m) {
+        m.flags |= static_cast<u32>(m2::ParticleFlag::VelocityOrient);
+        m.scaleTimes = {0.0f};
+        m.scales = {Vector2f{2.0f, 0.2f}};
+    });
+    CHECK(p.headOrTail == Wc3ParticleHeadOrTail::Tail);
+    // As wide as the particle (twinkle 1.2 on top), and as long: the speed
+    // times the tail length is its whole length, both halves.
+    CHECK(p.middle.scaling == Catch::Approx(0.2f * 1.2f));
+    CHECK(p.speed * p.tailLength == Catch::Approx(2.0f * 2.0f * 1.2f));
+    // The tail draws the head's cells.
+    CHECK(p.tailLife.start == p.headLife.start);
+    CHECK(p.tailDecay.end == p.headDecay.end);
+}
+
+TEST_CASE("wem an m2 particle that is not square keeps its area in PRE2",
+          "[wem][node][emitter]") {
+    // Not velocity-oriented, so it stays a head: the side that keeps its area
+    // keeps its light. By its width, Dimensius' flat eye flare was a square
+    // four times too large.
+    const Wc3ParticleEmitter2Payload p = crossEdited([](M2ParticleEmitterPayload& m) {
+        m.scaleTimes = {0.0f};
+        m.scales = {Vector2f{0.8f, 0.2f}};
+    });
+    CHECK(p.headOrTail == Wc3ParticleHeadOrTail::Head);
+    CHECK(p.middle.scaling == Catch::Approx(0.4f * 1.2f));
+}
+
+TEST_CASE("wem an imploding m2 sphere crosses as its time reverse", "[wem][node][emitter]") {
+    // Inward (a negative speed) with the implosion filter: each particle dies
+    // at the centre. PRE2 only shoots outward, so the reverse -- a burst from
+    // the centre over the inward flight, the curves read backwards.
+    Document document;
+    const Wc3ParticleEmitter2Payload p = crossEdited(
+        [](M2ParticleEmitterPayload& m) {
+            m.emitterType = 2;
+            m.flags |= static_cast<u32>(m2::ParticleFlag::ImplosionFilter);
+            m.speed = -4.0f;
+            m.width = 1.0f; // the sphere's radii
+            m.length = 3.0f;
+            m.lifespan = 2.0f;
+        },
+        {}, &document);
+    CHECK(p.speed == 4.0f);
+    CHECK(p.width == 0.0f);
+    CHECK(p.length == 0.0f);
+    CHECK(p.latitude == 180.0f);
+    // Out to the outer radius: 3 / 4 of a second, 0.375 of the WoW life.
+    CHECK(p.lifespan == Catch::Approx(0.75f));
+    // Birth at the centre is the WoW particle's arrival; death at the rim is
+    // its birth (red, invisible). Colour runs red -> green -> blue over life.
+    CHECK(p.end.color.x == Catch::Approx(1.0f));
+    CHECK(p.end.alpha == 0);
+    CHECK(p.start.color.x == Catch::Approx(0.25f).margin(0.001f)); // fixed16 key times
+    CHECK(p.start.color.y == Catch::Approx(0.75f).margin(0.001f));
+    // Alpha's middle key (0.175) inside the flight, reversed.
+    CHECK(p.time == Catch::Approx(1.0f - 0.175f / 0.375f).margin(0.002f));
+    // The keyed speed flies outward too.
+    const Model& model = document.models[0];
+    const AnimChannel* speed = channelFor(
+        model, m2EmitterNode(model), EmitterPropertySub(static_cast<u32>(Wc3Particle2Property::Speed)));
+    REQUIRE(speed != nullptr);
+    f32 key = 0;
+    for (const Clip& clip : document.clips) {
+        for (const SubTrackContainer& container : clip.containers) {
+            if (const SubTrack* track = container.find(speed->id)) {
+                std::memcpy(&key, track->values.data(), sizeof(f32));
+            }
+        }
+    }
+    CHECK(key == -0.5f);
+}
+
+TEST_CASE("wem an m2 colour curve past three keys meets PRE2 at its visible mean",
+          "[wem][node][emitter]") {
+    // Dimensius' eye flare runs pale blue to red, and the middle sample kept
+    // only the red. The middle segment takes what the particle shows while it
+    // is visible: here, alpha constant, the plain mean of the curve.
+    const Wc3ParticleEmitter2Payload p = crossEdited([](M2ParticleEmitterPayload& m) {
+        m.colorTimes = {0.0f, 0.25f, 0.5f, 1.0f};
+        m.colors = {Vector3f{0, 0, 0}, Vector3f{0, 0, 1}, Vector3f{1, 0, 0}, Vector3f{0, 0, 0}};
+        m.alphaTimes = {0.0f};
+        m.alphas = {1.0f};
+    });
+    CHECK(p.middle.color.x == Catch::Approx(0.375f));
+    CHECK(p.middle.color.y == Catch::Approx(0.0f).margin(1e-6));
+    CHECK(p.middle.color.z == Catch::Approx(0.25f));
+}
+
+TEST_CASE("wem an m2 multi-texture particle folds its other maps in as their mean",
+          "[wem][node][emitter]") {
+    // `texColor = t0*t1*t2*4` with three colours, `texAlpha = t0.a*t1.a*t2.a*2`
+    // without Modx4. PRE2 samples t0 alone; t1 and t2 arrive as their means.
+    cross::M2EmitterOptions options;
+    options.textureMean = [](const TextureRef& ref) -> std::optional<Vector4f> {
+        if (ref.path.find("body") != std::string::npos) {
+            return Vector4f{0.5f, 0.5f, 0.5f, 0.5f};
+        }
+        return Vector4f{0.25f, 1.0f, 1.0f, 1.0f};
+    };
+    const auto multi = [](M2ParticleEmitterPayload& m) {
+        m.flags |= static_cast<u32>(m2::ParticleFlag::MultiTexture) |
+                   static_cast<u32>(m2::ParticleFlag::MultitexUse3Colors);
+        m.texture2 = 0; // body.blp
+        m.texture3 = 1; // fire.blp
+    };
+    const Wc3ParticleEmitter2Payload plain = crossEdited(multi);
+    const Wc3ParticleEmitter2Payload p = crossEdited(multi, options);
+    // Colour times 4 * (0.5 * 0.25, 0.5, 0.5), clamped at 1; alpha times 2 * 0.5.
+    CHECK(p.start.color.x == Catch::Approx(plain.start.color.x * 0.5f));
+    CHECK(p.middle.color.y == Catch::Approx(std::min(plain.middle.color.y * 2.0f, 1.0f)));
+    CHECK(p.end.color.z == Catch::Approx(1.0f));
+    CHECK(p.middle.alpha == plain.middle.alpha);
+    // Without a host to read the maps, nothing folds.
+    CHECK(plain.middle.color.x == Catch::Approx(0.65f).margin(0.01f));
+}
+
+TEST_CASE("wem a rescale restates an m2 emitter's lengths", "[wem][node][emitter]") {
+    M2Converter converter;
+    Result<Document> converted = converter.fromM2(makeM2WithEmitter(), 272);
+    REQUIRE(converted.ok());
+    REQUIRE(RescaleDocument(*converted.value, 100.0f).ok);
+    const Model& model = converted.value->models[0];
+    const auto& p =
+        std::get<M2ParticleEmitterPayload>(model.nodes.nodes[m2EmitterNode(model)].payload);
+    CHECK(p.speed == 50.0f);
+    CHECK(p.gravity.z == -200.0f);
+    CHECK(p.length == 300.0f);
+    CHECK(p.scales[0].x == Catch::Approx(40.0f));
+    CHECK(p.lifespan == 2.0f);
+    CHECK(p.verticalRange == 0.5f);
 }

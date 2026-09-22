@@ -630,6 +630,7 @@ int ChunkRank(NodeKind kind) {
     case NodeKind::Camera:
     case NodeKind::Sc2ParticleEmitter:
     case NodeKind::Sc2RibbonEmitter:
+    case NodeKind::M2ParticleEmitter: // crossed to a PRE2 before export, or a helper
     case NodeKind::Count:
         break;
     }
@@ -1268,7 +1269,7 @@ namespace {
 /// `Mesh::skin` through `vertexToWemVertex`, so no byte lane and no four-wide
 /// getter stands between the document and the file: a classic group of eight
 /// bones reaches the quantizer whole, and node 300 stays node 300.
-geom::RenderMeshDesc GeosetRenderDesc() {
+geom::RenderMeshDesc GeosetRenderDesc(bool secondUvSet = false) {
     geom::RenderMeshDesc desc;
     desc.attributes = {
         {geom::names::kPosition, utils::AttributeClass::Position, utils::AttributeEncoding::Float32,
@@ -1284,8 +1285,30 @@ geom::RenderMeshDesc GeosetRenderDesc() {
         {geom::names::kTangent, utils::AttributeClass::Tangent, utils::AttributeEncoding::Float32,
          4, 0},
     };
+    if (secondUvSet) {
+        // After uv0, so `getUVs(1)` is this layer: the getter counts the UV
+        // attributes the view holds, not the names.
+        desc.attributes.insert(desc.attributes.begin() + 3,
+                               decltype(desc.attributes)::value_type{
+                                   geom::names::uv(1), utils::AttributeClass::UV,
+                                   utils::AttributeEncoding::Float32, 2, 0});
+    }
     desc.splitBySection = true;
     return desc;
+}
+
+/// Whether @p mesh's geosets carry a second UV set (a layer's `coordId 1`).
+/// Reforged reads two; a set that never varies can neither seam a vertex nor
+/// tell a layer anything, and every M2 body mesh ships an all-zero `uv1`.
+bool WritesSecondUvSet(const Mesh& mesh, ProfileId profile) {
+    if (Profile(profile).maxUvSets < 2 ||
+        !mesh.attributes.has(geom::names::uv(0), geom::Domain::Halfedge)) {
+        return false;
+    }
+    const auto uv1 = mesh.attributes.get<Vector2f>(geom::names::uv(1), geom::Domain::Halfedge);
+    return std::any_of(uv1.begin(), uv1.end(), [&](const Vector2f& uv) {
+        return uv.x != uv1.front().x || uv.y != uv1.front().y;
+    });
 }
 
 /// One mesh's render view, unpacked once for every range in it.
@@ -1293,11 +1316,16 @@ struct GeosetStreams {
     std::vector<Vector3f> positions;
     std::vector<Vector3f> normals;
     std::vector<Vector2f> uv0;
+    std::vector<Vector2f> uv1; ///< empty unless the view asked for it
     std::vector<Vector4f> tangents;
 
-    GeosetStreams(const geom::RenderMesh& render, const Mesh& mesh, u32 targetVersion)
+    GeosetStreams(const geom::RenderMesh& render, const Mesh& mesh, u32 targetVersion,
+                  bool secondUvSet = false)
         : positions(render.vertices.getPositions()), normals(render.vertices.getNormals()),
           uv0(render.vertices.getUVs(0)) {
+        if (secondUvSet) {
+            uv1 = render.vertices.getUVs(1);
+        }
         // Only when the source actually authored them. A mesh with no tangent
         // layer would otherwise get a chunk of zeroes, which is worse than the
         // absence the reader already handles.
@@ -1654,6 +1682,10 @@ mdx::Geoset BuildGeosetFromRange(const Mesh& mesh, u32 meshIndex, const geom::Re
     if (!uv0.empty()) {
         uvs.reserve(sourceOf.size());
     }
+    std::vector<Vector2f> uvs1;
+    if (!streams.uv1.empty()) {
+        uvs1.reserve(sourceOf.size());
+    }
     Extent bounds;
     ResetExtent(bounds);
     for (const u32 source : sourceOf) {
@@ -1669,9 +1701,15 @@ mdx::Geoset BuildGeosetFromRange(const Mesh& mesh, u32 meshIndex, const geom::Re
         if (!uv0.empty()) {
             uvs.push_back(source < uv0.size() ? uv0[source] : Vector2f(0, 0));
         }
+        if (!streams.uv1.empty()) {
+            uvs1.push_back(source < streams.uv1.size() ? streams.uv1[source] : Vector2f(0, 0));
+        }
     }
     if (!uvs.empty()) {
         geoset.textureCoordinateSets.push_back(std::move(uvs));
+        if (!uvs1.empty()) {
+            geoset.textureCoordinateSets.push_back(std::move(uvs1));
+        }
     }
     // Derived, like every other bound in WEM. It is also the one thing the
     // merged geoset could not state: a section's own volume.
@@ -1703,11 +1741,11 @@ std::vector<std::vector<u32>> MdxGeosetVertices(const Document& document, u32 mo
     if (model >= document.models.size()) {
         return out;
     }
-    // Every section is written whatever the profile draws, so the slices are
-    // the same for both Warcraft III profiles; the parameter names the file.
-    (void)profile;
+    // Every section is written whatever the profile draws; the profile decides
+    // only whether a second UV set can split vertices.
     for (const Mesh& mesh : document.models[model].meshes) {
-        const geom::RenderMesh render = geom::BuildRenderMesh(mesh, GeosetRenderDesc());
+        const geom::RenderMesh render =
+            geom::BuildRenderMesh(mesh, GeosetRenderDesc(WritesSecondUvSet(mesh, profile)));
         if (render.ranges.empty()) {
             out.resize(out.size() + std::max<std::size_t>(1, mesh.sections.size()));
             continue;
@@ -1731,7 +1769,8 @@ WrittenSkin MdxConverter::writtenSkin(const Document& document, u32 model, Profi
     const Model& owner = document.models[model];
     const Mesh& target = owner.meshes[mesh];
     const std::vector<u32> objectIdOf = MdxExportMapOf(document, model, profile).nodeObjectId;
-    const geom::RenderMesh render = geom::BuildRenderMesh(target, GeosetRenderDesc());
+    const geom::RenderMesh render =
+        geom::BuildRenderMesh(target, GeosetRenderDesc(WritesSecondUvSet(target, profile)));
     if (render.ranges.empty()) {
         result.geosets.resize(std::max<std::size_t>(1, target.sections.size()));
         return result;
@@ -1772,9 +1811,10 @@ Diagnostics MdxConverter::checkGeoset(const Document& document, u32 model, const
     }
     const Model& owner = document.models[model];
     const std::vector<u32> objectIdOf = MdxExportMapOf(document, model, profile).nodeObjectId;
-    const geom::RenderMesh render = geom::BuildRenderMesh(mesh, GeosetRenderDesc());
+    const bool secondUvSet = WritesSecondUvSet(mesh, profile);
+    const geom::RenderMesh render = geom::BuildRenderMesh(mesh, GeosetRenderDesc(secondUvSet));
     out.append(render.diagnostics);
-    const GeosetStreams streams(render, mesh, targetVersion);
+    const GeosetStreams streams(render, mesh, targetVersion, secondUvSet);
     const SkinSkeleton skeleton(owner.nodes);
     const SkinContext skin{mesh,
                            objectIdOf,
@@ -2279,8 +2319,6 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
     // Each geoset takes a DISJOINT vertex slice in first-use order, so its
     // faces index its own array (the rule `toM3` already follows for a region),
     // and its own bone palette, because in MDX both are per geoset.
-    const geom::RenderMeshDesc desc = GeosetRenderDesc();
-
     // `SKIN` and `TANG` are written only above 800 (mdx/writer.cpp), so at 800
     // the group encoding is the only skinning the file carries. Above it, a
     // caller previewing the classic file asks for the groups alone (§12.3).
@@ -2316,7 +2354,8 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
 
     for (std::size_t m = 0; m < model.meshes.size(); ++m) {
         const Mesh& mesh = model.meshes[m];
-        const geom::RenderMesh render = geom::BuildRenderMesh(mesh, desc);
+        const bool secondUvSet = WritesSecondUvSet(mesh, profile);
+        const geom::RenderMesh render = geom::BuildRenderMesh(mesh, GeosetRenderDesc(secondUvSet));
         diagnostics.append(render.diagnostics);
         if (render.ranges.empty()) {
             // The render view failed and said why. The map promised this mesh
@@ -2336,7 +2375,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
             continue;
         }
 
-        const GeosetStreams streams(render, mesh, targetVersion);
+        const GeosetStreams streams(render, mesh, targetVersion, secondUvSet);
         const SkinContext skin{mesh,
                                objectIdOf,
                                skinSkeleton,

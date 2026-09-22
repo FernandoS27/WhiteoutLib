@@ -215,9 +215,14 @@ TEST_CASE("wem each set exports back what it holds", "[wem][materials][mdx]") {
     REQUIRE(reforgedOut.layers.size() == source.layers.size());
     CHECK(classicOut.layers[0].filterMode == Layer::FilterMode::None);
     CHECK(classicOut.layers[1].filterMode == Layer::FilterMode::Blend);
+    // From v1100 a layer's texture is its first sub-texture; the legacy field
+    // is left zero, as the parser leaves it.
+    const auto textureOf = [](const Layer& layer) {
+        return layer.subTextures.empty() ? layer.textureId : layer.subTextures[0].textureId;
+    };
     for (std::size_t i = 0; i < reforgedOut.layers.size(); ++i) {
         CHECK(reforgedOut.layers[i].is_hd == (i >= 2));
-        CHECK(reforgedOut.layers[i].textureId == source.layers[i].textureId);
+        CHECK(textureOf(reforgedOut.layers[i]) == textureOf(source.layers[i]));
     }
 }
 

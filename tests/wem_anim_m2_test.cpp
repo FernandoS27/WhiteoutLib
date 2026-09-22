@@ -20,6 +20,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <whiteout/models/cross/m2_wc3_sequences.h>
 #include <whiteout/models/m2/parser.h>
 #include <whiteout/models/wem/converters.h>
 #include <whiteout/models/wem/retarget.h>
@@ -528,6 +529,106 @@ TEST_CASE("wem m2 a batch colour hides its batch in Warcraft III too", "[wem][an
     REQUIRE_FALSE(animation.alphaTracks.keys().empty());
     CHECK(animation.alphaTracks.keys().front() == 0.0f);
     CHECK_FALSE(animation.colorTracks.keys().empty());
+}
+
+TEST_CASE("wem m2 a track with one array keys every sequence, in Warcraft III too",
+          "[wem][anim][m2][mdx]") {
+    // Before: only clip 0 got the keys. The client reads array 0 for every
+    // sequence past the last array, and Blizzard writes a constant that way,
+    // so TitanArgus's smoke went black outside its first sequence: Warcraft
+    // III's default for a geoset colour a sequence does not key is black.
+    m2::Model model = makeModel();
+    m2::ColorAnimation color;
+    color.color =
+        makeTrack<Vector3f>(m2::InterpolationType::Linear, {{0}}, {{Vector3f{1, 0.5f, 0.25f}}});
+    model.colors.push_back(color);
+    model.skinProfiles[0].batches[0].colorIndex = 0;
+
+    Document document = convert(model);
+    const AnimChannel* channel = channelWith(document, Channel::Color);
+    REQUIRE(channel != nullptr);
+    REQUIRE(trackIn(document.clips[0], channel->id) != nullptr);
+    const SubTrack* walk = trackIn(document.clips[1], channel->id);
+    REQUIRE(walk != nullptr);
+    CHECK(floatAt(*walk, 1) == 0.5f);
+
+    // Written back, one array again: the same thing to the client, and the
+    // shape the file came in.
+    const M2Converter converter;
+    Result<m2::Model> back = converter.toM2(document, ProfileId::Wow);
+    REQUIRE(back.ok());
+    REQUIRE(back.value->colors.size() == 1u);
+    CHECK(back.value->colors[0].color.timestamps.size() == 1u);
+
+    REQUIRE(DeriveProfile(document, ProfileId::Wow, ProfileId::Wc3Classic).ok);
+    MdxConverter mdx;
+    Result<mdx::Model> out = mdx.toMdx(document, ProfileId::Wc3Classic);
+    REQUIRE(out.ok());
+    REQUIRE(out.value->sequences.size() == 2u);
+    REQUIRE(out.value->geosetAnimations.size() == 1u);
+    const mdx::Track<Vector3f>& written = out.value->geosetAnimations[0].colorTracks;
+    const mdx::Sequence& second = out.value->sequences[1];
+    bool keyedInSecond = false;
+    for (const u32 time : written.timestamps) {
+        keyedInSecond = keyedInSecond || (time >= second.intervalStart && time <= second.intervalEnd);
+    }
+    CHECK(keyedInSecond);
+}
+
+TEST_CASE("wem m2 an animation takes Warcraft III's name and whether it loops",
+          "[wem][anim][m2][mdx]") {
+    m2::Model model = makeModel(); // Stand, Walk
+    const auto add = [&model](u16 id, u16 variation) {
+        m2::Sequence sequence;
+        sequence.id = id;
+        sequence.variationIndex = variation;
+        sequence.duration = 500;
+        model.sequences.push_back(sequence);
+    };
+    add(0, 1);    // Stand, a second variation
+    add(17, 0);   // Attack1H
+    add(85, 0);   // Attack1HPierce: the same Warcraft III sequence
+    add(2, 0);    // Spell: no row, and Warcraft III's word already
+    add(32, 0);   // SpellCast, which the table calls Spell
+    add(1774, 0); // EmoteTalkFrustrated: no row
+
+    Document document = convert(model);
+    const models::cross::M2SequenceReport report = models::cross::CrossM2Sequences(document);
+    CHECK(report.renamed == 6u);
+    CHECK(report.kept == 2u);
+    REQUIRE(document.clips.size() == 8u);
+    CHECK(document.clips[0].name == "Stand");
+    CHECK(document.clips[1].name == "Walk");
+    // Same-named sequences are variants to Warcraft III; the comment spelling
+    // keeps them apart everywhere else, and never on a name that stayed.
+    CHECK(document.clips[2].name == "Stand - 1");
+    CHECK(document.clips[3].name == "Attack First");
+    CHECK(document.clips[4].name == "Attack First - 1");
+    CHECK(document.clips[5].name == "Spell");
+    CHECK(document.clips[6].name == "Spell - 1");
+    CHECK(document.clips[7].name == "EmoteTalkFrustrated");
+    // The `.m2` does not say what plays once; the table does.
+    CHECK(document.clips[1].looping);
+    CHECK_FALSE(document.clips[3].looping);
+    CHECK_FALSE(document.clips[6].looping);
+    // The id still rides the bag, which is what a `.m2` write reads.
+    CHECK(document.clips[3].native.value("animationId", -1) == 17);
+
+    // Every row names an animation the client has: a misspelt one names none.
+    u32 rows = 0;
+    for (u32 id = 0; id < 2048; ++id) {
+        rows += models::cross::M2Wc3SequenceFor(static_cast<u16>(id)).has_value() ? 1u : 0u;
+    }
+    CHECK(rows == 355u);
+
+    REQUIRE(DeriveProfile(document, ProfileId::Wow, ProfileId::Wc3Classic).ok);
+    MdxConverter mdx;
+    Result<mdx::Model> out = mdx.toMdx(document, ProfileId::Wc3Classic);
+    REQUIRE(out.ok());
+    REQUIRE(out.value->sequences.size() == 8u);
+    CHECK(out.value->sequences[3].name == "Attack First");
+    CHECK(mdx::hasFlag(out.value->sequences[3].flags, mdx::Sequence::Flag::NonLooping));
+    CHECK_FALSE(mdx::hasFlag(out.value->sequences[0].flags, mdx::Sequence::Flag::NonLooping));
 }
 
 TEST_CASE("wem m2 each animated layer gets a texture animation of its own",
