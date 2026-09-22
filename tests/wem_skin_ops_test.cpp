@@ -16,6 +16,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <whiteout/models/wem/geometry/builder.h>
+#include <whiteout/models/wem/geometry/render_view.h>
 #include <whiteout/models/wem/model.h>
 #include <whiteout/models/wem/skinning/ops.h>
 #include <whiteout/models/wem/skinning/points.h>
@@ -692,5 +693,307 @@ TEST_CASE("S2 Assign keeps a locked bone and drops it from what it was given",
         CHECK(refused.changed == 0u);
         CHECK(refused.refused == points.pointCount);
         CHECK(near(weightOn(untouched, 0, kRoot), 0.6f));
+    }
+}
+
+// ============================================================================
+// Found by the review of 2026-09-22
+// ============================================================================
+
+namespace {
+
+/// Six bones in one chain, root first: room for five locks and one more.
+NodeTree makeChain() {
+    NodeTree tree;
+    for (u32 b = 0; b < 6; ++b) {
+        Node node;
+        node.name = "bone" + std::to_string(b);
+        node.kind = NodeKind::Bone;
+        node.parent = b == 0 ? kInvalidNode : b - 1;
+        node.resetPayloadForKind();
+        tree.nodes.push_back(std::move(node));
+    }
+    return tree;
+}
+
+/// A centre vertex and a ring of four around it, each its own point: the centre
+/// binds @p centre, the ring @p ring.
+Mesh makeFan(const std::vector<geom::Influence>& centre, const std::vector<geom::Influence>& ring) {
+    geom::MeshBuilder builder;
+    MeshSection section;
+    section.name = "fan";
+    builder.addSection(std::move(section));
+    const geom::VertexId middle = builder.addVertex(Vector3f{0, 0, 0});
+    for (const geom::Influence& influence : centre) {
+        builder.addInfluence(middle, influence.bone, influence.weight);
+    }
+    const Vector3f around[4] = {{1, 0, 0}, {0, 1, 0}, {-1, 0, 0}, {0, -1, 0}};
+    std::vector<geom::VertexId> rim;
+    for (const Vector3f& at : around) {
+        rim.push_back(builder.addVertex(at));
+        for (const geom::Influence& influence : ring) {
+            builder.addInfluence(rim.back(), influence.bone, influence.weight);
+        }
+    }
+    for (u32 k = 0; k < 4; ++k) {
+        const geom::FaceId face = builder.addTriangle(middle, rim[k], rim[(k + 1) % 4], 0);
+        for (u32 corner = 0; corner < 3; ++corner) {
+            builder.setCornerAttr(face, corner, geom::names::kNormal, Vector3f{0, 0, 1});
+        }
+    }
+    return builder.build().mesh;
+}
+
+} // namespace
+
+TEST_CASE("S2 locks past the lane count are all kept", "[wem][skin][ops]") {
+    // The limit kept the locked influences first but stopped at four, so a
+    // classic point's fifth lock was dropped -- and with the lanes full of
+    // locks it folded the rest into NO room, which wrote past the end of the
+    // fold's vector.
+    NodeTree rig = makeChain();
+    for (u32 b = 0; b < 5; ++b) {
+        rig.nodes[b].skin.locked = true;
+    }
+
+    SECTION("a limit to four keeps five locks and drops the unlocked share") {
+        Mesh mesh = makeStrip(1, {{0, 0.2f}, {1, 0.2f}, {2, 0.2f}, {3, 0.2f}, {4, 0.1f}, {5, 0.1f}});
+        const skinning::PointTable points = skinning::BuildPointTable(mesh);
+        const std::vector<u32> scope = allPoints(points);
+        skinning::Limit(mesh, rig, points, {scope, {}}, 4);
+        for (u32 v = 0; v < mesh.vertexCount(); ++v) {
+            CHECK(weightOn(mesh, v, 4) == 0.1f);
+            CHECK(weightOn(mesh, v, 5) == 0.0f);
+            CHECK(mesh.skin.forVertex(v).size() == 5u);
+        }
+    }
+
+    SECTION("a Set beside four locks writes nothing the lanes cannot hold") {
+        Mesh mesh = makeStrip(1, {{0, 0.25f}, {1, 0.25f}, {2, 0.25f}, {3, 0.24f}});
+        const skinning::PointTable points = skinning::BuildPointTable(mesh);
+        const std::vector<u32> scope = allPoints(points);
+        skinning::Set(mesh, rig, points, {scope, {}}, 5, 0.5f);
+        for (u32 v = 0; v < mesh.vertexCount(); ++v) {
+            CHECK(weightOn(mesh, v, 0) == 0.25f);
+            CHECK(weightOn(mesh, v, 3) == 0.24f);
+            CHECK(weightOn(mesh, v, 5) == 0.0f);
+        }
+    }
+
+    SECTION("the fold itself has nothing to give with no lane") {
+        const std::vector<geom::Influence> one{{5, 0.1f}};
+        CHECK(geom::FoldInfluences(one, 0, Vector3f{0, 0, 0}, {}, {}).empty());
+    }
+}
+
+TEST_CASE("S2 Smooth and Sharpen never move a locked bone", "[wem][skin][ops]") {
+    // The lock test above uses a strip whose every point holds the same
+    // weights, where a blend changes nothing; here the ring disagrees.
+    NodeTree rig = makeRig();
+    rig.nodes[kChest].skin.locked = true;
+    const std::vector<u32> centre{0};
+
+    SECTION("Smooth blends only the unlocked share") {
+        Mesh mesh = makeFan({{kArm, 0.7f}, {kChest, 0.3f}}, {{kArm, 0.1f}, {kChest, 0.9f}});
+        const skinning::PointTable points = skinning::BuildPointTable(mesh);
+        REQUIRE(points.pointOfVertex(0) == 0u);
+        skinning::Smooth(mesh, rig, points, {centre, {}}, 0.5f, 1);
+        CHECK(weightOn(mesh, 0, kChest) == 0.3f);
+        checkNormalAndSorted(mesh);
+    }
+    SECTION("Smooth brings no locked bone in from the ring") {
+        Mesh mesh = makeFan({{kArm, 1.0f}}, {{kChest, 1.0f}});
+        const skinning::PointTable points = skinning::BuildPointTable(mesh);
+        skinning::Smooth(mesh, rig, points, {centre, {}}, 0.5f, 1);
+        CHECK(weightOn(mesh, 0, kChest) == 0.0f);
+        CHECK(near(weightOn(mesh, 0, kArm), 1.0f));
+    }
+    SECTION("Sharpen pushes only the unlocked share") {
+        Mesh mesh = makeFan({{kArm, 0.7f}, {kChest, 0.3f}}, {{kArm, 0.5f}, {kChest, 0.5f}});
+        const skinning::PointTable points = skinning::BuildPointTable(mesh);
+        skinning::Sharpen(mesh, rig, points, {centre, {}}, 1.0f);
+        CHECK(weightOn(mesh, 0, kChest) == 0.3f);
+        checkNormalAndSorted(mesh);
+    }
+}
+
+TEST_CASE("S2 Soften keeps the locks and refuses a locked end", "[wem][skin][ops]") {
+    NodeTree rig = makeRig();
+    const u32 kOther = 4;
+    rig.nodes[kOther].skin.locked = true;
+    // The ladder of the Soften case above, with a locked share on the band.
+    geom::MeshBuilder builder;
+    MeshSection section;
+    section.name = "hose";
+    builder.addSection(std::move(section));
+    constexpr u32 kRungs = 7;
+    for (u32 r = 0; r < kRungs; ++r) {
+        for (u32 side = 0; side < 2; ++side) {
+            const geom::VertexId id = builder.addVertex(
+                Vector3f{static_cast<f32>(r), static_cast<f32>(side), 0.0f});
+            if (r < 2) {
+                builder.addInfluence(id, kArm, 1.0f);
+            } else if (r > 4) {
+                builder.addInfluence(id, kChest, 1.0f);
+            } else {
+                builder.addInfluence(id, kArm, 0.3f);
+                builder.addInfluence(id, kChest, 0.3f);
+                builder.addInfluence(id, kOther, 0.4f);
+            }
+        }
+    }
+    for (u32 r = 0; r + 1 < kRungs; ++r) {
+        const u32 base = r * 2;
+        for (const auto& triangle : {std::array<u32, 3>{base, base + 1, base + 2},
+                                     std::array<u32, 3>{base + 1, base + 3, base + 2}}) {
+            const geom::FaceId face =
+                builder.addTriangle(geom::VertexId(triangle[0]), geom::VertexId(triangle[1]),
+                                    geom::VertexId(triangle[2]), 0);
+            for (u32 corner = 0; corner < 3; ++corner) {
+                builder.setCornerAttr(face, corner, geom::names::kNormal, Vector3f{0, 0, 1});
+            }
+        }
+    }
+    Mesh mesh = builder.build().mesh;
+    const skinning::PointTable points = skinning::BuildPointTable(mesh);
+    std::vector<u32> band;
+    for (u32 r = 2; r <= 4; ++r) {
+        band.push_back(points.pointOfVertex(r * 2));
+        band.push_back(points.pointOfVertex(r * 2 + 1));
+    }
+
+    SECTION("the band's locked share stays exactly") {
+        const skinning::SkinResult result =
+            skinning::Soften(mesh, rig, points, {band, {}}, kArm, kChest);
+        // The middle rung is half way, and already held 0.3 and 0.3: it is
+        // written the same and is not counted as changed.
+        CHECK(result.changed == band.size() - 2);
+        for (u32 r = 2; r <= 4; ++r) {
+            CHECK(weightOn(mesh, r * 2, kOther) == 0.4f);
+            CHECK(near(weightOn(mesh, r * 2, kArm) + weightOn(mesh, r * 2, kChest), 0.6f));
+        }
+        checkNormalAndSorted(mesh);
+    }
+    SECTION("a locked end is refused") {
+        rig.nodes[kArm].skin.locked = true;
+        const skinning::SkinResult result =
+            skinning::Soften(mesh, rig, points, {band, {}}, kArm, kChest);
+        CHECK(result.changed == 0u);
+        CHECK(result.locked == band.size());
+    }
+}
+
+TEST_CASE("S2 lowering a bone a point does not hold gives nothing away", "[wem][skin][ops]") {
+    // §6.1's last case hands the weight a bone gives up to its parent. A point
+    // with no unlocked weight gives nothing up: a Subtract brush over an
+    // unskinned part used to bind it to the bone's parent.
+    NodeTree rig = makeRig();
+    SECTION("an unskinned point stays unskinned") {
+        Mesh mesh = makeStrip(1, {});
+        const skinning::PointTable points = skinning::BuildPointTable(mesh);
+        const std::vector<u32> scope = allPoints(points);
+        const skinning::SkinResult removed = skinning::Remove(mesh, rig, points, {scope, {}}, kArm);
+        const skinning::SkinResult subtracted =
+            skinning::Add(mesh, rig, points, {scope, {}}, kArm, -0.2f);
+        CHECK(removed.changed == 0u);
+        CHECK(subtracted.changed == 0u);
+        for (u32 v = 0; v < mesh.vertexCount(); ++v) {
+            CHECK(mesh.skin.forVertex(v).empty());
+        }
+    }
+    SECTION("a point holding only a locked share keeps it") {
+        rig.nodes[kChest].skin.locked = true;
+        Mesh mesh = makeStrip(1, {{kChest, 0.5f}});
+        const skinning::PointTable points = skinning::BuildPointTable(mesh);
+        const std::vector<u32> scope = allPoints(points);
+        skinning::Remove(mesh, rig, points, {scope, {}}, kArm);
+        for (u32 v = 0; v < mesh.vertexCount(); ++v) {
+            CHECK(weightsOf(mesh, v) == std::vector<std::pair<u32, f32>>{{kChest, 0.5f}});
+        }
+    }
+}
+
+TEST_CASE("S2 a result counts the points that changed", "[wem][skin][ops]") {
+    const NodeTree rig = makeRig();
+    Mesh mesh = makeStrip(2, {{kArm, 0.5f}, {kChest, 0.5f}});
+    const skinning::PointTable points = skinning::BuildPointTable(mesh);
+    const std::vector<u32> scope = allPoints(points);
+    CHECK(skinning::Remove(mesh, rig, points, {scope, {}}, kHand).changed == 0u);
+    CHECK(skinning::Normalize(mesh, rig, points, {scope, {}}).changed == 0u);
+    CHECK(skinning::Set(mesh, rig, points, {scope, {}}, kArm, 0.8f).changed == points.pointCount);
+    CHECK(skinning::Set(mesh, rig, points, {scope, {}}, kArm, 0.8f).changed == 0u);
+}
+
+TEST_CASE("S2 Unify reads as a point reads and stays within four", "[wem][skin][ops]") {
+    NodeTree rig = makeChain();
+    geom::MeshBuilder builder;
+    MeshSection section;
+    section.name = "seam";
+    builder.addSection(std::move(section));
+    const Vector3f shared{1.0f, 0.0f, 0.0f};
+    std::vector<geom::VertexId> twins;
+    for (u32 t = 0; t < 2; ++t) {
+        const geom::VertexId a = builder.addVertex(shared);
+        twins.push_back(a);
+        const geom::VertexId b = builder.addVertex(Vector3f{2.0f + static_cast<f32>(t), 0, 0});
+        const geom::VertexId c = builder.addVertex(Vector3f{2.0f + static_cast<f32>(t), 1, 0});
+        // Three bones on each twin, none in common: six between them.
+        for (u32 k = 0; k < 3; ++k) {
+            builder.addInfluence(a, t * 3 + k, 1.0f / 3.0f);
+        }
+        builder.addInfluence(b, 0, 1.0f);
+        builder.addInfluence(c, 0, 1.0f);
+        const geom::FaceId face = builder.addTriangle(a, b, c, 0);
+        for (u32 corner = 0; corner < 3; ++corner) {
+            builder.setCornerAttr(face, corner, geom::names::uv(0),
+                                  Vector2f{static_cast<f32>(t), 0});
+        }
+    }
+    Mesh mesh = builder.build().mesh;
+    const skinning::PointTable points = skinning::BuildPointTable(mesh);
+    const u32 seam = points.pointOfVertex(twins[0].index());
+    REQUIRE(points.membersOf(seam).size() == 2u);
+
+    skinning::Unify(mesh, rig, points, {std::vector<u32>{seam}, {}});
+    for (const u32 member : points.membersOf(seam)) {
+        CHECK(mesh.skin.forVertex(member).size() <= skinning::kToolInfluenceLimit);
+    }
+    CHECK(skinning::DisagreeingPoints(mesh, points).empty());
+    checkNormalAndSorted(mesh);
+}
+
+TEST_CASE("S2 Rigid at part strength stays within four", "[wem][skin][ops]") {
+    NodeTree rig = makeChain();
+    Mesh mesh = makeStrip(1, {{0, 0.25f}, {1, 0.25f}, {2, 0.25f}, {3, 0.25f}});
+    const skinning::PointTable points = skinning::BuildPointTable(mesh);
+    const std::vector<u32> scope = allPoints(points);
+    const std::vector<f32> half(scope.size(), 0.5f);
+    skinning::Rigid(mesh, rig, points, {scope, half}, 5);
+    for (u32 v = 0; v < mesh.vertexCount(); ++v) {
+        CHECK(mesh.skin.forVertex(v).size() <= skinning::kToolInfluenceLimit);
+    }
+    checkNormalAndSorted(mesh);
+}
+
+TEST_CASE("S2 Assign adds weight to Bones only", "[wem][skin][ops]") {
+    // §6.4: nothing adds weight to a helper, and a node the tree does not have
+    // -- a clipboard copied before a removal -- is never written at all.
+    NodeTree tree = makeRig();
+    tree.nodes[4].kind = NodeKind::Helper;
+    tree.nodes[4].resetPayloadForKind();
+    Mesh mesh = makeStrip(1, {{kRoot, 1.0f}});
+    const skinning::PointTable points = skinning::BuildPointTable(mesh);
+    const std::vector<geom::Influence> set{{kArm, 1.0f}, {4, 1.0f}, {99, 1.0f}};
+    skinning::PointWeights given;
+    for (u32 p = 0; p < points.pointCount; ++p) {
+        given.add(set);
+    }
+    skinning::SkinScope span;
+    span.points = allPoints(points);
+    skinning::Assign(mesh, tree, points, span, given);
+    for (u32 v = 0; v < mesh.vertexCount(); ++v) {
+        CHECK(near(weightOn(mesh, v, kArm), 1.0f));
+        CHECK(weightOn(mesh, v, 4) == 0.0f);
+        CHECK(weightOn(mesh, v, 99) == 0.0f);
     }
 }

@@ -226,13 +226,10 @@ std::vector<BoneMirror> BuildBoneMirror(const NodeTree& nodes, MirrorAxis axis) 
                 continue;
             }
         }
-        // 3. A bone on the plane is its own mirror -- checked before the search,
-        // because the nearest pivot to its own mirrored one is itself anyway.
-        if (std::abs(Axis(pivots[n], axis)) <= tolerance) {
-            out[n] = {n, MirrorSource::Self};
-            continue;
-        }
-        // 2. By position.
+        // 2. By position, with the bone itself among the candidates: a pair a
+        // hair either side of the plane (closer to it than the tolerance) is
+        // each other's mirror, while a bone ON the plane is nearer its own
+        // mirrored pivot than any neighbour, a coincident one included.
         const Vector3f want = Mirrored(pivots[n], axis);
         u32 best = kInvalidNode;
         f32 bestDistance = tolerance * tolerance;
@@ -246,8 +243,18 @@ std::vector<BoneMirror> BuildBoneMirror(const NodeTree& nodes, MirrorAxis axis) 
                 best = other;
             }
         }
+        const f32 own = DistanceSquared(pivots[n], want);
+        if (own <= tolerance * tolerance && (best == kInvalidNode || own <= bestDistance)) {
+            out[n] = {n, MirrorSource::Self};
+            continue;
+        }
         if (best != kInvalidNode) {
             out[n] = {best, MirrorSource::Position};
+            continue;
+        }
+        // 3. A bone on the plane with no partner is its own mirror.
+        if (std::abs(Axis(pivots[n], axis)) <= tolerance) {
+            out[n] = {n, MirrorSource::Self};
         }
     }
     return out;

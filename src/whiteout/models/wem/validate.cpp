@@ -788,6 +788,14 @@ void checkSkinSetup(const Document& document, Diagnostics& out) {
                           "test pose '" + pose.name + "' names clip " + number(pose.clip) +
                               " of " + number(document.clips.size()),
                           ElementRef(ElementKind::Document, static_cast<u32>(m)));
+            } else if (pose.clip != kInvalidIndex && document.clips[pose.clip].model != m) {
+                // The clips are the document's, shared by every model: an index
+                // in range can still be another model's animation.
+                out.error(DiagCode::SkinSetupInvalid,
+                          "test pose '" + pose.name + "' names clip " + number(pose.clip) +
+                              ", which animates model " +
+                              number(document.clips[pose.clip].model),
+                          ElementRef(ElementKind::Document, static_cast<u32>(m)));
             }
         }
         for (u32 mesh = 0; mesh < model.meshes.size(); ++mesh) {

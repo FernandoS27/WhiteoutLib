@@ -120,7 +120,10 @@ public:
 
     /// Writes @p weights to every member of @p point, dropping what is too small
     /// to hold and leaving each vertex sorted.
-    void write(u32 point, Weights weights) {
+    ///
+    /// @return whether any member's influences moved: the result line counts
+    /// what an operation changed, not what it looked at.
+    bool write(u32 point, Weights weights) {
         std::erase_if(weights, [](const geom::Influence& influence) {
             return !(influence.weight > kMinWeight) || !std::isfinite(influence.weight);
         });
@@ -131,7 +134,10 @@ public:
                       }
                       return a.bone < b.bone;
                   });
-        if (mesh_.skin.offsets.empty() && !weights.empty()) {
+        if (mesh_.skin.offsets.empty()) {
+            if (weights.empty()) {
+                return false;
+            }
             // A mesh no file skinned at all. An EMPTY binding is not a binding
             // of empty vertices -- `assignVertex` splices into an array that
             // has no row for the vertex yet and does nothing -- so the first
@@ -139,9 +145,23 @@ public:
             // this, skinning a fresh part from scratch silently writes nothing.
             mesh_.skin.reset(mesh_.vertexCount());
         }
+        bool moved = false;
         for (const u32 vertex : points_.membersOf(point)) {
-            mesh_.skin.assignVertex(vertex, weights);
+            // `assignVertex` sorts exactly as above, so the stored row compares
+            // element by element.
+            const std::span<const geom::Influence> stored = mesh_.skin.forVertex(vertex);
+            const bool same =
+                stored.size() == weights.size() &&
+                std::equal(stored.begin(), stored.end(), weights.begin(),
+                           [](const geom::Influence& a, const geom::Influence& b) {
+                               return a.bone == b.bone && a.weight == b.weight;
+                           });
+            if (!same) {
+                mesh_.skin.assignVertex(vertex, weights);
+                moved = true;
+            }
         }
+        return moved;
     }
 
     /**
@@ -164,7 +184,12 @@ public:
         }
         bool refused = false;
         u32 heir = kInvalidNode;
-        if (others <= 0.0f && rest > 0.0f) {
+        // The last case is a LOWERING: the bone held weight and gives some up.
+        // A point with no unlocked weight at all -- never skinned, or holding
+        // only locked bones -- has nothing to hand on, and a Remove or a
+        // Subtract passing over it must not skin it to the bone's parent.
+        const f32 was = WeightOf(weights, bone);
+        if (others <= 0.0f && rest > 0.0f && was > target) {
             // The weight taken from the only unlocked bone goes to its nearest
             // Bone ancestor, the same rule a node removal follows
             // (`SkinPolicy::ReassignToParent`), and for the same reason: it
@@ -213,21 +238,19 @@ public:
 
     /// Keeps the @p width heaviest, locked first, folding the rest into the
     /// nearest joints.
+    ///
+    /// Every locked entry is kept, even past @p width: a lock is never broken
+    /// to make room (§6.2). When the locks fill every lane the unlocked share
+    /// has nowhere to go and is dropped rather than folded -- there is no lane
+    /// to fold it into.
     void limit(Weights& weights, u32 point, u32 width) const {
         if (weights.size() <= width) {
             return;
         }
         Weights kept;
-        for (const geom::Influence& influence : weights) {
-            if (boneLocked(influence.bone) && kept.size() < width) {
-                kept.push_back(influence);
-            }
-        }
         Weights rest;
         for (const geom::Influence& influence : weights) {
-            if (!boneLocked(influence.bone)) {
-                rest.push_back(influence);
-            }
+            (boneLocked(influence.bone) ? kept : rest).push_back(influence);
         }
         std::sort(rest.begin(), rest.end(), [](const geom::Influence& a, const geom::Influence& b) {
             if (a.weight != b.weight) {
@@ -235,8 +258,10 @@ public:
             }
             return a.bone < b.bone;
         });
-        const u32 room = width - static_cast<u32>(kept.size());
-        if (rest.size() > room) {
+        const u32 room = kept.size() < width ? width - static_cast<u32>(kept.size()) : 0;
+        if (room == 0) {
+            rest.clear();
+        } else if (rest.size() > room) {
             const std::span<const u32> members = points_.membersOf(point);
             const std::span<const Vector3f> positions =
                 mesh_.attributes.get<Vector3f>(geom::names::kPosition, geom::Domain::Vertex);
@@ -316,8 +341,9 @@ SkinResult WriteEach(Mesh& mesh, const NodeTree& nodes, const PointTable& points
         }
         writer.limit(weights, point, kToolInfluenceLimit);
         writer.normalise(weights);
-        writer.write(point, std::move(weights));
-        ++result.changed;
+        if (writer.write(point, std::move(weights))) {
+            ++result.changed;
+        }
     }
     return result;
 }
@@ -361,9 +387,13 @@ SkinResult Rigid(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
         }
         const f32 share = std::max(0.0f, 1.0f - locked);
         SetWeight(out, bone, WeightOf(weights, bone) * (1.0f - strength) + share * strength);
+        // A partial dab keeps every other influence, and the locks stay whatever
+        // their number: either can take a point past the tools' four (§6.3).
+        writer.limit(out, point, kToolInfluenceLimit);
         writer.normalise(out);
-        writer.write(point, std::move(out));
-        ++result.changed;
+        if (writer.write(point, std::move(out))) {
+            ++result.changed;
+        }
     }
     return result;
 }
@@ -399,6 +429,14 @@ SkinResult Assign(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
                 continue;
             }
             if (writer.boneLocked(influence.bone)) {
+                continue;
+            }
+            // New weight lands on Bone nodes only (§6.4): a paste or a transfer
+            // from a point bound to a helper gives the helper nothing more, and
+            // a node the tree does not have -- a clipboard from before a removal
+            // -- is never written at all.
+            if (influence.bone >= nodes.size() ||
+                nodes.nodes[influence.bone].kind != NodeKind::Bone) {
                 continue;
             }
             SetWeight(wanted, influence.bone,
@@ -443,8 +481,9 @@ SkinResult Assign(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
         writer.normalise(out);
         writer.limit(out, point, kToolInfluenceLimit);
         writer.normalise(out);
-        writer.write(point, std::move(out));
-        ++result.changed;
+        if (writer.write(point, std::move(out))) {
+            ++result.changed;
+        }
     }
     return result;
 }
@@ -486,8 +525,9 @@ SkinResult Normalize(Mesh& mesh, const NodeTree& nodes, const PointTable& points
         }
         Weights weights = writer.read(point);
         writer.normalise(weights);
-        writer.write(point, std::move(weights));
-        ++result.changed;
+        if (writer.write(point, std::move(weights))) {
+            ++result.changed;
+        }
     }
     return result;
 }
@@ -509,8 +549,9 @@ SkinResult Prune(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
             return !writer.boneLocked(influence.bone) && influence.weight < epsilon;
         });
         writer.normalise(weights);
-        writer.write(point, std::move(weights));
-        ++result.changed;
+        if (writer.write(point, std::move(weights))) {
+            ++result.changed;
+        }
     }
     return result;
 }
@@ -530,8 +571,9 @@ SkinResult Limit(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
         Weights weights = writer.read(point);
         writer.limit(weights, point, std::max<u32>(width, 1));
         writer.normalise(weights);
-        writer.write(point, std::move(weights));
-        ++result.changed;
+        if (writer.write(point, std::move(weights))) {
+            ++result.changed;
+        }
     }
     return result;
 }
@@ -562,8 +604,9 @@ SkinResult Replace(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
         std::erase_if(weights,
                       [from](const geom::Influence& influence) { return influence.bone == from; });
         writer.normalise(weights);
-        writer.write(point, std::move(weights));
-        ++result.changed;
+        if (writer.write(point, std::move(weights))) {
+            ++result.changed;
+        }
     }
     return result;
 }
@@ -623,12 +666,21 @@ SkinResult Smooth(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
             for (auto& [bone, sum] : mean) {
                 sum /= static_cast<f32>(ring.size());
             }
+            // A locked bone is neither blended nor brought in from the ring: its
+            // weight on this point never moves (§6.2), and `normalise` then fits
+            // the blend into what the locks leave.
             for (geom::Influence& influence : mixed) {
+                if (writer.boneLocked(influence.bone)) {
+                    continue;
+                }
                 const auto found = mean.find(influence.bone);
                 const f32 target = found != mean.end() ? found->second : 0.0f;
                 influence.weight = (1.0f - s) * influence.weight + s * target;
             }
             for (const auto& [bone, value] : mean) {
+                if (writer.boneLocked(bone)) {
+                    continue;
+                }
                 if (WeightOf(mixed, bone) == 0.0f && value > 0.0f) {
                     SetWeight(mixed, bone, s * value);
                 }
@@ -643,8 +695,9 @@ SkinResult Smooth(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
                 Weights out = std::move(weights);
                 writer.limit(out, point, kToolInfluenceLimit);
                 writer.normalise(out);
-                writer.write(point, std::move(out));
-                ++result.changed;
+                if (writer.write(point, std::move(out))) {
+                    ++result.changed;
+                }
             }
         }
     }
@@ -681,6 +734,9 @@ SkinResult Sharpen(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
                 }
             }
             for (geom::Influence& influence : weights) {
+                if (writer.boneLocked(influence.bone)) {
+                    continue; // §6.2, as in Smooth
+                }
                 const auto found = mean.find(influence.bone);
                 const f32 average =
                     found != mean.end() ? found->second / static_cast<f32>(ring.size()) : 0.0f;
@@ -689,8 +745,9 @@ SkinResult Sharpen(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
             }
         }
         writer.normalise(weights);
-        writer.write(point, std::move(weights));
-        ++result.changed;
+        if (writer.write(point, std::move(weights))) {
+            ++result.changed;
+        }
     }
     return result;
 }
@@ -711,19 +768,33 @@ SkinResult Unify(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
         if (members.size() < 2) {
             continue;
         }
+        // The unlocked bones take the members' mean, read as `read` reads (a
+        // NaN or a negative share is no weight); a locked bone keeps the value
+        // the point reads, its first member's, because no operation moves it.
         std::map<u32, f32> mean;
         for (const u32 vertex : members) {
             for (const geom::Influence& influence : mesh.skin.forVertex(vertex)) {
-                mean[influence.bone] += influence.weight;
+                if (influence.weight > 0.0f && std::isfinite(influence.weight) &&
+                    !writer.boneLocked(influence.bone)) {
+                    mean[influence.bone] += influence.weight;
+                }
             }
         }
         Weights weights;
+        for (const geom::Influence& influence : writer.read(point)) {
+            if (writer.boneLocked(influence.bone)) {
+                weights.push_back(influence);
+            }
+        }
         for (const auto& [bone, sum] : mean) {
             weights.push_back({bone, sum / static_cast<f32>(members.size())});
         }
+        // Members that disagree can name eight bones between them.
+        writer.limit(weights, point, kToolInfluenceLimit);
         writer.normalise(weights);
-        writer.write(point, std::move(weights));
-        ++result.changed;
+        if (writer.write(point, std::move(weights))) {
+            ++result.changed;
+        }
     }
     return result;
 }
@@ -735,6 +806,12 @@ SkinResult Soften(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
         return result;
     }
     Writer writer(mesh, nodes, points, scope.heldBones);
+    if (writer.boneLocked(boneA) || writer.boneLocked(boneB)) {
+        // The blend IS the two bones' weights: with either locked there is
+        // nothing Soften may write (§6.2).
+        result.locked = static_cast<u32>(scope.points.size());
+        return result;
+    }
 
     // The band plus one ring: the points the distances are measured over, and
     // where the two ends are looked for.
@@ -802,12 +879,24 @@ SkinResult Soften(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
         const f32 t = dA + dB == 0
                           ? 0.5f
                           : Smoothstep(static_cast<f32>(dA) / static_cast<f32>(dA + dB));
+        // §9.4's Set(A, 1 − t) then Set(B, t), inside the share the locks leave:
+        // the locked bones stay exactly, and every other unlocked influence of
+        // the band goes, as Rigid's does -- the band is rewritten as the blend.
+        const Weights before = writer.read(point);
+        const f32 room = std::max(0.0f, 1.0f - writer.lockedShare(before));
         Weights weights;
-        weights.push_back({boneA, 1.0f - t});
-        weights.push_back({boneB, t});
+        for (const geom::Influence& influence : before) {
+            if (writer.boneLocked(influence.bone)) {
+                weights.push_back(influence);
+            }
+        }
+        weights.push_back({boneA, (1.0f - t) * room});
+        weights.push_back({boneB, t * room});
+        writer.limit(weights, point, kToolInfluenceLimit);
         writer.normalise(weights);
-        writer.write(point, std::move(weights));
-        ++result.changed;
+        if (writer.write(point, std::move(weights))) {
+            ++result.changed;
+        }
     }
     return result;
 }

@@ -49,10 +49,13 @@ namespace skinning {
  *
  * A Warcraft III bone rotates about its pivot and carries the mesh between
  * itself and its children, so the segment of bone B runs from `joint(B)` to the
- * joint of each of its child bones — one segment per child.
+ * joint of each of its child bones — one segment per child. A child bone is
+ * found THROUGH any non-bone nodes between: a joint that skins nothing is
+ * exported as a helper, and the limb still runs across it.
  *
  * **A bone with no child bone gets a sphere at its joint**, of radius half the
- * distance to its parent's joint. That radius is not decoration. A parent's
+ * distance to its parent bone's joint (again through helpers; a bone with no
+ * bone above uses its own parent). That radius is not decoration. A parent's
  * segment *ends* at the child's joint, so with a bare point a leaf could never
  * be strictly nearer than its own parent anywhere: a hand bone would take no
  * weight at all, and the mechanical one-click would leave every extremity on

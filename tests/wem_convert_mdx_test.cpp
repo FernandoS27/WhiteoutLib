@@ -1407,3 +1407,25 @@ TEST_CASE("wem mdx Reforged writes a second UV set that varies, and seams on it"
     CHECK(constant->geosets[0].textureCoordinateSets.size() == 1);
     CHECK(constant->geosets[0].vertexPositions.size() == 4);
 }
+
+TEST_CASE("wem mdx classic names no UV set it does not write", "[wem][convert][mdx][geometry]") {
+    // Classic writes one set per geoset, so a layer left on set 1 would read
+    // past every geoset in the file; it takes set 0.
+    mdx::Model source = makeModel();
+    source.version = 800;
+    source.geosets[0].textureCoordinateSets.push_back(
+        {Vector2f{0, 0}, Vector2f{0.5f, 0}, Vector2f{0.5f, 1}, Vector2f{0, 1}});
+    source.materials[0].layers[0].coordId = 1;
+
+    const MdxConverter converter;
+    Result<Document> imported = converter.fromMdx(source);
+    REQUIRE(imported.ok());
+    Result<mdx::Model> exported = converter.toMdx(*imported, ProfileId::Wc3Classic, 800);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->geosets.size() == 1);
+    CHECK(exported->geosets[0].textureCoordinateSets.size() == 1);
+    REQUIRE(exported->materials.size() == 1);
+    REQUIRE(exported->materials[0].layers.size() == 1);
+    CHECK(exported->materials[0].layers[0].coordId == 0);
+    CHECK(exported.diagnostics.countOf(DiagCode::UvSetLimit) >= 1);
+}

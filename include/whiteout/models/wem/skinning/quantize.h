@@ -73,6 +73,10 @@ struct ClassicSkin {
     /// Vertices whose shares outnumber `maxBones` once the bleed is pruned:
     /// the group keeps the heaviest, and the rest is the format's loss.
     u32 wide = 0;
+    /// Vertices that bound nothing and were given the geoset's first bone,
+    /// ascending: the file has to name a group for every vertex, and this one's
+    /// is invented, which an editor's Problems view still calls unskinned.
+    std::vector<u32> unboundVertices;
     /// The pins alone need more than `maxGroups` groups; the geoset cannot be
     /// written as they ask.
     bool pinsOverflow = false;
@@ -84,7 +88,10 @@ struct ClassicSkin {
  *
  * @p vertices holds each geoset vertex's influences on the nodes the file
  * writes, unfolded, in any order. @p pins is per vertex, or empty for none: 0
- * for the automatic choice, else the group size `k` (§12.6).
+ * for the automatic choice, else the group size `k` (§12.6). @p sources is per
+ * vertex, or empty: the vertex each was split from, so that a vertex a seam
+ * duplicated counts ONCE toward its group's use -- step 3 then merges the same
+ * groups however the geoset was sliced.
  *
  * 1. **Gather.** Merge duplicate bones, normalise, drop each share under
  *    `prune`, normalise again, sort heaviest first (ties by node). A vertex left
@@ -95,13 +102,15 @@ struct ClassicSkin {
  *    1e-6. Idempotent: an equal split over `m` bones snaps to those `m`. A
  *    pinned vertex keeps its `k` heaviest, or every bone it has if fewer.
  * 3. **At most `maxGroups` groups.** While more remain, the group with the
- *    fewest vertices (earliest on a tie, never one a pinned vertex uses) goes,
+ *    fewest vertices (distinct @p sources; earliest on a tie, never one a
+ *    pinned vertex uses) goes,
  *    and each of its vertices moves on its own to the surviving group nearest
  *    its own weights. The survivors are numbered once, at the end, in
  *    first-use order.
  */
 ClassicSkin QuantizeClassic(std::span<const std::vector<geom::Influence>> vertices,
-                            std::span<const u16> pins, const ClassicLimits& limits = {});
+                            std::span<const u16> pins, const ClassicLimits& limits = {},
+                            std::span<const u32> sources = {});
 
 } // namespace skinning
 } // namespace wem

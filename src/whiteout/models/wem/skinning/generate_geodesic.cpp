@@ -13,6 +13,7 @@
 #include <deque>
 #include <limits>
 #include <queue>
+#include <utility>
 
 #include "generate_common.h"
 
@@ -62,11 +63,46 @@ struct Grid {
                         origin.y + (static_cast<f32>(y) + 0.5f) * cell,
                         origin.z + (static_cast<f32>(z) + 0.5f) * cell};
     }
-    /// The cell @p position falls in, which may be outside the grid.
+    /// The cell @p position falls in, which may be outside the grid -- held to
+    /// one cell past each side, so that a joint far off a small grid cannot
+    /// overflow the cast; every caller asks `contains` anyway.
     std::array<i32, 3> cellOf(const Vector3f& position) const {
-        return {static_cast<i32>(std::floor((position.x - origin.x) / cell)),
-                static_cast<i32>(std::floor((position.y - origin.y) / cell)),
-                static_cast<i32>(std::floor((position.z - origin.z) / cell))};
+        const auto along = [this](f32 offset, i32 axis) {
+            const f32 at = std::floor(offset / cell);
+            return static_cast<i32>(std::clamp(at, -1.0f, static_cast<f32>(size[axis])));
+        };
+        return {along(position.x - origin.x, 0), along(position.y - origin.y, 1),
+                along(position.z - origin.z, 2)};
+    }
+    /// The parameters along `from + t · (to - from)`, t in [0, 1], inside the
+    /// grid's box; false when the segment misses it.
+    bool clip(const Vector3f& from, const Vector3f& to, f32& t0, f32& t1) const {
+        t0 = 0.0f;
+        t1 = 1.0f;
+        for (i32 axis = 0; axis < 3; ++axis) {
+            const f32 start = axis == 0 ? from.x : (axis == 1 ? from.y : from.z);
+            const f32 end = axis == 0 ? to.x : (axis == 1 ? to.y : to.z);
+            const f32 low = axis == 0 ? origin.x : (axis == 1 ? origin.y : origin.z);
+            const f32 high = low + static_cast<f32>(size[axis]) * cell;
+            const f32 delta = end - start;
+            if (std::abs(delta) < 1e-12f) {
+                if (start < low || start > high) {
+                    return false;
+                }
+                continue;
+            }
+            f32 enter = (low - start) / delta;
+            f32 leave = (high - start) / delta;
+            if (enter > leave) {
+                std::swap(enter, leave);
+            }
+            t0 = std::max(t0, enter);
+            t1 = std::min(t1, leave);
+            if (t0 > t1) {
+                return false;
+            }
+        }
+        return true;
     }
 };
 
@@ -362,11 +398,23 @@ std::vector<std::pair<u32, f32>> WalkBone(const Grid& grid, const std::vector<u8
             // A leaf's sphere, at `distance - radius` as `NearestBone` has it,
             // so the hand is nearer than the forearm that ends on its joint.
             length = std::max(length, segment.radius * 2.0f);
-            const i32 reach = static_cast<i32>(std::ceil(segment.radius / grid.cell)) + 1;
+            // Only the grid's own cells, which `seed` would refuse the rest of
+            // anyway: the grid spans the run's meshes, the radius comes from the
+            // whole skeleton, and a leaf of a big rig over a small selected mesh
+            // would otherwise sweep a cube thousands of cells wide.
+            const i32 widest = std::max({grid.size[0], grid.size[1], grid.size[2]});
+            const i32 reach = static_cast<i32>(
+                std::min(std::ceil(segment.radius / grid.cell) + 1.0f, static_cast<f32>(widest + 1)));
             const std::array<i32, 3> middle = grid.cellOf(segment.start);
-            for (i32 z = middle[2] - reach; z <= middle[2] + reach; ++z) {
-                for (i32 y = middle[1] - reach; y <= middle[1] + reach; ++y) {
-                    for (i32 x = middle[0] - reach; x <= middle[0] + reach; ++x) {
+            std::array<i32, 3> from{};
+            std::array<i32, 3> to{};
+            for (i32 axis = 0; axis < 3; ++axis) {
+                from[axis] = std::max(middle[axis] - reach, 0);
+                to[axis] = std::min(middle[axis] + reach, grid.size[axis] - 1);
+            }
+            for (i32 z = from[2]; z <= to[2]; ++z) {
+                for (i32 y = from[1]; y <= to[1]; ++y) {
+                    for (i32 x = from[0]; x <= to[0]; ++x) {
                         const f32 d = (grid.centre(x, y, z) - segment.start).length() -
                                       segment.radius;
                         if (d <= grid.cell) {
@@ -378,10 +426,19 @@ std::vector<std::pair<u32, f32>> WalkBone(const Grid& grid, const std::vector<u8
             continue;
         }
         length = std::max(length, span);
-        // Half a cell apart, so no cell the segment crosses is stepped over.
-        const u32 samples = static_cast<u32>(std::ceil(span / (grid.cell * 0.5f))) + 1;
+        // Half a cell apart, so no cell the segment crosses is stepped over --
+        // over the part inside the grid only, for the reason the sphere above
+        // is clipped: a long bone over a small grid is mostly outside it.
+        f32 t0 = 0.0f;
+        f32 t1 = 1.0f;
+        if (!grid.clip(segment.start, segment.end, t0, t1)) {
+            continue;
+        }
+        const u32 samples =
+            static_cast<u32>(std::ceil(span * (t1 - t0) / (grid.cell * 0.5f))) + 1;
         for (u32 s = 0; s <= samples; ++s) {
-            const Vector3f at = segment.start + along * (static_cast<f32>(s) / samples);
+            const f32 t = t0 + (t1 - t0) * (static_cast<f32>(s) / static_cast<f32>(samples));
+            const Vector3f at = segment.start + along * t;
             const std::array<i32, 3> cell = grid.cellOf(at);
             seed(cell[0], cell[1], cell[2],
                  DistanceToSegment(grid.centre(cell[0], cell[1], cell[2]), segment.start,

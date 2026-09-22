@@ -578,3 +578,22 @@ TEST_CASE("S1 setup: Validate checks what the setup says", "[wem][skin][setup]")
     clean.models.front().nodes.nodes[1].skin.mirror = 2;
     CHECK(Validate(clean, ValidateLevel::Structural).countOf(DiagCode::SkinSetupInvalid) == 0u);
 }
+
+TEST_CASE("S1 setup: a test pose names a clip of its own model", "[wem][skin][setup]") {
+    // The clips are the document's, shared by every model: an index in range
+    // can still be another model's animation.
+    Document document = makeDocument();
+    Clip own;
+    own.name = "Stand";
+    own.model = 0;
+    Clip other;
+    other.name = "Walk";
+    other.model = 1;
+    document.clips.push_back(own);
+    document.clips.push_back(other);
+    Model& model = document.models.front();
+    model.testPoses.push_back(TestPose{"stand", 0, 0.0f});
+    CHECK(Validate(document, ValidateLevel::Structural).countOf(DiagCode::SkinSetupInvalid) == 0u);
+    model.testPoses.push_back(TestPose{"walk", 1, 0.0f});
+    CHECK(Validate(document, ValidateLevel::Structural).countOf(DiagCode::SkinSetupInvalid) == 1u);
+}

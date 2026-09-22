@@ -1256,3 +1256,87 @@ TEST_CASE("S7 bench: Heat and Geodesic on the HD footman", "[wem][skin][generate
     time("Geodesic, pool",
          [&] { return skinning::SolveGeodesic(scopes, model.nodes, {}, pooled); });
 }
+
+// ============================================================================
+// Found by the review of 2026-09-22
+// ============================================================================
+
+TEST_CASE("a bone's segment runs through a helper to the bone below it",
+          "[wem][skin][generate]") {
+    // A joint that skins nothing is exported as a helper, and the limb still
+    // runs across it: 13 of the corpus's 60 text MDLs have one. Stopping at the
+    // helper made the abdomen a leaf and measured the chest's sphere to the
+    // helper, so the middle of the limb belonged to neither.
+    NodeTree tree;
+    const u32 abdomen = AddBone(tree, "abdomen", kInvalidNode, {0, 0, 0});
+    Node helper;
+    helper.name = "spine";
+    helper.kind = NodeKind::Helper;
+    helper.parent = abdomen;
+    helper.pivot = Vector3f{0, 0, 10};
+    helper.local.translation = Vector3f{0, 0, 10};
+    const u32 spine = tree.add(std::move(helper));
+    const u32 chest = AddBone(tree, "chest", spine, {0, 0, 20});
+
+    const skinning::BoneSegments segments = skinning::BuildBoneSegments(tree);
+    REQUIRE(segments.bones.size() == 2u);
+    bool across = false;
+    for (const auto& segment : segments.segments) {
+        if (segment.bone == abdomen) {
+            CHECK(segment.radius == 0.0f);
+            across = across || std::abs(segment.end.z - 20.0f) < 1e-4f;
+        }
+        if (segment.bone == chest) {
+            // Half the way to the BONE above, not to the helper.
+            CHECK(std::abs(segment.radius - 10.0f) < 1e-4f);
+        }
+    }
+    CHECK(across);
+    CHECK(skinning::NearestBone(segments, Vector3f{0, 0, 8}) == abdomen);
+}
+
+TEST_CASE("Rigid per Island writes a point no face holds", "[wem][skin][generate]") {
+    // A point no face holds is on no island, and was skipped without being
+    // written or counted -- §8.1 leaves no point empty.
+    NodeTree tree;
+    AddBone(tree, "root", kInvalidNode, {0, 0, 0});
+    geom::MeshBuilder builder = StartMesh("body");
+    AddBox(builder, {0, 0, 0}, 1.0f);
+    builder.addVertex(Vector3f{5, 5, 5});
+    Mesh mesh = builder.build().mesh;
+    const skinning::PointTable points = skinning::BuildPointTable(mesh);
+    u32 loose = kInvalidIndex;
+    for (u32 point = 0; point < points.pointCount; ++point) {
+        if (point >= points.islandOf.size() || points.islandOf[point] == kInvalidIndex) {
+            loose = point;
+        }
+    }
+    REQUIRE(loose != kInvalidIndex);
+
+    const skinning::GenerateResult result = skinning::RigidPerIsland(mesh, tree, points, {});
+    CHECK(result.islands == points.islandCount + 1);
+    CHECK(result.weights.changed == points.pointCount);
+    for (const u32 vertex : points.membersOf(loose)) {
+        CHECK(SoleBoneOf(mesh, vertex) == 0u);
+    }
+}
+
+TEST_CASE("Geodesic under a big rig stays inside a small mesh's grid", "[wem][skin][generate]") {
+    // The grid spans the run's meshes and a leaf's sphere comes from the whole
+    // skeleton: a 0.2-unit card under a rig 200 units tall swept a cube 10^5
+    // cells a side for its one leaf, with Cancel only between bones.
+    NodeTree tree;
+    const u32 root = AddBone(tree, "root", kInvalidNode, {0, 0, 0});
+    AddBone(tree, "head", root, {0, 0, 200});
+    geom::MeshBuilder builder = StartMesh("card");
+    AddBox(builder, {0, 0, 100}, 0.1f);
+    Mesh mesh = builder.build().mesh;
+    const skinning::PointTable points = skinning::BuildPointTable(mesh);
+
+    const auto start = std::chrono::steady_clock::now();
+    const skinning::GenerateResult result = skinning::GeodesicWeights(mesh, tree, points, {});
+    const std::chrono::duration<double> took = std::chrono::steady_clock::now() - start;
+    CHECK(took.count() < 10.0);
+    CHECK_FALSE(result.cancelled);
+    CHECK(result.weights.changed == points.pointCount);
+}

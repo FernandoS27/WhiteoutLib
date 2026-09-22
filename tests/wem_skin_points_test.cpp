@@ -301,3 +301,36 @@ TEST_CASE("S3 halves jittered past the tolerance still map by topology",
         CHECK(unmatched == 0u);
     }
 }
+
+TEST_CASE("S3 a pair close to the plane mirrors each other", "[wem][skin][mirror]") {
+    // The "on the plane" test ran before the position search, so two unnamed
+    // bones nearer the plane than the tolerance (1 % of the model) each became
+    // their own mirror. A bone ON the plane still keeps itself, even beside a
+    // coincident one.
+    NodeTree tree;
+    const auto add = [&](const char* name, const Vector3f& pivot) {
+        Node node;
+        node.name = name;
+        node.kind = NodeKind::Bone;
+        node.parent = kInvalidNode;
+        node.pivot = pivot;
+        node.local = Transform::identity();
+        node.local.translation = pivot;
+        node.resetPayloadForKind();
+        tree.nodes.push_back(std::move(node));
+    };
+    add("top", Vector3f{0, 0, 200});     // 0: sets the size, so the tolerance is 2
+    add("pipe01", Vector3f{10, 1.5f, 50}); // 1: a hair to one side
+    add("pipe02", Vector3f{10, -1.5f, 50}); // 2: and to the other
+    add("hub", Vector3f{-10, 0, 50});    // 3: on the plane
+    add("hub2", Vector3f{-10, 0, 50});   // 4: coincident with it
+
+    const std::vector<skinning::BoneMirror> map = skinning::BuildBoneMirror(tree);
+    REQUIRE(map.size() == tree.size());
+    CHECK(map[1].node == 2u);
+    CHECK(map[1].source == skinning::MirrorSource::Position);
+    CHECK(map[2].node == 1u);
+    CHECK(map[3].node == 3u);
+    CHECK(map[3].source == skinning::MirrorSource::Self);
+    CHECK(map[4].node == 4u);
+}

@@ -135,9 +135,13 @@ struct WrittenInfluence {
 struct WrittenGeosetSkin {
     /// Per geoset vertex, its WEM vertex: `MdxGeosetVertices`'s numbering.
     std::vector<u32> vertices;
-    /// Per geoset vertex, what it binds, heaviest first. Empty for a vertex that
-    /// binds no node the file writes.
+    /// Per geoset vertex, what it binds, heaviest first. Empty only in a geoset
+    /// where no vertex binds a node the file writes.
     std::vector<std::vector<WrittenInfluence>> influences;
+    /// Geoset vertices that bound nothing and were given the first bound
+    /// vertex's heaviest node, ascending (both encodings name a bone for every
+    /// vertex of a skinned geoset): what the file holds for them is invented.
+    std::vector<u32> unbound;
     /// Classic only: the Skin Quantizer's groups and counts.
     skinning::ClassicSkin classic;
 };

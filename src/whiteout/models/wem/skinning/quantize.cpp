@@ -140,7 +140,8 @@ f32 GroupCost(const std::vector<Share>& shares, const std::vector<u32>& group) {
 } // namespace
 
 ClassicSkin QuantizeClassic(std::span<const std::vector<geom::Influence>> vertices,
-                            std::span<const u16> pins, const ClassicLimits& limits) {
+                            std::span<const u16> pins, const ClassicLimits& limits,
+                            std::span<const u32> sources) {
     ClassicSkin result;
     const std::size_t count = vertices.size();
     const u32 maxBones = std::max<u32>(limits.maxBones, 1);
@@ -159,6 +160,20 @@ ClassicSkin QuantizeClassic(std::span<const std::vector<geom::Influence>> vertic
         return result;
     }
 
+    // What one vertex adds to its group's use: 1, or 0 for a second copy of a
+    // source vertex a seam split. Copies carry the same weights and pins, so
+    // they always share a group and always move together.
+    std::vector<u32> weight(count, 1);
+    if (sources.size() == count) {
+        std::map<u32, bool> seen;
+        for (std::size_t v = 0; v < count; ++v) {
+            weight[v] = seen.try_emplace(sources[v], true).second ? 1 : 0;
+        }
+    }
+    // A vertex that bound nothing is measured as bound wholly to the first
+    // bone, the group it was given, if that group is later merged away.
+    const std::vector<Share> fallback{Share{firstBone, 1.0f}};
+
     // Step 2, and the distinct groups in first-use order.
     std::map<std::vector<u32>, u32> indexOf;
     std::vector<u32> usage;
@@ -170,6 +185,7 @@ ClassicSkin QuantizeClassic(std::span<const std::vector<geom::Influence>> vertic
         std::vector<u32> group;
         if (shares.empty()) {
             group.push_back(firstBone);
+            result.unboundVertices.push_back(static_cast<u32>(v));
         } else {
             const u32 keep = pin != 0 ? std::min<u32>({pin, static_cast<u32>(shares.size()),
                                                        maxBones})
@@ -186,7 +202,7 @@ ClassicSkin QuantizeClassic(std::span<const std::vector<geom::Influence>> vertic
             pinned.push_back(false);
         }
         result.groupOf[v] = entry->second;
-        ++usage[entry->second];
+        usage[entry->second] += weight[v];
         if (pin != 0) {
             pinned[entry->second] = true;
         }
@@ -226,7 +242,8 @@ ClassicSkin QuantizeClassic(std::span<const std::vector<geom::Influence>> vertic
                     if (!alive[g]) {
                         continue;
                     }
-                    const f32 cost = GroupCost(gathered[v], result.groups[g]);
+                    const f32 cost = GroupCost(gathered[v].empty() ? fallback : gathered[v],
+                                               result.groups[g]);
                     if (cost < best - 1e-6f) {
                         best = cost;
                         target = g;
@@ -234,7 +251,7 @@ ClassicSkin QuantizeClassic(std::span<const std::vector<geom::Influence>> vertic
                 }
                 result.groupOf[v] = static_cast<u32>(target);
                 members[target].push_back(v);
-                ++usage[target];
+                usage[target] += weight[v];
                 moved[v] = true;
             }
             members[victim].clear();

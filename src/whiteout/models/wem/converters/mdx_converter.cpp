@@ -1458,7 +1458,11 @@ WrittenGeosetSkin GeosetSkin(const SkinContext& context, const MeshSection* sect
                 pins.push_back(vertex < context.pins.size() ? context.pins[vertex] : u16{0});
             }
         }
-        out.classic = skinning::QuantizeClassic(gathered, pins, limits);
+        // Each geoset vertex's WEM vertex as its source: a uv1 seam that splits
+        // a vertex in one slicing and not in another must not change which
+        // group the 256 limit merges away.
+        out.classic = skinning::QuantizeClassic(gathered, pins, limits, vertices);
+        out.unbound = out.classic.unboundVertices;
         // What the group could not hold, counted after the prune: a bleed
         // share is never in a group whatever the vertex has.
         overLimit += out.classic.wide;
@@ -1472,10 +1476,28 @@ WrittenGeosetSkin GeosetSkin(const SkinContext& context, const MeshSection* sect
         return out;
     }
 
+    // A vertex that binds nothing the file writes, in a geoset where others
+    // bind: four zero bytes would weigh it by nothing at all, so it is bound
+    // wholly to the node the first bound vertex leans on most -- the classic
+    // quantizer's rule, and one bone for the vertex where the game would
+    // otherwise collapse it. It is listed, so the invented binding still reads
+    // as unskinned.
+    std::optional<u32> firstBound;
+    for (const std::vector<geom::Influence>& one : gathered) {
+        if (!one.empty()) {
+            firstBound = one.front().bone;
+            break;
+        }
+    }
+
     // `SKIN`: four lanes, folded over the skeleton past them, then one rounding
     // for the four so the bytes sum to 255.
     for (std::size_t i = 0; i < vertices.size(); ++i) {
         std::vector<geom::Influence> kept = std::move(gathered[i]);
+        if (kept.empty() && firstBound.has_value()) {
+            kept.push_back({*firstBound, 1.0f});
+            out.unbound.push_back(static_cast<u32>(i));
+        }
         if (kept.size() > 4) {
             ++overLimit;
             const Vector3f position = vertices[i] < context.positions.size()
@@ -2299,6 +2321,25 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
         // replacing stage clears everything written before it.
         out.materials.push_back(mdx_core::ExportMaterial(*material, profile, context, diagnostics,
                                                          &animContext.layerOfOrdinal[slot]));
+    }
+    // A profile that holds one UV set writes one (`WritesSecondUvSet`), so a
+    // layer naming set 1 would read past every geoset. It takes set 0, which is
+    // also what the viewer draws for a geoset without the set it names.
+    if (Profile(profile).maxUvSets < 2) {
+        u32 moved = 0;
+        for (mdx::Material& material : out.materials) {
+            for (mdx::Layer& layer : material.layers) {
+                if (layer.coordId != 0) {
+                    layer.coordId = 0;
+                    ++moved;
+                }
+            }
+        }
+        if (moved != 0) {
+            diagnostics.warn(DiagCode::UvSetLimit,
+                             std::to_string(moved) + " layer(s) read a second UV set " +
+                                 Profile(profile).name + " does not hold; they read the first");
+        }
     }
     // Whatever the materials asked for, in the order they asked. `stockBase`
     // promised these ids and nothing has pushed a texture since.

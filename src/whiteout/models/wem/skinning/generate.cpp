@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cmath>
 #include <limits>
+#include <memory>
 #include <utility>
 
 #include <whiteout/utils/job_group.h>
@@ -132,17 +133,21 @@ bool RunJobs(u32 count, const GenerateControl& control, u32& done, u32 total,
         return true;
     };
 
-    utils::JobGroup group;
+    // Owned by the helpers too: the last `done()` counts down before it
+    // signals, and `wait()` can return in between -- a group on this stack
+    // would be gone under that signal. A helper touches nothing else after
+    // `done()`.
+    const auto group = std::make_shared<utils::JobGroup>();
     if (control.pool != nullptr && count > 1) {
         const u32 helpers =
             std::min<u32>(static_cast<u32>(control.pool->threadCount()), count - 1);
-        group.add(helpers);
+        group->add(helpers);
         for (u32 i = 0; i < helpers; ++i) {
             interfaces::WorkerTask task;
-            task.fn = [&]() {
+            task.fn = [group, &take]() {
                 while (take()) {
                 }
-                group.done();
+                group->done();
             };
             control.pool->submit(task);
         }
@@ -154,7 +159,7 @@ bool RunJobs(u32 count, const GenerateControl& control, u32& done, u32 total,
             control.progress(done + finished.load(std::memory_order_acquire), total);
         }
     }
-    group.wait();
+    group->wait();
     done += finished.load(std::memory_order_acquire);
     if (control.progress) {
         control.progress(done, total);
@@ -192,30 +197,62 @@ BoneSegments BuildBoneSegments(const NodeTree& nodes, std::span<const u32> bones
     }
 
     // One segment per CHILD BONE, because a Warcraft III bone carries the mesh
-    // between itself and its children (§8.2). A child helper is skipped: an
-    // attachment point or an emitter names no geometry, and a segment reaching
-    // out to one would pull weight off the body toward a muzzle flash.
+    // between itself and its children (§8.2). A branch that ends without a bone
+    // is skipped: an attachment point or an emitter names no geometry, and a
+    // segment reaching out to one would pull weight off the body toward a
+    // muzzle flash.
     std::vector<Vector3f> joints(nodes.size(), Vector3f{0, 0, 0});
+    std::vector<std::vector<u32>> children(nodes.size());
     for (u32 node = 0; node < nodes.size(); ++node) {
         joints[node] = JointOf(nodes, node);
+        const u32 parent = nodes.nodes[node].parent;
+        if (parent != kInvalidNode && parent < nodes.size() && parent != node) {
+            children[parent].push_back(node);
+        }
     }
+    // The nearest Bone above @p bone, through any helpers between them.
+    const auto boneAbove = [&nodes](u32 bone) {
+        u32 node = nodes.nodes[bone].parent;
+        u32 guard = 0;
+        while (node != kInvalidNode && node < nodes.size() && guard++ < nodes.size()) {
+            if (nodes.nodes[node].kind == NodeKind::Bone) {
+                return node;
+            }
+            node = nodes.nodes[node].parent;
+        }
+        return kInvalidNode;
+    };
+    std::vector<u32> walk;
     for (const u32 bone : built.bones) {
         bool any = false;
-        // Every child bone of the TREE, not only the ones in the set: the
-        // geometry between a bone and its child is real whether or not the
-        // child may be written to.
-        for (u32 child = 0; child < nodes.size(); ++child) {
-            if (nodes.nodes[child].parent != bone || nodes.nodes[child].kind != NodeKind::Bone) {
+        // Every bone BELOW, looking through the helpers between: a joint that
+        // skins nothing is exported as a helper, and the limb still runs across
+        // it (13 of the corpus's 60 text MDLs, herogroveghost's abdomen to its
+        // chest among them). Every bone of the TREE, not only the ones in the
+        // set: the geometry between a bone and its child is real whether or not
+        // the child may be written to.
+        walk.assign(children[bone].rbegin(), children[bone].rend());
+        u32 guard = 0;
+        while (!walk.empty() && guard++ < nodes.size()) {
+            const u32 child = walk.back();
+            walk.pop_back();
+            if (nodes.nodes[child].kind == NodeKind::Bone) {
+                built.segments.push_back({bone, joints[bone], joints[child], 0.0f});
+                any = true;
                 continue;
             }
-            built.segments.push_back({bone, joints[bone], joints[child], 0.0f});
-            any = true;
+            walk.insert(walk.end(), children[child].rbegin(), children[child].rend());
         }
         if (!any) {
             // A leaf: a sphere at its joint, of radius half the distance to its
-            // parent's. See the header -- with a bare point a leaf could never
-            // beat the parent whose own segment ends on it.
-            const u32 parent = nodes.nodes[bone].parent;
+            // parent bone's, through any helper between them. See the header --
+            // with a bare point a leaf could never beat the parent whose own
+            // segment ends on it. A bone with no bone above keeps its own
+            // parent, whatever it is.
+            u32 parent = boneAbove(bone);
+            if (parent == kInvalidNode) {
+                parent = nodes.nodes[bone].parent;
+            }
             f32 radius = 0.0f;
             if (parent != kInvalidNode && parent < nodes.size()) {
                 const Vector3f up = joints[parent];
@@ -332,13 +369,24 @@ GenerateResult RigidPerIsland(Mesh& mesh, const NodeTree& nodes, const PointTabl
         // `NearestBone` answers for a point and what the scan below keeps.
         std::vector<std::vector<u32>> islands(points.islandCount);
         for (const u32 point : scope) {
-            if (point >= points.pointCount || point >= points.islandOf.size()) {
+            if (point >= points.pointCount) {
                 continue;
             }
-            const u32 island = points.islandOf[point];
+            const u32 island = point < points.islandOf.size() ? points.islandOf[point]
+                                                               : kInvalidIndex;
             if (island < islands.size()) {
                 islands[island].push_back(point);
+                continue;
             }
+            // A point no face holds belongs to no island: it is one on its own,
+            // and §8.1 never leaves a point empty.
+            ++result.islands;
+            const u32 bone = NearestBone(segments, PositionOf(positions, points, point));
+            if (bone == kInvalidNode) {
+                ++result.unreached;
+                continue;
+            }
+            add(bone, point);
         }
         for (const std::vector<u32>& island : islands) {
             if (island.empty()) {
@@ -414,6 +462,35 @@ f32 Median(std::vector<f32>& values) {
     const std::size_t middle = values.size() / 2;
     std::nth_element(values.begin(), values.begin() + middle, values.end());
     return values[middle];
+}
+
+/// §8.1's prune: a share under this, of the point's own total, is not written.
+constexpr f32 kGeneratedPrune = 0.01f;
+
+/// @p given pruned at `kGeneratedPrune` of its own total, into @p kept. A point
+/// whose every share is under the bar keeps its heaviest: pruning it to nothing
+/// would leave it for `Assign` to refuse.
+void PruneShares(std::span<const geom::Influence> given, std::vector<geom::Influence>& kept) {
+    kept.clear();
+    f32 total = 0.0f;
+    const geom::Influence* heaviest = nullptr;
+    for (const geom::Influence& influence : given) {
+        if (!(influence.weight > 0.0f) || !std::isfinite(influence.weight)) {
+            continue;
+        }
+        total += influence.weight;
+        if (heaviest == nullptr || influence.weight > heaviest->weight) {
+            heaviest = &influence;
+        }
+    }
+    for (const geom::Influence& influence : given) {
+        if (influence.weight > 0.0f && influence.weight >= total * kGeneratedPrune) {
+            kept.push_back(influence);
+        }
+    }
+    if (kept.empty() && heaviest != nullptr) {
+        kept.push_back(*heaviest);
+    }
 }
 
 } // namespace
@@ -652,6 +729,7 @@ GenerateResult EnvelopeWeights(Mesh& mesh, const NodeTree& nodes, const PointTab
     };
 
     std::vector<geom::Influence> reached;
+    std::vector<geom::Influence> pruned;
     for (const u32 point : scope) {
         if (point >= points.pointCount) {
             continue;
@@ -683,6 +761,10 @@ GenerateResult EnvelopeWeights(Mesh& mesh, const NodeTree& nodes, const PointTab
         if (hardBone != kInvalidNode) {
             reached.push_back({hardBone, 1.0f});
         }
+        // §8.1's prune holds for every generator: a Smooth falloff's last
+        // crumbs are not four real influences for `Assign` to fold.
+        PruneShares(reached, pruned);
+        reached.swap(pruned);
         if (reached.empty()) {
             ++result.unreached;
             const u32 bone = NearestBone(segments, at);
@@ -710,9 +792,6 @@ GenerateResult EnvelopeWeights(Mesh& mesh, const NodeTree& nodes, const PointTab
 
 // ---- The heavy generators' write (§8.1) ---------------------------------------
 
-/// §8.1's prune: a share under this, of the point's own total, is not written.
-constexpr f32 kGeneratedPrune = 0.01f;
-
 GenerateResult WriteGenerated(Mesh& mesh, const NodeTree& nodes, const PointTable& points,
                               const GeneratedWeights& weights, const GenerateOptions& options) {
     GenerateResult result;
@@ -725,33 +804,11 @@ GenerateResult WriteGenerated(Mesh& mesh, const NodeTree& nodes, const PointTabl
     const std::vector<u32> held = detail::HeldBones(nodes, segments, options.bones);
 
     // The prune first, relative to the point's own total, so that `Assign`'s
-    // limit folds four real influences rather than a tail of crumbs. A point
-    // whose every share is under the bar keeps its heaviest: pruning it to
-    // nothing would leave it for `Assign` to refuse.
+    // limit folds four real influences rather than a tail of crumbs.
     PointWeights pruned;
     std::vector<geom::Influence> kept;
     for (std::size_t i = 0; i < weights.points.size(); ++i) {
-        kept.clear();
-        const std::span<const geom::Influence> given = weights.given.of(i);
-        f32 total = 0.0f;
-        const geom::Influence* heaviest = nullptr;
-        for (const geom::Influence& influence : given) {
-            if (!(influence.weight > 0.0f) || !std::isfinite(influence.weight)) {
-                continue;
-            }
-            total += influence.weight;
-            if (heaviest == nullptr || influence.weight > heaviest->weight) {
-                heaviest = &influence;
-            }
-        }
-        for (const geom::Influence& influence : given) {
-            if (influence.weight > 0.0f && influence.weight >= total * kGeneratedPrune) {
-                kept.push_back(influence);
-            }
-        }
-        if (kept.empty() && heaviest != nullptr) {
-            kept.push_back(*heaviest);
-        }
+        PruneShares(weights.given.of(i), kept);
         pruned.add(kept);
     }
 

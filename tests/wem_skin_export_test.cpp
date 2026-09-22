@@ -1098,3 +1098,92 @@ TEST_CASE("S1 corpus: every shipped weight comes back where it was",
     CHECK(other.requiredSkin() == 0);
     CHECK(other.requiredGroups() == 0);
 }
+
+// ============================================================================
+// Found by the review of 2026-09-22
+// ============================================================================
+
+TEST_CASE("S1 the quantizer says which vertices it bound to the first bone",
+          "[wem][skin][quantize]") {
+    // The file names a group for every vertex, so an unbound one's group is
+    // invented -- and a Problems view reading the file could not tell.
+    const std::vector<std::vector<geom::Influence>> vertices{{}, Rigid(4), {}};
+    const skinning::ClassicSkin skin = skinning::QuantizeClassic(vertices, {});
+    CHECK(skin.unboundVertices == std::vector<u32>{0, 2});
+
+    SECTION("and one merged away moves on to a group holding that bone") {
+        // Measured on no shares at all, every group cost 1/k, so the merge sent
+        // the vertex to the group with the MOST bones rather than to its own.
+        const std::vector<std::vector<geom::Influence>> merging{
+            Blend({{1, 0.6f}, {2, 0.4f}}),                         // group {1, 2}; first bone 1
+            {},                                                    // group {1}, used once
+            Blend({{6, 0.25f}, {7, 0.25f}, {8, 0.25f}, {9, 0.25f}}),
+            Blend({{6, 0.25f}, {7, 0.25f}, {8, 0.25f}, {9, 0.25f}}),
+            Blend({{1, 0.6f}, {2, 0.4f}}),
+        };
+        const skinning::ClassicSkin merged =
+            skinning::QuantizeClassic(merging, {}, skinning::ClassicLimits{8, 0.02f, 2});
+        REQUIRE(merged.groups.size() == 2u);
+        CHECK(merged.mergedGroups == 1u);
+        const std::vector<u32>& group = merged.groups[merged.groupOf[1]];
+        CHECK(std::find(group.begin(), group.end(), 1u) != group.end());
+    }
+}
+
+TEST_CASE("S1 a seam's copies count once toward a group's use", "[wem][skin][quantize]") {
+    // A uv1 seam splits a vertex in one slicing and not in another; counting
+    // each copy made the 256 limit merge different groups in the classic
+    // preview than in the classic file.
+    const std::vector<std::vector<geom::Influence>> vertices{
+        Rigid(1), Rigid(1), // one source vertex, split by a seam
+        Rigid(2),
+        Rigid(3), Rigid(3), // two real vertices
+    };
+    const std::vector<u32> sources{10, 10, 11, 12, 13};
+    const skinning::ClassicSkin skin =
+        skinning::QuantizeClassic(vertices, {}, skinning::ClassicLimits{8, 0.02f, 2}, sources);
+    // {1} and {2} are used once each; {3} twice. The earlier of the two goes.
+    REQUIRE(skin.groups.size() == 2u);
+    CHECK(skin.groups[skin.groupOf[3]] == std::vector<u32>{3});
+    CHECK(skin.groups[skin.groupOf[2]] == std::vector<u32>{2});
+    CHECK(skin.mergedVertices == std::vector<u32>{0, 1});
+}
+
+TEST_CASE("S1 a vertex that binds nothing is written to one bone", "[wem][skin][export]") {
+    // `SKIN` had four zero bytes for it, which weigh it by nothing at all; the
+    // classic quantizer already bound it to the first bone. Both now do, and
+    // both list it.
+    const std::vector<std::vector<geom::Influence>> skin = {
+        Blend({{2, 0.7f}, {1, 0.3f}}),
+        {},
+        Rigid(1),
+    };
+    const MdxConverter converter;
+    for (const ProfileId profile : {ProfileId::Wc3Reforged, ProfileId::Wc3Classic}) {
+        CAPTURE(static_cast<u32>(profile));
+        const Document document = SkinDocument(4, 0, skin, {profile});
+        const WrittenSkin written = converter.writtenSkin(document, 0, profile, 0);
+        REQUIRE(written.geosets.size() == 1u);
+        const WrittenGeosetSkin& geoset = written.geosets[0];
+        // The node the first bound vertex, in the geoset's order, leans on most.
+        u32 expected = kInvalidNode;
+        for (std::size_t v = 0; v < geoset.vertices.size() && expected == kInvalidNode; ++v) {
+            if (geoset.vertices[v] != 1) {
+                expected = skin[geoset.vertices[v]].front().bone;
+            }
+        }
+        u32 found = 0;
+        for (std::size_t v = 0; v < geoset.vertices.size(); ++v) {
+            if (geoset.vertices[v] != 1) {
+                continue;
+            }
+            ++found;
+            REQUIRE(geoset.influences[v].size() == 1u);
+            CHECK(geoset.influences[v][0].node == expected);
+            CHECK(std::find(geoset.unbound.begin(), geoset.unbound.end(), v) !=
+                  geoset.unbound.end());
+        }
+        CHECK(found == 1u);
+        CHECK(geoset.unbound.size() == 1u);
+    }
+}

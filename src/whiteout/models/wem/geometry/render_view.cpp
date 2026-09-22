@@ -480,6 +480,10 @@ RenderMesh BuildRenderMesh(const Mesh& mesh, const RenderMeshDesc& desc) {
 std::vector<Influence> FoldInfluences(std::span<const Influence> influences, u32 width,
                                       const Vector3f& position, std::span<const u32> parents,
                                       std::span<const Vector3f> pivots) {
+    if (width == 0) {
+        // No lane to fold into: the merge below needs a pair to the last.
+        return {};
+    }
     std::vector<Influence> out(influences.begin(), influences.end());
     // Each influence's chain, the bone first and its root last; the walk stops
     // at a parent past the span, and after as many steps as there are nodes.
