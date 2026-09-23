@@ -228,6 +228,17 @@ The lifetime curves are the record's fake-animation blocks: times over the parti
         .def_readwrite("texture3_scroll_mid", &whiteout::models::wem::M2ParticleEmitterPayload::texture3ScrollMid)
         .def_readwrite("texture2_scroll_range", &whiteout::models::wem::M2ParticleEmitterPayload::texture2ScrollRange)
         .def_readwrite("texture3_scroll_range", &whiteout::models::wem::M2ParticleEmitterPayload::texture3ScrollRange)
+        .def_readwrite("inherit_velocity_scale", &whiteout::models::wem::M2ParticleEmitterPayload::inheritVelocityScale, R"doc(How much of its emitter's velocity an `InheritVelocity` particle takes.)doc")
+        .def_readwrite("follow_speed1", &whiteout::models::wem::M2ParticleEmitterPayload::followSpeed1, R"doc(`FollowPosition`'s line: a particle follows its emitter's travel by `followScale1` at emitter speed `followSpeed1`, by `followScale2` at `followSpeed2`, linearly between and clamped to [0, 1].)doc")
+        .def_readwrite("follow_scale1", &whiteout::models::wem::M2ParticleEmitterPayload::followScale1)
+        .def_readwrite("follow_speed2", &whiteout::models::wem::M2ParticleEmitterPayload::followSpeed2)
+        .def_readwrite("follow_scale2", &whiteout::models::wem::M2ParticleEmitterPayload::followScale2)
+        .def_readwrite("tumble_min", &whiteout::models::wem::M2ParticleEmitterPayload::tumbleMin, R"doc(A model particle's angular velocity, drawn per axis in [min, max] (radians a second).)doc")
+        .def_readwrite("tumble_max", &whiteout::models::wem::M2ParticleEmitterPayload::tumbleMax)
+        .def_readwrite("color_mult", &whiteout::models::wem::M2ParticleEmitterPayload::colorMult, R"doc(The `EXPT` extension's multipliers on the colour and alpha curves; 1 without one.)doc")
+        .def_readwrite("alpha_mult", &whiteout::models::wem::M2ParticleEmitterPayload::alphaMult)
+        .def_readwrite("alpha_cutoff_times", &whiteout::models::wem::M2ParticleEmitterPayload::alphaCutoffTimes, R"doc(The `EXP2` extension's alpha cutoff over the particle's life; empty without one.)doc")
+        .def_readwrite("alpha_cutoffs", &whiteout::models::wem::M2ParticleEmitterPayload::alphaCutoffs)
     ;
 
     py::class_<whiteout::models::wem::Sc2Variation>(m, "Sc2Variation", R"doc(One of the per-particle variation channels: a curve type, and the amplitude and frequency it runs at.)doc")

@@ -104,17 +104,16 @@ constexpr f32 kRunEdge = 1e-3f;
 
 /// The cells a cell track sweeps over [from, to): where it stands at the start
 /// and just inside the end, which `PRE2` then plays through evenly. The client
-/// interpolates between keys (`M2CellAt`), so a run spans every cell between
+/// interpolates between keys (`M2CellReader`), so a run spans every cell between
 /// them — Dimensius' `0 4 12 30 63` is the whole 8x8 sheet, not five held cells.
-Wc3ParticleInterval CellRun(const std::vector<f32>& times, const std::vector<u32>& cells, f32 from,
-                            f32 to) {
+Wc3ParticleInterval CellRun(const M2CellReader& cells, f32 from, f32 to) {
     Wc3ParticleInterval run;
     run.repeat = 1;
-    if (std::min(times.size(), cells.size()) == 0) {
+    if (cells.empty()) {
         return run;
     }
-    run.start = static_cast<u32>(M2CellAt(times, cells, from));
-    run.end = static_cast<u32>(M2CellAt(times, cells, std::max(std::min(to, 1.0f) - kRunEdge, from)));
+    run.start = static_cast<u32>(cells.at(from));
+    run.end = static_cast<u32>(cells.at(std::max(std::min(to, 1.0f) - kRunEdge, from)));
     return run;
 }
 
@@ -271,10 +270,12 @@ private:
             p.tailDecay = p.headDecay;
             note(n, "a random cell per particle becomes the sheet played over its life");
         } else {
-            p.headLife = CellRun(m.headCellTimes, m.headCells, 0.0f, p.time);
-            p.headDecay = CellRun(m.headCellTimes, m.headCells, p.time, 1.01f);
-            p.tailLife = CellRun(m.tailCellTimes, m.tailCells, 0.0f, p.time);
-            p.tailDecay = CellRun(m.tailCellTimes, m.tailCells, p.time, 1.01f);
+            const M2CellReader headCells = M2CellReader::Head(m);
+            const M2CellReader tailCells = M2CellReader::Tail(m);
+            p.headLife = CellRun(headCells, 0.0f, p.time);
+            p.headDecay = CellRun(headCells, p.time, 1.01f);
+            p.tailLife = CellRun(tailCells, 0.0f, p.time);
+            p.tailDecay = CellRun(tailCells, p.time, 1.01f);
             if (needle) {
                 // The head's cells, drawn by the tail.
                 p.tailLife = p.headLife;
@@ -553,6 +554,146 @@ i32 M2CellAt(const std::vector<f32>& times, const std::vector<u32>& cells, f32 t
     const f32 value = static_cast<f32>(to - from) * pct + static_cast<f32>(from);
     // cvtss2si under the default MXCSR: nearest, ties to even.
     return static_cast<i32>(std::nearbyint(value));
+}
+
+namespace {
+
+/// A key time as the client stores it: WEM reads `u16 / 32767`.
+i32 KeyTime(f32 t) {
+    return static_cast<i32>(std::lround(t * 32767.0f));
+}
+
+} // namespace
+
+bool M2IsSimple(const wem::M2ParticleEmitterPayload& e) {
+    const auto oneToThree = [](std::size_t n) { return n >= 1 && n <= 3; };
+    if (!oneToThree(e.colorTimes.size()) || !oneToThree(e.alphaTimes.size()) ||
+        !oneToThree(e.scaleTimes.size())) {
+        return false;
+    }
+    for (const std::vector<f32>* cells : {&e.headCellTimes, &e.tailCellTimes}) {
+        if (cells->size() > 4) {
+            return false;
+        }
+        if (cells->size() == 4 && KeyTime((*cells)[1]) != KeyTime((*cells)[2])) {
+            return false;
+        }
+    }
+    if (e.lifespanVariation != 0.0f) {
+        return false;
+    }
+    if (e.headCellTimes.empty() && Has(e.flags, m2::ParticleFlag::ChooseRandomTexture)) {
+        return false;
+    }
+    if (e.scaleVariation.x != 0.0f || e.scaleVariation.y != 0.0f) {
+        return false;
+    }
+    for (const Vector2f& scale : e.scales) {
+        if (std::fabs(scale.x - scale.y) >= 2.3841858e-7f) {
+            return false;
+        }
+    }
+    // Every three-key track splits where the first one does.
+    std::optional<i32> middle;
+    const auto agrees = [&middle](const std::vector<f32>& times, bool isThree) {
+        if (!isThree) {
+            return true;
+        }
+        const i32 at = KeyTime(times[1]);
+        if (!middle) {
+            middle = at;
+        }
+        return *middle == at;
+    };
+    return agrees(e.colorTimes, e.colorTimes.size() == 3) &&
+           agrees(e.alphaTimes, e.alphaTimes.size() == 3) &&
+           agrees(e.scaleTimes, e.scaleTimes.size() == 3) &&
+           agrees(e.headCellTimes, e.headCellTimes.size() >= 3) &&
+           agrees(e.tailCellTimes, e.tailCellTimes.size() >= 3);
+}
+
+f32 M2SimpleMiddle(const wem::M2ParticleEmitterPayload& e) {
+    const std::pair<const std::vector<f32>*, std::size_t> tracks[] = {
+        {&e.colorTimes, 3}, {&e.alphaTimes, 3}, {&e.scaleTimes, 3},
+        {&e.headCellTimes, 3}, {&e.tailCellTimes, 3}};
+    for (std::size_t k = 0; k < std::size(tracks); ++k) {
+        const std::vector<f32>& times = *tracks[k].first;
+        const bool cells = k >= 3;
+        if (cells ? times.size() >= 3 : times.size() == 3) {
+            return static_cast<f32>(KeyTime(times[1])) * 0.000030518509f;
+        }
+    }
+    return 0.0f;
+}
+
+M2SimpleCellKeys M2SimpleCells(const std::vector<u32>& cells, f32 middle) {
+    M2SimpleCellKeys keys;
+    // 16.16, truncated (cvttss2si), as InterpolateAllTracks_Simple takes it.
+    keys.middle = static_cast<i32>(middle * 65536.0f);
+    if (cells.empty()) {
+        return keys;
+    }
+    const auto c = [&cells](std::size_t k) { return static_cast<i32>(cells[k] & 0xFFFF); };
+    keys.start[0] = static_cast<i32>(static_cast<i16>(cells[0] & 0xFFFF)) * 65536;
+    switch (cells.size()) {
+    case 1:
+        break;
+    case 2: {
+        // cvtss2si: nearest, ties to even.
+        const f32 span = static_cast<f32>(c(1) - c(0));
+        keys.slope[0] = static_cast<i32>(std::nearbyint(span * middle));
+        keys.slope[1] = static_cast<i32>(std::nearbyint((1.0f - middle) * span));
+        break;
+    }
+    case 3:
+        keys.slope[0] = c(1) - c(0);
+        keys.slope[1] = c(2) - c(1);
+        break;
+    default:
+        keys.slope[0] = c(1) - c(0);
+        keys.slope[1] = c(3) - c(2);
+        break;
+    }
+    keys.start[1] = keys.start[0] + static_cast<i32>(static_cast<i16>(keys.slope[0])) * 65536;
+    return keys;
+}
+
+i32 M2SimpleCellAt(const M2SimpleCellKeys& keys, f32 t) {
+    constexpr i64 kOne = 65536;
+    const i64 at = std::clamp<i64>(static_cast<i64>(t * 65536.0f), 0, kOne);
+    const bool second = at >= keys.middle;
+    // A split at the very end leaves segment 2 no length; the client divides
+    // by zero there, and no shipped emitter has one.
+    const i64 span = second ? kOne - keys.middle : keys.middle;
+    const i64 fraction = span <= 0 ? 0 : ((second ? at - keys.middle : at) * kOne) / span;
+    const i32 k = second ? 1 : 0;
+    // 32-bit, as the client multiplies and shifts (sar: floored).
+    const i32 value = static_cast<i32>(static_cast<u32>(keys.start[k]) +
+                                       static_cast<u32>(keys.slope[k]) * static_cast<u32>(fraction));
+    return value >> 16;
+}
+
+M2CellReader::M2CellReader(const wem::M2ParticleEmitterPayload& emitter,
+                           const std::vector<f32>& times, const std::vector<u32>& cells)
+    : simple_(M2IsSimple(emitter)), times_(times), cells_(cells) {
+    if (simple_) {
+        simpleKeys_ = M2SimpleCells(cells_, M2SimpleMiddle(emitter));
+    }
+}
+
+M2CellReader M2CellReader::Head(const wem::M2ParticleEmitterPayload& emitter) {
+    return M2CellReader(emitter, emitter.headCellTimes, emitter.headCells);
+}
+
+M2CellReader M2CellReader::Tail(const wem::M2ParticleEmitterPayload& emitter) {
+    return M2CellReader(emitter, emitter.tailCellTimes, emitter.tailCells);
+}
+
+i32 M2CellReader::at(f32 t) const {
+    if (simple_) {
+        return M2SimpleCellAt(simpleKeys_, t);
+    }
+    return cells_.empty() ? 0 : M2CellAt(times_, cells_, t);
 }
 
 } // namespace cross

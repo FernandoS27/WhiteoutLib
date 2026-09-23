@@ -272,7 +272,9 @@ struct ChunkTagTraits<Matrix44f> {
 /// v6 the skin setup (EDIT_MODE_SKIN_DESIGN.md §13.4); v7 Reforged's `CORN` kind
 /// and a light's shadow-casting range and distance falloff (MDX v1300/v1600);
 /// v8 World of Warcraft's `M2Particle` kind; v9 its multi-texture layers' scale
-/// and scroll; v10 the rig record (EDIT_MODE_AUTO_IK_DESIGN.md §3.3).
+/// and scroll; v10 the rig record (EDIT_MODE_AUTO_IK_DESIGN.md §3.3); v11 the
+/// rest of the World of Warcraft particle record (inherit and follow, tumble,
+/// the `EXPT` multipliers and the `EXP2` alpha cutoff).
 /// An older chunk holds none of them, so it reads unchanged. A NEWER one does
 /// not: records sit back to back, and nothing checks a chunk's version against
 /// this, so a build older than a field misreads every node after the first
@@ -280,7 +282,7 @@ struct ChunkTagTraits<Matrix44f> {
 template <>
 struct ChunkTagTraits<Node> {
     static constexpr u32 value = kTag("NODE");
-    static constexpr u32 max_version = 10;
+    static constexpr u32 max_version = 11;
     static constexpr bool is_trivial = false;
 };
 

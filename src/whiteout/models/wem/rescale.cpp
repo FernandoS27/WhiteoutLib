@@ -125,6 +125,9 @@ void rescaleEmitter(NodePayload& payload, f32 factor) {
             point = {point.x * factor, point.y * factor, point.z * factor};
         }
         m2->wind = {m2->wind.x * factor, m2->wind.y * factor, m2->wind.z * factor};
+        // The follow line's speeds are the emitter's, a length a second.
+        m2->followSpeed1 *= factor;
+        m2->followSpeed2 *= factor;
     } else if (auto* r = std::get_if<Wc3RibbonEmitterPayload>(&payload)) {
         r->heightAbove *= factor;
         r->heightBelow *= factor;

@@ -554,6 +554,28 @@ struct M2ParticleEmitterPayload {
     Vector2f texture2ScrollRange{0, 0};
     Vector2f texture3ScrollRange{0, 0};
 
+    /// How much of its emitter's velocity an `InheritVelocity` particle takes.
+    f32 inheritVelocityScale = 1;
+    /// `FollowPosition`'s line: a particle follows its emitter's travel by
+    /// `followScale1` at emitter speed `followSpeed1`, by `followScale2` at
+    /// `followSpeed2`, linearly between and clamped to [0, 1].
+    f32 followSpeed1 = 0;
+    f32 followScale1 = 0;
+    f32 followSpeed2 = 0;
+    f32 followScale2 = 0;
+    /// A model particle's angular velocity, drawn per axis in [min, max]
+    /// (radians a second).
+    Vector3f tumbleMin{0, 0, 0};
+    Vector3f tumbleMax{0, 0, 0};
+    /// The `EXPT` extension's multipliers on the colour and alpha curves; 1
+    /// without one.
+    f32 colorMult = 1;
+    f32 alphaMult = 1;
+    /// The `EXP2` extension's alpha cutoff over the particle's life; empty
+    /// without one.
+    std::vector<f32> alphaCutoffTimes;
+    std::vector<f32> alphaCutoffs;
+
     template <class Self, class F>
     static void forEachTextureLink(Self& self, F&& f) {
         f(self.texture);
@@ -615,6 +637,17 @@ struct M2ParticleEmitterPayload {
         v.since(9).field("texture3ScrollMid", texture3ScrollMid);
         v.since(9).field("texture2ScrollRange", texture2ScrollRange);
         v.since(9).field("texture3ScrollRange", texture3ScrollRange);
+        v.since(11).field("inheritVelocityScale", inheritVelocityScale);
+        v.since(11).field("followSpeed1", followSpeed1);
+        v.since(11).field("followScale1", followScale1);
+        v.since(11).field("followSpeed2", followSpeed2);
+        v.since(11).field("followScale2", followScale2);
+        v.since(11).field("tumbleMin", tumbleMin);
+        v.since(11).field("tumbleMax", tumbleMax);
+        v.since(11).field("colorMult", colorMult);
+        v.since(11).field("alphaMult", alphaMult);
+        v.since(11).field("alphaCutoffTimes", alphaCutoffTimes);
+        v.since(11).field("alphaCutoffs", alphaCutoffs);
     }
 };
 

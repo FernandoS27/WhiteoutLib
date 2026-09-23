@@ -1137,6 +1137,17 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("texture3ScrollMid", &whiteout::models::wem::M2ParticleEmitterPayload::texture3ScrollMid)
         .property("texture2ScrollRange", &whiteout::models::wem::M2ParticleEmitterPayload::texture2ScrollRange)
         .property("texture3ScrollRange", &whiteout::models::wem::M2ParticleEmitterPayload::texture3ScrollRange)
+        .property("inheritVelocityScale", &whiteout::models::wem::M2ParticleEmitterPayload::inheritVelocityScale)
+        .property("followSpeed1", &whiteout::models::wem::M2ParticleEmitterPayload::followSpeed1)
+        .property("followScale1", &whiteout::models::wem::M2ParticleEmitterPayload::followScale1)
+        .property("followSpeed2", &whiteout::models::wem::M2ParticleEmitterPayload::followSpeed2)
+        .property("followScale2", &whiteout::models::wem::M2ParticleEmitterPayload::followScale2)
+        .property("tumbleMin", &whiteout::models::wem::M2ParticleEmitterPayload::tumbleMin)
+        .property("tumbleMax", &whiteout::models::wem::M2ParticleEmitterPayload::tumbleMax)
+        .property("colorMult", &whiteout::models::wem::M2ParticleEmitterPayload::colorMult)
+        .property("alphaMult", &whiteout::models::wem::M2ParticleEmitterPayload::alphaMult)
+        .property("alphaCutoffTimes", &whiteout::models::wem::M2ParticleEmitterPayload::alphaCutoffTimes)
+        .property("alphaCutoffs", &whiteout::models::wem::M2ParticleEmitterPayload::alphaCutoffs)
     ;
 
     class_<whiteout::models::wem::Sc2Variation>("WemSc2Variation")

@@ -241,6 +241,22 @@ M2ParticleEmitterPayload ImportParticle(const m2::Model& source, std::size_t ind
     p.texture3ScrollMid = scroll(e.multiTexScrollMid[1]);
     p.texture2ScrollRange = scroll(e.multiTexScrollRange[0]);
     p.texture3ScrollRange = scroll(e.multiTexScrollRange[1]);
+
+    p.inheritVelocityScale = e.inheritVelocityScale;
+    p.followSpeed1 = e.followSpeed1;
+    p.followScale1 = e.followScale1;
+    p.followSpeed2 = e.followSpeed2;
+    p.followScale2 = e.followScale2;
+    p.tumbleMin = e.tumble.minimum;
+    p.tumbleMax = e.tumble.maximum;
+    if (e.extension) {
+        p.colorMult = e.extension->colorMult;
+        p.alphaMult = e.extension->alphaMult;
+        p.alphaCutoffTimes = LifetimeTimes(e.extension->alphaCutoff);
+        for (const unorm16& a : e.extension->alphaCutoff.values) {
+            p.alphaCutoffs.push_back(static_cast<f32>(a.value) / 32767.0f);
+        }
+    }
     return p;
 }
 

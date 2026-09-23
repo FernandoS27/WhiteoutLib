@@ -1481,6 +1481,60 @@ TEST_CASE("wem m2 a multi-texture emitter keeps its layers' scale and scroll",
     CHECK(q.texture3ScrollRange.y == -1.0f);
 }
 
+TEST_CASE("wem m2 an emitter keeps the rest of its record", "[wem][node][emitter]") {
+    // NODE v10: what a PopcornFX export needs that PRE2 had no field for.
+    m2::Model source = makeM2WithEmitter();
+    m2::ParticleEmitter& e = source.particleEmitters[0];
+    e.inheritVelocityScale = 0.25f;
+    e.followSpeed1 = 2.0f;
+    e.followScale1 = 0.5f;
+    e.followSpeed2 = 6.0f;
+    e.followScale2 = 1.0f;
+    e.tumble.minimum = {-1.0f, -2.0f, -3.0f};
+    e.tumble.maximum = {1.0f, 2.0f, 3.0f};
+    M2Converter converter;
+    {
+        // No extension: the multipliers are 1 and there is no cutoff.
+        Result<Document> converted = converter.fromM2(source, 272);
+        REQUIRE(converted.ok());
+        const Model& model = converted.value->models[0];
+        const auto& p =
+            std::get<M2ParticleEmitterPayload>(model.nodes.nodes[m2EmitterNode(model)].payload);
+        CHECK(p.colorMult == 1.0f);
+        CHECK(p.alphaMult == 1.0f);
+        CHECK(p.alphaCutoffs.empty());
+    }
+    e.extension = m2::ParticleEmitterExtension{};
+    e.extension->colorMult = 2.0f;
+    e.extension->alphaMult = 0.5f;
+    e.extension->alphaCutoff.timestamps = {unorm16::from_raw(0), unorm16::from_raw(32767)};
+    e.extension->alphaCutoff.values = {unorm16::from_raw(0), unorm16::from_raw(16384)};
+    Result<Document> converted = converter.fromM2(source, 272);
+    REQUIRE(converted.ok());
+    const auto check = [](const M2ParticleEmitterPayload& p) {
+        CHECK(p.inheritVelocityScale == 0.25f);
+        CHECK(p.followSpeed1 == 2.0f);
+        CHECK(p.followScale1 == 0.5f);
+        CHECK(p.followSpeed2 == 6.0f);
+        CHECK(p.followScale2 == 1.0f);
+        CHECK(p.tumbleMin.y == -2.0f);
+        CHECK(p.tumbleMax.z == 3.0f);
+        CHECK(p.colorMult == 2.0f);
+        CHECK(p.alphaMult == 0.5f);
+        REQUIRE(p.alphaCutoffTimes.size() == 2u);
+        CHECK(p.alphaCutoffTimes[1] == 1.0f);
+        REQUIRE(p.alphaCutoffs.size() == 2u);
+        CHECK(p.alphaCutoffs[1] == 16384.0f / 32767.0f);
+    };
+    const Model& model = converted.value->models[0];
+    check(std::get<M2ParticleEmitterPayload>(model.nodes.nodes[m2EmitterNode(model)].payload));
+
+    // And through a file: NODE v10.
+    const Document back = read(write(*converted.value));
+    check(std::get<M2ParticleEmitterPayload>(
+        back.models[0].nodes.nodes[m2EmitterNode(back.models[0])].payload));
+}
+
 TEST_CASE("wem an m2 emitter crosses to a PRE2 in place", "[wem][node][emitter]") {
     M2Converter converter;
     Result<Document> converted = converter.fromM2(makeM2WithEmitter(), 272);
