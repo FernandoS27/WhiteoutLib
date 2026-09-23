@@ -755,6 +755,12 @@ void checkSkinSetup(const Document& document, Diagnostics& out) {
     for (std::size_t m = 0; m < document.models.size(); ++m) {
         const Model& model = document.models[m];
         const std::size_t poses = model.testPoses.size();
+        if (model.tPose != kInvalidIndex && model.tPose >= poses) {
+            out.error(DiagCode::SkinSetupInvalid,
+                      "the T-pose names saved pose " + number(model.tPose) +
+                          " of " + number(poses),
+                      ElementRef(ElementKind::Document, static_cast<u32>(m)));
+        }
         for (u32 n = 0; n < model.nodes.size(); ++n) {
             const NodeSkinSetup& setup = model.nodes.nodes[n].skin;
             const ElementRef where(ElementKind::Node, n);
@@ -762,6 +768,16 @@ void checkSkinSetup(const Document& document, Diagnostics& out) {
                 out.error(DiagCode::SkinSetupInvalid,
                           "the node holds " + number(setup.poseDeltas.size()) +
                               " pose deltas for " + number(poses) + " test poses",
+                          where);
+            }
+            // The sources are the deltas seen from the side, so they follow the
+            // same rule: empty, or one for one.
+            if (!setup.poseSources.empty() &&
+                setup.poseSources.size() != setup.poseDeltas.size()) {
+                out.error(DiagCode::SkinSetupInvalid,
+                          "the node holds " + number(setup.poseSources.size()) +
+                              " pose sources for " + number(setup.poseDeltas.size()) +
+                              " pose deltas",
                           where);
             }
             if (setup.envelope.has_value()) {

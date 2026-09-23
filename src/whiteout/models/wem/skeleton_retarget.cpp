@@ -24,6 +24,8 @@
 
 #include <whiteout/models/wem/retarget.h>
 
+#include <whiteout/models/wem/anim/pose.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -320,17 +322,6 @@ Transform PivotedTrs(const Matrix44f& wanted, const Matrix44f& held, const Vecto
     return out;
 }
 
-/// `T(-p) * S * R * T(p + t)` — what the target rig will compose from what
-/// `PivotedTrs` returned, and the residual check's other half.
-Matrix44f PivotComposition(const Transform& trs, const Vector3f& pivot) {
-    Matrix44f out = ToMatrix(Transform{Vector3f{0, 0, 0}, trs.rotation, trs.scale});
-    const Vector3f moved = Apply(out, Vector3f{-pivot.x, -pivot.y, -pivot.z});
-    SetTranslation(out, Vector3f{moved.x + pivot.x + trs.translation.x,
-                                 moved.y + pivot.y + trs.translation.y,
-                                 moved.z + pivot.z + trs.translation.z});
-    return out;
-}
-
 /// Whether @p node composes onto its parent at all. `ModelSpace` says its local
 /// IS its world — `worldBind` stops the walk there and so must a conjugation,
 /// which would otherwise cancel a `B` the runtime never applied. WC3 particle
@@ -355,63 +346,6 @@ bool NearlyIdentity(const Matrix44f& m, f32 tolerance) {
 // ============================================================================
 // Track sampling
 // ============================================================================
-
-/// @p track's value at @p time, as @p count floats. Honours `Step`; `Hermite`
-/// and `Bezier` are sampled on the value and lose their tangents, which is what
-/// `AnimTrackApproximated` reports.
-void SampleTrack(const SubTrack& track, geom::AttrType type, f32 time, f32* out, u32 count) {
-    const u32 components = geom::AttrTypeComponents(type);
-    const u32 stride = ValuesPerKey(track.interp) * components;
-    const std::size_t keys = track.times.size();
-    if (keys == 0 || track.values.size() < keys * stride * sizeof(f32)) {
-        return;
-    }
-    const f32* values = reinterpret_cast<const f32*>(track.values.data());
-    const u32 wanted = std::min(count, components);
-
-    std::size_t after = 0;
-    while (after < keys && track.times[after] <= time) {
-        ++after;
-    }
-    if (after == 0) {
-        for (u32 c = 0; c < wanted; ++c) {
-            out[c] = values[c];
-        }
-        return;
-    }
-    const std::size_t before = after - 1;
-    if (after >= keys || track.interp == Interpolation::Step) {
-        for (u32 c = 0; c < wanted; ++c) {
-            out[c] = values[before * stride + c];
-        }
-        return;
-    }
-    const f32 span = track.times[after] - track.times[before];
-    const f32 alpha = span > 0.0f ? (time - track.times[before]) / span : 0.0f;
-    const f32* a = values + before * stride;
-    const f32* b = values + after * stride;
-    if (type == geom::AttrType::Quat && wanted == 4) {
-        // Shortest arc — what `Slerp` means, and what a componentwise lerp of
-        // two keys on opposite hemispheres would get wrong by half a turn.
-        const f32 dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
-        const f32 sign = dot < 0.0f ? -1.0f : 1.0f;
-        f32 length = 0.0f;
-        for (u32 c = 0; c < 4; ++c) {
-            out[c] = a[c] + alpha * (sign * b[c] - a[c]);
-            length += out[c] * out[c];
-        }
-        length = std::sqrt(length);
-        if (length > 0.0f) {
-            for (u32 c = 0; c < 4; ++c) {
-                out[c] /= length;
-            }
-        }
-        return;
-    }
-    for (u32 c = 0; c < wanted; ++c) {
-        out[c] = a[c] + alpha * (b[c] - a[c]);
-    }
-}
 
 /// The three node channels a retarget rewrites, in the order the code wants.
 constexpr Channel kNodeChannels[3] = {Channel::Translation, Channel::Rotation, Channel::Scale};

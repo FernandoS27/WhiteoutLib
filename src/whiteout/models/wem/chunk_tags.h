@@ -186,11 +186,12 @@ struct ChunkTagTraits<Document> {
 
 /// v2 adds `NodeTree::rig`, which is reflected inline in the model's body; v3
 /// the Skin workspace's `testPoses` (EDIT_MODE_SKIN_DESIGN.md §13.4); v4 the
-/// `LodExport` setting (EDIT_MODE_MODELLING_DESIGN.md §8.2).
+/// `LodExport` setting (EDIT_MODE_MODELLING_DESIGN.md §8.2); v5 `tPose`, which
+/// of those poses is the recovered T (EDIT_MODE_TPOSE_DESIGN.md §7).
 template <>
 struct ChunkTagTraits<Model> {
     static constexpr u32 value = kTag("MODL");
-    static constexpr u32 max_version = 4;
+    static constexpr u32 max_version = 5;
     static constexpr bool is_trivial = false;
 };
 
@@ -275,7 +276,9 @@ struct ChunkTagTraits<Matrix44f> {
 /// v8 World of Warcraft's `M2Particle` kind; v9 its multi-texture layers' scale
 /// and scroll; v10 the rig record (EDIT_MODE_AUTO_IK_DESIGN.md §3.3); v11 the
 /// rest of the World of Warcraft particle record (inherit and follow, tumble,
-/// the `EXPT` multipliers and the `EXP2` alpha cutoff).
+/// the `EXPT` multipliers and the `EXP2` alpha cutoff); v12 `poseSources`,
+/// where each of a node's saved deltas came from (EDIT_MODE_TPOSE_DESIGN.md
+/// §7).
 /// An older chunk holds none of them, so it reads unchanged. A NEWER one does
 /// not: records sit back to back, and nothing checks a chunk's version against
 /// this, so a build older than a field misreads every node after the first
@@ -283,7 +286,7 @@ struct ChunkTagTraits<Matrix44f> {
 template <>
 struct ChunkTagTraits<Node> {
     static constexpr u32 value = kTag("NODE");
-    static constexpr u32 max_version = 11;
+    static constexpr u32 max_version = 12;
     static constexpr bool is_trivial = false;
 };
 
@@ -291,6 +294,15 @@ struct ChunkTagTraits<Node> {
 //
 // A payload is written inline in its `NODE`, but a vector inside one is a chunk
 // like every other vector, and its element type needs a tag.
+
+/// Where one of those deltas came from. A byte, and trivial, for the same
+/// reason `PoseDelta` is: there is nothing inside it to name.
+template <>
+struct ChunkTagTraits<TPoseSource> {
+    static constexpr u32 value = kTag("TPSR");
+    static constexpr u32 max_version = 0;
+    static constexpr bool is_trivial = true;
+};
 
 /// The Skin workspace's saved setup (§13.4). A `PoseDelta` is seven floats
 /// with nothing to name inside them, so it is trivial; a `TestPose` carries a
@@ -556,6 +568,7 @@ inline constexpr u32 kKnownChunkTags[] = {
     ChunkTagTraits<Matrix44f>::value,
     ChunkTagTraits<Node>::value,
     ChunkTagTraits<PoseDelta>::value,
+    ChunkTagTraits<TPoseSource>::value,
     ChunkTagTraits<TestPose>::value,
     ChunkTagTraits<AssetKey>::value,
     ChunkTagTraits<Sc2Property<Vector3f>>::value,

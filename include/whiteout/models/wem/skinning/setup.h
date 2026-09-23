@@ -119,6 +119,23 @@ struct TestPose {
     }
 };
 
+/// Where one node's departure came from (EDIT_MODE_TPOSE_DESIGN.md §3.1's
+/// ladder). Only a T-pose fills it; every other saved pose is `None`, which is
+/// also what a node the solve never reached holds.
+///
+/// It exists so a re-solve can leave alone what a person moved by hand: `You`
+/// is never overwritten.
+enum class TPoseSource : u8 {
+    None,      ///< Nothing put it there — the node was not solved.
+    Donor,     ///< Copied from a model that is already T-posed.
+    Record,    ///< A pose saved in this document before.
+    Clips,     ///< A clip frame that stands close enough to a T.
+    BindFrame, ///< `BPOS`, the file's own rest orientation.
+    You,       ///< A correction made by hand. Never re-solved over.
+};
+
+const char* ToString(TPoseSource source);
+
 /// One node's departure from a test pose's base, parallel to `Model::testPoses`.
 struct PoseDelta {
     Quaternion rotation{0, 0, 0, 1}; ///< About the node's pivot, in the parent's space.
@@ -151,12 +168,17 @@ struct NodeSkinSetup {
     /// Empty, or exactly as long as `Model::testPoses`. Empty means the identity
     /// in every pose, which is what an import and a fresh node both hold.
     std::vector<PoseDelta> poseDeltas;
+    /// Where each of those deltas came from. Empty, or exactly as long as
+    /// `poseDeltas` — the same rule, because it is the same list seen from the
+    /// side. `NODE` v12; a file written before it reads back empty, which means
+    /// `None` throughout and is true of every pose saved by hand.
+    std::vector<TPoseSource> poseSources;
 
     /// True when nothing is set: what an import makes, and what a file written
     /// before `NODE` v6 reads back as.
     bool empty() const {
         return !locked && !envelope.has_value() && !joint.has_value() &&
-               mirror == kInvalidNode && poseDeltas.empty();
+               mirror == kInvalidNode && poseDeltas.empty() && poseSources.empty();
     }
 
     bool operator==(const NodeSkinSetup&) const = default;
@@ -168,6 +190,8 @@ struct NodeSkinSetup {
         v.optional("joint", joint);
         v.field("mirror", mirror);
         v.field("poseDeltas", poseDeltas);
+        // v12: where each delta came from. Absent means `None` throughout.
+        v.since(12).field("poseSources", poseSources);
     }
 };
 

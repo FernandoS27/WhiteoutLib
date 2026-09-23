@@ -230,8 +230,10 @@ public:
     /// unchanged, and everything else composes @ref poseOf.
     Matrix44f poseMatrixOf(u32 node, u32 pose) const;
 
-    /// Resizes every Bone node's `poses` to `poseSchema.size()`, filling new
-    /// entries from `worldBind`/`local` as the schema's space asks.
+    /// Resizes every node's `poses` to `poseSchema.size()`, filling new entries
+    /// from `worldBind`/`local` as the schema's space asks. Every kind, because
+    /// a pose entry need not be a bind: MDX's `BPOS` is one and it is indexed by
+    /// `objectId`, which numbers attachments, events and collision shapes too.
     void conformPoses();
 
     /**

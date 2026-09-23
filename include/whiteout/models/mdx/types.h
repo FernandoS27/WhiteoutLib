@@ -374,7 +374,12 @@ struct Model {
     std::vector<FaceEffect> faceEffects;         ///< Facial effects (Reforged)
 
     // Reforged skinning (version > 800)
-    std::vector<std::array<f32, 12>> bindPoses; ///< @bind skip — Bind pose matrices (3x4 each)
+    /// @bind skip — `BPOS` (v900+): 12 floats a frame, a **row-major 3x3** and
+    /// then a position. NOT three rows of four — read off 3.0's
+    /// `MDL::ReadBinBindPose` (0x140405ff0), whose identity fill is
+    /// `{1,0,0, 0,1,0, 0,0,1, 0,0,0}`. One frame per `objectId`, then one per
+    /// camera (EDIT_MODE_TPOSE_DESIGN.md §3.3).
+    std::vector<std::array<f32, 12>> bindPoses;
 };
 
 } // namespace mdx

@@ -496,6 +496,51 @@ void FillPayload(const mdx::Model& source, const PendingNode& pending, Node& nod
     }
 }
 
+/// `BPOS`'s name in `NodeTree::poseSchema`.
+constexpr const char* kMdxBindPose = "mdxBindPose";
+
+/// A `BPOS` frame is twelve floats: a **row-major 3x3** and then a position,
+/// not three rows of four (EDIT_MODE_TPOSE_DESIGN.md §3.3, read off
+/// `MDL::ReadBinBindPose`, which refuses any size but 48 bytes a frame and
+/// fills the identity `{1,0,0, 0,1,0, 0,0,1, 0,0,0}`). WEM's matrices are row
+/// vectors too, so the 3x3 drops straight into the upper left.
+Matrix44f BindFrameToMatrix(const std::array<f32, 12>& frame) {
+    Matrix44f out = Matrix44f::identity();
+    for (u32 r = 0; r < 3; ++r) {
+        for (u32 c = 0; c < 3; ++c) {
+            out.data[r][c] = frame[r * 3 + c];
+        }
+    }
+    out.data[3][0] = frame[9];
+    out.data[3][1] = frame[10];
+    out.data[3][2] = frame[11];
+    return out;
+}
+
+std::array<f32, 12> MatrixToBindFrame(const Matrix44f& matrix) {
+    std::array<f32, 12> frame{};
+    for (u32 r = 0; r < 3; ++r) {
+        for (u32 c = 0; c < 3; ++c) {
+            frame[r * 3 + c] = matrix.data[r][c];
+        }
+    }
+    frame[9] = matrix.data[3][0];
+    frame[10] = matrix.data[3][1];
+    frame[11] = matrix.data[3][2];
+    return frame;
+}
+
+/// Which schema entry holds `BPOS`, or `kInvalidIndex` when the tree came from
+/// a file that had none.
+u32 MdxBindPoseEntry(const NodeTree& tree) {
+    for (u32 i = 0; i < tree.poseSchema.size(); ++i) {
+        if (tree.poseSchema[i].name == kMdxBindPose) {
+            return i;
+        }
+    }
+    return kInvalidIndex;
+}
+
 /// The node tree, plus the `objectId` -> node index map every other importer
 /// step joins through.
 struct NodeImport {
@@ -519,6 +564,23 @@ NodeImport ImportNodes(const mdx::Model& source) {
     out.tree.poseSchema.push_back(PoseSchema{});
     out.tree.authoritativePose = 0;
     out.tree.rig = RigConvention::PivotRelative;
+
+    // `BPOS` is the only rest orientation MDX holds (§3.3), and WEM already has
+    // a place for a pose that is not the bind: a second schema entry. It is
+    // `Trs` because it is one -- over the whole corpus, 216,819 frames in 3,947
+    // models, exactly one node's 3x3 is not a rotation times a per-axis scale --
+    // and because `inferredRig()` reads an `inverse` or `Matrix` entry as an
+    // explicit bind, which a Reforged tree is not (EDIT_MODE_TPOSE_PLAN.md P2).
+    // `authoritativePose` stays 0: the tree still binds at the identity.
+    //
+    // It is indexed by `objectId` and then once per camera, in camera order:
+    // `len(BPOS) == len(PIVT) + cameras` on 3,907 of the 3,910 corpus models
+    // that carry both.
+    const bool bindPose = !source.bindPoses.empty();
+    if (bindPose) {
+        out.tree.poseSchema.push_back(
+            PoseSchema{kMdxBindPose, PoseSpace::Model, false, PoseStorage::Trs});
+    }
 
     for (std::size_t i = 0; i < pending.size(); ++i) {
         out.byObjectId.emplace(pending[i].source->objectId, static_cast<u32>(i));
@@ -566,6 +628,10 @@ NodeImport ImportNodes(const mdx::Model& source) {
             Vector3f{node.pivot.x - parentPivot.x, node.pivot.y - parentPivot.y,
                      node.pivot.z - parentPivot.z};
         node.poses.push_back(node.local);
+        if (bindPose && mdxNode.objectId < source.bindPoses.size()) {
+            node.poses.push_back(
+                FromMatrix(BindFrameToMatrix(source.bindPoses[mdxNode.objectId])));
+        }
         out.tree.add(std::move(node));
     }
 
@@ -587,6 +653,10 @@ NodeImport ImportNodes(const mdx::Model& source) {
         node.pivot = camera.position;
         node.local.translation = camera.position;
         node.poses.push_back(node.local);
+        const std::size_t frame = source.pivotPoints.size() + out.cameraNodes.size();
+        if (bindPose && frame < source.bindPoses.size()) {
+            node.poses.push_back(FromMatrix(BindFrameToMatrix(source.bindPoses[frame])));
+        }
         out.cameraNodes.push_back(out.tree.size());
         out.tree.add(std::move(node));
     }
@@ -2063,6 +2133,16 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
     }
     out.pivotPoints.assign(nextObjectId, Vector3f{0, 0, 0});
 
+    // `BPOS` goes back the way it came in (`ImportNodes`): one frame per object
+    // id, then one per camera. A tree that never carried the entry writes none,
+    // and neither does a file older than the chunk.
+    const u32 bindEntry = MdxBindPoseEntry(model.nodes);
+    const bool writeBindPoses = bindEntry != kInvalidIndex && targetVersion >= 900;
+    if (writeBindPoses) {
+        const std::array<f32, 12> identity{1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0};
+        out.bindPoses.assign(nextObjectId + model.nodes.ofKind(NodeKind::Camera).size(), identity);
+    }
+
     const auto buildNode = [&](std::size_t index) {
         const Node& node = model.nodes.nodes[index];
         mdx::Node out_node;
@@ -2090,6 +2170,10 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
                 camera.farClippingPlane = payload->farClip;
                 camera.targetPosition = payload->target;
             }
+            if (writeBindPoses) {
+                out.bindPoses[nextObjectId + out.cameras.size()] =
+                    MatrixToBindFrame(model.nodes.poseMatrixOf(static_cast<u32>(i), bindEntry));
+            }
             claim(i, mdx_anim::ExportContext::Slot::Camera, out.cameras.size());
             out.cameras.push_back(std::move(camera));
             continue;
@@ -2106,6 +2190,10 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
             model.nodes.rig == RigConvention::PivotRelative
                 ? node.pivot
                 : model.nodes.worldBind(static_cast<u32>(i)).translation;
+        if (writeBindPoses) {
+            out.bindPoses[objectIdOf[i]] =
+                MatrixToBindFrame(model.nodes.poseMatrixOf(static_cast<u32>(i), bindEntry));
+        }
         switch (WrittenKind(node.kind, profile)) {
         case NodeKind::Bone: {
             mdx::Bone bone;

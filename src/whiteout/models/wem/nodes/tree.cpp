@@ -331,11 +331,12 @@ void NodeTree::conformPoses() {
     const std::size_t wanted = poseSchema.size();
     for (u32 i = 0; i < size(); ++i) {
         Node& current = nodes[i];
-        if (current.kind != NodeKind::Bone) {
-            current.poses.clear();
-            current.poseMatrices.clear();
-            continue;
-        }
+        // Every kind, not bones alone: MDX's `BPOS` is indexed by `objectId`,
+        // so an attachment, a collision shape, an event, a light and an emitter
+        // each carry a frame of it, and 96 of them across the corpus say
+        // something the identity turn at the pivot does not
+        // (EDIT_MODE_TPOSE_PLAN.md P3).
+        //
         // `poseMatrices` is empty or exactly as long as `poses`, so a tree that
         // carries any matrix pose keeps the two in step here rather than making
         // every reader check two lengths.

@@ -167,6 +167,11 @@ struct Model {
     /// `Node::skin.poseDeltas[i]`, so removing a node takes its deltas with it.
     /// No file carries them.
     std::vector<TestPose> testPoses;
+    /// Which of them is the recovered T-pose (EDIT_MODE_TPOSE_DESIGN.md §7), or
+    /// `kInvalidIndex` for none. An index rather than a name because the list is
+    /// already indexed by every node's `poseDeltas`, and a rename must not lose
+    /// it. No exporter reads it.
+    u32 tPose = kInvalidIndex;
 
     /// How the `.mdx` export makes levels of detail (`LodExport`).
     LodExport lodExport;
@@ -205,6 +210,9 @@ struct Model {
         // v4: the levels of detail an `.mdx` export generates. A `MODL` written
         // before it asks for none, which is `LodExport`'s default.
         v.since(4).field("lodExport", lodExport);
+        // v5: which saved pose is the T-pose. A `MODL` written before it has
+        // none, which is what `kInvalidIndex` says.
+        v.since(5).field("tPose", tPose);
     }
 };
 
