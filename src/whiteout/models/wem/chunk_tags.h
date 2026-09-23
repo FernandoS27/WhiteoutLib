@@ -185,11 +185,12 @@ struct ChunkTagTraits<Document> {
 };
 
 /// v2 adds `NodeTree::rig`, which is reflected inline in the model's body; v3
-/// the Skin workspace's `testPoses` (EDIT_MODE_SKIN_DESIGN.md §13.4).
+/// the Skin workspace's `testPoses` (EDIT_MODE_SKIN_DESIGN.md §13.4); v4 the
+/// `LodExport` setting (EDIT_MODE_MODELLING_DESIGN.md §8.2).
 template <>
 struct ChunkTagTraits<Model> {
     static constexpr u32 value = kTag("MODL");
-    static constexpr u32 max_version = 3;
+    static constexpr u32 max_version = 4;
     static constexpr bool is_trivial = false;
 };
 
@@ -210,7 +211,7 @@ struct ChunkTagTraits<SlotBinding> {
 template <>
 struct ChunkTagTraits<Mesh> {
     static constexpr u32 value = kTag("MESH");
-    static constexpr u32 max_version = 1;
+    static constexpr u32 max_version = 2;
     static constexpr bool is_trivial = false;
 };
 

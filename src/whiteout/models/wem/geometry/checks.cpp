@@ -3,8 +3,12 @@
 
 #include <whiteout/models/wem/geometry/checks.h>
 
+#include <whiteout/models/wem/geometry/ops.h>
+#include <whiteout/models/wem/geometry/triangulation.h>
+
 #include <algorithm>
 #include <string>
+#include <vector>
 
 namespace whiteout {
 namespace models {
@@ -15,6 +19,72 @@ namespace {
 
 std::string number(u64 value) {
     return std::to_string(value);
+}
+
+/// The stored triangulation (EDIT_MODE_MODELLING_DESIGN.md §2.3): the table's
+/// shape as an error, as the skin's is, then each row against its face.
+void checkTriangulation(const Mesh& mesh, const ElementRef& meshRef, Diagnostics& out) {
+    const FaceTriangulation& table = mesh.triangulation;
+    if (table.empty()) {
+        if (!table.vertices.empty()) {
+            out.error(DiagCode::TriangulationMalformed, "the table holds rows but no offsets",
+                      meshRef);
+        }
+        return;
+    }
+    const u32 slots = mesh.hasConnectivity() ? mesh.topology().faceCount()
+                                             : static_cast<u32>(mesh.faceSet().faceCount());
+    if (table.offsets.size() != static_cast<std::size_t>(slots) + 1) {
+        out.error(DiagCode::TriangulationMalformed,
+                  "offsets holds " + number(table.offsets.size()) + " entries, not " +
+                      number(static_cast<std::size_t>(slots) + 1),
+                  meshRef);
+        return;
+    }
+    if (table.offsets.front() != 0 || table.offsets.back() != table.vertices.size()) {
+        out.error(DiagCode::TriangulationMalformed,
+                  "the offsets do not span the rows from 0 to their size", meshRef);
+        return;
+    }
+    for (u32 f = 0; f < slots; ++f) {
+        if (table.offsets[f] > table.offsets[f + 1] ||
+            (table.offsets[f + 1] - table.offsets[f]) % 3 != 0) {
+            out.error(DiagCode::TriangulationMalformed,
+                      "the face's row is not a run of whole triangles",
+                      ElementRef(ElementKind::Face, f));
+            return;
+        }
+    }
+    const u32 vertexCount = mesh.vertexCount();
+    for (const u32 v : table.vertices) {
+        if (v >= vertexCount) {
+            out.error(DiagCode::TriangulationMalformed,
+                      "a row names vertex " + number(v) + " of " + number(vertexCount), meshRef);
+            return;
+        }
+    }
+
+    const FaceSet& faces = mesh.faceSet();
+    const std::vector<u32> slotOf = FaceSetSlots(mesh);
+    const auto positions = mesh.attributes.get<const Vector3f>(names::kPosition, Domain::Vertex);
+    std::size_t corner = 0;
+    for (std::size_t f = 0; f < faces.faceCount() && f < slotOf.size(); ++f) {
+        const u32 valence = faces.faceValence[f];
+        const std::span<const u32> row = table.row(slotOf[f]);
+        const std::span<const u32> loop(faces.cornerVertex.data() + corner, valence);
+        corner += valence;
+        if (row.empty()) {
+            continue;
+        }
+        const ElementRef ref(ElementKind::Face, slotOf[f]);
+        if (valence < 4) {
+            out.error(DiagCode::TriangulationMalformed, "a triangle carries a stored row", ref);
+        } else if (!RowValid(loop, positions, row)) {
+            out.warn(DiagCode::StaleTriangulation,
+                     "the stored row is not a valid cut of the face; the automatic rule draws it",
+                     ref);
+        }
+    }
 }
 
 } // namespace
@@ -30,6 +100,19 @@ void CheckStructural(const Mesh& mesh, u32 meshIndex, Diagnostics& out) {
                       "layer '" + layer.name + "' on the " + ToString(layer.domain) +
                           " domain holds " + number(layer.count()) + " elements, not " +
                           number(expected),
+                      meshRef);
+        }
+    }
+
+    // A `.wem` read bypasses `create`'s coercion, so a reserved name can arrive
+    // on any domain with any type; every reader of it assumes the table's.
+    for (const AttrLayer& layer : mesh.attributes.layers()) {
+        const ReservedLayer reserved = LookupReserved(layer.name);
+        if (reserved.reserved() && (layer.domain != reserved.domain || layer.type != reserved.type)) {
+            out.error(DiagCode::ReservedLayerMistyped,
+                      "layer '" + layer.name + "' is " + ToString(layer.domain) + " " +
+                          ToString(layer.type) + "; the name is reserved for " +
+                          ToString(reserved.domain) + " " + ToString(reserved.type),
                       meshRef);
         }
     }
@@ -80,10 +163,22 @@ void CheckStructural(const Mesh& mesh, u32 meshIndex, Diagnostics& out) {
         }
     }
 
+    checkTriangulation(mesh, meshRef, out);
+
     if (!mesh.hasConnectivity()) {
         return;
     }
     const Topology& topology = mesh.topology();
+
+    // A mesh is canonically numbered at every journal boundary
+    // (EDIT_MODE_MODELLING_DESIGN.md §2.1); mid-edit it need not be, and its
+    // save still is, so this is worth saying rather than an error.
+    if (!IsCanonical(mesh)) {
+        out.warn(DiagCode::NonCanonicalNumbering,
+                 "halfedges or edges are not numbered as a build of the face set would number "
+                 "them",
+                 meshRef);
+    }
 
     // --- C1, C2, C7 --------------------------------------------------------------
     for (u32 raw = 0; raw < topology.halfedgeCount(); ++raw) {
@@ -116,6 +211,15 @@ void CheckStructural(const Mesh& mesh, u32 meshIndex, Diagnostics& out) {
         }
     }
 
+    // A vertex a live halfedge reaches needs a live way out: every circulation
+    // starts there, and one left dangling by an edit reads as isolated.
+    std::vector<u8> reached(topology.vertexCount(), 0);
+    for (u32 raw = 0; raw < topology.halfedgeCount(); ++raw) {
+        const VertexId to = topology.to(HalfedgeId(raw));
+        if (!topology.isDeleted(HalfedgeId(raw)) && to.valid() && to.value() < reached.size()) {
+            reached[to.value()] = 1;
+        }
+    }
     for (u32 raw = 0; raw < topology.vertexCount(); ++raw) {
         const VertexId v(raw);
         if (topology.isDeleted(v)) {
@@ -124,6 +228,10 @@ void CheckStructural(const Mesh& mesh, u32 meshIndex, Diagnostics& out) {
         const HalfedgeId h = topology.outgoing(v);
         if (h.valid() && topology.from(h) != v) {
             out.error(DiagCode::ConnectivityCorrupt, "the vertex's outgoing halfedge is not its",
+                      ElementRef(ElementKind::Vertex, raw));
+        } else if (reached[raw] != 0 && (!h.valid() || topology.isDeleted(h))) {
+            out.error(DiagCode::ConnectivityCorrupt,
+                      "an edge reaches the vertex, but it has no live outgoing halfedge",
                       ElementRef(ElementKind::Vertex, raw));
         }
     }
@@ -142,11 +250,47 @@ void CheckStructural(const Mesh& mesh, u32 meshIndex, Diagnostics& out) {
 }
 
 void CheckManifold(const Mesh& mesh, u32 meshIndex, Diagnostics& out) {
-    if (!mesh.hasConnectivity()) {
-        return;
-    }
-    const Topology& topology = mesh.topology();
     const ElementRef meshRef(ElementKind::Mesh, meshIndex);
+    // A mesh without connectivity is checked through a local build, which is
+    // what every exporter's render view does with it: one that does not build is
+    // written empty.
+    Topology local;
+    if (!mesh.hasConnectivity()) {
+        const BuildResult built = local.build(mesh.faceSet());
+        if (!built.ok()) {
+            out.error(DiagCode::ConnectivityCorrupt,
+                      std::string("the face set does not build: ") + ToString(built.error),
+                      meshRef);
+            return;
+        }
+    }
+    const Topology& topology = mesh.hasConnectivity() ? mesh.topology() : local;
+
+    // --- two edges between one pair of vertices ---------------------------------
+    //
+    // C4 and C5 cannot see one, and a rebuild cannot hold one: after a reload the
+    // face set either does not build or zips the two into one edge.
+    {
+        std::vector<std::pair<u64, u32>> pairs;
+        pairs.reserve(topology.edgeCount());
+        for (u32 e = 0; e < topology.edgeCount(); ++e) {
+            if (topology.isDeleted(EdgeId(e))) {
+                continue;
+            }
+            const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
+            const u64 a = topology.from(h).value();
+            const u64 b = topology.to(h).value();
+            pairs.push_back({(std::min(a, b) << 32) | std::max(a, b), e});
+        }
+        std::sort(pairs.begin(), pairs.end());
+        for (std::size_t i = 1; i < pairs.size(); ++i) {
+            if (pairs[i].first == pairs[i - 1].first) {
+                out.error(DiagCode::DuplicateEdge,
+                          "joins the same two vertices as edge " + number(pairs[i - 1].second),
+                          ElementRef(ElementKind::Edge, pairs[i].second));
+            }
+        }
+    }
 
     // --- C4: every edge has at most two incident faces -------------------------
     //

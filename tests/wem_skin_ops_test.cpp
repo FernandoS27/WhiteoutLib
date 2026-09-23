@@ -988,8 +988,11 @@ TEST_CASE("S2 Assign adds weight to Bones only", "[wem][skin][ops]") {
     for (u32 p = 0; p < points.pointCount; ++p) {
         given.add(set);
     }
+    // Held by name: `SkinScope::points` is a span, and a temporary's would
+    // dangle by the time `Assign` reads it.
+    const std::vector<u32> scope = allPoints(points);
     skinning::SkinScope span;
-    span.points = allPoints(points);
+    span.points = scope;
     skinning::Assign(mesh, tree, points, span, given);
     for (u32 v = 0; v < mesh.vertexCount(); ++v) {
         CHECK(near(weightOn(mesh, v, kArm), 1.0f));

@@ -37,6 +37,7 @@
 #include "whiteout/models/wem/converters.h"
 #include "whiteout/models/wem/geometry/builder.h"
 #include "whiteout/models/wem/geometry/render_view.h"
+#include "whiteout/models/wem/meshes/remove.h"
 #include "whiteout/models/wem/skinning/quantize.h"
 
 #include "../materials/mdx_core.h"
@@ -1251,6 +1252,9 @@ Result<Document> MdxConverter::fromMdx(const mdx::Model& source) const {
     const u32 modelIndex = static_cast<u32>(document.models.size());
     document.models.push_back(std::move(model));
     mdx_anim::Import(source, animContext, document, modelIndex, diagnostics);
+    // Last, so the geoset animations are channels the drop takes with their
+    // geosets (EDIT_MODE_MODELLING_DESIGN.md §8.1).
+    DropLevelsOfDetail(document, diagnostics);
 
     result.value = std::move(document);
     return result;
@@ -1757,9 +1761,9 @@ mdx::Geoset BuildGeosetFromRange(const Mesh& mesh, u32 meshIndex, const geom::Re
 // What the file holds for each vertex (EDIT_MODE_SKIN_DESIGN.md §12.3-12.4)
 // ============================================================================
 
-std::vector<std::vector<u32>> MdxGeosetVertices(const Document& document, u32 model,
-                                                ProfileId profile) {
-    std::vector<std::vector<u32>> out;
+std::vector<DrawnElements> MdxGeosetElements(const Document& document, u32 model,
+                                             ProfileId profile) {
+    std::vector<DrawnElements> out;
     if (model >= document.models.size()) {
         return out;
     }
@@ -1774,10 +1778,38 @@ std::vector<std::vector<u32>> MdxGeosetVertices(const Document& document, u32 mo
         }
         std::vector<u32> localOf(render.vertexCount(), kUnmappedVertex);
         for (const geom::RenderRange& range : render.ranges) {
-            out.push_back(WemVerticesOf(render, SliceRange(render, range, localOf)));
+            GeosetSlice slice = SliceRange(render, range, localOf);
+            DrawnElements& drawn = out.emplace_back();
+            drawn.vertices = WemVerticesOf(render, slice);
+            drawn.halfedges.reserve(slice.sourceOf.size());
+            for (const u32 source : slice.sourceOf) {
+                drawn.halfedges.push_back(source < render.vertexToWemHalfedge.size()
+                                              ? render.vertexToWemHalfedge[source]
+                                              : geom::HalfedgeId());
+            }
+            const u32 first = range.firstIndex / 3;
+            for (u32 t = 0; t < range.indexCount / 3; ++t) {
+                drawn.triangleFaces.push_back(first + t < render.triangleFace.size()
+                                                  ? render.triangleFace[first + t]
+                                                  : kUnmappedVertex);
+            }
+            drawn.triangles = std::move(slice.faces);
         }
     }
     return out;
+}
+
+std::vector<std::vector<u32>> MdxGeosetVertices(const Document& document, u32 model,
+                                                ProfileId profile) {
+    std::vector<std::vector<u32>> out;
+    for (DrawnElements& drawn : MdxGeosetElements(document, model, profile)) {
+        out.push_back(std::move(drawn.vertices));
+    }
+    return out;
+}
+
+geom::RenderMeshDesc MdxGeosetRenderDesc(const Mesh& mesh, ProfileId profile) {
+    return GeosetRenderDesc(WritesSecondUvSet(mesh, profile));
 }
 
 WrittenSkin MdxConverter::writtenSkin(const Document& document, u32 model, ProfileId profile,

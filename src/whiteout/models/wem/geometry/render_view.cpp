@@ -3,6 +3,8 @@
 
 #include <whiteout/models/wem/geometry/render_view.h>
 
+#include <whiteout/models/wem/geometry/triangulation.h>
+
 #include <algorithm>
 #include <cstring>
 #include <limits>
@@ -202,6 +204,7 @@ RenderMesh BuildRenderMesh(const Mesh& mesh, const RenderMeshDesc& desc) {
     std::vector<u32> emitBase; // index into cornerGroup
     std::vector<u32> emitValence;
     std::vector<u32> cornerGroup;
+    std::vector<u32> cornerVertex; // per corner, like cornerGroup
 
     const u32 faceCount = topology->faceCount();
     emitFace.reserve(faceCount);
@@ -264,6 +267,7 @@ RenderMesh BuildRenderMesh(const Mesh& mesh, const RenderMeshDesc& desc) {
                 byHash[hash].push_back(found);
             }
             cornerGroup.push_back(found);
+            cornerVertex.push_back(v.value());
             ++valence;
             ++sequence;
         }
@@ -313,7 +317,10 @@ RenderMesh BuildRenderMesh(const Mesh& mesh, const RenderMeshDesc& desc) {
                                  " face(s) name a section that does not exist; drawn in section 0");
     }
 
-    u32 ngonsFanned = 0;
+    u32 ngonsCut = 0;
+    const std::span<const Vector3f> positions =
+        mesh.attributes.get<const Vector3f>(names::kPosition, Domain::Vertex);
+    std::vector<u32> cut;
     const auto emitFaceIndices = [&](std::size_t i) {
         const u32 base = emitBase[i];
         const u32 valence = emitValence[i];
@@ -327,13 +334,21 @@ RenderMesh BuildRenderMesh(const Mesh& mesh, const RenderMeshDesc& desc) {
             return;
         }
         if (valence > 3) {
-            ++ngonsFanned;
+            ++ngonsCut;
         }
-        for (u32 c = 1; c + 1 < valence; ++c) {
-            out.indices.push_back(gpuOf[cornerGroup[base]]);
-            out.indices.push_back(gpuOf[cornerGroup[base + c]]);
-            out.indices.push_back(gpuOf[cornerGroup[base + c + 1]]);
+        cut.clear();
+        if (desc.triangulation == TriangulationPolicy::Authored) {
+            TriangulateFace(std::span<const u32>(cornerVertex.data() + base, valence), positions,
+                            mesh.triangulation.row(emitFace[i]), cut);
+        } else {
+            for (u32 c = 1; c + 1 < valence; ++c) {
+                cut.insert(cut.end(), {0u, c, c + 1});
+            }
         }
+        for (const u32 corner : cut) {
+            out.indices.push_back(gpuOf[cornerGroup[base + corner]]);
+        }
+        out.triangleFace.insert(out.triangleFace.end(), cut.size() / 3, emitFace[i]);
     };
 
     if (desc.splitBySection) {
@@ -367,9 +382,9 @@ RenderMesh BuildRenderMesh(const Mesh& mesh, const RenderMeshDesc& desc) {
         }
     }
 
-    if (ngonsFanned != 0) {
+    if (ngonsCut != 0) {
         out.diagnostics.info(DiagCode::NgonTriangulated,
-                             std::to_string(ngonsFanned) + " n-gon(s) fanned for the GPU view");
+                             std::to_string(ngonsCut) + " n-gon(s) triangulated for the GPU view");
     }
 
     if (desc.wantU16Indices) {

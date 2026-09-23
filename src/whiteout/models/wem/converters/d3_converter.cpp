@@ -791,13 +791,18 @@ Result<Document> D3Converter::fromAppearance(const d3n::Appearances& source, Ass
     //
     // Two geosets, in file order: the second is the shadow / low-detail set on
     // the appearances that carry one, and it is a mesh of its own rather than a
-    // LOD of the first, because nothing in the file says the two agree.
+    // LOD of the first, because nothing in the file says the two agree. It is
+    // not a level of detail either -- our view draws it -- so it says which
+    // array it is on its sections (EDIT_MODE_MODELLING_DESIGN.md §8.1), where
+    // the drop never looks.
     model.meshes.push_back(
         ImportGeoSet(source.tGeoSet0, "geoset0", model, nodes.boneToNode, options, diagnostics));
     if (!source.tGeoSet1.arSubObjects.empty()) {
         Mesh second =
             ImportGeoSet(source.tGeoSet1, "geoset1", model, nodes.boneToNode, options, diagnostics);
-        second.lodLevel = 1;
+        for (MeshSection& section : second.sections) {
+            section.native.set("d3GeoSet", 1);
+        }
         model.meshes.push_back(std::move(second));
     }
 
@@ -1591,15 +1596,17 @@ private:
 
         for (std::size_t m = 0; m < model_.meshes.size(); ++m) {
             const Mesh& mesh = model_.meshes[m];
-            // Two geosets and no more: the second is the appearance's shadow /
-            // low-detail set, and a document carrying a third mesh has nowhere
+            // Two geoset arrays and no more: the second is the appearance's
+            // shadow / low-detail set, and a document naming a third has nowhere
             // in an `.app` to put it.
-            d3n::GeoSet& target = mesh.lodLevel == 0 ? appearance.tGeoSet0 : appearance.tGeoSet1;
-            if (mesh.lodLevel > 1) {
+            const i64 set =
+                mesh.sections.empty() ? 0 : mesh.sections[0].native.value("d3GeoSet", 0);
+            d3n::GeoSet& target = set == 0 ? appearance.tGeoSet0 : appearance.tGeoSet1;
+            if (set > 1) {
                 out_.warn(DiagCode::LayerDropped,
-                          "mesh '" + mesh.name + "' is LOD " + std::to_string(mesh.lodLevel) +
-                              "; an appearance holds two geosets and it was written into the "
-                              "second",
+                          "mesh '" + mesh.name + "' is in a third geoset set (" +
+                              std::to_string(set) +
+                              "); an appearance holds two and it was written into the second",
                           ElementRef(ElementKind::Mesh, static_cast<u32>(m)), ProfileId::Diablo3);
             }
 

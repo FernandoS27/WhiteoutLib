@@ -41,8 +41,9 @@ std::vector<u32> ScopeOrEvery(const PointTable& points, std::span<const u32> sco
 std::vector<u32> HeldBones(const NodeTree& nodes, const BoneSegments& segments,
                            std::span<const u32> asked);
 
-/// A mesh's faces fanned into triangles, three vertex ids each: what `bvh.h`
-/// and the voxel shell both read.
+/// A mesh's faces cut into the triangles they are drawn as
+/// (`geom::TriangulateMesh`), three vertex ids each: what `bvh.h` and the voxel
+/// shell both read.
 std::vector<u32> TrianglesOf(const Mesh& mesh);
 
 /// Rigid per Island's vote (§8.3) over @p members: the bone most of them are

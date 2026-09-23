@@ -5,8 +5,9 @@
 
 /**
  * @file remove.h
- * @brief The mesh axis: who holds a mesh index, and merging meshes (WEM design
- *        §5.12; EDIT_MODE_MESH_DESIGN.md §7.5).
+ * @brief The mesh axis: who holds a mesh index, merging meshes and removing
+ *        them (WEM design §5.12; EDIT_MODE_MESH_DESIGN.md §7.5;
+ *        EDIT_MODE_MODELLING_DESIGN.md §8.1).
  *
  * Nothing removed or renumbered a mesh before a merge did, so the axis had no
  * table. It is written here rather than walked by an editor for the reason the
@@ -22,6 +23,7 @@
  * | StarCraft II mesh emitters | `Sc2ParticleEmitterPayload::shapeSections` (sections of `meshes[0]`) | renumbered with `meshes[0]`'s sections; cleared when `meshes[0]` is absorbed |
  * | the face `section` layer | mesh-local | renumbered by `MergeSections` |
  * | the repair log | `FaceRecord::section`, mesh-local | renumbered by `MergeSections` |
+ * | an MDX bone's raw `geosetId` in its native bag | an in-range value | renumbered; one naming a gone mesh becomes the file's "no geoset"; any other value is the file's own and kept |
  *
  * Out of this table, and named so the next profile sees them: M2's bone bag
  * `submeshId`, passed through raw; `AddProfileFromImport`'s `geometryMatches`,
@@ -37,6 +39,7 @@
 #include <whiteout/common_types.h>
 
 #include "../diagnostics.h"
+#include "../document.h"
 #include "../model.h"
 
 namespace whiteout {
@@ -57,6 +60,40 @@ void RemapMeshReferencers(Model& model, std::span<const u32> meshRemap, Diagnost
 /// Cross-checks the table's typed rows against the model — the `Validate` half.
 /// (`Section` channels are checked beside the other channel rules.)
 void CheckMeshReferencers(const Model& model, Diagnostics& out);
+
+/// Erases the channels @p ids from model @p model's table, and their sub-tracks
+/// from every clip that drives that model. The one definition of taking a
+/// channel away.
+void EraseChannels(Document& document, u32 model, std::span<const u32> ids);
+
+/**
+ * @brief Removes the meshes @p drop marks (one byte per mesh; nonzero goes)
+ *        from model @p model, and every referencer follows.
+ *
+ * In this order: each `Section` channel of a mesh that goes is erased with its
+ * sub-tracks (an invalidated one fails `Validate`, and nothing would ever
+ * repoint it); the meshes go; `RemapMeshReferencers` renumbers the rest.
+ *
+ * @return how many meshes went. Nothing marked is nothing done.
+ */
+u32 RemoveMeshes(Document& document, u32 model, std::span<const u8> drop, Diagnostics& out);
+
+/**
+ * @brief Removes every mesh at level of detail 1-3 or above, keeping LOD 0 and
+ *        `kAllLods` (EDIT_MODE_MODELLING_DESIGN.md §8.1, the user's U7).
+ *
+ * A document holds LOD 0 only; the `.mdx` export generates a ladder when the
+ * model's `LodExport` asks for one. Before anything goes, each model with a
+ * ladder records its ratios (each level's triangles over LOD 0's) and
+ * `LodExport::sourceHadLevels`. A model whose every mesh is at a level keeps
+ * them, and says so: an empty model is a worse answer than a coarse one.
+ *
+ * Runs at the tail of every importer that sets levels (`fromMdx`, `fromM3`) and
+ * in the `.wem` reader. Notes `LevelOfDetailDropped` per model.
+ *
+ * @return how many meshes it removed.
+ */
+u32 DropLevelsOfDetail(Document& document, Diagnostics& out);
 
 struct MeshMergeResult {
     bool ok = false;

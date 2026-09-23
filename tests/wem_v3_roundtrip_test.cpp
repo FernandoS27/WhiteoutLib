@@ -240,7 +240,8 @@ Document makeDocument() {
 
     Mesh mesh;
     mesh.name = "mesh0";
-    mesh.lodLevel = 1;
+    // The one level a document holds besides 0 (EDIT_MODE_MODELLING_DESIGN.md §8.1).
+    mesh.lodLevel = kAllLods;
     mesh.setFaceSet(faces);
     geom::AttrLayer& position =
         mesh.attributes.create(geom::names::kPosition, geom::Domain::Vertex, geom::AttrType::F32x3);

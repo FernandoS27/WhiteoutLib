@@ -438,8 +438,8 @@ TEST_CASE("wem MergeMeshesInto refuses what one geoset cannot be", "[wem][mesh][
         const u32 two[] = {0, 1};
         CHECK_FALSE(MergeMeshesInto(model, two, 2).ok);
     }
-    SECTION("different levels of detail") {
-        model.meshes[2].lodLevel = 1;
+    SECTION("an every-level mesh and a LOD 0 one") {
+        model.meshes[2].lodLevel = kAllLods;
         const u32 two[] = {0, 2};
         const MeshMergeResult result = MergeMeshesInto(model, two, 0);
         CHECK_FALSE(result.ok);
@@ -517,16 +517,55 @@ TEST_CASE("wem MergeMeshesInto gives an absorbed mesh the primary's tangent fram
     CHECK(mirroredCorners == 6u);
 }
 
-TEST_CASE("wem an MDX import carries no Edge layers", "[wem][mesh][merge]") {
-    // The canary: `MergeMeshes` zero-fills Edge layers rather than carrying
-    // them. The day an importer writes one, a merge would drop it -- and this
-    // goes red first.
-    const Document document = imported();
-    for (const Mesh& mesh : document.models[0].meshes) {
-        for (const geom::AttrLayer& layer : mesh.attributes.layers()) {
-            CAPTURE(layer.name);
-            CHECK(layer.domain != geom::Domain::Edge);
+TEST_CASE("wem MergeMeshesInto carries Edge layers", "[wem][mesh][merge]") {
+    // Once the canary of a merge that zero-filled them (C31): a `sharp` edge on
+    // the primary and one on an absorbed mesh both survive, on and off `.wem`.
+    for (const bool throughWem : {false, true}) {
+        CAPTURE(throughWem);
+        Document document = imported();
+        Model& model = document.models[0];
+        const auto markFirstEdge = [](Mesh& mesh) {
+            REQUIRE(mesh.ensureConnectivity().ok());
+            const std::span<u8> sharp = mesh.attributes.getOrCreate<u8>(
+                geom::names::kSharp, geom::Domain::Edge, geom::AttrType::Bool);
+            REQUIRE_FALSE(sharp.empty());
+            sharp[0] = 1;
+            const geom::HalfedgeId h = geom::Topology::halfedge(geom::EdgeId(0), 0);
+            return std::pair<Vector3f, Vector3f>{
+                mesh.attributes.get<const Vector3f>(geom::names::kPosition,
+                                                     geom::Domain::Vertex)[mesh.topology().from(h).index()],
+                mesh.attributes.get<const Vector3f>(geom::names::kPosition,
+                                                     geom::Domain::Vertex)[mesh.topology().to(h).index()]};
+        };
+        const auto first = markFirstEdge(model.meshes[0]);
+        const auto second = markFirstEdge(model.meshes[1]);
+        if (throughWem) {
+            document = viaWem(document);
         }
+        const u32 merging[] = {0, 1};
+        REQUIRE(MergeMeshesInto(document.models[0], merging, 0).ok);
+        Mesh& merged = document.models[0].meshes[0];
+        REQUIRE(merged.ensureConnectivity().ok());
+        const std::span<const u8> sharp =
+            merged.attributes.get<const u8>(geom::names::kSharp, geom::Domain::Edge);
+        const std::span<const Vector3f> positions =
+            merged.attributes.get<const Vector3f>(geom::names::kPosition, geom::Domain::Vertex);
+        u32 marked = 0;
+        for (u32 e = 0; e < sharp.size(); ++e) {
+            if (sharp[e] == 0) {
+                continue;
+            }
+            ++marked;
+            const geom::HalfedgeId h = geom::Topology::halfedge(geom::EdgeId(e), 0);
+            const Vector3f a = positions[merged.topology().from(h).index()];
+            const Vector3f b = positions[merged.topology().to(h).index()];
+            const auto is = [&](const std::pair<Vector3f, Vector3f>& edge) {
+                return (same(a, edge.first) && same(b, edge.second)) ||
+                       (same(a, edge.second) && same(b, edge.first));
+            };
+            CHECK((is(first) || is(second)));
+        }
+        CHECK(marked == 2u);
     }
 }
 

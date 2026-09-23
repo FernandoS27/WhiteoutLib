@@ -12,6 +12,12 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <whiteout/models/wem/converters.h>
+#include <whiteout/models/wem/parser.h>
+#include <whiteout/models/wem/writer.h>
+
+#include <algorithm>
+#include <optional>
+#include <vector>
 
 using namespace whiteout;
 using namespace whiteout::models::wem;
@@ -91,6 +97,32 @@ m2::Model makeModel() {
     model.attachments.push_back(attachment);
 
     return model;
+}
+
+/// `makeModel` with three skin profiles, each its own submesh id, as a model
+/// whose profiles are material variations rather than levels of detail.
+m2::Model makeThreeProfiles() {
+    m2::Model model = makeModel();
+    const m2::SkinProfile first = model.skinProfiles[0];
+    for (u16 s = 1; s < 3; ++s) {
+        m2::SkinProfile skin = first;
+        skin.submeshes[0].skinSectionId = static_cast<u16>(7 + s);
+        model.skinProfiles.push_back(skin);
+    }
+    return model;
+}
+
+Document viaWem(const Document& document) {
+    Writer writer;
+    const std::vector<u8> bytes = writer.write(document);
+    Parser parser;
+    std::optional<Document> read = parser.parse(std::span<const u8>(bytes.data(), bytes.size()));
+    REQUIRE(read.has_value());
+    return std::move(*read);
+}
+
+i64 profileOf(const Mesh& mesh) {
+    return mesh.sections.empty() ? -1 : mesh.sections[0].native.value("m2SkinProfile", -1);
 }
 
 } // namespace
@@ -232,4 +264,102 @@ TEST_CASE("wem m2 round trip keeps geometry and the bone join", "[wem][convert][
     // The export writes only the four vertices the skin used; the two fillers
     // nothing referenced are gone, which is a de-duplication and not a loss.
     CHECK(out.vertices.size() == 4);
+}
+
+// ============================================================================
+// Skin profiles are not levels of detail (EDIT_MODE_MODELLING_DESIGN.md §8.1)
+// ============================================================================
+
+TEST_CASE("wem m2 every skin profile is kept through import, .wem and toM2",
+          "[wem][convert][m2][lod]") {
+    const M2Converter converter;
+    const Result<Document> imported = converter.fromM2(makeThreeProfiles());
+    REQUIRE(imported.ok());
+    CHECK(imported.diagnostics.countOf(DiagCode::LevelOfDetailDropped) == 0u);
+    // At the import itself, and not only once the reader has re-keyed it.
+    REQUIRE(imported->models[0].meshes.size() == 3);
+    for (u32 s = 0; s < 3; ++s) {
+        CHECK(imported->models[0].meshes[s].lodLevel == 0);
+        CHECK(profileOf(imported->models[0].meshes[s]) == s);
+    }
+
+    const Document read = viaWem(*imported);
+    const Model& model = read.models[0];
+    REQUIRE(model.meshes.size() == 3);
+    for (u32 s = 0; s < 3; ++s) {
+        CHECK(model.meshes[s].lodLevel == 0);
+        CHECK(profileOf(model.meshes[s]) == s);
+    }
+
+    const Result<m2::Model> exported = converter.toM2(read, ProfileId::Wow);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->skinProfiles.size() == 3);
+    for (u16 s = 0; s < 3; ++s) {
+        REQUIRE(exported->skinProfiles[s].submeshes.size() == 1);
+        CHECK(exported->skinProfiles[s].submeshes[0].skinSectionId == 7 + s);
+    }
+}
+
+TEST_CASE("wem m2 a .wem that kept profiles on lodLevel loads them keyed", "[wem][convert][m2][lod]") {
+    // What a `.wem` of an `.m2` held before the drop: profile s at level s, and
+    // no key. The drop must not take profiles 1 and 2 for levels of detail.
+    const M2Converter converter;
+    Result<Document> imported = converter.fromM2(makeThreeProfiles());
+    REQUIRE(imported.ok());
+    Document document = std::move(*imported.value);
+    for (u32 s = 0; s < 3; ++s) {
+        Mesh& mesh = document.models[0].meshes[s];
+        mesh.lodLevel = s;
+        for (MeshSection& section : mesh.sections) {
+            std::erase_if(section.native.entries,
+                          [](const NativeBag::Entry& e) { return e.name == "m2SkinProfile"; });
+        }
+    }
+    REQUIRE(document.defaultProfile == ProfileId::Wow);
+
+    const Document read = viaWem(document);
+    REQUIRE(read.models[0].meshes.size() == 3);
+    for (u32 s = 0; s < 3; ++s) {
+        CHECK(read.models[0].meshes[s].lodLevel == 0);
+        CHECK(profileOf(read.models[0].meshes[s]) == s);
+    }
+}
+
+TEST_CASE("wem m2 toM2 writes one profile's meshes as one skin's submeshes",
+          "[wem][convert][m2][lod]") {
+    // Five meshes, none keyed after the first -- as a document from another
+    // game arrives. Profile 0 is every one of them, and each submesh reads
+    // its own slice of the skin's vertex list.
+    const M2Converter converter;
+    Result<Document> imported = converter.fromM2(makeModel());
+    REQUIRE(imported.ok());
+    Document document = std::move(*imported.value);
+    Model& model = document.models[0];
+    REQUIRE(model.meshes.size() == 1);
+    for (u32 copy = 1; copy < 5; ++copy) {
+        Mesh mesh = model.meshes[0];
+        for (MeshSection& section : mesh.sections) {
+            std::erase_if(section.native.entries,
+                          [](const NativeBag::Entry& e) { return e.name == "m2SkinProfile"; });
+        }
+        model.meshes.push_back(std::move(mesh));
+    }
+
+    const Result<m2::Model> exported = converter.toM2(document, ProfileId::Wow);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->skinProfiles.size() == 1);
+    const m2::SkinProfile& skin = exported->skinProfiles[0];
+    REQUIRE(skin.submeshes.size() == 5);
+    CHECK(skin.vertices.size() == 20);
+    for (u32 i = 0; i < 5; ++i) {
+        const m2::SkinSection& submesh = skin.submeshes[i];
+        CHECK(submesh.vertexStart == 4 * i);
+        CHECK(submesh.vertexCount == 4);
+        for (u32 k = 0; k < submesh.indexCount; ++k) {
+            const u16 index = skin.indices[submesh.indexStart + k];
+            CHECK(index >= submesh.vertexStart);
+            CHECK(index < submesh.vertexStart + submesh.vertexCount);
+        }
+        CHECK(skin.batches[i].skinSectionIndex == i);
+    }
 }

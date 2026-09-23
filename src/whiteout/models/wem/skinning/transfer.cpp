@@ -8,6 +8,7 @@
 #include <limits>
 
 #include <whiteout/models/wem/geometry/bvh.h>
+#include <whiteout/models/wem/geometry/triangulation.h>
 
 namespace whiteout {
 namespace models {
@@ -16,20 +17,11 @@ namespace skinning {
 
 namespace {
 
-/// A mesh's triangles, fanned: `bvh.h` indexes three corners at a time, and a
-/// quad in a source mesh is two triangles for this purpose like any other.
+/// A mesh's triangles as it is drawn: `bvh.h` indexes three corners at a time,
+/// and a quad in a source mesh is two triangles for this purpose like any other.
 std::vector<u32> TrianglesOf(const Mesh& mesh) {
-    const geom::FaceSet& faces = mesh.faceSet();
     std::vector<u32> out;
-    std::size_t corner = 0;
-    for (const u32 valence : faces.faceValence) {
-        for (u32 i = 2; i < valence; ++i) {
-            out.push_back(faces.cornerVertex[corner]);
-            out.push_back(faces.cornerVertex[corner + i - 1]);
-            out.push_back(faces.cornerVertex[corner + i]);
-        }
-        corner += valence;
-    }
+    geom::TriangulateMesh(mesh, out);
     return out;
 }
 

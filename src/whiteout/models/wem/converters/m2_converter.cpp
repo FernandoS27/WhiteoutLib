@@ -46,6 +46,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <map>
 #include <string>
 #include <unordered_set>
 #include <variant>
@@ -501,6 +502,11 @@ Result<Document> M2Converter::fromM2(const m2::Model& source, u32 sourceVersion)
     set.native.set("sourceVersion", static_cast<i64>(sourceVersion));
 
     // --- one mesh per skin profile -----------------------------------------
+    //
+    // A skin profile is not a level of detail: it can be a material or texture
+    // variation of the model as much as a lower detail. Every one is kept, at
+    // `lodLevel` 0, with its number on each of its sections as `m2SkinProfile`
+    // (EDIT_MODE_MODELLING_DESIGN.md §8.1), so the drop never touches it.
     for (std::size_t s = 0; s < source.skinProfiles.size(); ++s) {
         const m2::SkinProfile& skin = source.skinProfiles[s];
 
@@ -541,6 +547,7 @@ Result<Document> M2Converter::fromM2(const m2::Model& source, u32 sourceVersion)
             section.name = "submesh_" + std::to_string(submesh.skinSectionId);
             section.selectionGroup = submesh.skinSectionId;
             section.native.set("skinSectionId", static_cast<i64>(submesh.skinSectionId));
+            section.native.set("m2SkinProfile", static_cast<i64>(s));
             // `level` is deliberately not carried: it is not independent data,
             // it is the high word of `indexStart`, and export recomputes both
             // from the ranges it actually writes.
@@ -611,7 +618,6 @@ Result<Document> M2Converter::fromM2(const m2::Model& source, u32 sourceVersion)
 
         geom::MeshBuilder::BuildOutcome outcome = builder.build();
         outcome.mesh.name = "skin_" + std::to_string(s);
-        outcome.mesh.lodLevel = static_cast<u32>(s);
         outcome.mesh.recomputeBounds();
         model.meshes.push_back(std::move(outcome.mesh));
 
@@ -789,11 +795,14 @@ Result<m2::Model> M2Converter::toM2(const Document& document, ProfileId profile,
 
     // --- geometry + batches -------------------------------------------------
     //
-    // Export writes one skin profile per mesh, which is the inverse of import's
-    // one mesh per skin. The global vertex list is the concatenation of the
-    // meshes' and each skin's indirection is the identity over its own slice —
-    // WEM has no shared vertex pool to preserve, and building one would mean
-    // welding across meshes that the import deliberately kept apart.
+    // One skin profile per `m2SkinProfile` value, ascending, which is the
+    // inverse of import's one mesh per skin; a mesh without the key (one from
+    // another game) is profile 0. A profile's meshes become its submeshes, in
+    // mesh order, each over its own slice of the skin's vertex list. The global
+    // vertex list is the concatenation of the meshes' and each skin's
+    // indirection is the identity over its own slices — WEM has no shared
+    // vertex pool to preserve, and building one would mean welding across
+    // meshes that the import deliberately kept apart.
     geom::RenderMeshDesc desc;
     desc.attributes = {
         {geom::names::kPosition, utils::AttributeClass::Position, utils::AttributeEncoding::Float32,
@@ -812,81 +821,91 @@ Result<m2::Model> M2Converter::toM2(const Document& document, ProfileId profile,
     const SkinSkeleton skinSkeleton(model.nodes);
     skinSkeleton.describe(desc);
 
-    for (std::size_t m = 0; m < model.meshes.size(); ++m) {
+    std::map<i64, std::vector<u32>> meshesOfProfile;
+    for (u32 m = 0; m < model.meshes.size(); ++m) {
         const Mesh& mesh = model.meshes[m];
-        const geom::RenderMesh render = geom::BuildRenderMesh(mesh, desc);
-        diagnostics.append(render.diagnostics);
+        const i64 profileOf =
+            mesh.sections.empty() ? 0 : mesh.sections[0].native.value("m2SkinProfile", 0);
+        meshesOfProfile[profileOf].push_back(m);
+    }
 
+    for (const auto& [skinProfile, meshes] : meshesOfProfile) {
         m2::SkinProfile skin;
-        const u32 vertexBase = static_cast<u32>(out.vertices.size());
-        const std::vector<Vector3f> positions = render.vertices.getPositions();
-        const std::vector<Vector3f> normals = render.vertices.getNormals();
-        const std::vector<Vector2f> uv0 = render.vertices.getUVs(0);
-        const std::vector<Vector2f> uv1 = render.vertices.getUVs(1);
-        const std::vector<std::array<u32, 4>> boneIndices = render.vertices.getBoneIndices();
-        const std::vector<std::array<f32, 4>> boneWeights = render.vertices.getBoneWeights();
+        for (const u32 m : meshes) {
+            const Mesh& mesh = model.meshes[m];
+            const geom::RenderMesh render = geom::BuildRenderMesh(mesh, desc);
+            diagnostics.append(render.diagnostics);
 
-        for (std::size_t v = 0; v < positions.size(); ++v) {
-            m2::Vertex vertex;
-            vertex.position = positions[v];
-            vertex.normal = v < normals.size() ? normals[v] : Vector3f{0, 0, 1};
-            vertex.texCoords[0] = v < uv0.size() ? uv0[v] : Vector2f{0, 0};
-            vertex.texCoords[1] = v < uv1.size() ? uv1[v] : Vector2f{0, 0};
-            if (v < boneIndices.size() && v < boneWeights.size()) {
-                // One rounding for the four, so the bytes sum to 255.
-                std::array<f32, 4> shares{};
-                for (std::size_t k = 0; k < 4; ++k) {
-                    const u32 node = boneIndices[v][k];
-                    const u32 bone = node < boneOf.size() ? boneOf[node] : 0xFFFFu;
-                    vertex.boneIndices[k] = bone == 0xFFFFu ? 0u : static_cast<u8>(bone);
-                    shares[k] = std::clamp(boneWeights[v][k], 0.0f, 1.0f);
+            const u32 vertexBase = static_cast<u32>(out.vertices.size());
+            const u32 skinBase = static_cast<u32>(skin.vertices.size());
+            const std::vector<Vector3f> positions = render.vertices.getPositions();
+            const std::vector<Vector3f> normals = render.vertices.getNormals();
+            const std::vector<Vector2f> uv0 = render.vertices.getUVs(0);
+            const std::vector<Vector2f> uv1 = render.vertices.getUVs(1);
+            const std::vector<std::array<u32, 4>> boneIndices = render.vertices.getBoneIndices();
+            const std::vector<std::array<f32, 4>> boneWeights = render.vertices.getBoneWeights();
+
+            for (std::size_t v = 0; v < positions.size(); ++v) {
+                m2::Vertex vertex;
+                vertex.position = positions[v];
+                vertex.normal = v < normals.size() ? normals[v] : Vector3f{0, 0, 1};
+                vertex.texCoords[0] = v < uv0.size() ? uv0[v] : Vector2f{0, 0};
+                vertex.texCoords[1] = v < uv1.size() ? uv1[v] : Vector2f{0, 0};
+                if (v < boneIndices.size() && v < boneWeights.size()) {
+                    // One rounding for the four, so the bytes sum to 255.
+                    std::array<f32, 4> shares{};
+                    for (std::size_t k = 0; k < 4; ++k) {
+                        const u32 node = boneIndices[v][k];
+                        const u32 bone = node < boneOf.size() ? boneOf[node] : 0xFFFFu;
+                        vertex.boneIndices[k] = bone == 0xFFFFu ? 0u : static_cast<u8>(bone);
+                        shares[k] = std::clamp(boneWeights[v][k], 0.0f, 1.0f);
+                    }
+                    const std::array<u8, 4> bytes = skinning::QuantizeWeights(shares, 4);
+                    for (std::size_t k = 0; k < 4; ++k) {
+                        vertex.boneWeights[k] = bytes[k];
+                    }
                 }
-                const std::array<u8, 4> bytes = skinning::QuantizeWeights(shares, 4);
-                for (std::size_t k = 0; k < 4; ++k) {
-                    vertex.boneWeights[k] = bytes[k];
+                out.vertices.push_back(vertex);
+                if (vertexBase + v > 0xFFFFu) {
+                    diagnostics.warn(DiagCode::IndexWidthExceeded,
+                                     "more than 65535 vertices across all meshes",
+                                     ElementRef(ElementKind::Mesh, static_cast<u32>(m)));
                 }
+                skin.vertices.push_back(static_cast<u16>(vertexBase + v));
             }
-            out.vertices.push_back(vertex);
-            if (vertexBase + v > 0xFFFFu) {
-                diagnostics.warn(DiagCode::IndexWidthExceeded,
-                                 "more than 65535 vertices across all meshes",
-                                 ElementRef(ElementKind::Mesh, static_cast<u32>(m)));
+
+            for (const geom::RenderRange& range : render.ranges) {
+                m2::SkinSection submesh;
+                // The split form: low word in `indexStart`, high word in `level`.
+                const std::size_t start = skin.indices.size();
+                submesh.indexStart = static_cast<u16>(start & 0xFFFFu);
+                submesh.level = static_cast<u16>(start >> 16);
+                submesh.indexCount = static_cast<u16>(range.indexCount);
+                submesh.vertexStart = static_cast<u16>(skinBase);
+                submesh.vertexCount = static_cast<u16>(positions.size());
+                if (range.section < mesh.sections.size()) {
+                    const MeshSection& section = mesh.sections[range.section];
+                    submesh.skinSectionId = static_cast<u16>(section.native.value(
+                        "skinSectionId", static_cast<i64>(section.selectionGroup)));
+                }
+                for (u32 i = 0; i < range.indexCount; ++i) {
+                    const u32 index = render.indices[range.firstIndex + i];
+                    skin.indices.push_back(static_cast<u16>(skinBase + index));
+                }
+
+                const Material* material = range.materialSlot < model.materialSlots.size()
+                                               ? Resolve(model, range.materialSlot, profile)
+                                               : nullptr;
+                m2::Batch batch;
+                if (material != nullptr) {
+                    batch = m2_core::ExportMaterial(*material, context, out, diagnostics);
+                }
+                batch.skinSectionIndex = static_cast<u16>(skin.submeshes.size());
+                batch.geosetIndex = batch.skinSectionIndex;
+                skin.submeshes.push_back(std::move(submesh));
+                skin.batches.push_back(batch);
             }
-            skin.vertices.push_back(static_cast<u16>(vertexBase + v));
         }
-
-        for (const geom::RenderRange& range : render.ranges) {
-            m2::SkinSection submesh;
-            // The split form: low word in `indexStart`, high word in `level`.
-            const std::size_t start = skin.indices.size();
-            submesh.indexStart = static_cast<u16>(start & 0xFFFFu);
-            submesh.level = static_cast<u16>(start >> 16);
-            submesh.indexCount = static_cast<u16>(range.indexCount);
-            submesh.vertexStart = 0;
-            submesh.vertexCount = static_cast<u16>(positions.size());
-            if (range.section < mesh.sections.size()) {
-                const MeshSection& section = mesh.sections[range.section];
-                submesh.skinSectionId = static_cast<u16>(section.native.value(
-                    "skinSectionId", static_cast<i64>(section.selectionGroup)));
-            }
-            for (u32 i = 0; i < range.indexCount; ++i) {
-                const u32 index = render.indices[range.firstIndex + i];
-                skin.indices.push_back(static_cast<u16>(index));
-            }
-
-            const Material* material = range.materialSlot < model.materialSlots.size()
-                                           ? Resolve(model, range.materialSlot, profile)
-                                           : nullptr;
-            m2::Batch batch;
-            if (material != nullptr) {
-                batch = m2_core::ExportMaterial(*material, context, out, diagnostics);
-            }
-            batch.skinSectionIndex = static_cast<u16>(skin.submeshes.size());
-            batch.geosetIndex = batch.skinSectionIndex;
-            skin.submeshes.push_back(std::move(submesh));
-            skin.batches.push_back(batch);
-        }
-
         out.skinProfiles.push_back(std::move(skin));
     }
     out.numSkinProfiles = static_cast<u32>(out.skinProfiles.size());

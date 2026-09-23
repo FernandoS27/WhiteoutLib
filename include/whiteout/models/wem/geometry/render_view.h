@@ -72,6 +72,10 @@ enum class TriangulationPolicy : u8 {
     /// N-gons are emitted as-is; the index buffer is then not a triangle list.
     /// Only useful for a consumer that does its own tessellation.
     None,
+    /// Every face as `TriangulateFace` cuts it: its stored row when valid, else
+    /// the automatic rule (EDIT_MODE_MODELLING_DESIGN.md §2.3). A triangle
+    /// passes through untouched, so on an all-triangle mesh this is the fan.
+    Authored,
 };
 
 struct RenderRange {
@@ -88,7 +92,7 @@ struct RenderMeshDesc {
     /// Emit one range per section, with the faces of a section contiguous. When
     /// false, faces keep mesh order and ranges are the runs that fall out of it.
     bool splitBySection = true;
-    TriangulationPolicy triangulation = TriangulationPolicy::FanFromFirstHalfedge;
+    TriangulationPolicy triangulation = TriangulationPolicy::Authored;
 
     /// Append `BlendIndices` / `BlendWeights` from `Mesh::skin`, `maxInfluences`
     /// wide. A section with a `rigidNode` binds every one of its vertices there
@@ -123,6 +127,9 @@ struct RenderMesh {
     /// one an editor should select when the user picks that GPU vertex.
     std::vector<u32> vertexToWemVertex;
     std::vector<HalfedgeId> vertexToWemHalfedge;
+    /// Per emitted triangle (each three of `indices`), its WEM face slot: what a
+    /// pick of a drawn triangle selects. Empty under `TriangulationPolicy::None`.
+    std::vector<u32> triangleFace;
 
     Diagnostics diagnostics;
 

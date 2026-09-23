@@ -7,6 +7,7 @@
 #include <whiteout/models/wem/nodes/emitters.h>
 
 #include <algorithm>
+#include <array>
 #include <optional>
 #include <string>
 #include <variant>
@@ -23,6 +24,18 @@ std::string number(u64 value) {
 
 u32 remapped(std::span<const u32> meshRemap, u32 mesh) {
     return mesh < meshRemap.size() ? meshRemap[mesh] : kInvalidIndex;
+}
+
+/// `mdx::Bone::MULTIPLE_GEOSETS`: the file's "no geoset".
+constexpr u32 kNoGeoset = 0xFFFFFFFFu;
+
+/// The triangles the mesh draws, whatever its faces' corner counts.
+u64 trianglesOf(const Mesh& mesh) {
+    u64 triangles = 0;
+    for (const u32 corners : mesh.faceSet().faceValence) {
+        triangles += corners > 2 ? corners - 2 : 0;
+    }
+    return triangles;
 }
 
 } // namespace
@@ -68,7 +81,129 @@ void RemapMeshReferencers(Model& model, std::span<const u32> meshRemap, Diagnost
                      ElementRef(ElementKind::Node, i));
             emitter->shapeSections.clear();
         }
+        // The raw `geosetId` an MDX bone keeps where its gate would not write it
+        // back (`fromMdx`). Only an in-range value is a mesh index; anything
+        // else is the file's own number and stays as it was.
+        if (const NativeBag::Entry* raw = node.native.find("geosetId");
+            raw != nullptr && raw->value >= 0 && static_cast<u64>(raw->value) < meshRemap.size()) {
+            const u32 to = meshRemap[static_cast<std::size_t>(raw->value)];
+            node.native.set("geosetId", to == kInvalidIndex ? static_cast<i64>(kNoGeoset)
+                                                            : static_cast<i64>(to));
+        }
     }
+}
+
+void EraseChannels(Document& document, u32 model, std::span<const u32> ids) {
+    if (ids.empty() || model >= document.models.size()) {
+        return;
+    }
+    const auto named = [ids](u32 id) { return std::find(ids.begin(), ids.end(), id) != ids.end(); };
+    for (Clip& clip : document.clips) {
+        if (clip.model != model) {
+            continue;
+        }
+        for (SubTrackContainer& container : clip.containers) {
+            std::erase_if(container.subTracks,
+                          [&](const SubTrack& track) { return named(track.channel); });
+        }
+    }
+    std::erase_if(document.models[model].animChannels.channels,
+                  [&](const AnimChannel& channel) { return named(channel.id); });
+}
+
+u32 RemoveMeshes(Document& document, u32 modelIndex, std::span<const u8> drop, Diagnostics& out) {
+    if (modelIndex >= document.models.size()) {
+        return 0;
+    }
+    Model& model = document.models[modelIndex];
+    const u32 count = static_cast<u32>(model.meshes.size());
+    const auto dropped = [&](u32 m) { return m < drop.size() && drop[m] != 0; };
+
+    std::vector<u32> meshRemap(count, kInvalidIndex);
+    u32 kept = 0;
+    for (u32 m = 0; m < count; ++m) {
+        if (!dropped(m)) {
+            meshRemap[m] = kept++;
+        }
+    }
+    if (kept == count) {
+        return 0;
+    }
+
+    // A gone mesh's channels go with it, sub-tracks and all: invalidated, as
+    // `RemapMeshReferencers` would leave them, they fail `Validate`.
+    std::vector<u32> channels;
+    for (const AnimChannel& channel : model.animChannels.channels) {
+        if (channel.target.kind == TrackTarget::Kind::Section && dropped(channel.target.mesh)) {
+            channels.push_back(channel.id);
+        }
+    }
+    EraseChannels(document, modelIndex, channels);
+
+    u32 next = 0;
+    for (u32 m = 0; m < count; ++m) {
+        if (meshRemap[m] != kInvalidIndex) {
+            if (next != m) {
+                model.meshes[next] = std::move(model.meshes[m]);
+            }
+            ++next;
+        }
+    }
+    model.meshes.resize(kept);
+    RemapMeshReferencers(model, meshRemap, out);
+    return count - kept;
+}
+
+u32 DropLevelsOfDetail(Document& document, Diagnostics& out) {
+    const auto isLevel = [](const Mesh& mesh) {
+        return mesh.lodLevel != 0 && mesh.lodLevel != kAllLods;
+    };
+    u32 removed = 0;
+    for (u32 m = 0; m < document.models.size(); ++m) {
+        Model& model = document.models[m];
+        std::vector<u8> drop(model.meshes.size(), 0);
+        std::array<u64, 4> triangles{};
+        u32 levels = 0;
+        for (std::size_t i = 0; i < model.meshes.size(); ++i) {
+            const Mesh& mesh = model.meshes[i];
+            if (mesh.lodLevel < triangles.size()) {
+                triangles[mesh.lodLevel] += trianglesOf(mesh);
+            }
+            if (isLevel(mesh)) {
+                drop[i] = 1;
+                ++levels;
+            }
+        }
+        if (levels == 0) {
+            continue;
+        }
+        if (levels == model.meshes.size()) {
+            // An empty model is a worse answer than a coarse one.
+            out.info(DiagCode::LevelOfDetailDropped,
+                     "model '" + model.name +
+                         "' has no mesh at the base level of detail; its " + number(levels) +
+                         " level mesh(es) were kept",
+                     ElementRef(ElementKind::Document, m));
+            continue;
+        }
+
+        // Recorded before anything goes, so turning generation on reproduces
+        // the file's sizes (EDIT_MODE_MODELLING_DESIGN.md §8.2).
+        model.lodExport.sourceHadLevels = true;
+        for (u32 level = 1; level < triangles.size(); ++level) {
+            if (triangles[0] != 0 && triangles[level] != 0) {
+                model.lodExport.ratios[level - 1] =
+                    static_cast<f32>(triangles[level]) / static_cast<f32>(triangles[0]);
+            }
+        }
+        const u32 count = RemoveMeshes(document, m, drop, out);
+        removed += count;
+        out.info(DiagCode::LevelOfDetailDropped,
+                 number(count) + " mesh(es) above the base level of detail were dropped from '" +
+                     model.name + "'; the export generates a ladder when the model asks for one",
+                 ElementRef(ElementKind::Document, m));
+    }
+    return removed;
 }
 
 void CheckMeshReferencers(const Model& model, Diagnostics& out) {

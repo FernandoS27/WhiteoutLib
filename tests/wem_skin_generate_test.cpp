@@ -1094,8 +1094,9 @@ TEST_CASE("S7: the organic generators against the shipped HD weights",
                 }
                 const Model& model = document->models.front();
                 std::vector<u32> meshes;
+                // The import dropped every level of detail but LOD 0.
                 for (u32 m = 0; m < model.meshes.size(); ++m) {
-                    if (model.meshes[m].lodLevel == 0 && !model.meshes[m].skin.empty()) {
+                    if (!model.meshes[m].skin.empty()) {
                         meshes.push_back(m);
                     }
                 }
@@ -1210,11 +1211,10 @@ TEST_CASE("S7 bench: Heat and Geodesic on the HD footman", "[wem][skin][generate
     REQUIRE(document.ok());
     const Model& model = document->models.front();
 
+    // The import dropped every level of detail but LOD 0.
     std::vector<u32> meshes;
     for (u32 m = 0; m < model.meshes.size(); ++m) {
-        if (model.meshes[m].lodLevel == 0) {
-            meshes.push_back(m);
-        }
+        meshes.push_back(m);
     }
     std::vector<skinning::PointTable> tables;
     u32 vertices = 0;

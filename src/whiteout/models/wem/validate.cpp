@@ -689,10 +689,6 @@ void checkGeometryLimits(const Document& document, Diagnostics& out) {
             const bool hasVertexColor =
                 mesh.attributes.has(geom::names::color(0), geom::Domain::Halfedge);
 
-            u32 maxValence = 3;
-            for (u32 valence : mesh.faceSet().faceValence) {
-                maxValence = valence > maxValence ? valence : maxValence;
-            }
             const u32 influences = mesh.skin.maxInfluences();
 
             for (u32 p = 0; p < static_cast<u32>(ProfileId::Count); ++p) {
@@ -708,12 +704,8 @@ void checkGeometryLimits(const Document& document, Diagnostics& out) {
                                   ToString(profile) + "'s 16-bit indices",
                               where, profile);
                 }
-                if (!desc.allowsNgons && maxValence > 3) {
-                    out.error(DiagCode::NgonUnsupported,
-                              "a face has " + number(maxValence) + " corners and " +
-                                  ToString(profile) + " takes triangles",
-                              where, profile);
-                }
+                // No n-gon row: every exporter cuts faces through the render
+                // view, so no file sees one (EDIT_MODE_MODELLING_DESIGN.md §2.6).
                 if (uvSets > desc.maxUvSets) {
                     out.warn(DiagCode::UvSetLimit,
                              number(uvSets) + " uv sets exceeds " + ToString(profile) + "'s " +

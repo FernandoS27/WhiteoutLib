@@ -4,6 +4,9 @@
 #include <whiteout/models/wem/parser.h>
 #include <whiteout/models/wem/writer.h>
 
+#include <whiteout/models/wem/geometry/ops.h>
+#include <whiteout/models/wem/meshes/remove.h>
+
 #include "../../common/binary_reader.h"
 #include "../../common/binary_writer.h"
 #include "../../common/streams.h"
@@ -12,6 +15,7 @@
 #include "binary_read_visitor.h"
 #include "binary_write_visitor.h"
 
+#include <algorithm>
 #include <fstream>
 
 namespace whiteout {
@@ -70,6 +74,44 @@ bool IsWemFile(std::span<const u8> bytes, u32* versionOut) {
 // Parser
 // ============================================================================
 
+namespace {
+
+/// A `.wem` written before levels of detail were dropped kept a World of
+/// Warcraft skin profile, and a Diablo III appearance's second geoset array, on
+/// `lodLevel`. Neither is a level of detail (EDIT_MODE_MODELLING_DESIGN.md
+/// §8.1), so each moves to its section key before the drop could take it. The
+/// geometry's game says which: the profile it was authored in.
+void KeyLegacySets(Document& document) {
+    const bool wow = document.defaultProfile == ProfileId::Wow;
+    const bool diablo = document.defaultProfile == ProfileId::Diablo3;
+    if (!wow && !diablo) {
+        return;
+    }
+    const char* key = wow ? "m2SkinProfile" : "d3GeoSet";
+    const auto legacy = [&](const Mesh& mesh) {
+        return wow ? mesh.lodLevel != 0 && mesh.lodLevel != kAllLods : mesh.lodLevel == 1;
+    };
+    for (Model& model : document.models) {
+        if (std::none_of(model.meshes.begin(), model.meshes.end(), legacy)) {
+            continue;
+        }
+        // Every profile keyed, the first included, so the model reads one way.
+        for (Mesh& mesh : model.meshes) {
+            if (!wow && !legacy(mesh)) {
+                continue;
+            }
+            for (MeshSection& section : mesh.sections) {
+                if (section.native.find(key) == nullptr) {
+                    section.native.set(key, static_cast<i64>(mesh.lodLevel));
+                }
+            }
+            mesh.lodLevel = 0;
+        }
+    }
+}
+
+} // namespace
+
 class Parser::Impl {
 public:
     Diagnostics diagnostics;
@@ -124,6 +166,8 @@ public:
         if (document.models.empty() && !visitor.issues().empty()) {
             return std::nullopt;
         }
+        KeyLegacySets(document);
+        DropLevelsOfDetail(document, diagnostics);
         return document;
     }
 };
@@ -164,6 +208,29 @@ public:
     Diagnostics diagnostics;
 
     std::vector<u8> write(const Document& document) {
+        // A mesh an edit renumbered is written in the numbering a fresh build of
+        // its face set gives, from a canonicalized copy, compacted of anything
+        // lazily deleted (EDIT_MODE_MODELLING_DESIGN.md §2.1). A clean one is
+        // written as it is, byte for byte.
+        const bool dirty =
+            std::any_of(document.models.begin(), document.models.end(), [](const Model& model) {
+                return std::any_of(model.meshes.begin(), model.meshes.end(),
+                                   [](const Mesh& mesh) { return geom::NumberingDirty(mesh); });
+            });
+        if (!dirty) {
+            return writeAsIs(document);
+        }
+        Document canonical = document;
+        for (Model& model : canonical.models) {
+            for (Mesh& mesh : model.meshes) {
+                geom::Canonicalize(mesh);
+            }
+        }
+        return writeAsIs(canonical);
+    }
+
+private:
+    std::vector<u8> writeAsIs(const Document& document) {
         diagnostics.clear();
 
         std::vector<u8> buffer;

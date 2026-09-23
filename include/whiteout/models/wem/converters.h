@@ -26,6 +26,7 @@
 #include "../mdx/structures.h"
 #include "../mdx/types.h"
 #include "converter_base.h"
+#include "geometry/render_view.h"
 #include "native/mdx_native.h"
 #include "skinning/quantize.h"
 
@@ -114,13 +115,35 @@ struct MdxExportMap {
 /// computed without exporting. Empty when the document has no such model.
 MdxExportMap MdxExportMapOf(const Document& document, u32 model, ProfileId profile);
 
+/// One geoset `toMdx` writes, by the WEM elements it came from
+/// (EDIT_MODE_MODELLING_DESIGN.md §2.3): what a host needs to reach a drawn
+/// vertex or triangle from the WEM, and back.
+struct DrawnElements {
+    std::vector<u32> vertices;               ///< Per geoset vertex: its WEM vertex.
+    std::vector<geom::HalfedgeId> halfedges; ///< Per geoset vertex: the corner its attributes came from.
+    std::vector<u32> triangles;              ///< The geoset's triangle list, three per triangle, as written.
+    std::vector<u32> triangleFaces;          ///< Per geoset triangle: its WEM face slot.
+};
+
 /// Per geoset `toMdx` writes for `document.models[model]` (numbered as
-/// `MdxExportMap::geosetsOfMesh` numbers them): the WEM vertex of each of its
-/// vertices, in the geoset's own order (EDIT_MODE_SKIN_DESIGN.md §12.4). Built
-/// by the code the export slices geosets with, so there is one answer. It
-/// builds every mesh's render view, so a host asks at a rebuild, not per frame.
+/// `MdxExportMap::geosetsOfMesh` numbers them), its @ref DrawnElements. Built by
+/// the code the export slices geosets with, so there is one answer. It builds
+/// every mesh's render view, so a host asks at a rebuild, and when a level is
+/// entered, not per frame.
+std::vector<DrawnElements> MdxGeosetElements(const Document& document, u32 model,
+                                             ProfileId profile);
+
+/// `MdxGeosetElements`' vertices alone: the WEM vertex of each geoset vertex, in
+/// the geoset's own order (EDIT_MODE_SKIN_DESIGN.md §12.4).
 std::vector<std::vector<u32>> MdxGeosetVertices(const Document& document, u32 model,
                                                 ProfileId profile);
+
+/// The render view `toMdx` cuts @p mesh's geosets from when it writes
+/// @p profile: positions, normals, `uv0`, `uv1` when the profile writes a
+/// second set and this mesh's varies, and tangents, split by section. What a
+/// host that must see the drawn vertices as the export sees them builds with:
+/// the levels-of-detail simplifier (EDIT_MODE_MODELLING_DESIGN.md §8.3).
+geom::RenderMeshDesc MdxGeosetRenderDesc(const Mesh& mesh, ProfileId profile);
 
 /// One influence as a Warcraft III file holds it (EDIT_MODE_SKIN_DESIGN.md §12.3).
 struct WrittenInfluence {
@@ -475,8 +498,6 @@ public:
 /// another scale runs `RescaleDocument` on a staged copy first, the same
 /// division of labour as the MDX and M3 export drivers.
 struct GltfWriteOptions {
-    /// Drop meshes above the base level of detail, matching the other exporters.
-    bool baseLodOnly = true;
     /// Parent a model referenced by an `AttachmentPayload` under its attach
     /// point — how a D3 actor's child models ride along (§7).
     bool bakeChildModels = true;

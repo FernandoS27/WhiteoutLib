@@ -3,6 +3,8 @@
 
 #include <whiteout/models/wem/geometry/mesh.h>
 
+#include <whiteout/models/wem/geometry/ops.h>
+
 #include <cmath>
 #include <limits>
 
@@ -59,8 +61,10 @@ const geom::FaceSet& Mesh::faceSet() const {
 void Mesh::setFaceSet(geom::FaceSet faces) {
     faces_ = std::move(faces);
     facesStale_ = false;
+    numberingDirty_ = false;
     connectivity_ = false;
     topology_.clear();
+    triangulation.clear();
     attributes.setDomainCount(geom::Domain::Vertex, faces_.vertexCount);
     attributes.setDomainCount(geom::Domain::Face, static_cast<u32>(faces_.faceCount()));
 }
@@ -76,6 +80,7 @@ geom::BuildResult Mesh::ensureConnectivity() {
     }
     connectivity_ = true;
     facesStale_ = false;
+    numberingDirty_ = false;
     // Only the build knows how many halfedges and edges there are, so these two
     // domains are sized here and nowhere else.
     attributes.setDomainCount(geom::Domain::Halfedge, topology_.halfedgeCount());
@@ -84,6 +89,11 @@ geom::BuildResult Mesh::ensureConnectivity() {
 }
 
 void Mesh::invalidateConnectivity() {
+    // The layers index the numbering an edit left; the next build numbers from
+    // the face set. Carried across first, or every corner value scrambles.
+    if (numberingDirty_) {
+        geom::Canonicalize(*this);
+    }
     syncFaceSet();
     topology_.clear();
     connectivity_ = false;
@@ -91,6 +101,7 @@ void Mesh::invalidateConnectivity() {
 
 geom::Topology& Mesh::topology() {
     facesStale_ = true;
+    numberingDirty_ = true;
     return topology_;
 }
 

@@ -37,6 +37,7 @@
 #include "whiteout/models/wem/converters.h"
 #include "whiteout/models/wem/geometry/builder.h"
 #include "whiteout/models/wem/geometry/render_view.h"
+#include "whiteout/models/wem/meshes/remove.h"
 #include "whiteout/models/wem/skinning/quantize.h"
 
 #include "../materials/m3_core.h"
@@ -788,6 +789,8 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
     const u32 modelIndex = static_cast<u32>(document.models.size());
     document.models.push_back(std::move(model));
     m3_anim::Import(source, animContext, document, modelIndex, diagnostics);
+    // Divisions after the first are levels of detail (§8.1); `toM3` writes one.
+    DropLevelsOfDetail(document, diagnostics);
 
     result.value = std::move(document);
     return result;

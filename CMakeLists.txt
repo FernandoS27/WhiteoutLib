@@ -422,6 +422,11 @@ add_library(whiteout_lib
     src/whiteout/models/wem/geometry/checks.cpp
     src/whiteout/models/wem/geometry/ops.cpp
     src/whiteout/models/wem/geometry/render_view.cpp
+    src/whiteout/models/wem/geometry/interpolate.cpp
+    src/whiteout/models/wem/geometry/modelling.cpp
+    src/whiteout/models/wem/geometry/triangulation.cpp
+    src/whiteout/models/wem/geometry/select.cpp
+    src/whiteout/models/wem/geometry/primitives.cpp
     src/whiteout/models/wem/nodes/node.cpp
     src/whiteout/models/wem/nodes/tree.cpp
     src/whiteout/models/wem/nodes/visitor.cpp

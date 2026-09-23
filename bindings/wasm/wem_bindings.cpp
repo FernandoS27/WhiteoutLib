@@ -152,6 +152,11 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("IndexOutOfRange", whiteout::models::wem::DiagCode::IndexOutOfRange)
         .value("AttributeCountMismatch", whiteout::models::wem::DiagCode::AttributeCountMismatch)
         .value("SkinBindingMalformed", whiteout::models::wem::DiagCode::SkinBindingMalformed)
+        .value("NonCanonicalNumbering", whiteout::models::wem::DiagCode::NonCanonicalNumbering)
+        .value("TriangulationMalformed", whiteout::models::wem::DiagCode::TriangulationMalformed)
+        .value("StaleTriangulation", whiteout::models::wem::DiagCode::StaleTriangulation)
+        .value("DuplicateEdge", whiteout::models::wem::DiagCode::DuplicateEdge)
+        .value("ReservedLayerMistyped", whiteout::models::wem::DiagCode::ReservedLayerMistyped)
         .value("LossyBlendMode", whiteout::models::wem::DiagCode::LossyBlendMode)
         .value("DroppedNativeBlock", whiteout::models::wem::DiagCode::DroppedNativeBlock)
         .value("SlotNotBound", whiteout::models::wem::DiagCode::SlotNotBound)
@@ -222,6 +227,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("OperationUnsupported", whiteout::models::wem::DiagCode::OperationUnsupported)
         .value("GeometryRescaled", whiteout::models::wem::DiagCode::GeometryRescaled)
         .value("LevelOfDetailDropped", whiteout::models::wem::DiagCode::LevelOfDetailDropped)
+        .value("SkinProfileNotCarried", whiteout::models::wem::DiagCode::SkinProfileNotCarried)
         .value("SkinInfluenceDuplicated", whiteout::models::wem::DiagCode::SkinInfluenceDuplicated)
         .value("SkinWeightInvalid", whiteout::models::wem::DiagCode::SkinWeightInvalid)
         .value("SkinInfluencesUnsorted", whiteout::models::wem::DiagCode::SkinInfluencesUnsorted)
@@ -1588,6 +1594,17 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("native", &whiteout::models::wem::ProfileMaterialSet::native)
     ;
 
+    class_<whiteout::models::wem::LodExport>("WemLodExport")
+        .constructor<>()
+        .property("generate", &whiteout::models::wem::LodExport::generate)
+        .property("lockBorders", &whiteout::models::wem::LodExport::lockBorders)
+        .property("sourceHadLevels", &whiteout::models::wem::LodExport::sourceHadLevels)
+        .function("getRatios",
+                  optional_override([](const whiteout::models::wem::LodExport& self) { return arrayToVec(self.ratios); }))
+        .function("setRatios",
+                  optional_override([](    whiteout::models::wem::LodExport& self, const std::vector<whiteout::f32>& v) { vecToArray(self.ratios, v); }));
+    ;
+
     class_<whiteout::models::wem::Model>("WemModel")
         .constructor<>()
         .property("name", &whiteout::models::wem::Model::name)
@@ -1598,6 +1615,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("animSet", &whiteout::models::wem::Model::animSet)
         .property("profileSets", &whiteout::models::wem::Model::profileSets)
         .property("bounds", &whiteout::models::wem::Model::bounds)
+        .property("lodExport", &whiteout::models::wem::Model::lodExport)
         .function("slotIndex", &whiteout::models::wem::Model::slotIndex)
         .function("addSlot", &whiteout::models::wem::Model::addSlot)
         .function("drawnProfiles", &whiteout::models::wem::Model::drawnProfiles)

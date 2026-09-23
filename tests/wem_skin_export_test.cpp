@@ -1053,8 +1053,21 @@ TEST_CASE("S1 corpus: every shipped weight comes back where it was",
             continue;
         }
         const Result<Document> document = converter.fromMdx(source);
+        // The import keeps LOD 0 and every-level geosets (EDIT_MODE_MODELLING_
+        // DESIGN.md §8.1): mesh m is the m-th of those, so they are what the
+        // export is compared with. A file with no base geoset keeps all.
+        mdx::Model kept = source;
+        const bool anyBase =
+            std::any_of(source.geosets.begin(), source.geosets.end(), [](const mdx::Geoset& g) {
+                return g.lod == 0 || g.lod == mdx::Bone::MULTIPLE_GEOSETS;
+            });
+        if (anyBase) {
+            std::erase_if(kept.geosets, [](const mdx::Geoset& g) {
+                return g.lod != 0 && g.lod != mdx::Bone::MULTIPLE_GEOSETS;
+            });
+        }
         if (!document.ok() || document->models.empty() ||
-            document->models.front().meshes.size() != source.geosets.size()) {
+            document->models.front().meshes.size() != kept.geosets.size()) {
             ++skipped;
             continue;
         }
@@ -1073,7 +1086,7 @@ TEST_CASE("S1 corpus: every shipped weight comes back where it was",
                 continue;
             }
             const MdxExportMap map = MdxExportMapOf(*document, 0, profile);
-            CompareModels(profile == home_ ? home : other, file, source, *exported, map);
+            CompareModels(profile == home_ ? home : other, file, kept, *exported, map);
         }
     }
 

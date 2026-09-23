@@ -134,6 +134,9 @@ inline constexpr const char* kSmoothGroup = "smoothGroup"; ///< Face / U32.
 // and a split copies -- and because no exporter writes a layer it did not ask
 // for by name, so none of this reaches a file.
 inline constexpr const char* kSkinLocked = "skinLocked";     ///< Vertex / Bool, §6.2.
+/// Mesh / Bool: prepared for modelling, and never welded again
+/// (EDIT_MODE_MODELLING_DESIGN.md §2.2).
+inline constexpr const char* kModelled = "modelled";
 inline constexpr const char* kClassicBones = "classicBones"; ///< Vertex / U16, §12.6.
 /// The prefix of a saved selection's layer, `selection.<name>` (§3.7).
 inline constexpr const char* kSelectionPrefix = "selection.";

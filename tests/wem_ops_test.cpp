@@ -7,7 +7,10 @@
 /// most of the value here: a half-edge surgery that produces the right counts and
 /// a corrupt `next` chain looks correct to every assertion except that one.
 
+#include <algorithm>
+#include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
@@ -15,6 +18,7 @@
 #include <whiteout/models/wem/geometry/builder.h>
 #include <whiteout/models/wem/geometry/checks.h>
 #include <whiteout/models/wem/geometry/ops.h>
+#include <whiteout/models/wem/geometry/triangulation.h>
 
 using namespace whiteout;
 using namespace whiteout::models::wem;
@@ -177,24 +181,89 @@ TEST_CASE("WEM SplitFace refuses a degenerate diagonal", "[wem][geometry][ops]")
     CHECK(liveFaces(mesh) == 1);
 }
 
-TEST_CASE("WEM Triangulate fans from the first corner", "[wem][geometry][ops]") {
+namespace {
+
+/// Triangles as sorted vertex triples, the list sorted: two cuts compared as sets.
+std::vector<std::vector<u32>> asSet(std::vector<std::vector<u32>> triangles) {
+    for (std::vector<u32>& triangle : triangles) {
+        std::sort(triangle.begin(), triangle.end());
+    }
+    std::sort(triangles.begin(), triangles.end());
+    return triangles;
+}
+
+/// Every live face of @p mesh, which must all be triangles.
+std::vector<std::vector<u32>> liveTriangles(const Mesh& mesh) {
+    std::vector<std::vector<u32>> out;
+    for (u32 f = 0; f < mesh.topology().faceCount(); ++f) {
+        if (mesh.topology().isDeleted(geom::FaceId(f))) {
+            continue;
+        }
+        std::vector<u32>& triangle = out.emplace_back();
+        for (geom::VertexId v : mesh.topology().fv(geom::FaceId(f))) {
+            triangle.push_back(v.value());
+        }
+    }
+    return asSet(std::move(out));
+}
+
+/// @p row (vertex ids, three per triangle) as triples.
+std::vector<std::vector<u32>> triples(std::span<const u32> row) {
+    std::vector<std::vector<u32>> out;
+    for (std::size_t t = 0; t + 2 < row.size(); t += 3) {
+        out.push_back({row[t], row[t + 1], row[t + 2]});
+    }
+    return asSet(std::move(out));
+}
+
+} // namespace
+
+TEST_CASE("WEM Triangulate cuts the face as it is drawn", "[wem][geometry][ops]") {
+    // C31: Triangulate once fanned from the first corner; it now cuts along the
+    // diagonals TriangulateFace draws, so the pieces are the triangles shown.
     Mesh mesh = buildMesh(5, {{0, 1, 3, 4, 2}});
     REQUIRE(mesh.topology().valence(geom::FaceId(0)) == 5);
-
-    CHECK(geom::Triangulate(mesh, geom::FaceId(0)) == 2);
-    CHECK(liveFaces(mesh) == 3);
-
-    // A fan, not a zigzag: every triangle carries the apex.
-    for (u32 f = 0; f < mesh.topology().faceCount(); ++f) {
-        CHECK(mesh.topology().valence(geom::FaceId(f)) == 3);
-        bool hasApex = false;
-        for (geom::VertexId v : mesh.topology().fv(geom::FaceId(f))) {
-            hasApex = hasApex || v == geom::VertexId(0);
-        }
-        CHECK(hasApex);
+    const std::vector<u32> loop{0, 1, 3, 4, 2};
+    const auto positions =
+        std::as_const(mesh).attributes.get<const Vector3f>(geom::names::kPosition,
+                                                           geom::Domain::Vertex);
+    const std::vector<Vector3f> held(positions.begin(), positions.end());
+    std::vector<u32> automatic;
+    geom::TriangulateFace(loop, held, {}, automatic);
+    for (u32& corner : automatic) {
+        corner = loop[corner];
     }
 
-    CHECK(intact(mesh) == "");
+    SECTION("by the automatic rule") {
+        CHECK(geom::Triangulate(mesh, geom::FaceId(0)) == 2);
+        CHECK(liveFaces(mesh) == 3);
+        CHECK(liveTriangles(mesh) == triples(automatic));
+        CHECK(mesh.triangulation.row(0).empty());
+        CHECK(intact(mesh) == "");
+    }
+
+    SECTION("by its stored row") {
+        // A valid fan the automatic rule does not pick.
+        std::vector<u32> stored;
+        for (u32 apex = 0; apex < 5 && stored.empty(); ++apex) {
+            std::vector<u32> fan;
+            for (u32 c = 1; c + 1 < 5; ++c) {
+                fan.insert(fan.end(), {loop[apex], loop[(apex + c) % 5], loop[(apex + c + 1) % 5]});
+            }
+            if (geom::RowValid(loop, held, fan) && triples(fan) != triples(automatic)) {
+                stored = fan;
+            }
+        }
+        REQUIRE_FALSE(stored.empty());
+        mesh.triangulation.setRow(0, stored, std::as_const(mesh).topology().faceCount());
+        CHECK(geom::Triangulate(mesh, geom::FaceId(0)) == 2);
+        CHECK(liveTriangles(mesh) == triples(stored));
+        // Every piece is a triangle, so no row is left anywhere.
+        for (u32 f = 0; f < std::as_const(mesh).topology().faceCount(); ++f) {
+            CHECK(mesh.triangulation.row(f).empty());
+        }
+        CHECK(intact(mesh) == "");
+    }
 }
 
 TEST_CASE("WEM TriangulateAll leaves triangles alone", "[wem][geometry][ops]") {
@@ -510,5 +579,194 @@ TEST_CASE("WEM RecomputeTangents writes an orthogonal frame", "[wem][geometry][o
             CHECK(std::abs(t.x * n.x + t.y * n.y + t.z * n.z) < 1e-4f);
             CHECK(std::abs(std::sqrt(t.x * t.x + t.y * t.y + t.z * t.z) - 1.0f) < 1e-4f);
         }
+    }
+}
+
+// ============================================================================
+// What the modelling levels need of the ops (EDIT_MODE_MODELLING_DESIGN.md §2.7)
+// ============================================================================
+
+namespace {
+
+/// `grid` with every edge's `crease` its index plus one and `sharp` set on odd
+/// edges, and every face's smoothing group 100 + its index.
+Mesh markedGrid(u32 w, u32 h) {
+    Mesh mesh = grid(w, h);
+    REQUIRE(mesh.ensureConnectivity().ok());
+    const u32 edges = std::as_const(mesh).topology().edgeCount();
+    const std::span<f32> crease = mesh.attributes.getOrCreate<f32>(
+        geom::names::kCrease, geom::Domain::Edge, geom::AttrType::F32);
+    const std::span<u8> sharp = mesh.attributes.getOrCreate<u8>(
+        geom::names::kSharp, geom::Domain::Edge, geom::AttrType::Bool);
+    for (u32 e = 0; e < edges; ++e) {
+        crease[e] = static_cast<f32>(e + 1);
+        sharp[e] = static_cast<u8>(e % 2);
+    }
+    const std::span<u32> smoothing = mesh.attributes.getOrCreate<u32>(
+        geom::names::kSmoothGroup, geom::Domain::Face, geom::AttrType::U32);
+    for (u32 f = 0; f < smoothing.size(); ++f) {
+        smoothing[f] = 100 + f;
+    }
+    return mesh;
+}
+
+geom::EdgeId firstInterior(const Mesh& mesh) {
+    const geom::Topology& topology = mesh.topology();
+    for (u32 e = 0; e < topology.edgeCount(); ++e) {
+        if (!topology.isBoundary(geom::EdgeId(e))) {
+            return geom::EdgeId(e);
+        }
+    }
+    return geom::EdgeId();
+}
+
+/// A mesh straight from a face set, no repair: the fixture is exactly what
+/// the refusal is about.
+Mesh fromFaces(u32 vertexCount, const std::vector<std::vector<u32>>& corners,
+               const std::vector<Vector3f>& positions) {
+    geom::FaceSet faces;
+    faces.vertexCount = vertexCount;
+    for (const std::vector<u32>& face : corners) {
+        faces.addFace(face);
+    }
+    Mesh mesh;
+    mesh.setFaceSet(faces);
+    const std::span<Vector3f> written = mesh.attributes.getOrCreate<Vector3f>(
+        geom::names::kPosition, geom::Domain::Vertex, geom::AttrType::F32x3);
+    for (u32 i = 0; i < vertexCount; ++i) {
+        written[i] = positions[i];
+    }
+    mesh.attributes.getOrCreate<u32>(geom::names::kSection, geom::Domain::Face,
+                                     geom::AttrType::U32);
+    mesh.sections.emplace_back();
+    REQUIRE(mesh.ensureConnectivity().ok());
+    return mesh;
+}
+
+geom::EdgeId edgeBetween(const Mesh& mesh, u32 a, u32 b) {
+    const geom::HalfedgeId h = mesh.topology().findHalfedge(geom::VertexId(a), geom::VertexId(b));
+    REQUIRE(h.valid());
+    return geom::Topology::edge(h);
+}
+
+} // namespace
+
+TEST_CASE("WEM SplitEdge keeps the edge's flags on both halves", "[wem][geometry][ops]") {
+    Mesh mesh = markedGrid(2, 2);
+    // An odd interior edge, so `sharp` is set on it.
+    geom::EdgeId edge;
+    for (u32 e = 1; e < std::as_const(mesh).topology().edgeCount(); e += 2) {
+        if (!std::as_const(mesh).topology().isBoundary(geom::EdgeId(e))) {
+            edge = geom::EdgeId(e);
+            break;
+        }
+    }
+    REQUIRE(edge.valid());
+    const f32 crease = mesh.attributes.get<f32>(geom::names::kCrease, geom::Domain::Edge)[edge.index()];
+    const geom::VertexId v = geom::SplitEdge(mesh, edge, 0.4f);
+    REQUIRE(v.valid());
+    const geom::Topology& topology = std::as_const(mesh).topology();
+    const std::span<const f32> creases =
+        std::as_const(mesh).attributes.get<const f32>(geom::names::kCrease, geom::Domain::Edge);
+    const std::span<const u8> sharps =
+        std::as_const(mesh).attributes.get<const u8>(geom::names::kSharp, geom::Domain::Edge);
+    u32 halves = 0;
+    for (const geom::HalfedgeId h : topology.voh(v)) {
+        const std::size_t e = geom::Topology::edge(h).index();
+        CHECK(creases[e] == crease);
+        CHECK(sharps[e] == 1);
+        ++halves;
+    }
+    CHECK(halves == 2u);
+    CHECK(intact(mesh) == "");
+}
+
+TEST_CASE("WEM SplitFace copies the face's values and leaves the diagonal clear",
+          "[wem][geometry][ops]") {
+    Mesh mesh = markedGrid(1, 1);
+    // The grid's two triangles joined into a quad, then cut the other way.
+    const geom::EdgeId joined = firstInterior(mesh);
+    const geom::FaceId quad = std::as_const(mesh).topology().face(geom::Topology::halfedge(joined, 0));
+    REQUIRE(geom::DissolveEdge(mesh, joined, quad));
+    const u32 group =
+        mesh.attributes.get<u32>(geom::names::kSmoothGroup, geom::Domain::Face)[quad.index()];
+    const u32 edgesBefore = std::as_const(mesh).topology().edgeCount();
+    const geom::FaceId added = geom::SplitFace(mesh, quad, 1, 3);
+    REQUIRE(added.valid());
+    CHECK(mesh.attributes.get<u32>(geom::names::kSmoothGroup, geom::Domain::Face)[added.index()] ==
+          group);
+    // The diagonal is the one edge the cut made: a cross edge, clear.
+    REQUIRE(std::as_const(mesh).topology().edgeCount() == edgesBefore + 1);
+    CHECK(mesh.attributes.get<f32>(geom::names::kCrease, geom::Domain::Edge)[edgesBefore] == 0.0f);
+    CHECK(mesh.attributes.get<u8>(geom::names::kSharp, geom::Domain::Edge)[edgesBefore] == 0);
+    CHECK(intact(mesh) == "");
+}
+
+TEST_CASE("WEM DissolveEdge refuses across sections", "[wem][geometry][ops]") {
+    Mesh mesh = grid(1, 1);
+    REQUIRE(mesh.ensureConnectivity().ok());
+    mesh.sections.emplace_back();
+    mesh.sections.emplace_back();
+    mesh.faceSections()[1] = 1;
+    CHECK_FALSE(geom::DissolveEdge(mesh, firstInterior(mesh)));
+    CHECK(liveFaces(mesh) == 2);
+}
+
+TEST_CASE("WEM DissolveEdge refuses a loop that would visit a vertex twice",
+          "[wem][geometry][ops]") {
+    // A tetrahedron. Joining (0,1,2) and (0,3,1) is legal and makes the quad
+    // (0,3,1,2); that quad and (1,3,2) share 1, 2 and 3, so joining them across
+    // 1-3 would walk 2 twice.
+    Mesh mesh = fromFaces(4, {{0, 1, 2}, {0, 3, 1}, {1, 3, 2}, {0, 2, 3}},
+                          {kSpread[2], kSpread[3], kSpread[4], kSpread[5]});
+    REQUIRE(geom::DissolveEdge(mesh, edgeBetween(mesh, 0, 1)));
+    CHECK_FALSE(geom::DissolveEdge(mesh, edgeBetween(mesh, 1, 3)));
+    CHECK(intact(mesh) == "");
+}
+
+TEST_CASE("WEM DissolveEdge refuses a face that would copy another", "[wem][geometry][ops]") {
+    // Two triangles (0,1,2) and (0,2,3), capped by the quad (0,3,2,1): joining
+    // the triangles across 0-2 makes the cap's corners again.
+    Mesh mesh = fromFaces(4, {{0, 1, 2}, {0, 2, 3}, {0, 3, 2, 1}},
+                          {Vector3f{0, 0, 0}, Vector3f{1, 0, 0}, Vector3f{1, 1, 0.2f},
+                           Vector3f{0, 1, 0}});
+    CHECK_FALSE(geom::DissolveEdge(mesh, edgeBetween(mesh, 0, 2)));
+    CHECK(liveFaces(mesh) == 3);
+}
+
+TEST_CASE("WEM DissolveEdge keeps the face asked for", "[wem][geometry][ops]") {
+    Mesh mesh = grid(1, 1);
+    REQUIRE(mesh.ensureConnectivity().ok());
+    const geom::EdgeId edge = firstInterior(mesh);
+    const geom::FaceId odd = std::as_const(mesh).topology().face(geom::Topology::halfedge(edge, 1));
+    REQUIRE(geom::DissolveEdge(mesh, edge, odd));
+    CHECK_FALSE(std::as_const(mesh).topology().isDeleted(odd));
+    CHECK(intact(mesh) == "");
+}
+
+TEST_CASE("WEM DissolveVertex refuses a face it would leave two corners",
+          "[wem][geometry][ops]") {
+    // A lone triangle: each corner has valence 2 on the border.
+    Mesh mesh = fromFaces(3, {{0, 1, 2}}, {kSpread[0], kSpread[1], kSpread[2]});
+    CHECK_FALSE(geom::DissolveVertex(mesh, geom::VertexId(0)));
+    CHECK(liveFaces(mesh) == 1);
+}
+
+TEST_CASE("WEM DissolveVertex refuses neighbours already joined by an edge",
+          "[wem][geometry][ops]") {
+    // v (1) sits between a (0) and b (2) inside two quads, (a,v,b,p) and
+    // (v,a,q,b); the triangle (a,b,q) already joins a and b.
+    Mesh mesh = fromFaces(5, {{0, 1, 2, 3}, {1, 0, 4, 2}, {0, 2, 4}},
+                          {Vector3f{0, 0, 0}, Vector3f{1, 0.3f, 0.2f}, Vector3f{2, 0, 0},
+                           Vector3f{1, 1.5f, 0}, Vector3f{1, -1, 0.5f}});
+    CHECK_FALSE(geom::DissolveVertex(mesh, geom::VertexId(1)));
+    CHECK(intact(mesh) == "");
+
+    SECTION("and without the triangle it is legal") {
+        Mesh open = fromFaces(5, {{0, 1, 2, 3}, {1, 0, 4, 2}},
+                              {Vector3f{0, 0, 0}, Vector3f{1, 0.3f, 0.2f}, Vector3f{2, 0, 0},
+                               Vector3f{1, 1.5f, 0}, Vector3f{1, -1, 0.5f}});
+        CHECK(geom::DissolveVertex(open, geom::VertexId(1)));
+        CHECK(intact(open) == "");
     }
 }

@@ -59,10 +59,11 @@ namespace geom {
  * @brief Inserts a vertex at `lerp(from, to, t)` along @p edge.
  *
  * Both incident loops gain one corner; no face is added, so this is valid for
- * n-gons as well as triangles. The new corner's halfedge attributes are the lerp
- * of the two corners the edge spans *in that loop*, which is the only reading
- * that makes a split invisible to a subsequent render view. The new vertex's
- * skin binding is copied from the nearer endpoint.
+ * n-gons as well as triangles. Each new corner blends the two corners the edge
+ * spans *in its loop* through `BlendCorners` (interpolate.h), both loops from
+ * the same ordered pair, so a split of a continuous edge stays bit-equal across
+ * it. The new vertex's skin and Vertex layers blend its ends' the same way
+ * (`BlendVertex`), and it is a point of its own: a fresh `mergeGroup`.
  *
  * @return the new vertex, or an invalid id if @p edge is not usable.
  */
@@ -76,7 +77,8 @@ VertexId SplitEdge(Mesh& mesh, EdgeId edge, f32 t = 0.5f);
  * values copied.
  *
  * @return the new face, or an invalid id when the corners are equal, adjacent,
- *         or out of range.
+ *         out of range, or already joined by an edge elsewhere (a second edge
+ *         between one pair of vertices, which no rebuild can hold).
  */
 FaceId SplitFace(Mesh& mesh, FaceId face, u32 cornerA, u32 cornerB);
 
@@ -84,7 +86,14 @@ FaceId SplitFace(Mesh& mesh, FaceId face, u32 cornerA, u32 cornerB);
 /// `Triangulate` walks with.
 FaceId SplitFaceAt(Mesh& mesh, HalfedgeId a, HalfedgeId b);
 
-/// True when collapsing `from(h)` into `to(h)` leaves a valid 2-manifold.
+/**
+ * @brief True when collapsing `from(h)` into `to(h)` leaves a valid 2-manifold.
+ *
+ * The link condition for polygons (EDIT_MODE_MODELLING_DESIGN.md §2.7.9): the
+ * vertices the two one-rings share are exactly the apexes of the *triangular*
+ * side faces, and no face other than the two side faces holds both ends. A quad
+ * or an n-gon beside the edge has no apex, and loses a corner.
+ */
 bool IsCollapseLegal(const Mesh& mesh, HalfedgeId h);
 
 /**
@@ -107,20 +116,68 @@ bool CollapseEdge(Mesh& mesh, HalfedgeId h);
  */
 bool FlipEdge(Mesh& mesh, EdgeId edge);
 
-/// Fans @p face from its first halfedge. @return the number of faces added.
+/// Cuts @p face along the diagonals it is drawn with (`TriangulateFace`: its
+/// stored row when valid, else the automatic rule), so it becomes the triangles
+/// it showed. @return the number of faces added.
 u32 Triangulate(Mesh& mesh, FaceId face);
 
 /**
  * @brief Merges the two faces sharing @p edge into one and deletes the edge.
- * @return false for a boundary edge or an edge whose two sides are one face.
+ *
+ * @p survivor is the face that stays, and must be one of the two; invalid keeps
+ * the face on the edge's even side. A join keeps the lower-numbered face.
+ *
+ * @return false, changing nothing, for a boundary edge; an edge whose two sides
+ *         are one face; two faces of different sections (one would take the
+ *         other's material); a merged loop that would visit a vertex twice; and
+ *         a merged face with the corners of a face already there.
  */
-bool DissolveEdge(Mesh& mesh, EdgeId edge);
+bool DissolveEdge(Mesh& mesh, EdgeId edge, FaceId survivor = FaceId());
 
 /**
  * @brief Removes a valence-2 vertex, merging its two edges into one.
- * @return false when the valence is not 2.
+ * @return false, changing nothing, when the valence is not 2, when a face
+ *         beside it would drop below three corners, or when its two neighbours
+ *         already share an edge.
  */
 bool DissolveVertex(Mesh& mesh, VertexId vertex);
+
+/// What `Canonicalize` moved: `GarbageCollect`'s vertex and face tables composed
+/// with the halfedge and edge renumbering, so a caller holding ids can follow
+/// them. `table[old]` is the new id, or `kInvalidId` for one that is gone; an
+/// empty table is the identity.
+struct CanonicalRemap {
+    std::vector<u32> vertices;
+    std::vector<u32> faces;
+    std::vector<u32> halfedges;
+    std::vector<u32> edges;
+
+    bool identity() const {
+        return vertices.empty() && faces.empty() && halfedges.empty() && edges.empty();
+    }
+};
+
+/**
+ * @brief Compacts the mesh and numbers its halfedges, edges and each vertex's
+ *        outgoing halfedge as a fresh build of its face set would
+ *        (EDIT_MODE_MODELLING_DESIGN.md §2.1).
+ *
+ * Every Halfedge layer is carried by corner correspondence and every Edge layer
+ * with its edge, so no corner or edge value moves. The identity (an empty
+ * remap) on a mesh no edit has renumbered, and on one without connectivity.
+ * Implemented as a fresh build, never through `invalidateConnectivity`, which
+ * calls this.
+ */
+CanonicalRemap Canonicalize(Mesh& mesh);
+
+/// True when the numbering, `vertexOutgoing` included, is what a build of the
+/// face set gives, and nothing is lazily deleted. A mesh without connectivity
+/// is. For tests and `Validate`: it builds a second topology to compare.
+bool IsCanonical(const Mesh& mesh);
+
+/// True when an edit may have renumbered @p mesh since its connectivity was
+/// last built: what `Canonicalize` would not skip. Cheap.
+bool NumberingDirty(const Mesh& mesh);
 
 /**
  * @brief Compacts the mesh: `Topology::garbageCollect` plus the attribute and
@@ -130,7 +187,8 @@ bool DissolveVertex(Mesh& mesh, VertexId vertex);
  * them, which is right for a kernel and wrong for anything holding attributes
  * alongside — the counts drift and the §5.7 structural invariant "every layer's
  * element count matches its domain" breaks. Deleting is lazy (§5.2), so *this*
- * is the call that makes a deletion real.
+ * is the call that makes a deletion real. The stored triangulation is remapped
+ * with the rest; a row naming a deleted vertex is dropped.
  *
  * @return the topology's remap tables, so a caller holding indices can fix them.
  */
@@ -140,7 +198,7 @@ Topology::Remap GarbageCollect(Mesh& mesh);
 // Rebuilding — handles invalidated, attribute data carried across
 // ============================================================================
 
-/// Fans every face with more than three corners. @return faces added.
+/// `Triangulate` on every face with more than three corners. @return faces added.
 u32 TriangulateAll(Mesh& mesh);
 
 struct WeldResult {
@@ -184,8 +242,9 @@ u32 SplitVertexByHalfedgeAttr(Mesh& mesh, std::span<const std::string> layers);
 /// @return the number of faces whose winding was reversed.
 u32 UnifyWinding(Mesh& mesh);
 
-/// Concatenates @p meshes into one. Sections, attribute layers, skin bindings and
-/// merge groups are all renumbered into the combined space.
+/// Concatenates @p meshes into one. Sections, attribute layers, skin bindings,
+/// merge groups and stored triangulations are all renumbered into the combined
+/// space.
 Mesh MergeMeshes(std::span<const Mesh> meshes);
 
 /// One mesh per section, in section order. A section with no faces still yields a
@@ -236,8 +295,35 @@ void RecomputeNormals(Mesh& mesh, f32 angleThreshold = 1.047197551f);
 /// Rewrites the `tangent` Halfedge layer (F32x4, w = handedness) from @p uvSet.
 /// `w` is -1 where the UV-derived bitangent opposes `cross(normal, tangent)` —
 /// a mirrored island — so `bitangent = w * cross(normal, tangent)` everywhere.
-/// Does nothing when the mesh has no such UV layer.
+/// A polygon's face tangent is the UV-area-weighted mean over the triangles it
+/// is drawn as. Does nothing when the mesh has no such UV layer.
 void RecomputeTangents(Mesh& mesh, u32 uvSet = 0);
+
+// ---- The face-set re-shade (EDIT_MODE_MODELLING_DESIGN.md §2.7.10) ----------
+
+/// The default normal-smoothing angle: 60 degrees.
+inline constexpr f32 kDefaultShadingAngle = 1.047197551f;
+
+/// The angle normals smooth across on @p mesh: pi on a `modelled` mesh, where
+/// only `sharp` splits them (the weld turned the file's hard edges into it, and
+/// 60 degrees would harden creases a low-poly model draws smooth), and
+/// `kDefaultShadingAngle` elsewhere. The one place the choice is made.
+f32 ShadingAngle(const Mesh& mesh);
+
+/// `RecomputeNormals` over the corners at the vertices of @p faces only.
+void RecomputeNormals(Mesh& mesh, std::span<const FaceId> faces, f32 angleThreshold);
+
+/**
+ * @brief Rewrites the tangents of the corners at the vertices of @p faces.
+ *
+ * Corners are grouped inside the normal groups (`ShadingAngle`), then split
+ * where their UVs or their face's handedness differ, so a UV seam or a mirror
+ * line keeps two tangents at one vertex and a crease smoothed into one normal
+ * gets one tangent. A face whose UV map has no area contributes nothing; a group
+ * left with nothing takes a tangent along its face's first edge, orthogonal to
+ * its normal.
+ */
+void RecomputeTangents(Mesh& mesh, std::span<const FaceId> faces, u32 uvSet);
 
 } // namespace geom
 } // namespace wem

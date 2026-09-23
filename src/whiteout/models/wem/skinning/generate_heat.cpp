@@ -208,8 +208,8 @@ void BuildLaplacian(MeshSystem& system) {
     system.area.assign(points.pointCount, 0.0);
 
     const auto add = [&](u32 from, u32 to, f64 weight) {
-        // A fanned diagonal of a polygon is not a ring edge, and has no slot:
-        // its share is dropped, and the polygon's own edges carry the rest.
+        // A drawn diagonal of a polygon is a ring edge (the point table adds
+        // them); a pair with no slot is one a weld folded, and is dropped.
         const u32 there = SlotOf(points, from, to);
         const u32 back = SlotOf(points, to, from);
         if (there != kInvalidIndex && back != kInvalidIndex) {

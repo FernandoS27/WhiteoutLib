@@ -58,7 +58,7 @@ enum class DiagCode : u16 {
     DegenerateFaceDropped,      ///< A face with repeated or collinear-to-zero-area corners.
     DuplicateFaceDropped,       ///< The same corner set already had a face.
     InconsistentWindingFlipped, ///< A face was reversed to agree with its neighbours.
-    NgonTriangulated,           ///< An n-gon was fanned because the target forbids n-gons.
+    NgonTriangulated,           ///< An n-gon was cut into the triangles it is drawn as.
     IsolatedVertexDropped,      ///< A vertex no face referenced.
 
     // --- geometry: structure (§5.7 Structural) -------------------------------
@@ -66,6 +66,11 @@ enum class DiagCode : u16 {
     IndexOutOfRange,        ///< A section, material slot or attribute index is out of range.
     AttributeCountMismatch, ///< A layer's element count disagrees with its domain.
     SkinBindingMalformed,   ///< `offsets` not monotonic, or not sized vertexCount + 1.
+    NonCanonicalNumbering,  ///< Halfedges or edges numbered as no build of the face set would.
+    TriangulationMalformed, ///< The stored triangulation's table is mis-shaped, or a triangle has a row.
+    StaleTriangulation,     ///< A face's stored row is not a valid cut of it; the automatic rule draws it.
+    DuplicateEdge,          ///< Two edges join one pair of vertices; a rebuild cannot hold them.
+    ReservedLayerMistyped,  ///< A reserved layer name on the wrong domain or with the wrong type.
 
     // --- materials (§7) -------------------------------------------------------
     LossyBlendMode,              ///< The target has no equivalent; the nearest was written.
@@ -113,7 +118,7 @@ enum class DiagCode : u16 {
     BoneInfluenceLimit,        ///< More influences than `maxBoneInfluences`; the tail was cut.
     UvSetLimit,                ///< More UV sets than `maxUvSets`.
     IndexWidthExceeded,        ///< Vertex count exceeds `indexWidth`.
-    NgonUnsupported,           ///< The profile forbids n-gons and one is present.
+    NgonUnsupported,           ///< Retired: never raised. Every exporter cuts n-gons into triangles.
     VertexColorUnsupported,    ///< The profile has no vertex colour and a layer carries one.
     NativeKindProfileMismatch, ///< A native block's kind disagrees with its set's profile (§6.5).
     BonePaletteLimit,          ///< A section needs more bones than `maxBonesPerPalette`.
@@ -153,8 +158,9 @@ enum class DiagCode : u16 {
     OperationUnsupported,   ///< The converter does not implement this direction at all.
 
     // --- document (§6.2) ------------------------------------------------------
-    GeometryRescaled,     ///< Every length in the document was restated at another scale.
-    LevelOfDetailDropped, ///< A mesh above the base level of detail was not carried.
+    GeometryRescaled,      ///< Every length in the document was restated at another scale.
+    LevelOfDetailDropped,  ///< A mesh above the base level of detail was not carried.
+    SkinProfileNotCarried, ///< Another game's file got one skin profile or geoset set of several.
 
     // --- skin values (EDIT_MODE_SKIN_DESIGN.md §6.4) ---------------------------
     SkinInfluenceDuplicated, ///< One vertex names a bone twice.

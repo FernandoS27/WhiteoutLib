@@ -3,6 +3,9 @@
 
 #include <whiteout/models/wem/skinning/points.h>
 
+#include <whiteout/models/wem/geometry/modelling.h>
+#include <whiteout/models/wem/geometry/triangulation.h>
+
 #include <algorithm>
 #include <cmath>
 #include <unordered_map>
@@ -65,24 +68,6 @@ CellKey CellOf(const Vector3f& p, f32 cell) {
                    static_cast<i64>(std::floor(p.z / cell))};
 }
 
-f32 BoundingDiagonal(std::span<const Vector3f> positions) {
-    if (positions.empty()) {
-        return 0.0f;
-    }
-    Vector3f low = positions[0];
-    Vector3f high = positions[0];
-    for (const Vector3f& p : positions) {
-        low.x = std::min(low.x, p.x);
-        low.y = std::min(low.y, p.y);
-        low.z = std::min(low.z, p.z);
-        high.x = std::max(high.x, p.x);
-        high.y = std::max(high.y, p.y);
-        high.z = std::max(high.z, p.z);
-    }
-    const Vector3f span{high.x - low.x, high.y - low.y, high.z - low.z};
-    return std::sqrt(span.x * span.x + span.y * span.y + span.z * span.z);
-}
-
 /// The CSR of a set of (key, value) pairs, sorted and de-duplicated per key.
 void BuildCsr(u32 keys, std::vector<std::pair<u32, u32>>& pairs, std::vector<u32>& offsets,
               std::vector<u32>& values) {
@@ -133,7 +118,7 @@ PointTable BuildPointTable(const Mesh& mesh) {
     }
 
     // --- the joins: seam twins, then repair twins ----------------------------
-    table.weldTolerance = BoundingDiagonal(positions) * 1e-5f;
+    table.weldTolerance = geom::CoincidenceTolerance(positions);
     Unions unions(table.vertexCount);
     if (table.weldTolerance > 0.0f) {
         const f32 cell = table.weldTolerance * 2.0f;
@@ -200,14 +185,34 @@ PointTable BuildPointTable(const Mesh& mesh) {
     // Both come off the face set: a face's corners are ring neighbours of each
     // other, and the faces that share a point are one island. Neither needs the
     // half-edge arrays, which is why a table can be built for a mesh nobody has
-    // asked for connectivity on.
+    // asked for connectivity on. A polygon's drawn diagonals are ring edges too,
+    // so joining triangles into quads changes no neighbourhood Grow and Smooth
+    // see (EDIT_MODE_MODELLING_DESIGN.md §2.3).
     const geom::FaceSet& faces = mesh.faceSet();
+    const std::vector<u32> slots = geom::FaceSetSlots(mesh);
     std::vector<std::pair<u32, u32>> ringPairs;
     Unions faceUnions(static_cast<u32>(faces.faceCount()));
     std::vector<u32> firstFaceOfPoint(table.pointCount, kInvalidIndex);
+    std::vector<u32> cut;
     u32 corner = 0;
     for (u32 f = 0; f < faces.faceCount(); ++f) {
         const u32 valence = faces.faceValence[f];
+        if (valence > 3) {
+            const std::span<const u32> loop(faces.cornerVertex.data() + corner, valence);
+            cut.clear();
+            geom::TriangulateFace(loop, positions,
+                                  mesh.triangulation.row(f < slots.size() ? slots[f] : f), cut);
+            for (std::size_t t = 0; t + 2 < cut.size(); t += 3) {
+                for (u32 side = 0; side < 3; ++side) {
+                    const u32 a = loop[cut[t + side]];
+                    const u32 b = loop[cut[t + (side + 1) % 3]];
+                    if (a < table.vertexCount && b < table.vertexCount &&
+                        table.pointOf[a] != table.pointOf[b]) {
+                        ringPairs.emplace_back(table.pointOf[a], table.pointOf[b]);
+                    }
+                }
+            }
+        }
         for (u32 k = 0; k < valence; ++k) {
             const u32 vertex = faces.cornerVertex[corner + k];
             const u32 next = faces.cornerVertex[corner + (k + 1) % valence];
@@ -263,7 +268,7 @@ std::vector<u32> DisagreeingPoints(const Mesh& mesh, const PointTable& points) {
         }
         for (std::size_t i = 0; i < left.size(); ++i) {
             if (left[i].bone != right[i].bone ||
-                std::abs(left[i].weight - right[i].weight) > 1e-5f) {
+                std::abs(left[i].weight - right[i].weight) > geom::kSkinWeightTolerance) {
                 return false;
             }
         }

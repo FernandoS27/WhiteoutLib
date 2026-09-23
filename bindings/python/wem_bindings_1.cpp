@@ -727,6 +727,26 @@ On the set rather than the `Model` because the look axis is per set: D3's looks 
         .def_readwrite("native", &whiteout::models::wem::ProfileMaterialSet::native)
     ;
 
+    py::class_<whiteout::models::wem::LodExport>(m, "LodExport", R"doc(How the `.mdx` export makes levels of detail (EDIT_MODE_MODELLING_DESIGN.md §8.2).
+
+A document holds LOD 0 only: import drops the rest (`DropLevelsOfDetail`), and the export generates LOD 1-3 from LOD 0 when this says so. Authoring state, saved in the `.wem` and written to no game's file.)doc")
+        .def(py::init<>())
+        .def_readwrite("generate", &whiteout::models::wem::LodExport::generate, R"doc(Generate LOD 1-3 at export. Off until the user turns it on (U7).)doc")
+        .def_readwrite("lock_borders", &whiteout::models::wem::LodExport::lockBorders, R"doc(`meshopt_SimplifyLockBorder`: off, since it stalls the open shells Warcraft III models are full of.)doc")
+        .def_readwrite("source_had_levels", &whiteout::models::wem::LodExport::sourceHadLevels, R"doc(The import dropped a ladder, so an export without one loses it.)doc")
+        .def("get_ratios",
+            [](const whiteout::models::wem::LodExport& self) {
+                return std::vector<whiteout::f32>(self.ratios.begin(), self.ratios.end());
+            })
+        .def("set_ratios",
+            [](whiteout::models::wem::LodExport& self, const std::vector<whiteout::f32>& v) {
+                if (v.size() != self.ratios.size())
+                    throw std::runtime_error("setter expected exactly "
+                        + std::to_string(self.ratios.size()) + " elements");
+                for (std::size_t i = 0; i < v.size(); ++i) self.ratios[i] = v[i];
+            })
+    ;
+
     py::class_<whiteout::models::wem::Model>(m, "Model")
         .def(py::init<>())
         .def_readwrite("name", &whiteout::models::wem::Model::name)
@@ -739,6 +759,7 @@ On the set rather than the `Model` because the look axis is per set: D3's looks 
 On the `Model` because that is what a D3 actor's `snoAnimSet` names once the actor has become one (§9.1) — there is no `Actor` to hang it on, and a document-level pairing would be a side table with the model index in it, which is the shape §10.2 exists to avoid. Two actors sharing an appearance but not an animset are therefore two models, the same way two that equip differently are.)doc")
         .def_readwrite("profile_sets", &whiteout::models::wem::Model::profileSets)
         .def_readwrite("bounds", &whiteout::models::wem::Model::bounds)
+        .def_readwrite("lod_export", &whiteout::models::wem::Model::lodExport, R"doc(How the `.mdx` export makes levels of detail (`LodExport`).)doc")
         .def("slot_index", &whiteout::models::wem::Model::slotIndex, py::arg("name"), R"doc(The index of the slot named @p name, or `kInvalidIndex`.)doc")
         .def("add_slot", &whiteout::models::wem::Model::addSlot, py::arg("name"), R"doc(Appends a slot if it is not already there and returns its index.)doc")
         .def("drawn_profiles", &whiteout::models::wem::Model::drawnProfiles, R"doc(The mask of profiles at least one section draws in. Cheap, and what a UI wants when it asks "what is actually in this file".)doc")

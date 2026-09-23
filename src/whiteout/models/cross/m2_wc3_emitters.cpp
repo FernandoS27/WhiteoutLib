@@ -12,6 +12,7 @@
 #include "whiteout/models/m2/structures/base.h"
 #include "whiteout/models/wem/anim/channel.h"
 #include "whiteout/models/wem/anim/clip.h"
+#include "whiteout/models/wem/meshes/remove.h"
 
 namespace whiteout {
 namespace models {
@@ -422,9 +423,7 @@ private:
                         " keyed propert(ies) with no PRE2 track (lifespan, azimuth, aim point "
                         "or a sphere's radii) were dropped");
         }
-        for (const u32 id : dropped) {
-            removeChannel(id);
-        }
+        EraseChannels(document_, modelIndex_, dropped);
     }
 
     template <class F>
@@ -473,20 +472,6 @@ private:
         collapse(channel.initValue);
         channel.valueType = geom::AttrType::F32;
         forEachSubTrack(channel.id, [&](SubTrack& track) { collapse(track.values); });
-    }
-
-    void removeChannel(u32 id) {
-        for (Clip& clip : document_.clips) {
-            if (clip.model != modelIndex_) {
-                continue;
-            }
-            for (SubTrackContainer& container : clip.containers) {
-                std::erase_if(container.subTracks,
-                              [id](const SubTrack& track) { return track.channel == id; });
-            }
-        }
-        std::erase_if(model_.animChannels.channels,
-                      [id](const AnimChannel& channel) { return channel.id == id; });
     }
 
     Document& document_;

@@ -28,8 +28,11 @@ namespace geom {
  * @brief Structural invariants — a violation means the mesh is corrupt.
  *
  * Checks the connectivity relations (C1, C2, C7), index ranges, attribute layer
- * sizes (C9) and the skin binding's CSR shape. Connectivity checks are skipped
- * when the mesh has none built, since there is then nothing to be inconsistent.
+ * sizes (C9), reserved layer names' domains and types, the skin binding's CSR
+ * shape, and the stored triangulation's: its table, no row on a triangle, and a
+ * warning for a row that is no longer a valid cut of its face. Connectivity
+ * checks are skipped when the mesh has none built, since there is then nothing
+ * to be inconsistent.
  *
  * @param meshIndex Reported in every `ElementRef`, so a document-level caller can
  *                  say which mesh.
@@ -38,10 +41,12 @@ void CheckStructural(const Mesh& mesh, u32 meshIndex, Diagnostics& out);
 
 /**
  * @brief The §5.10 contract: C4 (2-manifold edges), C5 (one fan per vertex),
- *        C6 (no repeated or duplicated face vertex sets).
+ *        C6 (no repeated or duplicated face vertex sets), and no two edges
+ *        between one pair of vertices.
  *
- * Requires connectivity; a mesh without it reports nothing, because the face set
- * alone cannot answer C5.
+ * A mesh without connectivity is checked through a local build, as the render
+ * view draws it; one whose face set does not build reports that and nothing
+ * else.
  */
 void CheckManifold(const Mesh& mesh, u32 meshIndex, Diagnostics& out);
 

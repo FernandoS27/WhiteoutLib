@@ -30,6 +30,11 @@ constexpr const char* kDiagCodeNames[] = {
     "IndexOutOfRange",
     "AttributeCountMismatch",
     "SkinBindingMalformed",
+    "NonCanonicalNumbering",
+    "TriangulationMalformed",
+    "StaleTriangulation",
+    "DuplicateEdge",
+    "ReservedLayerMistyped",
 
     "LossyBlendMode",
     "DroppedNativeBlock",
@@ -107,6 +112,7 @@ constexpr const char* kDiagCodeNames[] = {
 
     "GeometryRescaled",
     "LevelOfDetailDropped",
+    "SkinProfileNotCarried",
 
     "SkinInfluenceDuplicated",
     "SkinWeightInvalid",

@@ -28,6 +28,7 @@
  * `Resolve` is the only place the profile axis and the look axis meet.
  */
 
+#include <array>
 #include <string>
 #include <vector>
 
@@ -109,6 +110,37 @@ struct ProfileMaterialSet {
     }
 };
 
+/**
+ * @brief How the `.mdx` export makes levels of detail
+ *        (EDIT_MODE_MODELLING_DESIGN.md §8.2).
+ *
+ * A document holds LOD 0 only: import drops the rest (`DropLevelsOfDetail`),
+ * and the export generates LOD 1-3 from LOD 0 when this says so. Authoring
+ * state, saved in the `.wem` and written to no game's file.
+ */
+struct LodExport {
+    /// Generate LOD 1-3 at export. Off until the user turns it on (U7).
+    bool generate = false;
+    /// LOD 1-3 triangles over LOD 0's: the source's own when it had a ladder,
+    /// otherwise the shipped HD corpus's (LOD 1's median, LOD 2's and 3's means).
+    std::array<f32, 3> ratios{1.00f, 0.88f, 0.71f};
+    /// `meshopt_SimplifyLockBorder`: off, since it stalls the open shells
+    /// Warcraft III models are full of.
+    bool lockBorders = false;
+    /// The import dropped a ladder, so an export without one loses it.
+    bool sourceHadLevels = false;
+
+    template <class V>
+    void reflect(V& v) {
+        v.field("generate", generate);
+        v.field("ratio1", ratios[0]);
+        v.field("ratio2", ratios[1]);
+        v.field("ratio3", ratios[2]);
+        v.field("lockBorders", lockBorders);
+        v.field("sourceHadLevels", sourceHadLevels);
+    }
+};
+
 /// @bind methods
 struct Model {
     std::string name;
@@ -135,6 +167,9 @@ struct Model {
     /// `Node::skin.poseDeltas[i]`, so removing a node takes its deltas with it.
     /// No file carries them.
     std::vector<TestPose> testPoses;
+
+    /// How the `.mdx` export makes levels of detail (`LodExport`).
+    LodExport lodExport;
 
     /// The set for @p profile, or null. Sets are unordered in the vector and
     /// there is at most one per profile — a second is a structural error.
@@ -167,6 +202,9 @@ struct Model {
         // v3: the Skin workspace's test poses. A `MODL` written before it has
         // none, which is what an unskinned document holds anyway.
         v.since(3).field("testPoses", testPoses);
+        // v4: the levels of detail an `.mdx` export generates. A `MODL` written
+        // before it asks for none, which is `LodExport`'s default.
+        v.since(4).field("lodExport", lodExport);
     }
 };
 

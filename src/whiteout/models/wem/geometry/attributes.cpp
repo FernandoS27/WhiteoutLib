@@ -33,6 +33,8 @@ constexpr ReservedRow kReserved[] = {
     // The Skin workspace's (EDIT_MODE_SKIN_DESIGN.md §13.4).
     {names::kSkinLocked, Domain::Vertex, AttrType::Bool},
     {names::kClassicBones, Domain::Vertex, AttrType::U16},
+    // The modelling levels' (EDIT_MODE_MODELLING_DESIGN.md §2.2).
+    {names::kModelled, Domain::Mesh, AttrType::Bool},
 };
 
 /// True when @p name is @p prefix followed by one or more decimal digits.

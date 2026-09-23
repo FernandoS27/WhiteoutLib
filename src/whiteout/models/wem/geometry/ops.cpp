@@ -3,7 +3,14 @@
 
 #include <whiteout/models/wem/geometry/ops.h>
 
+#include "rebuild.h"
+
+#include <whiteout/models/wem/geometry/interpolate.h>
+#include <whiteout/models/wem/geometry/modelling.h>
+#include <whiteout/models/wem/geometry/triangulation.h>
+
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <optional>
@@ -48,317 +55,89 @@ FaceId allocFace(Mesh& mesh, u32 copyFrom) {
     if (copyFrom != kInvalidId) {
         mesh.attributes.copyElement(Domain::Face, copyFrom, index);
     }
+    mesh.triangulation.appendFace();
     return f;
 }
 
-// ============================================================================
-// Attribute interpolation
-// ============================================================================
-
-void lerpElement(AttributeSet& attributes, Domain domain, u32 dst, u32 a, u32 b, f32 t) {
-    for (const AttrLayer& layer : attributes.layers()) {
-        if (layer.domain != domain) {
-            continue;
-        }
-        AttrLayer& target = *attributes.layer(layer.name, domain);
-        const std::size_t stride = AttrTypeSize(target.type);
-        if (stride == 0) {
-            continue;
-        }
-        const std::size_t offA = stride * a;
-        const std::size_t offB = stride * b;
-        const std::size_t offD = stride * dst;
-        if (offA + stride > target.data.size() || offB + stride > target.data.size() ||
-            offD + stride > target.data.size()) {
-            continue;
-        }
-        switch (target.type) {
-        case AttrType::F32:
-        case AttrType::F32x2:
-        case AttrType::F32x3:
-        case AttrType::F32x4:
-        case AttrType::Quat: {
-            const u32 components = AttrTypeComponents(target.type);
-            for (u32 c = 0; c < components; ++c) {
-                f32 va = 0.0f;
-                f32 vb = 0.0f;
-                std::memcpy(&va, target.data.data() + offA + sizeof(f32) * c, sizeof(f32));
-                std::memcpy(&vb, target.data.data() + offB + sizeof(f32) * c, sizeof(f32));
-                const f32 mixed = va + (vb - va) * t;
-                std::memcpy(target.data.data() + offD + sizeof(f32) * c, &mixed, sizeof(f32));
-            }
-            break;
-        }
-        case AttrType::U8x4: {
-            for (u32 c = 0; c < 4; ++c) {
-                const f32 va = static_cast<f32>(target.data[offA + c]);
-                const f32 vb = static_cast<f32>(target.data[offB + c]);
-                const f32 mixed = va + (vb - va) * t;
-                target.data[offD + c] = static_cast<u8>(std::clamp(mixed + 0.5f, 0.0f, 255.0f));
-            }
-            break;
-        }
-        default:
-            // Discrete values do not interpolate; the nearer end wins.
-            std::memcpy(target.data.data() + offD, target.data.data() + (t < 0.5f ? offA : offB),
-                        stride);
-            break;
-        }
+/// A face whose corner cycle changed drops its row (§2.3): the tool's commit
+/// materialises a fresh one.
+void clearRow(Mesh& mesh, FaceId face) {
+    if (face.valid() && !mesh.triangulation.row(face.value()).empty()) {
+        mesh.triangulation.setRow(face.value(), {}, std::as_const(mesh).topology().faceCount());
     }
+}
+
+/// Face @p face's loop from its first halfedge, as vertex ids.
+std::vector<u32> loopOf(const Topology& topology, FaceId face) {
+    std::vector<u32> loop;
+    for (const HalfedgeId h : topology.fh(face)) {
+        loop.push_back(topology.from(h).value());
+    }
+    return loop;
+}
+
+/// Face @p face as it is drawn (`TriangulateFace`): vertex ids, three per triangle.
+std::vector<u32> drawnTriangles(const Mesh& mesh, FaceId face) {
+    const std::vector<u32> loop = loopOf(mesh.topology(), face);
+    std::vector<u32> cut;
+    TriangulateFace(loop, mesh.attributes.get<const Vector3f>(names::kPosition, Domain::Vertex),
+                    mesh.triangulation.row(face.value()), cut);
+    for (u32& corner : cut) {
+        corner = loop[corner];
+    }
+    return cut;
+}
+
+/// Face @p face as it is drawn, as the halfedges its triangles' corners sit on.
+std::vector<HalfedgeId> drawnCorners(const Mesh& mesh, std::span<const Vector3f> positions,
+                                     FaceId face) {
+    const Topology& topology = mesh.topology();
+    std::vector<HalfedgeId> halfedges;
+    std::vector<u32> loop;
+    for (const HalfedgeId h : topology.fh(face)) {
+        halfedges.push_back(h);
+        loop.push_back(topology.from(h).value());
+    }
+    std::vector<u32> cut;
+    TriangulateFace(loop, positions, mesh.triangulation.row(face.value()), cut);
+    std::vector<HalfedgeId> out;
+    out.reserve(cut.size());
+    for (const u32 corner : cut) {
+        out.push_back(halfedges[corner]);
+    }
+    return out;
 }
 
 void copyHalfedgeAttrs(AttributeSet& attributes, u32 from, u32 to) {
     attributes.copyElement(Domain::Halfedge, from, to);
 }
 
-// ============================================================================
-// Rebuild machinery, shared by the rebuilding ops
-// ============================================================================
-
-/// For each corner in `faceSet()` order, the halfedge it currently sits on.
-/// Corner order is face-major starting at `halfedge(f)`, which is exactly the
-/// order `Topology::toFaceSet()` writes, so the two index alike.
-std::vector<u32> snapshotCorners(const Mesh& mesh) {
-    std::vector<u32> out;
-    if (!mesh.hasConnectivity()) {
-        return out;
-    }
-    const Topology& topology = mesh.topology();
-    out.reserve(topology.halfedgeCount());
-    for (u32 f = 0; f < topology.faceCount(); ++f) {
-        const FaceId face(f);
-        if (topology.isDeleted(face)) {
+/// Edge @p from's values folded into edge @p into's by type, the rule for an
+/// edge two old ones became: Bool ORs, F32 takes the maximum, anything else
+/// keeps @p into's.
+void combineEdgeInto(AttributeSet& attributes, u32 from, u32 into) {
+    for (const AttrLayer& layer : attributes.layers()) {
+        if (layer.domain != Domain::Edge) {
             continue;
         }
-        for (HalfedgeId h : topology.fh(face)) {
-            out.push_back(static_cast<u32>(h.index()));
-        }
-    }
-    return out;
-}
-
-struct RebuildMapping {
-    FaceSet faces;
-    std::vector<u32> vertexSource; ///< new vertex -> old vertex, or kInvalidId.
-    std::vector<u32> faceSource;   ///< new face   -> old face.
-    std::vector<u32> cornerSource; ///< new corner -> old corner (into the snapshot).
-};
-
-/// Replaces @p mesh's geometry with @p mapping, carrying attribute *data* across
-/// by correspondence even though every handle changes.
-bool rebuild(Mesh& mesh, RebuildMapping mapping, const std::vector<u32>& oldCornerHalfedge) {
-    AttributeSet old = mesh.attributes;
-    SkinBinding oldSkin = mesh.skin;
-
-    // The old topology is needed for the Edge-layer lookup below, so take a copy
-    // before `setFaceSet` clears it.
-    Topology oldTopology;
-    if (mesh.hasConnectivity()) {
-        oldTopology = static_cast<const Mesh&>(mesh).topology();
-    }
-    const bool hadConnectivity = !oldTopology.empty();
-
-    // A rebuilding op can perfectly well produce a non-manifold face set — a
-    // destructive weld is the obvious way — so the target goes through the same
-    // §5.3 repair the importer uses rather than through a bare build that would
-    // fail and leave the mesh unusable.
-    {
-        const std::span<const Vector3f> oldPositions =
-            old.get<const Vector3f>(names::kPosition, Domain::Vertex);
-        const std::span<const u32> oldSections = old.get<const u32>(names::kSection, Domain::Face);
-        std::vector<Vector3f> positions;
-        positions.reserve(mapping.vertexSource.size());
-        for (u32 v : mapping.vertexSource) {
-            positions.push_back(v < oldPositions.size() ? oldPositions[v]
-                                                        : Vector3f{0.0f, 0.0f, 0.0f});
-        }
-        std::vector<u32> sections;
-        sections.reserve(mapping.faceSource.size());
-        for (u32 f : mapping.faceSource) {
-            sections.push_back(f < oldSections.size() ? oldSections[f] : 0u);
-        }
-
-        RepairResult repaired = Repair(mapping.faces, sections, positions);
-        if (repaired.changed) {
-            std::vector<u32> vertexSource(repaired.faces.vertexCount, kInvalidId);
-            for (std::size_t i = 0; i < mapping.vertexSource.size() && i < vertexSource.size();
-                 ++i) {
-                vertexSource[i] = mapping.vertexSource[i];
-            }
-            for (const VertexSplit& split : repaired.log.splits) {
-                if (split.created < vertexSource.size() && split.original < vertexSource.size()) {
-                    vertexSource[split.created] = vertexSource[split.original];
-                }
-            }
-
-            std::vector<u32> faceSource;
-            std::vector<u32> cornerSource;
-            std::vector<bool> dropped(mapping.faceSource.size(), false);
-            for (const FaceRecord& record : repaired.log.droppedFaces) {
-                if (record.index < dropped.size()) {
-                    dropped[record.index] = true;
-                }
-            }
-            std::size_t corner = 0;
-            for (std::size_t f = 0; f < mapping.faceSource.size(); ++f) {
-                const u32 valence = mapping.faces.faceValence[f];
-                if (!dropped[f]) {
-                    faceSource.push_back(mapping.faceSource[f]);
-                    for (u32 i = 0; i < valence; ++i) {
-                        cornerSource.push_back(mapping.cornerSource[corner + i]);
-                    }
-                }
-                corner += valence;
-            }
-
-            mapping.faces = std::move(repaired.faces);
-            mapping.vertexSource = std::move(vertexSource);
-            mapping.faceSource = std::move(faceSource);
-            mapping.cornerSource = std::move(cornerSource);
-            // The import-time log described a face set that no longer exists, so
-            // `Unrepair` cannot reach the source through it any more. Replacing
-            // it is the honest record of what the mesh is now.
-            mesh.repairLog = std::move(repaired.log);
-        }
-    }
-
-    mesh.attributes.clear();
-    mesh.setFaceSet(std::move(mapping.faces));
-
-    for (const AttrLayer& layer : old.layers()) {
-        if (layer.domain == Domain::Mesh) {
-            AttrLayer& target =
-                mesh.attributes.create(layer.name, layer.domain, layer.type, layer.storage);
-            target.data = layer.data;
+        AttrLayer& target = *attributes.layer(layer.name, Domain::Edge);
+        const std::size_t stride = AttrTypeSize(target.type);
+        if (stride * (std::max(from, into) + 1) > target.data.size()) {
             continue;
         }
-        mesh.attributes.create(layer.name, layer.domain, layer.type, layer.storage);
-    }
-
-    const auto remapDomain = [&](Domain domain, const std::vector<u32>& source) {
-        for (const AttrLayer& layer : old.layers()) {
-            if (layer.domain != domain) {
-                continue;
-            }
-            AttrLayer& target = *mesh.attributes.layer(layer.name, domain);
-            const std::size_t stride = AttrTypeSize(layer.type);
-            for (std::size_t i = 0; i < source.size(); ++i) {
-                const u32 from = source[i];
-                if (from == kInvalidId) {
-                    continue;
-                }
-                const std::size_t offFrom = stride * from;
-                const std::size_t offTo = stride * i;
-                if (offFrom + stride <= layer.data.size() && offTo + stride <= target.data.size()) {
-                    std::memcpy(target.data.data() + offTo, layer.data.data() + offFrom, stride);
-                }
-            }
-        }
-    };
-    remapDomain(Domain::Vertex, mapping.vertexSource);
-    remapDomain(Domain::Face, mapping.faceSource);
-
-    if (!oldSkin.empty()) {
-        mesh.skin.reset(0);
-        for (u32 v : mapping.vertexSource) {
-            if (v < oldSkin.vertexCount()) {
-                mesh.skin.appendVertex(oldSkin.forVertex(v));
-            } else {
-                mesh.skin.appendVertex({});
-            }
+        u8* out = target.data.data() + stride * into;
+        const u8* in = target.data.data() + stride * from;
+        if (target.type == AttrType::Bool) {
+            out[0] = (out[0] != 0 || in[0] != 0) ? 1 : 0;
+        } else if (target.type == AttrType::F32) {
+            f32 a = 0.0f;
+            f32 b = 0.0f;
+            std::memcpy(&a, out, sizeof(f32));
+            std::memcpy(&b, in, sizeof(f32));
+            const f32 larger = std::max(a, b);
+            std::memcpy(out, &larger, sizeof(f32));
         }
     }
-
-    const BuildResult built = mesh.ensureConnectivity();
-    if (!built.ok()) {
-        return false;
-    }
-
-    // Halfedge layers, by corner correspondence.
-    const Topology& topology = mesh.topology();
-    std::vector<u32> newCornerHalfedge;
-    newCornerHalfedge.reserve(topology.halfedgeCount());
-    for (u32 f = 0; f < topology.faceCount(); ++f) {
-        for (HalfedgeId h : topology.fh(FaceId(f))) {
-            newCornerHalfedge.push_back(static_cast<u32>(h.index()));
-        }
-    }
-    for (const AttrLayer& layer : old.layers()) {
-        if (layer.domain != Domain::Halfedge) {
-            continue;
-        }
-        AttrLayer& target = *mesh.attributes.layer(layer.name, Domain::Halfedge);
-        const std::size_t stride = AttrTypeSize(layer.type);
-        for (std::size_t k = 0; k < newCornerHalfedge.size() && k < mapping.cornerSource.size();
-             ++k) {
-            const u32 sourceCorner = mapping.cornerSource[k];
-            if (sourceCorner == kInvalidId || sourceCorner >= oldCornerHalfedge.size()) {
-                continue;
-            }
-            const std::size_t offFrom = stride * oldCornerHalfedge[sourceCorner];
-            const std::size_t offTo = stride * newCornerHalfedge[k];
-            if (offFrom + stride <= layer.data.size() && offTo + stride <= target.data.size()) {
-                std::memcpy(target.data.data() + offTo, layer.data.data() + offFrom, stride);
-            }
-        }
-    }
-
-    // Edge layers, by endpoint pair — the only correspondence a rebuild leaves.
-    if (hadConnectivity) {
-        for (const AttrLayer& layer : old.layers()) {
-            if (layer.domain != Domain::Edge) {
-                continue;
-            }
-            AttrLayer& target = *mesh.attributes.layer(layer.name, Domain::Edge);
-            const std::size_t stride = AttrTypeSize(layer.type);
-            for (u32 e = 0; e < topology.edgeCount(); ++e) {
-                const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
-                const std::size_t a = topology.from(h).index();
-                const std::size_t b = topology.to(h).index();
-                if (a >= mapping.vertexSource.size() || b >= mapping.vertexSource.size()) {
-                    continue;
-                }
-                const u32 oldA = mapping.vertexSource[a];
-                const u32 oldB = mapping.vertexSource[b];
-                if (oldA == kInvalidId || oldB == kInvalidId || oldA >= oldTopology.vertexCount() ||
-                    oldB >= oldTopology.vertexCount()) {
-                    continue;
-                }
-                const HalfedgeId found = oldTopology.findHalfedge(VertexId(oldA), VertexId(oldB));
-                if (!found.valid()) {
-                    continue;
-                }
-                const std::size_t offFrom = stride * Topology::edge(found).index();
-                const std::size_t offTo = stride * e;
-                if (offFrom + stride <= layer.data.size() && offTo + stride <= target.data.size()) {
-                    std::memcpy(target.data.data() + offTo, layer.data.data() + offFrom, stride);
-                }
-            }
-        }
-    }
-
-    return true;
-}
-
-/// Rebuilds from the mesh's own current face set, so an op that only rewrote
-/// corner *vertices* (weld, unify, vertex split) does not have to build a
-/// mapping for anything it did not touch.
-RebuildMapping identityMapping(const Mesh& mesh) {
-    RebuildMapping mapping;
-    mapping.faces = mesh.faceSet();
-    mapping.vertexSource.resize(mapping.faces.vertexCount);
-    for (u32 i = 0; i < mapping.faces.vertexCount; ++i) {
-        mapping.vertexSource[i] = i;
-    }
-    mapping.faceSource.resize(mapping.faces.faceCount());
-    for (std::size_t i = 0; i < mapping.faceSource.size(); ++i) {
-        mapping.faceSource[i] = static_cast<u32>(i);
-    }
-    mapping.cornerSource.resize(mapping.faces.cornerVertex.size());
-    for (std::size_t i = 0; i < mapping.cornerSource.size(); ++i) {
-        mapping.cornerSource[i] = static_cast<u32>(i);
-    }
-    return mapping;
 }
 
 // ============================================================================
@@ -492,6 +271,409 @@ std::vector<Vector3f> allFaceNormals(const Mesh& mesh) {
 } // namespace
 
 // ============================================================================
+// Rebuild machinery (rebuild.h), shared by the rebuilding ops
+// ============================================================================
+
+namespace detail {
+
+std::vector<u32> snapshotCorners(const Mesh& mesh) {
+    std::vector<u32> out;
+    if (!mesh.hasConnectivity()) {
+        return out;
+    }
+    const Topology& topology = mesh.topology();
+    out.reserve(topology.halfedgeCount());
+    for (u32 f = 0; f < topology.faceCount(); ++f) {
+        const FaceId face(f);
+        if (topology.isDeleted(face)) {
+            continue;
+        }
+        for (HalfedgeId h : topology.fh(face)) {
+            out.push_back(static_cast<u32>(h.index()));
+        }
+    }
+    return out;
+}
+
+std::vector<u32> snapshotCornersBuilt(const Mesh& mesh) {
+    if (mesh.hasConnectivity()) {
+        return snapshotCorners(mesh);
+    }
+    // The build is deterministic, so a local one numbers halfedges exactly as
+    // the mesh's Halfedge layers are indexed (render_view.cpp does the same).
+    Topology local;
+    std::vector<u32> out;
+    if (!local.build(mesh.faceSet()).ok()) {
+        return out;
+    }
+    out.reserve(local.halfedgeCount());
+    for (u32 f = 0; f < local.faceCount(); ++f) {
+        for (HalfedgeId h : local.fh(FaceId(f))) {
+            out.push_back(static_cast<u32>(h.index()));
+        }
+    }
+    return out;
+}
+
+namespace {
+
+/// The rows a rebuild's new faces take from their source faces (§2.3): each
+/// vertex mapped through that face's own corners, which is exact where the
+/// repair split a vertex, and each triangle turned round where the new loop runs
+/// the old one backwards. A face whose cycle changed takes none.
+FaceTriangulation carryRows(const FaceTriangulation& old, const FaceSet& oldFaces,
+                            const RebuildMapping& mapping) {
+    if (old.empty()) {
+        return {};
+    }
+    std::vector<u32> oldBase(oldFaces.faceCount() + 1, 0);
+    for (std::size_t f = 0; f < oldFaces.faceCount(); ++f) {
+        oldBase[f + 1] = oldBase[f] + oldFaces.faceValence[f];
+    }
+    FaceTriangulationBuilder builder(static_cast<u32>(mapping.faces.faceCount()));
+    std::vector<std::pair<u32, u32>> renames;
+    std::vector<u32> mapped;
+    std::size_t base = 0;
+    for (std::size_t k = 0; k < mapping.faces.faceCount(); base += mapping.faces.faceValence[k++]) {
+        const u32 valence = mapping.faces.faceValence[k];
+        const u32 source = k < mapping.faceSource.size() ? mapping.faceSource[k] : kInvalidId;
+        if (valence < 4 || source >= oldFaces.faceCount() ||
+            oldFaces.faceValence[source] != valence || old.row(source).empty()) {
+            continue;
+        }
+        renames.clear();
+        std::vector<u32> ordinals;
+        bool whole = true;
+        for (u32 i = 0; i < valence && whole; ++i) {
+            const u32 corner = base + i < mapping.cornerSource.size() ? mapping.cornerSource[base + i]
+                                                                      : kInvalidId;
+            whole = corner >= oldBase[source] && corner < oldBase[source + 1];
+            if (whole) {
+                ordinals.push_back(corner - oldBase[source]);
+                renames.push_back(
+                    {oldFaces.cornerVertex[corner], mapping.faces.cornerVertex[base + i]});
+            }
+        }
+        if (!whole) {
+            continue;
+        }
+        const bool forward = ordinals[1] == (ordinals[0] + 1) % valence;
+        const bool backward = ordinals[0] == (ordinals[1] + 1) % valence;
+        if (!forward && !backward) {
+            continue;
+        }
+        mapped.clear();
+        for (const u32 vertex : old.row(source)) {
+            const auto found = std::find_if(renames.begin(), renames.end(),
+                                            [&](const auto& pair) { return pair.first == vertex; });
+            if (found == renames.end()) {
+                whole = false;
+                break;
+            }
+            mapped.push_back(found->second);
+        }
+        if (!whole) {
+            continue;
+        }
+        if (backward) {
+            for (std::size_t t = 0; t + 2 < mapped.size(); t += 3) {
+                std::swap(mapped[t + 1], mapped[t + 2]);
+            }
+        }
+        builder.set(static_cast<u32>(k), mapped);
+    }
+    return builder.build();
+}
+
+} // namespace
+
+RebuildResult rebuild(Mesh& mesh, RebuildMapping mapping, const std::vector<u32>& oldCornerHalfedge) {
+    RebuildResult result;
+    AttributeSet old = mesh.attributes;
+    SkinBinding oldSkin = mesh.skin;
+    const FaceTriangulation oldRows = mesh.triangulation;
+    const FaceSet oldFaces = oldRows.empty() ? FaceSet{} : mesh.faceSet();
+
+    // The old topology is needed for the Edge-layer carry below, so take a copy
+    // before `setFaceSet` clears it.
+    Topology oldTopology;
+    if (mesh.hasConnectivity()) {
+        oldTopology = static_cast<const Mesh&>(mesh).topology();
+    }
+    const bool hadConnectivity = !oldTopology.empty();
+
+    // A rebuilding op can perfectly well produce a non-manifold face set — a
+    // destructive weld is the obvious way — so the target goes through the same
+    // §5.3 repair the importer uses rather than through a bare build that would
+    // fail and leave the mesh unusable.
+    {
+        const std::span<const Vector3f> oldPositions =
+            old.get<const Vector3f>(names::kPosition, Domain::Vertex);
+        const std::span<const u32> oldSections = old.get<const u32>(names::kSection, Domain::Face);
+        std::vector<Vector3f> positions;
+        positions.reserve(mapping.vertexSource.size());
+        for (u32 v : mapping.vertexSource) {
+            positions.push_back(v < oldPositions.size() ? oldPositions[v]
+                                                        : Vector3f{0.0f, 0.0f, 0.0f});
+        }
+        std::vector<u32> sections;
+        sections.reserve(mapping.faceSource.size());
+        for (u32 f : mapping.faceSource) {
+            sections.push_back(f < oldSections.size() ? oldSections[f] : 0u);
+        }
+
+        result.repair = Repair(mapping.faces, sections,
+                               mapping.mayHaveZeroArea ? std::span<const Vector3f>{}
+                                                       : std::span<const Vector3f>(positions));
+        if (result.repair.changed) {
+            const RepairResult& repaired = result.repair;
+            std::vector<u32> vertexSource(repaired.faces.vertexCount, kInvalidId);
+            for (std::size_t i = 0; i < mapping.vertexSource.size() && i < vertexSource.size();
+                 ++i) {
+                vertexSource[i] = mapping.vertexSource[i];
+            }
+            for (const VertexSplit& split : repaired.log.splits) {
+                if (split.created < vertexSource.size() && split.original < vertexSource.size()) {
+                    vertexSource[split.created] = vertexSource[split.original];
+                }
+            }
+
+            std::vector<u32> faceSource;
+            std::vector<u32> cornerSource;
+            std::vector<bool> dropped(mapping.faceSource.size(), false);
+            for (const FaceRecord& record : repaired.log.droppedFaces) {
+                if (record.index < dropped.size()) {
+                    dropped[record.index] = true;
+                }
+            }
+            std::size_t corner = 0;
+            for (std::size_t f = 0; f < mapping.faceSource.size(); ++f) {
+                const u32 valence = mapping.faces.faceValence[f];
+                if (!dropped[f]) {
+                    faceSource.push_back(mapping.faceSource[f]);
+                    for (u32 i = 0; i < valence; ++i) {
+                        cornerSource.push_back(mapping.cornerSource[corner + i]);
+                    }
+                }
+                corner += valence;
+            }
+
+            mapping.faces = repaired.faces;
+            mapping.vertexSource = std::move(vertexSource);
+            mapping.faceSource = std::move(faceSource);
+            mapping.cornerSource = std::move(cornerSource);
+            // The import-time log described a face set that no longer exists, so
+            // `Unrepair` cannot reach the source through it any more. Replacing
+            // it is the honest record of what the mesh is now.
+            mesh.repairLog = repaired.log;
+        }
+    }
+
+    FaceTriangulation rows = carryRows(oldRows, oldFaces, mapping);
+    mesh.attributes.clear();
+    mesh.setFaceSet(std::move(mapping.faces));
+    mesh.triangulation = std::move(rows);
+
+    for (const AttrLayer& layer : old.layers()) {
+        if (layer.domain == Domain::Mesh) {
+            AttrLayer& target =
+                mesh.attributes.create(layer.name, layer.domain, layer.type, layer.storage);
+            target.data = layer.data;
+            continue;
+        }
+        mesh.attributes.create(layer.name, layer.domain, layer.type, layer.storage);
+    }
+
+    const auto remapDomain = [&](Domain domain, const std::vector<u32>& source) {
+        for (const AttrLayer& layer : old.layers()) {
+            if (layer.domain != domain) {
+                continue;
+            }
+            AttrLayer& target = *mesh.attributes.layer(layer.name, domain);
+            const std::size_t stride = AttrTypeSize(layer.type);
+            for (std::size_t i = 0; i < source.size(); ++i) {
+                const u32 from = source[i];
+                if (from == kInvalidId) {
+                    continue;
+                }
+                const std::size_t offFrom = stride * from;
+                const std::size_t offTo = stride * i;
+                if (offFrom + stride <= layer.data.size() && offTo + stride <= target.data.size()) {
+                    std::memcpy(target.data.data() + offTo, layer.data.data() + offFrom, stride);
+                }
+            }
+        }
+    };
+    remapDomain(Domain::Vertex, mapping.vertexSource);
+    remapDomain(Domain::Face, mapping.faceSource);
+
+    if (!oldSkin.empty()) {
+        mesh.skin.reset(0);
+        for (u32 v : mapping.vertexSource) {
+            if (v < oldSkin.vertexCount()) {
+                mesh.skin.appendVertex(oldSkin.forVertex(v));
+            } else {
+                mesh.skin.appendVertex({});
+            }
+        }
+    }
+
+    const BuildResult built = mesh.ensureConnectivity();
+    if (!built.ok()) {
+        return result;
+    }
+    result.ok = true;
+
+    // Halfedge layers, by corner correspondence.
+    const Topology& topology = mesh.topology();
+    std::vector<u32> newCornerHalfedge;
+    newCornerHalfedge.reserve(topology.halfedgeCount());
+    for (u32 f = 0; f < topology.faceCount(); ++f) {
+        for (HalfedgeId h : topology.fh(FaceId(f))) {
+            newCornerHalfedge.push_back(static_cast<u32>(h.index()));
+        }
+    }
+    for (const AttrLayer& layer : old.layers()) {
+        if (layer.domain != Domain::Halfedge) {
+            continue;
+        }
+        AttrLayer& target = *mesh.attributes.layer(layer.name, Domain::Halfedge);
+        const std::size_t stride = AttrTypeSize(layer.type);
+        for (std::size_t k = 0; k < newCornerHalfedge.size() && k < mapping.cornerSource.size();
+             ++k) {
+            const u32 sourceCorner = mapping.cornerSource[k];
+            if (sourceCorner == kInvalidId || sourceCorner >= oldCornerHalfedge.size()) {
+                continue;
+            }
+            const std::size_t offFrom = stride * oldCornerHalfedge[sourceCorner];
+            const std::size_t offTo = stride * newCornerHalfedge[k];
+            if (offFrom + stride <= layer.data.size() && offTo + stride <= target.data.size()) {
+                std::memcpy(target.data.data() + offTo, layer.data.data() + offFrom, stride);
+            }
+        }
+    }
+
+    // Edge layers, by halfedge correspondence. A new edge's side runs from
+    // corner k to corner k+1 of its face; its old edge is the one between those
+    // corners' sources, whichever way round the old face ran them (a face
+    // UnifyWinding reversed runs them backwards). A side with no such pair --
+    // a new diagonal, or a corner nothing made -- has no old edge.
+    if (!hadConnectivity) {
+        return result;
+    }
+    std::vector<std::array<u32, 2>> sidesOf(topology.edgeCount(), {kInvalidId, kInvalidId});
+    {
+        std::size_t base = 0;
+        std::size_t k = 0;
+        for (u32 f = 0; f < topology.faceCount(); ++f) {
+            const u32 valence = topology.valence(FaceId(f));
+            for (u32 i = 0; i < valence; ++i, ++k) {
+                const std::size_t next = base + (i + 1) % valence;
+                if (k >= mapping.cornerSource.size() || next >= mapping.cornerSource.size()) {
+                    continue;
+                }
+                const u32 a = mapping.cornerSource[k];
+                const u32 b = mapping.cornerSource[next];
+                if (a >= oldCornerHalfedge.size() || b >= oldCornerHalfedge.size()) {
+                    continue;
+                }
+                const HalfedgeId ha(oldCornerHalfedge[a]);
+                const HalfedgeId hb(oldCornerHalfedge[b]);
+                u32 oldEdge = kInvalidId;
+                if (oldTopology.next(ha) == hb) {
+                    oldEdge = static_cast<u32>(Topology::edge(ha).index());
+                } else if (oldTopology.next(hb) == ha) {
+                    oldEdge = static_cast<u32>(Topology::edge(hb).index());
+                }
+                const std::size_t e = Topology::edge(HalfedgeId(newCornerHalfedge[k])).index();
+                std::array<u32, 2>& sides = sidesOf[e];
+                if (sides[0] == kInvalidId) {
+                    sides[0] = oldEdge;
+                } else if (sides[0] != oldEdge) {
+                    sides[1] = oldEdge;
+                }
+            }
+            base += valence;
+        }
+    }
+    for (u32 e = 0; e < sidesOf.size(); ++e) {
+        std::array<u32, 2>& sides = sidesOf[e];
+        if (sides[1] != kInvalidId && sides[0] != kInvalidId) {
+            result.closedEdges.push_back(e);
+            if (sides[1] < sides[0]) {
+                std::swap(sides[0], sides[1]);
+            }
+        } else if (sides[0] == kInvalidId) {
+            sides[0] = sides[1];
+            sides[1] = kInvalidId;
+        }
+    }
+    for (const AttrLayer& layer : old.layers()) {
+        if (layer.domain != Domain::Edge) {
+            continue;
+        }
+        AttrLayer& target = *mesh.attributes.layer(layer.name, Domain::Edge);
+        const std::size_t stride = AttrTypeSize(layer.type);
+        const auto valueAt = [&](u32 edge) -> const u8* {
+            const std::size_t at = stride * edge;
+            return edge != kInvalidId && at + stride <= layer.data.size() ? layer.data.data() + at
+                                                                          : nullptr;
+        };
+        for (u32 e = 0; e < sidesOf.size(); ++e) {
+            const u8* first = valueAt(sidesOf[e][0]);
+            const u8* second = valueAt(sidesOf[e][1]);
+            const std::size_t offTo = stride * e;
+            if (first == nullptr || offTo + stride > target.data.size()) {
+                continue;
+            }
+            u8* out = target.data.data() + offTo;
+            std::memcpy(out, first, stride);
+            if (second == nullptr) {
+                continue;
+            }
+            // A weld closed this edge: its two old sides combine by type.
+            if (layer.type == AttrType::Bool) {
+                out[0] = (first[0] != 0 || second[0] != 0) ? 1 : 0;
+            } else if (layer.type == AttrType::F32) {
+                f32 a = 0.0f;
+                f32 b = 0.0f;
+                std::memcpy(&a, first, sizeof(f32));
+                std::memcpy(&b, second, sizeof(f32));
+                const f32 larger = std::max(a, b);
+                std::memcpy(out, &larger, sizeof(f32));
+            }
+        }
+    }
+    return result;
+}
+
+RebuildMapping identityMapping(const Mesh& mesh) {
+    RebuildMapping mapping;
+    mapping.faces = mesh.faceSet();
+    mapping.vertexSource.resize(mapping.faces.vertexCount);
+    for (u32 i = 0; i < mapping.faces.vertexCount; ++i) {
+        mapping.vertexSource[i] = i;
+    }
+    mapping.faceSource.resize(mapping.faces.faceCount());
+    for (std::size_t i = 0; i < mapping.faceSource.size(); ++i) {
+        mapping.faceSource[i] = static_cast<u32>(i);
+    }
+    mapping.cornerSource.resize(mapping.faces.cornerVertex.size());
+    for (std::size_t i = 0; i < mapping.cornerSource.size(); ++i) {
+        mapping.cornerSource[i] = static_cast<u32>(i);
+    }
+    return mapping;
+}
+
+} // namespace detail
+
+using detail::identityMapping;
+using detail::RebuildMapping;
+using detail::rebuild;
+using detail::snapshotCorners;
+using detail::snapshotCornersBuilt;
+
+// ============================================================================
 // SplitEdge
 // ============================================================================
 
@@ -515,15 +697,20 @@ VertexId SplitEdge(Mesh& mesh, EdgeId edge, f32 t) {
     const FaceId f0 = topology.face(h0);
     const FaceId f1 = topology.face(h1);
 
-    const VertexId v =
-        allocVertex(mesh, t < 0.5f ? static_cast<u32>(a.index()) : static_cast<u32>(b.index()));
+    // Each loop's two corners at a and b, in that order, captured before the
+    // relink moves them: both loops blend one ordered pair with one set of
+    // weights, so a continuous edge splits to bit-equal corners.
+    const std::array<f32, 2> weights{1.0f - t, t};
+    const std::array<HalfedgeId, 2> cornersA{h0, n0}; // f0: at a, at b
+    const std::array<HalfedgeId, 2> cornersB{n1, h1}; // f1: at a, at b
+    const SourcePolygon loopA = CaptureCorners(mesh, cornersA);
+    const SourcePolygon loopB = CaptureCorners(mesh, cornersB);
+
+    const u32 group = FreshMergeGroup(mesh);
+    const VertexId v = allocVertex(mesh, static_cast<u32>(a.index()));
     {
-        // Every Vertex layer — mergeGroup included — takes the nearer end, so a
-        // split vertex stays in its group and the render view regroups it. This
-        // has to come first: `copyElement` writes *every* layer of the domain,
-        // position among them, and would undo the interpolation below.
-        mesh.attributes.copyElement(Domain::Vertex, t < 0.5f ? a.value() : b.value(),
-                                    static_cast<u32>(v.index()));
+        const std::array<u32, 2> ends{static_cast<u32>(a.index()), static_cast<u32>(b.index())};
+        BlendVertex(mesh, ends, weights, static_cast<u32>(v.index()));
         const std::span<Vector3f> positions =
             mesh.attributes.get<Vector3f>(names::kPosition, Domain::Vertex);
         if (v.index() < positions.size() && a.index() < positions.size() &&
@@ -533,10 +720,17 @@ VertexId SplitEdge(Mesh& mesh, EdgeId edge, f32 t) {
             positions[v.index()] = Vector3f{pa.x + (pb.x - pa.x) * t, pa.y + (pb.y - pa.y) * t,
                                             pa.z + (pb.z - pa.z) * t};
         }
+        const std::span<u32> groups = mesh.attributes.get<u32>(names::kMergeGroup, Domain::Vertex);
+        if (v.index() < groups.size()) {
+            groups[v.index()] = group;
+        }
     }
 
     const HalfedgeId g0 = allocEdge(mesh); // v -> b, joins h0's loop
     const HalfedgeId g1 = Topology::opposite(g0);
+    // Both halves lie along the old edge, so both keep its `sharp`, `crease`
+    // and `seam` (EDIT_MODE_MODELLING_DESIGN.md §3.12).
+    mesh.attributes.copyElement(Domain::Edge, edge.value(), Topology::edge(g0).value());
 
     topology.setTo(h0, v); // h0: a -> v, so h1 is v -> a
     topology.setTo(g0, b); // g0: v -> b
@@ -550,13 +744,15 @@ VertexId SplitEdge(Mesh& mesh, EdgeId edge, f32 t) {
     topology.setNext(g1, h1);
     topology.setFace(g1, f1);
 
-    // The corner at v in h0's loop lies at `t` between the corners at a and b;
-    // in h1's loop the same point lies at `1 - t` from b.
+    // h1's loop: g1 now leaves b, so it takes the corner h1 had there; the
+    // corner at v (h1, now v -> a) is the blend. h0's loop: g0 leaves v.
     copyHalfedgeAttrs(mesh.attributes, static_cast<u32>(h1.index()), static_cast<u32>(g1.index()));
-    lerpElement(mesh.attributes, Domain::Halfedge, static_cast<u32>(g0.index()),
-                static_cast<u32>(h0.index()), static_cast<u32>(n0.index()), t);
-    lerpElement(mesh.attributes, Domain::Halfedge, static_cast<u32>(h1.index()),
-                static_cast<u32>(g1.index()), static_cast<u32>(n1.index()), 1.0f - t);
+    const std::array<HalfedgeId, 1> atA{g0};
+    BlendCorners(mesh, loopA, weights, atA);
+    if (f1.valid()) {
+        const std::array<HalfedgeId, 1> atB{h1};
+        BlendCorners(mesh, loopB, weights, atB);
+    }
 
     if (f0.valid()) {
         topology.setFaceHalfedge(f0, h0);
@@ -564,6 +760,8 @@ VertexId SplitEdge(Mesh& mesh, EdgeId edge, f32 t) {
     if (f1.valid()) {
         topology.setFaceHalfedge(f1, h1);
     }
+    clearRow(mesh, f0);
+    clearRow(mesh, f1);
     topology.setOutgoing(v, h1);
     if (topology.outgoing(b) == h1) {
         topology.setOutgoing(b, g1);
@@ -595,6 +793,11 @@ FaceId SplitFaceAt(Mesh& mesh, HalfedgeId a, HalfedgeId b) {
     const HalfedgeId pb = topology.prev(b);
     const VertexId va = topology.from(a);
     const VertexId vb = topology.from(b);
+    // Joined elsewhere already (a cap over two triangles, split along the
+    // diagonal they share): a second a-b edge is a duplicate no rebuild takes.
+    if (topology.findHalfedge(va, vb).valid()) {
+        return FaceId();
+    }
 
     const FaceId newFace = allocFace(mesh, static_cast<u32>(face.index()));
     const HalfedgeId g0 = allocEdge(mesh); // va -> vb, on the new face
@@ -620,6 +823,7 @@ FaceId SplitFaceAt(Mesh& mesh, HalfedgeId a, HalfedgeId b) {
 
     copyHalfedgeAttrs(mesh.attributes, static_cast<u32>(a.index()), static_cast<u32>(g0.index()));
     copyHalfedgeAttrs(mesh.attributes, static_cast<u32>(b.index()), static_cast<u32>(g1.index()));
+    clearRow(mesh, face);
 
     topology.setOutgoing(va, g0);
     topology.setOutgoing(vb, g1);
@@ -662,20 +866,51 @@ u32 Triangulate(Mesh& mesh, FaceId face) {
     if (face.index() >= mesh.topology().faceCount() || mesh.topology().isDeleted(face)) {
         return 0;
     }
-    u32 added = 0;
-    // `apex` always leaves the fan's first vertex, and after each cut it is the
-    // new diagonal on the remainder — which is what keeps this a fan and not a
-    // zigzag.
     const Mesh& readable = mesh;
-    HalfedgeId apex = readable.topology().halfedge(face);
-    while (readable.topology().valence(readable.topology().face(apex)) > 3) {
-        const HalfedgeId b = readable.topology().next(readable.topology().next(apex));
-        const FaceId remainder = SplitFaceAt(mesh, apex, b);
-        if (!remainder.valid()) {
-            break;
+    if (readable.topology().valence(face) < 4) {
+        return 0;
+    }
+    // The face is cut along exactly the diagonals it is drawn with, so the
+    // triangles it becomes are the ones it showed.
+    const std::vector<u32> loop = loopOf(readable.topology(), face);
+    const u32 valence = static_cast<u32>(loop.size());
+    std::vector<u32> cut;
+    TriangulateFace(loop, readable.attributes.get<const Vector3f>(names::kPosition, Domain::Vertex),
+                    readable.triangulation.row(face.value()), cut);
+    std::vector<std::pair<u32, u32>> diagonals;
+    for (std::size_t t = 0; t + 2 < cut.size(); t += 3) {
+        for (u32 side = 0; side < 3; ++side) {
+            const u32 a = cut[t + side];
+            const u32 b = cut[t + (side + 1) % 3];
+            if (a < b && b != a + 1 && !(a == 0 && b == valence - 1)) {
+                diagonals.push_back({a, b});
+            }
         }
-        ++added;
-        apex = readable.topology().prev(b);
+    }
+    // Each diagonal lies inside one piece: the one holding both its ends.
+    std::vector<FaceId> pieces{face};
+    u32 added = 0;
+    for (const auto& [a, b] : diagonals) {
+        HalfedgeId at;
+        HalfedgeId to;
+        for (std::size_t p = 0; p < pieces.size() && !to.valid(); ++p) {
+            at = HalfedgeId();
+            for (const HalfedgeId h : readable.topology().fh(pieces[p])) {
+                if (readable.topology().from(h).value() == loop[a]) {
+                    at = h;
+                }
+            }
+            for (const HalfedgeId h : readable.topology().fh(pieces[p])) {
+                if (at.valid() && readable.topology().from(h).value() == loop[b]) {
+                    to = h;
+                }
+            }
+        }
+        const FaceId piece = to.valid() ? SplitFaceAt(mesh, at, to) : FaceId();
+        if (piece.valid()) {
+            pieces.push_back(piece);
+            ++added;
+        }
     }
     return added;
 }
@@ -816,31 +1051,74 @@ bool IsCollapseLegal(const Mesh& mesh, HalfedgeId h) {
         return false;
     }
 
-    // The link condition: the one-rings of v0 and v1 may meet only at the
-    // vertices opposite the edge — one per incident face.
+    // The link condition for polygons: the one-rings of v0 and v1 meet exactly
+    // at the apexes of the TRIANGULAR side faces. A quad or an n-gon beside the
+    // edge has no apex -- it just loses a corner -- so counting one per side
+    // face refused every collapse next to a quad.
+    std::vector<VertexId> apexes;
+    for (const HalfedgeId side : {h, o}) {
+        if (topology.face(side).valid() && loopLength(topology, side) == 3) {
+            apexes.push_back(topology.to(topology.next(side)));
+        }
+    }
     std::vector<VertexId> ring0;
     for (VertexId n : topology.vv(v0)) {
         ring0.push_back(n);
     }
-    u32 shared = 0;
+    std::vector<VertexId> shared;
     for (VertexId n : topology.vv(v1)) {
-        if (std::find(ring0.begin(), ring0.end(), n) != ring0.end()) {
-            ++shared;
+        if (std::find(ring0.begin(), ring0.end(), n) != ring0.end() &&
+            std::find(shared.begin(), shared.end(), n) == shared.end()) {
+            shared.push_back(n);
         }
     }
-    u32 expected = 0;
-    if (topology.face(h).valid()) {
-        ++expected;
+    std::sort(apexes.begin(), apexes.end());
+    std::sort(shared.begin(), shared.end());
+    if (shared != apexes) {
+        return false;
     }
-    if (topology.face(o).valid()) {
-        ++expected;
+    // No face but the two side faces may hold both ends: a hexagon
+    // (v0, p, r, v1, s, t) passes the ring test and would repeat a vertex.
+    const FaceId sideA = topology.face(h);
+    const FaceId sideB = topology.face(o);
+    for (const FaceId f : topology.vf(v0)) {
+        if (!f.valid() || f == sideA || f == sideB) {
+            continue;
+        }
+        for (const VertexId v : topology.fv(f)) {
+            if (v == v1) {
+                return false;
+            }
+        }
     }
-    return shared == expected;
+    return true;
 }
 
 bool CollapseEdge(Mesh& mesh, HalfedgeId h) {
     if (!IsCollapseLegal(mesh, h)) {
         return false;
+    }
+    {
+        // Rows first, while the loops are whole: a side face longer than a
+        // triangle loses a corner; every other face around v0 only renames it.
+        const Topology& before = std::as_const(mesh).topology();
+        const HalfedgeId other = Topology::opposite(h);
+        const std::array<u32, 1> from{before.from(h).value()};
+        const std::array<u32, 1> to{before.to(h).value()};
+        std::vector<FaceId> around;
+        for (const FaceId f : before.vf(before.from(h))) {
+            around.push_back(f);
+        }
+        for (const FaceId f : around) {
+            if (!f.valid()) {
+                continue;
+            }
+            if (f == before.face(h) || f == before.face(other)) {
+                clearRow(mesh, f);
+            } else {
+                mesh.triangulation.rewriteRow(f.value(), from, to);
+            }
+        }
     }
     Topology& topology = mesh.topology();
     const HalfedgeId o = Topology::opposite(h);
@@ -851,6 +1129,12 @@ bool CollapseEdge(Mesh& mesh, HalfedgeId h) {
     std::vector<HalfedgeId> incoming;
     for (HalfedgeId oh : topology.voh(v0)) {
         incoming.push_back(Topology::opposite(oh));
+    }
+    // v1's own fan, before the splice: where a live outgoing is found when the
+    // one it had goes (below).
+    std::vector<HalfedgeId> leaving;
+    for (HalfedgeId oh : topology.voh(v1)) {
+        leaving.push_back(oh);
     }
     for (HalfedgeId ih : incoming) {
         topology.setTo(ih, v1);
@@ -896,6 +1180,7 @@ bool CollapseEdge(Mesh& mesh, HalfedgeId h) {
             if (topology.outgoing(v1) == dropOpp || topology.outgoing(v1) == drop) {
                 topology.setOutgoing(v1, keep);
             }
+            leaving.push_back(keep);
         } else {
             topology.setNext(sidePrev, sideNext);
             if (face.valid() && topology.halfedge(face) == side) {
@@ -906,15 +1191,26 @@ bool CollapseEdge(Mesh& mesh, HalfedgeId h) {
     handleSide(h);
     handleSide(o);
 
-    if (topology.outgoing(v1) == o || topology.outgoing(v1) == h) {
-        // Any surviving outgoing halfedge will do; `adjustOutgoing` then prefers
-        // a boundary one.
+    // Any surviving halfedge leaving v1 will do; `adjustOutgoing` then prefers
+    // a boundary one. The candidates are v0's fan and v1's own, and each
+    // spliced triangle's surviving side: when v0 had valence 2 and its triangle
+    // was spliced away, everything v0 brought is deleted, and only `keep` is
+    // left to point at.
+    const auto live = [&](HalfedgeId candidate) {
+        return candidate.valid() && !topology.isDeleted(candidate) && candidate != h &&
+               candidate != o && topology.from(candidate) == v1;
+    };
+    if (!live(topology.outgoing(v1))) {
         HalfedgeId replacement;
         for (HalfedgeId ih : incoming) {
-            const HalfedgeId candidate = Topology::opposite(ih);
-            if (!topology.isDeleted(candidate) && candidate != h && candidate != o) {
-                replacement = candidate;
+            if (live(Topology::opposite(ih))) {
+                replacement = Topology::opposite(ih);
                 break;
+            }
+        }
+        for (std::size_t i = 0; !replacement.valid() && i < leaving.size(); ++i) {
+            if (live(leaving[i])) {
+                replacement = leaving[i];
             }
         }
         topology.setOutgoing(v1, replacement);
@@ -933,22 +1229,87 @@ bool CollapseEdge(Mesh& mesh, HalfedgeId h) {
 // Dissolve
 // ============================================================================
 
-bool DissolveEdge(Mesh& mesh, EdgeId edge) {
+detail::Dissolved detail::DissolveEdgeDeferred(Mesh& mesh, EdgeId edge, FaceId survivor) {
+    Dissolved out;
     if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
-        return false;
+        return out;
     }
+    {
+        // Every refusal asked of a const view, so nothing is marked edited.
+        const Topology& topology = std::as_const(mesh).topology();
+        if (edge.index() >= topology.edgeCount() || topology.isDeleted(edge) ||
+            topology.isBoundary(edge)) {
+            return out;
+        }
+        const FaceId fa = topology.face(Topology::halfedge(edge, 0));
+        const FaceId fb = topology.face(Topology::halfedge(edge, 1));
+        if (fa == fb || (survivor.valid() && survivor != fa && survivor != fb)) {
+            return out;
+        }
+        const std::span<const u32> sections = std::as_const(mesh).faceSections();
+        if (fa.index() < sections.size() && fb.index() < sections.size() &&
+            sections[fa.index()] != sections[fb.index()]) {
+            return out;
+        }
+        // The merged loop is both loops less the edge: it repeats a vertex
+        // whenever the two faces share one besides the edge's ends.
+        std::vector<VertexId> merged;
+        for (const VertexId v : topology.fv(fa)) {
+            merged.push_back(v);
+        }
+        u32 shared = 0;
+        for (const VertexId v : topology.fv(fb)) {
+            if (std::find(merged.begin(), merged.end(), v) != merged.end()) {
+                ++shared;
+            } else {
+                merged.push_back(v);
+            }
+        }
+        if (shared != 2) {
+            return out;
+        }
+        // A face with these corners already there would be its duplicate.
+        std::sort(merged.begin(), merged.end());
+        const VertexId anchor = topology.from(Topology::halfedge(edge, 0));
+        for (const FaceId g : topology.vf(anchor)) {
+            if (!g.valid() || g == fa || g == fb || topology.valence(g) != merged.size()) {
+                continue;
+            }
+            std::vector<VertexId> corners;
+            for (const VertexId v : topology.fv(g)) {
+                corners.push_back(v);
+            }
+            std::sort(corners.begin(), corners.end());
+            if (corners == merged) {
+                return out;
+            }
+        }
+    }
+
+    // The merged face is drawn as both faces were, so the file's diagonal is
+    // kept: the union of their triangles, lower-numbered face first (§2.3).
+    std::vector<u32> joined;
+    {
+        const Topology& before = std::as_const(mesh).topology();
+        FaceId first = before.face(Topology::halfedge(edge, 0));
+        FaceId second = before.face(Topology::halfedge(edge, 1));
+        if (second.value() < first.value()) {
+            std::swap(first, second);
+        }
+        joined = drawnTriangles(mesh, first);
+        const std::vector<u32> rest = drawnTriangles(mesh, second);
+        joined.insert(joined.end(), rest.begin(), rest.end());
+    }
+
     Topology& topology = mesh.topology();
-    if (edge.index() >= topology.edgeCount() || topology.isDeleted(edge) ||
-        topology.isBoundary(edge)) {
-        return false;
-    }
-    const HalfedgeId h0 = Topology::halfedge(edge, 0);
-    const HalfedgeId h1 = Topology::halfedge(edge, 1);
+    // The survivor's side is `h0`: its loop is the one kept.
+    const u32 keepSide = survivor.valid() && topology.face(Topology::halfedge(edge, 1)) == survivor
+                             ? 1u
+                             : 0u;
+    const HalfedgeId h0 = Topology::halfedge(edge, keepSide);
+    const HalfedgeId h1 = Topology::halfedge(edge, keepSide ^ 1u);
     const FaceId f0 = topology.face(h0);
     const FaceId f1 = topology.face(h1);
-    if (f0 == f1) {
-        return false;
-    }
     const HalfedgeId p0 = topology.prev(h0);
     const HalfedgeId n0 = topology.next(h0);
     const HalfedgeId p1 = topology.prev(h1);
@@ -969,6 +1330,10 @@ bool DissolveEdge(Mesh& mesh, EdgeId edge) {
     topology.setStatus(edge, topology.status(edge) | Status::Deleted);
     topology.setStatus(h0, topology.status(h0) | Status::Deleted);
     topology.setStatus(h1, topology.status(h1) | Status::Deleted);
+    out.ok = true;
+    out.kept = f0;
+    out.gone = f1;
+    out.joined = std::move(joined);
 
     if (topology.outgoing(a) == h0) {
         topology.setOutgoing(a, n1);
@@ -978,6 +1343,17 @@ bool DissolveEdge(Mesh& mesh, EdgeId edge) {
     }
     topology.adjustOutgoing(a);
     topology.adjustOutgoing(b);
+    return out;
+}
+
+bool DissolveEdge(Mesh& mesh, EdgeId edge, FaceId survivor) {
+    detail::Dissolved dissolved = detail::DissolveEdgeDeferred(mesh, edge, survivor);
+    if (!dissolved.ok) {
+        return false;
+    }
+    clearRow(mesh, dissolved.gone);
+    mesh.triangulation.setRow(dissolved.kept.value(), dissolved.joined,
+                              std::as_const(mesh).topology().faceCount());
     return true;
 }
 
@@ -1000,6 +1376,17 @@ bool DissolveVertex(Mesh& mesh, VertexId vertex) {
         return false;
     }
     const VertexId b = topology.to(hb);
+    // A face beside it losing its third corner, or an a-b edge already there:
+    // either leaves a degenerate face or a duplicate edge behind.
+    for (const HalfedgeId side : {oa, ha}) {
+        const FaceId face = topology.face(side);
+        if (face.valid() && topology.valence(face) <= 3) {
+            return false;
+        }
+    }
+    if (topology.findHalfedge(topology.to(ha), b).valid()) {
+        return false;
+    }
 
     // Re-purpose ha's edge as a <-> b: `oa` becomes a -> b, and `ha`, being its
     // opposite, is b -> a without touching its `to`.
@@ -1017,6 +1404,12 @@ bool DissolveVertex(Mesh& mesh, VertexId vertex) {
     if (faceB.valid() && topology.halfedge(faceB) == ob) {
         topology.setFaceHalfedge(faceB, ha);
     }
+
+    // The merged edge runs along both old ones: it keeps either's flag and the
+    // larger crease, as a weld's closed edge does.
+    combineEdgeInto(mesh.attributes, Topology::edge(hb).value(), Topology::edge(ha).value());
+    clearRow(mesh, faceA);
+    clearRow(mesh, faceB);
 
     topology.setStatus(Topology::edge(hb), topology.status(Topology::edge(hb)) | Status::Deleted);
     topology.setStatus(hb, topology.status(hb) | Status::Deleted);
@@ -1046,7 +1439,146 @@ Topology::Remap GarbageCollect(Mesh& mesh) {
     if (!mesh.skin.empty()) {
         mesh.skin.remapVertices(remap.vertices, remap.newVertexCount);
     }
+    mesh.triangulation.remapFaces(remap.faces, remap.newFaceCount);
+    mesh.triangulation.remapVertices(remap.vertices);
     return remap;
+}
+
+// ============================================================================
+// Canonical numbering (EDIT_MODE_MODELLING_DESIGN.md §2.1)
+// ============================================================================
+
+namespace {
+
+/// Each corner's halfedge, face-major from `halfedge(f)`: the order
+/// `toFaceSet` writes corners in, so two topologies of one face set line up.
+std::vector<u32> cornersOf(const Topology& topology) {
+    std::vector<u32> out;
+    out.reserve(topology.halfedgeCount());
+    for (u32 f = 0; f < topology.faceCount(); ++f) {
+        if (topology.isDeleted(FaceId(f)) || !topology.halfedge(FaceId(f)).valid()) {
+            continue;
+        }
+        for (const HalfedgeId h : topology.fh(FaceId(f))) {
+            out.push_back(static_cast<u32>(h.index()));
+        }
+    }
+    return out;
+}
+
+/// Every layer of @p domain rewritten through @p map (`map[old]` = new, or
+/// `kInvalidId`), into @p count elements.
+void permuteDomain(AttributeSet& attributes, Domain domain, std::span<const u32> map, u32 count) {
+    for (const AttrLayer& layer : attributes.layers()) {
+        if (layer.domain != domain) {
+            continue;
+        }
+        AttrLayer& target = *attributes.layer(layer.name, domain);
+        const std::size_t stride = AttrTypeSize(target.type);
+        std::vector<u8> moved(stride * count, 0);
+        for (std::size_t i = 0; i < map.size(); ++i) {
+            const std::size_t from = stride * i;
+            if (map[i] == kInvalidId || map[i] >= count || from + stride > target.data.size()) {
+                continue;
+            }
+            std::memcpy(moved.data() + stride * map[i], target.data.data() + from, stride);
+        }
+        target.data = std::move(moved);
+    }
+    attributes.setDomainCount(domain, count);
+}
+
+/// `second[first[i]]`, carried through `kInvalidId`.
+std::vector<u32> compose(std::span<const u32> first, std::span<const u32> second) {
+    std::vector<u32> out(first.size(), kInvalidId);
+    for (std::size_t i = 0; i < first.size(); ++i) {
+        if (first[i] != kInvalidId && first[i] < second.size()) {
+            out[i] = second[first[i]];
+        }
+    }
+    return out;
+}
+
+bool sameArrays(const Topology& a, const Topology& b) {
+    const auto equal = [](auto x, auto y) {
+        return x.size() == y.size() && std::equal(x.begin(), x.end(), y.begin());
+    };
+    return equal(a.vertexOutgoingArray(), b.vertexOutgoingArray()) &&
+           equal(a.halfedgeToArray(), b.halfedgeToArray()) &&
+           equal(a.halfedgeFaceArray(), b.halfedgeFaceArray()) &&
+           equal(a.halfedgeNextArray(), b.halfedgeNextArray()) &&
+           equal(a.halfedgePrevArray(), b.halfedgePrevArray()) &&
+           equal(a.faceHalfedgeArray(), b.faceHalfedgeArray());
+}
+
+} // namespace
+
+bool NumberingDirty(const Mesh& mesh) {
+    return mesh.connectivity_ && mesh.numberingDirty_;
+}
+
+CanonicalRemap Canonicalize(Mesh& mesh) {
+    CanonicalRemap out;
+    if (!NumberingDirty(mesh)) {
+        mesh.numberingDirty_ = false;
+        return out;
+    }
+    const Topology::Remap compacted = GarbageCollect(mesh);
+
+    const Topology& old = mesh.topology_;
+    FaceSet faces = old.toFaceSet();
+    Topology fresh;
+    if (!fresh.build(faces).ok()) {
+        // A manifold mesh always rebuilds; one that does not is left as it is,
+        // compacted, and still dirty, for `Validate` to name.
+        out.vertices = compacted.vertices;
+        out.faces = compacted.faces;
+        out.halfedges = compacted.halfedges;
+        out.edges = compacted.edges;
+        return out;
+    }
+
+    // Corner k of face f is corner k in both, so each face side maps directly
+    // and its opposite with it. A side with no face on either half would have
+    // no corner, and a face set cannot hold one.
+    const std::vector<u32> oldCorners = cornersOf(old);
+    const std::vector<u32> newCorners = cornersOf(fresh);
+    std::vector<u32> halfedges(old.halfedgeCount(), kInvalidId);
+    for (std::size_t k = 0; k < oldCorners.size() && k < newCorners.size(); ++k) {
+        halfedges[oldCorners[k]] = newCorners[k];
+        halfedges[oldCorners[k] ^ 1u] = newCorners[k] ^ 1u;
+    }
+    std::vector<u32> edges(old.edgeCount(), kInvalidId);
+    for (u32 e = 0; e < edges.size(); ++e) {
+        const u32 h = halfedges[e << 1u];
+        edges[e] = h == kInvalidId ? kInvalidId : h >> 1u;
+    }
+    permuteDomain(mesh.attributes, Domain::Halfedge, halfedges, fresh.halfedgeCount());
+    permuteDomain(mesh.attributes, Domain::Edge, edges, fresh.edgeCount());
+
+    mesh.topology_ = std::move(fresh);
+    mesh.faces_ = std::move(faces);
+    mesh.facesStale_ = false;
+    mesh.connectivity_ = true;
+    mesh.numberingDirty_ = false;
+
+    out.vertices = compacted.vertices;
+    out.faces = compacted.faces;
+    out.halfedges = compacted.halfedges.empty() ? halfedges : compose(compacted.halfedges, halfedges);
+    out.edges = compacted.edges.empty() ? edges : compose(compacted.edges, edges);
+    return out;
+}
+
+bool IsCanonical(const Mesh& mesh) {
+    if (!mesh.hasConnectivity()) {
+        return true;
+    }
+    const Topology& topology = mesh.topology();
+    if (topology.hasDeleted()) {
+        return false;
+    }
+    Topology fresh;
+    return fresh.build(topology.toFaceSet()).ok() && sameArrays(topology, fresh);
 }
 
 // ============================================================================
@@ -1055,6 +1587,12 @@ Topology::Remap GarbageCollect(Mesh& mesh) {
 
 WeldResult WeldVertices(Mesh& mesh, f32 epsilon, bool respectMergeGroups) {
     WeldResult result;
+    // Connectivity where the face set builds, so the corners and edges can be
+    // carried; compacted, so a face-set index is a slot and no Face layer is
+    // misread (§2.1). A face set that does not build is welded as it stands.
+    if (mesh.hasConnectivity() || mesh.ensureConnectivity().ok()) {
+        GarbageCollect(mesh);
+    }
     const std::vector<u32> snapshot = snapshotCorners(mesh);
     const FaceSet& faces = mesh.faceSet();
     const std::span<const Vector3f> positions =
@@ -1181,6 +1719,7 @@ u32 SplitVertexByHalfedgeAttr(Mesh& mesh, std::span<const std::string> layers) {
     if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
         return 0;
     }
+    GarbageCollect(mesh);
     const std::vector<u32> snapshot = snapshotCorners(mesh);
     const FaceSet& faces = mesh.faceSet();
 
@@ -1280,6 +1819,11 @@ u32 SplitVertexByHalfedgeAttr(Mesh& mesh, std::span<const std::string> layers) {
 // ============================================================================
 
 u32 UnifyWinding(Mesh& mesh) {
+    // As WeldVertices: a face set wound against itself does not build, and is
+    // exactly what this op is for.
+    if (mesh.hasConnectivity() || mesh.ensureConnectivity().ok()) {
+        GarbageCollect(mesh);
+    }
     const std::vector<u32> snapshot = snapshotCorners(mesh);
     const FaceSet& faces = mesh.faceSet();
     const std::size_t faceCount = faces.faceCount();
@@ -1383,7 +1927,49 @@ u32 UnifyWinding(Mesh& mesh) {
 // MergeMeshes / SplitMesh
 // ============================================================================
 
-Mesh MergeMeshes(std::span<const Mesh> meshes) {
+namespace {
+
+/// @p mesh itself when it has connectivity and nothing lazily deleted, else a
+/// copy made so into @p store: a face-set index is then a slot, and its corners
+/// and edges can be read (C26). With @p prepare, an unmodelled input is a
+/// prepared copy (EDIT_MODE_MODELLING_DESIGN.md §2.7 item 4), so a merged mesh
+/// is all file or all prepared, whoever calls it.
+const Mesh& preparedInput(const Mesh& mesh, std::vector<Mesh>& store, bool prepare = false) {
+    if (prepare && !IsModelled(mesh)) {
+        Mesh& copy = store.emplace_back(mesh);
+        PrepareForModelling(copy);
+        if (copy.hasConnectivity() || copy.ensureConnectivity().ok()) {
+            GarbageCollect(copy);
+        }
+        return copy;
+    }
+    if (mesh.hasConnectivity() && !mesh.topology().hasDeleted()) {
+        return mesh;
+    }
+    Mesh& copy = store.emplace_back(mesh);
+    if (copy.hasConnectivity() || copy.ensureConnectivity().ok()) {
+        GarbageCollect(copy);
+    }
+    return copy;
+}
+
+} // namespace
+
+Mesh MergeMeshes(std::span<const Mesh> inputs) {
+    // Stable addresses: `meshes` points into `store`.
+    std::vector<Mesh> store;
+    store.reserve(inputs.size());
+    std::vector<const Mesh*> prepared;
+    bool anyModelled = false;
+    for (const Mesh& input : inputs) {
+        anyModelled = anyModelled || IsModelled(input);
+    }
+    for (const Mesh& input : inputs) {
+        prepared.push_back(&preparedInput(input, store, anyModelled));
+    }
+    const auto meshAt = [&](std::size_t i) -> const Mesh& { return *prepared[i]; };
+    const std::size_t meshCount = prepared.size();
+
     Mesh out;
     FaceSet faces;
     u32 vertexBase = 0;
@@ -1392,8 +1978,8 @@ Mesh MergeMeshes(std::span<const Mesh> meshes) {
 
     // Declare the union of every input's layers first, so a layer only some
     // inputs carry still lands with zeroes where it was absent.
-    for (const Mesh& mesh : meshes) {
-        for (const AttrLayer& layer : mesh.attributes.layers()) {
+    for (std::size_t m = 0; m < meshCount; ++m) {
+        for (const AttrLayer& layer : meshAt(m).attributes.layers()) {
             out.attributes.create(layer.name, layer.domain, layer.type, layer.storage);
         }
     }
@@ -1407,14 +1993,15 @@ Mesh MergeMeshes(std::span<const Mesh> meshes) {
     std::vector<std::vector<u32>> snapshots;
     std::vector<u32> sectionOffsets;
     std::vector<u32> groupOffsets;
-    snapshots.reserve(meshes.size());
+    snapshots.reserve(meshCount);
 
-    for (const Mesh& mesh : meshes) {
+    for (std::size_t m = 0; m < meshCount; ++m) {
+        const Mesh& mesh = meshAt(m);
         snapshots.push_back(snapshotCorners(mesh));
         sectionOffsets.push_back(sectionBase);
         groupOffsets.push_back(groupBase);
         const FaceSet& source = mesh.faceSet();
-        const u32 owner = static_cast<u32>(&mesh - meshes.data());
+        const u32 owner = static_cast<u32>(m);
         for (u32 v = 0; v < source.vertexCount; ++v) {
             vertexSource.push_back(v);
             vertexOwner.push_back(owner);
@@ -1448,7 +2035,32 @@ Mesh MergeMeshes(std::span<const Mesh> meshes) {
         }
     }
     faces.vertexCount = vertexBase;
+    const u32 outFaces = static_cast<u32>(faces.faceCount());
     out.setFaceSet(std::move(faces));
+    {
+        // Rows concatenate, each input's vertex ids moved by its base.
+        FaceTriangulationBuilder rows(outFaces);
+        bool any = false;
+        std::vector<u32> moved;
+        u32 base = 0;
+        u32 face = 0;
+        for (std::size_t m = 0; m < meshCount; ++m) {
+            const Mesh& mesh = meshAt(m);
+            const u32 count = static_cast<u32>(mesh.faceSet().faceCount());
+            for (u32 f = 0; f < count; ++f, ++face) {
+                moved.clear();
+                for (const u32 v : mesh.triangulation.row(f)) {
+                    moved.push_back(v + base);
+                }
+                any = any || !moved.empty();
+                rows.set(face, moved);
+            }
+            base += mesh.faceSet().vertexCount;
+        }
+        if (any) {
+            out.triangulation = rows.build();
+        }
+    }
 
     const auto copyDomain = [&](Domain domain, const std::vector<u32>& source,
                                 const std::vector<u32>& owner) {
@@ -1459,7 +2071,7 @@ Mesh MergeMeshes(std::span<const Mesh> meshes) {
             AttrLayer& target = *out.attributes.layer(layer.name, domain);
             const std::size_t stride = AttrTypeSize(target.type);
             for (std::size_t i = 0; i < source.size(); ++i) {
-                const AttrLayer* from = meshes[owner[i]].attributes.layer(layer.name, domain);
+                const AttrLayer* from = meshAt(owner[i]).attributes.layer(layer.name, domain);
                 if (from == nullptr) {
                     continue;
                 }
@@ -1488,7 +2100,7 @@ Mesh MergeMeshes(std::span<const Mesh> meshes) {
             // An input with no layer of its own would otherwise contribute every
             // vertex to one group, and the render view would weld the lot.
             const bool authored =
-                meshes[vertexOwner[i]].attributes.has(names::kMergeGroup, Domain::Vertex);
+                meshAt(vertexOwner[i]).attributes.has(names::kMergeGroup, Domain::Vertex);
             groupValues[i] =
                 (authored ? groupValues[i] : vertexSource[i]) + groupOffsets[vertexOwner[i]];
         }
@@ -1497,13 +2109,13 @@ Mesh MergeMeshes(std::span<const Mesh> meshes) {
     // Left default-constructed when no input carries a skin: an *empty* binding
     // is legal, one sized for zero vertices in a mesh that has some is not.
     bool anySkin = false;
-    for (const Mesh& mesh : meshes) {
-        anySkin = anySkin || !mesh.skin.empty();
+    for (std::size_t m = 0; m < meshCount; ++m) {
+        anySkin = anySkin || !meshAt(m).skin.empty();
     }
     if (anySkin) {
         out.skin.reset(0);
         for (std::size_t i = 0; i < vertexSource.size(); ++i) {
-            const SkinBinding& source = meshes[vertexOwner[i]].skin;
+            const SkinBinding& source = meshAt(vertexOwner[i]).skin;
             if (vertexSource[i] < source.vertexCount()) {
                 out.skin.appendVertex(source.forVertex(vertexSource[i]));
             } else {
@@ -1525,7 +2137,7 @@ Mesh MergeMeshes(std::span<const Mesh> meshes) {
             const std::vector<u32>& snapshot = snapshots[cornerOwner[corner]];
             const u32 sourceCorner = cornerSource[corner];
             if (sourceCorner < snapshot.size()) {
-                const AttributeSet& from = meshes[cornerOwner[corner]].attributes;
+                const AttributeSet& from = meshAt(cornerOwner[corner]).attributes;
                 for (const AttrLayer& layer : out.attributes.layers()) {
                     if (layer.domain != Domain::Halfedge) {
                         continue;
@@ -1548,12 +2160,76 @@ Mesh MergeMeshes(std::span<const Mesh> meshes) {
             ++corner;
         }
     }
+
+    // Edge layers, by endpoint pair inside the input the edge came from: the
+    // inputs share no vertex, so both ends name one input.
+    for (const AttrLayer& layer : out.attributes.layers()) {
+        if (layer.domain != Domain::Edge) {
+            continue;
+        }
+        AttrLayer& target = *out.attributes.layer(layer.name, Domain::Edge);
+        const std::size_t stride = AttrTypeSize(target.type);
+        for (u32 e = 0; e < topology.edgeCount(); ++e) {
+            const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
+            const u32 a = static_cast<u32>(topology.from(h).index());
+            const u32 b = static_cast<u32>(topology.to(h).index());
+            if (a >= vertexOwner.size() || b >= vertexOwner.size() ||
+                vertexOwner[a] != vertexOwner[b]) {
+                continue;
+            }
+            const Mesh& source = meshAt(vertexOwner[a]);
+            const AttrLayer* from = source.attributes.layer(layer.name, Domain::Edge);
+            if (from == nullptr || !source.hasConnectivity()) {
+                continue;
+            }
+            const HalfedgeId found =
+                source.topology().findHalfedge(VertexId(vertexSource[a]), VertexId(vertexSource[b]));
+            if (!found.valid()) {
+                continue;
+            }
+            const std::size_t offFrom = stride * Topology::edge(found).index();
+            const std::size_t offTo = stride * e;
+            if (offFrom + stride <= from->data.size() && offTo + stride <= target.data.size()) {
+                std::memcpy(target.data.data() + offTo, from->data.data() + offFrom, stride);
+            }
+        }
+    }
+
+    // The Mesh domain: the first input's value that has the layer, except
+    // `modelled`, which a merge keeps only when every input carries it.
+    for (const AttrLayer& layer : out.attributes.layers()) {
+        if (layer.domain != Domain::Mesh) {
+            continue;
+        }
+        AttrLayer& target = *out.attributes.layer(layer.name, Domain::Mesh);
+        if (layer.name == names::kModelled) {
+            bool all = meshCount > 0;
+            for (std::size_t m = 0; m < meshCount; ++m) {
+                const std::span<const u8> value =
+                    meshAt(m).attributes.get<const u8>(names::kModelled, Domain::Mesh);
+                all = all && !value.empty() && value[0] != 0;
+            }
+            if (!target.data.empty()) {
+                target.data[0] = all ? 1 : 0;
+            }
+            continue;
+        }
+        for (std::size_t m = 0; m < meshCount; ++m) {
+            const AttrLayer* from = meshAt(m).attributes.layer(layer.name, Domain::Mesh);
+            if (from != nullptr && from->data.size() == target.data.size()) {
+                target.data = from->data;
+                break;
+            }
+        }
+    }
     out.recomputeBounds();
     return out;
 }
 
-std::vector<Mesh> SplitMesh(const Mesh& mesh) {
+std::vector<Mesh> SplitMesh(const Mesh& input) {
     std::vector<Mesh> out;
+    std::vector<Mesh> store;
+    const Mesh& mesh = preparedInput(input, store);
     const u32 sectionCount = mesh.sections.empty() ? 1u : static_cast<u32>(mesh.sections.size());
     const std::vector<u32> snapshot = snapshotCorners(mesh);
     const FaceSet& faces = mesh.faceSet();
@@ -1762,37 +2438,57 @@ void RecomputeTangents(Mesh& mesh, u32 uvSet) {
     // The UV-derived bitangent, kept only for its side: a mirrored island's
     // points against cross(normal, tangent), and that is the handedness.
     std::vector<Vector3f> faceBitangents(topology.faceCount(), Vector3f{0.0f, 0.0f, 0.0f});
+    // A triangle's is its own; a polygon's the UV-area-weighted mean over the
+    // triangles it is drawn as, never a fan that can cross a reflex corner.
     for (u32 f = 0; f < topology.faceCount(); ++f) {
         if (topology.isDeleted(FaceId(f))) {
             continue;
         }
-        const HalfedgeId h0 = topology.halfedge(FaceId(f));
-        const HalfedgeId h1 = topology.next(h0);
-        const HalfedgeId h2 = topology.next(h1);
-        const std::size_t i0 = topology.from(h0).index();
-        const std::size_t i1 = topology.from(h1).index();
-        const std::size_t i2 = topology.from(h2).index();
-        if (i0 >= positions.size() || i1 >= positions.size() || i2 >= positions.size() ||
-            h2.index() >= uvs.size()) {
+        const std::vector<HalfedgeId> corners = drawnCorners(mesh, positions, FaceId(f));
+        const bool triangle = corners.size() == 3;
+        Vector3f tangent{0.0f, 0.0f, 0.0f};
+        Vector3f bitangent{0.0f, 0.0f, 0.0f};
+        f32 weight = 0.0f;
+        for (std::size_t t = 0; t + 2 < corners.size(); t += 3) {
+            const HalfedgeId h0 = corners[t];
+            const HalfedgeId h1 = corners[t + 1];
+            const HalfedgeId h2 = corners[t + 2];
+            const std::size_t i0 = topology.from(h0).index();
+            const std::size_t i1 = topology.from(h1).index();
+            const std::size_t i2 = topology.from(h2).index();
+            if (i0 >= positions.size() || i1 >= positions.size() || i2 >= positions.size() ||
+                h0.index() >= uvs.size() || h1.index() >= uvs.size() || h2.index() >= uvs.size()) {
+                continue;
+            }
+            const Vector3f e1{positions[i1].x - positions[i0].x, positions[i1].y - positions[i0].y,
+                              positions[i1].z - positions[i0].z};
+            const Vector3f e2{positions[i2].x - positions[i0].x, positions[i2].y - positions[i0].y,
+                              positions[i2].z - positions[i0].z};
+            const f32 du1 = uvs[h1.index()].x - uvs[h0.index()].x;
+            const f32 dv1 = uvs[h1.index()].y - uvs[h0.index()].y;
+            const f32 du2 = uvs[h2.index()].x - uvs[h0.index()].x;
+            const f32 dv2 = uvs[h2.index()].y - uvs[h0.index()].y;
+            const f32 determinant = du1 * dv2 - du2 * dv1;
+            if (std::fabs(determinant) < 1e-20f) {
+                continue;
+            }
+            // T/det per triangle, weighted by |det|: T·sign summed, over Σ|det|.
+            const f32 scale = triangle ? 1.0f / determinant : (determinant < 0.0f ? -1.0f : 1.0f);
+            tangent.x += (e1.x * dv2 - e2.x * dv1) * scale;
+            tangent.y += (e1.y * dv2 - e2.y * dv1) * scale;
+            tangent.z += (e1.z * dv2 - e2.z * dv1) * scale;
+            bitangent.x += (e2.x * du1 - e1.x * du2) * scale;
+            bitangent.y += (e2.y * du1 - e1.y * du2) * scale;
+            bitangent.z += (e2.z * du1 - e1.z * du2) * scale;
+            weight += triangle ? 1.0f : std::fabs(determinant);
+        }
+        if (weight <= 0.0f) {
             continue;
         }
-        const Vector3f e1{positions[i1].x - positions[i0].x, positions[i1].y - positions[i0].y,
-                          positions[i1].z - positions[i0].z};
-        const Vector3f e2{positions[i2].x - positions[i0].x, positions[i2].y - positions[i0].y,
-                          positions[i2].z - positions[i0].z};
-        const f32 du1 = uvs[h1.index()].x - uvs[h0.index()].x;
-        const f32 dv1 = uvs[h1.index()].y - uvs[h0.index()].y;
-        const f32 du2 = uvs[h2.index()].x - uvs[h0.index()].x;
-        const f32 dv2 = uvs[h2.index()].y - uvs[h0.index()].y;
-        const f32 determinant = du1 * dv2 - du2 * dv1;
-        if (std::fabs(determinant) < 1e-20f) {
-            continue;
-        }
-        const f32 r = 1.0f / determinant;
-        faceTangents[f] = Vector3f{(e1.x * dv2 - e2.x * dv1) * r, (e1.y * dv2 - e2.y * dv1) * r,
-                                   (e1.z * dv2 - e2.z * dv1) * r};
-        faceBitangents[f] = Vector3f{(e2.x * du1 - e1.x * du2) * r, (e2.y * du1 - e1.y * du2) * r,
-                                     (e2.z * du1 - e1.z * du2) * r};
+        const f32 inverse = triangle ? 1.0f : 1.0f / weight;
+        faceTangents[f] = Vector3f{tangent.x * inverse, tangent.y * inverse, tangent.z * inverse};
+        faceBitangents[f] =
+            Vector3f{bitangent.x * inverse, bitangent.y * inverse, bitangent.z * inverse};
     }
 
     const std::span<const Vector3f> normals =
@@ -1839,6 +2535,213 @@ void RecomputeTangents(Mesh& mesh, u32 uvSet) {
                 const f32 side = nxt.x * bitangent.x + nxt.y * bitangent.y + nxt.z * bitangent.z;
                 tangents[h.index()] =
                     Vector4f{orthogonal.x, orthogonal.y, orthogonal.z, side < 0.0f ? -1.0f : 1.0f};
+            }
+        }
+    }
+}
+
+// ============================================================================
+// The face-set re-shade (EDIT_MODE_MODELLING_DESIGN.md §2.7.10)
+// ============================================================================
+
+namespace {
+
+/// The vertices of @p faces, once each.
+std::vector<VertexId> verticesOf(const Topology& topology, std::span<const FaceId> faces) {
+    std::vector<VertexId> out;
+    for (const FaceId f : faces) {
+        if (f.index() >= topology.faceCount() || topology.isDeleted(f)) {
+            continue;
+        }
+        for (const VertexId v : topology.fv(f)) {
+            out.push_back(v);
+        }
+    }
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    return out;
+}
+
+f32 dot3(const Vector3f& a, const Vector3f& b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+} // namespace
+
+f32 ShadingAngle(const Mesh& mesh) {
+    const std::span<const u8> modelled =
+        mesh.attributes.get<const u8>(names::kModelled, Domain::Mesh);
+    return !modelled.empty() && modelled[0] != 0 ? 3.14159265358979f : kDefaultShadingAngle;
+}
+
+void RecomputeNormals(Mesh& mesh, std::span<const FaceId> faces, f32 angleThreshold) {
+    if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
+        return;
+    }
+    const std::vector<Vector3f> faceNormals = allFaceNormals(mesh);
+    const std::span<Vector3f> normals =
+        mesh.attributes.getOrCreate<Vector3f>(names::kNormal, Domain::Halfedge, AttrType::F32x3);
+    if (normals.empty()) {
+        return;
+    }
+    const f32 cosThreshold = std::cos(angleThreshold);
+    const Topology& topology = std::as_const(mesh).topology();
+    for (const VertexId v : verticesOf(topology, faces)) {
+        for (const std::vector<HalfedgeId>& group : cornerGroups(mesh, faceNormals, v, cosThreshold)) {
+            Vector3f sum{0.0f, 0.0f, 0.0f};
+            for (const HalfedgeId h : group) {
+                const std::size_t f = topology.face(h).index();
+                if (f < faceNormals.size()) {
+                    sum.x += faceNormals[f].x;
+                    sum.y += faceNormals[f].y;
+                    sum.z += faceNormals[f].z;
+                }
+            }
+            const Vector3f value = normalized(sum);
+            for (const HalfedgeId h : group) {
+                if (h.index() < normals.size()) {
+                    normals[h.index()] = value;
+                }
+            }
+        }
+    }
+}
+
+void RecomputeTangents(Mesh& mesh, std::span<const FaceId> faces, u32 uvSet) {
+    if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
+        return;
+    }
+    const Mesh& readable = mesh;
+    const std::span<const Vector2f> uvs =
+        readable.attributes.get<const Vector2f>(names::uv(uvSet), Domain::Halfedge);
+    const std::span<const Vector3f> positions =
+        readable.attributes.get<const Vector3f>(names::kPosition, Domain::Vertex);
+    if (uvs.empty() || positions.empty()) {
+        return;
+    }
+    const Topology& topology = readable.topology();
+    const std::vector<Vector3f> faceNormals = allFaceNormals(readable);
+
+    // Per face: its UV-space tangent and bitangent over the triangles it is
+    // drawn as, area-weighted, and whether its UV map has any area at all.
+    const u32 faceCount = topology.faceCount();
+    std::vector<Vector3f> faceTangents(faceCount, Vector3f{0.0f, 0.0f, 0.0f});
+    std::vector<Vector3f> faceBitangents(faceCount, Vector3f{0.0f, 0.0f, 0.0f});
+    std::vector<u8> mapped(faceCount, 0);
+    for (u32 f = 0; f < faceCount; ++f) {
+        if (topology.isDeleted(FaceId(f))) {
+            continue;
+        }
+        const std::vector<HalfedgeId> corners = drawnCorners(readable, positions, FaceId(f));
+        for (std::size_t t = 0; t + 2 < corners.size(); t += 3) {
+            const HalfedgeId h0 = corners[t];
+            const HalfedgeId h1 = corners[t + 1];
+            const HalfedgeId h2 = corners[t + 2];
+            const std::size_t i0 = topology.from(h0).index();
+            const std::size_t i1 = topology.from(h1).index();
+            const std::size_t i2 = topology.from(h2).index();
+            if (i0 >= positions.size() || i1 >= positions.size() || i2 >= positions.size() ||
+                h2.index() >= uvs.size() || h1.index() >= uvs.size() || h0.index() >= uvs.size()) {
+                continue;
+            }
+            const Vector3f e1{positions[i1].x - positions[i0].x, positions[i1].y - positions[i0].y,
+                              positions[i1].z - positions[i0].z};
+            const Vector3f e2{positions[i2].x - positions[i0].x, positions[i2].y - positions[i0].y,
+                              positions[i2].z - positions[i0].z};
+            const f32 du1 = uvs[h1.index()].x - uvs[h0.index()].x;
+            const f32 dv1 = uvs[h1.index()].y - uvs[h0.index()].y;
+            const f32 du2 = uvs[h2.index()].x - uvs[h0.index()].x;
+            const f32 dv2 = uvs[h2.index()].y - uvs[h0.index()].y;
+            const f32 determinant = du1 * dv2 - du2 * dv1;
+            if (std::fabs(determinant) < 1e-20f) {
+                continue;
+            }
+            // Weighted by the triangle's UV area, the determinant's own size.
+            const f32 sign = determinant < 0.0f ? -1.0f : 1.0f;
+            faceTangents[f].x += (e1.x * dv2 - e2.x * dv1) * sign;
+            faceTangents[f].y += (e1.y * dv2 - e2.y * dv1) * sign;
+            faceTangents[f].z += (e1.z * dv2 - e2.z * dv1) * sign;
+            faceBitangents[f].x += (e2.x * du1 - e1.x * du2) * sign;
+            faceBitangents[f].y += (e2.y * du1 - e1.y * du2) * sign;
+            faceBitangents[f].z += (e2.z * du1 - e1.z * du2) * sign;
+            mapped[f] = 1;
+        }
+    }
+    // A face's handedness: its UV bitangent against cross(normal, tangent).
+    const auto handedness = [&](u32 f) -> f32 {
+        const Vector3f nxt = whiteout::cross(faceNormals[f], faceTangents[f]);
+        return dot3(nxt, faceBitangents[f]) < 0.0f ? -1.0f : 1.0f;
+    };
+
+    const std::span<const Vector3f> normals =
+        readable.attributes.get<const Vector3f>(names::kNormal, Domain::Halfedge);
+    const std::span<Vector4f> tangents =
+        mesh.attributes.getOrCreate<Vector4f>(names::kTangent, Domain::Halfedge, AttrType::F32x4);
+    const f32 cosThreshold = std::cos(ShadingAngle(readable));
+    for (const VertexId v : verticesOf(topology, faces)) {
+        for (const std::vector<HalfedgeId>& normalGroup :
+             cornerGroups(readable, faceNormals, v, cosThreshold)) {
+            // Inside the normal group, one tangent per (UV, handedness) class.
+            std::vector<u8> done(normalGroup.size(), 0);
+            for (std::size_t i = 0; i < normalGroup.size(); ++i) {
+                if (done[i] != 0) {
+                    continue;
+                }
+                const HalfedgeId lead = normalGroup[i];
+                const u32 leadFace = static_cast<u32>(topology.face(lead).index());
+                const Vector2f leadUv = lead.index() < uvs.size() ? uvs[lead.index()] : Vector2f{};
+                const f32 leadSide = mapped[leadFace] != 0 ? handedness(leadFace) : 0.0f;
+                std::vector<HalfedgeId> members;
+                for (std::size_t j = i; j < normalGroup.size(); ++j) {
+                    const HalfedgeId h = normalGroup[j];
+                    const u32 f = static_cast<u32>(topology.face(h).index());
+                    const Vector2f uv = h.index() < uvs.size() ? uvs[h.index()] : Vector2f{};
+                    const f32 side = mapped[f] != 0 ? handedness(f) : 0.0f;
+                    // An unmapped face's corner joins whatever shares its UV.
+                    const bool sameSide = side == 0.0f || leadSide == 0.0f || side == leadSide;
+                    if (done[j] == 0 && uv.x == leadUv.x && uv.y == leadUv.y && sameSide) {
+                        done[j] = 1;
+                        members.push_back(h);
+                    }
+                }
+                Vector3f sum{0.0f, 0.0f, 0.0f};
+                Vector3f bitangent{0.0f, 0.0f, 0.0f};
+                for (const HalfedgeId h : members) {
+                    const u32 f = static_cast<u32>(topology.face(h).index());
+                    if (mapped[f] == 0) {
+                        continue;
+                    }
+                    sum.x += faceTangents[f].x;
+                    sum.y += faceTangents[f].y;
+                    sum.z += faceTangents[f].z;
+                    bitangent.x += faceBitangents[f].x;
+                    bitangent.y += faceBitangents[f].y;
+                    bitangent.z += faceBitangents[f].z;
+                }
+                for (const HalfedgeId h : members) {
+                    if (h.index() >= tangents.size()) {
+                        continue;
+                    }
+                    const u32 f = static_cast<u32>(topology.face(h).index());
+                    const Vector3f normal = h.index() < normals.size() ? normals[h.index()]
+                                                                       : faceNormals[f];
+                    Vector3f along = sum;
+                    f32 w = 1.0f;
+                    if (dot3(along, along) <= 1e-30f) {
+                        // Nothing mapped here: along the face's first edge.
+                        const HalfedgeId first = topology.halfedge(FaceId(f));
+                        const Vector3f& a = positions[topology.from(first).index()];
+                        const Vector3f& b = positions[topology.to(first).index()];
+                        along = Vector3f{b.x - a.x, b.y - a.y, b.z - a.z};
+                    } else {
+                        const Vector3f nxt = whiteout::cross(normal, normalized(along));
+                        w = dot3(nxt, bitangent) < 0.0f ? -1.0f : 1.0f;
+                    }
+                    const f32 d = dot3(along, normal);
+                    const Vector3f orthogonal = normalized(Vector3f{
+                        along.x - normal.x * d, along.y - normal.y * d, along.z - normal.z * d});
+                    tangents[h.index()] = Vector4f{orthogonal.x, orthogonal.y, orthogonal.z, w};
+                }
             }
         }
     }

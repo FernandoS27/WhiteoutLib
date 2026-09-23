@@ -35,6 +35,7 @@
 #include "repair.h"
 #include "skin.h"
 #include "topology.h"
+#include "triangulation.h"
 
 namespace whiteout {
 namespace models {
@@ -122,16 +123,33 @@ struct MeshSection {
 // Mesh
 // ============================================================================
 
+/// `Mesh::lodLevel` of a mesh drawn at every level of detail: the file's -1.
+inline constexpr u32 kAllLods = 0xFFFFFFFFu;
+
+class Mesh;
+
+namespace geom {
+struct CanonicalRemap;
+// Declared here for `Mesh`'s friendship; ops.h documents them.
+CanonicalRemap Canonicalize(Mesh& mesh);
+bool NumberingDirty(const Mesh& mesh);
+} // namespace geom
+
 /// @bind methods
 class Mesh {
 public:
     std::string name;
+    /// 0, or `kAllLods`: a document holds no other level
+    /// (`DropLevelsOfDetail`, EDIT_MODE_MODELLING_DESIGN.md §8.1).
     u32 lodLevel = 0;
     geom::AttributeSet attributes; ///< Includes the `section` Face layer.
     geom::SkinBinding skin;
     std::vector<MeshSection> sections;
     geom::RepairLog repairLog; ///< What import had to do to make this a manifold (§5.3).
     Extent bounds;
+    /// Per face slot, the triangles a polygon is drawn and written as
+    /// (EDIT_MODE_MODELLING_DESIGN.md §2.3). Empty on an all-triangle mesh.
+    geom::FaceTriangulation triangulation;
 
     // --- geometry ------------------------------------------------------------
 
@@ -143,9 +161,10 @@ public:
      */
     const geom::FaceSet& faceSet() const;
 
-    /// Replaces the geometry. Drops any connectivity and resizes the Vertex and
-    /// Face attribute domains to match; Halfedge and Edge domains are sized by
-    /// `ensureConnectivity`, since only the build knows how many there are.
+    /// Replaces the geometry. Drops any connectivity and the stored
+    /// triangulation, and resizes the Vertex and Face attribute domains to match;
+    /// Halfedge and Edge domains are sized by `ensureConnectivity`, since only the
+    /// build knows how many there are.
     void setFaceSet(geom::FaceSet faces);
 
     bool hasConnectivity() const {
@@ -162,7 +181,10 @@ public:
     geom::BuildResult ensureConnectivity();
 
     /// Drops the half-edge arrays, syncing the face set first if an edit made it
-    /// stale. The mesh is unchanged; only the cache goes.
+    /// stale. When an edit renumbered the connectivity, it is canonicalized
+    /// first (`geom::Canonicalize`): lazily deleted elements are compacted and
+    /// the Halfedge and Edge layers carried to the numbering a rebuild gives, so
+    /// ids held across this call are renumbered. The geometry is unchanged.
     void invalidateConnectivity();
 
     /// Mutable connectivity. Marks the face set stale, so the next `faceSet()`
@@ -218,6 +240,7 @@ public:
             topology_ = geom::Topology{};
             connectivity_ = false;
             facesStale_ = false;
+            numberingDirty_ = false;
         }
 
         v.field("attributes", attributes);
@@ -225,15 +248,23 @@ public:
         v.field("sections", sections);
         v.field("repairLog", repairLog);
         v.field("bounds", bounds);
+        v.since(2).field("triangulation", triangulation);
     }
 
 private:
+    friend geom::CanonicalRemap geom::Canonicalize(Mesh& mesh);
+    friend bool geom::NumberingDirty(const Mesh& mesh);
+
     void syncFaceSet() const;
 
     mutable geom::FaceSet faces_;
     geom::Topology topology_;
     bool connectivity_ = false;
     mutable bool facesStale_ = false;
+    /// An edit may have numbered halfedges and edges other than a fresh build
+    /// of the face set would (EDIT_MODE_MODELLING_DESIGN.md §2.1). Set wherever
+    /// `facesStale_` is, cleared only by a fresh build.
+    bool numberingDirty_ = false;
 };
 
 } // namespace wem

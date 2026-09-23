@@ -1638,6 +1638,20 @@ TEST_CASE("wem mdx bone gates and geoset flags survive the corpus round trip",
             continue;
         }
         const Document& document = *converted.value;
+        // The import keeps LOD 0 and every-level geosets, in file order
+        // (EDIT_MODE_MODELLING_DESIGN.md §8.1), so a source geoset's number
+        // out is its place among those. A file with no base geoset keeps all.
+        std::vector<u32> keptAs(source.geosets.size(), kInvalidIndex);
+        const bool anyBase =
+            std::any_of(source.geosets.begin(), source.geosets.end(), [](const mdx::Geoset& g) {
+                return g.lod == 0 || g.lod == kSentinel;
+            });
+        for (u32 g = 0, next = 0; g < source.geosets.size(); ++g) {
+            const u32 lod = source.geosets[g].lod;
+            if (!anyBase || lod == 0 || lod == kSentinel) {
+                keptAs[g] = next++;
+            }
+        }
         for (const ProfileId profile : document.profiles) {
             // Reforged is written at v1800 by the host (`MdxVersionForWemProfile`).
             const u32 version = profile == ProfileId::Wc3Reforged ? 1800u : 800u;
@@ -1657,14 +1671,15 @@ TEST_CASE("wem mdx bone gates and geoset flags survive the corpus round trip",
                 }
                 ++counts.gated;
                 const u32 after = gateOf(*exported, exported->bones[b]);
-                if (after == before && exported->bones[b].node.name == source.bones[b].node.name) {
+                if (after == keptAs[before] &&
+                    exported->bones[b].node.name == source.bones[b].node.name) {
                     ++counts.same;
                 } else if (after == kInvalidIndex) {
                     ++counts.lost;
                 } else {
                     ++counts.moved;
                 }
-                if (after != before && failing.size() < 8) {
+                if (after != keptAs[before] && failing.size() < 8) {
                     failing.push_back(test::pathText(files[i].filename()) + " '" +
                                       source.bones[b].node.name + "': geoset " +
                                       std::to_string(before) + " -> " +
@@ -1674,11 +1689,11 @@ TEST_CASE("wem mdx bone gates and geoset flags survive the corpus round trip",
             }
             for (u32 g = 0; g < source.geosets.size(); ++g) {
                 const mdx::GeosetAnimation* was = firstRecord(source, g);
-                if (was == nullptr) {
+                if (was == nullptr || keptAs[g] == kInvalidIndex) {
                     continue;
                 }
                 const u32 word = static_cast<u32>(was->flags);
-                const mdx::GeosetAnimation* now = firstRecord(*exported, g);
+                const mdx::GeosetAnimation* now = firstRecord(*exported, keptAs[g]);
                 const u32 wrote = now != nullptr ? static_cast<u32>(now->flags) : 0x2u;
                 if ((word & 0x1u) != 0) {
                     ++counts.dropShadow;

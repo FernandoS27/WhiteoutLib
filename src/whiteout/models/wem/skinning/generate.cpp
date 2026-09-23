@@ -10,6 +10,7 @@
 #include <memory>
 #include <utility>
 
+#include <whiteout/models/wem/geometry/triangulation.h>
 #include <whiteout/utils/job_group.h>
 
 #include "generate_common.h"
@@ -64,17 +65,8 @@ std::vector<u32> HeldBones(const NodeTree& nodes, const BoneSegments& segments,
 }
 
 std::vector<u32> TrianglesOf(const Mesh& mesh) {
-    const geom::FaceSet& faces = mesh.faceSet();
     std::vector<u32> out;
-    std::size_t corner = 0;
-    for (const u32 valence : faces.faceValence) {
-        for (u32 i = 2; i < valence; ++i) {
-            out.push_back(faces.cornerVertex[corner]);
-            out.push_back(faces.cornerVertex[corner + i - 1]);
-            out.push_back(faces.cornerVertex[corner + i]);
-        }
-        corner += valence;
-    }
+    geom::TriangulateMesh(mesh, out);
     return out;
 }
 

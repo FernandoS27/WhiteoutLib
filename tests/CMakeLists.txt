@@ -96,6 +96,17 @@ whiteout_add_test(wem_ops_test wem_ops_test.cpp)
 # G18: merging meshes into one geoset, the mesh-axis referencer table, and the
 # converter's say on whether toMdx could write the result.
 whiteout_add_test(wem_mesh_ops_test wem_mesh_ops_test.cpp)
+# G29's drop arm (EDIT_MODE_MODELLING_PLAN.md MX1): a document holds LOD 0 and
+# every-level meshes only, and every mesh referencer follows the drop.
+whiteout_add_test(wem_lod_drop_test wem_lod_drop_test.cpp)
+# G22's canonical arms and G24's blends (EDIT_MODE_MODELLING_PLAN.md ML0).
+whiteout_add_test(wem_canonical_test wem_canonical_test.cpp)
+whiteout_add_test(wem_interpolate_test wem_interpolate_test.cpp)
+whiteout_add_test(wem_triangulation_test wem_triangulation_test.cpp)
+target_include_directories(wem_triangulation_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+whiteout_add_test(wem_prepare_test wem_prepare_test.cpp)
+whiteout_add_test(wem_select_test wem_select_test.cpp)
+whiteout_add_test(wem_modelling_tools_test wem_modelling_tools_test.cpp)
 whiteout_add_test(wem_render_identity_test wem_render_identity_test.cpp)
 whiteout_add_test(wem_material_kind_test wem_material_kind_test.cpp)
 whiteout_add_test(wem_material_ops_test wem_material_ops_test.cpp)

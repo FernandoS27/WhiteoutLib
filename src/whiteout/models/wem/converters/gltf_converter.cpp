@@ -329,7 +329,7 @@ u32 ExportMesh(MeshExportContext& context, const Mesh& mesh, u32 meshOrdinal) {
                                    utils::AttributeEncoding::UInt8, 4, 0});
     }
     desc.splitBySection = true;
-    desc.triangulation = geom::TriangulationPolicy::FanFromFirstHalfedge;
+    desc.triangulation = geom::TriangulationPolicy::Authored;
 
     // The skin path covers rigid sections too: `rigidNode` means every vertex
     // binds there at weight 1, which the render view spells out (§5.6).
@@ -1448,14 +1448,6 @@ Result<gltf::Asset> GltfConverter::toGltf(const Document& document, ProfileId pr
         context.skinSkeleton = &skinSkeleton;
         for (std::size_t meshIndex = 0; meshIndex < model.meshes.size(); ++meshIndex) {
             const Mesh& mesh = model.meshes[meshIndex];
-            if (options.baseLodOnly && mesh.lodLevel != 0) {
-                result.diagnostics.info(
-                    DiagCode::LevelOfDetailDropped,
-                    "mesh '" + mesh.name + "' is LOD " + std::to_string(mesh.lodLevel) +
-                        "; base only",
-                    ElementRef(ElementKind::Mesh, static_cast<u32>(meshIndex)));
-                continue;
-            }
             context.skinned = false;
             const u32 exported = ExportMesh(context, mesh, static_cast<u32>(meshIndex));
             if (exported == gltf::kNone) {
