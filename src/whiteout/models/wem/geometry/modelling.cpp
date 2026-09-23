@@ -1505,6 +1505,7 @@ ModelPlan PlanJoinTriangles(Mesh& mesh, const PointTable& points, const ElementS
         rows[dissolved.kept.value()] = std::move(dissolved.joined);
         cleared.push_back(dissolved.gone.value());
         joined.push_back(dissolved.kept.value());
+        plan.dissolvedEdges.push_back(edge.value());
     }
     if (!joined.empty()) {
         storeRows(mesh, rows, cleared);
@@ -1635,6 +1636,7 @@ ModelPlan PlanLimitedDissolve(Mesh& mesh, const PointTable& points, const Elemen
         pending.erase(dissolved.gone.value());
         cleared.push_back(dissolved.gone.value());
         merged.push_back(dissolved.kept.value());
+        plan.dissolvedEdges.push_back(e);
         return true;
     };
     for (std::size_t first = 0; first < candidates.size();) {
@@ -3855,6 +3857,31 @@ void touchFaces(const Mesh& mesh, ModelPlan& plan) {
     plan.selection.normalise();
 }
 
+/// The fresh merge groups @p made ask for, so nothing welds a copy back onto
+/// what it came from.
+void freshGroups(Mesh& mesh, const std::vector<u32>& made) {
+    if (made.empty()) {
+        return;
+    }
+    const std::span<u32> groups =
+        mesh.attributes.getOrCreate<u32>(names::kMergeGroup, Domain::Vertex, AttrType::U32);
+    u32 next = FreshMergeGroup(mesh);
+    for (const u32 v : made) {
+        if (v < groups.size()) {
+            groups[v] = next++;
+        }
+    }
+}
+
+/// Every per-fan copy @p rings made, ascending.
+std::vector<u32> copiesOf(const std::vector<Grown>& rings) {
+    std::vector<u32> made;
+    for (const Grown& grown : rings) {
+        made.insert(made.end(), grown.copies.begin(), grown.copies.end());
+    }
+    return sortedUnique(std::move(made));
+}
+
 } // namespace
 
 ModelPlan PlanExtrudeFaces(Mesh& mesh, const PointTable& points, const ElementSet& faces, ExtrudeType type) {
@@ -3944,6 +3971,11 @@ ModelPlan PlanExtrudeFaces(Mesh& mesh, const PointTable& points, const ElementSe
         plan.refusal = ModelRefusal::WouldFold;
         return plan;
     }
+    // A copy carries its source's `mergeGroup` across the rebuild, and the
+    // amount then lifts it off that vertex: without a group of its own the two
+    // would still be one point, so the walls would draw as one vertex and a
+    // move of the lifted face would drag the ground with it.
+    freshGroups(mesh, copiesOf(rings));
     const std::span<const Vector3f> now = positionsOf(mesh);
     for (const auto& [vertex, direction] : moves) {
         VertexMotion motion;
@@ -4033,6 +4065,11 @@ ModelPlan PlanExtrudeBorder(Mesh& mesh, const PointTable& points, const ElementS
         plan.refusal = ModelRefusal::WouldFold;
         return plan;
     }
+    std::vector<u32> grew;
+    for (const auto& [vertex, copy] : copyOf) {
+        grew.push_back(copy);
+    }
+    freshGroups(mesh, sortedUnique(std::move(grew))); // the strip's far side is its own point
     const std::span<const Vector3f> now = positionsOf(mesh);
     for (const auto& [vertex, copy] : copyOf) {
         // A crack's twins are one point (§2.2), so they take one aim between
@@ -4175,6 +4212,7 @@ ModelPlan PlanInset(Mesh& mesh, const PointTable& points, const ElementSet& face
         plan.refusal = ModelRefusal::WouldFold;
         return plan;
     }
+    freshGroups(mesh, copiesOf(rings)); // the ring's inner vertices are their own points
     const std::span<const Vector3f> now = positionsOf(mesh);
     for (const auto& [copy, corner] : corners) {
         if (corner.edges < 2) {
@@ -4651,6 +4689,11 @@ ModelPlan PlanChamferEdges(Mesh& mesh, const PointTable& points, const ElementSe
         plan.refusal = ModelRefusal::WouldFold;
         return plan;
     }
+    std::vector<u32> made;
+    for (const Placed& point : placed) {
+        made.push_back(point.id);
+    }
+    freshGroups(mesh, sortedUnique(std::move(made))); // each placed point is its own
     const std::span<const Vector3f> now = positionsOf(mesh);
     for (const Placed& point : placed) {
         VertexMotion motion;
@@ -5717,22 +5760,6 @@ std::vector<u32> chosenFaces(const Topology& topology, const ElementSet& faces, 
     return chosen;
 }
 
-/// The fresh merge groups @p made ask for, so nothing welds a copy back onto
-/// what it came from.
-void freshGroups(Mesh& mesh, const std::vector<u32>& made) {
-    if (made.empty()) {
-        return;
-    }
-    const std::span<u32> groups =
-        mesh.attributes.getOrCreate<u32>(names::kMergeGroup, Domain::Vertex, AttrType::U32);
-    u32 next = FreshMergeGroup(mesh);
-    for (const u32 v : made) {
-        if (v < groups.size()) {
-            groups[v] = next++;
-        }
-    }
-}
-
 } // namespace
 
 ModelPlan PlanDuplicate(Mesh& mesh, const ElementSet& faces) {
@@ -6097,6 +6124,163 @@ ModelPlan PlanBridge(Mesh& mesh, const PointTable& points, EdgeId first, EdgeId 
     return plan;
 }
 
+
+ModelPlan PlanBridgeFaces(Mesh& mesh, const PointTable& points, FaceId first, FaceId second,
+                          const BridgeParams& params) {
+    ModelPlan plan;
+    (void)points;
+    if (params.segments != 1) {
+        plan.refusal = ModelRefusal::NotBuiltYet;
+        return plan;
+    }
+    if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
+        plan.refusal = ModelRefusal::NotBuiltYet;
+        return plan;
+    }
+    const Topology& topology = std::as_const(mesh).topology();
+    if (first == second) {
+        plan.refusal = ModelRefusal::SameLoop;
+        return plan;
+    }
+    // Each face's loop the way the border its removal would leave runs, which is
+    // the face's OWN direction: the face and its neighbour cross their shared
+    // edge opposite ways, so the boundary halfedge left behind -- the neighbour's
+    // twin -- runs the way the face did. The pairing below is `PlanBridge`'s,
+    // written for border loops, and this is what makes the two forms one rule.
+    //
+    // Reversing here instead builds the band wound the other way round. Two
+    // loose shells bridged like that are still a manifold, just inside out, so
+    // nothing catches it; on a surface with neighbours every rim vertex ends up
+    // with two fans and the repair splits all of them.
+    const auto loopOfFace = [&](FaceId face, std::vector<u32>& vertices, std::vector<HalfedgeId>& rim) {
+        if (face.value() >= topology.faceCount() || topology.isDeleted(face)) {
+            return false;
+        }
+        for (const HalfedgeId h : topology.fh(face)) {
+            vertices.push_back(topology.from(h).value());
+            rim.push_back(h); // the face's own corner at that vertex
+        }
+        return vertices.size() >= 3;
+    };
+    std::vector<u32> here;
+    std::vector<u32> there;
+    std::vector<HalfedgeId> hereRim;
+    std::vector<HalfedgeId> thereRim;
+    if (!loopOfFace(first, here, hereRim) || !loopOfFace(second, there, thereRim)) {
+        plan.refusal = ModelRefusal::EmptySelection;
+        return plan;
+    }
+    if (here.size() != there.size()) {
+        plan.refusal = ModelRefusal::LoopCountsDiffer;
+        return plan;
+    }
+    for (const u32 v : here) {
+        if (std::find(there.begin(), there.end(), v) != there.end()) {
+            plan.refusal = ModelRefusal::SameLoop;
+            return plan;
+        }
+    }
+    // The loops matched the other way round, started from the pair whose
+    // connecting edges are shortest in sum, `twist` stepping it round.
+    const std::span<const Vector3f> at = positionsOf(mesh);
+    const std::size_t n = here.size();
+    std::size_t best = 0;
+    f32 shortest = FLT_MAX;
+    for (std::size_t offset = 0; offset < n; ++offset) {
+        f32 sum = 0.0f;
+        for (std::size_t i = 0; i < n; ++i) {
+            sum += (at[there[(offset + n - i) % n]] - at[here[i]]).length();
+        }
+        if (sum < shortest) {
+            shortest = sum;
+            best = offset;
+        }
+    }
+    best = (best + static_cast<std::size_t>((params.twist % static_cast<i32>(n)) + static_cast<i32>(n))) % n;
+    const std::vector<u32> snapshot = detail::snapshotCornersBuilt(mesh);
+    const std::unordered_map<u32, u32> ordinalOf = cornerOrdinals(snapshot);
+    const auto ordinal = [&](HalfedgeId h) {
+        const auto found = ordinalOf.find(static_cast<u32>(h.index()));
+        return found == ordinalOf.end() ? kInvalidId : found->second;
+    };
+    // Every face but those two, and then the band. The two go without a delete
+    // of their own -- they are simply not rebuilt -- and their vertices stay,
+    // because the band is what uses them now.
+    std::vector<u8> kept(topology.vertexCount(), 0);
+    for (const u32 v : here) {
+        kept[v] = 1;
+    }
+    for (const u32 v : there) {
+        kept[v] = 1;
+    }
+    std::vector<std::vector<u32>> loops;
+    std::vector<std::vector<u32>> corners;
+    std::vector<u32> sourceFace;
+    for (u32 f = 0; f < topology.faceCount(); ++f) {
+        const FaceId face(f);
+        if (topology.isDeleted(face) || face == first || face == second) {
+            continue;
+        }
+        std::vector<u32> loop;
+        std::vector<u32> mine;
+        for (const HalfedgeId h : topology.fh(face)) {
+            loop.push_back(topology.from(h).value());
+            mine.push_back(ordinal(h));
+            kept[topology.from(h).value()] = 1;
+        }
+        loops.push_back(std::move(loop));
+        corners.push_back(std::move(mine));
+        sourceFace.push_back(f);
+    }
+    detail::RebuildMapping mapping;
+    std::vector<u32> newId(kept.size(), kInvalidId);
+    for (u32 v = 0; v < kept.size(); ++v) {
+        if (kept[v] != 0 && !topology.isDeleted(VertexId(v))) {
+            newId[v] = static_cast<u32>(mapping.vertexSource.size());
+            mapping.vertexSource.push_back(v);
+        }
+    }
+    for (std::size_t i = 0; i < loops.size(); ++i) {
+        mapping.faces.faceValence.push_back(static_cast<u32>(loops[i].size()));
+        for (const u32 v : loops[i]) {
+            mapping.faces.cornerVertex.push_back(newId[v]);
+        }
+        mapping.cornerSource.insert(mapping.cornerSource.end(), corners[i].begin(), corners[i].end());
+        mapping.faceSource.push_back(sourceFace[i]);
+    }
+    for (std::size_t i = 0; i < n; ++i) {
+        const u32 a = here[i];
+        const u32 b = here[(i + 1) % n];
+        const u32 c = there[(best + n - i) % n];
+        const u32 d = there[(best + n - i - 1 + n) % n];
+        // One quad per edge pair, wound against both rims.
+        const u32 loop[4] = {a, b, d, c};
+        const HalfedgeId sources[4] = {hereRim[i], hereRim[(i + 1) % n],
+                                       thereRim[(best + n - i - 1 + n) % n],
+                                       thereRim[(best + n - i) % n]};
+        mapping.faces.faceValence.push_back(4);
+        for (u32 k = 0; k < 4; ++k) {
+            mapping.faces.cornerVertex.push_back(newId[loop[k]]);
+            mapping.cornerSource.push_back(ordinal(sources[k]));
+        }
+        // The band wears the face it grew out of, which is what carries its
+        // section: a bridge that landed in another draw would be a bridge you
+        // then had to go and fix.
+        mapping.faceSource.push_back(first.value());
+        plan.selection.faces.push_back(static_cast<u32>(mapping.faces.faceValence.size() - 1));
+        plan.changedFaces.push_back(plan.selection.faces.back());
+    }
+    mapping.faces.vertexCount = static_cast<u32>(mapping.vertexSource.size());
+    const detail::RebuildResult result = detail::rebuild(mesh, std::move(mapping), snapshot);
+    if (!result.ok || result.repair.changed) {
+        plan.refusal = ModelRefusal::WouldFold;
+        return plan;
+    }
+    plan.changed = static_cast<u32>(n);
+    touchFaces(mesh, plan);
+    return plan;
+}
+
 // ============================================================================
 // Symmetry and moving well (§3.15, §3.17)
 // ============================================================================
@@ -6108,13 +6292,31 @@ ModelPlan PlanSymmetrize(Mesh& mesh, const PointTable& points, const SymmetrizeP
         plan.refusal = ModelRefusal::NotBuiltYet;
         return plan;
     }
+    // The plane, as one point and one direction: an axis plane through the
+    // origin unless the caller named its own. Every test below is then one dot
+    // product, and for an axis normal through the origin it is the component
+    // the axis names -- which is what this read before it could be asked for a
+    // plane that is not one of the three.
     const u32 axis = std::min(2u, params.axis);
-    Vector3f normal{0.0f, 0.0f, 0.0f};
-    (&normal.x)[axis] = params.fromPositive ? 1.0f : -1.0f;
+    Vector3f cardinal{0.0f, 0.0f, 0.0f};
+    (&cardinal.x)[axis] = 1.0f;
+    const bool placed = params.normal.length() > 1e-12f;
+    // The normal points AT the source side, so the sign carries `fromPositive`.
+    const Vector3f normal =
+        (placed ? params.normal.normalized() : cardinal) * (params.fromPositive ? 1.0f : -1.0f);
+    const Vector3f seam = placed ? params.origin : Vector3f{0.0f, 0.0f, 0.0f};
+    // A reflection about it, for a point and for a direction: the direction's
+    // is the same with the offset left out.
+    const auto reflectPoint = [&](const Vector3f& p) {
+        return p - normal * (2.0f * (p - seam).dot(normal));
+    };
+    const auto reflectDirection = [&](const Vector3f& d) {
+        return d - normal * (2.0f * d.dot(normal));
+    };
     // The far side goes first, and a vertex on the plane is snapped onto it so
     // the two halves meet exactly (§3.14's own rule).
     SliceParams cut;
-    cut.origin = {0.0f, 0.0f, 0.0f};
+    cut.origin = seam;
     cut.normal = normal;
     cut.mode = SliceMode::Cut;
     ModelPlan sliced = PlanSlice(mesh, points, ElementSet{}, cut);
@@ -6140,7 +6342,7 @@ ModelPlan PlanSymmetrize(Mesh& mesh, const PointTable& points, const SymmetrizeP
             f32 sum = 0.0f;
             u32 corners = 0;
             for (const HalfedgeId h : before.fh(FaceId(f))) {
-                sum += places[before.from(h).value()].dot(normal);
+                sum += (places[before.from(h).value()] - seam).dot(normal);
                 ++corners;
             }
             if (corners != 0 && sum / static_cast<f32>(corners) < 0.0f) {
@@ -6179,7 +6381,7 @@ ModelPlan PlanSymmetrize(Mesh& mesh, const PointTable& points, const SymmetrizeP
         if (topology.isDeleted(VertexId(v))) {
             continue;
         }
-        if (std::abs((&at[v].x)[axis]) <= tolerance) {
+        if (std::abs((at[v] - seam).dot(normal)) <= tolerance) {
             mirrorOf[v] = v; // on the plane: the halves share it
             continue;
         }
@@ -6223,10 +6425,11 @@ ModelPlan PlanSymmetrize(Mesh& mesh, const PointTable& points, const SymmetrizeP
         const std::span<Vector3f> places = mesh.attributes.get<Vector3f>(names::kPosition, Domain::Vertex);
         for (const u32 v : made) {
             if (v < places.size()) {
-                (&places[v].x)[axis] = -(&places[v].x)[axis];
+                places[v] = reflectPoint(places[v]);
             }
         }
     }
+    freshGroups(mesh, made); // across the plane, so the halves are not one point
     {
         const Topology& built = std::as_const(mesh).topology();
         const std::span<Vector3f> normals = mesh.attributes.get<Vector3f>(names::kNormal, Domain::Halfedge);
@@ -6238,11 +6441,12 @@ ModelPlan PlanSymmetrize(Mesh& mesh, const PointTable& points, const SymmetrizeP
             for (const HalfedgeId h : built.fh(FaceId(f))) {
                 const u32 c = static_cast<u32>(h.index());
                 if (c < normals.size()) {
-                    (&normals[c].x)[axis] = -(&normals[c].x)[axis];
+                    normals[c] = reflectDirection(normals[c]);
                 }
                 if (c < tangents.size()) {
-                    (&tangents[c].x)[axis] = -(&tangents[c].x)[axis];
-                    tangents[c].w = -tangents[c].w; // a mirrored island
+                    const Vector3f turned =
+                        reflectDirection(Vector3f{tangents[c].x, tangents[c].y, tangents[c].z});
+                    tangents[c] = {turned.x, turned.y, turned.z, -tangents[c].w}; // a mirrored island
                 }
             }
         }
@@ -6271,65 +6475,17 @@ ModelPlan PlanSymmetrize(Mesh& mesh, const PointTable& points, const SymmetrizeP
     return plan;
 }
 
-ModelPlan PlanMakePlanar(Mesh& mesh, const PointTable& points, const ElementSet& selection, u32 axis) {
+namespace {
+
+/// Both forms of Make Planar once the plane is settled (§3.17): one motion per
+/// chosen point that is off it, landing that point on it at amount 1.
+ModelPlan planarOnto(Mesh& mesh, const std::vector<u32>& chosen, const Vector3f& origin,
+                     const Vector3f& normal) {
     ModelPlan plan;
     plan.renumbers = false;
-    if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
-        plan.refusal = ModelRefusal::NotBuiltYet;
-        return plan;
-    }
-    const std::vector<u32> chosen = verticesOf(mesh, points, selection);
-    if (chosen.size() < 3) {
-        plan.refusal = ModelRefusal::EmptySelection;
-        return plan;
-    }
     const std::span<const Vector3f> at = positionsOf(mesh);
-    Vector3f centre{0.0f, 0.0f, 0.0f};
     for (const u32 v : chosen) {
-        centre = centre + at[v];
-    }
-    centre = centre * (1.0f / static_cast<f32>(chosen.size()));
-    Vector3f normal{0.0f, 0.0f, 1.0f};
-    if (axis < 3) {
-        normal = {0.0f, 0.0f, 0.0f};
-        (&normal.x)[axis] = 1.0f;
-    } else {
-        // The least-squares fit: the plane through the centre whose normal is
-        // the smallest eigenvector of the scatter, found by the power method on
-        // its adjugate -- three sweeps is plenty for a face's worth of points.
-        f64 xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0;
-        for (const u32 v : chosen) {
-            const Vector3f d = at[v] - centre;
-            xx += static_cast<f64>(d.x) * d.x;
-            xy += static_cast<f64>(d.x) * d.y;
-            xz += static_cast<f64>(d.x) * d.z;
-            yy += static_cast<f64>(d.y) * d.y;
-            yz += static_cast<f64>(d.y) * d.z;
-            zz += static_cast<f64>(d.z) * d.z;
-        }
-        const std::array<std::array<f64, 3>, 3> adjugate = {{
-            {yy * zz - yz * yz, xz * yz - xy * zz, xy * yz - xz * yy},
-            {xz * yz - xy * zz, xx * zz - xz * xz, xy * xz - xx * yz},
-            {xy * yz - xz * yy, xy * xz - xx * yz, xx * yy - xy * xy},
-        }};
-        std::size_t best = 0;
-        f64 largest = -1.0;
-        for (std::size_t i = 0; i < 3; ++i) {
-            const f64 length = adjugate[i][0] * adjugate[i][0] + adjugate[i][1] * adjugate[i][1] +
-                               adjugate[i][2] * adjugate[i][2];
-            if (length > largest) {
-                largest = length;
-                best = i;
-            }
-        }
-        if (largest > 1e-20) {
-            normal = unitOr(Vector3f{static_cast<f32>(adjugate[best][0]), static_cast<f32>(adjugate[best][1]),
-                                     static_cast<f32>(adjugate[best][2])},
-                            Vector3f{0.0f, 0.0f, 1.0f});
-        }
-    }
-    for (const u32 v : chosen) {
-        const f32 distance = (at[v] - centre).dot(normal);
+        const f32 distance = (at[v] - origin).dot(normal);
         if (std::abs(distance) <= 0.0f) {
             continue;
         }
@@ -6356,6 +6512,119 @@ ModelPlan PlanMakePlanar(Mesh& mesh, const PointTable& points, const ElementSet&
     plan.changedFaces = sortedUnique(std::move(plan.changedFaces));
     plan.selection.vertices = chosen;
     return plan;
+}
+
+} // namespace
+
+ModelPlan PlanMakePlanar(Mesh& mesh, const PointTable& points, const ElementSet& selection, u32 axis) {
+    ModelPlan plan;
+    plan.renumbers = false;
+    if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
+        plan.refusal = ModelRefusal::NotBuiltYet;
+        return plan;
+    }
+    const std::vector<u32> chosen = verticesOf(mesh, points, selection);
+    if (chosen.size() < 3) {
+        plan.refusal = ModelRefusal::EmptySelection;
+        return plan;
+    }
+    const std::span<const Vector3f> at = positionsOf(mesh);
+    Vector3f centre{0.0f, 0.0f, 0.0f};
+    for (const u32 v : chosen) {
+        centre = centre + at[v];
+    }
+    centre = centre * (1.0f / static_cast<f32>(chosen.size()));
+    Vector3f normal{0.0f, 0.0f, 1.0f};
+    if (axis < 3) {
+        normal = {0.0f, 0.0f, 0.0f};
+        (&normal.x)[axis] = 1.0f;
+    } else {
+        // The fit, which is `FitPlane`'s: the same plane the viewer draws when
+        // it offers Best fit, because it is the same code and not a second one.
+        std::vector<Vector3f> gathered;
+        gathered.reserve(chosen.size());
+        for (const u32 v : chosen) {
+            gathered.push_back(at[v]);
+        }
+        FitPlane(gathered, &centre, &normal);
+    }
+    return planarOnto(mesh, chosen, centre, normal);
+}
+
+bool FitPlane(std::span<const Vector3f> points, Vector3f* origin, Vector3f* normal) {
+    // The plane through the centre whose normal is the smallest eigenvector of
+    // the scatter, found by the power method on its adjugate -- three sweeps is
+    // plenty for a face's worth of points.
+    Vector3f centre{0.0f, 0.0f, 0.0f};
+    for (const Vector3f& p : points) {
+        centre = centre + p;
+    }
+    if (!points.empty()) {
+        centre = centre * (1.0f / static_cast<f32>(points.size()));
+    }
+    if (origin != nullptr) {
+        *origin = centre;
+    }
+    if (normal != nullptr) {
+        *normal = {0.0f, 0.0f, 1.0f};
+    }
+    if (points.size() < 3) {
+        return false;
+    }
+    f64 xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0;
+    for (const Vector3f& p : points) {
+        const Vector3f d = p - centre;
+        xx += static_cast<f64>(d.x) * d.x;
+        xy += static_cast<f64>(d.x) * d.y;
+        xz += static_cast<f64>(d.x) * d.z;
+        yy += static_cast<f64>(d.y) * d.y;
+        yz += static_cast<f64>(d.y) * d.z;
+        zz += static_cast<f64>(d.z) * d.z;
+    }
+    const std::array<std::array<f64, 3>, 3> adjugate = {{
+        {yy * zz - yz * yz, xz * yz - xy * zz, xy * yz - xz * yy},
+        {xz * yz - xy * zz, xx * zz - xz * xz, xy * xz - xx * yz},
+        {xy * yz - xz * yy, xy * xz - xx * yz, xx * yy - xy * xy},
+    }};
+    std::size_t best = 0;
+    f64 largest = -1.0;
+    for (std::size_t i = 0; i < 3; ++i) {
+        const f64 length = adjugate[i][0] * adjugate[i][0] + adjugate[i][1] * adjugate[i][1] +
+                           adjugate[i][2] * adjugate[i][2];
+        if (length > largest) {
+            largest = length;
+            best = i;
+        }
+    }
+    if (largest <= 1e-20) {
+        return false; // one point, or a line: no smallest direction to find
+    }
+    if (normal != nullptr) {
+        *normal = unitOr(Vector3f{static_cast<f32>(adjugate[best][0]), static_cast<f32>(adjugate[best][1]),
+                                  static_cast<f32>(adjugate[best][2])},
+                         Vector3f{0.0f, 0.0f, 1.0f});
+    }
+    return true;
+}
+
+ModelPlan PlanMakePlanar(Mesh& mesh, const PointTable& points, const ElementSet& selection,
+                         const Vector3f& origin, const Vector3f& normal) {
+    ModelPlan plan;
+    plan.renumbers = false;
+    if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
+        plan.refusal = ModelRefusal::NotBuiltYet;
+        return plan;
+    }
+    const std::vector<u32> chosen = verticesOf(mesh, points, selection);
+    if (chosen.size() < 3) {
+        plan.refusal = ModelRefusal::EmptySelection;
+        return plan;
+    }
+    if (normal.length() <= 1e-12f) {
+        plan.refusal = ModelRefusal::ZeroAmount; // that is no plane
+        return plan;
+    }
+    return planarOnto(mesh, chosen, origin, normal.normalized());
 }
 
 } // namespace geom

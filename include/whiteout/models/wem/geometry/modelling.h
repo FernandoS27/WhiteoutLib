@@ -162,6 +162,14 @@ struct ModelPlan {
     ElementSet selection;           ///< The tool's output.
     std::vector<u32> touchedEdges;  ///< Edges made or re-shaped: §3.12's derivations.
     std::vector<u32> changedFaces;  ///< Faces whose rows `FinishTool` materialises.
+    /// The edges a dissolve took AWAY -- To Quads' joins and To Polygons'
+    /// dissolves -- numbered as the mesh Plan was handed was numbered.
+    ///
+    /// `FinishTool` does not remap it, because there is nothing left to remap
+    /// to; it is meaningful only against the mesh as it came in, which is
+    /// exactly what a preview planning on a copy holds. That is what it is for:
+    /// a count says how many edges go, and this says which.
+    std::vector<u32> dissolvedEdges;
     bool renumbers = true;          ///< False for the row-only tools: no element moved id.
     bool fellBack = false;          ///< Extrude's Group fell back to Local Normal (§3.8).
     u32 kept = 0;                   ///< What the tool left as it was, for the result line.
@@ -503,11 +511,23 @@ ModelPlan PlanConnectEdges(Mesh& mesh, const PointTable& points, const ElementSe
 struct SymmetrizeParams {
     u32 axis = 1;
     bool fromPositive = true; ///< + to -, or the other way.
+    /// The plane the two halves meet on, when it is not an axis plane through
+    /// the model's origin: a point on it and its direction.
+    ///
+    /// A zero-length `normal` -- the default -- means `axis`'s plane through
+    /// the origin, which is what a mirrored model means and what Skin's own
+    /// mirror axis says. A model whose symmetry does not run through the origin
+    /// names its own plane here, and `origin` is then read too.
+    ///
+    /// `axis` still chooses the bone map either way: a bone's mirror is named
+    /// (`Left`/`Right` in the skeleton), not measured, so a free plane cannot
+    /// tell which bone mirrors which and the nearest axis is what does.
+    Vector3f origin{0.0f, 0.0f, 0.0f};
+    Vector3f normal{0.0f, 0.0f, 0.0f};
 };
 
 /**
- * @brief Symmetrize (§3.15): @p mesh made symmetric from one side of a plane
- *        through the origin.
+ * @brief Symmetrize (§3.15): @p mesh made symmetric from one side of a plane.
  *
  * The far side is sliced away, and the near one is copied reflected: the copy's
  * winding is reversed, since a reflection flips orientation, its normals are
@@ -538,6 +558,33 @@ ModelPlan PlanSymmetrize(Mesh& mesh, const PointTable& points, const SymmetrizeP
  * The amount takes each point from where it is (0) to the plane (1).
  */
 ModelPlan PlanMakePlanar(Mesh& mesh, const PointTable& points, const ElementSet& selection, u32 axis);
+
+/**
+ * @brief The least-squares plane through @p points -- §3.17's *Best fit*.
+ *
+ * @p origin comes back as their centre and @p normal as the smallest
+ * eigenvector of their scatter, found by the power method on its adjugate.
+ * Both are always written, so a caller may use them without checking.
+ *
+ * @return false when the scatter has no smallest direction -- fewer than three
+ *         points, all of them in one place, or all of them along one line. The
+ *         normal is then `{0, 0, 1}`, which is a plane but not a fitted one, and
+ *         a caller drawing the fit should say nothing rather than draw that.
+ */
+bool FitPlane(std::span<const Vector3f> points, Vector3f* origin, Vector3f* normal);
+
+/**
+ * @brief Make Planar onto the plane the caller names (§3.17): @p origin a point
+ *        on it, @p normal its direction.
+ *
+ * What the axis form does once it has resolved its axis into a plane, and what
+ * a plane a hand has placed calls instead. The amount takes each point from
+ * where it is (0) to that plane (1), as it does there.
+ *
+ * Refused with `ZeroAmount` for a zero-length @p normal, which names no plane.
+ */
+ModelPlan PlanMakePlanar(Mesh& mesh, const PointTable& points, const ElementSet& selection,
+                         const Vector3f& origin, const Vector3f& normal);
 
 // ============================================================================
 // Parts (§3.16)
@@ -619,6 +666,30 @@ struct BridgeParams {
  */
 ModelPlan PlanBridge(Mesh& mesh, const PointTable& points, EdgeId first, EdgeId second,
                      const BridgeParams& params = {});
+
+/**
+ * @brief Bridge at the Polygon level (§3.16): two faces of one mesh replaced by
+ *        a band of quads between their rims.
+ *
+ * §3.16's second form -- "two selected faces, which are deleted first, leaving
+ * their loops" -- done in one rebuild rather than as a delete and then a
+ * bridge, so it is one plan, one refusal and one journal entry. The loops are
+ * the two faces' own, taken the way the borders their removal leaves would run,
+ * matched in opposite directions and started from the pair whose connecting
+ * edges are shortest in sum; `twist` steps it round, as it does there.
+ *
+ * Each quad copies its corners from the face it grew out of, at both ends: the
+ * band wears the two faces' own values, which is what makes a bridge through a
+ * textured surface keep the surface's look.
+ *
+ * Refused with `SameLoop` for one face twice or two faces that share a vertex,
+ * `LoopCountsDiffer` for faces of different valence, `EmptySelection` for a
+ * face that is not there, and `NotBuiltYet` past one segment. Two faces that
+ * are the whole mesh are not refused: what is left is the band, which is a
+ * mesh -- bridging the two ends of nothing is how a tube is made.
+ */
+ModelPlan PlanBridgeFaces(Mesh& mesh, const PointTable& points, FaceId first, FaceId second,
+                          const BridgeParams& params = {});
 
 /// Where one of Cut's clicks landed (§3.14): on a vertex, on a point along an
 /// edge, or on a point inside a face. The viewer's pick says which.

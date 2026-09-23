@@ -2420,6 +2420,274 @@ TEST_CASE("wem tools symmetrize maps the copy's bones", "[wem][geometry][tools]"
     }
 }
 
+TEST_CASE("wem tools bridge joins two faces", "[wem][geometry][tools]") {
+    // §3.16's Polygon form: two faces replaced by a band of quads between their
+    // rims. Two squares facing each other and a third off on its own, so the
+    // "every face but those two" half of the rebuild is exercised too.
+    const std::vector<Vector3f> places = {
+        {0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}, // a square at z = 0
+        {0, 0, 1}, {1, 0, 1}, {1, 1, 1}, {0, 1, 1}, // one above it
+        {0, 0, 5}, {1, 0, 5}, {1, 1, 5}, {0, 1, 5}, // one nothing touches
+    };
+    const std::vector<std::vector<u32>> three = {{0, 3, 2, 1}, {4, 5, 6, 7}, {8, 9, 10, 11}};
+    Mesh mesh = fromFaces(three, places);
+    ModelPlan plan = geom::PlanBridgeFaces(mesh, pointsOf(mesh), FaceId(0), FaceId(1));
+    INFO("refusal " << geom::ToString(plan.refusal));
+    REQUIRE_FALSE(plan.refused());
+    finish(mesh, plan);
+    CHECK(errors(mesh) == "");
+    CHECK(liveFaces(mesh) == 5u); // the band of four, and the face left alone
+    CHECK(plan.changed == 4u);
+    u32 border = 0, edges = 0, vertices = 0;
+    for (u32 e = 0; e < mesh.topology().edgeCount(); ++e) {
+        if (mesh.topology().isDeleted(EdgeId(e))) {
+            continue;
+        }
+        ++edges;
+        border += mesh.topology().isBoundary(EdgeId(e)) ? 1u : 0u;
+    }
+    for (u32 v = 0; v < mesh.vertexCount(); ++v) {
+        vertices += mesh.topology().isDeleted(VertexId(v)) ? 0u : 1u;
+    }
+    // A tube: four walls, the two rims open, every wall edge shared but those.
+    CHECK(vertices == 12u);
+    CHECK(edges == 12u + 4u); // the tube's 4 + 4 + 4, and the lone square's 4
+    CHECK(border == 8u + 4u); // the tube's two rims, and the lone square's rim
+    // The band really is a band: the vertex that was a corner of each square
+    // now has two of its quads round it, not one face.
+    const auto at = mesh.attributes.get<const Vector3f>(geom::names::kPosition, Domain::Vertex);
+    for (u32 v = 0; v < mesh.vertexCount(); ++v) {
+        if (mesh.topology().isDeleted(VertexId(v)) || at[v].z > 4.0f) {
+            continue;
+        }
+        u32 round = 0;
+        for (const HalfedgeId h : mesh.topology().voh(VertexId(v))) {
+            round += mesh.topology().face(h).valid() ? 1u : 0u;
+        }
+        CHECK(round == 2u); // two of the band's quads meet at each rim corner
+    }
+
+    // One face twice; two that share an edge; two of different valence; more
+    // segments than are built; a face that is not there.
+    Mesh again = fromFaces(three, places);
+    CHECK(geom::PlanBridgeFaces(again, pointsOf(again), FaceId(0), FaceId(0)).refusal ==
+          ModelRefusal::SameLoop);
+    Mesh odd = fromFaces({{0, 3, 2, 1}, {4, 5, 6}}, places);
+    CHECK(geom::PlanBridgeFaces(odd, pointsOf(odd), FaceId(0), FaceId(1)).refusal ==
+          ModelRefusal::LoopCountsDiffer);
+    geom::BridgeParams two;
+    two.segments = 2;
+    CHECK(geom::PlanBridgeFaces(again, pointsOf(again), FaceId(0), FaceId(1), two).refusal ==
+          ModelRefusal::NotBuiltYet);
+    CHECK(geom::PlanBridgeFaces(again, pointsOf(again), FaceId(0), FaceId(99)).refusal ==
+          ModelRefusal::EmptySelection);
+
+    // Which way round the band faces is NOT settled here, and this fixture
+    // cannot say: a face with no neighbour is the whole surface, so once it is
+    // gone both orientations of the band are equally manifold. What settles it is
+    // a neighbour, and the tunnel case below has eight of them.
+
+    // A closed box's two opposite faces cannot be bridged: the band would be
+    // the four walls that are already there, face for face, and a mesh does not
+    // hold a face twice. Refused rather than repaired, which is the whole point
+    // of a plan that checks its own rebuild.
+    const std::vector<std::vector<u32>> cube = {
+        {0, 3, 2, 1}, {4, 5, 6, 7}, {0, 1, 5, 4}, {1, 2, 6, 5}, {2, 3, 7, 6}, {3, 0, 4, 7}};
+    Mesh box = fromFaces(cube, places);
+    CHECK(geom::PlanBridgeFaces(box, pointsOf(box), FaceId(0), FaceId(1)).refusal ==
+          ModelRefusal::WouldFold);
+    // And two faces of it that share an edge share vertices.
+    Mesh sides = fromFaces(cube, places);
+    CHECK(geom::PlanBridgeFaces(sides, pointsOf(sides), FaceId(0), FaceId(2)).refusal ==
+          ModelRefusal::SameLoop);
+}
+
+TEST_CASE("wem tools bridge tunnels through one surface", "[wem][geometry][tools]") {
+    // The case two loose shells cannot catch: two faces of ONE connected
+    // surface. The band then has neighbours to agree with, so a band wound the
+    // wrong way leaves every rim vertex with two fans and the repair splits all
+    // of them -- which this refuses rather than repairs. A cylinder's opposite
+    // sides, which is a tunnel straight through it.
+    geom::PrimitiveParams params;
+    params.size = {1.0f, 1.0f, 2.0f};
+    params.sides = 8;
+    Mesh mesh = geom::MakeCylinder(params);
+    REQUIRE(mesh.ensureConnectivity().ok());
+    const u32 before = liveFaces(mesh);
+    ModelPlan plan = geom::PlanBridgeFaces(mesh, pointsOf(mesh), FaceId(0), FaceId(4));
+    INFO("refusal " << geom::ToString(plan.refusal));
+    REQUIRE_FALSE(plan.refused());
+    finish(mesh, plan);
+    CHECK(errors(mesh) == "");
+    CHECK(plan.changed == 4u);
+    CHECK(liveFaces(mesh) == before - 2u + 4u);
+    // Still closed: the tunnel took two faces away and gave four back, and every
+    // edge has two faces, which is what says the band met the surface properly.
+    u32 border = 0;
+    for (u32 e = 0; e < mesh.topology().edgeCount(); ++e)
+        if (!mesh.topology().isDeleted(EdgeId(e)) && mesh.topology().isBoundary(EdgeId(e)))
+            ++border;
+    CHECK(border == 0u);
+
+    // Two faces with only one between them: the band's own connecting edges are
+    // that face's, and a mesh does not hold an edge three times. Refused, not
+    // repaired -- and the same is true of the two end caps, where `PlanBridge`
+    // refuses the delete-then-bridge route for exactly the same reason.
+    Mesh near = geom::MakeCylinder(params);
+    REQUIRE(near.ensureConnectivity().ok());
+    CHECK(geom::PlanBridgeFaces(near, pointsOf(near), FaceId(0), FaceId(2)).refusal ==
+          ModelRefusal::WouldFold);
+}
+
+TEST_CASE("wem tools symmetrize mirrors about a plane it is given", "[wem][geometry][tools]") {
+    // The same grid as the axis case, mirrored about y = 1 rather than y = 0:
+    // an offset plane is what a model whose symmetry is not the origin's needs,
+    // and the axis form cannot say it at all.
+    Mesh mesh = grid(2, 3, /*quads=*/true);
+    {
+        const std::span<Vector3f> at =
+            mesh.attributes.get<Vector3f>(geom::names::kPosition, Domain::Vertex);
+        for (Vector3f& place : at) {
+            place.y -= 1.0f; // y now runs -1 .. 2
+        }
+    }
+    bindMesh(mesh, {});
+    geom::SymmetrizeParams params;
+    params.axis = 1;
+    params.fromPositive = true;
+    params.origin = {0.0f, 1.0f, 0.0f};
+    params.normal = {0.0f, 1.0f, 0.0f};
+    ModelPlan plan = geom::PlanSymmetrize(mesh, pointsOf(mesh), params);
+    INFO("refusal " << geom::ToString(plan.refusal));
+    REQUIRE_FALSE(plan.refused());
+    finish(mesh, plan);
+    CHECK(errors(mesh) == "");
+    // One row of quads above y = 1 is kept, and its mirror is one more.
+    CHECK(liveFaces(mesh) == 4u);
+    const auto at = mesh.attributes.get<const Vector3f>(geom::names::kPosition, Domain::Vertex);
+    f32 lowest = 1e9f;
+    f32 highest = -1e9f;
+    u32 onPlane = 0;
+    for (u32 v = 0; v < mesh.vertexCount(); ++v) {
+        if (mesh.topology().isDeleted(VertexId(v))) {
+            continue;
+        }
+        lowest = std::min(lowest, at[v].y);
+        highest = std::max(highest, at[v].y);
+        onPlane += std::abs(at[v].y - 1.0f) < 1e-4f ? 1u : 0u;
+    }
+    CHECK(lowest == Catch::Approx(0.0f).margin(1e-4));
+    CHECK(highest == Catch::Approx(2.0f).margin(1e-4));
+    CHECK(onPlane == 3u); // the seam is shared, not doubled
+
+    // A plane square to no axis: the halves still meet on it, so every vertex
+    // off it has a twin the same distance the other side.
+    Mesh tilted = grid(2, 2, /*quads=*/true);
+    bindMesh(tilted, {});
+    geom::SymmetrizeParams slanted;
+    slanted.axis = 0;
+    slanted.origin = {1.0f, 1.0f, 0.0f};
+    slanted.normal = {1.0f, 1.0f, 0.0f};
+    ModelPlan across = geom::PlanSymmetrize(tilted, pointsOf(tilted), slanted);
+    INFO("refusal " << geom::ToString(across.refusal));
+    REQUIRE_FALSE(across.refused());
+    finish(tilted, across);
+    CHECK(errors(tilted) == "");
+    const auto after = tilted.attributes.get<const Vector3f>(geom::names::kPosition, Domain::Vertex);
+    const Vector3f unit = slanted.normal.normalized();
+    u32 mirrored = 0;
+    for (u32 v = 0; v < tilted.vertexCount(); ++v) {
+        if (tilted.topology().isDeleted(VertexId(v))) {
+            continue;
+        }
+        const f32 side = (after[v] - slanted.origin).dot(unit);
+        if (std::abs(side) < 1e-4f) {
+            continue;
+        }
+        const Vector3f reflected = after[v] - unit * (2.0f * side);
+        bool twinned = false;
+        for (u32 w = 0; w < tilted.vertexCount() && !twinned; ++w) {
+            twinned = !tilted.topology().isDeleted(VertexId(w)) &&
+                      (after[w] - reflected).length() < 1e-4f;
+        }
+        INFO("vertex " << v << " at " << after[v].x << ", " << after[v].y << ", " << after[v].z);
+        CHECK(twinned);
+        ++mirrored;
+    }
+    CHECK(mirrored > 0u); // the plane really does have a side
+}
+
+TEST_CASE("wem tools make planar takes a plane it is given", "[wem][geometry][tools]") {
+    // The plane the caller names, rather than the axis plane through the
+    // selection's own centre: what a plane widget a hand has placed asks for.
+    const std::vector<Vector3f> places = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0.4f}, {0, 1, 0}};
+    Mesh mesh = fromFaces({{0, 1, 2, 3}}, places);
+    ElementSet every;
+    every.vertices = {0, 1, 2, 3};
+    ModelPlan onto = geom::PlanMakePlanar(mesh, pointsOf(mesh), every, Vector3f{0.0f, 0.0f, 0.25f},
+                                          Vector3f{0.0f, 0.0f, 2.0f});
+    INFO("refusal " << geom::ToString(onto.refusal));
+    REQUIRE_FALSE(onto.refused());
+    geom::ApplyAmount(mesh, onto, 1.0f);
+    finish(mesh, onto);
+    const auto at = mesh.attributes.get<const Vector3f>(geom::names::kPosition, Domain::Vertex);
+    for (u32 v = 0; v < 4; ++v) {
+        // Onto z = 0.25, not onto the centre's own 0.1, and an unnormalised
+        // normal names the same plane.
+        CHECK(at[v].z == Catch::Approx(0.25f).margin(1e-4));
+    }
+    // A zero normal is no plane at all.
+    Mesh flat = fromFaces({{0, 1, 2, 3}}, places);
+    CHECK(geom::PlanMakePlanar(flat, pointsOf(flat), every, Vector3f{0, 0, 0}, Vector3f{0, 0, 0})
+              .refusal == ModelRefusal::ZeroAmount);
+}
+
+TEST_CASE("wem tools to quads and to polygons say which edges went", "[wem][geometry][tools]") {
+    // A count says how many edges a join takes; `dissolvedEdges` says which, in
+    // the numbering the mesh came in with, so a preview planned on a copy can
+    // light exactly the edges the press would take away (UX §7.5).
+    Mesh triangles = grid(3, 3);
+    ModelPlan joined = geom::PlanJoinTriangles(triangles, pointsOf(triangles), allFaces(triangles));
+    INFO("refusal " << geom::ToString(joined.refusal));
+    REQUIRE_FALSE(joined.refused());
+    CHECK(joined.changed == 9u); // nine cells, each a pair
+    CHECK(joined.dissolvedEdges.size() == joined.changed);
+    for (const u32 e : joined.dissolvedEdges) {
+        REQUIRE(e < triangles.topology().edgeCount());
+        // Named in the input's numbering, and gone from it: Plan is what makes
+        // the topology, so the edge is already deleted by the time this is read.
+        CHECK(triangles.topology().isDeleted(EdgeId(e)));
+    }
+    std::vector<u32> sorted = joined.dissolvedEdges;
+    std::sort(sorted.begin(), sorted.end());
+    CHECK(std::adjacent_find(sorted.begin(), sorted.end()) == sorted.end());
+
+    // To Polygons the same way: one entry per dissolve, all of them gone.
+    Mesh quads = grid(3, 3, /*quads=*/true);
+    geom::LimitedDissolveParams loose;
+    loose.angle = 1.0f; // every interior edge of a flat grid is flat enough
+    ModelPlan dissolved = geom::PlanLimitedDissolve(quads, pointsOf(quads), allFaces(quads), loose);
+    INFO("refusal " << geom::ToString(dissolved.refusal));
+    REQUIRE_FALSE(dissolved.refused());
+    CHECK(dissolved.changed > 0u);
+    CHECK(dissolved.dissolvedEdges.size() == dissolved.changed);
+    for (const u32 e : dissolved.dissolvedEdges) {
+        REQUIRE(e < quads.topology().edgeCount());
+        CHECK(quads.topology().isDeleted(EdgeId(e)));
+    }
+    // A plan that dissolves nothing names nothing. Two quads folded square to
+    // each other, at an angle that allows none: a flat grid would dissolve at
+    // any angle at all, because flat is 0 degrees and 0 <= 0.
+    const std::vector<Vector3f> bent = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0},
+                                        {0, 1, 0}, {1, 0, 1}, {1, 1, 1}};
+    Mesh fold = fromFaces({{0, 1, 2, 3}, {1, 4, 5, 2}}, bent);
+    geom::LimitedDissolveParams none;
+    none.angle = 0.0f;
+    const ModelPlan nothing = geom::PlanLimitedDissolve(fold, pointsOf(fold), allFaces(fold), none);
+    CHECK(nothing.changed == 0u);
+    CHECK(nothing.dissolvedEdges.empty());
+}
+
 TEST_CASE("wem tools make planar flattens what it is given", "[wem][geometry][tools]") {
     // A quad with one corner lifted: the fit puts all four on one plane, and
     // an axis plane puts them on the centre's own height.
