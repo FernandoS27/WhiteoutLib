@@ -59,6 +59,11 @@ struct HingeFit {
     /// Rotation keys the measurement read.
     u32 keys = 0;
     HingeSource source = HingeSource::None;
+    /// Whose evidence the axis is (R§3.2). Under `TPoseRules::symmetry` a
+    /// mirrored pair shares the better-evidenced side's hinge, reflected: the
+    /// limb's own side when its own answered, the partner's when it took the
+    /// partner's, `Centre` for a limb with no partner or no hinge.
+    RigSide from = RigSide::Centre;
 };
 
 /**
@@ -145,10 +150,24 @@ struct LimbDirections {
     u32 upper = kInvalidNode;
     RigLimb limb = RigLimb::Other;
     RigSide side = RigSide::Centre;
+    /// Its place among the limbs of the same kind on the same side, in node
+    /// order: a quadruped's second left leg is 1. What pairs a limb with its
+    /// partner on the other side of the same rig.
+    u32 ordinal = 0;
+    /// Where the Lower stands, from the middle of every limb's Lower, over the
+    /// figure's height: what pairs a limb with a twin's (@ref PairLimbs). The
+    /// knee and not the hip, because a spider's legs all start at one point.
+    Vector3f knee{0, 0, 0};
     Vector3f upperDir{0, 0, 0}; ///< Upper -> Lower.
     Vector3f lowerDir{0, 0, 0}; ///< Lower -> End.
     Vector3f bone{0, 0, 0};     ///< The End's own bone, End -> its first joint child; zero for a leaf.
     Vector3f up{0, 0, 0};       ///< The End's +Z, as the rest turns it.
+    /// The line the End's own joints spread along across its bone — a hand's
+    /// fingers from the first to the last: the principal axis of every joint
+    /// below it, squared off the bone. Unit, sign-free; zero for an End with
+    /// fewer than two joints below it. What says which way a palm faces
+    /// without trusting names or bind frames (R§3.4).
+    Vector3f spread{0, 0, 0};
     f32 endHeight = 0;          ///< The End's z.
 };
 
@@ -160,12 +179,21 @@ struct RigDirections {
     u32 head = kInvalidNode;
     Vector3f headBone{0, 0, 0}; ///< The head's parent -> the head.
     Vector3f headUp{0, 0, 0};   ///< The head's +Z, as the rest turns it.
-    Vector3f hips{0, 0, 0};     ///< The right Upper leg -> the left one; zero without both.
+    Vector3f hips{0, 0, 0};      ///< The right legs' starts -> the left ones', averaged; zero without both.
+    Vector3f shoulders{0, 0, 0}; ///< The same for the arms.
     f32 height = 0;             ///< The joints' extent along +Z.
 
-    /// The first limb of @p limb on @p side, or null.
-    const LimbDirections* Find(RigLimb limb, RigSide side) const;
+    /// The @p ordinal-th limb of @p limb on @p side, or null.
+    const LimbDirections* Find(RigLimb limb, RigSide side, u32 ordinal = 0) const;
 };
+
+/// Each of @p figure's limbs paired with one of @p twin's (null where the twin
+/// has none left): within a kind and a side, one to one, the assignment whose
+/// `knee`s lie nearest in total, ties to the same `ordinal`. DE and HD
+/// number a creature's legs in different orders, and a rider's legs sit among
+/// its mount's, so neither the order nor the nearest alone pairs them.
+std::vector<const LimbDirections*> PairLimbs(std::span<const LimbDirections> figure,
+                                             const RigDirections& twin);
 
 /// @p model at @p rest — one `Transform` per node in the model's space, as
 /// @ref TPoseRest hands back — or at its bind.
@@ -198,7 +226,8 @@ struct TPoseRules {
     bool legs = true;
     /// Q1: off on a fresh model — a spine is posed, not rested.
     bool spineAndHead = false;
-    /// Aim a hand along its arm and a foot along +X, levelled.
+    /// Aim a hand along its arm and roll it to the twin's; turn a foot about
+    /// +Z to its heading (R§3.4). A foot never rides the leg's turn either way.
     bool handsAndFeet = true;
     bool symmetry = true;
     /// Where the rules aim (R§2): HD’s relaxed A by default, `TPoseCanon::StrictT()`
@@ -206,19 +235,33 @@ struct TPoseRules {
     TPoseCanon canon;
 };
 
-/// Why a limb was not solved. Reported, never worked around (§5.3, §12).
+/// Why a limb was not solved — or, for `JointLimits` and `Unreachable`, why a
+/// limb that was solved landed off its target (R§3.8). Reported, never worked
+/// around (§5.3, §12).
 enum class TPoseRefusal : u8 {
     None,
-    NoChain,     ///< The record does not name the whole limb.
-    ZeroLength,  ///< A bone with no length: there is nothing to aim.
-    NoHinge,     ///< Nothing said which way it bends.
-    JointLimits, ///< It cannot straighten inside its own `Bend` limits.
-    Unreachable, ///< The solve did not land the End on the goal.
-    Overlaps,    ///< Another limb already turned one of its joints.
+    NoChain,     ///< Never applied: the record does not name the whole limb.
+    ZeroLength,  ///< Never applied: a bone with no length has nothing to aim.
+    NoHinge,     ///< Never applied: nothing said which way it bends.
+    JointLimits, ///< Applied, off: its own `Bend` limits stopped it short.
+    Unreachable, ///< Applied, off: its hinge does not bend it where it is asked.
+    Overlaps,    ///< Never applied: another limb already turned one of its joints.
+};
+
+/// Whether a limb's joints are in the pose, and how they landed (R§3.8).
+enum class TPoseLanding : u8 {
+    Refused,  ///< Never applied; `TPoseLimb::refusal` says why.
+    OnTarget, ///< Applied, both bones within @ref kAimTolerance of their targets.
+    Off,      ///< Applied, `TPoseLimb::landedDeg` off; `refusal` names the reason.
 };
 
 const char* ToString(TPoseRefusal refusal);
+const char* ToString(TPoseLanding landing);
 const char* ToString(TPoseSource source);
+
+/// A bone this far off its target, in degrees, landed off (R§3.8), and the row
+/// says so rather than the number pretending otherwise.
+inline constexpr f32 kAimTolerance = 1.0f;
 
 /// One node's turn: a rotation in the model's space about where the turns above
 /// it have left its rest point — the shape every Auto IK solve hands back, and
@@ -240,13 +283,18 @@ struct TPoseLimb {
     TPoseRefusal refusal = TPoseRefusal::None;
     /// The largest turn any of its joints takes.
     f32 turnDeg = 0;
-    /// How far the Upper came out from the rule, in degrees, as the solver
-    /// landed it: 0 for a limb that straightened, and the reason the row is
-    /// refused when it did not.
+    /// How far the Upper came out from its target, in degrees, as the solver
+    /// landed it.
     f32 aimDeg = 0;
+    /// The larger of the Upper's and the Lower's: what @ref landing is read on.
+    f32 landedDeg = 0;
+    TPoseLanding landing = TPoseLanding::Refused;
     /// Left as it stands: already within `TPoseCanon::spreadDeg` of the table's
     /// direction (R§2). Never set for a limb a twin aimed.
     bool inCanon = false;
+    /// A leg whose knee bent further to bring its ankle level with its
+    /// partner's (R§3.5), by that many units; 0 for every other limb.
+    f32 raised = 0;
 };
 
 /// Where the solve may start from, beyond the model itself.
@@ -257,7 +305,9 @@ struct TPoseInputs {
     /// A rig already in the pose — the HD twin of a DE unit, read at its bind
     /// (`DirectionsAtBind`) — whose directions are the targets for every role
     /// it has (R§3.0). Null for none. Directions, never positions: the
-    /// twin is another size.
+    /// twin is another size. Its hip and shoulder axes are targets as well:
+    /// the figure is squared onto them rather than onto +Y, so a rig that is
+    /// its own twin turns nothing, even one its file binds yawed.
     const RigDirections* donor = nullptr;
 };
 
@@ -273,11 +323,12 @@ struct TPoseResult {
 /**
  * @brief The turns that put @p model's rig in the canonical pose (§3.2, §4).
  *
- * No new solver: each limb the record names goes through `SolveLimb` with a
- * canonical goal — the Upper's rest point plus the canonical direction times
- * the chain's own reach — and a spine through `SolveChain`. Soft reach is what
- * makes "straight" reachable without stretching, and a limb that cannot
- * straighten inside its `Bend` limits is **reported, not forced**.
+ * No new solver: each limb the record names goes through `SolveLimb` with its
+ * End placed where the two target directions put it — the twin's, else the
+ * canon's — so the bend is kept (R§3.5), then `SwivelLimb` turns the bend
+ * plane onto the target's (R§3.3); a spine goes through `SolveChain`. A limb
+ * its `Bend` limits or its hinge stop short of the target is **applied and
+ * reported off** (R§3.8), never forced further.
  *
  * Runs on the rest pose: no playhead, no plant, no blend.
  *
@@ -305,11 +356,12 @@ std::vector<Transform> TPoseRest(const Model& model, const TPoseResult& result);
 enum class TPoseScoreKind : u8 {
     Aim,         ///< A limb joint's direction off its target, or a hand's bone off its.
     Heading,     ///< A foot's heading off its target.
-    Level,       ///< An End's up off +Z.
+    Level,       ///< A foot's up off +Z.
+    Roll,        ///< A hand's finger spread off the twin's, as lines, about its bone.
     Mirror,      ///< A mirrored pair's disagreement: Uppers across the figure's plane, feet headings summed.
-    AnkleHeight, ///< The two ankles' height gap, in units, not degrees.
+    AnkleHeight, ///< The two ankles' height gap off the twin's (to scale) or off level, in units.
     Head,        ///< The head's bone off its target.
-    Hips,        ///< The hip axis off +Y.
+    Hips,        ///< The hip axis off the twin's, or off +Y.
 };
 
 const char* ToString(TPoseScoreKind kind);

@@ -98,6 +98,14 @@ struct LimbSolve {
 /// or there is no hinge.
 LimbSolve SolveLimb(const LimbPress& press, const LimbSetup& setup, const IkGoal& goal);
 
+/// The distance to ask @ref SolveLimb for so that soft reach lands the End
+/// @p wanted from the Upper: `SoftReach` run backwards, for a caller that
+/// wants a bend and not a feel. A @p wanted at or past the limb's @p length is
+/// capped where the ease is within 1e-4 of straight, which is as straight as
+/// soft reach goes. @p pressed is the press's own reach, where the zone may
+/// start instead.
+f32 AskedReach(f32 wanted, f32 pressed, f32 length);
+
 /// The whole limb turned by @p angleRad about the Upper-to-End line: the knee
 /// swings and the End stays exactly where it is, its rotation held.
 LimbSolve SwivelLimb(const LimbPress& press, f32 angleRad);

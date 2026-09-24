@@ -246,6 +246,23 @@ LimbSolve SolveLimb(const LimbPress& press, const LimbSetup& setup, const IkGoal
     return solve;
 }
 
+f32 AskedReach(f32 wanted, f32 pressed, f32 length) {
+    // `SoftReach` backwards: the same knee, the same zone.
+    const f64 l = length;
+    const f64 knee = std::max(l * (1.0 - kSoftReach), std::min<f64>(pressed, l));
+    if (wanted <= knee)
+        return wanted;
+    const f64 soft = l - knee;
+    if (soft <= l * 1e-9)
+        return static_cast<f32>(std::min<f64>(wanted, l));
+    // e^-6.9 is 1e-3 of the zone, 5e-5 of the length when the zone is the
+    // full 5 %: inside the 1e-4 `SolveLimb` calls reached.
+    constexpr f64 kZones = 6.9;
+    const f64 share = (wanted - knee) / soft;
+    const f64 t = share >= 1.0 ? kZones : std::min(kZones, -std::log(1.0 - share));
+    return static_cast<f32>(knee + soft * t);
+}
+
 LimbSolve SwivelLimb(const LimbPress& press, f32 angleRad) {
     LimbSolve solve;
     const D3 upper = ToD(press.upper);
