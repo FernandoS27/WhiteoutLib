@@ -372,6 +372,11 @@ bool bindsAnywhere(const ProfileMaterialSet& set, u32 material) {
 
 bool SlotCoversSection(const Model& model, const MeshSection& section, u32 slot,
                        ProfileId* missing) {
+    // No material is covered everywhere, because there is nothing to cover: a
+    // section can always be left without one, in every profile at once.
+    if (slot == kInvalidIndex) {
+        return true;
+    }
     for (const ProfileMaterialSet& set : model.profileSets) {
         if ((section.profiles & ProfileBit(set.profile)) != 0 && !boundEverywhere(set, slot)) {
             if (missing != nullptr) {
@@ -829,7 +834,11 @@ void CheckMaterialReferencers(const Model& model, u32 modelIndex, Diagnostics& o
     for (std::size_t m = 0; m < model.meshes.size(); ++m) {
         const Mesh& mesh = model.meshes[m];
         for (std::size_t s = 0; s < mesh.sections.size(); ++s) {
-            if (mesh.sections[s].materialSlot < model.materialSlots.size()) {
+            // `kInvalidIndex` is no material at all, the same sentinel the
+            // emitter links below use: a section an editor made before a
+            // material was chosen for it (§5.7). It is a state, not a hole.
+            if (mesh.sections[s].materialSlot == kInvalidIndex ||
+                mesh.sections[s].materialSlot < model.materialSlots.size()) {
                 continue;
             }
             out.error(DiagCode::IndexOutOfRange,

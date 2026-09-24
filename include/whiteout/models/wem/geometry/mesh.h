@@ -98,7 +98,12 @@ inline constexpr i64 kSectionAlwaysDrawn = 0xFFFF;
 /// whose `section` attribute names it.
 struct MeshSection {
     std::string name;
-    u32 materialSlot = 0;                ///< -> `Model::materialSlots[]`.
+    /// -> `Model::materialSlots[]`, or `kInvalidIndex` for NO MATERIAL: a
+    /// section made by an editor before one has been chosen for it. The
+    /// sentinel is the emitter links' (§10.9), so one rule covers both, and
+    /// every profile draws such a section as plain white (`toMdx` writes it a
+    /// blank SD material; a profile that cannot say "none" must write one).
+    u32 materialSlot = 0;
     ProfileMask profiles = kAllProfiles; ///< Which profiles draw this section (§6).
     std::optional<u32> rigidNode;        ///< Set: every vertex binds here at weight 1 (§5.6).
     u16 selectionGroup = 0;              ///< MDX geoset group / M2 skinSectionId.

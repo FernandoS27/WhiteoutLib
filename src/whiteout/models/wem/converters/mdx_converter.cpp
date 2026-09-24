@@ -2487,7 +2487,27 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
     // One MDX material per WEM slot, so `geo.materialId` is the slot index and
     // no fix-up table is needed. A slot this profile does not bind writes an
     // empty material rather than shifting every later index.
-    out.materials.reserve(model.materialSlots.size());
+    // Which geosets will need the blank material below, and what its index will
+    // be: one past every slot's, since the loop under this writes exactly one
+    // material per slot and nothing else is pushed before it.
+    const u32 slotCount = static_cast<u32>(model.materialSlots.size());
+    const auto unmaterialed = [slotCount](const MeshSection& section) {
+        return section.materialSlot == kInvalidIndex || section.materialSlot >= slotCount;
+    };
+    u32 blankMaterial = kInvalidIndex;
+    for (const Mesh& mesh : model.meshes) {
+        // A mesh with fewer sections than the render view gives it ranges also
+        // lands on it: those geosets name no section at all.
+        if (mesh.sections.empty() && slotCount == 0) {
+            blankMaterial = slotCount;
+        }
+        for (const MeshSection& section : mesh.sections) {
+            if (unmaterialed(section)) {
+                blankMaterial = slotCount;
+            }
+        }
+    }
+    out.materials.reserve(static_cast<std::size_t>(slotCount) + 1);
     animContext.layerOfOrdinal.resize(model.materialSlots.size());
     for (std::size_t slot = 0; slot < model.materialSlots.size(); ++slot) {
         const Material* material = set ? Resolve(model, static_cast<u32>(slot), profile) : nullptr;
@@ -2519,6 +2539,26 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
                              std::to_string(moved) + " layer(s) read a second UV set " +
                                  Profile(profile).name + " does not hold; they read the first");
         }
+    }
+    // A section with NO MATERIAL (`materialSlot == kInvalidIndex`, mesh.h) --
+    // one an editor made before a material was chosen for it. MDX has no way
+    // to say "none": a geoset carries an index and that index has to name
+    // something. So one blank material is written for all of them, after every
+    // slot's so that no slot's index moves, and its single layer names a
+    // texture with no file, which is the file's own way of saying the stage is
+    // untextured. Warcraft III and this viewer both draw that plain white, and
+    // an SD layer (`ShaderType::SD`, the default) is what a mesh with nothing
+    // said about it should be drawn with.
+    //
+    // A slot out of range takes it too: a geoset naming a material the file
+    // does not hold is worse than a white one, and it is the same question.
+    if (blankMaterial != kInvalidIndex) {
+        mdx::Layer layer;
+        layer.textureId = context.stockBase + static_cast<u32>(stockTextures.size());
+        stockTextures.push_back(mdx::Texture{});
+        mdx::Material material;
+        material.layers.push_back(std::move(layer));
+        out.materials.push_back(std::move(material));
     }
     // Whatever the materials asked for, in the order they asked. `stockBase`
     // promised these ids and nothing has pushed a texture since.
@@ -2555,9 +2595,15 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
     // What a geoset takes from its section, called just before it is pushed.
     const auto takeSection = [&](mdx::Geoset& geoset, const MeshSection* section) {
         if (section == nullptr) {
+            // No section says nothing about a material either, so a file with
+            // none at all draws this geoset blank rather than naming material 0
+            // in a file that holds no materials.
+            if (blankMaterial != kInvalidIndex) {
+                geoset.materialId = blankMaterial;
+            }
             return;
         }
-        geoset.materialId = section->materialSlot;
+        geoset.materialId = unmaterialed(*section) ? blankMaterial : section->materialSlot;
         geoset.selectionGroup = section->selectionGroup;
         if (const auto* flags = section->native.find("selectionFlags")) {
             geoset.selectionFlags = static_cast<u32>(flags->value);

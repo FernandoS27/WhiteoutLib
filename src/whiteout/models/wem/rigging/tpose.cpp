@@ -584,11 +584,27 @@ struct Sides {
     }
 };
 
+/// Whether @p node hangs below another joint that starts the same limb on the
+/// same side, and so does not start it itself. The DE abomination is the case:
+/// the record reads every joint of its hanging third arm as an Upper, and a
+/// figure whose shoulder is the average of those sits out at the dangling hand.
+bool BelowAnotherUpper(const NodeTree& tree, u32 node, RigLimb limb, RigSide side) {
+    for (u32 n = ParentOf(tree, node), step = tree.size(); n != kInvalidNode && step > 0;
+         n = ParentOf(tree, n), --step) {
+        const NodeRig& rig = tree.nodes[n].rig;
+        if (RoleOf(tree, n) == RigRole::Upper && rig.limb == limb && rig.side == side) {
+            return true;
+        }
+    }
+    return false;
+}
+
 Sides SidesOf(const NodeTree& tree, RigLimb limb) {
     Sides out;
     for (u32 n = 0; n < tree.size(); ++n) {
         const NodeRig& rig = tree.nodes[n].rig;
-        if (RoleOf(tree, n) != RigRole::Upper || rig.limb != limb) {
+        if (RoleOf(tree, n) != RigRole::Upper || rig.limb != limb ||
+            BelowAnotherUpper(tree, n, limb, rig.side)) {
             continue;
         }
         if (rig.side == RigSide::Left) {
@@ -665,9 +681,13 @@ Vector3f MiddleOf(const NodeTree& tree, const std::vector<u32>& nodes,
 ///
 /// Before the limbs, because every limb is aimed in this frame; a square rig
 /// turns by nothing and pays for none of it.
+/// Run a second time after the trunk, which turns what the limbs hang from.
+/// @p framed marks what it turned, because a frame turn is not a limb turn: the
+/// symmetry rule below reads "a solved turn above me" as "my limb is already
+/// solved", and a turn at the root would mean that of every node in the model.
 void SquareFigure(const NodeTree& tree, const std::vector<u32>& order,
                   const std::vector<u8>& yours, TPoseResult& result,
-                  std::vector<Matrix44f>& carried) {
+                  std::vector<Matrix44f>& carried, std::vector<u8>& framed) {
     // About +Z alone: a figure that is off-square is turned on the floor, and
     // any other axis would tip it over.
     const auto squareAt = [&](u32 meet, const Sides& sides) {
@@ -685,6 +705,7 @@ void SquareFigure(const NodeTree& tree, const std::vector<u32>& order,
             return;
         }
         PushJoint(result, meet, turn, TPoseSource::Record);
+        framed[meet] = 1;
         carried = Accumulate(tree, order, result.joints);
     };
 
@@ -786,7 +807,8 @@ TPoseResult SolveTPose(const Document& document, u32 model, const TPoseRules& ru
     //
     // Not a rule of its own: every rule below aims in this frame, so a figure
     // that does not stand in it has to be put there first.
-    SquareFigure(tree, order, yours, result, carried);
+    std::vector<u8> framed(tree.size(), 0);
+    SquareFigure(tree, order, yours, result, carried, framed);
 
     // --- the limbs (§4) ----------------------------------------------------
     //
@@ -959,6 +981,16 @@ TPoseResult SolveTPose(const Document& document, u32 model, const TPoseRules& ru
         }
     }
 
+    // --- square again (the trunk moved it) ---------------------------------
+    //
+    // The spine rule turns the joints the legs and the shoulders hang from, so
+    // a figure squared before the limbs does not stay squared: on the DE grunt
+    // that left the shoulders 7 degrees off +Y, and on the blue dragonspawn the
+    // hips 27. Straightness is not changed by a turn about +Z, so this takes
+    // back the yaw without undoing the press; and a figure the trunk left where
+    // it stood pays nothing, because a turn under kSquareFloor is not taken.
+    SquareFigure(tree, order, yours, result, carried, framed);
+
     // --- symmetry (§3.1) ---------------------------------------------------
     //
     // A canonical goal is symmetric by construction, so both sides of a rig
@@ -978,17 +1010,21 @@ TPoseResult SolveTPose(const Document& document, u32 model, const TPoseRules& ru
         // that would turn a limb which is already where the rule asked — which
         // is what put the left arm of `unbrokendarkweaver_portrait` 94 degrees
         // off +Y.
+        // A node the FRAME turned does not count: squaring the figure turns the
+        // root, and reading that as "solved" would read every node in the model
+        // as solved and leave this rule with nothing to do.
+        const auto solvedAt = [&](u32 n) { return turned[n] != kInvalidIndex && !framed[n]; };
         std::vector<u8> near(tree.size(), 0);
         const std::vector<u32> order = PreOrder(tree);
         for (const u32 n : order) {
             const u32 parent = ParentOf(tree, n);
-            if (parent != kInvalidNode && (near[parent] || turned[parent] != kInvalidIndex)) {
+            if (parent != kInvalidNode && (near[parent] || solvedAt(parent))) {
                 near[n] = 1;
             }
         }
         for (auto it = order.rbegin(); it != order.rend(); ++it) {
             const u32 parent = ParentOf(tree, *it);
-            if (parent != kInvalidNode && (near[*it] || turned[*it] != kInvalidIndex)) {
+            if (parent != kInvalidNode && (near[*it] || solvedAt(*it))) {
                 near[parent] = 1;
             }
         }
