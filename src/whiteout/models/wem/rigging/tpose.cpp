@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 
 namespace whiteout {
 namespace models {
@@ -349,15 +350,73 @@ constexpr f32 kStraighten = 1.3f;
 /// says why rather than the number pretending it did.
 constexpr f32 kAimTolerance = 1.0f;
 
-/// Where a limb's bone aims in the canonical pose (§3.2): a leg straight down,
-/// an arm out to its own side and `armDownDeg` of the way toward the floor.
-Vector3f AimOf(RigLimb limb, RigSide side, const TPoseRules& rules) {
-    if (limb == RigLimb::Leg) {
-        return {0, 0, -1};
+constexpr f32 kDeg = 180.0f / kPi;
+
+Vector3f Unit(const Vector3f& v) {
+    const f32 length = v.length();
+    return length > 1e-9f ? v * (1.0f / length) : Vector3f{0, 0, 0};
+}
+
+/// @p from turned @p deg toward @p toward, in the plane the two span; @p from
+/// itself when they are parallel.
+Vector3f Toward(const Vector3f& from, const Vector3f& toward, f32 deg) {
+    const Vector3f axis = ::whiteout::cross(from, toward);
+    if (axis.length_squared() < 1e-12f) {
+        return from;
     }
-    const f32 sign = side == RigSide::Right ? -1.0f : 1.0f;
-    const f32 down = rules.armDownDeg * kPi / 180.0f;
-    return Vector3f{0, sign * std::cos(down), -std::sin(down)};
+    return Unit(Rotate(Quaternion::from_axis_angle(axis.normalized(), deg / kDeg), from));
+}
+
+f32 SideSign(RigSide side) {
+    return side == RigSide::Right ? -1.0f : 1.0f;
+}
+
+/// @p deg wrapped into (-180, 180].
+f32 WrapDeg(f32 deg) {
+    while (deg > 180.0f) {
+        deg -= 360.0f;
+    }
+    while (deg <= -180.0f) {
+        deg += 360.0f;
+    }
+    return deg;
+}
+
+u32 FirstJointChild(const NodeTree& tree, u32 node) {
+    for (const u32 child : tree.children(node)) {
+        if (IsJoint(tree, child)) {
+            return child;
+        }
+    }
+    return kInvalidNode;
+}
+
+/// Where a role’s bone aims (R§3.0’s ladder): the donor’s direction for the same
+/// limb, side and role where it has one, else the canon’s. A foot’s target is a
+/// heading and level, because a foot’s slope is the bind’s (R§1.6): a donor’s
+/// foot gives only where it points.
+Vector3f TargetOf(RigLimb limb, RigSide side, RigRole role, const TPoseRules& rules,
+                  const RigDirections* donor, bool* fromDonor) {
+    if (donor != nullptr) {
+        if (const LimbDirections* twin = donor->Find(limb, side)) {
+            Vector3f d = role == RigRole::Upper ? twin->upperDir
+                         : role == RigRole::End ? twin->bone
+                                                : twin->lowerDir;
+            if (limb == RigLimb::Leg && role == RigRole::End) {
+                d.z = 0;
+            }
+            if (d.length_squared() > 1e-12f) {
+                if (fromDonor != nullptr) {
+                    *fromDonor = true;
+                }
+                return Unit(d);
+            }
+        }
+    }
+    if (fromDonor != nullptr) {
+        *fromDonor = false;
+    }
+    return rules.canon.Direction(limb, side, role);
 }
 
 f32 Gap(const Vector3f& a, const Vector3f& b) {
@@ -864,14 +923,30 @@ TPoseResult SolveTPose(const Document& document, u32 model, const TPoseRules& ru
             result.limbs.push_back(row);
             continue;
         }
-        const TPoseSource source =
-            row.hinge.source == HingeSource::Clips ? TPoseSource::Clips : TPoseSource::Record;
-
         LimbSetup setup;
         setup.hinge = row.hinge.axis;
         ApplyLimits(tree, *limb, row.hinge, setup);
 
-        const Vector3f aim = AimOf(rig.limb, rig.side, rules);
+        // R§3.0: the twin’s direction for this role, else the canon’s; and the
+        // joint says which.
+        bool fromDonor = false;
+        const Vector3f aim =
+            TargetOf(rig.limb, rig.side, RigRole::Upper, rules, inputs.donor, &fromDonor);
+        const TPoseSource source = fromDonor                                  ? TPoseSource::Donor
+                                   : row.hinge.source == HingeSource::Clips ? TPoseSource::Clips
+                                                                            : TPoseSource::Record;
+        // R§2's band: the table is a median, and a limb already within the
+        // canon's spread of it is a correct one, left alone. A twin is exact.
+        if (!fromDonor && rules.canon.spreadDeg > 0) {
+            const Vector3f stands = rest.press.lower - rest.press.upper;
+            if (stands.length() > 1e-6f &&
+                std::acos(std::clamp(stands.normalized().dot(aim), -1.0f, 1.0f)) * 180.0f / kPi <=
+                    rules.canon.spreadDeg) {
+                row.inCanon = true;
+                result.limbs.push_back(row);
+                continue;
+            }
+        }
         IkGoal goal;
         goal.position = rest.press.upper + aim * (rest.reach * kStraighten);
         goal.orientation = rest.press.endWorld;
@@ -913,9 +988,13 @@ TPoseResult SolveTPose(const Document& document, u32 model, const TPoseRules& ru
             if (bone.length_squared() > 1e-12f) {
                 const Vector3f carried =
                     Rotate(endTurn, Rotate(solve.lowerDelta, Rotate(solve.upperDelta, bone)));
-                const Vector3f want = rig.limb == RigLimb::Leg ? Vector3f{1, 0, 0} : aim;
+                bool endFromDonor = false;
+                const Vector3f want =
+                    TargetOf(rig.limb, rig.side, RigRole::End, rules, inputs.donor, &endFromDonor);
                 endTurn = ArcBetween(carried, want) * endTurn;
-                if (haveBindFrames) {
+                if (endFromDonor) {
+                    endSource = TPoseSource::Donor;
+                } else if (haveBindFrames) {
                     endSource = TPoseSource::BindFrame;
                 }
             }
@@ -1052,6 +1131,251 @@ std::vector<Transform> TPoseRest(const Model& model, const TPoseResult& result) 
         rest[n] = FromMatrix(ToMatrix(tree.worldBind(n)) * carried[n]);
     }
     return rest;
+}
+
+
+// ============================================================================
+// The canon, and the measurement (R§1, R§2, R§5)
+// ============================================================================
+
+
+TPoseCanon TPoseCanon::StrictT() {
+    TPoseCanon t;
+    t.armDownDeg = t.armBackDeg = t.elbowDeg = t.legOutDeg = t.legForwardDeg = t.kneeDeg = t.footOutDeg = 0;
+    // A T is asked for, not measured: nothing is close enough to it to be left.
+    t.spreadDeg = 0;
+    return t;
+}
+
+Vector3f TPoseCanon::Direction(RigLimb limb, RigSide side, RigRole role) const {
+    const f32 sign = SideSign(side);
+    if (limb == RigLimb::Leg) {
+        const f32 out = legOutDeg / kDeg;
+        const f32 forward = legForwardDeg / kDeg;
+        const Vector3f upper = Unit(
+            {std::sin(forward) * std::cos(out), sign * std::sin(out), -std::cos(forward) * std::cos(out)});
+        if (role == RigRole::Upper) {
+            return upper;
+        }
+        if (role == RigRole::End) {
+            const f32 heading = footOutDeg / kDeg;
+            return {std::cos(heading), sign * std::sin(heading), 0};
+        }
+        // The shin goes back from a knee that points forward.
+        return Toward(upper, {-1, 0, 0}, kneeDeg);
+    }
+    const f32 down = armDownDeg / kDeg;
+    const f32 back = armBackDeg / kDeg;
+    const Vector3f upper =
+        Unit({-std::sin(back) * std::cos(down), sign * std::cos(back) * std::cos(down), -std::sin(down)});
+    if (role == RigRole::Upper) {
+        return upper;
+    }
+    // The forearm goes forward from an elbow that points back; the hand rides it.
+    return Toward(upper, {1, 0, 0}, elbowDeg);
+}
+
+const LimbDirections* RigDirections::Find(RigLimb limb, RigSide side) const {
+    for (const LimbDirections& d : limbs) {
+        if (d.limb == limb && d.side == side) {
+            return &d;
+        }
+    }
+    return nullptr;
+}
+
+RigDirections DirectionsOf(const Model& model, std::span<const Transform> rest) {
+    RigDirections out;
+    const NodeTree& tree = model.nodes;
+    if (rest.size() < tree.size()) {
+        return out;
+    }
+    const auto at = [&](u32 n) { return rest[n].translation; };
+    f32 low = std::numeric_limits<f32>::max();
+    f32 high = std::numeric_limits<f32>::lowest();
+    u32 hipL = kInvalidNode;
+    u32 hipR = kInvalidNode;
+    for (u32 n = 0; n < tree.size(); ++n) {
+        if (!IsJoint(tree, n)) {
+            continue;
+        }
+        low = std::min(low, at(n).z);
+        high = std::max(high, at(n).z);
+        const NodeRig& rig = tree.nodes[n].rig;
+        if (rig.role == RigRole::End && rig.limb != RigLimb::Other) {
+            const std::optional<Limb> limb = LimbOf(tree, n);
+            if (!limb) {
+                continue;
+            }
+            LimbDirections d;
+            d.end = n;
+            d.lower = limb->lower;
+            d.upper = limb->upper;
+            d.limb = rig.limb;
+            d.side = rig.side;
+            d.upperDir = Unit(at(limb->lower) - at(limb->upper));
+            d.lowerDir = Unit(at(limb->end) - at(limb->lower));
+            const u32 toe = FirstJointChild(tree, n);
+            d.bone = toe == kInvalidNode ? Vector3f{0, 0, 0} : Unit(at(toe) - at(n));
+            d.up = Rotate(rest[n].rotation, Vector3f{0, 0, 1});
+            d.endHeight = at(n).z;
+            out.limbs.push_back(d);
+        }
+        if (rig.role == RigRole::Head && out.head == kInvalidNode) {
+            out.head = n;
+        }
+        if (rig.role == RigRole::Upper && rig.limb == RigLimb::Leg) {
+            if (rig.side == RigSide::Left && hipL == kInvalidNode) {
+                hipL = n;
+            }
+            if (rig.side == RigSide::Right && hipR == kInvalidNode) {
+                hipR = n;
+            }
+        }
+    }
+    out.height = high > low ? high - low : 0;
+    if (out.head != kInvalidNode) {
+        const u32 parent = ParentOf(tree, out.head);
+        if (parent != kInvalidNode) {
+            out.headBone = Unit(at(out.head) - at(parent));
+        }
+        out.headUp = Rotate(rest[out.head].rotation, Vector3f{0, 0, 1});
+    }
+    if (hipL != kInvalidNode && hipR != kInvalidNode) {
+        out.hips = Unit(at(hipL) - at(hipR));
+    }
+    return out;
+}
+
+RigDirections DirectionsAtBind(const Model& model) {
+    return DirectionsOf(model, TPoseRest(model, TPoseResult{}));
+}
+
+f32 PitchDeg(const Vector3f& direction) {
+    const Vector3f u = Unit(direction);
+    return u.length_squared() > 0 ? std::atan2(u.z, std::hypot(u.x, u.y)) * kDeg : 0.0f;
+}
+
+f32 DroopDeg(const Vector3f& direction) {
+    return -PitchDeg(direction);
+}
+
+f32 SweepDeg(const Vector3f& direction, RigSide side) {
+    const Vector3f u = Unit(direction);
+    if (std::hypot(u.x, u.y) < 1e-6f) {
+        return 0.0f;
+    }
+    return std::atan2(u.x, SideSign(side) * u.y) * kDeg;
+}
+
+f32 HeadingDeg(const Vector3f& direction) {
+    const Vector3f u = Unit(direction);
+    if (std::hypot(u.x, u.y) < 1e-6f) {
+        return 0.0f;
+    }
+    return std::atan2(u.y, u.x) * kDeg;
+}
+
+f32 AngleDeg(const Vector3f& a, const Vector3f& b) {
+    const Vector3f ua = Unit(a);
+    const Vector3f ub = Unit(b);
+    if (ua.length_squared() == 0 || ub.length_squared() == 0) {
+        return 0.0f;
+    }
+    return std::acos(std::clamp(ua.dot(ub), -1.0f, 1.0f)) * kDeg;
+}
+
+f32 LineAngleDeg(const Vector3f& a, const Vector3f& b) {
+    const f32 deg = AngleDeg(a, b);
+    return std::min(deg, 180.0f - deg);
+}
+
+const char* ToString(TPoseScoreKind kind) {
+    switch (kind) {
+    case TPoseScoreKind::Aim:
+        return "Aim";
+    case TPoseScoreKind::Heading:
+        return "Heading";
+    case TPoseScoreKind::Level:
+        return "Level";
+    case TPoseScoreKind::Mirror:
+        return "Mirror";
+    case TPoseScoreKind::AnkleHeight:
+        return "AnkleHeight";
+    case TPoseScoreKind::Head:
+        return "Head";
+    case TPoseScoreKind::Hips:
+        return "Hips";
+    }
+    return "Aim";
+}
+
+TPoseScore MeasureTPose(const Model& model, std::span<const Transform> rest,
+                        const TPoseCanon& canon, const RigDirections* donor) {
+    TPoseScore score;
+    const RigDirections dirs = DirectionsOf(model, rest);
+    const auto push = [&](u32 node, RigLimb limb, RigSide side, RigRole role, TPoseScoreKind kind,
+                          f32 value) {
+        score.rows.push_back({node, limb, side, role, kind, value});
+        if (kind != TPoseScoreKind::AnkleHeight) {
+            score.worstDeg = std::max(score.worstDeg, value);
+        }
+    };
+    const auto have = [](const Vector3f& v) { return v.length_squared() > 0; };
+    for (const LimbDirections& d : dirs.limbs) {
+        const LimbDirections* twin = donor ? donor->Find(d.limb, d.side) : nullptr;
+        const Vector3f upperWant = twin && have(twin->upperDir)
+                                       ? twin->upperDir
+                                       : canon.Direction(d.limb, d.side, RigRole::Upper);
+        const Vector3f lowerWant = twin && have(twin->lowerDir)
+                                       ? twin->lowerDir
+                                       : canon.Direction(d.limb, d.side, RigRole::Lower);
+        push(d.upper, d.limb, d.side, RigRole::Upper, TPoseScoreKind::Aim, AngleDeg(d.upperDir, upperWant));
+        push(d.lower, d.limb, d.side, RigRole::Lower, TPoseScoreKind::Aim, AngleDeg(d.lowerDir, lowerWant));
+        if (have(d.bone)) {
+            if (d.limb == RigLimb::Leg) {
+                const f32 want = twin && have(twin->bone) ? HeadingDeg(twin->bone)
+                                                           : SideSign(d.side) * canon.footOutDeg;
+                push(d.end, d.limb, d.side, RigRole::End, TPoseScoreKind::Heading,
+                     std::fabs(WrapDeg(HeadingDeg(d.bone) - want)));
+            } else {
+                const Vector3f want = twin && have(twin->bone) ? twin->bone : d.lowerDir;
+                push(d.end, d.limb, d.side, RigRole::End, TPoseScoreKind::Aim, AngleDeg(d.bone, want));
+            }
+        }
+        push(d.end, d.limb, d.side, RigRole::End, TPoseScoreKind::Level, AngleDeg(d.up, Vector3f{0, 0, 1}));
+    }
+    // The figure against itself: each left limb and the first right one of
+    // its kind.
+    for (const LimbDirections& l : dirs.limbs) {
+        if (l.side != RigSide::Left) {
+            continue;
+        }
+        const LimbDirections* r = dirs.Find(l.limb, RigSide::Right);
+        if (r == nullptr) {
+            continue;
+        }
+        const Vector3f mirrored{r->upperDir.x, -r->upperDir.y, r->upperDir.z};
+        push(l.upper, l.limb, l.side, RigRole::Upper, TPoseScoreKind::Mirror, AngleDeg(l.upperDir, mirrored));
+        if (l.limb == RigLimb::Leg) {
+            if (have(l.bone) && have(r->bone)) {
+                push(l.end, l.limb, l.side, RigRole::End, TPoseScoreKind::Mirror,
+                     std::fabs(WrapDeg(HeadingDeg(l.bone) + HeadingDeg(r->bone))));
+            }
+            push(l.end, l.limb, l.side, RigRole::End, TPoseScoreKind::AnkleHeight,
+                 std::fabs(l.endHeight - r->endHeight));
+        }
+    }
+    if (dirs.head != kInvalidNode && have(dirs.headBone)) {
+        const Vector3f want = donor && have(donor->headBone) ? donor->headBone : Vector3f{0, 0, 1};
+        push(dirs.head, RigLimb::Other, RigSide::Centre, RigRole::Head, TPoseScoreKind::Head,
+             AngleDeg(dirs.headBone, want));
+    }
+    if (have(dirs.hips)) {
+        push(kInvalidNode, RigLimb::Leg, RigSide::Centre, RigRole::Upper, TPoseScoreKind::Hips,
+             LineAngleDeg(dirs.hips, Vector3f{0, 1, 0}));
+    }
+    return score;
 }
 
 } // namespace wem

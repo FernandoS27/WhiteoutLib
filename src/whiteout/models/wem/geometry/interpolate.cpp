@@ -517,6 +517,18 @@ u32 FreshMergeGroup(const Mesh& mesh) {
     return next;
 }
 
+std::span<u32> MergeGroupsOf(Mesh& mesh) {
+    const bool had = mesh.attributes.has(names::kMergeGroup, Domain::Vertex);
+    const std::span<u32> groups =
+        mesh.attributes.getOrCreate<u32>(names::kMergeGroup, Domain::Vertex, AttrType::U32);
+    if (!had) {
+        for (u32 v = 0; v < groups.size(); ++v) {
+            groups[v] = v;
+        }
+    }
+    return groups;
+}
+
 } // namespace geom
 } // namespace wem
 } // namespace models

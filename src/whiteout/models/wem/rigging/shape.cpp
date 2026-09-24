@@ -142,6 +142,12 @@ Above WalkAbove(Work& work, Shape& shape, u32 end, std::size_t want) {
 /// instead of the thigh and the shin. Measured on the DE footman the share is
 /// 0.18 (4.0 against 22.6); the HD footman's real knee is 1.22 and the DE
 /// elbow 0.70, so the bar sits well clear of both.
+///
+/// A fallback, not the rule: the DE peasant's ball is 0.33 of its shin (6.08
+/// against 18.3) and the grunt's 0.32, over the bar, and no bar separates a
+/// ball from a short shin on every rig. The DE scheme names where the leg
+/// ends (`leg_L0_end_jnt`), and the name tier reads that; this stays for
+/// rigs that name nothing.
 constexpr f32 kStubBoneShare = 0.25f;
 
 /// A foot and its ball, never a walk up the whole leg.
@@ -186,6 +192,12 @@ void ReanchorEnds(Work& work, Shape& shape) {
         }
         const RigSource source = work.rig[n].source;
         if (source == RigSource::File || source == RigSource::You) {
+            continue;
+        }
+        // A terminator (`leg_L0_end_jnt`) IS where the limb ends, and its own
+        // bone is a stub by construction: the share test would move every
+        // one of them up onto the ankle joint above, whose bone is the stub.
+        if (work.names[n].terminator) {
             continue;
         }
         u32 end = n;

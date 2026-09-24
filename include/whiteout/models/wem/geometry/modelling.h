@@ -778,7 +778,7 @@ struct CutPoint {
  * Refused with `NothingToSlice` when the two points are the same or the walk
  * reaches no crossing, and with `WouldFold` when a cut would repeat an edge.
  *
- * Output selection: the edges of the cut.
+ * Output selection: the edges of the cut, and the one vertex it ended on.
  */
 ModelPlan PlanCut(Mesh& mesh, const PointTable& points, const CutPoint& from, const CutPoint& to,
                   const Vector3f& plane);

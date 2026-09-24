@@ -3452,8 +3452,7 @@ ModelPlan PlanFlip(Mesh& mesh, const ElementSet& faces) {
     // The copies are their own points: a fresh `mergeGroup` each, so nothing
     // welds them back together.
     if (!freshOf.empty()) {
-        const std::span<u32> groups =
-            mesh.attributes.getOrCreate<u32>(names::kMergeGroup, Domain::Vertex, AttrType::U32);
+        const std::span<u32> groups = MergeGroupsOf(mesh);
         u32 next = fresh;
         for (const u32 v : freshOf) {
             if (v < groups.size()) {
@@ -3923,8 +3922,7 @@ void freshGroups(Mesh& mesh, const std::vector<u32>& made) {
     if (made.empty()) {
         return;
     }
-    const std::span<u32> groups =
-        mesh.attributes.getOrCreate<u32>(names::kMergeGroup, Domain::Vertex, AttrType::U32);
+    const std::span<u32> groups = MergeGroupsOf(mesh);
     u32 next = FreshMergeGroup(mesh);
     for (const u32 v : made) {
         if (v < groups.size()) {
@@ -5271,6 +5269,8 @@ ModelPlan PlanConnectEdges(Mesh& mesh, const PointTable& points, const ElementSe
         std::vector<u32> made;    ///< `segments` vertices, first end first.
         std::vector<u32> faces;   ///< The faces it lay in, as they were.
         Vector3f along{0.0f, 0.0f, 0.0f}; ///< Its direction, times its length.
+        u32 first = kInvalidId;   ///< Its ends, which say which way it runs.
+        u32 last = kInvalidId;
     };
     std::vector<Split> splits;
     for (const auto& [a, b] : chosen) {
@@ -5292,6 +5292,8 @@ ModelPlan PlanConnectEdges(Mesh& mesh, const PointTable& points, const ElementSe
             if (a < at.size() && b < at.size()) {
                 split.along = at[b] - at[a];
             }
+            split.first = a;
+            split.last = b;
         }
         u32 from = a;
         for (u32 i = 1; i <= segments; ++i) {
@@ -5325,6 +5327,66 @@ ModelPlan PlanConnectEdges(Mesh& mesh, const PointTable& points, const ElementSe
             inFace[f].push_back(i);
         }
     }
+    // An edge's own direction is whichever halfedge came first, so each split
+    // is turned to run the way its neighbours across a face do. Otherwise a
+    // face's second loop joins across its first, and the slide moves the loop
+    // one way on some edges and the other way on the rest.
+    {
+        mesh.ensureConnectivity();
+        const Topology& topology = std::as_const(mesh).topology();
+        const std::span<const Vector3f> at = positionsOf(mesh);
+        // Next to each other round the face the two share: the side between them.
+        const auto near = [&](u32 face, u32 a, u32 b) {
+            if (a == b) {
+                return true;
+            }
+            for (const HalfedgeId h : topology.fh(FaceId(face))) {
+                const u32 from = topology.from(h).value();
+                const u32 to = topology.to(h).value();
+                if ((from == a && to == b) || (from == b && to == a)) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        const auto sameWay = [&](u32 face, const Split& p, const Split& q) {
+            if (near(face, p.first, q.first) || near(face, p.last, q.last)) {
+                return true;
+            }
+            if (near(face, p.first, q.last) || near(face, p.last, q.first)) {
+                return false;
+            }
+            return (at[p.first] - at[q.first]).length() + (at[p.last] - at[q.last]).length() <=
+                   (at[p.first] - at[q.last]).length() + (at[p.last] - at[q.first]).length();
+        };
+        std::vector<u8> seen(splits.size(), 0);
+        for (u32 root = 0; root < splits.size(); ++root) {
+            if (seen[root]) {
+                continue;
+            }
+            seen[root] = 1;
+            std::vector<u32> open{root};
+            while (!open.empty()) {
+                const u32 i = open.back();
+                open.pop_back();
+                for (const u32 f : splits[i].faces) {
+                    for (const u32 j : inFace[f]) {
+                        if (seen[j]) {
+                            continue;
+                        }
+                        seen[j] = 1;
+                        Split& next = splits[j];
+                        if (!sameWay(f, splits[i], next)) {
+                            std::reverse(next.made.begin(), next.made.end());
+                            std::swap(next.first, next.last);
+                            next.along = next.along * -1.0f;
+                        }
+                        open.push_back(j);
+                    }
+                }
+            }
+        }
+    }
     std::vector<u32> faces;
     for (const auto& entry : inFace) {
         faces.push_back(entry.first);
@@ -5343,8 +5405,7 @@ ModelPlan PlanConnectEdges(Mesh& mesh, const PointTable& points, const ElementSe
         const Split& second = splits[which[1]];
         for (u32 i = 0; i < segments; ++i) {
             const u32 a = first.made[std::min<std::size_t>(i, first.made.size() - 1)];
-            const u32 b = second.made[second.made.size() - 1 -
-                                      std::min<std::size_t>(i, second.made.size() - 1)];
+            const u32 b = second.made[std::min<std::size_t>(i, second.made.size() - 1)];
             mesh.ensureConnectivity();
             const Topology& topology = std::as_const(mesh).topology();
             if (joined(topology, a, b)) {
@@ -5628,6 +5689,8 @@ ModelPlan PlanCut(Mesh& mesh, const PointTable& points, const CutPoint& from, co
         }
     }
     plan.changedFaces = sortedUnique(std::move(plan.changedFaces));
+    // Where the cut ended, which is where a chain's next segment starts.
+    plan.selection.vertices.push_back(chain.back());
     plan.selection.normalise();
     return plan;
 }
@@ -5926,8 +5989,7 @@ ModelPlan PlanSlice(Mesh& mesh, const PointTable& points, const ElementSet& face
             plan.touchedEdges.clear();
             plan.changedFaces.clear();
             // The copies are their own points, so nothing welds them back.
-            const std::span<u32> groups =
-                mesh.attributes.getOrCreate<u32>(names::kMergeGroup, Domain::Vertex, AttrType::U32);
+            const std::span<u32> groups = MergeGroupsOf(mesh);
             u32 next = FreshMergeGroup(mesh);
             for (const auto& [vertex, copy] : copyOf) {
                 (void)vertex;

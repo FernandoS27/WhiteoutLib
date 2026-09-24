@@ -247,7 +247,13 @@ NameRead ReadName(const std::string& name) {
         const bool legWord = words[i] == "leg" || words[i] == "foreleg" || words[i] == "hindleg";
         if ((words[i] == "arm" || legWord) && IsNumber(words[i + 1])) {
             const u32 index = static_cast<u32>(std::strtoul(words[i + 1].c_str(), nullptr, 10));
-            if (index == 0) {
+            // A number followed by another number or by `end` is a figure
+            // index, not a place along the limb: Deluxe Edition writes the
+            // side, the figure, then the joint (`leg_L1_0_jnt`, `arm_L1_end_jnt`
+            // on a mount), and read as HD numbering a whole leg came out Upper.
+            const bool figure =
+                i + 2 < words.size() && (IsNumber(words[i + 2]) || words[i + 2] == "end");
+            if (index == 0 || figure) {
                 break;
             }
             read.index = index;
@@ -257,6 +263,20 @@ NameRead ReadName(const std::string& name) {
         }
     }
 
+    // A chain terminator, where a Maya export puts one: `leg_L0_end_jnt`,
+    // `arm_R0_end_jnt`, `legHind_L0_end_jnt`. It sits on the ankle or the
+    // wrist, and what hangs below it (`foot_L0_0_jnt`, the ball of the foot;
+    // `meta_L0_0_jnt`, the palm) is past where the limb ends. Warcraft III
+    // Deluxe Edition names every limb this way, and its figure index (the
+    // `0` in `leg_L0_end`) breaks the numbered loop above, so read as
+    // nothing the End fell to the ball and the chain came out one joint
+    // low: knee, ankle, ball. Measured on 231 of 773 DE units.
+    if (Has(words, "end") && limb != RigLimb::Other) {
+        read.role = RigRole::End;
+        read.limb = limb;
+        read.terminator = true;
+        return read;
+    }
     if (MatchesAny(words, {{"upr", "arm"}, {"up", "arm"}, {"upper", "arm"}, {"bicep"}})) {
         read.role = RigRole::Upper;
         read.limb = RigLimb::Arm;

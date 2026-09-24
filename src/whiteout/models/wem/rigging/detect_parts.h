@@ -38,6 +38,9 @@ struct NameRead {
     /// `leg_03`, `arm_02`: the joint's number along its limb, 0 for none. From
     /// 3 on it is a Hock above the End and a Toe below it.
     u32 index = 0;
+    /// `leg_L0_end_jnt`: a chain terminator, the End by construction. The
+    /// shape tier leaves it where it is, however short its own bone.
+    bool terminator = false;
 };
 
 NameRead ReadName(const std::string& name);

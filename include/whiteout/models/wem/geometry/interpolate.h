@@ -141,6 +141,11 @@ void BlendVertex(Mesh& mesh, std::span<const u32> vertices, std::span<const f32>
 /// when that is larger: a group no vertex is in.
 u32 FreshMergeGroup(const Mesh& mesh);
 
+/// The mesh's `mergeGroup` layer, made if it has none. A mesh without one has
+/// every vertex its own point, so a new layer starts each vertex in a group of
+/// its own rather than all of them in group 0, which would weld them into one.
+std::span<u32> MergeGroupsOf(Mesh& mesh);
+
 } // namespace geom
 } // namespace wem
 } // namespace models
