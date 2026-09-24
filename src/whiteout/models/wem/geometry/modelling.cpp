@@ -4019,8 +4019,17 @@ ModelPlan PlanExtrudeBorder(Mesh& mesh, const PointTable& points, const ElementS
         plan.refusal = ModelRefusal::EmptySelection;
         return plan;
     }
-    // One copy per border vertex, aimed along the mean normal of the faces
-    // beside that vertex's selected border edges.
+    // One copy per border vertex, aimed along the mean of its border edges'
+    // OUTWARD directions: for each edge, from the centre of the face behind it
+    // to the centre of the edge, flattened into that face's plane.
+    //
+    // Along the face's normal instead -- which this did until 2026-09-24 --
+    // the strip stands up off the surface as a collar, and a plane extruded at
+    // its border grows a wall rather than getting wider. Outward, it CONTINUES
+    // the surface, which is what extruding a border is for: a plane gets
+    // wider, a tube's rim runs on along the tube (the face behind that rim is
+    // behind it in exactly that sense), and a hole's border closes inward.
+    const std::span<const Vector3f> placed = positionsOf(mesh);
     const std::vector<u32> snapshot = detail::snapshotCornersBuilt(mesh);
     const std::unordered_map<u32, u32> ordinalOf = cornerOrdinals(snapshot);
     detail::RebuildMapping mapping = detail::identityMapping(mesh);
@@ -4028,15 +4037,45 @@ ModelPlan PlanExtrudeBorder(Mesh& mesh, const PointTable& points, const ElementS
     std::unordered_map<u32, Vector3f> aimOf;
     for (const HalfedgeId h : border) {
         const HalfedgeId inside = Topology::opposite(h);
-        const Vector3f normal =
-            unitOr(faceArea(mesh, topology.face(inside)), Vector3f{0.0f, 0.0f, 1.0f});
-        for (const u32 v : {topology.from(h).value(), topology.to(h).value()}) {
+        const FaceId face = topology.face(inside);
+        const Vector3f normal = unitOr(faceArea(mesh, face), Vector3f{0.0f, 0.0f, 1.0f});
+        const u32 from = topology.from(h).value();
+        const u32 to = topology.to(h).value();
+        Vector3f outward = normal; // a face with no centre to speak of
+        if (from < placed.size() && to < placed.size()) {
+            Vector3f centre{0.0f, 0.0f, 0.0f};
+            u32 corners = 0;
+            for (const HalfedgeId c : topology.fh(face)) {
+                const u32 v = topology.from(c).value();
+                if (v < placed.size()) {
+                    centre = centre + placed[v];
+                    ++corners;
+                }
+            }
+            if (corners != 0) {
+                centre = centre * (1.0f / static_cast<f32>(corners));
+                const Vector3f mid = (placed[from] + placed[to]) * 0.5f;
+                Vector3f out = mid - centre;
+                // Into the face's plane, so a bowed n-gon's strip still lies in
+                // the surface rather than tilting out of it...
+                out = out - normal * out.dot(normal);
+                // ...and square to the edge. Without this the direction leans
+                // along the edge by however far the face's centre sits to one
+                // side of it, which on a TRIANGLE is always -- every Warcraft
+                // III mesh is triangles, and a border run of them would grow a
+                // sawtooth instead of a strip.
+                const Vector3f along = unitOr(placed[to] - placed[from], Vector3f{1.0f, 0.0f, 0.0f});
+                out = out - along * out.dot(along);
+                outward = unitOr(out, normal);
+            }
+        }
+        for (const u32 v : {from, to}) {
             if (copyOf.find(v) == copyOf.end()) {
                 copyOf[v] = static_cast<u32>(mapping.vertexSource.size());
                 mapping.vertexSource.push_back(v);
                 aimOf[v] = Vector3f{0.0f, 0.0f, 0.0f};
             }
-            aimOf[v] = aimOf[v] + normal;
+            aimOf[v] = aimOf[v] + outward;
         }
     }
     for (const HalfedgeId h : border) {

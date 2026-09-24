@@ -1340,8 +1340,9 @@ TEST_CASE("wem tools extrude local normal averages the faces at a vertex", "[wem
 
 TEST_CASE("wem tools border extrude grows a strip and selects its far edge",
           "[wem][geometry][tools]") {
-    // One quad's whole border: four wall quads, and the new border is what the
-    // gizmo gets after Apply.
+    // One quad's whole border: four quads around it, and the new border is what
+    // the gizmo gets after Apply. The strip grows OUTWARD in the quad's own
+    // plane, not up its normal, so what this makes is a bigger, flat ring.
     Mesh mesh = grid(1, 1, /*quads=*/true);
     ElementSet border;
     for (u32 e = 0; e < mesh.topology().edgeCount(); ++e) {
@@ -1359,9 +1360,24 @@ TEST_CASE("wem tools border extrude grows a strip and selects its far edge",
     finish(mesh, plan);
     CHECK(liveFaces(mesh) == 5u);
     CHECK(mesh.vertexCount() == 8u);
-    for (const auto& [x, y] : std::vector<std::pair<f32, f32>>{{0, 0}, {1, 0}, {1, 1}, {0, 1}}) {
-        CHECK(vertexAt(mesh, x, y, 1.0f).valid()); // the strip rose along the face's normal
+    // Every corner belongs to two border edges meeting at a right angle, so its
+    // aim is their bisector and it travels the whole amount along it: the unit
+    // square becomes one of side 1 + 2/sqrt(2), and stays flat. Nothing rose,
+    // which is the whole of what changed on 2026-09-24.
+    const auto placed = mesh.attributes.get<const Vector3f>(geom::names::kPosition, Domain::Vertex);
+    const f32 out = 1.0f / std::sqrt(2.0f);
+    f32 low = 0.0f, high = 1.0f, lifted = 0.0f;
+    for (u32 v = 0; v < placed.size(); ++v) {
+        if (mesh.topology().isDeleted(VertexId(v))) {
+            continue;
+        }
+        low = std::min(low, std::min(placed[v].x, placed[v].y));
+        high = std::max(high, std::max(placed[v].x, placed[v].y));
+        lifted = std::max(lifted, std::abs(placed[v].z));
     }
+    CHECK(lifted == Catch::Approx(0.0f).margin(1e-5));      // not up the face's normal
+    CHECK(low == Catch::Approx(-out).margin(1e-5));         // outward, in the face's plane
+    CHECK(high == Catch::Approx(1.0f + out).margin(1e-5));
 }
 
 TEST_CASE("wem tools inset rings a face and offsets it evenly", "[wem][geometry][tools]") {

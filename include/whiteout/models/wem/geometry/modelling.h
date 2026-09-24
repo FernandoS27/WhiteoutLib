@@ -386,8 +386,17 @@ ModelPlan PlanExtrudeFaces(Mesh& mesh, const PointTable& points, const ElementSe
  * @brief Border Extrude (§3.8): a strip grown from the border runs in @p edges.
  *
  * Every border vertex of each selected loop or open run is copied, with one
- * quad per border edge, and aimed along the mean normal of the faces beside
- * that vertex's border edges. The amount is the height.
+ * quad per border edge, and aimed along the mean of those edges' OUTWARD
+ * directions: per edge, away from the centre of the face behind it, in that
+ * face's plane and square to the edge -- so the answer does not depend on how
+ * the face is triangulated. The amount is the distance.
+ *
+ * So the strip continues the surface rather than standing up off it: a plane
+ * extruded at its border gets wider, a tube's rim runs on along the tube, and a
+ * hole's border closes inward. (Until 2026-09-24 the aim was the face NORMAL,
+ * which grew a collar instead.) The offset is not mitred at a corner, so a
+ * vertex shared by two edges meeting at 2θ travels its full amount along the
+ * bisector and clears the surface by `amount·cos θ`.
  *
  * Output selection: the new border, ready for the gizmo after Apply.
  */
