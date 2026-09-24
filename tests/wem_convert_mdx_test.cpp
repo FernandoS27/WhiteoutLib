@@ -17,6 +17,8 @@
 #include <whiteout/models/wem/parser.h>
 #include <whiteout/models/wem/retarget.h>
 #include <whiteout/models/wem/writer.h>
+#include <whiteout/models/mdx/writer.h>
+#include <whiteout/models/wem/geometry/uv/islands.h>
 
 using namespace whiteout;
 using namespace whiteout::models::wem;
@@ -1406,6 +1408,146 @@ TEST_CASE("wem mdx Reforged writes a second UV set that varies, and seams on it"
     REQUIRE(constant.ok());
     CHECK(constant->geosets[0].textureCoordinateSets.size() == 1);
     CHECK(constant->geosets[0].vertexPositions.size() == 4);
+}
+
+TEST_CASE("wem mdx a host can name the set that fills the second slot",
+          "[wem][convert][mdx][geometry][uv]") {
+    // EDIT_MODE_UV_DESIGN.md §9.1: the UV workspace draws an authoring set, and
+    // an authoring set is one the profile would never write. It rides the
+    // geoset's second slot for as long as it is the one being worked on, which
+    // is a thing about the draw and not about the file.
+    const MdxConverter converter;
+    const Document document = makeTwoUvDocument(false);
+
+    // Classic holds one set. Asked for set 1, it writes two.
+    Result<mdx::Model> drawn = converter.toMdx(document, ProfileId::Wc3Classic, 800, std::nullopt,
+                                               std::optional<u32>(1));
+    REQUIRE(drawn.ok());
+    REQUIRE(drawn->geosets.size() == 1);
+    CHECK(drawn->geosets[0].textureCoordinateSets.size() == 2);
+    // And splits where the second set splits, exactly as Reforged's export does.
+    CHECK(drawn->geosets[0].vertexPositions.size() == 6);
+
+    // The map a host reaches its vertices through is the map of what it drew.
+    const auto elements = MdxGeosetElements(document, 0, ProfileId::Wc3Classic,
+                                            std::optional<u32>(1));
+    REQUIRE(elements.size() == 1);
+    CHECK(elements[0].vertices.size() == drawn->geosets[0].vertexPositions.size());
+    // Without it, the same call answers for the file, which holds four.
+    CHECK(MdxGeosetElements(document, 0, ProfileId::Wc3Classic)[0].vertices.size() == 4);
+
+    // A second set that never varies is not written by the export and is
+    // written when a host asks: what varies is the export's business, not the
+    // editor's.
+    const Document constant = makeTwoUvDocument(true);
+    Result<mdx::Model> asked = converter.toMdx(constant, ProfileId::Wc3Reforged, 0, std::nullopt,
+                                               std::optional<u32>(1));
+    REQUIRE(asked.ok());
+    CHECK(asked->geosets[0].textureCoordinateSets.size() == 2);
+
+    // Set 0 already fills the first slot, so naming it writes one set.
+    Result<mdx::Model> zero = converter.toMdx(document, ProfileId::Wc3Classic, 800, std::nullopt,
+                                              std::optional<u32>(0));
+    REQUIRE(zero.ok());
+    CHECK(zero->geosets[0].textureCoordinateSets.size() == 1);
+
+    // Absent, every byte is the export's own.
+    mdx::Writer writer;
+    Result<mdx::Model> plain = converter.toMdx(document, ProfileId::Wc3Classic, 800);
+    Result<mdx::Model> explicitly =
+        converter.toMdx(document, ProfileId::Wc3Classic, 800, std::nullopt, std::nullopt);
+    REQUIRE(plain.ok());
+    REQUIRE(explicitly.ok());
+    CHECK(writer.write(*plain) == writer.write(*explicitly));
+}
+
+TEST_CASE("wem mdx an authoring set past the second rides the slot",
+          "[wem][convert][mdx][geometry][uv]") {
+    // Generic holds eight, so a third set is a set a document may really carry.
+    Document document = makeTwoUvDocument(false);
+    Mesh& mesh = document.models[0].meshes[0];
+    REQUIRE(mesh.ensureConnectivity().ok());
+    const std::span<Vector2f> third = mesh.attributes.getOrCreate<Vector2f>(
+        geom::names::uv(2), geom::Domain::Halfedge, geom::AttrType::F32x2);
+    const std::span<const Vector2f> first =
+        std::as_const(mesh).attributes.get<const Vector2f>(geom::names::uv(0), geom::Domain::Halfedge);
+    for (std::size_t h = 0; h < third.size(); ++h) {
+        // A quarter turn, so no vertex of it agrees with either of the others.
+        third[h] = Vector2f{-first[h].y, first[h].x};
+    }
+
+    const MdxConverter converter;
+    Result<mdx::Model> drawn = converter.toMdx(document, ProfileId::Wc3Classic, 800, std::nullopt,
+                                               std::optional<u32>(2));
+    REQUIRE(drawn.ok());
+    REQUIRE(drawn->geosets.size() == 1);
+    REQUIRE(drawn->geosets[0].textureCoordinateSets.size() == 2);
+    const auto& written = drawn->geosets[0].textureCoordinateSets[1];
+    const auto& base = drawn->geosets[0].textureCoordinateSets[0];
+    REQUIRE(written.size() == base.size());
+    bool turned = false;
+    for (std::size_t i = 0; i < written.size(); ++i) {
+        turned = turned || written[i].x != base[i].x || written[i].y != base[i].y;
+    }
+    CHECK(turned);
+}
+
+TEST_CASE("wem mdx the UV workspace's own layers reach no file",
+          "[wem][convert][mdx][geometry][uv]") {
+    // EDIT_MODE_UV_DESIGN.md §3: marks, pins and locks are authoring state. No
+    // exporter asks for them by name, so the bytes must not move when they are
+    // there.
+    // The constant second set, so nothing splits the quad and a split the
+    // layers caused would show as two more vertices.
+    const MdxConverter converter;
+    const Document plain = makeTwoUvDocument(true);
+    Document marked = plain;
+    Mesh& mesh = marked.models[0].meshes[0];
+    REQUIRE(mesh.ensureConnectivity().ok());
+    geom::uv::EnsureUvSet(mesh, 0);
+    geom::uv::EnsureUvSet(mesh, 1);
+    const std::span<u8> marks =
+        mesh.attributes.getOrCreate<u8>(geom::names::uvSeam(0), geom::Domain::Edge, geom::AttrType::Bool);
+    std::fill(marks.begin(), marks.end(), static_cast<u8>(1));
+    // Pinned on one face and not the other, so a weld or a split that saw the
+    // layer would have to part the diagonal's corners: the mutant that lets one
+    // of these into the render view moves the bytes.
+    const std::span<u8> pins = mesh.attributes.getOrCreate<u8>(geom::names::uvPin(0),
+                                                               geom::Domain::Halfedge, geom::AttrType::Bool);
+    {
+        const geom::Topology& topology = std::as_const(mesh).topology();
+        for (const geom::HalfedgeId h : topology.fh(geom::FaceId(0))) {
+            pins[h.index()] = 1;
+        }
+    }
+    for (std::size_t e = 0; e + 1 < marks.size(); e += 2) {
+        marks[e] = 0;
+    }
+
+    mdx::Writer writer;
+    Result<mdx::Model> before = converter.toMdx(plain, ProfileId::Wc3Classic, 800);
+    Result<mdx::Model> after = converter.toMdx(marked, ProfileId::Wc3Classic, 800);
+    REQUIRE(before.ok());
+    REQUIRE(after.ok());
+    REQUIRE(before->geosets.size() == 1);
+    CHECK(before->geosets[0].vertexPositions.size() == 4);
+    CHECK(writer.write(*before) == writer.write(*after));
+
+    // And through the WEM writer as well: the layers are the document's, they
+    // survive a save, and they still say nothing to a file.
+    Writer wem;
+    Parser parser;
+    const std::vector<u8> bytes = wem.write(marked);
+    std::optional<Document> read = parser.parse(std::span<const u8>(bytes.data(), bytes.size()));
+    REQUIRE(read.has_value());
+    Mesh& back = read->models[0].meshes[0];
+    CHECK(back.attributes.has(geom::names::uvSeam(0), geom::Domain::Edge));
+    CHECK(back.attributes.has(geom::names::uvPin(0), geom::Domain::Halfedge));
+    CHECK(back.attributes.has(geom::names::uvFree(0), geom::Domain::Face));
+    CHECK(geom::UvSetCount(back.attributes) == 2u);
+    Result<mdx::Model> reopened = converter.toMdx(*read, ProfileId::Wc3Classic, 800);
+    REQUIRE(reopened.ok());
+    CHECK(writer.write(*before) == writer.write(*reopened));
 }
 
 TEST_CASE("wem mdx classic names no UV set it does not write", "[wem][convert][mdx][geometry]") {

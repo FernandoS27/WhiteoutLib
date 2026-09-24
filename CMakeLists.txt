@@ -427,6 +427,11 @@ add_library(whiteout_lib
     src/whiteout/models/wem/geometry/triangulation.cpp
     src/whiteout/models/wem/geometry/select.cpp
     src/whiteout/models/wem/geometry/primitives.cpp
+    src/whiteout/models/wem/geometry/uv/islands.cpp
+    src/whiteout/models/wem/geometry/uv/seams.cpp
+    src/whiteout/models/wem/geometry/uv/flatten.cpp
+    src/whiteout/models/wem/geometry/uv/layout.cpp
+    src/whiteout/models/wem/geometry/uv/transfer.cpp
     src/whiteout/models/wem/nodes/node.cpp
     src/whiteout/models/wem/nodes/tree.cpp
     src/whiteout/models/wem/nodes/visitor.cpp

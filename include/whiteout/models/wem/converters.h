@@ -130,8 +130,12 @@ struct DrawnElements {
 /// the code the export slices geosets with, so there is one answer. It builds
 /// every mesh's render view, so a host asks at a rebuild, and when a level is
 /// entered, not per frame.
+/// @p secondUvSet is `toMdx`'s: a host that draws an authoring set passes the
+/// same value here, or the map it reaches its vertices through is not the map
+/// of the geosets it drew.
 std::vector<DrawnElements> MdxGeosetElements(const Document& document, u32 model,
-                                             ProfileId profile);
+                                             ProfileId profile,
+                                             std::optional<u32> secondUvSet = std::nullopt);
 
 /// `MdxGeosetElements`' vertices alone: the WEM vertex of each geoset vertex, in
 /// the geoset's own order (EDIT_MODE_SKIN_DESIGN.md §12.4).
@@ -143,7 +147,9 @@ std::vector<std::vector<u32>> MdxGeosetVertices(const Document& document, u32 mo
 /// second set and this mesh's varies, and tangents, split by section. What a
 /// host that must see the drawn vertices as the export sees them builds with:
 /// the levels-of-detail simplifier (EDIT_MODE_MODELLING_DESIGN.md §8.3).
-geom::RenderMeshDesc MdxGeosetRenderDesc(const Mesh& mesh, ProfileId profile);
+/// @p secondUvSet is `toMdx`'s.
+geom::RenderMeshDesc MdxGeosetRenderDesc(const Mesh& mesh, ProfileId profile,
+                                         std::optional<u32> secondUvSet = std::nullopt);
 
 /// One influence as a Warcraft III file holds it (EDIT_MODE_SKIN_DESIGN.md §12.3).
 struct WrittenInfluence {
@@ -236,9 +242,17 @@ public:
     /// Fails, naming the mesh, when a geoset's skin cannot be written as asked:
     /// a `SKIN` palette past 256 bones below v1400, or classic pins that alone
     /// need more than 256 groups.
+    /// @p drawnSecondUvSet names the WEM set that fills every geoset's second
+    /// slot, whatever the profile holds and whether or not the set varies: what
+    /// an editor drawing an authoring set asks for (EDIT_MODE_UV_DESIGN.md
+    /// §9.1). Absent -- and it is absent for every export -- the profile's own
+    /// rule answers, which is set 1 where the profile holds two and the mesh's
+    /// varies. Naming set 0 is naming the slot it already fills, so it writes
+    /// one set.
     Result<mdx::Model> toMdx(const Document& document, ProfileId profile,
                              u32 targetVersion = 0,
-                             std::optional<ProfileId> skinAs = std::nullopt) const;
+                             std::optional<ProfileId> skinAs = std::nullopt,
+                             std::optional<u32> drawnSecondUvSet = std::nullopt) const;
 
     /**
      * @brief What the file holds for each vertex of @p mesh (EDIT_MODE_SKIN_DESIGN.md

@@ -302,6 +302,40 @@ TEST_CASE("wem prepare a seam closes and is marked seam", "[wem][geometry][prepa
     checkPointsAgree(original, mesh, report);
 }
 
+TEST_CASE("wem prepare a pin neither splits a weld nor marks a seam",
+          "[wem][geometry][prepare][uv]") {
+    // EDIT_MODE_UV_DESIGN.md §3: a pin says "hold this corner where it is". It
+    // is a thing about one corner, never a difference in what the surface holds
+    // there, so the weld must not see it at all.
+    Fixture f = twoColumns();
+    addStrips(f, Vector2f{0.0f, 0.0f}, {0, 0, 1}, {0, 0, 1}, 1.0f, 1.0f);
+    Mesh plain = meshOf(f);
+    const geom::PrepareReport without = geom::PrepareForModelling(plain);
+
+    Mesh pinned = meshOf(f);
+    REQUIRE(pinned.ensureConnectivity().ok());
+    {
+        // One side of every twin pinned and the other not: were the layer
+        // compared, not one of the three pairs could weld.
+        const std::span<u8> pins = pinned.attributes.getOrCreate<u8>(
+            geom::names::uvPin(0), Domain::Halfedge, geom::AttrType::Bool);
+        const Topology& topology = std::as_const(pinned).topology();
+        for (u32 face = 0; face < 4 && face < topology.faceCount(); ++face) {
+            for (const HalfedgeId h : topology.fh(FaceId(face))) {
+                pins[h.index()] = 1;
+            }
+        }
+    }
+    pinned.invalidateConnectivity();
+    const geom::PrepareReport with = geom::PrepareForModelling(pinned);
+
+    CHECK(with.verticesWelded == without.verticesWelded);
+    CHECK(with.seamsMarked == without.seamsMarked);
+    CHECK(with.sharpMarked == without.sharpMarked);
+    CHECK(pinned.vertexCount() == plain.vertexCount());
+    CHECK(flagged(pinned, geom::names::kSeam).size() == flagged(plain, geom::names::kSeam).size());
+}
+
 TEST_CASE("wem prepare a hard edge is sharp and not seam", "[wem][geometry][prepare]") {
     // Continuous UVs across the fold; the normals and the tangents' xyz differ.
     Fixture f = twoColumns(1.0f);

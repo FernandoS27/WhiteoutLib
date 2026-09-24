@@ -1343,7 +1343,11 @@ namespace {
 /// `Mesh::skin` through `vertexToWemVertex`, so no byte lane and no four-wide
 /// getter stands between the document and the file: a classic group of eight
 /// bones reaches the quantizer whole, and node 300 stays node 300.
-geom::RenderMeshDesc GeosetRenderDesc(bool secondUvSet = false) {
+/// @p secondUvSet names the WEM set that fills the geoset's second slot, and is
+/// absent when the geoset holds one. Set 0 already fills the first slot, so
+/// naming it writes one set: the two would be the same bytes under two names,
+/// and `getUVs(1)` counts the attributes, not their names.
+geom::RenderMeshDesc GeosetRenderDesc(std::optional<u32> secondUvSet = std::nullopt) {
     geom::RenderMeshDesc desc;
     desc.attributes = {
         {geom::names::kPosition, utils::AttributeClass::Position, utils::AttributeEncoding::Float32,
@@ -1359,12 +1363,12 @@ geom::RenderMeshDesc GeosetRenderDesc(bool secondUvSet = false) {
         {geom::names::kTangent, utils::AttributeClass::Tangent, utils::AttributeEncoding::Float32,
          4, 0},
     };
-    if (secondUvSet) {
+    if (secondUvSet.has_value() && *secondUvSet != 0) {
         // After uv0, so `getUVs(1)` is this layer: the getter counts the UV
         // attributes the view holds, not the names.
         desc.attributes.insert(desc.attributes.begin() + 3,
                                decltype(desc.attributes)::value_type{
-                                   geom::names::uv(1), utils::AttributeClass::UV,
+                                   geom::names::uv(*secondUvSet), utils::AttributeClass::UV,
                                    utils::AttributeEncoding::Float32, 2, 0});
     }
     desc.splitBySection = true;
@@ -1383,6 +1387,20 @@ bool WritesSecondUvSet(const Mesh& mesh, ProfileId profile) {
     return std::any_of(uv1.begin(), uv1.end(), [&](const Vector2f& uv) {
         return uv.x != uv1.front().x || uv.y != uv1.front().y;
     });
+}
+
+/// Which WEM set fills @p mesh's second slot: @p requested when a host named
+/// one -- an editor drawing an authoring set, which is neither the export's
+/// business nor bound by the profile -- and the export's own answer otherwise.
+/// The one place the two rules meet (EDIT_MODE_UV_PLAN.md C5).
+std::optional<u32> SecondUvSetOf(const Mesh& mesh, ProfileId profile,
+                                 std::optional<u32> requested) {
+    if (requested.has_value()) {
+        // Set 0 already fills the first slot, so asking for it asks for one
+        // set: the answer is the same absence the export gives a one-set mesh.
+        return *requested == 0 ? std::nullopt : requested;
+    }
+    return WritesSecondUvSet(mesh, profile) ? std::optional<u32>(1) : std::nullopt;
 }
 
 /// One mesh's render view, unpacked once for every range in it.
@@ -1832,7 +1850,8 @@ mdx::Geoset BuildGeosetFromRange(const Mesh& mesh, u32 meshIndex, const geom::Re
 // ============================================================================
 
 std::vector<DrawnElements> MdxGeosetElements(const Document& document, u32 model,
-                                             ProfileId profile) {
+                                             ProfileId profile,
+                                             std::optional<u32> secondUvSet) {
     std::vector<DrawnElements> out;
     if (model >= document.models.size()) {
         return out;
@@ -1841,7 +1860,7 @@ std::vector<DrawnElements> MdxGeosetElements(const Document& document, u32 model
     // only whether a second UV set can split vertices.
     for (const Mesh& mesh : document.models[model].meshes) {
         const geom::RenderMesh render =
-            geom::BuildRenderMesh(mesh, GeosetRenderDesc(WritesSecondUvSet(mesh, profile)));
+            geom::BuildRenderMesh(mesh, GeosetRenderDesc(SecondUvSetOf(mesh, profile, secondUvSet)));
         if (render.ranges.empty()) {
             out.resize(out.size() + std::max<std::size_t>(1, mesh.sections.size()));
             continue;
@@ -1878,8 +1897,9 @@ std::vector<std::vector<u32>> MdxGeosetVertices(const Document& document, u32 mo
     return out;
 }
 
-geom::RenderMeshDesc MdxGeosetRenderDesc(const Mesh& mesh, ProfileId profile) {
-    return GeosetRenderDesc(WritesSecondUvSet(mesh, profile));
+geom::RenderMeshDesc MdxGeosetRenderDesc(const Mesh& mesh, ProfileId profile,
+                                         std::optional<u32> secondUvSet) {
+    return GeosetRenderDesc(SecondUvSetOf(mesh, profile, secondUvSet));
 }
 
 WrittenSkin MdxConverter::writtenSkin(const Document& document, u32 model, ProfileId profile,
@@ -1894,7 +1914,7 @@ WrittenSkin MdxConverter::writtenSkin(const Document& document, u32 model, Profi
     const Mesh& target = owner.meshes[mesh];
     const std::vector<u32> objectIdOf = MdxExportMapOf(document, model, profile).nodeObjectId;
     const geom::RenderMesh render =
-        geom::BuildRenderMesh(target, GeosetRenderDesc(WritesSecondUvSet(target, profile)));
+        geom::BuildRenderMesh(target, GeosetRenderDesc(SecondUvSetOf(target, profile, std::nullopt)));
     if (render.ranges.empty()) {
         result.geosets.resize(std::max<std::size_t>(1, target.sections.size()));
         return result;
@@ -1935,10 +1955,10 @@ Diagnostics MdxConverter::checkGeoset(const Document& document, u32 model, const
     }
     const Model& owner = document.models[model];
     const std::vector<u32> objectIdOf = MdxExportMapOf(document, model, profile).nodeObjectId;
-    const bool secondUvSet = WritesSecondUvSet(mesh, profile);
+    const std::optional<u32> secondUvSet = SecondUvSetOf(mesh, profile, std::nullopt);
     const geom::RenderMesh render = geom::BuildRenderMesh(mesh, GeosetRenderDesc(secondUvSet));
     out.append(render.diagnostics);
-    const GeosetStreams streams(render, mesh, targetVersion, secondUvSet);
+    const GeosetStreams streams(render, mesh, targetVersion, secondUvSet.has_value());
     const SkinSkeleton skeleton(owner.nodes);
     const SkinContext skin{mesh,
                            objectIdOf,
@@ -2037,7 +2057,8 @@ u32 RetireNodesUnwritableAt(Document& document, u32 version, Diagnostics& out) {
 }
 
 Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profile,
-                                       u32 targetVersion, std::optional<ProfileId> skinAs) const {
+                                       u32 targetVersion, std::optional<ProfileId> skinAs,
+                                       std::optional<u32> drawnSecondUvSet) const {
     if (targetVersion == 0) {
         targetVersion = MdxFileVersion(profile);
     }
@@ -2620,7 +2641,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
 
     for (std::size_t m = 0; m < model.meshes.size(); ++m) {
         const Mesh& mesh = model.meshes[m];
-        const bool secondUvSet = WritesSecondUvSet(mesh, profile);
+        const std::optional<u32> secondUvSet = SecondUvSetOf(mesh, profile, drawnSecondUvSet);
         const geom::RenderMesh render = geom::BuildRenderMesh(mesh, GeosetRenderDesc(secondUvSet));
         diagnostics.append(render.diagnostics);
         if (render.ranges.empty()) {
@@ -2641,7 +2662,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
             continue;
         }
 
-        const GeosetStreams streams(render, mesh, targetVersion, secondUvSet);
+        const GeosetStreams streams(render, mesh, targetVersion, secondUvSet.has_value());
         const SkinContext skin{mesh,
                                objectIdOf,
                                skinSkeleton,

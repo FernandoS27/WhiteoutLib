@@ -999,17 +999,10 @@ TPoseResult SolveTPose(const Document& document, u32 model, const TPoseRules& ru
     // What a person set by hand is never solved over (§3.1): those joints keep
     // the turn the saved pose holds, and the solve leaves their limb alone.
     std::vector<u8> yours(tree.size(), 0);
-    if (inputs.keep < owner.testPoses.size()) {
-        for (u32 n = 0; n < tree.size(); ++n) {
-            const NodeSkinSetup& skin = tree.nodes[n].skin;
-            if (inputs.keep < skin.poseSources.size() &&
-                skin.poseSources[inputs.keep] == TPoseSource::You &&
-                inputs.keep < skin.poseDeltas.size()) {
-                yours[n] = 1;
-                // At rest a pivot rig's parent frame is the identity, so the
-                // saved delta's rotation is already the turn this hands back.
-                PushJoint(result, n, skin.poseDeltas[inputs.keep].rotation, TPoseSource::You);
-            }
+    for (const TPoseJoint& joint : TPoseFromDeltas(owner, inputs.keep).joints) {
+        if (joint.source == TPoseSource::You) {
+            yours[joint.node] = 1;
+            PushJoint(result, joint.node, joint.turn, TPoseSource::You);
         }
     }
 
@@ -1621,6 +1614,53 @@ std::vector<Transform> TPoseRest(const Model& model, const TPoseResult& result) 
         rest[n] = FromMatrix(ToMatrix(tree.worldBind(n)) * carried[n]);
     }
     return rest;
+}
+
+std::vector<Quaternion> TPoseDeltaTurns(const NodeTree& tree, const TPoseResult& result) {
+    std::vector<Quaternion> row(tree.size(), Quaternion::identity());
+    for (const TPoseJoint& joint : result.joints) {
+        if (joint.node < tree.size()) {
+            row[joint.node] = joint.turn;
+        }
+    }
+    // A row turns after its parent's composite P, a delta before it: the same
+    // node turned both ways is `row * P = P * delta`.
+    std::vector<Quaternion> composite(tree.size(), Quaternion::identity());
+    std::vector<Quaternion> delta(tree.size(), Quaternion::identity());
+    for (const u32 n : PreOrder(tree)) {
+        const u32 parent = ParentOf(tree, n);
+        const Quaternion above = parent == kInvalidNode ? Quaternion::identity() : composite[parent];
+        composite[n] = (row[n] * above).normalized();
+        delta[n] = (above.conjugate() * row[n] * above).normalized();
+    }
+    return delta;
+}
+
+TPoseResult TPoseFromDeltas(const Model& model, u32 slot) {
+    TPoseResult result;
+    const NodeTree& tree = model.nodes;
+    if (slot >= model.testPoses.size()) {
+        return result;
+    }
+    std::vector<Quaternion> composite(tree.size(), Quaternion::identity());
+    for (const u32 n : PreOrder(tree)) {
+        const u32 parent = ParentOf(tree, n);
+        const Quaternion above = parent == kInvalidNode ? Quaternion::identity() : composite[parent];
+        const NodeSkinSetup& skin = tree.nodes[n].skin;
+        const Quaternion delta =
+            slot < skin.poseDeltas.size() ? skin.poseDeltas[slot].rotation.normalized() : Quaternion::identity();
+        composite[n] = (above * delta).normalized();
+        if (std::fabs(delta.w) > 0.9999999f) {
+            continue;
+        }
+        TPoseJoint joint;
+        joint.node = n;
+        joint.turn = (above * delta * above.conjugate()).normalized();
+        joint.turnDeg = DegreesOf(joint.turn);
+        joint.source = slot < skin.poseSources.size() ? skin.poseSources[slot] : TPoseSource::None;
+        result.joints.push_back(joint);
+    }
+    return result;
 }
 
 

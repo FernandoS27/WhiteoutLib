@@ -145,6 +145,23 @@ inline constexpr const char* kSelectionPrefix = "selection.";
 std::string uv(u32 index);
 /// "color0", "color1", …
 std::string color(u32 index);
+
+// The UV workspace's three layers beside each `uvN` (EDIT_MODE_UV_DESIGN.md
+// §3). Families like `uvN` is, one per set, and like the Skin workspace's they
+// are authoring state: no exporter asks for them by name, so none of this
+// reaches a file.
+/// "uvSeam0", … Edge / Bool: the cuts of set @p index, whether or not the
+/// corners round them already disagree.
+std::string uvSeam(u32 index);
+/// "uvPin0", … Halfedge / Bool: the corners a solve holds where they are.
+std::string uvPin(u32 index);
+/// "uvFree0", … Face / Bool: the faces the automatic passes may move. What the
+/// file placed is locked (§4).
+std::string uvFree(u32 index);
+
+/// True for any `uvPinN`. The one predicate the prepare's two corner tests skip
+/// a layer through, so a pin can never split a weld or mark a seam (§3).
+bool IsUvPin(const std::string& name);
 } // namespace names
 
 /// What a reserved name requires. `domain`/`type` are `Count` for a free name.
@@ -290,6 +307,12 @@ private:
     std::vector<AttrLayer> layers_;
     u32 domainCounts_[static_cast<std::size_t>(Domain::Count)] = {0, 0, 0, 0, 1};
 };
+
+/// How many UV sets @p attributes holds: `uv0`, `uv1`, … counted from zero and
+/// stopping at the first one missing, so the answer is always a contiguous run
+/// (EDIT_MODE_UV_DESIGN.md §9.1). Eight is the most any profile writes and the
+/// most this counts.
+u32 UvSetCount(const AttributeSet& attributes);
 
 } // namespace geom
 } // namespace wem

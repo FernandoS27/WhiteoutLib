@@ -7,6 +7,7 @@
 
 #include <whiteout/models/wem/geometry/repair.h>
 #include <whiteout/models/wem/geometry/triangulation.h>
+#include <whiteout/models/wem/geometry/uv/seams.h>
 #include <whiteout/models/wem/skinning/points.h>
 
 #include <algorithm>
@@ -183,6 +184,13 @@ bool sameCorner(const Mesh& mesh, HalfedgeId a, HalfedgeId b) {
         if (layer.domain != Domain::Halfedge) {
             continue;
         }
+        // A pin says "hold this corner where it is", which is a thing about one
+        // corner and never a reason to keep two apart: two corners that agree in
+        // everything else are one corner, pinned or not
+        // (EDIT_MODE_UV_DESIGN.md §3).
+        if (names::IsUvPin(layer.name)) {
+            continue;
+        }
         const std::size_t stride = AttrTypeSize(layer.type);
         const std::size_t at = stride * a.index();
         const std::size_t bt = stride * b.index();
@@ -314,8 +322,11 @@ bool SeamBetween(const Mesh& mesh, HalfedgeId h) {
         return false;
     }
     for (const AttrLayer& layer : mesh.attributes.layers()) {
+        // A pin is authoring state on one corner, not a difference in what the
+        // surface holds there: pinning one side of an edge must not mark it
+        // (EDIT_MODE_UV_DESIGN.md §3).
         if (layer.domain != Domain::Halfedge || layer.name == names::kNormal ||
-            layer.name == names::kBinormal) {
+            layer.name == names::kBinormal || names::IsUvPin(layer.name)) {
             continue;
         }
         const std::size_t stride = AttrTypeSize(layer.type);
@@ -949,30 +960,22 @@ PrepareReport PrepareForModelling(Mesh& mesh) {
     // Edges the weld closed: seam where an authored corner value differs,
     // sharp where the normals break. An edge already interior keeps its flags.
     if (rebuilt.ok && mesh.hasConnectivity()) {
-        std::vector<u32> seams;
         std::vector<u32> sharps;
         for (const u32 e : rebuilt.closedEdges) {
             const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
-            if (SeamBetween(mesh, h)) {
-                seams.push_back(e);
-            }
             if (NormalsBreakAcross(mesh, h, kWeldSharpAngle)) {
                 sharps.push_back(e);
             }
         }
-        if (!seams.empty()) {
-            const std::span<u8> seam = mesh.attributes.getOrCreate<u8>(names::kSeam, Domain::Edge, AttrType::Bool);
-            for (const u32 e : seams) {
-                seam[e] = 1;
-            }
-        }
+        // `seam` has one writer, so the weld and a UV commit mark by the same
+        // rule and neither can drift from the other (EDIT_MODE_UV_PLAN.md P1).
+        report.seamsMarked = uv::MarkDelimitSeams(mesh, rebuilt.closedEdges);
         if (!sharps.empty()) {
             const std::span<u8> sharp = mesh.attributes.getOrCreate<u8>(names::kSharp, Domain::Edge, AttrType::Bool);
             for (const u32 e : sharps) {
                 sharp[e] = 1;
             }
         }
-        report.seamsMarked = static_cast<u32>(seams.size());
         report.sharpMarked = static_cast<u32>(sharps.size());
     }
     setMarker(mesh);

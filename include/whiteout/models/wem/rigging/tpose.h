@@ -347,6 +347,22 @@ TPoseResult SolveTPose(const Document& document, u32 model, const TPoseRules& ru
  */
 std::vector<Transform> TPoseRest(const Model& model, const TPoseResult& result);
 
+/**
+ * @brief @p result's turns as a test pose holds them (`PoseDelta::rotation`):
+ *        one per node, about its pivot in its parent's space.
+ *
+ * A row here is applied AFTER the turns above it, in the model's space; a
+ * `PoseDelta` is applied before them, as a rotation track is. The two agree
+ * only where nothing above a node turns, so the pose is stored through this
+ * and read back through @ref TPoseFromDeltas, and the preview, the solve and
+ * the re-bind stand every node in one place.
+ */
+std::vector<Quaternion> TPoseDeltaTurns(const NodeTree& tree, const TPoseResult& result);
+
+/// Test pose @p slot of @p model as rows, each with the source it was stored
+/// under: the inverse of @ref TPoseDeltaTurns. Empty when there is no such slot.
+TPoseResult TPoseFromDeltas(const Model& model, u32 slot);
+
 
 // ============================================================================
 // The measurement (R§4.5, R§5)

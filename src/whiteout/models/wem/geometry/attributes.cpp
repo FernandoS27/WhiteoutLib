@@ -179,6 +179,22 @@ std::string color(u32 index) {
     return indexedName("color", index);
 }
 
+std::string uvSeam(u32 index) {
+    return indexedName("uvSeam", index);
+}
+
+std::string uvPin(u32 index) {
+    return indexedName("uvPin", index);
+}
+
+std::string uvFree(u32 index) {
+    return indexedName("uvFree", index);
+}
+
+bool IsUvPin(const std::string& name) {
+    return isIndexedFamily(name, "uvPin");
+}
+
 } // namespace names
 
 ReservedLayer LookupReserved(const std::string& name) {
@@ -189,6 +205,18 @@ ReservedLayer LookupReserved(const std::string& name) {
     }
     if (isIndexedFamily(name, "uv")) {
         return ReservedLayer{Domain::Halfedge, AttrType::F32x2};
+    }
+    // The UV workspace's three, one per set. Asked before nothing else matches
+    // and after `uv` itself, which only ever matches digits, so the four
+    // families never contend (EDIT_MODE_UV_DESIGN.md §3).
+    if (isIndexedFamily(name, "uvSeam")) {
+        return ReservedLayer{Domain::Edge, AttrType::Bool};
+    }
+    if (isIndexedFamily(name, "uvPin")) {
+        return ReservedLayer{Domain::Halfedge, AttrType::Bool};
+    }
+    if (isIndexedFamily(name, "uvFree")) {
+        return ReservedLayer{Domain::Face, AttrType::Bool};
     }
     if (isIndexedFamily(name, "color")) {
         return ReservedLayer{Domain::Halfedge, AttrType::U8x4};
@@ -203,6 +231,17 @@ ReservedLayer LookupReserved(const std::string& name) {
 
 std::string selectionLayer(const std::string& set) {
     return std::string(names::kSelectionPrefix) + set;
+}
+
+u32 UvSetCount(const AttributeSet& attributes) {
+    // Contiguous by construction: Add appends and Delete shifts, so a gap is a
+    // broken document and counting past one would hide it rather than say so
+    // (EDIT_MODE_UV_PLAN.md C2).
+    u32 count = 0;
+    while (count < 8 && attributes.has(names::uv(count), Domain::Halfedge)) {
+        ++count;
+    }
+    return count;
 }
 
 std::string selectionSetOf(const std::string& layer) {
