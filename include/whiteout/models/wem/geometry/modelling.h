@@ -13,6 +13,7 @@
  */
 
 #include <cfloat>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -130,6 +131,9 @@ enum class ModelRefusal : u8 {
     WindingDisagrees,
     LoopCountsDiffer,
     SameLoop,
+    /// Hinge's edge (§3.8) is not on the selection's boundary -- both sides
+    /// selected, or neither -- or its vertex is not an end of a selected edge.
+    HingeNotOnBoundary,
     NotBuiltYet,
 };
 
@@ -151,6 +155,13 @@ struct Resample {
     SourcePolygon source;                  ///< §2.4, captured at Plan.
 };
 
+/// The line a hinge turns about (§3.8): a plan that carries one has an ANGLE
+/// for its amount, in degrees, and every motion turns about this line by it.
+struct HingeAxis {
+    Vector3f origin{0.0f, 0.0f, 0.0f};
+    Vector3f axis{0.0f, 0.0f, 1.0f}; ///< Unit. Positive turns by the right hand about it.
+};
+
 /// What a tool made: its topology, fixed; how its amount moves it; what it
 /// selects; and why it refused, when it did (then `mesh` is untouched).
 struct ModelPlan {
@@ -159,6 +170,9 @@ struct ModelPlan {
     std::vector<Resample> resamples;
     f32 amountMin = -FLT_MAX; ///< `AmountRange`'s; 0 lies inside.
     f32 amountMax = FLT_MAX;
+    /// Set by Hinge alone: the amount is then an angle in degrees and the
+    /// motions turn rather than slide, their `direction` unused. Unbounded.
+    std::optional<HingeAxis> hinge;
     ElementSet selection;           ///< The tool's output.
     std::vector<u32> touchedEdges;  ///< Edges made or re-shaped: §3.12's derivations.
     std::vector<u32> changedFaces;  ///< Faces whose rows `FinishTool` materialises.
@@ -195,11 +209,14 @@ std::vector<Resample> ResamplesAt(const Mesh& mesh, VertexId vertex, const Vecto
 /// D14: the nearest amounts either side of 0 at which any drawn triangle of any
 /// face the plan moves reaches zero signed area on its Plan-time normal. Every
 /// point is linear in the amount, so each area is a quadratic with exact roots.
+/// A plan with a `hinge` is left unbounded: its points are not linear in the
+/// amount, and a flap may fold right over.
 void AmountRange(const Mesh& mesh, ModelPlan& plan);
 
 /// Positions at @p amount (clamped into the plan's range), resamples re-blended,
 /// the faces around them re-shaded (§2.7.10). Positions and attributes only:
-/// the topology is Plan's.
+/// the topology is Plan's. With a `hinge`, the amount is degrees and every
+/// motion turns about it; at exactly 0 each base is written back untouched.
 void ApplyAmount(Mesh& mesh, const ModelPlan& plan, f32 amount);
 
 /// The end of every tool, in order: §3.12's crease rule (`sharp` on every edge
@@ -398,7 +415,11 @@ ModelPlan PlanExtrudeFaces(Mesh& mesh, const PointTable& points, const ElementSe
  * vertex shared by two edges meeting at 2θ travels its full amount along the
  * bisector and clears the surface by `amount·cos θ`.
  *
- * Output selection: the new border, ready for the gizmo after Apply.
+ * Output selection: the copies of the edges given -- the strip's far edges, one
+ * per extruded edge -- ready for the gizmo after Apply. Not the side edges at
+ * an open run's two ends, border though they are: a second extrude then runs
+ * the strip on instead of growing flaps off it, and a Shift-drag's clone is
+ * the selection it moves. (The whole rim until 2026-09-24.)
  */
 ModelPlan PlanExtrudeBorder(Mesh& mesh, const PointTable& points, const ElementSet& edges);
 
@@ -423,6 +444,36 @@ enum class InsetType : u8 { Group, ByPolygon };
  * Output selection: the inner faces.
  */
 ModelPlan PlanInset(Mesh& mesh, const PointTable& points, const ElementSet& faces, InsetType type);
+
+/**
+ * @brief Hinge (§3.8; 3ds Max's Hinge From Edge): @p faces swung about
+ *        @p hingeEdge, which must be a boundary edge of the selection -- one
+ *        side in it, the other not (`HingeNotOnBoundary` otherwise).
+ *
+ * Extrude's regions, copies and walls, with the hinge's two vertices PINNED:
+ * never copied and never moved, so the region's faces keep them, the hinge
+ * edge grows no wall, and the wall on each boundary edge beside it is a
+ * triangle. Every selected region turns about the one axis; only the region
+ * the hinge is on stays attached at it.
+ *
+ * The amount is the angle in degrees, and the plan's `hinge` runs from the
+ * edge's `from` along the region face's own halfedge, so a positive angle
+ * lifts the region along its normal. Unbounded. Output selection: the faces.
+ */
+ModelPlan PlanHingeFaces(Mesh& mesh, const PointTable& points, const ElementSet& faces, u32 hingeEdge);
+
+/**
+ * @brief Hinge at a vertex (§3.8, §5.3's Shift+Rotate at the Border and Edge
+ *        levels): the strip `PlanExtrudeBorder` grows from @p edges, swung
+ *        about @p hingeVertex -- an end of one of them (`HingeNotOnBoundary`
+ *        otherwise) -- along @p axis, which a vertex cannot supply itself.
+ *
+ * The hinge vertex is pinned and the two quads at it are triangles. The amount
+ * is the angle in degrees; unbounded. Output selection: the far edges, the
+ * hinge's own end included.
+ */
+ModelPlan PlanHingeBorder(Mesh& mesh, const PointTable& points, const ElementSet& edges, u32 hingeVertex,
+                          const Vector3f& axis);
 
 // ============================================================================
 // Chamfer (§3.9)

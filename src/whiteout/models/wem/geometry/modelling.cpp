@@ -82,6 +82,7 @@ const char* ToString(ModelRefusal refusal) {
     case ModelRefusal::WindingDisagrees: return "WindingDisagrees";
     case ModelRefusal::LoopCountsDiffer: return "LoopCountsDiffer";
     case ModelRefusal::SameLoop: return "SameLoop";
+    case ModelRefusal::HingeNotOnBoundary: return "HingeNotOnBoundary";
     case ModelRefusal::NotBuiltYet: return "NotBuiltYet";
     }
     return "Unknown";
@@ -1123,8 +1124,8 @@ std::vector<u32> remapList(const std::vector<u32>& list, const std::vector<u32>&
 } // namespace
 
 void AmountRange(const Mesh& mesh, ModelPlan& plan) {
-    if (plan.motions.empty() || !mesh.hasConnectivity()) {
-        return;
+    if (plan.motions.empty() || !mesh.hasConnectivity() || plan.hinge) {
+        return; // a hinge's points are not linear in the amount: unbounded
     }
     const Topology& topology = mesh.topology();
     const std::span<const Vector3f> positions = positionsOf(mesh);
@@ -1231,11 +1232,35 @@ void ApplyAmount(Mesh& mesh, const ModelPlan& plan, f32 amount) {
     amount = std::clamp(amount, plan.amountMin, plan.amountMax);
     {
         const std::span<Vector3f> positions = mesh.attributes.get<Vector3f>(names::kPosition, Domain::Vertex);
-        for (const VertexMotion& m : plan.motions) {
-            if (m.vertex < positions.size()) {
-                positions[m.vertex] = Vector3f{m.base.x + amount * m.direction.x,
-                                               m.base.y + amount * m.direction.y,
-                                               m.base.z + amount * m.direction.z};
+        if (plan.hinge) {
+            // An angle, in degrees (§3.8): every motion turned about the hinge
+            // by Rodrigues' formula. At exactly 0 the base goes back untouched,
+            // so a hinge that was never swung leaves no rounding behind it and
+            // a drag that went nowhere reads as nowhere.
+            const f32 radians = amount * (3.14159265358979f / 180.0f);
+            const f32 c = std::cos(radians);
+            const f32 s = std::sin(radians);
+            Vector3f k = plan.hinge->axis;
+            const f32 length = k.length();
+            k = length > 1e-12f ? k * (1.0f / length) : Vector3f{0.0f, 0.0f, 1.0f};
+            for (const VertexMotion& m : plan.motions) {
+                if (m.vertex >= positions.size()) {
+                    continue;
+                }
+                if (amount == 0.0f) {
+                    positions[m.vertex] = m.base;
+                    continue;
+                }
+                const Vector3f r = m.base - plan.hinge->origin;
+                positions[m.vertex] = plan.hinge->origin + r * c + cross(k, r) * s + k * (k.dot(r) * (1.0f - c));
+            }
+        } else {
+            for (const VertexMotion& m : plan.motions) {
+                if (m.vertex < positions.size()) {
+                    positions[m.vertex] = Vector3f{m.base.x + amount * m.direction.x,
+                                                   m.base.y + amount * m.direction.y,
+                                                   m.base.z + amount * m.direction.z};
+                }
             }
         }
     }
@@ -3657,7 +3682,8 @@ struct Grown {
 /// twin edge with both sides in it has none. `regionOf` names every face's
 /// region, so By Polygon walls the edge between two chosen faces twice.
 Grown growRegion(const Mesh& mesh, const Twins& twins, const std::vector<u32>& region,
-                 const std::vector<u32>& regionOf, u32 index, detail::RebuildMapping& mapping) {
+                 const std::vector<u32>& regionOf, u32 index, detail::RebuildMapping& mapping,
+                 const std::vector<u8>& pinned) {
     Grown grown;
     const Topology& topology = mesh.topology();
     const auto selected = [&](FaceId f) {
@@ -3695,6 +3721,9 @@ Grown growRegion(const Mesh& mesh, const Twins& twins, const std::vector<u32>& r
         }
     }
     for (const u32 v : sortedUnique(std::move(vertices))) {
+        if (v < pinned.size() && pinned[v] != 0) {
+            continue; // a hinge's vertex (§3.8): neither copied nor moved
+        }
         if (onBoundary[v] == 0) {
             grown.inside.push_back(v);
             continue;
@@ -3797,6 +3826,41 @@ u32 useAt(const Grown& grown, u32 vertex, u32 face) {
     return found == grown.copyOfFan.end() ? vertex : found->second;
 }
 
+/// One wall of a strip or a ring: @p loop's four corners, with a corner that
+/// repeats folded away -- a pinned end (§3.8's hinge) is its own copy, so a
+/// wall pinned at one end is a triangle, and one pinned at both is the hinge
+/// edge itself and is nothing. Returns the new face's slot, or `kInvalidId`
+/// when there was no wall to add.
+u32 appendWall(detail::RebuildMapping& mapping, const std::unordered_map<u32, u32>& ordinalOf,
+               const u32 (&loop)[4], const HalfedgeId (&sources)[4], u32 sourceFace) {
+    u32 corners[4] = {};
+    HalfedgeId froms[4] = {sources[0], sources[1], sources[2], sources[3]};
+    u32 n = 0;
+    for (u32 i = 0; i < 4; ++i) {
+        if (n != 0 && corners[n - 1] == loop[i]) {
+            continue;
+        }
+        corners[n] = loop[i];
+        froms[n] = sources[i];
+        ++n;
+    }
+    if (n > 1 && corners[n - 1] == corners[0]) {
+        --n;
+    }
+    if (n < 3) {
+        return kInvalidId;
+    }
+    const u32 slot = static_cast<u32>(mapping.faces.faceValence.size());
+    mapping.faces.faceValence.push_back(n);
+    for (u32 i = 0; i < n; ++i) {
+        mapping.faces.cornerVertex.push_back(corners[i]);
+        const auto found = ordinalOf.find(static_cast<u32>(froms[i].index()));
+        mapping.cornerSource.push_back(found == ordinalOf.end() ? kInvalidId : found->second);
+    }
+    mapping.faceSource.push_back(sourceFace);
+    return slot;
+}
+
 /// The rings Extrude and Inset both build (§3.8): every region's faces moved
 /// onto their per-fan copies, and one quad on each boundary edge, wound the way
 /// the region face's own halfedge runs and taking that face's two corners at
@@ -3806,11 +3870,12 @@ std::vector<Grown> growRings(const Mesh& mesh, const Twins& twins,
                              const std::vector<std::vector<u32>>& regions,
                              const std::vector<u32>& regionOf,
                              const std::unordered_map<u32, u32>& ordinalOf, const std::vector<u32>& base,
-                             detail::RebuildMapping& mapping, ModelPlan& plan) {
+                             detail::RebuildMapping& mapping, ModelPlan& plan,
+                             const std::vector<u8>& pinned) {
     const Topology& topology = mesh.topology();
     std::vector<Grown> grown;
     for (u32 r = 0; r < regions.size(); ++r) {
-        grown.push_back(growRegion(mesh, twins, regions[r], regionOf, r, mapping));
+        grown.push_back(growRegion(mesh, twins, regions[r], regionOf, r, mapping, pinned));
         const Grown& made = grown.back();
         for (const u32 f : regions[r]) {
             u32 corner = base[f];
@@ -3825,17 +3890,12 @@ std::vector<Grown> growRings(const Mesh& mesh, const Twins& twins,
             const u32 from = topology.from(h).value();
             const u32 to = topology.to(h).value();
             const HalfedgeId next = topology.next(h);
-            const u32 ring = static_cast<u32>(mapping.faces.faceValence.size());
-            mapping.faces.faceValence.push_back(4);
             const u32 loop[4] = {from, to, useAt(made, to, f), useAt(made, from, f)};
             const HalfedgeId sources[4] = {h, next, next, h};
-            for (u32 i = 0; i < 4; ++i) {
-                mapping.faces.cornerVertex.push_back(loop[i]);
-                const auto found = ordinalOf.find(static_cast<u32>(sources[i].index()));
-                mapping.cornerSource.push_back(found == ordinalOf.end() ? kInvalidId : found->second);
+            const u32 ring = appendWall(mapping, ordinalOf, loop, sources, f);
+            if (ring != kInvalidId) {
+                plan.changedFaces.push_back(ring);
             }
-            mapping.faceSource.push_back(f);
-            plan.changedFaces.push_back(ring);
         }
     }
     return grown;
@@ -3918,7 +3978,9 @@ ModelPlan PlanExtrudeFaces(Mesh& mesh, const PointTable& points, const ElementSe
             regionOf[f] = r;
         }
     }
-    const std::vector<Grown> rings = growRings(mesh, twins, regions, regionOf, ordinalOf, base, mapping, plan);
+    const std::vector<u8> nothingPinned;
+    const std::vector<Grown> rings =
+        growRings(mesh, twins, regions, regionOf, ordinalOf, base, mapping, plan, nothingPinned);
     std::vector<std::pair<u32, Vector3f>> moves; // vertex (new id) -> direction
     for (u32 r = 0; r < regions.size(); ++r) {
         const std::vector<u32>& region = regions[r];
@@ -3992,7 +4054,107 @@ ModelPlan PlanExtrudeFaces(Mesh& mesh, const PointTable& points, const ElementSe
     return plan;
 }
 
-ModelPlan PlanExtrudeBorder(Mesh& mesh, const PointTable& points, const ElementSet& edges) {
+ModelPlan PlanHingeFaces(Mesh& mesh, const PointTable& points, const ElementSet& faces, u32 hingeEdge) {
+    ModelPlan plan;
+    if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
+        plan.refusal = ModelRefusal::NotBuiltYet;
+        return plan;
+    }
+    const Topology& topology = std::as_const(mesh).topology();
+    std::vector<u8> inRegion(topology.faceCount(), 0);
+    std::vector<u32> chosen;
+    for (const u32 f : sortedUnique(faces.faces)) {
+        if (f < topology.faceCount() && !topology.isDeleted(FaceId(f)) && inRegion[f] == 0) {
+            inRegion[f] = 1;
+            chosen.push_back(f);
+        }
+    }
+    if (chosen.empty()) {
+        plan.refusal = ModelRefusal::EmptySelection;
+        return plan;
+    }
+    // The hinge: a live edge with exactly one side in the selection. The
+    // halfedge on that side runs the way the region face is wound, so it is
+    // the axis, and a positive angle lifts the region along its own normal.
+    if (hingeEdge >= topology.edgeCount() || topology.isDeleted(EdgeId(hingeEdge))) {
+        plan.refusal = ModelRefusal::HingeNotOnBoundary;
+        return plan;
+    }
+    const auto chosenFace = [&](HalfedgeId h) {
+        const FaceId f = topology.face(h);
+        return f.valid() && f.value() < inRegion.size() && inRegion[f.value()] != 0;
+    };
+    HalfedgeId along = Topology::halfedge(EdgeId(hingeEdge), 0);
+    const bool sideA = chosenFace(along);
+    const bool sideB = chosenFace(Topology::opposite(along));
+    if (sideA == sideB) {
+        plan.refusal = ModelRefusal::HingeNotOnBoundary;
+        return plan;
+    }
+    if (!sideA) {
+        along = Topology::opposite(along);
+    }
+    const u32 hingeFrom = topology.from(along).value();
+    const u32 hingeTo = topology.to(along).value();
+    const std::span<const Vector3f> places = positionsOf(mesh);
+    if (hingeFrom >= places.size() || hingeTo >= places.size()) {
+        plan.refusal = ModelRefusal::HingeNotOnBoundary;
+        return plan;
+    }
+    HingeAxis hinge;
+    hinge.origin = places[hingeFrom];
+    hinge.axis = unitOr(places[hingeTo] - places[hingeFrom], Vector3f{0.0f, 0.0f, 1.0f});
+    std::vector<u8> pinned(topology.vertexCount(), 0);
+    pinned[hingeFrom] = 1;
+    pinned[hingeTo] = 1;
+
+    // Extrude's regions, copies and walls (Group: the selection as one), with
+    // the hinge's two vertices pinned -- the wall on the hinge edge is then
+    // nothing and its neighbours are triangles (`appendWall`).
+    const Twins twins(mesh, points);
+    const std::vector<std::vector<u32>> regions = regionsOf(mesh, twins, chosen, false);
+    const std::vector<u32> snapshot = detail::snapshotCornersBuilt(mesh);
+    const std::unordered_map<u32, u32> ordinalOf = cornerOrdinals(snapshot);
+    detail::RebuildMapping mapping = detail::identityMapping(mesh);
+    const std::vector<u32> base = cornerBases(mapping.faces);
+    std::vector<u32> regionOf(topology.faceCount(), kInvalidId);
+    for (u32 r = 0; r < regions.size(); ++r) {
+        for (const u32 f : regions[r]) {
+            regionOf[f] = r;
+        }
+    }
+    const std::vector<Grown> rings = growRings(mesh, twins, regions, regionOf, ordinalOf, base, mapping, plan, pinned);
+    std::vector<u32> movers;
+    for (const Grown& grown : rings) {
+        movers.insert(movers.end(), grown.inside.begin(), grown.inside.end());
+        movers.insert(movers.end(), grown.copies.begin(), grown.copies.end());
+    }
+    mapping.faces.vertexCount = static_cast<u32>(mapping.vertexSource.size());
+    mapping.mayHaveZeroArea = true; // the walls have none until the angle opens them
+    const detail::RebuildResult result = detail::rebuild(mesh, std::move(mapping), snapshot);
+    if (!result.ok || result.repair.changed) {
+        plan.refusal = ModelRefusal::WouldFold;
+        return plan;
+    }
+    freshGroups(mesh, copiesOf(rings));
+    const std::span<const Vector3f> now = positionsOf(mesh);
+    for (const u32 v : sortedUnique(std::move(movers))) {
+        VertexMotion motion;
+        motion.vertex = v;
+        motion.base = v < now.size() ? now[v] : Vector3f{0.0f, 0.0f, 0.0f};
+        plan.motions.push_back(motion); // no direction: the hinge turns it
+    }
+    plan.hinge = hinge;
+    touchFaces(mesh, plan);
+    plan.changed = static_cast<u32>(chosen.size());
+    return plan; // unbounded: `AmountRange` leaves a hinge alone
+}
+
+/// The strip both border tools grow (§3.8): one quad per border edge in
+/// @p edges on copies of the run's vertices, aimed outward in the surface.
+/// @p pinned is the vertex a hinge keeps in place -- its own copy, so the two
+/// walls at it are triangles and it takes no motion -- or `kInvalidId`.
+static ModelPlan planBorderStrip(Mesh& mesh, const PointTable& points, const ElementSet& edges, u32 pinned) {
     ModelPlan plan;
     if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
         plan.refusal = ModelRefusal::NotBuiltYet;
@@ -4070,6 +4232,9 @@ ModelPlan PlanExtrudeBorder(Mesh& mesh, const PointTable& points, const ElementS
             }
         }
         for (const u32 v : {from, to}) {
+            if (v == pinned) {
+                continue; // the hinge: its own copy, and it goes nowhere
+            }
             if (copyOf.find(v) == copyOf.end()) {
                 copyOf[v] = static_cast<u32>(mapping.vertexSource.size());
                 mapping.vertexSource.push_back(v);
@@ -4078,6 +4243,7 @@ ModelPlan PlanExtrudeBorder(Mesh& mesh, const PointTable& points, const ElementS
             aimOf[v] = aimOf[v] + outward;
         }
     }
+    const auto copyOrSelf = [&](u32 v) { return v == pinned ? v : copyOf[v]; };
     for (const HalfedgeId h : border) {
         const HalfedgeId inside = Topology::opposite(h);
         const u32 f = topology.face(inside).value();
@@ -4085,17 +4251,13 @@ ModelPlan PlanExtrudeBorder(Mesh& mesh, const PointTable& points, const ElementS
         const u32 to = topology.to(h).value();
         // The border halfedge runs against the face beside it, so the strip's
         // quad takes its ends the way the border does and faces outward with
-        // that face.
-        const u32 loop[4] = {from, to, copyOf[to], copyOf[from]};
+        // that face. At a pinned end it is a triangle.
+        const u32 loop[4] = {from, to, copyOrSelf(to), copyOrSelf(from)};
         const HalfedgeId sources[4] = {topology.next(inside), inside, inside, topology.next(inside)};
-        mapping.faces.faceValence.push_back(4);
-        for (u32 i = 0; i < 4; ++i) {
-            mapping.faces.cornerVertex.push_back(loop[i]);
-            const auto found = ordinalOf.find(static_cast<u32>(sources[i].index()));
-            mapping.cornerSource.push_back(found == ordinalOf.end() ? kInvalidId : found->second);
+        const u32 quad = appendWall(mapping, ordinalOf, loop, sources, f);
+        if (quad != kInvalidId) {
+            plan.changedFaces.push_back(quad);
         }
-        mapping.faceSource.push_back(f);
-        plan.changedFaces.push_back(static_cast<u32>(mapping.faces.faceValence.size() - 1));
     }
     mapping.faces.vertexCount = static_cast<u32>(mapping.vertexSource.size());
     mapping.mayHaveZeroArea = true; // the strip has none until the amount grows it
@@ -4108,7 +4270,8 @@ ModelPlan PlanExtrudeBorder(Mesh& mesh, const PointTable& points, const ElementS
     for (const auto& [vertex, copy] : copyOf) {
         grew.push_back(copy);
     }
-    freshGroups(mesh, sortedUnique(std::move(grew))); // the strip's far side is its own point
+    const std::vector<u32> copies = sortedUnique(std::move(grew));
+    freshGroups(mesh, copies); // the strip's far side is its own point
     const std::span<const Vector3f> now = positionsOf(mesh);
     for (const auto& [vertex, copy] : copyOf) {
         // A crack's twins are one point (§2.2), so they take one aim between
@@ -4129,15 +4292,24 @@ ModelPlan PlanExtrudeBorder(Mesh& mesh, const PointTable& points, const ElementS
     std::sort(plan.motions.begin(), plan.motions.end(),
               [](const VertexMotion& a, const VertexMotion& b) { return a.vertex < b.vertex; });
     const Topology& built = std::as_const(mesh).topology();
+    const auto isCopy = [&](VertexId v) { return std::binary_search(copies.begin(), copies.end(), v.value()); };
+    const auto onFarSide = [&](VertexId v) { return isCopy(v) || v.value() == pinned; };
     for (const u32 f : plan.changedFaces) {
         if (f >= built.faceCount() || built.isDeleted(FaceId(f))) {
             continue;
         }
         for (const HalfedgeId h : built.fh(FaceId(f))) {
             plan.touchedEdges.push_back(Topology::edge(h).value());
-            // The strip's own far side is the new border: the gizmo's, after
-            // Apply (§3.8).
-            if (built.isBoundary(Topology::edge(h))) {
+            // The strip's far side -- the copies of the edges it grew from, a
+            // quad's one edge with a copy at both ends, or a triangle's from
+            // its copy to the pinned hinge -- is the selection after Apply
+            // (§3.8): the gizmo's, and what the next extrude continues. NOT
+            // the side edges at an open run's two ends, border though they
+            // are: selected, the next extrude would grow flaps sideways off
+            // the strip rather than run it on. (The whole rim, ends included,
+            // until 2026-09-24.)
+            if (onFarSide(built.from(h)) && onFarSide(built.to(h)) &&
+                (isCopy(built.from(h)) || isCopy(built.to(h)))) {
                 plan.selection.edges.push_back(Topology::edge(h).value());
             }
         }
@@ -4147,6 +4319,51 @@ ModelPlan PlanExtrudeBorder(Mesh& mesh, const PointTable& points, const ElementS
     plan.selection.normalise();
     plan.changed = static_cast<u32>(border.size());
     AmountRange(mesh, plan);
+    return plan;
+}
+
+ModelPlan PlanExtrudeBorder(Mesh& mesh, const PointTable& points, const ElementSet& edges) {
+    return planBorderStrip(mesh, points, edges, kInvalidId);
+}
+
+ModelPlan PlanHingeBorder(Mesh& mesh, const PointTable& points, const ElementSet& edges, u32 hingeVertex,
+                          const Vector3f& axis) {
+    ModelPlan plan;
+    if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
+        plan.refusal = ModelRefusal::NotBuiltYet;
+        return plan;
+    }
+    // The hinge must be an end of one of the border edges given, checked
+    // before the strip is grown: a refusal leaves the mesh as it came.
+    const Topology& topology = std::as_const(mesh).topology();
+    bool onRun = false;
+    for (const u32 e : sortedUnique(edges.edges)) {
+        if (e >= topology.edgeCount() || topology.isDeleted(EdgeId(e)) || !topology.isBoundary(EdgeId(e))) {
+            continue;
+        }
+        const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
+        onRun = onRun || topology.from(h).value() == hingeVertex || topology.to(h).value() == hingeVertex;
+    }
+    if (!onRun) {
+        plan.refusal = ModelRefusal::HingeNotOnBoundary;
+        return plan;
+    }
+    plan = planBorderStrip(mesh, points, edges, hingeVertex);
+    if (plan.refused()) {
+        return plan;
+    }
+    // The strip's aims are the extrude's; a hinge turns instead, about the
+    // pinned vertex along the axis the caller chose, and is unbounded.
+    for (VertexMotion& motion : plan.motions) {
+        motion.direction = Vector3f{0.0f, 0.0f, 0.0f};
+    }
+    const std::span<const Vector3f> now = positionsOf(mesh);
+    HingeAxis hinge;
+    hinge.origin = hingeVertex < now.size() ? now[hingeVertex] : Vector3f{0.0f, 0.0f, 0.0f};
+    hinge.axis = unitOr(axis, Vector3f{0.0f, 0.0f, 1.0f});
+    plan.hinge = hinge;
+    plan.amountMin = -FLT_MAX;
+    plan.amountMax = FLT_MAX;
     return plan;
 }
 
@@ -4186,7 +4403,9 @@ ModelPlan PlanInset(Mesh& mesh, const PointTable& points, const ElementSet& face
     const std::unordered_map<u32, u32> ordinalOf = cornerOrdinals(snapshot);
     detail::RebuildMapping mapping = detail::identityMapping(mesh);
     const std::vector<u32> base = cornerBases(mapping.faces);
-    const std::vector<Grown> rings = growRings(mesh, twins, regions, regionOf, ordinalOf, base, mapping, plan);
+    const std::vector<u8> nothingPinned;
+    const std::vector<Grown> rings =
+        growRings(mesh, twins, regions, regionOf, ordinalOf, base, mapping, plan, nothingPinned);
     // Each copy is one inner vertex: its fan's normal, the two boundary edges
     // that end the fan, the angle the fan turns through, and where its faces
     // lie, which is the side it moves to.
@@ -5933,7 +6152,8 @@ ModelPlan PlanDetachToElement(Mesh& mesh, const ElementSet& faces) {
     const std::vector<u32> snapshot = detail::snapshotCornersBuilt(mesh);
     detail::RebuildMapping mapping = detail::identityMapping(mesh);
     const std::vector<u32> base = cornerBases(mapping.faces);
-    const Grown grown = growRegion(mesh, twins, chosen, regionOf, 0, mapping);
+    const std::vector<u8> nothingPinned;
+    const Grown grown = growRegion(mesh, twins, chosen, regionOf, 0, mapping, nothingPinned);
     for (const u32 f : chosen) {
         u32 corner = base[f];
         for (const HalfedgeId h : topology.fh(FaceId(f))) {

@@ -45,6 +45,7 @@ using geom::ModelPlan;
 using geom::ModelRefusal;
 using geom::Topology;
 using geom::VertexId;
+using geom::kInvalidId;
 
 Mesh fromFaces(const std::vector<std::vector<u32>>& corners, const std::vector<Vector3f>& positions) {
     geom::FaceSet faces;
@@ -1336,6 +1337,171 @@ TEST_CASE("wem tools extrude local normal averages the faces at a vertex", "[wem
     }
     CHECK(mixed == 2u);  // the two on the shared edge
     CHECK(single == 4u); // two on each far side
+}
+
+TEST_CASE("wem tools hinge swings a face about its edge and keeps the hinge attached",
+          "[wem][geometry][tools]") {
+    // One quad hinged on its bottom edge (§3.8): the hinge's two vertices are
+    // pinned, the hinge edge grows no wall, its two neighbours are triangles,
+    // the top edge's wall is a quad, and a quarter turn stands the face up
+    // along its normal -- the far corners at z = 1, the hinge's untouched.
+    Mesh mesh = grid(1, 1, /*quads=*/true);
+    const auto placed = mesh.attributes.get<const Vector3f>(geom::names::kPosition, Domain::Vertex);
+    u32 bottom = kInvalidId;
+    for (u32 e = 0; e < mesh.topology().edgeCount(); ++e) {
+        const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
+        if (placed[std::as_const(mesh).topology().from(h).value()].y == 0.0f &&
+            placed[std::as_const(mesh).topology().to(h).value()].y == 0.0f) {
+            bottom = e;
+        }
+    }
+    REQUIRE(bottom != kInvalidId);
+    // An edge with both sides selected -- or neither -- is no hinge.
+    {
+        Mesh two = grid(2, 1, /*quads=*/true);
+        const auto at = two.attributes.get<const Vector3f>(geom::names::kPosition, Domain::Vertex);
+        u32 middle = kInvalidId;
+        for (u32 e = 0; e < two.topology().edgeCount(); ++e) {
+            const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
+            if (at[std::as_const(two).topology().from(h).value()].x == 1.0f &&
+                at[std::as_const(two).topology().to(h).value()].x == 1.0f) {
+                middle = e;
+            }
+        }
+        REQUIRE(middle != kInvalidId);
+        const ModelPlan refused = geom::PlanHingeFaces(two, pointsOf(two), allFaces(two), middle);
+        CHECK(refused.refusal == ModelRefusal::HingeNotOnBoundary);
+        CHECK(liveFaces(two) == 2u);
+    }
+    ModelPlan plan = geom::PlanHingeFaces(mesh, pointsOf(mesh), allFaces(mesh), bottom);
+    INFO("refusal " << geom::ToString(plan.refusal));
+    REQUIRE_FALSE(plan.refused());
+    REQUIRE(plan.hinge.has_value());
+    CHECK(plan.motions.size() == 2u); // the two far corners; the hinge's two are pinned
+    CHECK(plan.amountMax == FLT_MAX);
+    CHECK(liveFaces(mesh) == 4u);     // the face, two triangles, one quad
+    CHECK(mesh.vertexCount() == 6u);
+    // At 0 every base goes back bit for bit; at 90 the far corners stand up.
+    geom::ApplyAmount(mesh, plan, 0.0f);
+    {
+        const auto now = mesh.attributes.get<const Vector3f>(geom::names::kPosition, Domain::Vertex);
+        for (const geom::VertexMotion& m : plan.motions) {
+            CHECK(now[m.vertex] == m.base);
+        }
+    }
+    geom::ApplyAmount(mesh, plan, 90.0f);
+    finish(mesh, plan);
+    const auto now = mesh.attributes.get<const Vector3f>(geom::names::kPosition, Domain::Vertex);
+    u32 standing = 0;
+    u32 grounded = 0;
+    for (u32 v = 0; v < now.size(); ++v) {
+        if (mesh.topology().isDeleted(VertexId(v))) {
+            continue;
+        }
+        if (now[v].z == Catch::Approx(1.0f).margin(1e-5)) {
+            ++standing;
+            CHECK(now[v].y == Catch::Approx(0.0f).margin(1e-5)); // over the hinge line
+        } else {
+            CHECK(now[v].z == 0.0f);
+            ++grounded;
+        }
+    }
+    CHECK(standing == 2u);
+    CHECK(grounded == 4u);
+}
+
+TEST_CASE("wem tools hinge on a border run swings about its vertex", "[wem][geometry][tools]") {
+    // A 2 x 1 grid's bottom run, hinged at its left end about the normal: the
+    // hinge vertex is pinned, the quad beside it is a triangle, the other a
+    // quad, and a quarter turn the other way lays the run down the y axis.
+    Mesh mesh = grid(2, 1, /*quads=*/true);
+    const auto placed = mesh.attributes.get<const Vector3f>(geom::names::kPosition, Domain::Vertex);
+    ElementSet run;
+    u32 corner = kInvalidId;
+    for (u32 e = 0; e < mesh.topology().edgeCount(); ++e) {
+        const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
+        const u32 a = std::as_const(mesh).topology().from(h).value();
+        const u32 b = std::as_const(mesh).topology().to(h).value();
+        if (placed[a].y == 0.0f && placed[b].y == 0.0f) {
+            run.edges.push_back(e);
+            if (placed[a].x == 0.0f) {
+                corner = a;
+            } else if (placed[b].x == 0.0f) {
+                corner = b;
+            }
+        }
+    }
+    REQUIRE(run.edges.size() == 2u);
+    REQUIRE(corner != kInvalidId);
+    // A vertex off the run is no hinge, and refusing leaves the mesh alone.
+    u32 elsewhere = kInvalidId;
+    for (u32 v = 0; v < placed.size(); ++v) {
+        if (placed[v].y == 1.0f && placed[v].x == 2.0f) {
+            elsewhere = v;
+        }
+    }
+    REQUIRE(elsewhere != kInvalidId);
+    CHECK(geom::PlanHingeBorder(mesh, pointsOf(mesh), run, elsewhere, Vector3f{0.0f, 0.0f, 1.0f}).refusal ==
+          ModelRefusal::HingeNotOnBoundary);
+    CHECK(liveFaces(mesh) == 2u);
+    ModelPlan plan = geom::PlanHingeBorder(mesh, pointsOf(mesh), run, corner, Vector3f{0.0f, 0.0f, 1.0f});
+    INFO("refusal " << geom::ToString(plan.refusal));
+    REQUIRE_FALSE(plan.refused());
+    REQUIRE(plan.hinge.has_value());
+    CHECK(plan.motions.size() == 2u); // the run's other two vertices, copied
+    CHECK(liveFaces(mesh) == 4u);     // two faces, a triangle and a quad
+    CHECK(mesh.vertexCount() == 8u);
+    // The selection is the swung run: the copy's edge to the hinge, and the
+    // far edge between the two copies -- not the side at the run's other end.
+    REQUIRE(plan.selection.edges.size() == 2u);
+    geom::ApplyAmount(mesh, plan, -90.0f);
+    finish(mesh, plan);
+    const auto now = mesh.attributes.get<const Vector3f>(geom::names::kPosition, Domain::Vertex);
+    u32 down = 0;
+    for (u32 v = 0; v < now.size(); ++v) {
+        if (!mesh.topology().isDeleted(VertexId(v)) && now[v].y < -1e-5f) {
+            ++down;
+            CHECK(now[v].x == Catch::Approx(0.0f).margin(1e-5)); // laid along the y axis
+            CHECK(now[v].z == 0.0f);
+        }
+    }
+    CHECK(down == 2u);
+}
+
+TEST_CASE("wem tools border extrude on an open run selects the far edges and not the ends",
+          "[wem][geometry][tools]") {
+    // A 2 x 1 grid of quads and its bottom two edges: two quads grow, and what
+    // is selected is their two FAR edges -- the copies of what was given, both
+    // ends at y = -1 -- not the four border edges the strip has. The side
+    // edges at the run's two ends are border too, and selecting them would
+    // send a second extrude sideways off the strip instead of on along it.
+    Mesh mesh = grid(2, 1, /*quads=*/true);
+    const auto placed = mesh.attributes.get<const Vector3f>(geom::names::kPosition, Domain::Vertex);
+    ElementSet run;
+    for (u32 e = 0; e < mesh.topology().edgeCount(); ++e) {
+        const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
+        const u32 a = std::as_const(mesh).topology().from(h).value();
+        const u32 b = std::as_const(mesh).topology().to(h).value();
+        if (placed[a].y == 0.0f && placed[b].y == 0.0f) {
+            run.edges.push_back(e);
+        }
+    }
+    REQUIRE(run.edges.size() == 2u);
+    ModelPlan plan = geom::PlanExtrudeBorder(mesh, pointsOf(mesh), run);
+    INFO("refusal " << geom::ToString(plan.refusal));
+    REQUIRE_FALSE(plan.refused());
+    CHECK(plan.motions.size() == 3u); // the run's three vertices, copied
+    REQUIRE(plan.selection.edges.size() == 2u);
+    geom::ApplyAmount(mesh, plan, 1.0f);
+    finish(mesh, plan);
+    CHECK(liveFaces(mesh) == 4u);
+    const auto now = mesh.attributes.get<const Vector3f>(geom::names::kPosition, Domain::Vertex);
+    for (const u32 e : plan.selection.edges) {
+        const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
+        CHECK(std::as_const(mesh).topology().isBoundary(EdgeId(e)));
+        CHECK(now[std::as_const(mesh).topology().from(h).value()].y == Catch::Approx(-1.0f).margin(1e-5));
+        CHECK(now[std::as_const(mesh).topology().to(h).value()].y == Catch::Approx(-1.0f).margin(1e-5));
+    }
 }
 
 TEST_CASE("wem tools border extrude grows a strip and selects its far edge",
