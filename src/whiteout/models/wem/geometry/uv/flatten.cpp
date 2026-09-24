@@ -221,6 +221,15 @@ FlattenResult LscmPinning(Mesh& mesh, const UvIslands& islands, u32 island, u32 
         held[i] = readWedge(islands, uvs, wedges[i]);
     }
 
+    // Set when the automatic pair holds a map the island already had: the pair
+    // fixes the solve's gauge, and the fit below puts it back over that map.
+    bool refit = false;
+    f32 oldUvArea = 0.0f;
+    // A pin of the user's own, when there is exactly one: the fit keeps it.
+    u32 userPin = kInvalidId;
+    if (pinCount == 1) {
+        userPin = static_cast<u32>(std::find(pinned.begin(), pinned.end(), u8{1}) - pinned.begin());
+    }
     if (pinCount < 2) {
         // The two boundary wedges farthest apart, over the boundary only
         // (EDIT_MODE_UV_PLAN.md P2): a pin's whole job is to fix the map's
@@ -277,6 +286,8 @@ FlattenResult LscmPinning(Mesh& mesh, const UvIslands& islands, u32 island, u32 
         pinned[bestA] = 1;
         pinned[bestB] = 1;
         pinCount = 2;
+        refit = byUv;
+        oldUvArea = areas.uv;
     }
 
     // --- the system ----------------------------------------------------------
@@ -386,11 +397,61 @@ FlattenResult LscmPinning(Mesh& mesh, const UvIslands& islands, u32 island, u32 
     const u32 cap = std::max<u32>(32u, options.iterationsPerUnknown * columns);
     result.iterations = SolveCgls(a, x, options.tolerance, cap, result.residual);
 
+    std::vector<Vector2f> solved(wedges.size());
     for (u32 i = 0; i < wedges.size(); ++i) {
-        const Vector2f value = pinned[i] != 0
-                                   ? held[i]
-                                   : Vector2f{x[columnOf[i]], x[columnOf[i] + 1]};
-        writeWedge(islands, uvs, wedges[i], value);
+        solved[i] = pinned[i] != 0 ? held[i] : Vector2f{x[columnOf[i]], x[columnOf[i] + 1]};
+    }
+    if (refit) {
+        // Two held points fix the solve's turn along whatever line joined them
+        // in the old map, and an old map squashed one way (a 4 x 2 sheet on a
+        // square tile) comes back turned and grown along its diagonal. The map
+        // goes back over the old one instead: the turn (or, for a mirrored
+        // map, the reflection) that fits it best, its UV area, its centroid.
+        Vector2f c0{0.0f, 0.0f};
+        Vector2f c1{0.0f, 0.0f};
+        for (u32 i = 0; i < wedges.size(); ++i) {
+            c0 = c0 + solved[i];
+            c1 = c1 + held[i];
+        }
+        c0 = c0 * (1.0f / static_cast<f32>(wedges.size()));
+        c1 = c1 * (1.0f / static_cast<f32>(wedges.size()));
+        // As complex numbers: the turn is arg Σ conj(p) q, the reflection's
+        // arg Σ p q applied to conj(p); the larger modulus fits better.
+        f64 turnRe = 0.0, turnIm = 0.0, flipRe = 0.0, flipIm = 0.0;
+        for (u32 i = 0; i < wedges.size(); ++i) {
+            const f64 px = solved[i].x - c0.x, py = solved[i].y - c0.y;
+            const f64 qx = held[i].x - c1.x, qy = held[i].y - c1.y;
+            turnRe += px * qx + py * qy;
+            turnIm += px * qy - py * qx;
+            flipRe += px * qx - py * qy;
+            flipIm += px * qy + py * qx;
+        }
+        const bool mirrored = std::hypot(flipRe, flipIm) > std::hypot(turnRe, turnIm);
+        const f64 angle = mirrored ? std::atan2(flipIm, flipRe) : std::atan2(turnIm, turnRe);
+        const f32 cs = static_cast<f32>(std::cos(angle));
+        const f32 sn = static_cast<f32>(std::sin(angle));
+        for (u32 i = 0; i < wedges.size(); ++i) {
+            const Vector2f d = solved[i] - c0;
+            const f32 dy = mirrored ? -d.y : d.y;
+            solved[i] = Vector2f{d.x * cs - dy * sn, d.x * sn + dy * cs};
+        }
+        for (u32 i = 0; i < wedges.size(); ++i) {
+            writeWedge(islands, uvs, wedges[i], solved[i]);
+        }
+        const f32 newUvArea = detail::AreasOf(mesh, islands, island, positions, uvs).uv;
+        const f32 scale = newUvArea > 0.0f ? std::sqrt(oldUvArea / newUvArea) : 1.0f;
+        for (u32 i = 0; i < wedges.size(); ++i) {
+            solved[i] = c1 + solved[i] * scale;
+        }
+        if (userPin < wedges.size()) {
+            const Vector2f back = held[userPin] - solved[userPin];
+            for (u32 i = 0; i < wedges.size(); ++i) {
+                solved[i] = solved[i] + back;
+            }
+        }
+    }
+    for (u32 i = 0; i < wedges.size(); ++i) {
+        writeWedge(islands, uvs, wedges[i], solved[i]);
     }
 
     // --- flips ---------------------------------------------------------------
@@ -931,27 +992,70 @@ FlattenResult Project(Mesh& mesh, std::span<const FaceId> faces, u32 set, Projec
         }
     };
 
-    std::vector<EdgeId> wrapped;
+    std::vector<u8> projected(topology.faceCount(), 0);
+    std::vector<FaceId> turned;
+    f64 radius = 0.0;
+    u32 points = 0;
     for (const FaceId face : faces) {
         if (!face.valid() || topology.isDeleted(face)) {
             continue;
         }
+        projected[face.index()] = 1;
         f32 lowest = 2.0f;
         f32 highest = -1.0f;
         for (const HalfedgeId h : topology.fh(face)) {
+            const Vector3f d = positions[topology.from(h).index()] - frame.origin;
             const Vector2f value = project(positions[topology.from(h).index()]);
             uvs[h.index()] = value;
             lowest = std::min(lowest, value.x);
             highest = std::max(highest, value.x);
+            // The cylinder's radius is off its axis, the sphere's from its centre.
+            radius += shape == ProjectShape::Cylinder ? (d - frame.axisN * d.dot(frame.axisN)).length() : d.length();
+            ++points;
         }
-        // A round projection wraps somewhere, and where it wraps is a cut: a
-        // face that spans the turn would otherwise stretch the whole way back
-        // across the tile.
+        // A round projection wraps somewhere. A face that spans the turn takes
+        // its low side round by one turn, so it stays whole and joins the face
+        // beyond it; the edges where it then parts from its neighbours are the
+        // cut.
         if (shape != ProjectShape::Planar && highest - lowest > 0.5f) {
             for (const HalfedgeId h : topology.fh(face)) {
+                if (uvs[h.index()].x < 0.5f) {
+                    uvs[h.index()].x += 1.0f;
+                }
+            }
+            turned.push_back(face);
+        }
+    }
+    std::vector<EdgeId> wrapped;
+    const auto same = [&](HalfedgeId a, HalfedgeId b) {
+        return uvs[a.index()].x == uvs[b.index()].x && uvs[a.index()].y == uvs[b.index()].y;
+    };
+    for (const FaceId face : turned) {
+        for (const HalfedgeId h : topology.fh(face)) {
+            const HalfedgeId across = topology.opposite(h);
+            const FaceId other = topology.face(across);
+            if (!other.valid() || projected[other.index()] == 0) {
+                continue;
+            }
+            if (!same(h, topology.next(across)) || !same(topology.next(h), across)) {
                 wrapped.push_back(Topology::edge(h));
             }
-            ++result.degenerate;
+        }
+    }
+    // A turn in arc length, so the map keeps the surface's proportions: round
+    // the cylinder at its mean radius against its height, and both ways on the
+    // sphere.
+    if (shape != ProjectShape::Planar && points != 0) {
+        const f32 r = static_cast<f32>(radius / points);
+        const f32 across = 2.0f * kPi * r;
+        const f32 down = shape == ProjectShape::Sphere ? kPi * r : 1.0f;
+        for (const FaceId face : faces) {
+            if (!face.valid() || topology.isDeleted(face)) {
+                continue;
+            }
+            for (const HalfedgeId h : topology.fh(face)) {
+                uvs[h.index()] = Vector2f{uvs[h.index()].x * across, uvs[h.index()].y * down};
+            }
         }
     }
     if (!wrapped.empty()) {

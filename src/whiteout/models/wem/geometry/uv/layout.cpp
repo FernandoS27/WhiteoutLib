@@ -720,13 +720,18 @@ PackResult Pack(Mesh& mesh, const UvIslands& islands, u32 set, const PackOptions
             u32 bestY = 0;
             u32 bestTop = kInvalidId;
             Vector2f bestOrigin{0.0f, 0.0f};
+            bool anyPrint = false;
             for (const f32 angle : anglesFor(groups[g])) {
                 Vector2f centre{0.0f, 0.0f};
                 const Footprint print =
                     footprintOf(mesh, islands, groups[g], set,
                                 static_cast<f32>(resolution) * scale, options.padding, angle,
                                 centre);
-                if (print.empty() || print.width > resolution || print.height > resolution) {
+                if (print.empty()) {
+                    continue;
+                }
+                anyPrint = true;
+                if (print.width > resolution || print.height > resolution) {
                     continue;
                 }
                 for (u32 x = 0; x + print.width <= resolution; ++x) {
@@ -760,6 +765,11 @@ PackResult Pack(Mesh& mesh, const UvIslands& islands, u32 set, const PackOptions
                         placed = true;
                     }
                 }
+            }
+            if (!anyPrint) {
+                // No area at all (a map not made yet): nothing to place, and
+                // nothing to stop the rest being placed. It stays where it is.
+                continue;
             }
             if (!placed) {
                 return false;

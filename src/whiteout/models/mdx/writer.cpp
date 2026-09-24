@@ -134,7 +134,7 @@ public:
     void writeParticleEmitter2(BinaryWriter& writer, const ParticleEmitter2& pem2);
     void writeRibbonEmitter(BinaryWriter& writer, const RibbonEmitter& ribb);
     void writeEventObject(BinaryWriter& writer, const EventObject& evt);
-    void writeCamera(BinaryWriter& writer, const Camera& cam);
+    void writeCamera(BinaryWriter& writer, const Camera& cam, const Model& mdx);
     void writeCollisionShape(BinaryWriter& writer, const CollisionShape& shape);
     void writeSoundEmitter(BinaryWriter& writer, const SoundEmitter& snem);
     void writeCornEmitter(BinaryWriter& writer, const CornEmitter& corn);
@@ -816,11 +816,11 @@ void Writer::Impl::writeCAMS(BinaryWriter& writer, const Model& mdx) {
     SizeEnclosure const sizeEnclosure(writer, CAMS_TAG);
 
     for (const auto& cam : mdx.cameras) {
-        writeCamera(writer, cam);
+        writeCamera(writer, cam, mdx);
     }
 }
 
-void Writer::Impl::writeCamera(BinaryWriter& writer, const Camera& cam) {
+void Writer::Impl::writeCamera(BinaryWriter& writer, const Camera& cam, const Model& mdx) {
     SizeEnclosure const sizeEnclosure(writer);
 
     writer.writeString(cam.name, 80);
@@ -833,12 +833,13 @@ void Writer::Impl::writeCamera(BinaryWriter& writer, const Camera& cam) {
     writeTrackChunk(writer, KCTR_TAG, cam.positionTracks);
     writeTrackChunk(writer, KCRL_TAG, cam.targetRotationTracks);
     writeTrackChunk(writer, KTTR_TAG, cam.targetPositionTracks);
-    // Unconditional: writeTrackChunk emits nothing for a track that was never
-    // set, and only a v1400-or-later source can carry these.
-    writeTrackChunk(writer, KCVS_TAG, cam.visibilityTracks);
-    writeTrackChunk(writer, IDUF_TAG, cam.focusDistanceTracks);
-    writeTrackChunk(writer, ELAF_TAG, cam.focalLengthTracks);
-    writeTrackChunk(writer, PTSF_TAG, cam.fStopTracks);
+    // The 3.0 client reads these at any version; Classic knows none of them.
+    if (mdx.version > 800) {
+        writeTrackChunk(writer, KCVS_TAG, cam.visibilityTracks);
+        writeTrackChunk(writer, IDUF_TAG, cam.focusDistanceTracks);
+        writeTrackChunk(writer, ELAF_TAG, cam.focalLengthTracks);
+        writeTrackChunk(writer, PTSF_TAG, cam.fStopTracks);
+    }
 }
 
 void Writer::Impl::writeCLID(BinaryWriter& writer, const Model& mdx) {

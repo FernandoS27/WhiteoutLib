@@ -364,6 +364,8 @@ private:
             }
             addTrack(source_.cameras[c].positionTracks,
                      nodeTarget(context_.cameraNodes[c], Channel::Translation));
+            addTrack(source_.cameras[c].visibilityTracks,
+                     nodeTarget(context_.cameraNodes[c], Channel::Visibility));
         }
     }
 
@@ -1313,12 +1315,16 @@ private:
         }
         const ExportContext::NodeSlot& slot = context_.nodeSlots[wemNode];
 
-        // A camera's position is the one node track that is not on a node
-        // chunk, because a camera is not one.
+        // A camera's position and visibility are the node tracks that are not
+        // on a node chunk, because a camera is not one.
         if (slot.slot == ExportContext::Slot::Camera) {
-            if (slot.index < out_.cameras.size() &&
-                channel.target.channel == Channel::Translation) {
+            if (slot.index >= out_.cameras.size()) {
+                return;
+            }
+            if (channel.target.channel == Channel::Translation) {
                 Emit(merged, out_.cameras[slot.index].positionTracks);
+            } else if (channel.target.channel == Channel::Visibility) {
+                Emit(merged, out_.cameras[slot.index].visibilityTracks);
             }
             return;
         }
