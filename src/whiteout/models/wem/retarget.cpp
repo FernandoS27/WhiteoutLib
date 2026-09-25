@@ -864,6 +864,11 @@ DeriveResult DeriveProfile(Document& document, ProfileId from, ProfileId to,
 
         ProfileMaterialSet derived;
         derived.profile = to;
+        // The set's bag is the header of the format both profiles write
+        // (MDX's FaceFX list), so it carries only between profiles sharing one.
+        if (sharedNative) {
+            derived.native = source->native;
+        }
 
         // --- looks ------------------------------------------------------------
         u32 keptLook = 0;

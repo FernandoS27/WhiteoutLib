@@ -161,7 +161,10 @@ void Writer::Impl::write(BinaryWriter& writer, const Model& mdx) {
     // Write magic number
     writer.write(MDLX_TAG);
 
-    // Write chunks
+    // Chunks in 3.0.0's own writer order. The node chunks' order is load-bearing:
+    // the game's binary reader ignores each node's stored objectId and numbers
+    // nodes in the order it reads them, so CORN must sit between PRE2 and RIBB,
+    // where toMdx numbers it, or every later node reads with a shifted id.
     writeVERS(writer, mdx);
     writeMODL(writer, mdx);
 
@@ -197,20 +200,20 @@ void Writer::Impl::write(BinaryWriter& writer, const Model& mdx) {
         writePREM(writer, mdx);
     if (!mdx.particleEmitters2.empty())
         writePRE2(writer, mdx);
-    if (!mdx.ribbonEmitters.empty())
-        writeRIBB(writer, mdx);
-    if (!mdx.eventObjects.empty())
-        writeEVTS(writer, mdx);
-    if (!mdx.cameras.empty())
-        writeCAMS(writer, mdx);
-    if (!mdx.collisionShapes.empty())
-        writeCLID(writer, mdx);
-    if (!mdx.bindPoses.empty())
-        writeBPOS(writer, mdx);
-    if (!mdx.faceEffects.empty())
-        writeFFX(writer, mdx);
     if (!mdx.cornEmitters.empty())
         writeCORN(writer, mdx);
+    if (!mdx.ribbonEmitters.empty())
+        writeRIBB(writer, mdx);
+    if (!mdx.cameras.empty())
+        writeCAMS(writer, mdx);
+    if (!mdx.eventObjects.empty())
+        writeEVTS(writer, mdx);
+    if (!mdx.collisionShapes.empty())
+        writeCLID(writer, mdx);
+    if (!mdx.faceEffects.empty())
+        writeFFX(writer, mdx);
+    if (!mdx.bindPoses.empty())
+        writeBPOS(writer, mdx);
 }
 
 // ============================================================================

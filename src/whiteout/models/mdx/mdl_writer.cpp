@@ -1301,10 +1301,12 @@ private:
             writeTrack<f32>("Rotation", cam.targetRotationTracks);
             writeTrack<f32>("Visibility", cam.visibilityTracks);
             // Reforged 3.0 depth of field -- animation-only, so nothing is
-            // emitted for a camera that does not use it.
-            writeTrack<f32>("FocusDistance", cam.focusDistanceTracks);
-            writeTrack<f32>("FocalLength", cam.focalLengthTracks);
-            writeTrack<f32>("FStop", cam.fStopTracks);
+            // emitted for a camera that does not use it. The keyed keywords
+            // carry the `Keys` suffix; bare `FocalLength`/`FStop` are 3.0's
+            // scalar forms and there is no `FocusDistance` at all.
+            writeTrack<f32>("FocusDistanceKeys", cam.focusDistanceTracks);
+            writeTrack<f32>("FocalLengthKeys", cam.focalLengthTracks);
+            writeTrack<f32>("FStopKeys", cam.fStopTracks);
 
             openBlock("Target");
             line("Position " + fmtVec3(cam.targetPosition) + ",");

@@ -33,8 +33,8 @@
  * `m2AttachmentId`, `d3LightType`.
  *
  * A `ProfileMaterialSet`'s bag is the exception and needs no prefix: a set *is*
- * one profile, only that profile's converter writes it, and a derived set
- * starts empty. `sourceVersion` means the `.m2` header version on the WoW set
+ * one profile, only that profile's converter writes it, and a derive copies it
+ * only between profiles writing the same format. `sourceVersion` means the `.m2` header version on the WoW set
  * and the appearance version on the Diablo III one, and neither can reach the
  * other.
  *

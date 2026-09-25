@@ -643,6 +643,46 @@ TEST_CASE("wem mdx a light keeps 3.0's shadow range and falloff", "[wem][convert
     CHECK(same(out.dampingTracks, lamp.dampingTracks));
 }
 
+TEST_CASE("wem mdx keeps a model's FaceFX list", "[wem][convert][mdx]") {
+    // WEM had nowhere for FAFX, so every edited portrait (366 of ~3,000 sampled
+    // shipped files) lost its lip sync.
+    mdx::Model source = makeModel();
+    source.version = 1800;
+    source.faceEffects.push_back({"Node", "Units/Creeps/Assassin/Assassin.facefx"});
+    source.faceEffects.push_back({"Second", ""});
+
+    const MdxConverter converter;
+    Result<Document> imported = converter.fromMdx(source);
+    REQUIRE(imported.ok());
+
+    // Through the file, then across a derive to the other WC3 profile.
+    Writer writer;
+    const std::vector<u8> bytes = writer.write(*imported);
+    Parser parser;
+    std::optional<Document> reread = parser.parse(std::span<const u8>(bytes.data(), bytes.size()));
+    REQUIRE(reread.has_value());
+    const ProfileId from = reread->models[0].profileSets[0].profile;
+    const ProfileId to = from == ProfileId::Wc3Classic ? ProfileId::Wc3Reforged
+                                                       : ProfileId::Wc3Classic;
+    DeriveProfile(*reread, from, to);
+
+    for (const ProfileId profile : {from, to}) {
+        INFO(ToString(profile));
+        Result<mdx::Model> exported = converter.toMdx(*reread, profile, 1800);
+        REQUIRE(exported.ok());
+        REQUIRE(exported->faceEffects.size() == 2u);
+        CHECK(exported->faceEffects[0].name == "Node");
+        CHECK(exported->faceEffects[0].path == "Units/Creeps/Assassin/Assassin.facefx");
+        CHECK(exported->faceEffects[1].name == "Second");
+        CHECK(exported->faceEffects[1].path.empty());
+    }
+
+    // Classic's reader has no FAFX.
+    Result<mdx::Model> classic = converter.toMdx(*reread, ProfileId::Wc3Classic, 800);
+    REQUIRE(classic.ok());
+    CHECK(classic->faceEffects.empty());
+}
+
 TEST_CASE("wem mdx a file is written at its profile's version, and Reforged's is 3.0's",
           "[wem][convert][mdx]") {
     CHECK(MdxFileVersion(ProfileId::Wc3Classic) == 800);

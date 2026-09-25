@@ -957,6 +957,35 @@ void LinkGeosetAnimations(const Model& model, const mdx_anim::ExportContext& con
     }
 }
 
+// `FAFX` is a model-level list of (FaceFX actor name, `.facefx` path) pairs the
+// portrait's lip sync plays. WEM has no element for it, so it rides in the
+// set's bag: a count and one text entry per field.
+constexpr const char* kFaceFxCount = "faceFxCount";
+
+std::string FaceFxKey(const char* field, std::size_t index) {
+    return std::string("faceFx") + field + std::to_string(index);
+}
+
+void StoreFaceEffects(const std::vector<mdx::FaceEffect>& effects, NativeBag& bag) {
+    if (effects.empty()) {
+        return;
+    }
+    bag.set(kFaceFxCount, static_cast<i64>(effects.size()));
+    for (std::size_t i = 0; i < effects.size(); ++i) {
+        bag.setText(FaceFxKey("Name", i), effects[i].name);
+        bag.setText(FaceFxKey("Path", i), effects[i].path);
+    }
+}
+
+std::vector<mdx::FaceEffect> LoadFaceEffects(const NativeBag& bag) {
+    std::vector<mdx::FaceEffect> effects(static_cast<std::size_t>(bag.value(kFaceFxCount, 0)));
+    for (std::size_t i = 0; i < effects.size(); ++i) {
+        effects[i].name = bag.text(FaceFxKey("Name", i));
+        effects[i].path = bag.text(FaceFxKey("Path", i));
+    }
+    return effects;
+}
+
 } // namespace
 
 // ============================================================================
@@ -1315,6 +1344,7 @@ Result<Document> MdxConverter::fromMdx(const mdx::Model& source) const {
             set.materials.back().name = SlotName(m);
             set.slotBindings[m].byLook[0] = index;
         }
+        StoreFaceEffects(source.faceEffects, set.native);
         model.profileSets.push_back(std::move(set));
         animContext.layerOrdinals.push_back(std::move(layers));
     }
@@ -2082,6 +2112,10 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
     out.version = targetVersion;
     out.modelName = document.name.empty() ? model.name : document.name;
     out.modelExtent = FromExtent(model.bounds);
+    // Classic's reader has no FAFX; 3.0 reads it at any version.
+    if (set != nullptr && targetVersion > 800) {
+        out.faceEffects = LoadFaceEffects(set->native);
+    }
 
     // --- textures -----------------------------------------------------------
     mdx_core::Context context;
