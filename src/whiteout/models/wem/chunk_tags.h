@@ -187,11 +187,12 @@ struct ChunkTagTraits<Document> {
 /// v2 adds `NodeTree::rig`, which is reflected inline in the model's body; v3
 /// the Skin workspace's `testPoses` (EDIT_MODE_SKIN_DESIGN.md §13.4); v4 the
 /// `LodExport` setting (EDIT_MODE_MODELLING_DESIGN.md §8.2); v5 `tPose`, which
-/// of those poses is the recovered T (EDIT_MODE_TPOSE_DESIGN.md §7).
+/// of those poses is the recovered T (EDIT_MODE_TPOSE_DESIGN.md §7); v6 the
+/// track sets.
 template <>
 struct ChunkTagTraits<Model> {
     static constexpr u32 value = kTag("MODL");
-    static constexpr u32 max_version = 5;
+    static constexpr u32 max_version = 6;
     static constexpr bool is_trivial = false;
 };
 
@@ -498,10 +499,25 @@ struct ChunkTagTraits<ClipEvent> {
 };
 
 /// v2 adds `Clip::bounds` (§10.8's per-clip extent).
+/// v3 `Clip::trackSets`.
 template <>
 struct ChunkTagTraits<Clip> {
     static constexpr u32 value = kTag("CLIP");
-    static constexpr u32 max_version = 2;
+    static constexpr u32 max_version = 3;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<TrackSet> {
+    static constexpr u32 value = kTag("TSET");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<ClipTrackSet> {
+    static constexpr u32 value = kTag("CTSU");
+    static constexpr u32 max_version = 1;
     static constexpr bool is_trivial = false;
 };
 
@@ -597,6 +613,8 @@ inline constexpr u32 kKnownChunkTags[] = {
     ChunkTagTraits<SubTrackContainer>::value,
     ChunkTagTraits<ClipEvent>::value,
     ChunkTagTraits<Clip>::value,
+    ChunkTagTraits<TrackSet>::value,
+    ChunkTagTraits<ClipTrackSet>::value,
     ChunkTagTraits<AnimTag>::value,
     ChunkTagTraits<AnimSet>::value,
     kWoemMagic, // slot 0 is the header's own entry, not a chunk

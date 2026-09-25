@@ -286,6 +286,28 @@ struct AnimChannelTable {
     }
 };
 
+/**
+ * @brief A named group of channels a clip can play on its own layer — the
+ *        StarCraft II Art Tools' "track set", the source of split-body
+ *        animation.
+ *
+ * Only the grouping lives here. Which clips play a set, and at what priority,
+ * is each clip's `Clip::trackSets`; the containers themselves are made at
+ * export (`LayeredContainers`), so a clip's edited tracks stay in one place.
+ */
+struct TrackSet {
+    std::string name;
+    std::vector<u32> channels; ///< `AnimChannel::id`s. A stale id is ignored, not an error.
+
+    bool contains(u32 channel) const;
+
+    template <class V>
+    void reflect(V& v) {
+        v.field("name", name);
+        v.field("channels", channels);
+    }
+};
+
 } // namespace wem
 } // namespace models
 } // namespace whiteout

@@ -22,7 +22,9 @@
 
 #include <whiteout/models/m3/parser.h>
 #include <whiteout/models/wem/converters.h>
+#include <whiteout/models/wem/parser.h>
 #include <whiteout/models/wem/validate.h>
+#include <whiteout/models/wem/writer.h>
 
 #include "wem_corpus_files.h"
 #include "wem_material_fixture.h"
@@ -1181,4 +1183,141 @@ TEST_CASE("wem m3 every block ends where its sequence does", "[wem][anim][m3]") 
     const auto& moveBlock = stcHolding(*written, 7).sd3v[moveRef & 0xFFFFu];
     CHECK(moveBlock.timestamps.back() == 800);
     CHECK(moveBlock.endFrame == end);
+}
+
+
+// ============================================================================
+// Track sets: split body as the StarCraft II Art Tools author it
+// ============================================================================
+
+namespace {
+
+/// Two bones, each keyed on its translation — 7 on the root, 8 on the child —
+/// in one opaque container at priority 3.
+Document twoBoneWalk() {
+    m3::Model model = makeModel();
+    model.sequences[0].name = "Walk";
+    model.animationGroups[0].name = "Walk";
+    model.subTrackCollections[0].name = "Walk_full";
+    model.subTrackCollections[0].runsConcurrent = 0;
+    addChildBone(model);
+    keyTranslation(model, 7, {0, 1000}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 1}});
+    model.bones[1].position = animated<Vector3f>(8, Vector3f{0, 0, 1});
+    m3::AnimBlock<Vector3f> block;
+    block.timestamps = {0, 1000};
+    block.keys = {Vector3f{0, 0, 1}, Vector3f{1, 0, 1}};
+    model.subTrackCollections[0].sd3v.push_back(std::move(block));
+    model.subTrackCollections[0].animIds.push_back(8);
+    model.subTrackCollections[0].animRefs.push_back(
+        Ref(2, static_cast<u32>(model.subTrackCollections[0].sd3v.size() - 1)));
+    return convert(model);
+}
+
+bool holds(const m3::SubTrackContainer& stc, u32 animId) {
+    return std::find(stc.animIds.begin(), stc.animIds.end(), animId) != stc.animIds.end();
+}
+
+} // namespace
+
+TEST_CASE("wem track sets split container 0 and leave the rest", "[wem][anim][trackset]") {
+    Clip clip;
+    clip.name = "Walk";
+    SubTrackContainer base;
+    base.name = "full";
+    base.priority = 5;
+    for (u32 id : {1u, 2u, 3u}) {
+        SubTrack track;
+        track.channel = id;
+        base.subTracks.push_back(track);
+    }
+    clip.containers.push_back(base);
+    SubTrackContainer extra;
+    extra.name = "extra";
+    clip.containers.push_back(extra);
+
+    const std::vector<TrackSet> sets = {{"Arms", {2, 3}}, {"Legs", {1, 2}}, {"Tail", {9}}};
+
+    SECTION("a clip listing no set comes back as it is") {
+        const std::vector<SubTrackContainer> out = LayeredContainers(clip, sets);
+        REQUIRE(out.size() == 2u);
+        CHECK(out[0].subTracks.size() == 3u);
+    }
+    SECTION("the higher set claims a shared channel; an empty one is left out") {
+        clip.trackSets = {{0, 9}, {1, 10}, {2, 11}};
+        const std::vector<SubTrackContainer> out = LayeredContainers(clip, sets);
+        REQUIRE(out.size() == 4u);
+        CHECK(out[0].name == "Legs");
+        CHECK(out[0].priority == 10);
+        CHECK(out[0].concurrent);
+        REQUIRE(out[0].subTracks.size() == 2u);
+        CHECK(out[1].name == "Arms");
+        REQUIRE(out[1].subTracks.size() == 1u);
+        CHECK(out[1].subTracks[0].channel == 3u);
+        // The default set: what is left, as container 0 was.
+        CHECK(out[2].name == "full");
+        CHECK(out[2].priority == 5);
+        CHECK_FALSE(out[2].concurrent);
+        CHECK(out[2].subTracks.empty());
+        CHECK(out[3].name == "extra");
+    }
+}
+
+TEST_CASE("wem track sets export as a transparent container of their own", "[wem][anim][trackset][m3]") {
+    Document document = twoBoneWalk();
+    REQUIRE(document.clips.size() == 1u);
+    document.models[0].trackSets = {{"LowerBody", {8}}};
+    document.clips[0].trackSets = {{0, 10}};
+    REQUIRE_FALSE(Validate(document, ValidateLevel::Structural).hasErrors());
+
+    M3Converter converter;
+    const Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    REQUIRE(written->animationGroups.size() == 1u);
+    const std::vector<u32>& layers = written->animationGroups[0].subtrackIndices;
+    REQUIRE(layers.size() == 2u);
+    const m3::SubTrackContainer& set = written->subTrackCollections[layers[0]];
+    const m3::SubTrackContainer& rest = written->subTrackCollections[layers[1]];
+    CHECK(set.name == "Walk_LowerBody");
+    CHECK(set.animPriority == 10);
+    CHECK(set.runsConcurrent == 1);
+    CHECK(holds(set, 8));
+    CHECK_FALSE(holds(set, 7));
+    CHECK(rest.name == "Walk_full");
+    CHECK(rest.animPriority == 3);
+    CHECK(rest.runsConcurrent == 0);
+    CHECK(holds(rest, 7));
+    CHECK_FALSE(holds(rest, 8));
+
+    // The two containers come back as the file states them.
+    const Document again = convert(*written);
+    REQUIRE(again.clips.size() == 1u);
+    REQUIRE(again.clips[0].containers.size() == 2u);
+    CHECK(again.clips[0].containers[0].concurrent);
+    CHECK(again.clips[0].containers[0].subTracks.size() == 1u);
+}
+
+TEST_CASE("wem track sets survive a save", "[wem][anim][trackset]") {
+    Document document = twoBoneWalk();
+    document.models[0].trackSets = {{"LowerBody", {8}}, {"Upper", {7, 8}}};
+    document.clips[0].trackSets = {{1, 12}, {0, 10}};
+
+    Writer writer;
+    const std::vector<u8> bytes = writer.write(document);
+    REQUIRE_FALSE(bytes.empty());
+    Parser parser;
+    const std::optional<Document> read = parser.parse(std::span<const u8>(bytes));
+    REQUIRE(read.has_value());
+    REQUIRE(read->models[0].trackSets.size() == 2u);
+    CHECK(read->models[0].trackSets[1].name == "Upper");
+    CHECK(read->models[0].trackSets[1].channels == std::vector<u32>{7, 8});
+    REQUIRE(read->clips[0].trackSets.size() == 2u);
+    CHECK(read->clips[0].trackSets[0].set == 1u);
+    CHECK(read->clips[0].trackSets[0].priority == 12);
+    CHECK(read->clips[0].trackSets[1].priority == 10);
+}
+
+TEST_CASE("wem track sets name a set the model has", "[wem][anim][trackset]") {
+    Document document = twoBoneWalk();
+    document.clips[0].trackSets = {{3, 10}};
+    CHECK(Validate(document, ValidateLevel::Structural).hasErrors());
 }

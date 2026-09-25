@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
+#include <algorithm>
 #include <string>
 
 #include <whiteout/models/wem/anim/clip.h>
@@ -61,6 +62,45 @@ f32 ClipRarity(const Clip& clip) {
 
 void SetClipRarity(Clip& clip, f32 rarity) {
     SetMilli(clip.native, kRarityMilli, rarity);
+}
+
+std::vector<SubTrackContainer> LayeredContainers(const Clip& clip, const std::vector<TrackSet>& sets) {
+    if (clip.trackSets.empty() || clip.containers.empty()) {
+        return clip.containers;
+    }
+    std::vector<ClipTrackSet> order;
+    for (const ClipTrackSet& use : clip.trackSets) {
+        if (use.set < sets.size()) {
+            order.push_back(use);
+        }
+    }
+    std::stable_sort(order.begin(), order.end(),
+                     [](const ClipTrackSet& a, const ClipTrackSet& b) { return a.priority > b.priority; });
+
+    std::vector<SubTrackContainer> out;
+    SubTrackContainer rest = clip.containers.front();
+    for (const ClipTrackSet& use : order) {
+        const TrackSet& set = sets[use.set];
+        SubTrackContainer layer;
+        layer.name = set.name;
+        layer.priority = use.priority;
+        layer.concurrent = true;
+        std::vector<SubTrack> kept;
+        for (SubTrack& track : rest.subTracks) {
+            if (set.contains(track.channel)) {
+                layer.subTracks.push_back(std::move(track));
+            } else {
+                kept.push_back(std::move(track));
+            }
+        }
+        rest.subTracks = std::move(kept);
+        if (!layer.subTracks.empty()) {
+            out.push_back(std::move(layer));
+        }
+    }
+    out.push_back(std::move(rest));
+    out.insert(out.end(), clip.containers.begin() + 1, clip.containers.end());
+    return out;
 }
 
 u32 AnimSet::find(u32 tagId) const {

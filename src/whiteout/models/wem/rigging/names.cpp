@@ -145,9 +145,10 @@ NameRead ReadName(const std::string& name) {
     NameRead read;
     std::vector<std::string> words = Words(name);
 
-    // What every scheme wraps a name in: HD's `_bind_jnt`, a Biped's `Bip01`,
-    // a mount's `mount_`. A Biped's bare `Bip01` IS its centre of mass.
-    while (!words.empty() && (words.back() == "jnt" || words.back() == "bind")) {
+    // What every scheme wraps a name in: HD's `_bind_jnt`, Diablo III's
+    // `_joint`, a Biped's `Bip01`, a mount's `mount_`. A Biped's bare `Bip01`
+    // IS its centre of mass.
+    while (!words.empty() && (words.back() == "jnt" || words.back() == "joint" || words.back() == "bind")) {
         words.pop_back();
     }
     if (words.size() >= 2 && words[0] == "bip" && IsNumber(words[1])) {
@@ -198,7 +199,7 @@ NameRead ReadName(const std::string& name) {
     // Exclusions first: a ribbon or an effect riding a hand is not a hand, and
     // cloth, straps and hair hang off a limb without being one.
     if (AnyOf(words, {"ribbon", "fx", "sfx", "vfx", "cloth", "loincloth", "tassel", "rein", "stirrup",
-                      "mane", "cape", "hair", "skirt", "strap", "stretch", "nub"})) {
+                      "mane", "cape", "hair", "skirt", "strap", "stretch", "nub", "spell", "wing"})) {
         return read;
     }
     if (Matches(words, {"hd", "anim"})) {
@@ -211,6 +212,13 @@ NameRead ReadName(const std::string& name) {
     const bool legish = MatchesAny(words, {{"leg"}, {"thigh"}, {"calf"}, {"shin"}, {"knee"},
                                            {"foot"}, {"upleg"}, {"lowleg"}, {"foreleg"}, {"hindleg"}});
     const RigLimb limb = armish ? RigLimb::Arm : legish ? RigLimb::Leg : RigLimb::Other;
+    bool bareHip = false;
+    if (read.side != RigSide::Centre) {
+        const auto hip = std::find(words.begin(), words.end(), "hip");
+        bareHip = hip != words.end() && std::all_of(hip + 1, words.end(), [](const std::string& word) {
+            return word == "skin" || word == "point" || word == "joint" || word == "ctrl";
+        });
+    }
 
     if (Contains(words, "twist") || Has(words, "roll")) {
         read.role = RigRole::Twist;
@@ -225,11 +233,15 @@ NameRead ReadName(const std::string& name) {
         read.limb = RigLimb::Leg;
         return read;
     }
-    if (AnyOf(words, {"kneecap", "kneepad", "armpad", "elbowpad", "pauldron", "shoulderpad", "pad"}) ||
+    // A sided plate is armour: Diablo III's `left_hipPlate` is on the thigh,
+    // not the pelvis.
+    const bool plate = read.side != RigSide::Centre && Has(words, "plate");
+    if (AnyOf(words, {"kneecap", "kneepad", "armpad", "elbowpad", "pauldron", "shoulderpad", "pad"}) || plate ||
         Contains(words, "pauldron") || Contains(words, "kneecap")) {
         read.role = RigRole::Pad;
-        read.limb = AnyOf(words, {"kneecap", "kneepad"}) || Contains(words, "kneecap") ? RigLimb::Leg
-                                                                                       : RigLimb::Arm;
+        read.limb = AnyOf(words, {"kneecap", "kneepad", "hip"}) || Contains(words, "kneecap") || legish
+                        ? RigLimb::Leg
+                        : RigLimb::Arm;
         return read;
     }
     if (AnyOf(words, {"weapon", "shield", "sword", "book", "axe", "hammer", "mace", "staff", "spear",
@@ -281,13 +293,19 @@ NameRead ReadName(const std::string& name) {
         read.role = RigRole::Upper;
         read.limb = RigLimb::Arm;
     } else if (MatchesAny(words, {{"lwr", "arm"}, {"low", "arm"}, {"lower", "arm"}, {"fore", "arm"},
-                                  {"arm", "fore"}})) {
+                                  {"arm", "fore"}, {"elbow"}})) {
+        // StarCraft II's story rigs name a joint by where it sits: the
+        // `LeftElbow` bone is the forearm.
         read.role = RigRole::Lower;
         read.limb = RigLimb::Arm;
     } else if (AnyOf(words, {"hand", "palm", "wrist"})) {
         read.role = RigRole::End;
         read.limb = RigLimb::Arm;
-    } else if (MatchesAny(words, {{"thigh"}, {"upper", "leg"}, {"up", "leg"}, {"upr", "leg"}})) {
+    } else if (MatchesAny(words, {{"thigh"}, {"upper", "leg"}, {"up", "leg"}, {"upr", "leg"}}) || bareHip) {
+        // A hip with a side and nothing after it is the joint the thigh turns
+        // on (`NOV_Ctrl_LeftHip_SkinPoint`, `hip_L`); one without a side is the
+        // pelvis, and `hip_plate_R1`, `R_ft_hipClth_01` are armour on it.
+        read.sidedHip = bareHip;
         read.role = RigRole::Upper;
         read.limb = RigLimb::Leg;
     } else if (MatchesAny(words, {{"calf"}, {"shin"}, {"lower", "leg"}, {"low", "leg"},
@@ -299,19 +317,26 @@ NameRead ReadName(const std::string& name) {
         // HD's foot is `bone_leg_left`: the word `leg` and nothing else.
         read.role = RigRole::End;
         read.limb = RigLimb::Leg;
-    } else if (AnyOf(words, {"clavicle", "collar", "shoulder"})) {
+        read.bareLeg = !AnyOf(words, {"foot", "ankle", "paw", "hoof"});
+    } else if (words.size() == 1 && words[0] == "arm" && read.side != RigSide::Centre) {
+        // A bare sided arm is the upper arm: StarCraft II's `Bone_ArmR` over
+        // its forearm, and World of Warcraft's `ArmR` key bone.
+        read.role = RigRole::Upper;
+        read.limb = RigLimb::Arm;
+    } else if (AnyOf(words, {"clavicle", "collar", "shoulder", "scapula"})) {
         read.role = RigRole::Clavicle;
         read.limb = RigLimb::Arm;
     } else if (Has(words, "neck")) {
         read.role = RigRole::Neck;
     } else if (Has(words, "head")) {
         read.role = RigRole::Head;
-    } else if (AnyOf(words, {"pelvis", "turret", "root", "com", "cog", "hips"})) {
+    } else if (AnyOf(words, {"pelvis", "turret", "root", "com", "cog", "hips", "hip", "body"})) {
         read.body = true;
         read.stage = words.size() == 1 && words[0] == "root";
         read.role = RigRole::Body;
     } else if (Contains(words, "spine") ||
-               AnyOf(words, {"chest", "torso", "abdomen", "belly", "ribcage", "waist"})) {
+               AnyOf(words, {"chest", "torso", "abdomen", "belly", "ribcage", "waist", "stomach"}) ||
+               MatchesAny(words, {{"lower", "back"}, {"upper", "back"}, {"mid", "back"}})) {
         read.role = RigRole::Spine;
     }
     return read;
@@ -396,6 +421,45 @@ void LineTier(Work& work) {
                role == RigRole::Spine || role == RigRole::Neck || role == RigRole::Head;
     };
     const u32 count = work.tree.size();
+    // A clavicle under a clavicle is the upper arm: `LeftCollar` holds the
+    // `LeftShoulder` joint, where the arm turns.
+    for (u32 n = 0; n < count; ++n) {
+        const u32 parent = work.Parent(n);
+        if (parent != kInvalidNode && work.rig[n].role == RigRole::Clavicle &&
+            work.rig[parent].role == RigRole::Clavicle && guessed(n)) {
+            work.rig[n].role = RigRole::Upper;
+        }
+    }
+    // A sided hip with a named thigh below it is only above the leg.
+    for (u32 n = 0; n < count; ++n) {
+        if (!work.names[n].sidedHip || work.rig[n].role != RigRole::Upper || !guessed(n)) {
+            continue;
+        }
+        for (const u32 below : work.tree.subtree(n)) {
+            if (below != n && work.rig[below].role == RigRole::Upper && !work.names[below].sidedHip) {
+                NodeRig& rig = work.rig[n];
+                rig.role = RigRole::None;
+                rig.side = RigSide::Centre;
+                rig.limb = RigLimb::Other;
+                rig.source = RigSource::None;
+                break;
+            }
+        }
+    }
+    // A bare `leg` with a knee or a foot below it in its line is the thigh.
+    for (u32 n = 0; n < count; ++n) {
+        if (work.rig[n].role != RigRole::End || !work.names[n].bareLeg || !guessed(n)) {
+            continue;
+        }
+        for (const u32 below : work.tree.subtree(n)) {
+            const RigRole role = work.rig[below].role;
+            if (below != n && (role == RigRole::Lower || (role == RigRole::End && !work.names[below].bareLeg &&
+                                                          work.names[below].index == 0))) {
+                work.rig[n].role = RigRole::Upper;
+                break;
+            }
+        }
+    }
     // An End with another End above it in the line is past that one.
     std::vector<u32> past;
     for (u32 n = 0; n < count; ++n) {

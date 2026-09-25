@@ -179,6 +179,27 @@ void FileTier(Work& work) {
         }
     }
 
+    // The fingers (8 to 12 the right hand's, 13 to 17 the left's) hang from
+    // the hand: where most of a side's fingers meet is its End, on the rigs
+    // that key no hand bone of their own.
+    for (const auto& [first, side] : {std::pair{8, RigSide::Right}, std::pair{13, RigSide::Left}}) {
+        std::vector<u32> votes(count, 0);
+        u32 best = kInvalidNode;
+        for (u32 n = 0; n < count; ++n) {
+            const i64 key = tree.nodes[n].native.value("keyBoneId", kNoKey);
+            const u32 parent = work.Parent(n);
+            if (key < first || key >= first + 5 || !work.IsJoint(parent)) {
+                continue;
+            }
+            if (++votes[parent] > (best == kInvalidNode ? 0 : votes[best])) {
+                best = parent;
+            }
+        }
+        if (best != kInvalidNode && votes[best] >= 2) {
+            work.Set(best, RigRole::End, side, RigLimb::Arm, RigSource::File);
+        }
+    }
+
     // Limb attachments. Nearly every one is parked on a leaf bone of its own
     // (1,772 of the 1,807 anchors measured have no children), so the End is
     // the anchor's parent when the anchor is a leaf and the anchor otherwise,
@@ -554,7 +575,9 @@ void LimbKinds(Work& work) {
         f32 low = std::numeric_limits<f32>::max();
         f32 high = -low;
         for (u32 n = 0; n < count; ++n) {
-            if (of[n] != f) {
+            // Joints only: a Diablo III hardpoint can sit a body's height away
+            // (`HP_emit`), and a figure that tall has its hands level with its feet.
+            if (of[n] != f || !work.IsJoint(n)) {
                 continue;
             }
             low = std::min(low, work.point[n].z);

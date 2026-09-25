@@ -1261,7 +1261,8 @@ private:
         // Every clip owes a slot-0 stream, whether or not it carries events of
         // its own, because the end marker lives in it.
         bool eventsPending = true;
-        for (const SubTrackContainer& container : clip.containers) {
+        // Split body: the clip's track sets become containers of their own.
+        for (const SubTrackContainer& container : LayeredContainers(clip, model_.trackSets)) {
             const u32 index = buildContainer(container, clip, origin, eventsPending);
             if (index != kInvalidIndex) {
                 group.subtrackIndices.push_back(index);

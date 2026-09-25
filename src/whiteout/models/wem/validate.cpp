@@ -257,6 +257,15 @@ void checkAnimation(const Document& document, Diagnostics& out) {
                      where);
         }
 
+        for (const ClipTrackSet& use : clip.trackSets) {
+            if (use.set >= document.models[clip.model].trackSets.size()) {
+                out.error(DiagCode::ClipTargetMissing,
+                          "clip '" + clip.name + "' plays track set " + number(use.set) + " of " +
+                              number(document.models[clip.model].trackSets.size()),
+                          where);
+            }
+        }
+
         const AnimChannelTable& table = document.models[clip.model].animChannels;
         for (std::size_t k = 0; k < clip.containers.size(); ++k) {
             for (const SubTrack& track : clip.containers[k].subTracks) {

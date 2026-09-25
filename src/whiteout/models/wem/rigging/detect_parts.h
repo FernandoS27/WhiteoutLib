@@ -41,6 +41,13 @@ struct NameRead {
     /// `leg_L0_end_jnt`: a chain terminator, the End by construction. The
     /// shape tier leaves it where it is, however short its own bone.
     bool terminator = false;
+    /// The word `leg` alone: HD's foot (`bone_leg_left`), but StarCraft II's
+    /// thigh (`Bone Leg R`, over its `Bone Shin R` and `Bone Foot R`). Which
+    /// one is what hangs below it (`LineTier`).
+    bool bareLeg = false;
+    /// `LeftHip`: a thigh where the rig names its joints by where they turn,
+    /// but a joint above the thigh where it names the thigh too (`LineTier`).
+    bool sidedHip = false;
 };
 
 NameRead ReadName(const std::string& name);

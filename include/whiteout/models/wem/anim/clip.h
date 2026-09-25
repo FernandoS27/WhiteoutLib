@@ -220,6 +220,23 @@ struct ClipEvent {
 using ClipNative = NativeBag;
 
 /**
+ * @brief One of the model's `TrackSet`s this clip plays on a layer of its own.
+ *
+ * Every clip also plays the "default" set — whatever no listed set claims — in
+ * its own containers, at their priority.
+ */
+struct ClipTrackSet {
+    u32 set = kInvalidIndex; ///< -> the clip's `Model::trackSets`.
+    i32 priority = 0;        ///< The layer's STC `animPriority`.
+
+    template <class V>
+    void reflect(V& v) {
+        v.field("set", set);
+        v.field("priority", priority);
+    }
+};
+
+/**
  * @brief One playable animation. M3's SEQS plus its STG_.
  *
  * `model` exists because a document holds several models (§9.1) and a channel id
@@ -254,6 +271,10 @@ struct Clip {
      */
     Extent bounds;
 
+    /// The track sets this clip plays split out of container 0; see
+    /// `LayeredContainers`.
+    std::vector<ClipTrackSet> trackSets;
+
     template <class V>
     void reflect(V& v) {
         v.field("name", name);
@@ -267,8 +288,25 @@ struct Clip {
         // v2: a clip written before this field carries no bounds, and a
         // degenerate extent is exactly what "the source did not say" means.
         v.since(2).field("bounds", bounds);
+        // v3: the track sets it plays; none before.
+        v.since(3).field("trackSets", trackSets);
     }
 };
+
+/**
+ * @brief @p clip's containers as a layering format writes them: container 0
+ *        split by the clip's `trackSets`, and the rest unchanged.
+ *
+ * Each listed set becomes a **transparent** container named after it, holding
+ * container 0's sub-tracks for the set's channels, at the listed priority —
+ * transparent because an opaque one would force every channel it lacks to rest
+ * and override the whole body. What no listed set claims stays in container 0,
+ * which keeps its name, priority and opacity: StarCraft II's "Default Track
+ * Set". Sets come first, highest priority first, and a channel two of them
+ * share goes to the higher; a set with nothing keyed in this clip is left out.
+ * A clip listing no set comes back as it is.
+ */
+std::vector<SubTrackContainer> LayeredContainers(const Clip& clip, const std::vector<TrackSet>& sets);
 
 /**
  * @brief One clip's travel speed, in document units per second — MDX's

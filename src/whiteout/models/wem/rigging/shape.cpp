@@ -19,6 +19,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <vector>
 
 namespace whiteout {
 namespace models {
@@ -235,11 +237,107 @@ void ReanchorEnds(Work& work, Shape& shape) {
     }
 }
 
+/// Legs no label names (§3.2's shape, measured on the older World of Warcraft
+/// creatures: no leg key bone and no foot attachment): two mirrored chains
+/// reaching the ground. A leaf on the ground under a joint that is itself
+/// low is a toe, and that joint the ankle; otherwise the leaf is the foot.
+/// Only on a rig no source gave a leg End.
+void GroundLegs(Work& work, Shape& shape) {
+    const u32 count = work.tree.size();
+    f32 low = std::numeric_limits<f32>::max();
+    for (u32 n = 0; n < count; ++n) {
+        if (!work.IsJoint(n)) {
+            continue;
+        }
+        if (work.rig[n].role == RigRole::End && work.rig[n].limb == RigLimb::Leg) {
+            return;
+        }
+        low = std::min(low, work.point[n].z);
+    }
+    const f32 tall = work.height;
+    const f32 near = 0.05f * tall;
+    struct Foot {
+        u32 end;
+        u32 toe;
+    };
+    std::vector<Foot> feet;
+    for (u32 n = 0; n < count; ++n) {
+        if (!work.IsJoint(n) || !work.joints[n].empty() || work.point[n].z - low > 0.06f * tall ||
+            std::abs(work.point[n].y) < 0.02f * tall) {
+            continue;
+        }
+        const u32 up = work.Parent(n);
+        const bool ankle = up != kInvalidNode && work.Free(up) && work.point[up].z - low < 0.2f * tall &&
+                           shape.Segment(n) >= shape.tiny;
+        feet.push_back(ankle ? Foot{up, n} : Foot{n, kInvalidNode});
+    }
+    // Up past the passengers: the joint above @p node that bends.
+    const auto bending = [&](u32 node) {
+        u32 up = work.Parent(node);
+        while (up != kInvalidNode && shape.Segment(up) < shape.tiny) {
+            up = work.Parent(up);
+        }
+        return up;
+    };
+    for (const Foot& foot : feet) {
+        const Vector3f at = work.point[foot.end];
+        u32 twin = kInvalidNode;
+        for (const Foot& other : feet) {
+            const Vector3f there = work.point[other.end];
+            if (other.end != foot.end && std::abs(at.y + there.y) < near && std::abs(at.x - there.x) < near &&
+                std::abs(at.z - there.z) < near) {
+                twin = other.end;
+            }
+        }
+        // The knee and the hip, taken as they come: the twin says this is a
+        // leg, so a loincloth hanging off the hip does not make it a trunk.
+        // A hip the twin hangs from too is the pelvis, and no leg.
+        const u32 knee = twin == kInvalidNode ? kInvalidNode : bending(foot.end);
+        const u32 hip = knee == kInvalidNode ? kInvalidNode : bending(knee);
+        if (hip == kInvalidNode || work.Under(twin, hip) || !work.Free(foot.end) || !work.Free(knee) ||
+            !work.Free(hip)) {
+            continue;
+        }
+        const RigSide side = at.y > 0.0f ? RigSide::Left : RigSide::Right;
+        work.Set(foot.end, RigRole::End, side, RigLimb::Leg, RigSource::Shape);
+        work.Set(knee, RigRole::Lower, side, RigLimb::Leg, RigSource::Shape);
+        work.Set(hip, RigRole::Upper, side, RigLimb::Leg, RigSource::Shape);
+        if (foot.toe != kInvalidNode) {
+            work.Set(foot.toe, RigRole::Toe, side, RigLimb::Leg, RigSource::Shape);
+        }
+    }
+}
+
+/// An End whose line reaches a named Upper one joint up: that joint is the
+/// Lower, whatever else hangs from it. A ghoul's claws hang off its forearm,
+/// and the walk would stop there as at a chest.
+void LowerUnderUpper(Work& work, Shape& shape) {
+    for (u32 end = 0; end < work.tree.size(); ++end) {
+        if (!work.IsJoint(end) || work.rig[end].role != RigRole::End) {
+            continue;
+        }
+        u32 lower = work.Parent(end);
+        while (lower != kInvalidNode && (work.rig[lower].role == RigRole::Twist ||
+                                         (work.Free(lower) && shape.Segment(lower) < shape.tiny))) {
+            lower = work.Parent(lower);
+        }
+        const u32 upper = work.Parent(lower);
+        if (lower == kInvalidNode || upper == kInvalidNode || !work.Free(lower) ||
+            work.rig[upper].role != RigRole::Upper || work.Free(upper)) {
+            continue;
+        }
+        const NodeRig& at = work.rig[end];
+        work.Set(lower, RigRole::Lower, at.side, at.limb, RigSource::Shape);
+    }
+}
+
 } // namespace
 
 void ShapeTier(Work& work) {
     Shape shape(work);
     const u32 count = work.tree.size();
+    GroundLegs(work, shape);
+    LowerUnderUpper(work, shape);
     // An End the guesses above put below its limb is moved up first, so the
     // chain below is walked from where the limb really ends.
     ReanchorEnds(work, shape);

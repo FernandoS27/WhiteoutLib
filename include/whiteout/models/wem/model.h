@@ -176,6 +176,10 @@ struct Model {
     /// How the `.mdx` export makes levels of detail (`LodExport`).
     LodExport lodExport;
 
+    /// The named channel groups clips play on layers of their own
+    /// (`Clip::trackSets`).
+    std::vector<TrackSet> trackSets;
+
     /// The set for @p profile, or null. Sets are unordered in the vector and
     /// there is at most one per profile — a second is a structural error.
     const ProfileMaterialSet* setFor(ProfileId profile) const;
@@ -213,6 +217,8 @@ struct Model {
         // v5: which saved pose is the T-pose. A `MODL` written before it has
         // none, which is what `kInvalidIndex` says.
         v.since(5).field("tPose", tPose);
+        // v6: the track sets; none before.
+        v.since(6).field("trackSets", trackSets);
     }
 };
 

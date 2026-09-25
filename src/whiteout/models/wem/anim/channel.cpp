@@ -3,6 +3,7 @@
 
 #include <whiteout/models/wem/anim/channel.h>
 
+#include <algorithm>
 #include <iterator>
 #include <span>
 
@@ -347,6 +348,10 @@ u32 AnimChannelTable::nextFreeId() const {
         }
     }
     return highest;
+}
+
+bool TrackSet::contains(u32 channel) const {
+    return std::find(channels.begin(), channels.end(), channel) != channels.end();
 }
 
 } // namespace wem

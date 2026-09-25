@@ -277,6 +277,24 @@ const char* KeyBoneName(i32 key) {
     };
     static constexpr const char* kWheels[] = {"Wheel1", "Wheel2", "Wheel3", "Wheel4",
                                               "Wheel5", "Wheel6", "Wheel7", "Wheel8"};
+    // The later rigs' bones (wowdev.wiki M2, Key-Bone Lookup), 35 to 89; 46
+    // and 47 are unlisted.
+    static constexpr const char* kLater[] = {
+        "FaceAttenuation",   "EXP_C1_Cape1",      "EXP_C1_Cape2",      "EXP_C1_Cape3",
+        "EXP_C1_Cape4",      "EXP_C1_Cape5",      "EXP_C1_Tail1",      "EXP_C1_Tail2",
+        "EXP_C1_LoinBk1",    "EXP_C1_LoinBk2",    "EXP_C1_LoinBk3",    nullptr,
+        nullptr,             "EXP_C1_Spine2",     "EXP_C1_Neck1",      "EXP_C1_Neck2",
+        "EXP_C1_Pelvis1",    "Buckle",            "Chest",             "Main",
+        "EXP_R1_Leg1Twist1", "EXP_L1_Leg1Twist1", "EXP_R1_Leg2Twist1", "EXP_L1_Leg2Twist1",
+        "FootL",             "FootR",             "ElbowR",            "ElbowL",
+        "EXP_L1_Shield1",    "HandR",             "HandL",             "WeaponR",
+        "WeaponL",           "SpellHandL",        "SpellHandR",        "EXP_R1_Leg1Twist3",
+        "EXP_L1_Leg1Twist3", "EXP_R1_Arm1Twist2", "EXP_L1_Arm1Twist2", "EXP_R1_Arm1Twist3",
+        "EXP_L1_Arm1Twist3", "EXP_R1_Arm2Twist2", "EXP_L1_Arm2Twist2", "EXP_R1_Arm2Twist3",
+        "EXP_L1_Arm2Twist3", "ForearmR",          "ForearmL",          "EXP_R1_Arm1Twist1",
+        "EXP_L1_Arm1Twist1", "EXP_R1_Arm2Twist1", "EXP_L1_Arm2Twist1", "EXP_R1_FingerClawA1",
+        "EXP_R1_FingerClawB1", "EXP_L1_FingerClawA1", "EXP_L1_FingerClawB1",
+    };
     if (key >= 0 && key < static_cast<i32>(std::size(kFirst))) {
         return kFirst[key];
     }
@@ -285,6 +303,9 @@ const char* KeyBoneName(i32 key) {
     }
     if (key >= 27 && key <= 34) {
         return kWheels[key - 27];
+    }
+    if (key >= 35 && key < 35 + static_cast<i32>(std::size(kLater))) {
+        return kLater[key - 35];
     }
     return nullptr;
 }
