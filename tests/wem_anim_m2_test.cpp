@@ -685,3 +685,11 @@ TEST_CASE("wem m2 a layer with no texture animation says so", "[wem][anim][m2][m
     CHECK(out.value->textureAnimations.empty());
     CHECK(out.value->materials[0].layers[0].textureAnimationId == 0xFFFFFFFFu);
 }
+
+TEST_CASE("wem a clip read from an .m2 is read by the Wow rule", "[wem][anim][rule]") {
+    const Document document = convert(makeModel());
+    REQUIRE_FALSE(document.clips.empty());
+    for (const Clip& clip : document.clips) {
+        CHECK(clip.readRule == ReadRule::Wow);
+    }
+}

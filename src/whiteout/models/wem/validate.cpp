@@ -3,9 +3,12 @@
 
 #include <whiteout/models/wem/validate.h>
 
+#include <algorithm>
 #include <cmath>
 #include <string>
 
+#include <whiteout/models/wem/anim/clip.h>
+#include <whiteout/models/wem/anim/track_read.h>
 #include <whiteout/models/wem/document.h>
 #include <whiteout/models/wem/geometry/checks.h>
 #include <whiteout/models/wem/materials/ops.h>
@@ -435,6 +438,86 @@ void checkNativeKinds(const Document& document, Diagnostics& out) {
     }
 }
 
+/// Whether @p container keys @p channel: a sub-track with a key.
+bool Keys(const SubTrackContainer& container, u32 channel) {
+    const SubTrack* track = container.find(channel);
+    return track != nullptr && !track->times.empty();
+}
+
+/// Layers only matter when plays mix (WEM_ANIMATION_RUNTIME_DESIGN.md §3.4,
+/// §3.5). Under a game that plays one sequence at a time that has to hold by
+/// construction: a track set above everything it splits from, and no channel
+/// on two clocks. Under StarCraft II both are legal, and a clip's keys a
+/// concurrent global covers are only worth a warning.
+void checkLayering(const Document& document, Diagnostics& out) {
+    const Game game = GameOf(document.defaultProfile);
+    if (game != Game::Warcraft && game != Game::StarCraft) {
+        return;
+    }
+    for (std::size_t c = 0; c < document.clips.size(); ++c) {
+        const Clip& clip = document.clips[c];
+        if (game != Game::Warcraft || clip.model >= document.models.size() ||
+            clip.containers.empty()) {
+            continue;
+        }
+        const std::vector<TrackSet>& sets = document.models[clip.model].trackSets;
+        for (const ClipTrackSet& use : clip.trackSets) {
+            if (use.set >= sets.size()) {
+                continue;
+            }
+            const i32 floor = TrackSetFloor(clip, sets[use.set]);
+            if (use.priority <= floor) {
+                out.error(DiagCode::TrackSetBelowDefault,
+                          "clip '" + clip.name + "' plays track set '" + sets[use.set].name +
+                              "' at priority " + std::to_string(use.priority) +
+                              ", which must be above " + std::to_string(floor),
+                          ElementRef(ElementKind::Clip, static_cast<u32>(c)));
+            }
+        }
+    }
+
+    for (std::size_t g = 0; g < document.clips.size(); ++g) {
+        const Clip& global = document.clips[g];
+        if (!hasFlag(global.flags, ClipFlags::AutoPlay) || global.model >= document.models.size()) {
+            continue;
+        }
+        for (const SubTrackContainer& owner : global.containers) {
+            for (const SubTrack& track : owner.subTracks) {
+                if (track.times.empty()) {
+                    continue;
+                }
+                for (std::size_t c = 0; c < document.clips.size(); ++c) {
+                    const Clip& clip = document.clips[c];
+                    if (c == g || clip.model != global.model ||
+                        hasFlag(clip.flags, ClipFlags::AutoPlay)) {
+                        continue;
+                    }
+                    for (const SubTrackContainer& container : clip.containers) {
+                        if (!Keys(container, track.channel)) {
+                            continue;
+                        }
+                        const ElementRef where(ElementKind::Clip, static_cast<u32>(c));
+                        if (game == Game::Warcraft) {
+                            out.error(DiagCode::GlobalAndClipChannel,
+                                      "channel " + std::to_string(track.channel) +
+                                          " is keyed by global loop '" + global.name +
+                                          "' and by clip '" + clip.name + "'",
+                                      where);
+                        } else if (owner.concurrent && container.priority <= owner.priority) {
+                            out.warn(DiagCode::GlobalAndClipChannel,
+                                     "clip '" + clip.name + "' keys channel " +
+                                         std::to_string(track.channel) + ", which global loop '" +
+                                         global.name + "' covers",
+                                     where);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// The §10.6 node row animation adds: a channel's target and an event's node.
 ///
 /// Profile-level rather than structural because it is the same class of check as
@@ -444,6 +527,75 @@ void checkAnimReferencers(const Document& document, Diagnostics& out) {
     for (std::size_t m = 0; m < document.models.size(); ++m) {
         const Model& model = document.models[m];
         const u32 nodeCount = model.nodes.size();
+
+        // The pose stages (WEM_ANIMATION_RUNTIME_DESIGN.md §5.1): their nodes,
+        // constraints and IK before any physics, and no node a global loop
+        // keys — baked into a clip, a global's phase would freeze and then
+        // play twice.
+        bool physics = false;
+        for (const PoseStage& stage : model.poseStages) {
+            for (const std::vector<u32>* nodes : {&stage.driven, &stage.targets}) {
+                for (const u32 node : *nodes) {
+                    if (node >= nodeCount) {
+                        out.error(DiagCode::DanglingNodeReference,
+                                  "pose stage '" + stage.name + "' names node " + number(node) + " of " +
+                                      number(nodeCount),
+                                  ElementRef(ElementKind::Node, node));
+                    }
+                }
+            }
+            // A source names a node, except a Link's world; its channel names it
+            // by id, so two may not share one.
+            std::vector<u32> ids;
+            for (const StageSource& source : stage.sources) {
+                const bool world = stage.kind == StageKind::Link && source.node == kInvalidNode;
+                if (!world && source.node >= nodeCount) {
+                    out.error(DiagCode::DanglingNodeReference,
+                              "pose stage '" + stage.name + "' reads node " + number(source.node) + " of " +
+                                  number(nodeCount),
+                              ElementRef(ElementKind::Node, source.node));
+                }
+                if (source.id == 0 || std::find(ids.begin(), ids.end(), source.id) != ids.end()) {
+                    out.error(DiagCode::AnimStageInvalid,
+                              "pose stage '" + stage.name + "' has two sources, or a source, numbered " +
+                                  number(source.id),
+                              ElementRef());
+                }
+                ids.push_back(source.id);
+            }
+            if (IsPhysicsStage(stage.kind)) {
+                physics = true;
+            } else if (physics) {
+                out.error(DiagCode::AnimStageInvalid,
+                          "pose stage '" + stage.name + "' runs after a physics stage; constraints and IK run first",
+                          ElementRef());
+            }
+            for (const Clip& clip : document.clips) {
+                if (clip.model != m || !IsGlobalLoop(clip)) {
+                    continue;
+                }
+                // Once per node: which of its channels the loop keys is the
+                // same fault.
+                for (const u32 node : stage.driven) {
+                    const bool keyed = std::any_of(
+                        model.animChannels.channels.begin(), model.animChannels.channels.end(),
+                        [&](const AnimChannel& channel) {
+                            return channel.target.kind == TrackTarget::Kind::Node && channel.target.node == node &&
+                                   !IsStageChannel(channel.target) &&
+                                   std::any_of(clip.containers.begin(), clip.containers.end(),
+                                               [&](const SubTrackContainer& container) {
+                                                   return Keys(container, channel.id);
+                                               });
+                        });
+                    if (keyed) {
+                        out.error(DiagCode::GlobalAndClipChannel,
+                                  "pose stage '" + stage.name + "' drives a node global loop '" + clip.name +
+                                      "' keys",
+                                  ElementRef(ElementKind::Node, node));
+                    }
+                }
+            }
+        }
 
         for (const AnimChannel& channel : model.animChannels.channels) {
             if (channel.target.kind != TrackTarget::Kind::Node) {
@@ -841,7 +993,8 @@ constexpr ValidationRule kStructuralRules[] = {
 };
 constexpr ValidationRule kManifoldRules[] = {checkMeshManifold, nullptr};
 constexpr ValidationRule kProfileRules[] = {
-    checkCoverage, checkMaterialLimits, checkGeometryLimits, checkAnimReferencers, nullptr,
+    checkCoverage,        checkMaterialLimits, checkGeometryLimits,
+    checkAnimReferencers, checkLayering,       nullptr,
 };
 
 /// The tables above carry a `nullptr` terminator because a zero-sized array is

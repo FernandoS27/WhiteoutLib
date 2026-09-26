@@ -115,6 +115,17 @@ enum class Channel : u8 {
     LinearFalloff,      ///< F32. MDX KLLF (v1600).
     Damping,            ///< F32. MDX KLDA (v1600).
 
+    /// F32. A pose stage's weight, on its first driven node with `sub` the
+    /// stage's id (WEM_ANIMATION_RUNTIME_DESIGN.md §5.1). The editor's own:
+    /// every exporter skips it, and an export's bake consumes it.
+    StageWeight,
+    /// F32. A constraint source's weight, on the stage's driven node with
+    /// `sub` `StageSub(stage, source)`. The editor's own, as `StageWeight` is.
+    StageSourceWeight,
+    /// F32. Whether a Link's source is enabled (above 0.5), held from key to
+    /// key as a visibility is; placed as `StageSourceWeight` is.
+    StageSourceEnabled,
+
     Count
 };
 
@@ -218,6 +229,19 @@ constexpr bool IsMaterialTarget(TrackTarget::Kind kind) {
 // ============================================================================
 // AnimChannel
 // ============================================================================
+
+/// Whether @p target is a pose stage's weight (`Channel::StageWeight`).
+constexpr bool IsStageWeight(const TrackTarget& target) {
+    return target.kind == TrackTarget::Kind::Node && target.channel == Channel::StageWeight;
+}
+
+/// Whether @p target is one of a pose stage's own channels, which no format
+/// carries: its weight, a source's weight, a Link source's Enabled.
+constexpr bool IsStageChannel(const TrackTarget& target) {
+    return target.kind == TrackTarget::Kind::Node &&
+           (target.channel == Channel::StageWeight || target.channel == Channel::StageSourceWeight ||
+            target.channel == Channel::StageSourceEnabled);
+}
 
 /**
  * @brief One animatable property, declared once. M3's AnimRef, hoisted out of

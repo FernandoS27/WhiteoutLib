@@ -238,6 +238,7 @@ u32 WriteStream(m3::SubTrackContainer& stc, const StreamSpec& spec, const SubTra
     const std::size_t size = geom::AttrTypeSize(spec.type);
     const std::size_t stride = ValuesPerKey(track.interp) * size;
     const auto at = [&](std::size_t key) { return track.values.data() + key * stride; };
+    const bool keyForKey = spec.rule == ReadRule::Sc2;
 
     // Which keys the sequence plays.
     //
@@ -270,7 +271,9 @@ u32 WriteStream(m3::SubTrackContainer& stc, const StreamSpec& spec, const SubTra
     const f32 slack = duration > 0 ? duration : track.times.empty() ? 0 : track.times.back();
     for (std::size_t k = 0; k < track.times.size(); ++k) {
         const f32 time = track.times[k];
-        if (time < -1e-4f) {
+        if (keyForKey) {
+            kept.push_back(k);
+        } else if (time < -1e-4f) {
             entry = static_cast<std::ptrdiff_t>(k);
         } else if (time <= slack + 1e-4f) {
             kept.push_back(k);
@@ -283,7 +286,9 @@ u32 WriteStream(m3::SubTrackContainer& stc, const StreamSpec& spec, const SubTra
         (kept.empty() || Ticks(track.times[kept.front()]) > 0)) {
         kept.insert(kept.begin(), static_cast<std::size_t>(entry));
     }
-    if (kept.empty()) {
+    // An empty `Sc2` track is a bound block with nothing in it, which the
+    // engine plays as the rest even on a transparent layer: it is written.
+    if (kept.empty() && !(keyForKey && track.times.empty())) {
         return kInvalidIndex;
     }
 
@@ -331,13 +336,28 @@ u32 WriteStream(m3::SubTrackContainer& stc, const StreamSpec& spec, const SubTra
         }
     }
     for (std::size_t k : kept) {
-        const f32 time = track.times[k] < 0.0f ? 0.0f : track.times[k];
-        stamps.push_back(origin + Ticks(time));
+        const f32 time = track.times[k] < 0.0f && !keyForKey ? 0.0f : track.times[k];
+        stamps.push_back(std::max(origin + Ticks(time), 0));
         values.push_back(at(k));
     }
     if (wrapEnd) {
         stamps.push_back(origin + Ticks(duration));
         values.push_back(wrap.data());
+    }
+    // A windowless clip holds past its last key; M3 would wrap a looping track
+    // there instead, so the hold is keyed at the clip's end, with the value
+    // the clip shows at it.
+    std::vector<u8> held;
+    if (!keyForKey && !warcraft && spec.looping && spec.stream != Stream::Sds6 && !kept.empty() &&
+        duration > 0.0f && Ticks(track.times[kept.back()]) < Ticks(duration)) {
+        const bool floats = spec.type != geom::AttrType::U32;
+        held.assign(at(kept.back()), at(kept.back()) + size);
+        if (floats && track.times.back() > track.times[kept.back()]) {
+            SampleAt(track, static_cast<u32>(size / sizeof(f32)), duration,
+                     reinterpret_cast<f32*>(held.data()));
+        }
+        stamps.push_back(origin + Ticks(duration));
+        values.push_back(held.data());
     }
     const std::size_t count = stamps.size();
     // Every block ends where its sequence does -- 61,344 of 61,344 shipped
@@ -377,9 +397,13 @@ u32 WriteStream(m3::SubTrackContainer& stc, const StreamSpec& spec, const SubTra
             std::memcpy(&value, values[k], sizeof(value));
             out.keys.push_back(spec.unrebaseQuaternion ? UnrebaseRotation(value) : value);
         }
-        AlignHemispheres(out.keys, spec.restQuaternion);
-        if (track.interp != Interpolation::Step) {
-            SubdivideRotations(out.timestamps, out.keys);
+        // Both carry a slerped track into the raw lerp; an `Sc2` track is
+        // already one.
+        if (!keyForKey) {
+            AlignHemispheres(out.keys, spec.restQuaternion);
+            if (track.interp != Interpolation::Step) {
+                SubdivideRotations(out.timestamps, out.keys);
+            }
         }
         block = static_cast<u32>(stc.sd4q.size());
         stc.sd4q.push_back(std::move(out));

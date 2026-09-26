@@ -292,7 +292,9 @@ bool Decode(const m3::SubTrackContainer& stc, u32 animRef, const Declared& chann
         values.clear();
         return false;
     }
-    return !times.empty();
+    // An empty block is kept: StarCraft II plays a bound block with no keys as
+    // the channel's rest even on a transparent layer, where no block abstains.
+    return true;
 }
 
 class Builder {
@@ -566,6 +568,7 @@ private:
         for (std::size_t s = 0; s < source_.sequences.size(); ++s) {
             const m3::Sequence& sequence = source_.sequences[s];
             Clip clip;
+            clip.readRule = ReadRule::Sc2;
             clip.name = TrimNuls(sequence.name);
             clip.model = modelIndex_;
             clip.duration = Seconds(static_cast<f32>(sequence.endFrame) -
@@ -726,6 +729,7 @@ u32 Merge(const m3::Model& external, Document& document, u32 model, Diagnostics&
     for (std::size_t s = 0; s < external.sequences.size(); ++s) {
         const m3::Sequence& sequence = external.sequences[s];
         Clip clip;
+        clip.readRule = ReadRule::Sc2;
         clip.name = TrimNuls(sequence.name);
         clip.model = model;
         clip.duration =
@@ -1303,7 +1307,8 @@ private:
 
         for (const SubTrack& track : source.subTracks) {
             const AnimChannel* channel = model_.animChannels.find(track.channel);
-            if (channel == nullptr) {
+            // A stage's own channels are the editor's; an export's bake consumes them.
+            if (channel == nullptr || IsStageChannel(channel->target)) {
                 continue;
             }
             // A material channel of another profile is the source's spelling
@@ -1334,7 +1339,7 @@ private:
                 continue;
             }
             const u32 animRef =
-                writeStream(stc, *channel, track, origin, clip.duration, warcraft);
+                writeStream(stc, *channel, track, origin, clip, warcraft);
             if (animRef == kInvalidIndex) {
                 continue;
             }
@@ -1345,7 +1350,7 @@ private:
 
         for (const ConvertedTrack& entry : convertedUv) {
             const u32 animRef =
-                writeStream(stc, entry.channel, entry.track, origin, clip.duration, warcraft);
+                writeStream(stc, entry.channel, entry.track, origin, clip, warcraft);
             if (animRef == kInvalidIndex) {
                 continue;
             }
@@ -1414,8 +1419,11 @@ private:
     /// Fills the typed block and returns `(slot << 16) | block`. @p warcraft
     /// says the clip is a Warcraft III window (`WarcraftWindow`).
     u32 writeStream(m3::SubTrackContainer& stc, const AnimChannel& channel, const SubTrack& track,
-                    i32 origin, f32 duration, bool warcraft) {
+                    i32 origin, const Clip& clip, bool warcraft) {
+        const f32 duration = clip.duration;
         m3_sink::StreamSpec spec;
+        spec.rule = clip.readRule;
+        spec.looping = clip.looping;
         spec.stream = StreamFor(channel);
         spec.type = channel.valueType;
         spec.unrebaseVector = RebasesVector(channel);

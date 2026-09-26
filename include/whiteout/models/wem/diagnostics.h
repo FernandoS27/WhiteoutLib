@@ -144,6 +144,14 @@ enum class DiagCode : u16 {
     AnimTrackApproximated,     ///< A track was written, but not as it was held.
     AnimClipRetimed,           ///< A clip was placed on a timeline it did not come from.
     AnimTcbBaked,              ///< TCB parameters written as the Hermite tangents they produce.
+    TrackSetBelowDefault,      ///< A track set's layer does not outrank the layers it splits from.
+    GlobalAndClipChannel,      ///< A channel a global loop keys is keyed by another clip too.
+    AnimTrackResampled,        ///< A track crossing to another read rule got keys to play the same.
+    AnimLayersFlattened,       ///< A clip's layers were baked into one for a format that plays one.
+    AnimStageBaked,            ///< A pose stage was baked into keys on the nodes it drives.
+    AnimStageNotBaked,         ///< A pose stage needs a host's physics and was not baked.
+    ClipRuleConverted,         ///< A clip's keys were rewritten for another game's read rule.
+    AnimStageInvalid,          ///< A pose stage out of order, or with sources it cannot tell apart.
 
     // --- actors (§9) ----------------------------------------------------------
     EventPayloadMismatch, ///< `ActorEvent` kind and payload group disagree (§9.5).

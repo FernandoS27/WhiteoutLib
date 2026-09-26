@@ -12,23 +12,10 @@ namespace wem {
 
 namespace {
 
-/// The three node channels, in the order the slots are kept.
-constexpr Channel kNodeChannels[3] = {Channel::Translation, Channel::Rotation, Channel::Scale};
-
 Vector3f Apply(const Matrix44f& m, const Vector3f& v) {
     return Vector3f{v.x * m.data[0][0] + v.y * m.data[1][0] + v.z * m.data[2][0] + m.data[3][0],
                     v.x * m.data[0][1] + v.y * m.data[1][1] + v.z * m.data[2][1] + m.data[3][1],
                     v.x * m.data[0][2] + v.y * m.data[1][2] + v.z * m.data[2][2] + m.data[3][2]};
-}
-
-const AnimChannel* FindNodeChannel(const AnimChannelTable& table, u32 node, Channel channel) {
-    for (const AnimChannel& entry : table.channels) {
-        if (entry.target.kind == TrackTarget::Kind::Node && entry.target.node == node &&
-            entry.target.channel == channel && entry.target.sub == 0) {
-            return &entry;
-        }
-    }
-    return nullptr;
 }
 
 } // namespace
@@ -96,7 +83,7 @@ Matrix44f PivotComposition(const Transform& trs, const Vector3f& pivot) {
     return out;
 }
 
-ClipPose::ClipPose(const Document& document, u32 model, u32 clip) {
+ClipPose::ClipPose(const Document& document, u32 model, u32 clip) : animator_(document, model) {
     if (model >= document.models.size() || clip >= document.clips.size()) {
         return;
     }
@@ -105,115 +92,56 @@ ClipPose::ClipPose(const Document& document, u32 model, u32 clip) {
         return;
     }
     tree_ = &owner.nodes;
-    slots_.assign(static_cast<std::size_t>(tree_->size()) * 3, Slot{});
-    for (u32 n = 0; n < tree_->size(); ++n) {
-        for (u32 c = 0; c < 3; ++c) {
-            const AnimChannel* channel = FindNodeChannel(owner.animChannels, n, kNodeChannels[c]);
-            if (channel == nullptr) {
-                continue;
-            }
-            Slot& slot = slots_[static_cast<std::size_t>(n) * 3 + c];
-            slot.channel = channel;
-            slot.type = channel->valueType;
-            for (const SubTrackContainer& container : document.clips[clip].containers) {
-                if (const SubTrack* track = container.find(channel->id)) {
-                    slot.track = track;
-                    break;
-                }
-            }
-            if (slot.track != nullptr) {
-                times_.insert(times_.end(), slot.track->times.begin(), slot.track->times.end());
+    clip_ = clip;
+    for (const AnimChannel& channel : owner.animChannels.channels) {
+        const Channel kind = channel.target.channel;
+        if (channel.target.kind != TrackTarget::Kind::Node || channel.target.node >= tree_->size() ||
+            (kind != Channel::Translation && kind != Channel::Rotation && kind != Channel::Scale)) {
+            continue;
+        }
+        for (const SubTrackContainer& container : document.clips[clip].containers) {
+            if (const SubTrack* track = container.find(channel.id)) {
+                times_.insert(times_.end(), track->times.begin(), track->times.end());
             }
         }
     }
     std::sort(times_.begin(), times_.end());
     times_.erase(std::unique(times_.begin(), times_.end()), times_.end());
+}
 
-    order_.reserve(tree_->size());
-    for (const u32 root : tree_->roots()) {
-        for (const u32 node : tree_->subtree(root)) {
-            order_.push_back(node);
-        }
-    }
-    if (order_.size() < tree_->size()) {
-        std::vector<u8> seen(tree_->size(), 0);
-        for (const u32 node : order_) {
-            seen[node] = 1;
-        }
-        for (u32 n = 0; n < tree_->size(); ++n) {
-            if (!seen[n]) {
-                order_.push_back(n);
-            }
-        }
-    }
+void ClipPose::poseAt(f32 seconds, Pose& out) const {
+    // The clip alone, holding its last frame past its end.
+    Mix mix;
+    mix.plays.push_back(Play{clip_, seconds, 1.0f, false});
+    mix.globals = false;
+    animator_.evaluate(mix, out);
 }
 
 Transform ClipPose::local(u32 node, f32 seconds) const {
     if (tree_ == nullptr || node >= tree_->size()) {
         return Transform{};
     }
-    // A pivot rig rests at "no track at all" -- `local` holds the pivot chain
-    // there, not a rest transform, so starting from it would pose the node
-    // twice. `MdxHierarchy::Evaluate` takes the same branch, by name.
-    Transform out =
-        tree_->rig == RigConvention::PivotRelative ? Transform{} : tree_->nodes[node].local;
-    for (u32 c = 0; c < 3; ++c) {
-        const Slot& slot = slots_[static_cast<std::size_t>(node) * 3 + c];
-        const u32 components = geom::AttrTypeComponents(slot.type);
-        f32 buffer[4] = {0, 0, 0, 1};
-        if (slot.track != nullptr) {
-            SampleTrack(*slot.track, slot.type, seconds, buffer, 4);
-        } else if (slot.channel != nullptr && slot.channel->hasInitValue()) {
-            const f32* init = reinterpret_cast<const f32*>(slot.channel->initValue.data());
-            for (u32 i = 0; i < components && i < 4; ++i) {
-                buffer[i] = init[i];
-            }
-        } else {
-            continue;
-        }
-        switch (kNodeChannels[c]) {
-        case Channel::Translation:
-            out.translation = Vector3f{buffer[0], buffer[1], buffer[2]};
-            break;
-        case Channel::Rotation:
-            out.rotation = Quaternion{buffer[0], buffer[1], buffer[2], buffer[3]};
-            break;
-        case Channel::Scale:
-            // A source that keys one float scales uniformly -- D3 is the case.
-            out.scale = components == 1 ? Vector3f{buffer[0], buffer[0], buffer[0]}
-                                        : Vector3f{buffer[0], buffer[1], buffer[2]};
-            break;
-        default:
-            break;
-        }
-    }
-    return out;
+    Pose pose;
+    poseAt(seconds, pose);
+    return pose.local[node];
 }
 
 Matrix44f ClipPose::frame(u32 node, f32 seconds) const {
-    Matrix44f out = Matrix44f::identity();
-    if (tree_ == nullptr) {
-        return out;
+    if (tree_ == nullptr || node >= tree_->size()) {
+        return Matrix44f::identity();
     }
-    const bool pivoted = tree_->rig == RigConvention::PivotRelative;
-    for (u32 at = node; at < tree_->size();) {
-        const Transform trs = local(at, seconds);
-        out = out * (pivoted ? PivotComposition(trs, tree_->nodes[at].pivot) : ToMatrix(trs));
-        const u32 parent = tree_->nodes[at].parent;
-        at = parent < tree_->size() && parent != at ? parent : kInvalidNode;
-    }
-    return out;
+    Pose pose;
+    poseAt(seconds, pose);
+    return pose.frame[node];
 }
 
 Matrix44f ClipPose::skinning(u32 node, f32 seconds) const {
     if (tree_ == nullptr || node >= tree_->size()) {
         return Matrix44f::identity();
     }
-    // A pivot rig composes to the identity at rest by itself, so its inverse
-    // bind is not a second factor to apply here -- it is the same one.
-    return tree_->rig == RigConvention::PivotRelative
-               ? frame(node, seconds)
-               : tree_->inverseBindMatrix(node) * frame(node, seconds);
+    Pose pose;
+    poseAt(seconds, pose);
+    return pose.skinning[node];
 }
 
 void ClipPose::skinningAt(f32 seconds, std::vector<Matrix44f>& out) const {
@@ -221,21 +149,9 @@ void ClipPose::skinningAt(f32 seconds, std::vector<Matrix44f>& out) const {
         out.clear();
         return;
     }
-    const bool pivoted = tree_->rig == RigConvention::PivotRelative;
-    out.assign(tree_->size(), Matrix44f::identity());
-    // Parents first, so every node reads a frame that is already composed.
-    for (const u32 n : order_) {
-        const Transform trs = local(n, seconds);
-        const Matrix44f own =
-            pivoted ? PivotComposition(trs, tree_->nodes[n].pivot) : ToMatrix(trs);
-        const u32 parent = tree_->nodes[n].parent;
-        out[n] = parent < tree_->size() && parent != n ? own * out[parent] : own;
-    }
-    if (!pivoted) {
-        for (u32 n = 0; n < tree_->size(); ++n) {
-            out[n] = tree_->inverseBindMatrix(n) * out[n];
-        }
-    }
+    Pose pose;
+    poseAt(seconds, pose);
+    out = std::move(pose.skinning);
 }
 
 } // namespace wem

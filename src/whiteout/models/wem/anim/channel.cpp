@@ -256,6 +256,12 @@ const char* ToString(Channel channel) {
         return "linearFalloff";
     case Channel::Damping:
         return "damping";
+    case Channel::StageWeight:
+        return "stageWeight";
+    case Channel::StageSourceWeight:
+        return "stageSourceWeight";
+    case Channel::StageSourceEnabled:
+        return "stageSourceEnabled";
     case Channel::Count:
         break;
     }
@@ -304,6 +310,9 @@ geom::AttrType DefaultValueType(Channel channel) {
     case Channel::QuadraticFalloff:
     case Channel::LinearFalloff:
     case Channel::Damping:
+    case Channel::StageWeight:
+    case Channel::StageSourceWeight:
+    case Channel::StageSourceEnabled:
     case Channel::Count:
         break;
     }

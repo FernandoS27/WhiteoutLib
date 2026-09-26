@@ -70,6 +70,28 @@ constexpr bool HasProfile(ProfileMask mask, ProfileId id) {
     return (mask & ProfileBit(id)) != 0;
 }
 
+/**
+ * @brief The game a profile belongs to. Classic, Reforged and Generic are one
+ *        game — Generic is drawn as Reforged — and so are StarCraft II and
+ *        Heroes: what depends on the game (a clip's read rule, the storage
+ *        policies) follows this, never a profile compared by hand.
+ */
+enum class Game : u8 { Warcraft, StarCraft, Wow, Diablo };
+
+constexpr Game GameOf(ProfileId id) {
+    switch (id) {
+    case ProfileId::Sc2:
+    case ProfileId::Heroes:
+        return Game::StarCraft;
+    case ProfileId::Wow:
+        return Game::Wow;
+    case ProfileId::Diablo3:
+        return Game::Diablo;
+    default:
+        return Game::Warcraft;
+    }
+}
+
 /// Registry name — "generic", "wc3_classic", … The stable spelling.
 const char* ToString(ProfileId id);
 

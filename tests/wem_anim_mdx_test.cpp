@@ -1858,3 +1858,11 @@ TEST_CASE("wem mdx flipbooks and light ambients cross the corpus", "[wem][anim][
     CHECK(written == channels);
     CHECK(lightMisses == 0u);
 }
+
+TEST_CASE("wem a clip read from an .mdx is read by the Wc3 rule", "[wem][anim][rule]") {
+    const Document document = convert(makeModel());
+    REQUIRE_FALSE(document.clips.empty());
+    for (const Clip& clip : document.clips) {
+        CHECK(clip.readRule == ReadRule::Wc3);
+    }
+}

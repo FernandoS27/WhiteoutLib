@@ -929,7 +929,10 @@ public:
         buildWindows();
         buildVisibilityGates();
         for (const AnimChannel& channel : model_.animChannels.channels) {
-            emitChannel(channel);
+            // A stage's own channels are the editor's; an export's bake consumes them.
+            if (!IsStageChannel(channel.target)) {
+                emitChannel(channel);
+            }
         }
         emitStandingVisibilityGates();
         emitStandingUvTransforms();

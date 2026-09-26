@@ -48,6 +48,7 @@
 #include <vector>
 
 #include "whiteout/models/gltf/parser.h"
+#include "whiteout/models/wem/anim/curves.h"
 
 namespace whiteout {
 namespace models {
@@ -157,54 +158,25 @@ void EvalAt(const RawKeys& keys, Interpolation interp, bool isRotation, f32 time
     }
 }
 
-/// Warcraft III's slerp, mirrored from the reference evaluator (`Wc3Slerp`):
-/// nlerp once the RAW dot reaches 0.9, and below that the shortest arc via the
-/// sign flip. A pair in opposite hemispheres never takes the nlerp.
-void SlerpQuat(const f32* a, const f32* bIn, f32 t, f32* out) {
-    f32 b[4] = {bIn[0], bIn[1], bIn[2], bIn[3]};
-    f32 d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
-    if (d >= 0.9f) {
-        f32 lengthSq = 0;
-        for (int c = 0; c < 4; ++c) {
-            out[c] = a[c] + t * (b[c] - a[c]);
-            lengthSq += out[c] * out[c];
-        }
-        const f32 inverse = lengthSq > 1e-12f ? 1.0f / std::sqrt(lengthSq) : 0.0f;
-        for (int c = 0; c < 4; ++c) {
-            out[c] *= inverse;
-        }
-        return;
-    }
-    if (d < 0.0f) {
-        d = -d;
-        for (f32& c : b) {
-            c = -c;
-        }
-    }
-    d = std::min(d, 1.0f);
-    const f32 theta0 = std::acos(d);
-    const f32 theta = theta0 * t;
-    const f32 sinTheta0 = std::sin(theta0);
-    if (sinTheta0 < 1e-6f) {
-        std::memcpy(out, a, 4 * sizeof(f32));
-        return;
-    }
-    const f32 s0 = std::sin(theta0 - theta) / sinTheta0;
-    const f32 s1 = std::sin(theta) / sinTheta0;
-    for (int c = 0; c < 4; ++c) {
-        out[c] = a[c] * s0 + b[c] * s1;
-    }
+/// Warcraft III's slerp and quaternion curve (`curves.h`), on raw floats. The
+/// stored per-key "tangents" of a smooth rotation are squad CONTROL
+/// QUATERNIONS, not derivatives.
+void SlerpQuat(const f32* a, const f32* b, f32 t, f32* out) {
+    const Quaternion r = Wc3Slerp(Quaternion(a[0], a[1], a[2], a[3]), Quaternion(b[0], b[1], b[2], b[3]), t);
+    out[0] = r.x;
+    out[1] = r.y;
+    out[2] = r.z;
+    out[3] = r.w;
 }
 
-/// Warcraft III's quaternion curve (`Wc3Squad`): the stored per-key "tangents"
-/// are squad CONTROL QUATERNIONS, not derivatives.
 void SquadQuat(const f32* start, const f32* outTan, const f32* inTan, const f32* end, f32 t,
                f32* out) {
-    f32 arc[4];
-    f32 inner[4];
-    SlerpQuat(start, end, t, arc);
-    SlerpQuat(outTan, inTan, t, inner);
-    SlerpQuat(arc, inner, 2.0f * t * (1.0f - t), out);
+    const auto q = [](const f32* p) { return Quaternion(p[0], p[1], p[2], p[3]); };
+    const Quaternion r = Wc3Squad(q(start), q(outTan), q(inTan), q(end), t);
+    out[0] = r.x;
+    out[1] = r.y;
+    out[2] = r.z;
+    out[3] = r.w;
 }
 
 /// One Hermite segment between explicit endpoints (per-span tangents, host
@@ -768,6 +740,11 @@ void Export(const Document& document, gltf::Asset& asset, gltf_detail::BinBuilde
         u32 overridden = 0;
         for (const u32 containerIndex : order) {
             for (const SubTrack& track : clip.containers[containerIndex].subTracks) {
+                // A stage's own channels are the editor's; an export's bake consumes them.
+                const AnimChannel* weight = model.animChannels.find(track.channel);
+                if (weight != nullptr && IsStageChannel(weight->target)) {
+                    continue;
+                }
                 bool taken = false;
                 for (const auto& entry : chosen) {
                     taken = taken || entry.first == track.channel;

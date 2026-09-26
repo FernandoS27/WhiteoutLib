@@ -112,6 +112,41 @@ u32 AnimSet::find(u32 tagId) const {
     return kInvalidIndex;
 }
 
+i32 TrackSetFloor(const Clip& clip, const TrackSet& set) {
+    if (clip.containers.empty()) {
+        return 0;
+    }
+    i32 floor = clip.containers.front().priority;
+    for (std::size_t k = 1; k < clip.containers.size(); ++k) {
+        for (const u32 channel : set.channels) {
+            const SubTrack* track = clip.containers[k].find(channel);
+            if (track != nullptr && !track->times.empty()) {
+                floor = std::max(floor, clip.containers[k].priority);
+                break;
+            }
+        }
+    }
+    return floor;
+}
+
+bool KeepsWindow(const Clip& clip) {
+    return clip.native.value("intervalStart", -1) >= 0 ||
+           clip.native.value("globalSequenceId", -1) >= 0;
+}
+
+ReadRule DerivedReadRule(const Clip& clip) {
+    if (KeepsWindow(clip)) {
+        return ReadRule::Wc3;
+    }
+    if (clip.native.find("sequenceId") != nullptr || clip.native.find("startFrame") != nullptr) {
+        return ReadRule::Sc2;
+    }
+    if (clip.native.find("animationId") != nullptr || clip.native.find("globalLoop") != nullptr) {
+        return ReadRule::Wow;
+    }
+    return ReadRule::Wc3;
+}
+
 } // namespace wem
 } // namespace models
 } // namespace whiteout

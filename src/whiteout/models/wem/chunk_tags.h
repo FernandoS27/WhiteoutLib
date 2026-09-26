@@ -192,7 +192,7 @@ struct ChunkTagTraits<Document> {
 template <>
 struct ChunkTagTraits<Model> {
     static constexpr u32 value = kTag("MODL");
-    static constexpr u32 max_version = 6;
+    static constexpr u32 max_version = 7;
     static constexpr bool is_trivial = false;
 };
 
@@ -500,16 +500,33 @@ struct ChunkTagTraits<ClipEvent> {
 
 /// v2 adds `Clip::bounds` (§10.8's per-clip extent).
 /// v3 `Clip::trackSets`.
+/// v4 `Clip::readRule`.
 template <>
 struct ChunkTagTraits<Clip> {
     static constexpr u32 value = kTag("CLIP");
-    static constexpr u32 max_version = 3;
+    static constexpr u32 max_version = 4;
     static constexpr bool is_trivial = false;
 };
 
 template <>
 struct ChunkTagTraits<TrackSet> {
     static constexpr u32 value = kTag("TSET");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+/// One of a model's pose stages (WEM_ANIMATION_RUNTIME_DESIGN.md §5.1).
+template <>
+struct ChunkTagTraits<PoseStage> {
+    static constexpr u32 value = kTag("PSTG");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+/// A constraint's source, inside its stage.
+template <>
+struct ChunkTagTraits<StageSource> {
+    static constexpr u32 value = kTag("PSRC");
     static constexpr u32 max_version = 1;
     static constexpr bool is_trivial = false;
 };
@@ -614,6 +631,8 @@ inline constexpr u32 kKnownChunkTags[] = {
     ChunkTagTraits<ClipEvent>::value,
     ChunkTagTraits<Clip>::value,
     ChunkTagTraits<TrackSet>::value,
+    ChunkTagTraits<PoseStage>::value,
+    ChunkTagTraits<StageSource>::value,
     ChunkTagTraits<ClipTrackSet>::value,
     ChunkTagTraits<AnimTag>::value,
     ChunkTagTraits<AnimSet>::value,

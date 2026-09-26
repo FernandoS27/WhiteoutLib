@@ -898,7 +898,10 @@ TEST_CASE("wem m3 a quaternion stream is written in one hemisphere", "[wem][anim
     model.subTrackCollections[0].animIds.push_back(8);
     model.subTrackCollections[0].animRefs.push_back(Ref(3, 0));
 
-    const Document document = convert(model);
+    Document document = convert(model);
+    // A Warcraft III clip, made from an M3 fixture: an `Sc2` one is written key
+    // for key, hemispheres included.
+    document.clips[0].readRule = ReadRule::Wc3;
     const M3Converter converter;
     Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
     REQUIRE(written.ok());
@@ -934,7 +937,8 @@ TEST_CASE("wem m3 a rotation is written in spans the engine's lerp can carry",
     model.subTrackCollections[0].animIds.push_back(8);
     model.subTrackCollections[0].animRefs.push_back(Ref(3, 0));
 
-    const Document document = convert(model);
+    Document document = convert(model);
+    document.clips[0].readRule = ReadRule::Wc3; // As above: a slerped clip.
     const M3Converter converter;
     Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
     REQUIRE(written.ok());
@@ -970,6 +974,7 @@ TEST_CASE("wem m3 a Warcraft window is keyed at both edges the way its engine pl
     m3::Model model = makeModel();
     keyTranslation(model, 7, {200, 800}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 10}});
     Document document = convert(model);
+    document.clips[0].readRule = ReadRule::Wc3; // The window is Warcraft III's.
     Clip& clip = document.clips[0];
     SubTrack& track = subTrackOf(clip, 7);
     // One bracket key past each edge, the way the .mdx slicer leaves them.
@@ -1002,14 +1007,17 @@ TEST_CASE("wem m3 a Warcraft window is keyed at both edges the way its engine pl
         CHECK(block.keys[3].z == Catch::Approx(10.0f));
         CHECK(block.keys[4].z == Catch::Approx(5.0f));
     }
-    SECTION("any other clip holds the bracket before it and drops the one after") {
+    SECTION("any other clip holds the bracket before it and keys the hold at its end") {
+        // Past its last key a windowless clip holds what `toMdx` keys at its
+        // edge, 10 + 3 * (0.2 / 0.3); M3 would loop the track at 800 instead.
         clip.native = NativeBag{};
         Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
         REQUIRE(written.ok());
         const u32 ref = stcRefFor(*written, 7);
         const auto& block = stcHolding(*written, 7).sd3v[ref & 0xFFFFu];
-        REQUIRE(block.timestamps == std::vector<i32>{0, 200, 800});
+        REQUIRE(block.timestamps == std::vector<i32>{0, 200, 800, 1000});
         CHECK(block.keys[0].z == Catch::Approx(-3.0f));
+        CHECK(block.keys[3].z == Catch::Approx(12.0f));
     }
 }
 
@@ -1362,4 +1370,12 @@ TEST_CASE("wem track sets name a set the model has", "[wem][anim][trackset]") {
     Document document = twoBoneWalk();
     document.clips[0].trackSets = {{3, 10}};
     CHECK(Validate(document, ValidateLevel::Structural).hasErrors());
+}
+
+TEST_CASE("wem a clip read from an .m3 is read by the Sc2 rule", "[wem][anim][rule]") {
+    const Document document = convert(makeModel());
+    REQUIRE_FALSE(document.clips.empty());
+    for (const Clip& clip : document.clips) {
+        CHECK(clip.readRule == ReadRule::Sc2);
+    }
 }

@@ -455,10 +455,16 @@ add_library(whiteout_lib
     src/whiteout/models/wem/rigging/detect.cpp
     src/whiteout/models/wem/rigging/names.cpp
     src/whiteout/models/wem/rigging/shape.cpp
+    src/whiteout/models/wem/anim/animator.cpp
     src/whiteout/models/wem/anim/channel.cpp
     src/whiteout/models/wem/anim/clip.cpp
+    src/whiteout/models/wem/anim/crossing.cpp
     src/whiteout/models/wem/anim/curves.cpp
+    src/whiteout/models/wem/anim/m3_math.cpp
     src/whiteout/models/wem/anim/pose.cpp
+    src/whiteout/models/wem/anim/rests.cpp
+    src/whiteout/models/wem/anim/stages.cpp
+    src/whiteout/models/wem/anim/track_read.cpp
     src/whiteout/models/wem/materials/texture.cpp
     src/whiteout/models/wem/materials/common.cpp
     src/whiteout/models/wem/materials/material.cpp

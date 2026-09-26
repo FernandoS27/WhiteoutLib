@@ -62,6 +62,14 @@ struct StreamSpec {
     /// The rest the first quaternion key is kept on the side of, in the FILE's
     /// basis; null when the property states none.
     const Quaternion* restQuaternion = nullptr;
+    /// The clip's read rule (WEM_ANIMATION_RUNTIME_DESIGN.md §3.1). An `Sc2`
+    /// clip is written key for key: its keys already are what the engine
+    /// lerps, hemispheres and all.
+    ReadRule rule = ReadRule::Wc3;
+    /// Whether the clip loops. A looping track of a windowless clip that stops
+    /// short of the end gets an end key, since M3 wraps it at its own last
+    /// stamp where Warcraft III and World of Warcraft hold.
+    bool looping = false;
 };
 
 /// Writes @p track into @p stc's typed block for @p spec and returns

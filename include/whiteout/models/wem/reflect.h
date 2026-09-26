@@ -67,6 +67,12 @@ struct ProbeVisitor {
 
         return *this;
     }
+
+    /// A field that is always present here: the derivation is the reader's.
+    template <class T, class F>
+    void fieldOr(const char* name, T& value, F&&) {
+        field(name, value);
+    }
 };
 
 template <class T, class = void>

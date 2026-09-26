@@ -36,6 +36,7 @@
 #include <whiteout/compatibility.h>
 
 #include "anim/channel.h"
+#include "anim/pose_stage.h"
 #include "bounds.h"
 #include "geometry/mesh.h"
 #include "materials/looks.h"
@@ -195,6 +196,11 @@ struct Model {
     /// wants when it asks "what is actually in this file".
     ProfileMask drawnProfiles() const;
 
+    /// The pose stages, in the order they run (WEM_ANIMATION_RUNTIME_DESIGN.md
+    /// §5.1): constraints, IK and physics over the blended pose. The editor's;
+    /// an export bakes them into keys.
+    std::vector<PoseStage> poseStages;
+
     template <class V>
     void reflect(V& v) {
         v.field("name", name);
@@ -219,6 +225,8 @@ struct Model {
         v.since(5).field("tPose", tPose);
         // v6: the track sets; none before.
         v.since(6).field("trackSets", trackSets);
+        // v7: the pose stages; none before.
+        v.since(7).field("poseStages", poseStages);
     }
 };
 

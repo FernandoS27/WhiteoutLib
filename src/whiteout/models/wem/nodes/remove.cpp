@@ -373,6 +373,47 @@ void RemapNodeReferencers(NodeTree& tree, std::span<const u32> remap, NodeRefere
         }
     }
 
+    // PoseStage::driven, ::targets, ::sources and ::upNode. A constraint that
+    // loses a source keeps the rest, the source's channel left as it is; a
+    // lost up node is world up again.
+    if (referencers.stages != nullptr) {
+        std::vector<u32> gone;
+        for (PoseStage& stage : *referencers.stages) {
+            bool lost = false;
+            for (std::vector<u32>* nodes : {&stage.driven, &stage.targets}) {
+                for (u32& node : *nodes) {
+                    node = node < remap.size() ? remap[node] : kInvalidNode;
+                    lost = lost || node == kInvalidNode;
+                }
+            }
+            std::erase_if(stage.sources, [&](StageSource& source) {
+                // A Link's world source names no node, and keeps naming none.
+                if (source.node == kInvalidNode) {
+                    return false;
+                }
+                source.node = source.node < remap.size() ? remap[source.node] : kInvalidNode;
+                return source.node == kInvalidNode;
+            });
+            if (stage.upNode != kInvalidNode) {
+                stage.upNode = stage.upNode < remap.size() ? remap[stage.upNode] : kInvalidNode;
+            }
+            if (lost) {
+                gone.push_back(stage.id);
+            }
+        }
+        const auto isGone = [&](u32 id) { return std::find(gone.begin(), gone.end(), id) != gone.end(); };
+        if (!gone.empty()) {
+            // Its weight channels stay, invalidated like any channel whose
+            // node went: an id is never reused, and a caller's undo puts the
+            // table back by position.
+            std::erase_if(*referencers.stages, [&](const PoseStage& stage) { return isGone(stage.id); });
+            out.warn(DiagCode::DanglingNodeReference,
+                     number(static_cast<u32>(gone.size())) +
+                         " pose stages named a node that no longer exists, and went with it",
+                     ElementRef());
+        }
+    }
+
     // The node links: the emitter payloads' own (§10.9) and the skin setup's
     // mirror override (§13.4). A link whose node died names none afterwards --
     // which for a trail or a bounce is "no trail", the format's own answer, and

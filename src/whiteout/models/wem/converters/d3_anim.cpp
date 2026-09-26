@@ -401,7 +401,9 @@ private:
 
     void addTrack(d3n::AnimPermutation& out, const SubTrack& track, f32 fps, bool& snapped) {
         const AnimChannel* channel = model_.animChannels.find(track.channel);
-        if (channel == nullptr || channel->target.kind != TrackTarget::Kind::Node) {
+        // A stage's own channels are the editor's; an export's bake consumes them.
+        if (channel == nullptr || channel->target.kind != TrackTarget::Kind::Node ||
+            IsStageChannel(channel->target)) {
             return;
         }
         const u32 node = channel->target.node;

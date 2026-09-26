@@ -105,10 +105,11 @@ TEST_CASE("wem a clean document validates at every level", "[wem][document][vali
     // rides); P7 added the eighth and a fourth profile rule; §10.9 the node-kind
     // gate and the emitter joins.
     // The Mesh workspace added the mesh referencers; the Skin workspace the
-    // skin rows of the node table, the weights' values and the saved setup.
+    // skin rows of the node table, the weights' values and the saved setup;
+    // the animation runtime a fifth profile rule, the main game's layering.
     CHECK(ValidationRulesFor(ValidateLevel::Structural).size() == 14u);
     CHECK(ValidationRulesFor(ValidateLevel::Manifold).size() == 1u);
-    CHECK(ValidationRulesFor(ValidateLevel::Profile).size() == 4u);
+    CHECK(ValidationRulesFor(ValidateLevel::Profile).size() == 5u);
 }
 
 // ============================================================================

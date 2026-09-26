@@ -15,15 +15,18 @@
  *      └─ SubTrack (SD*)          one channel's keys
  * ```
  *
- * MDX, `.m2` and D3 all produce exactly one container per clip, and a consumer
- * that ignores layering entirely plays container 0 — which loses nothing on
- * their content. The level exists because M3's split-body playback is stated in
- * it, and because collapsing it would make an `.m3` import lossy in the one
- * place SC2 content actually uses.
+ * MDX, `.m2` and D3 all produce exactly one container per clip. The level
+ * exists because M3's split-body playback is stated in it, and because
+ * collapsing it would make an `.m3` import lossy in the one place SC2 content
+ * actually uses.
  *
- * WEM stores the layering **data** — priority, `concurrent`, the channel's
- * `initValue` — and deliberately does not define the blender. Weight budgets,
- * the smoothstep combine and per-play brackets are a runtime's business.
+ * WEM plays the layers by StarCraft II's rules (`animator.h`,
+ * WEM_ANIMATION_RUNTIME_DESIGN.md D1): a weight budget spent highest priority
+ * first, a transparent container abstaining where it keys nothing and an opaque
+ * one filling with rest, combined by the smoothstep. Each track is read by its
+ * clip's own `ReadRule`. An export to a format that plays one layer flattens a
+ * clip's containers into one (`FlattenContainers`); track sets over container 0
+ * need nothing, since container 0 already holds the whole pose.
  */
 
 #include <string>
@@ -220,6 +223,33 @@ struct ClipEvent {
 using ClipNative = NativeBag;
 
 /**
+ * @brief How one of a clip's tracks is read: the interpolation, the window and
+ *        the wrap of the game the clip was made for
+ *        (WEM_ANIMATION_RUNTIME_DESIGN.md §3.1).
+ *
+ * Stored, because a conversion rewrites the keys for another game and the rule
+ * has to say which arithmetic the keys now in the clip were written for.
+ */
+enum class ReadRule : u8 {
+    Wc3, ///< Warcraft III: keys inside the window, the MDX curves, the window's wrap.
+    Sc2, ///< StarCraft II: a raw quaternion lerp; a looping track wraps at its own last key.
+    Wow, ///< World of Warcraft: a quaternion nlerp without a sign flip; the ends hold.
+};
+
+/// The rule a clip made for @p game is read by: the game's own, and Warcraft
+/// III's for a game that has no editor of its own.
+constexpr ReadRule RuleOf(Game game) {
+    switch (game) {
+    case Game::StarCraft:
+        return ReadRule::Sc2;
+    case Game::Wow:
+        return ReadRule::Wow;
+    default:
+        return ReadRule::Wc3;
+    }
+}
+
+/**
  * @brief One of the model's `TrackSet`s this clip plays on a layer of its own.
  *
  * Every clip also plays the "default" set — whatever no listed set claims — in
@@ -235,6 +265,19 @@ struct ClipTrackSet {
         v.field("priority", priority);
     }
 };
+
+struct Clip;
+
+/// Whether `toMdx` writes @p clip's keys as they stand, rather than keying its
+/// edges and dropping what lies outside: it came from an `.mdx` and keeps its
+/// window or its global sequence id.
+bool KeepsWindow(const Clip& clip);
+
+/// The rule a clip read from a file older than CLIP v4 was made for, from the
+/// markers its import left in the bag: a kept MDX window is Warcraft III's,
+/// an M3 sequence id or start frame StarCraft II's, an M2 animation id or
+/// global loop World of Warcraft's, and anything else Warcraft III's.
+ReadRule DerivedReadRule(const Clip& clip);
 
 /**
  * @brief One playable animation. M3's SEQS plus its STG_.
@@ -275,6 +318,10 @@ struct Clip {
     /// `LayeredContainers`.
     std::vector<ClipTrackSet> trackSets;
 
+    /// How its tracks are read. A clip written before v4 derives it once, as
+    /// it is read (`DerivedReadRule`).
+    ReadRule readRule = ReadRule::Wc3;
+
     template <class V>
     void reflect(V& v) {
         v.field("name", name);
@@ -290,6 +337,8 @@ struct Clip {
         v.since(2).field("bounds", bounds);
         // v3: the track sets it plays; none before.
         v.since(3).field("trackSets", trackSets);
+        // v4: the read rule; derived from the markers the import left before.
+        v.since(4).fieldOr("readRule", readRule, [this] { readRule = DerivedReadRule(*this); });
     }
 };
 
@@ -307,6 +356,12 @@ struct Clip {
  * A clip listing no set comes back as it is.
  */
 std::vector<SubTrackContainer> LayeredContainers(const Clip& clip, const std::vector<TrackSet>& sets);
+
+/// The priority a use of @p set in @p clip has to be above for its layer to
+/// leave a lone play of the clip unchanged (WEM_ANIMATION_RUNTIME_DESIGN.md
+/// §3.4): container 0's, and that of every later container keying one of the
+/// set's channels.
+i32 TrackSetFloor(const Clip& clip, const TrackSet& set);
 
 /**
  * @brief One clip's travel speed, in document units per second — MDX's

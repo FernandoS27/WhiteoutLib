@@ -238,3 +238,15 @@ TEST_CASE("wem profile enum spellings are stable", "[wem][profile]") {
     CHECK(std::string(wem::ToString(wem::NativeKind::M3)) == "m3");
     CHECK(std::string(wem::ToString(wem::ProfileId::Count)) == "invalid");
 }
+
+TEST_CASE("wem every profile names its game", "[wem][profile]") {
+    using wem::Game;
+    using wem::ProfileId;
+    CHECK(wem::GameOf(ProfileId::Generic) == Game::Warcraft);
+    CHECK(wem::GameOf(ProfileId::Wc3Classic) == Game::Warcraft);
+    CHECK(wem::GameOf(ProfileId::Wc3Reforged) == Game::Warcraft);
+    CHECK(wem::GameOf(ProfileId::Wow) == Game::Wow);
+    CHECK(wem::GameOf(ProfileId::Sc2) == Game::StarCraft);
+    CHECK(wem::GameOf(ProfileId::Heroes) == Game::StarCraft);
+    CHECK(wem::GameOf(ProfileId::Diablo3) == Game::Diablo);
+}

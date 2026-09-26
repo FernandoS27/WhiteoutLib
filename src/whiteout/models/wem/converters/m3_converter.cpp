@@ -34,6 +34,7 @@
 #include "whiteout/models/m3/engine_compat.h"
 #include "whiteout/models/m3/parser.h"
 #include "whiteout/models/m3/writer.h"
+#include "whiteout/models/wem/anim/rests.h"
 #include "whiteout/models/wem/converters.h"
 #include "whiteout/models/wem/geometry/builder.h"
 #include "whiteout/models/wem/geometry/render_view.h"
@@ -329,33 +330,6 @@ Vector2f UvDecodeFor(const m3::Region& region) {
         return Vector2f{region.uvScale / 32767.0f, region.uvOffset};
     }
     return Vector2f{1.0f / 2048.0f, 0.0f};
-}
-
-/// What a bone's visibility rests at, which is the only thing that decides
-/// whether a gated batch draws in a model with nothing keying it.
-///
-/// A bone's position, rotation and scale rest in `Node::local`, so the export
-/// reads them from there. Visibility has no such home -- it is an M3 property
-/// with no node field of its own, and the import parks its rest in the channel
-/// it declares for it. A written `.m3` therefore left `visibility.initValue` at
-/// the struct's zero, which reads as "invisible": Alexstrasza, whose four
-/// batches all gate on `Vis_Alexstrasza` and whose `.m3` has no sequence at all,
-/// round-tripped into a model that draws nothing.
-///
-/// Visible is the answer when the document says nothing. Every source but M3
-/// gates no batch, so the value is never read there; within M3 the file's own
-/// AnimRef default is the rest, and `restValue` put it in the channel.
-f32 VisibilityRest(const Model& model, u32 node) {
-    for (const AnimChannel& channel : model.animChannels.channels) {
-        if (channel.target.kind != TrackTarget::Kind::Node || channel.target.node != node ||
-            channel.target.channel != Channel::Visibility || !channel.hasInitValue()) {
-            continue;
-        }
-        f32 rest = 1.0f;
-        std::memcpy(&rest, channel.initValue.data(), sizeof(f32));
-        return rest;
-    }
-    return 1.0f;
 }
 
 NodeTree ImportNodes(const m3::Model& source) {

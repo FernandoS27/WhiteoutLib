@@ -174,6 +174,17 @@ public:
             }
         }
 
+        /// `field`, or @p absent() when the chunk predates it: for a field
+        /// whose old-file value is derived from what was read before it.
+        template <class T, class F>
+        void fieldOr(const char* name, T& value, F&& absent) {
+            if (present_) {
+                visitor_.field(name, value);
+            } else {
+                absent();
+            }
+        }
+
     private:
         BinaryReadVisitor& visitor_;
         bool present_;

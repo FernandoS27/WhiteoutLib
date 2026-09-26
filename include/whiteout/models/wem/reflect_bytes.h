@@ -106,6 +106,12 @@ public:
         return *this;
     }
 
+    /// A field that is always present here: the derivation is the reader's.
+    template <class T, class F>
+    void fieldOr(const char* name, T& value, F&&) {
+        field(name, value);
+    }
+
 private:
     template <class T>
     void list(std::vector<T>& value) {

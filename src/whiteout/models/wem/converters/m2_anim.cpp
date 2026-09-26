@@ -177,6 +177,7 @@ private:
         for (std::size_t i = 0; i < source_.sequences.size(); ++i) {
             const m2::Sequence& sequence = source_.sequences[i];
             Clip clip;
+            clip.readRule = ReadRule::Wow;
             // The client's AnimationData name, not the id: an `.m2` sequence
             // carries no name of its own, and every format this document can
             // be written to has one. `sequence_28_0` is what "the names were
@@ -217,6 +218,7 @@ private:
             return kInvalidIndex;
         }
         Clip clip;
+        clip.readRule = ReadRule::Wow;
         clip.name = "globalLoop_" + std::to_string(index);
         clip.model = modelIndex_;
         clip.duration = Seconds(static_cast<f32>(source_.globalLoops[index].timestamp));
@@ -753,7 +755,10 @@ public:
     void run() {
         buildSequences();
         for (const AnimChannel& channel : model_.animChannels.channels) {
-            emitChannel(channel);
+            // A stage's own channels are the editor's; an export's bake consumes them.
+            if (!IsStageChannel(channel.target)) {
+                emitChannel(channel);
+            }
         }
         emitEvents();
     }

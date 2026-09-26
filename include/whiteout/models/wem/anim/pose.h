@@ -16,8 +16,9 @@
  * (EDIT_MODE_TPOSE_DESIGN.md §5.5). This is the one answer both read rather
  * than a second and a third interpolator kept in step by hand.
  *
- * It only reads. A `Hermite` or `Bezier` track is sampled on its values and
- * loses its tangents, which is what `AnimTrackApproximated` reports.
+ * `SampleTrack` only reads one track, on its values: a `Hermite` or `Bezier`
+ * track loses its tangents there. `ClipPose` is one play of the `Animator`, so
+ * it reads each track by the clip's rule and blends the clip's layers.
  */
 
 #include <vector>
@@ -26,6 +27,7 @@
 #include <whiteout/vector_types.h>
 
 #include "../document.h"
+#include "animator.h"
 
 namespace whiteout {
 namespace models {
@@ -64,9 +66,9 @@ public:
         return times_;
     }
 
-    /// @p node's local transform at @p seconds: its sub-track where there is
-    /// one, then the channel's declared rest, then the rig's own — the identity
-    /// for a pivot rig, whose rest *is* "no track at all".
+    /// @p node's local transform at @p seconds: its layers blended where they
+    /// key it, and the rig's rest where nothing does — the identity for a
+    /// pivot rig, whose rest *is* "no track at all".
     Transform local(u32 node, f32 seconds) const;
 
     /// @p node's model-space frame at @p seconds, composed up the chain.
@@ -83,18 +85,11 @@ public:
     void skinningAt(f32 seconds, std::vector<Matrix44f>& out) const;
 
 private:
-    struct Slot {
-        const SubTrack* track = nullptr;
-        const AnimChannel* channel = nullptr;
-        geom::AttrType type = geom::AttrType::F32x3;
-    };
+    void poseAt(f32 seconds, Pose& out) const;
 
+    Animator animator_;
+    u32 clip_ = kInvalidIndex;
     const NodeTree* tree_ = nullptr;
-    /// Three slots a node — translation, rotation, scale — in that order.
-    std::vector<Slot> slots_;
-    /// Parents before children: an `.mdx` numbers by `objectId`, which is per
-    /// chunk, so the array's order is not the hierarchy's.
-    std::vector<u32> order_;
     std::vector<f32> times_;
 };
 

@@ -43,6 +43,7 @@
 #include <whiteout/compatibility.h>
 
 #include "../anim/clip.h"
+#include "../anim/pose_stage.h"
 #include "../diagnostics.h"
 #include "../geometry/mesh.h"
 #include "tree.h"
@@ -87,6 +88,12 @@ struct NodeReferencers {
     /// caller filters by `Clip::model`, because a `NodeTree` does not know its
     /// own index and a clip for another model must not be touched.
     std::span<Clip> clips;
+
+    /// This model's pose stages. A stage that loses a driven or target node is
+    /// removed: unlike a channel, nothing joins on it. A constraint's lost
+    /// source is dropped from it. Its own channels are left to the channel rule
+    /// above.
+    std::vector<PoseStage>* stages = nullptr;
 };
 
 /**
