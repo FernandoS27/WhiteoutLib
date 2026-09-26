@@ -1044,6 +1044,48 @@ TEST_CASE("wem m3 a smooth track states a non-zero interpType", "[wem][anim][m3]
     CHECK(((held.flags & 0x10u) != 0u || held.interpType == 0));
 }
 
+TEST_CASE("wem m3 a Hermite span is written as the lines that play it", "[wem][anim][m3]") {
+    // No M3 stream carries tangents; writing only the key values straightened
+    // every smooth curve. Tangents of +3 and -3 times the span make the curve
+    // 3u - 2u^3, which overshoots to sqrt(2) of the span at u = 1/sqrt(2).
+    m3::Model source = makeModel();
+    keyTranslation(source, 7, {0, 1000}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 1}});
+    Document document = convert(source);
+    SubTrack* track = nullptr;
+    for (SubTrack& candidate : document.clips[0].containers[0].subTracks) {
+        if (candidate.times.size() == 2u) {
+            track = &candidate;
+        }
+    }
+    REQUIRE(track != nullptr);
+    const Vector3f a = vectorAt(*track, 0);
+    const Vector3f b = vectorAt(*track, 1);
+    const Vector3f out0 = (b - a) * 3.0f;
+    const Vector3f in1 = (b - a) * -3.0f;
+    track->interp = Interpolation::Hermite;
+    track->values.clear();
+    for (const Vector3f* slot : {&a, &a, &out0, &b, &in1, &b}) {
+        const u8* bytes = reinterpret_cast<const u8*>(slot);
+        track->values.insert(track->values.end(), bytes, bytes + sizeof(Vector3f));
+    }
+
+    const M3Converter converter;
+    Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    const u32 ref = stcRefFor(*written, 7);
+    const auto& out = stcHolding(*written, 7).sd3v[ref & 0xFFFFu];
+    REQUIRE(out.keys.size() == out.timestamps.size());
+    REQUIRE(out.keys.size() > 4u);
+    CHECK(out.timestamps.front() == 0);
+    CHECK(out.timestamps.back() == 1000);
+    f32 peak = 0.0f;
+    for (std::size_t k = 1; k < out.keys.size(); ++k) {
+        CHECK(out.timestamps[k] > out.timestamps[k - 1]);
+        peak = std::max(peak, out.keys[k].z);
+    }
+    CHECK(peak == Catch::Approx(1.41421f).margin(0.005f));
+}
+
 TEST_CASE("wem m3 every bone states the rest a sequence falls back to", "[wem][anim][m3]") {
     // `nullValue` is what a property rests at in a sequence whose `STC_` does
     // not name its `animId`. It is a constant per property: all 736,433 bones

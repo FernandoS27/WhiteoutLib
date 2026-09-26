@@ -227,6 +227,52 @@ TEST_CASE("wem d3 a scale key stays one float", "[wem][anim][d3]") {
     CHECK_FALSE(Validate(document, ValidateLevel::Structural).hasErrors());
 }
 
+TEST_CASE("wem d3 a smooth key exports its value, not a tangent", "[wem][anim][d3]") {
+    // A Hermite key is `{value, inTan, outTan}`; the export read slot 1. The
+    // same keys made Hermite must write what the linear track does.
+    Document document = convertAppearance(makeAppearance());
+    Diagnostics report;
+    const std::vector<u32> clips = d3_anim::ImportAnim(makeAnim(), document, 0, report);
+    REQUIRE(clips.size() == 1u);
+    const auto translations = [&] {
+        const std::vector<d3n::Anim> back = d3_anim::ExportAnims(document, 0, report);
+        REQUIRE(back.size() == 1u);
+        REQUIRE(back[0].arPermutations.size() == 1u);
+        return back[0].arPermutations[0].arTranslationCurves;
+    };
+    const std::vector<d3n::TranslationCurve> linear = translations();
+
+    SubTrack* translation = const_cast<SubTrack*>(
+        trackFor(document, document.clips[clips[0]], 0, Channel::Translation));
+    REQUIRE(translation != nullptr);
+    REQUIRE(translation->times.size() == 2u);
+    const std::vector<u8> keys = translation->values;
+    const Vector3f tangent{9, 9, 9};
+    const u8* tangentBytes = reinterpret_cast<const u8*>(&tangent);
+    translation->interp = Interpolation::Hermite;
+    translation->values.clear();
+    for (std::size_t k = 0; k < 2; ++k) {
+        const u8* value = keys.data() + k * sizeof(Vector3f);
+        translation->values.insert(translation->values.end(), value, value + sizeof(Vector3f));
+        for (int t = 0; t < 2; ++t) {
+            translation->values.insert(translation->values.end(), tangentBytes,
+                                       tangentBytes + sizeof(Vector3f));
+        }
+    }
+
+    const std::vector<d3n::TranslationCurve> smooth = translations();
+    REQUIRE(smooth.size() == linear.size());
+    bool compared = false;
+    for (std::size_t c = 0; c < smooth.size(); ++c) {
+        REQUIRE(smooth[c].arKeys.size() == linear[c].arKeys.size());
+        for (std::size_t k = 0; k < smooth[c].arKeys.size(); ++k) {
+            CHECK(smooth[c].arKeys[k].vPosition.z == linear[c].arKeys[k].vPosition.z);
+            compared = true;
+        }
+    }
+    CHECK(compared);
+}
+
 TEST_CASE("wem d3 a keyframed attachment fires at its hardpoint", "[wem][anim][d3]") {
     d3n::Anim anim = makeAnim();
     d3n::KeyframedAttachment attachment;

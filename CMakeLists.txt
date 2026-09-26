@@ -457,6 +457,7 @@ add_library(whiteout_lib
     src/whiteout/models/wem/rigging/shape.cpp
     src/whiteout/models/wem/anim/channel.cpp
     src/whiteout/models/wem/anim/clip.cpp
+    src/whiteout/models/wem/anim/curves.cpp
     src/whiteout/models/wem/anim/pose.cpp
     src/whiteout/models/wem/materials/texture.cpp
     src/whiteout/models/wem/materials/common.cpp

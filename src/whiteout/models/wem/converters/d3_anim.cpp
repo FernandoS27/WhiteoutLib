@@ -418,11 +418,11 @@ private:
         const std::size_t bone = boneSlot(out, model_.nodes.nodes[node].name);
         Curves& curves = pending_[bone];
 
+        // A Hermite or Bezier key is `{value, inTan, outTan}`; the value leads.
         const std::size_t stride =
             ValuesPerKey(track.interp) * geom::AttrTypeSize(channel->valueType);
-        const std::size_t value = (ValuesPerKey(track.interp) - 1) / 2; // Hermite: the value slot.
         for (std::size_t k = 0; k < track.times.size(); ++k) {
-            const std::size_t at = k * stride + value * geom::AttrTypeSize(channel->valueType);
+            const std::size_t at = k * stride;
             const i32 frame = FrameOf(track.times[k], fps, snapped);
             switch (channel->target.channel) {
             case Channel::Translation:

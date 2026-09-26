@@ -14,6 +14,7 @@
 #include <tuple>
 
 #include <whiteout/models/wem/anim/clip.h>
+#include <whiteout/models/wem/anim/curves.h>
 
 #include "../materials/m3_core.h"
 #include "m3_track_sink.h"
@@ -891,8 +892,8 @@ bool NeedsUvConversion(const AnimChannel& channel) {
 }
 
 /// Key @p key of @p track as @p comps floats -- the value element only. A
-/// Hermite or Bezier key stores tangents beside it, and no M3 stream carries
-/// tangents; `writeStream` already drops them for every channel it writes.
+/// Hermite or Bezier track has already been restated as lines
+/// (`linearised`), since no M3 stream carries tangents.
 void UvKeyValue(const SubTrack& track, u32 comps, std::size_t key, f32* out) {
     const std::size_t stride = static_cast<std::size_t>(ValuesPerKey(track.interp)) * comps;
     std::memcpy(out, track.values.data() + key * stride * sizeof(f32),
@@ -1279,8 +1280,9 @@ private:
         out_.animationGroups.push_back(std::move(group));
     }
 
-    u32 buildContainer(const SubTrackContainer& source, const Clip& clip, i32 origin,
+    u32 buildContainer(const SubTrackContainer& layered, const Clip& clip, i32 origin,
                        bool takeEvents) {
+        const SubTrackContainer source = linearised(layered, clip);
         m3::SubTrackContainer stc;
         stc.name = containerName(source.name, clip.name);
         stc.animPriority = static_cast<u16>(source.priority);
@@ -1393,6 +1395,20 @@ private:
 
     ProfileId profile() const {
         return context_.profile;
+    }
+
+    /// @p container with its Hermite and Bezier tracks restated as the lines
+    /// that play them: an M3 stream is linear or held, and writing only the
+    /// key values straightened every curve between them.
+    SubTrackContainer linearised(const SubTrackContainer& container, const Clip& clip) const {
+        SubTrackContainer out = container;
+        for (SubTrack& track : out.subTracks) {
+            const AnimChannel* channel = model_.animChannels.find(track.channel);
+            if (channel != nullptr && ValuesPerKey(track.interp) > 1) {
+                track = LinearisedTrack(track, channel->valueType, 0.0f, clip.duration);
+            }
+        }
+        return out;
     }
 
     /// Fills the typed block and returns `(slot << 16) | block`. @p warcraft
