@@ -89,6 +89,42 @@ inline f32 TriAreaUv(const Vector2f& a, const Vector2f& b, const Vector2f& c) {
     return ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) * 0.5f;
 }
 
+/// The texels of a @p width x @p height grid that a triangle (in texel units)
+/// covers, each handed to @p fill(x, y): those whose centre is inside, and with
+/// @p ring the ring round them as well -- the packer's conservative cover, so
+/// no island is packed closer than it looks, where a check wants only what the
+/// texture would show. The one rasteriser of the module.
+template <class Fill>
+void RasterTriangle(u32 width, u32 height, const Vector2f& a, const Vector2f& b, const Vector2f& c,
+                    bool ring, Fill&& fill) {
+    const f32 lowX = std::min(a.x, std::min(b.x, c.x));
+    const f32 highX = std::max(a.x, std::max(b.x, c.x));
+    const f32 lowY = std::min(a.y, std::min(b.y, c.y));
+    const f32 highY = std::max(a.y, std::max(b.y, c.y));
+    const i32 x0 = std::max(0, static_cast<i32>(std::floor(lowX)) - 1);
+    const i32 x1 = std::min(static_cast<i32>(width) - 1, static_cast<i32>(std::ceil(highX)));
+    const i32 y0 = std::max(0, static_cast<i32>(std::floor(lowY)) - 1);
+    const i32 y1 = std::min(static_cast<i32>(height) - 1, static_cast<i32>(std::ceil(highY)));
+    const f32 area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+    if (area == 0.0f) {
+        return;
+    }
+    const f32 inverse = 1.0f / area;
+    const f32 edge = ring ? -0.5f : 0.0f;
+    for (i32 y = y0; y <= y1; ++y) {
+        for (i32 x = x0; x <= x1; ++x) {
+            const f32 px = static_cast<f32>(x) + 0.5f;
+            const f32 py = static_cast<f32>(y) + 0.5f;
+            const f32 w0 = ((b.x - a.x) * (py - a.y) - (b.y - a.y) * (px - a.x)) * inverse;
+            const f32 w1 = ((c.x - b.x) * (py - b.y) - (c.y - b.y) * (px - b.x)) * inverse;
+            const f32 w2 = ((a.x - c.x) * (py - c.y) - (a.y - c.y) * (px - c.x)) * inverse;
+            if (w0 >= edge && w1 >= edge && w2 >= edge) {
+                fill(static_cast<u32>(x), static_cast<u32>(y));
+            }
+        }
+    }
+}
+
 /// One island's two areas: what every density and every stretch is a ratio of.
 struct IslandArea {
     f32 world = 0.0f;

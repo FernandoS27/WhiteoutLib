@@ -162,6 +162,45 @@ TEST_CASE("UV seam path: nothing joins two shells, and it says so",
     CHECK(path.edges.empty());
 }
 
+TEST_CASE("UV closing seam: a sphere opens with one path, on the side away from +X",
+          "[wem][uv][seams]") {
+    geom::PrimitiveParams params;
+    params.sides = 16;
+    params.segments = 7; // eight bands, pole to pole
+    Mesh mesh = geom::MakeSphere(params);
+    const skinning::PointTable points = skinning::BuildPointTable(mesh);
+    std::vector<FaceId> faces;
+    for (u32 f = 0; f < mesh.topology().faceCount(); ++f) {
+        faces.push_back(FaceId(f));
+    }
+    // Set 1 has no map, so its one island is the whole closed sphere.
+    uv::EnsureUvSet(mesh, 1);
+    const uv::UvIslands closed = uv::BuildUvIslands(mesh, 1);
+    REQUIRE(closed.count == 1u);
+    REQUIRE(closed.closed[0] == 1u);
+
+    uv::SeamPathOptions options;
+    options.visible = Vector3f{1.0f, 0.0f, 0.0f};
+    const uv::SeamPath path = uv::ClosingSeam(mesh, points, faces, options);
+    REQUIRE_FALSE(path.stopped);
+    // Pole to pole, the two farthest points, one meridian long.
+    CHECK(path.edges.size() == 8u);
+    const std::span<const Vector3f> positions =
+        mesh.attributes.get<const Vector3f>(geom::names::kPosition, Domain::Vertex);
+    const Topology& topology = mesh.topology();
+    for (const EdgeId edge : path.edges) {
+        const HalfedgeId h = Topology::halfedge(edge, 0);
+        CHECK(positions[topology.from(h).index()].x <= 1e-4f);
+        CHECK(positions[topology.to(h).index()].x <= 1e-4f);
+    }
+
+    uv::ApplyMarks(mesh, 1, std::span<const EdgeId>(path.edges.data(), path.edges.size()), true);
+    const uv::UvIslands opened = uv::BuildUvIslands(mesh, 1);
+    CHECK(opened.count == 1u);
+    CHECK(opened.closed[0] == 0u);
+    CHECK(opened.loops[0] == 1u);
+}
+
 TEST_CASE("UV mirror marks: a cut on one side is a cut on the other",
           "[wem][uv][seams]") {
     // A sleeve is symmetric about the plane x = 0 by construction with an even

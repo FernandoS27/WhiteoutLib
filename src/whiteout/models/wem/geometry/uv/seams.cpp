@@ -224,6 +224,247 @@ SeamPath FindSeamPath(const Mesh& mesh, const skinning::PointTable& points, Edge
     return out;
 }
 
+namespace {
+
+/// A region's edges as a graph over points, each step costed twice: its plain
+/// length, which "farthest" is measured in, and its hidden-side cost, which the
+/// cut takes.
+struct RegionGraph {
+    struct Step {
+        u32 to = kInvalidId;
+        EdgeId edge;
+        f32 length = 0.0f;
+        f32 cost = 0.0f;
+    };
+    std::vector<std::vector<Step>> steps;
+    std::vector<u32> points; ///< The points the region reaches, ascending.
+};
+
+RegionGraph regionGraph(const Mesh& mesh, const skinning::PointTable& points,
+                        std::span<const FaceId> faces, const SeamPathOptions& options) {
+    RegionGraph out;
+    const Topology& topology = mesh.topology();
+    const std::span<const Vector3f> positions =
+        mesh.attributes.get<const Vector3f>(names::kPosition, Domain::Vertex);
+    const std::span<const Vector3f> normals =
+        mesh.attributes.get<const Vector3f>(names::kNormal, Domain::Halfedge);
+    out.steps.resize(points.pointCount);
+    std::vector<u32> edges;
+    for (const FaceId face : faces) {
+        if (!face.valid() || face.index() >= topology.faceCount() || topology.isDeleted(face)) {
+            continue;
+        }
+        for (const HalfedgeId h : topology.fh(face)) {
+            edges.push_back(Topology::edge(h).value());
+        }
+    }
+    std::sort(edges.begin(), edges.end());
+    edges.erase(std::unique(edges.begin(), edges.end()), edges.end());
+    for (const u32 e : edges) {
+        const EdgeId edge(e);
+        const HalfedgeId h = Topology::halfedge(edge, 0);
+        const u32 a = points.pointOfVertex(topology.from(h).value());
+        const u32 b = points.pointOfVertex(topology.to(h).value());
+        if (a >= points.pointCount || b >= points.pointCount || a == b ||
+            topology.from(h).index() >= positions.size() ||
+            topology.to(h).index() >= positions.size()) {
+            continue;
+        }
+        const f32 length =
+            (positions[topology.to(h).index()] - positions[topology.from(h).index()]).length();
+        const f32 cost = edgeCost(length, edgeNormal(topology, edge, positions, normals), options);
+        out.steps[a].push_back(RegionGraph::Step{b, edge, length, cost});
+        out.steps[b].push_back(RegionGraph::Step{a, edge, length, cost});
+        out.points.push_back(a);
+        out.points.push_back(b);
+    }
+    std::sort(out.points.begin(), out.points.end());
+    out.points.erase(std::unique(out.points.begin(), out.points.end()), out.points.end());
+    return out;
+}
+
+/// Dijkstra from @p start over @p graph, by length or by cost.
+void walkRegion(const RegionGraph& graph, u32 start, bool byCost, std::vector<f32>& best,
+                std::vector<u32>& cameFrom, std::vector<EdgeId>& cameBy) {
+    best.assign(graph.steps.size(), std::numeric_limits<f32>::max());
+    cameFrom.assign(graph.steps.size(), kInvalidId);
+    cameBy.assign(graph.steps.size(), EdgeId());
+    std::vector<std::pair<f32, u32>> queue;
+    const auto cheaper = [](const std::pair<f32, u32>& a, const std::pair<f32, u32>& b) {
+        return a.first != b.first ? a.first > b.first : a.second > b.second;
+    };
+    best[start] = 0.0f;
+    queue.emplace_back(0.0f, start);
+    while (!queue.empty()) {
+        std::pop_heap(queue.begin(), queue.end(), cheaper);
+        const auto [cost, point] = queue.back();
+        queue.pop_back();
+        if (cost > best[point]) {
+            continue;
+        }
+        for (const RegionGraph::Step& step : graph.steps[point]) {
+            const f32 next = cost + (byCost ? step.cost : step.length);
+            if (next >= best[step.to]) {
+                continue;
+            }
+            best[step.to] = next;
+            cameFrom[step.to] = point;
+            cameBy[step.to] = step.edge;
+            queue.emplace_back(next, step.to);
+            std::push_heap(queue.begin(), queue.end(), cheaper);
+        }
+    }
+}
+
+/// The reached point farthest from where @p best was walked from.
+u32 farthestOf(const RegionGraph& graph, const std::vector<f32>& best) {
+    u32 out = kInvalidId;
+    f32 far = -1.0f;
+    for (const u32 point : graph.points) {
+        if (best[point] != std::numeric_limits<f32>::max() && best[point] > far) {
+            far = best[point];
+            out = point;
+        }
+    }
+    return out;
+}
+
+} // namespace
+
+SeamPath ClosingSeam(const Mesh& mesh, const skinning::PointTable& points,
+                     std::span<const FaceId> faces, const SeamPathOptions& options) {
+    SeamPath out;
+    out.stopped = true;
+    if (!mesh.hasConnectivity() || faces.empty()) {
+        return out;
+    }
+    const RegionGraph graph = regionGraph(mesh, points, faces, options);
+    if (graph.points.size() < 2) {
+        return out;
+    }
+    // Two sweeps: the point farthest from anywhere is one end of the region's
+    // longest way across, and the point farthest from it is the other.
+    std::vector<f32> best;
+    std::vector<u32> cameFrom;
+    std::vector<EdgeId> cameBy;
+    walkRegion(graph, graph.points.front(), false, best, cameFrom, cameBy);
+    const u32 from = farthestOf(graph, best);
+    walkRegion(graph, from, false, best, cameFrom, cameBy);
+    const u32 to = farthestOf(graph, best);
+    if (from == kInvalidId || to == kInvalidId || from == to) {
+        return out;
+    }
+    // The cut itself hides: the same two ends, walked by cost.
+    walkRegion(graph, from, true, best, cameFrom, cameBy);
+    for (u32 point = to; cameFrom[point] != kInvalidId; point = cameFrom[point]) {
+        out.edges.push_back(cameBy[point]);
+    }
+    std::reverse(out.edges.begin(), out.edges.end());
+    out.stopped = out.edges.empty();
+    return out;
+}
+
+SeamPath RingSeam(const Mesh& mesh, const skinning::PointTable& points, const UvIslands& islands,
+                  u32 island, const SeamPathOptions& options) {
+    SeamPath out;
+    out.stopped = true;
+    if (!mesh.hasConnectivity() || island >= islands.count) {
+        return out;
+    }
+    const Topology& topology = mesh.topology();
+    const std::span<const Vector3f> positions =
+        mesh.attributes.get<const Vector3f>(names::kPosition, Domain::Vertex);
+    // The boundary's loops, laid end to end: one closes where its walk comes
+    // back to the vertex it started from.
+    struct Loop {
+        std::vector<u32> points;
+        f32 length = 0.0f;
+    };
+    std::vector<Loop> loops;
+    const std::span<const HalfedgeId> boundary = islands.boundaryOf(island);
+    for (std::size_t start = 0; start < boundary.size();) {
+        Loop loop;
+        const VertexId first = topology.from(boundary[start]);
+        std::size_t k = start;
+        for (; k < boundary.size(); ++k) {
+            const HalfedgeId h = boundary[k];
+            loop.points.push_back(points.pointOfVertex(topology.from(h).value()));
+            if (topology.from(h).index() < positions.size() && topology.to(h).index() < positions.size()) {
+                loop.length += (positions[topology.to(h).index()] - positions[topology.from(h).index()]).length();
+            }
+            if (topology.to(h) == first) {
+                break;
+            }
+        }
+        loops.push_back(std::move(loop));
+        start = k + 1;
+    }
+    if (loops.size() < 2) {
+        return out;
+    }
+    std::sort(loops.begin(), loops.end(), [](const Loop& a, const Loop& b) { return a.length > b.length; });
+    std::vector<FaceId> faces;
+    for (const u32 f : islands.facesOf(island)) {
+        faces.push_back(FaceId(f));
+    }
+    const RegionGraph graph = regionGraph(mesh, points, faces, options);
+    // From every point of the longest loop at once, to the first point of the
+    // second one reached: the cheapest way across, round the hidden side.
+    std::vector<f32> best(graph.steps.size(), std::numeric_limits<f32>::max());
+    std::vector<u32> cameFrom(graph.steps.size(), kInvalidId);
+    std::vector<EdgeId> cameBy(graph.steps.size());
+    std::vector<u8> goal(graph.steps.size(), 0);
+    for (const u32 p : loops[1].points) {
+        if (p < goal.size()) {
+            goal[p] = 1;
+        }
+    }
+    std::vector<std::pair<f32, u32>> queue;
+    const auto cheaper = [](const std::pair<f32, u32>& a, const std::pair<f32, u32>& b) {
+        return a.first != b.first ? a.first > b.first : a.second > b.second;
+    };
+    for (const u32 p : loops[0].points) {
+        if (p < best.size() && best[p] != 0.0f) {
+            best[p] = 0.0f;
+            queue.emplace_back(0.0f, p);
+        }
+    }
+    std::make_heap(queue.begin(), queue.end(), cheaper);
+    u32 reached = kInvalidId;
+    while (!queue.empty()) {
+        std::pop_heap(queue.begin(), queue.end(), cheaper);
+        const auto [cost, point] = queue.back();
+        queue.pop_back();
+        if (cost > best[point]) {
+            continue;
+        }
+        if (goal[point]) {
+            reached = point;
+            break;
+        }
+        for (const RegionGraph::Step& step : graph.steps[point]) {
+            const f32 next = cost + step.cost;
+            if (next >= best[step.to]) {
+                continue;
+            }
+            best[step.to] = next;
+            cameFrom[step.to] = point;
+            cameBy[step.to] = step.edge;
+            queue.emplace_back(next, step.to);
+            std::push_heap(queue.begin(), queue.end(), cheaper);
+        }
+    }
+    if (reached == kInvalidId) {
+        return out;
+    }
+    for (u32 point = reached; cameFrom[point] != kInvalidId; point = cameFrom[point]) {
+        out.edges.push_back(cameBy[point]);
+    }
+    std::reverse(out.edges.begin(), out.edges.end());
+    out.stopped = out.edges.empty();
+    return out;
+}
+
 u32 MirrorMarks(Mesh& view, u32 set, std::span<const u32> pointMirror) {
     if (!view.hasConnectivity() || pointMirror.empty()) {
         return 0;

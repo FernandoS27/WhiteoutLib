@@ -549,7 +549,7 @@ TEST_CASE("UV straighten: a wavy run comes out a line", "[wem][uv][straighten]")
     }
 }
 
-TEST_CASE("UV rectangle: a bent strip lies out as its own arc lengths",
+TEST_CASE("UV rectangle: a bent strip lies out as its own arc lengths, where it was",
           "[wem][uv][rectangle]") {
     // Bent across the length, so the long sides are longer than the strip is
     // wide and the answer is not a square.
@@ -569,16 +569,15 @@ TEST_CASE("UV rectangle: a bent strip lies out as its own arc lengths",
 
     const uv::UvBounds bounds = uv::BoundsOf(mesh, islands, 0, 0);
     // Which way round it lands is the boundary loop's business, so the claim is
-    // about the two sides and not about which is x: one is the strip's width,
-    // the other the zigzag's arc length, which is longer than the six units the
-    // strip spans.
+    // about the two sides and not about which is x: their ratio is the zigzag's
+    // arc length to the strip's width. Then it is fitted back over the map it
+    // had, [0, 6] x [0, 1]: that area, that centre, as any re-solve lands.
     const f32 shorter = std::min(bounds.width(), bounds.height());
     const f32 longer = std::max(bounds.width(), bounds.height());
-    CHECK(std::abs(shorter - 1.0f) < 1e-3f);
-    CHECK(longer > 6.0f);
-    CHECK(std::abs(longer - 6.0f * std::sqrt(1.0f + 0.35f * 0.35f)) < 1e-2f);
-    CHECK(std::abs(bounds.low.x) < 1e-4f);
-    CHECK(std::abs(bounds.low.y) < 1e-4f);
+    CHECK(std::abs(longer / shorter - 6.0f * std::sqrt(1.0f + 0.35f * 0.35f)) < 1e-2f);
+    CHECK(std::abs(longer * shorter - 6.0f) < 1e-2f);
+    CHECK(std::abs((bounds.low.x + bounds.high.x) * 0.5f - 3.0f) < 1e-3f);
+    CHECK(std::abs((bounds.low.y + bounds.high.y) * 0.5f - 0.5f) < 1e-3f);
 
     // And the boundary really is the rectangle: every boundary wedge is on one
     // of its four sides.
@@ -609,6 +608,45 @@ TEST_CASE("UV rectangle: six corners are refused with six", "[wem][uv][rectangle
     CHECK(result.corners == 6u);
     CHECK_FALSE(result.ok());
     CHECK(result.solve.refusal == uv::FlattenResult::Refusal::TooFewPins);
+}
+
+TEST_CASE("UV box: a cube projects into six squares with nothing stretched",
+          "[wem][uv][flatten]") {
+    geom::PrimitiveParams params;
+    params.size = Vector3f{0.5f, 0.5f, 0.5f};
+    Mesh mesh = geom::MakeBox(params);
+    // Into a set with no map, so nothing of the box's own unwrap is read.
+    uv::EnsureUvSet(mesh, 1);
+    std::vector<FaceId> faces;
+    for (u32 f = 0; f < mesh.topology().faceCount(); ++f) {
+        faces.push_back(FaceId(f));
+    }
+    CHECK(uv::Project(mesh, faces, 1, uv::ProjectShape::Box, uv::ProjectFrame{}).ok());
+    const uv::UvIslands islands = uv::BuildUvIslands(mesh, 1);
+    REQUIRE(islands.count == 6u);
+    const std::vector<f32> stretch = uv::FaceStretch(mesh, islands, 1);
+    const std::span<const Vector2f> uvs =
+        mesh.attributes.get<const Vector2f>(geom::names::uv(1), Domain::Halfedge);
+    for (u32 island = 0; island < islands.count; ++island) {
+        const uv::UvBounds bounds = uv::BoundsOf(mesh, islands, island, 1);
+        CHECK(std::abs(bounds.width() - 1.0f) < 1e-5f);
+        CHECK(std::abs(bounds.height() - 1.0f) < 1e-5f);
+        for (const u32 f : islands.facesOf(island)) {
+            CHECK(std::abs(stretch[f] - 1.0f) < 1e-4f);
+            // Seen from outside, every face keeps its turn: none is mirrored.
+            f32 area = 0.0f;
+            std::vector<Vector2f> ring;
+            for (const HalfedgeId h : mesh.topology().fh(FaceId(f))) {
+                ring.push_back(uvs[h.index()]);
+            }
+            for (std::size_t i = 0; i < ring.size(); ++i) {
+                const Vector2f& a = ring[i];
+                const Vector2f& b = ring[(i + 1) % ring.size()];
+                area += a.x * b.y - b.x * a.y;
+            }
+            CHECK(area > 0.0f);
+        }
+    }
 }
 
 // ============================================================================

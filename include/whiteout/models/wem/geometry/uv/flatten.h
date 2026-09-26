@@ -119,13 +119,17 @@ struct RectangleResult {
 
 /// Lays @p island out as a rectangle: its boundary's four corners at the
 /// corners, every boundary wedge between them at its own share of that side,
-/// and the inside solved around them. The sides are the boundary's own arc
-/// lengths, so a strip that was twice as long as it was wide still is.
+/// and the inside solved around them. The sides are in proportion to the
+/// boundary's own arc lengths, so a strip that was twice as long as it was wide
+/// still is; the result is fitted back over the island's old map -- its area,
+/// its centre -- as any re-solve lands.
 RectangleResult Rectangle(Mesh& mesh, const UvIslands& islands, u32 island, u32 set);
 
-/// The three shapes a projection can take. The frame is the caller's: the
-/// library does not know where the camera is, and Fit is `FitPlane`'s answer.
-enum class ProjectShape : u8 { Planar, Cylinder, Sphere };
+/// The shapes a projection can take. The frame is the caller's: the library
+/// does not know where the camera is, and Fit is `FitPlane`'s answer. Box sends
+/// each face to the frame's axis its normal is nearest, plane by plane, and
+/// cuts where two planes meet (EDIT_MODE_UV_REDESIGN.md §8).
+enum class ProjectShape : u8 { Planar, Cylinder, Sphere, Box };
 
 /// An orthonormal frame with a place. `axisN` is the projection's axis: the
 /// plane's normal, the cylinder's and the sphere's pole.

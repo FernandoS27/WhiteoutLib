@@ -422,8 +422,291 @@ TEST_CASE("UV density: matching brings two islands to one scale",
 }
 
 // ============================================================================
+// What may move (EDIT_MODE_UV_REDESIGN.md §4.2, §4.3)
+// ============================================================================
+
+namespace {
+
+void pinAll(Mesh& mesh, const uv::UvIslands& islands, u32 island) {
+    const std::span<u8> pins =
+        mesh.attributes.getOrCreate<u8>(geom::names::uvPin(0), Domain::Halfedge,
+                                        geom::AttrType::Bool);
+    for (const u32 face : islands.facesOf(island)) {
+        for (const HalfedgeId h : std::as_const(mesh).topology().fh(FaceId(face))) {
+            pins[h.index()] = 1;
+        }
+    }
+}
+
+std::vector<Vector2f> islandUvs(const Mesh& mesh, const uv::UvIslands& islands, u32 island) {
+    std::vector<Vector2f> out;
+    const std::span<const Vector2f> uvs =
+        mesh.attributes.get<const Vector2f>(geom::names::uv(0), Domain::Halfedge);
+    for (const u32 face : islands.facesOf(island)) {
+        for (const HalfedgeId h : mesh.topology().fh(FaceId(face))) {
+            out.push_back(uvs[h.index()]);
+        }
+    }
+    return out;
+}
+
+bool inTile(const uv::UvBounds& bounds) {
+    return bounds.low.x >= -0.001f && bounds.low.y >= -0.001f && bounds.high.x <= 1.001f &&
+           bounds.high.y <= 1.001f;
+}
+
+} // namespace
+
+TEST_CASE("UV pack: only the movable ones move", "[wem][uv][layout]") {
+    // All three free, but the caller says only the second may move.
+    Mesh mesh = patches({
+        Patch{{2.0f, 0.0f}, {2.3f, 0.3f}, 1.0f, true},
+        Patch{{3.0f, 0.0f}, {3.2f, 0.2f}, 1.0f, true},
+        Patch{{0.1f, 0.1f}, {0.4f, 0.4f}, 1.0f, true},
+    });
+    const uv::UvIslands islands = uv::BuildUvIslands(mesh, 0);
+    const std::vector<Vector2f> first = islandUvs(mesh, islands, 0);
+    const std::vector<Vector2f> third = islandUvs(mesh, islands, 2);
+    const u8 movable[3] = {0, 1, 0};
+    uv::PackOptions options;
+    options.resolution = 256;
+    options.movable = std::span<const u8>(movable, 3);
+    options.refuseTiling = false;
+    const uv::PackResult result = uv::Pack(mesh, islands, 0, options);
+    CHECK(result.placed == 1u);
+    CHECK(islandUvs(mesh, islands, 0) == first);
+    CHECK(islandUvs(mesh, islands, 2) == third);
+    CHECK(inTile(uv::BoundsOf(mesh, islands, 1, 0)));
+    u32 overlaps = 0;
+    u32 covered = 0;
+    rasterise(mesh, islands, 0, options.resolution, overlaps, covered);
+    CHECK(overlaps == 0u);
+}
+
+TEST_CASE("UV stacks: twins a hair apart are one stack whichever way their points sort",
+          "[wem][uv][layout]") {
+    // The second's foot is two millionths along u: inside the tolerance, and
+    // enough to sort its points in another order than the first's.
+    Mesh mesh = patches({
+        Patch{{0.2f, 0.2f}, {0.5f, 0.6f}, 1.0f, true},
+        Patch{{0.2f, 0.2f}, {0.5f, 0.6f}, 1.0f, true},
+    });
+    const std::span<Vector2f> uvs = mesh.attributes.get<Vector2f>(geom::names::uv(0), Domain::Halfedge);
+    for (const HalfedgeId h : std::as_const(mesh).topology().fh(FaceId(1))) {
+        if (uvs[h.index()].y < 0.3f) {
+            uvs[h.index()].x += 2e-6f;
+        }
+    }
+    const uv::UvIslands islands = uv::BuildUvIslands(mesh, 0);
+    const std::vector<std::vector<u32>> stacks = uv::FindStacks(mesh, islands, 0);
+    REQUIRE(stacks.size() == 1u);
+    CHECK(stacks[0] == std::vector<u32>{0, 1});
+}
+
+TEST_CASE("UV pack: the free space under a fixed island is reached", "[wem][uv][layout]") {
+    // Fixed bands along the tile's foot and head, the room between them: a
+    // skyline would see every column full to the top.
+    Mesh mesh = patches({
+        Patch{{0.0f, 0.0f}, {1.0f, 0.3f}, 1.0f, false},
+        Patch{{0.0f, 0.7f}, {1.0f, 1.0f}, 1.0f, false},
+        Patch{{2.0f, 0.0f}, {2.3f, 0.3f}, 1.0f, true},
+    });
+    const uv::UvIslands islands = uv::BuildUvIslands(mesh, 0);
+    uv::PackOptions options;
+    options.resolution = 256;
+    options.allowScale = false;
+    const uv::PackResult result = uv::Pack(mesh, islands, 0, options);
+    CHECK(result.placed == 1u);
+    CHECK(result.unplaced.empty());
+    const uv::UvBounds moved = uv::BoundsOf(mesh, islands, 2, 0);
+    CHECK(inTile(moved));
+    CHECK(moved.low.y >= 0.3f);
+    CHECK(moved.high.y <= 0.7f);
+    u32 overlaps = 0;
+    u32 covered = 0;
+    rasterise(mesh, islands, 0, options.resolution, overlaps, covered);
+    CHECK(overlaps == 0u);
+}
+
+TEST_CASE("UV pack: a group lands as one block", "[wem][uv][layout]") {
+    // Two pieces of one old island, side by side off the tile: they land
+    // together, still side by side, as one footprint.
+    Mesh mesh = patches({
+        Patch{{2.0f, 0.0f}, {2.2f, 0.2f}, 1.0f, true},
+        Patch{{2.3f, 0.0f}, {2.5f, 0.2f}, 1.0f, true},
+    });
+    const uv::UvIslands islands = uv::BuildUvIslands(mesh, 0);
+    const Vector2f gap = uv::BoundsOf(mesh, islands, 1, 0).low - uv::BoundsOf(mesh, islands, 0, 0).low;
+    const u32 groupOf[2] = {7, 7};
+    uv::PackOptions options;
+    options.resolution = 256;
+    options.rotate = false;
+    options.groupOf = std::span<const u32>(groupOf, 2);
+    const uv::PackResult result = uv::Pack(mesh, islands, 0, options);
+    CHECK(result.placed == 1u);
+    const Vector2f after = uv::BoundsOf(mesh, islands, 1, 0).low - uv::BoundsOf(mesh, islands, 0, 0).low;
+    CHECK(std::abs(after.x - gap.x) < 1e-5f);
+    CHECK(std::abs(after.y - gap.y) < 1e-5f);
+    CHECK(inTile(uv::BoundsOf(mesh, islands, 0, 0)));
+    CHECK(inTile(uv::BoundsOf(mesh, islands, 1, 0)));
+}
+
+TEST_CASE("UV pack: a pinned island is an obstacle", "[wem][uv][layout]") {
+    // Free, and every corner pinned: Lock, which Pack leaves where it is.
+    Mesh mesh = patches({
+        Patch{{0.3f, 0.3f}, {0.7f, 0.7f}, 1.0f, true},
+        Patch{{2.0f, 0.0f}, {2.3f, 0.3f}, 1.0f, true},
+    });
+    const uv::UvIslands islands = uv::BuildUvIslands(mesh, 0);
+    pinAll(mesh, islands, 0);
+    CHECK(uv::IslandIsPinned(mesh, islands, 0, 0));
+    CHECK_FALSE(uv::IslandIsPinned(mesh, islands, 1, 0));
+    const std::vector<Vector2f> pinned = islandUvs(mesh, islands, 0);
+    uv::PackOptions options;
+    options.resolution = 256;
+    const uv::PackResult result = uv::Pack(mesh, islands, 0, options);
+    CHECK(result.placed == 1u);
+    CHECK(islandUvs(mesh, islands, 0) == pinned);
+    u32 overlaps = 0;
+    u32 covered = 0;
+    rasterise(mesh, islands, 0, options.resolution, overlaps, covered);
+    CHECK(overlaps == 0u);
+
+    // Asked not to, it moves like any other.
+    Mesh again = patches({
+        Patch{{0.3f, 0.3f}, {0.7f, 0.7f}, 1.0f, true},
+        Patch{{2.0f, 0.0f}, {2.3f, 0.3f}, 1.0f, true},
+    });
+    pinAll(again, islands, 0);
+    options.leavePinned = false;
+    CHECK(uv::Pack(again, islands, 0, options).placed == 2u);
+}
+
+TEST_CASE("UV pack: free space does not scale, and reports what did not fit",
+          "[wem][uv][layout]") {
+    // A fixed island fills most of the tile; of two new ones, the small one
+    // fits beside it and the large one does not.
+    Mesh mesh = patches({
+        Patch{{0.0f, 0.0f}, {0.8f, 1.0f}, 1.0f, false},
+        Patch{{2.0f, 0.0f}, {2.1f, 0.1f}, 1.0f, true},
+        Patch{{3.0f, 0.0f}, {3.5f, 0.5f}, 1.0f, true},
+    });
+    const uv::UvIslands islands = uv::BuildUvIslands(mesh, 0);
+    const std::vector<Vector2f> large = islandUvs(mesh, islands, 2);
+    const uv::UvBounds smallBefore = uv::BoundsOf(mesh, islands, 1, 0);
+    const u8 movable[3] = {0, 1, 1};
+    const std::vector<u32> unplaced = uv::PlaceInFreeSpace(
+        mesh, islands, 0, std::span<const u8>(movable, 3), {}, 256, 2);
+    CHECK(unplaced == std::vector<u32>{2});
+    // The large one waits where it was, the small one is in the tile at its
+    // size.
+    CHECK(islandUvs(mesh, islands, 2) == large);
+    const uv::UvBounds smallAfter = uv::BoundsOf(mesh, islands, 1, 0);
+    CHECK(inTile(smallAfter));
+    CHECK(std::abs(smallAfter.width() - smallBefore.width()) < 1e-5f);
+    u32 overlaps = 0;
+    u32 covered = 0;
+    rasterise(mesh, islands, 0, 256, overlaps, covered);
+    CHECK(overlaps == 0u);
+}
+
+TEST_CASE("UV pack: two meshes on one image share one map", "[wem][uv][layout]") {
+    // The body's island is fixed in the tile; the cape's two are new. Packed
+    // one mesh at a time the cape would land on the body; on one map it does
+    // not (EDIT_MODE_UV_REDESIGN.md §10, W14).
+    Mesh body = patches({Patch{{0.0f, 0.0f}, {0.6f, 0.6f}, 1.0f, false}});
+    Mesh cape = patches({
+        Patch{{2.0f, 0.0f}, {2.3f, 0.3f}, 1.0f, true},
+        Patch{{3.0f, 0.0f}, {3.3f, 0.3f}, 1.0f, true},
+    });
+    const uv::UvIslands bodyIslands = uv::BuildUvIslands(body, 0);
+    const uv::UvIslands capeIslands = uv::BuildUvIslands(cape, 0);
+    const std::vector<Vector2f> fixed = islandUvs(body, bodyIslands, 0);
+    const uv::PackInput inputs[] = {{&body, &bodyIslands, 0, {}, {}}, {&cape, &capeIslands, 0, {}, {}}};
+    uv::PackOptions options;
+    options.resolution = 256;
+    options.rotate = false;
+    const uv::PackResult result = uv::PackMeshes(inputs, options);
+    CHECK(result.placed == 2u);
+    CHECK(islandUvs(body, bodyIslands, 0) == fixed);
+    const uv::UvBounds held = uv::BoundsOf(body, bodyIslands, 0, 0);
+    for (u32 island = 0; island < capeIslands.count; ++island) {
+        const uv::UvBounds b = uv::BoundsOf(cape, capeIslands, island, 0);
+        CHECK(inTile(b));
+        const bool apart = b.low.x >= held.high.x || b.high.x <= held.low.x || b.low.y >= held.high.y ||
+                           b.high.y <= held.low.y;
+        CHECK(apart);
+    }
+}
+
+TEST_CASE("UV orient: a turned island comes back square to the axes, lying along u",
+          "[wem][uv][layout]") {
+    Mesh mesh = patches({Patch{{0.2f, 0.2f}, {0.6f, 0.4f}, 1.0f, true}});
+    const uv::UvIslands islands = uv::BuildUvIslands(mesh, 0);
+    // Square already: nothing to do, to the bit.
+    const std::vector<Vector2f> square = islandUvs(mesh, islands, 0);
+    CHECK(uv::OrientIsland(mesh, islands, 0, 0) == 0.0f);
+    CHECK(islandUvs(mesh, islands, 0) == square);
+    // Turned by 30 degrees, and stood on end: back to 0.4 by 0.2.
+    uv::TurnIsland(mesh, islands, 0, 0, 0.5235988f + 1.5707963f, Vector2f{0.0f, 0.0f});
+    CHECK(uv::OrientIsland(mesh, islands, 0, 0) != 0.0f);
+    const uv::UvBounds bounds = uv::BoundsOf(mesh, islands, 0, 0);
+    CHECK(std::abs(bounds.width() - 0.4f) < 1e-4f);
+    CHECK(std::abs(bounds.height() - 0.2f) < 1e-4f);
+}
+
+// ============================================================================
 // The corpus (EDIT_MODE_UV_PLAN.md §8)
 // ============================================================================
+
+TEST_CASE("UV orient: the MDX corpus, never a bigger box", "[wem][uv][layout][corpus]") {
+    const auto files = test::gather("WEM_MDX_CORPUS_DIR", ".mdx", {"MDL", "Wc3Mdx"});
+    if (files.empty()) {
+        SKIP("MDX corpus not found");
+    }
+    const std::size_t limit = test::sweepLimit(files.size(), 60);
+    u32 islandsSeen = 0;
+    u32 turned = 0;
+    u32 bigger = 0;
+    f64 before = 0.0;
+    f64 after = 0.0;
+    for (std::size_t i = 0; i < limit; ++i) {
+        if (test::isKnownBad(files[i])) {
+            continue;
+        }
+        const auto bytes = test::readCorpusFile(files[i]);
+        if (bytes.empty()) {
+            continue;
+        }
+        for (test::IngestedMesh& ingested :
+             test::IngestMdx(std::span<const u8>(bytes.data(), bytes.size()))) {
+            Mesh mesh = std::move(ingested.mesh);
+            geom::PrepareForModelling(mesh);
+            if (!mesh.hasConnectivity()) {
+                continue;
+            }
+            uv::EnsureUvSet(mesh, 0);
+            const uv::UvIslands islands = uv::BuildUvIslands(mesh, 0);
+            for (u32 island = 0; island < islands.count; ++island) {
+                const uv::UvBounds was = uv::BoundsOf(mesh, islands, island, 0);
+                if (was.empty) {
+                    continue;
+                }
+                ++islandsSeen;
+                turned += uv::OrientIsland(mesh, islands, island, 0) != 0.0f ? 1u : 0u;
+                const uv::UvBounds now = uv::BoundsOf(mesh, islands, island, 0);
+                const f64 a = static_cast<f64>(was.width()) * was.height();
+                const f64 b = static_cast<f64>(now.width()) * now.height();
+                before += a;
+                after += b;
+                bigger += b > a * (1.0 + 1e-4) + 1e-12 ? 1u : 0u;
+            }
+        }
+    }
+    std::cout << "UV orient corpus: " << islandsSeen << " islands, " << turned << " turned, " << bigger
+              << " bigger, box area " << before << " -> " << after << '\n';
+    CHECK(bigger == 0u);
+}
 
 TEST_CASE("UV pack: the MDX corpus, freed and packed", "[wem][uv][layout][corpus]") {
     const auto files = test::gather("WEM_MDX_CORPUS_DIR", ".mdx", {"MDL", "Wc3Mdx"});

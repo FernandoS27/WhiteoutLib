@@ -170,8 +170,8 @@ void PlaceInStrip(Mesh& mesh, const UvIslands& islands, u32 island, u32 set, f32
 namespace {
 
 /// One island as the packer sees it: a mask of the texels it covers, already
-/// dilated by the padding, and the column profile the skyline is tested
-/// against.
+/// dilated by the padding, and the column profile the free rows are tested
+/// against. A moving island needs only the profile, so it has no mask.
 struct Footprint {
     u32 width = 0;
     u32 height = 0;
@@ -190,37 +190,12 @@ struct Footprint {
     }
 };
 
-/// Fills the texels whose centre is inside the triangle, and the ring round
-/// them: a conservative cover, so no island is packed closer than it looks.
+/// Fills the texels the triangle covers and the ring round them: a
+/// conservative cover, so no island is packed closer than it looks, and a seam
+/// never lands half in and half out.
 void rasterTriangle(Footprint& out, const Vector2f& a, const Vector2f& b, const Vector2f& c) {
-    const f32 lowX = std::min(a.x, std::min(b.x, c.x));
-    const f32 highX = std::max(a.x, std::max(b.x, c.x));
-    const f32 lowY = std::min(a.y, std::min(b.y, c.y));
-    const f32 highY = std::max(a.y, std::max(b.y, c.y));
-    const i32 x0 = std::max(0, static_cast<i32>(std::floor(lowX)) - 1);
-    const i32 x1 = std::min(static_cast<i32>(out.width) - 1, static_cast<i32>(std::ceil(highX)));
-    const i32 y0 = std::max(0, static_cast<i32>(std::floor(lowY)) - 1);
-    const i32 y1 = std::min(static_cast<i32>(out.height) - 1, static_cast<i32>(std::ceil(highY)));
-    const f32 area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-    if (area == 0.0f) {
-        return;
-    }
-    const f32 inverse = 1.0f / area;
-    for (i32 y = y0; y <= y1; ++y) {
-        for (i32 x = x0; x <= x1; ++x) {
-            const f32 px = static_cast<f32>(x) + 0.5f;
-            const f32 py = static_cast<f32>(y) + 0.5f;
-            const f32 w0 = ((b.x - a.x) * (py - a.y) - (b.y - a.y) * (px - a.x)) * inverse;
-            const f32 w1 = ((c.x - b.x) * (py - b.y) - (c.y - b.y) * (px - b.x)) * inverse;
-            const f32 w2 = ((a.x - c.x) * (py - c.y) - (a.y - c.y) * (px - c.x)) * inverse;
-            // A texel the triangle only clips still counts: the ring is what
-            // keeps a seam from landing half in and half out.
-            const bool inside = (w0 >= -0.5f && w1 >= -0.5f && w2 >= -0.5f);
-            if (inside) {
-                out.mask[static_cast<u32>(y) * out.width + static_cast<u32>(x)] = 1;
-            }
-        }
-    }
+    detail::RasterTriangle(out.width, out.height, a, b, c, true,
+                           [&](u32 x, u32 y) { out.mask[y * out.width + x] = 1; });
 }
 
 /// Grows @p out by @p padding texels in every direction, separably.
@@ -274,12 +249,43 @@ void profile(Footprint& out) {
     }
 }
 
-/// The footprint of a group of islands taken together (a stack is one thing to
-/// the packer), at @p texels per UV unit, turned by @p radians about the
-/// group's own centre.
-Footprint footprintOf(const Mesh& mesh, const UvIslands& islands, std::span<const u32> group,
-                      u32 set, f32 texels, u32 padding, f32 radians, Vector2f& centre) {
-    Footprint out;
+/// The profile alone, as `profile` would read it off the dilated mask: a
+/// column's padded span reaches from its neighbours' lowest to their highest.
+void profileOnly(Footprint& out, u32 padding) {
+    const std::vector<u32> low = out.low;
+    const std::vector<u32> high = out.high;
+    out.covered = 0;
+    for (u32 x = 0; x < out.width; ++x) {
+        const u32 from = x > padding ? x - padding : 0;
+        const u32 to = std::min(out.width - 1, x + padding);
+        u32 lowest = kInvalidId;
+        u32 highest = 0;
+        for (u32 k = from; k <= to; ++k) {
+            if (low[k] != kInvalidId) {
+                lowest = std::min(lowest, low[k]);
+                highest = std::max(highest, high[k]);
+            }
+        }
+        if (lowest == kInvalidId) {
+            out.low[x] = out.high[x] = kInvalidId;
+            continue;
+        }
+        out.low[x] = lowest > padding ? lowest - padding : 0;
+        out.high[x] = std::min(out.height - 1, highest + padding);
+        out.covered += out.high[x] - out.low[x] + 1;
+    }
+}
+
+/// A group of islands as the packer rasterises it: its UV triangles, three
+/// corners each, and the centre it turns about. Read once, since nothing moves
+/// until the layout is written.
+struct Shape {
+    std::vector<Vector2f> corners;
+    Vector2f centre{0.0f, 0.0f};
+};
+
+Shape shapeOf(const Mesh& mesh, const UvIslands& islands, std::span<const u32> group, u32 set) {
+    Shape out;
     const std::span<const Vector2f> uvs =
         mesh.attributes.get<const Vector2f>(names::uv(set), Domain::Halfedge);
     if (uvs.empty()) {
@@ -303,7 +309,28 @@ Footprint footprintOf(const Mesh& mesh, const UvIslands& islands, std::span<cons
     if (whole.empty) {
         return out;
     }
-    centre = Vector2f{(whole.low.x + whole.high.x) * 0.5f, (whole.low.y + whole.high.y) * 0.5f};
+    out.centre = Vector2f{(whole.low.x + whole.high.x) * 0.5f, (whole.low.y + whole.high.y) * 0.5f};
+    for (const u32 island : group) {
+        for (const u32 face : islands.facesOf(island)) {
+            for (const detail::Tri& tri : detail::TrianglesOf(mesh, FaceId(face))) {
+                for (u32 k = 0; k < 3; ++k) {
+                    out.corners.push_back(uvs[tri.corner[k].index()]);
+                }
+            }
+        }
+    }
+    return out;
+}
+
+/// The footprint of a group of islands taken together (a stack is one thing to
+/// the packer), at @p texels per UV unit, turned by @p radians about the
+/// group's own centre.
+Footprint footprintOf(const Shape& shape, f32 texels, u32 padding, f32 radians, bool mask = true) {
+    Footprint out;
+    if (shape.corners.empty()) {
+        return out;
+    }
+    const Vector2f centre = shape.centre;
     const f32 sine = std::sin(radians);
     const f32 cosine = std::cos(radians);
     const auto turn = [&](const Vector2f& value) {
@@ -314,26 +341,17 @@ Footprint footprintOf(const Mesh& mesh, const UvIslands& islands, std::span<cons
 
     // The turned bounds, which is what the mask has to hold.
     UvBounds turned;
-    for (const u32 island : group) {
-        for (const u32 face : islands.facesOf(island)) {
-            for (const detail::Tri& tri : detail::TrianglesOf(mesh, FaceId(face))) {
-                for (u32 k = 0; k < 3; ++k) {
-                    const Vector2f value = turn(uvs[tri.corner[k].index()]);
-                    if (turned.empty) {
-                        turned.low = turned.high = value;
-                        turned.empty = false;
-                        continue;
-                    }
-                    turned.low.x = std::min(turned.low.x, value.x);
-                    turned.low.y = std::min(turned.low.y, value.y);
-                    turned.high.x = std::max(turned.high.x, value.x);
-                    turned.high.y = std::max(turned.high.y, value.y);
-                }
-            }
+    for (const Vector2f& corner : shape.corners) {
+        const Vector2f value = turn(corner);
+        if (turned.empty) {
+            turned.low = turned.high = value;
+            turned.empty = false;
+            continue;
         }
-    }
-    if (turned.empty) {
-        return out;
+        turned.low.x = std::min(turned.low.x, value.x);
+        turned.low.y = std::min(turned.low.y, value.y);
+        turned.high.x = std::max(turned.high.x, value.x);
+        turned.high.y = std::max(turned.high.y, value.y);
     }
     const u32 margin = padding + 2;
     out.origin = turned.low;
@@ -346,20 +364,33 @@ Footprint footprintOf(const Mesh& mesh, const UvIslands& islands, std::span<cons
         out.width = out.height = 0;
         return out;
     }
-    out.mask.assign(static_cast<std::size_t>(out.width) * out.height, 0);
+    if (mask) {
+        out.mask.assign(static_cast<std::size_t>(out.width) * out.height, 0);
+    } else {
+        out.low.assign(out.width, kInvalidId);
+        out.high.assign(out.width, 0);
+    }
     const auto place = [&](const Vector2f& value) {
         const Vector2f t = turn(value);
         return Vector2f{(t.x - turned.low.x) * texels + static_cast<f32>(margin),
                         (t.y - turned.low.y) * texels + static_cast<f32>(margin)};
     };
-    for (const u32 island : group) {
-        for (const u32 face : islands.facesOf(island)) {
-            for (const detail::Tri& tri : detail::TrianglesOf(mesh, FaceId(face))) {
-                rasterTriangle(out, place(uvs[tri.corner[0].index()]),
-                               place(uvs[tri.corner[1].index()]),
-                               place(uvs[tri.corner[2].index()]));
-            }
+    for (std::size_t i = 0; i + 2 < shape.corners.size(); i += 3) {
+        const Vector2f a = place(shape.corners[i]);
+        const Vector2f b = place(shape.corners[i + 1]);
+        const Vector2f c = place(shape.corners[i + 2]);
+        if (mask) {
+            rasterTriangle(out, a, b, c);
+            continue;
         }
+        detail::RasterTriangle(out.width, out.height, a, b, c, true, [&](u32 x, u32 y) {
+            out.low[x] = std::min(out.low[x], y);
+            out.high[x] = std::max(out.high[x], y);
+        });
+    }
+    if (!mask) {
+        profileOnly(out, padding);
+        return out;
     }
     dilate(out, padding);
     profile(out);
@@ -525,12 +556,28 @@ std::vector<std::vector<u32>> FindStacks(const Mesh& mesh, const UvIslands& isla
     // is the same point it was -- to a float, not to the bit, which is why this
     // is a tolerance and not a comparison.
     constexpr f32 kSame = 1.0f / 131072.0f;
+    // Each point of one matched to its own point of the other: not index by
+    // index, since two points a hair apart in u sort one way in an island and
+    // the other way in its twin, and a stack Pack kept would read as an overlap.
     const auto samepoints = [](const std::vector<Vector2f>& a, const std::vector<Vector2f>& b) {
         if (a.size() != b.size()) {
             return false;
         }
-        for (std::size_t i = 0; i < a.size(); ++i) {
-            if (std::abs(a[i].x - b[i].x) > kSame || std::abs(a[i].y - b[i].y) > kSame) {
+        std::vector<u8> used(b.size(), 0);
+        for (const Vector2f& p : a) {
+            // Sorted by u, so only those within reach of p's u can match.
+            auto it = std::lower_bound(b.begin(), b.end(), p.x - kSame,
+                                       [](const Vector2f& q, f32 u) { return q.x < u; });
+            bool found = false;
+            for (; it != b.end() && it->x <= p.x + kSame; ++it) {
+                const std::size_t k = static_cast<std::size_t>(it - b.begin());
+                if (used[k] == 0 && std::abs(it->y - p.y) <= kSame) {
+                    used[k] = 1;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
                 return false;
             }
         }
@@ -556,45 +603,112 @@ std::vector<std::vector<u32>> FindStacks(const Mesh& mesh, const UvIslands& isla
 }
 
 PackResult Pack(Mesh& mesh, const UvIslands& islands, u32 set, const PackOptions& options) {
+    const PackInput input{&mesh, &islands, set, options.movable, options.groupOf};
+    PackResult out = PackMeshes(std::span<const PackInput>(&input, 1), options);
+    if (!out.unplacedByInput.empty()) {
+        out.unplaced = out.unplacedByInput.front();
+    }
+    return out;
+}
+
+PackResult PackMeshes(std::span<const PackInput> inputs, const PackOptions& options) {
     PackResult out;
-    if (!mesh.hasConnectivity() || islands.count == 0 || options.resolution == 0) {
+    out.unplacedByInput.resize(inputs.size());
+    if (inputs.empty() || options.resolution == 0) {
         return out;
     }
     const u32 resolution = options.resolution;
 
-    // --- the groups: a stack is one thing to the packer ----------------------
-    std::vector<u32> groupOf(islands.count, kInvalidId);
-    std::vector<std::vector<u32>> groups;
-    const std::vector<std::vector<u32>> stacks =
-        options.keepStacks ? FindStacks(mesh, islands, set) : std::vector<std::vector<u32>>{};
-    for (const std::vector<u32>& stack : stacks) {
-        const u32 index = static_cast<u32>(groups.size());
-        for (const u32 island : stack) {
-            groupOf[island] = index;
+    // --- the groups: a stack is one thing to the packer, and so is a caller's
+    // group. Neither crosses a mesh --------------------------------------------
+    struct Group {
+        u32 input = 0;
+        std::vector<u32> islands;
+    };
+    std::vector<Group> groups;
+    for (u32 i = 0; i < inputs.size(); ++i) {
+        const PackInput& in = inputs[i];
+        if (!in.mesh || !in.islands || !in.mesh->hasConnectivity() || in.islands->count == 0) {
+            continue;
         }
-        groups.push_back(stack);
-    }
-    for (u32 island = 0; island < islands.count; ++island) {
-        if (groupOf[island] == kInvalidId) {
-            groupOf[island] = static_cast<u32>(groups.size());
-            groups.push_back({island});
+        const Mesh& mesh = *in.mesh;
+        const UvIslands& islands = *in.islands;
+        std::vector<u32> root(islands.count);
+        for (u32 island = 0; island < islands.count; ++island) {
+            root[island] = island;
+        }
+        const auto find = [&](u32 island) {
+            while (root[island] != island) {
+                root[island] = root[root[island]];
+                island = root[island];
+            }
+            return island;
+        };
+        const auto unite = [&](u32 a, u32 b) {
+            a = find(a);
+            b = find(b);
+            if (a != b) {
+                root[std::max(a, b)] = std::min(a, b);
+            }
+        };
+        if (options.keepStacks) {
+            for (const std::vector<u32>& stack : FindStacks(mesh, islands, in.set)) {
+                for (const u32 island : stack) {
+                    unite(stack.front(), island);
+                }
+            }
+        }
+        std::unordered_map<u32, u32> firstOf;
+        for (u32 island = 0; island < islands.count && island < in.groupOf.size(); ++island) {
+            const u32 group = in.groupOf[island];
+            if (group == kInvalidId) {
+                continue;
+            }
+            const auto [at, inserted] = firstOf.emplace(group, island);
+            if (!inserted) {
+                unite(at->second, island);
+            }
+        }
+        std::vector<u32> groupOf(islands.count, kInvalidId);
+        for (u32 island = 0; island < islands.count; ++island) {
+            const u32 top = find(island);
+            if (groupOf[top] == kInvalidId) {
+                groupOf[top] = static_cast<u32>(groups.size());
+                groups.push_back(Group{i, {}});
+            }
+            groupOf[island] = groupOf[top];
+            groups[groupOf[island]].islands.push_back(island);
         }
     }
+    const auto meshOf = [&](const Group& g) -> Mesh& { return *inputs[g.input].mesh; };
+    const auto islandsOf = [&](const Group& g) -> const UvIslands& { return *inputs[g.input].islands; };
+    const auto setOf = [&](const Group& g) { return inputs[g.input].set; };
 
-    // --- free and locked -----------------------------------------------------
+    // --- moving and fixed ----------------------------------------------------
+    const auto moves = [&](const Group& g, u32 island) {
+        const PackInput& in = inputs[g.input];
+        if (options.leavePinned && IslandIsPinned(*in.mesh, *in.islands, island, in.set)) {
+            return false;
+        }
+        if (in.movable.empty()) {
+            return IslandIsFree(*in.mesh, *in.islands, island, in.set);
+        }
+        return island < in.movable.size() && in.movable[island] != 0;
+    };
     std::vector<u8> groupFree(groups.size(), 1);
     for (u32 g = 0; g < groups.size(); ++g) {
-        for (const u32 island : groups[g]) {
-            // A stack with one locked member is locked whole: moving half of a
+        for (const u32 island : groups[g].islands) {
+            // A stack with one fixed member is fixed whole: moving half of a
             // stack is what breaks it.
-            if (!IslandIsFree(mesh, islands, island, set)) {
+            if (!moves(groups[g], island)) {
                 groupFree[g] = 0;
                 break;
             }
         }
     }
 
-    // --- the obstacles, and the tiling refusal -------------------------------
+    // --- the obstacles, from every mesh on the one map, and the tiling
+    // refusal ------------------------------------------------------------------
     std::vector<u8> occupied(static_cast<std::size_t>(resolution) * resolution, 0);
     bool anyLocked = false;
     for (u32 g = 0; g < groups.size(); ++g) {
@@ -602,16 +716,18 @@ PackResult Pack(Mesh& mesh, const UvIslands& islands, u32 set, const PackOptions
             continue;
         }
         anyLocked = true;
-        Vector2f centre{0.0f, 0.0f};
-        const UvBounds bounds = BoundsOf(mesh, islands, groups[g].front(), set);
-        if (!bounds.empty && (bounds.low.x < -0.001f || bounds.low.y < -0.001f ||
-                              bounds.high.x > 1.001f || bounds.high.y > 1.001f)) {
+        const UvBounds bounds = BoundsOf(meshOf(groups[g]), islandsOf(groups[g]), groups[g].islands.front(),
+                                         setOf(groups[g]));
+        if (options.refuseTiling && !bounds.empty &&
+            (bounds.low.x < -0.001f || bounds.low.y < -0.001f || bounds.high.x > 1.001f ||
+             bounds.high.y > 1.001f)) {
             // Deliberately outside the tile: the layout tiles, and packing it
             // in would undo what someone meant.
             out.refusedTiling = true;
         }
-        const Footprint mark = footprintOf(mesh, islands, groups[g], set,
-                                           static_cast<f32>(resolution), 0, 0.0f, centre);
+        const Footprint mark =
+            footprintOf(shapeOf(meshOf(groups[g]), islandsOf(groups[g]), groups[g].islands, setOf(groups[g])),
+                        static_cast<f32>(resolution), 0, 0.0f);
         if (mark.empty()) {
             continue;
         }
@@ -639,22 +755,29 @@ PackResult Pack(Mesh& mesh, const UvIslands& islands, u32 set, const PackOptions
     }
     out.refusedTiling = false;
 
-    // --- the order: largest first, by area then by first face ----------------
+    // --- the order: largest first, by area then by mesh and first face -------
     std::vector<u32> order;
     for (u32 g = 0; g < groups.size(); ++g) {
         if (groupFree[g] != 0) {
             order.push_back(g);
         }
     }
-    const std::span<const Vector3f> positions =
-        mesh.attributes.get<const Vector3f>(names::kPosition, Domain::Vertex);
-    const std::span<const Vector2f> uvs =
-        mesh.attributes.get<const Vector2f>(names::uv(set), Domain::Halfedge);
     std::vector<f32> areaOf(groups.size(), 0.0f);
+    // The largest island of each: what its print covers at the least, since a
+    // stack's islands lie on one another.
+    std::vector<f32> floorOf(groups.size(), 0.0f);
     std::vector<u32> firstFaceOf(groups.size(), kInvalidId);
     for (u32 g = 0; g < groups.size(); ++g) {
-        for (const u32 island : groups[g]) {
-            areaOf[g] += detail::AreasOf(mesh, islands, island, positions, uvs).uv;
+        const Mesh& mesh = meshOf(groups[g]);
+        const UvIslands& islands = islandsOf(groups[g]);
+        const std::span<const Vector3f> positions =
+            mesh.attributes.get<const Vector3f>(names::kPosition, Domain::Vertex);
+        const std::span<const Vector2f> uvs =
+            mesh.attributes.get<const Vector2f>(names::uv(setOf(groups[g])), Domain::Halfedge);
+        for (const u32 island : groups[g].islands) {
+            const f32 area = detail::AreasOf(mesh, islands, island, positions, uvs).uv;
+            areaOf[g] += area;
+            floorOf[g] = std::max(floorOf[g], area);
             const std::span<const u32> faces = islands.facesOf(island);
             if (!faces.empty()) {
                 firstFaceOf[g] = std::min(firstFaceOf[g], faces.front());
@@ -665,36 +788,92 @@ PackResult Pack(Mesh& mesh, const UvIslands& islands, u32 set, const PackOptions
         if (areaOf[a] != areaOf[b]) {
             return areaOf[a] > areaOf[b];
         }
+        if (groups[a].input != groups[b].input) {
+            return groups[a].input < groups[b].input;
+        }
         return firstFaceOf[a] < firstFaceOf[b];
     });
     if (order.empty()) {
         return out;
     }
 
-    // --- the skyline: the first free row of every column ---------------------
-    const auto skylineOf = [&]() {
-        std::vector<u32> first(resolution, 0);
+    // --- per column, the rows the obstacles cover, as runs -------------------
+    // Not a skyline: a fixed island at the top of the tile would close every
+    // column above the free space below it, and a shipped layout often has one.
+    using Runs = std::vector<std::vector<std::pair<u32, u32>>>;
+    const auto runsOf = [&]() {
+        Runs runs(resolution);
         for (u32 x = 0; x < resolution; ++x) {
-            for (u32 y = resolution; y-- > 0;) {
-                if (occupied[static_cast<std::size_t>(y) * resolution + x] != 0) {
-                    first[x] = y + 1;
-                    break;
+            for (u32 y = 0; y < resolution;) {
+                if (occupied[static_cast<std::size_t>(y) * resolution + x] == 0) {
+                    ++y;
+                    continue;
                 }
+                u32 end = y;
+                while (end + 1 < resolution &&
+                       occupied[static_cast<std::size_t>(end + 1) * resolution + x] != 0) {
+                    ++end;
+                }
+                runs[x].emplace_back(y, end);
+                y = end + 1;
             }
         }
-        return first;
+        return runs;
+    };
+    // The lowest row a print can sit at with its left column at @p x, each of
+    // its columns' spans clear of that column's runs; `kInvalidId` for none,
+    // or for none below @p limit, which is all the caller could still use.
+    // Every push is one any clear row has to make too, so the order columns
+    // are tried in cannot change the answer: @p blocker, the tile column that
+    // pushed last, goes first, since the next x usually meets it again.
+    const auto lowestAt = [&](const Footprint& print, u32 x, const Runs& runs, u32 limit, u32& blocker) {
+        // Moves `y` above whatever run is in column @p c's way.
+        const auto push = [&](u32 c, u32& y) {
+            if (print.low[c] == kInvalidId) {
+                return false;
+            }
+            const u32 from = y + print.low[c];
+            const u32 to = y + print.high[c];
+            // A column's runs are sorted and apart: the first that ends at or
+            // past `from` is the only one that can be in the way.
+            const std::vector<std::pair<u32, u32>>& column = runs[x + c];
+            const auto run = std::lower_bound(column.begin(), column.end(), from,
+                                              [](const std::pair<u32, u32>& r, u32 row) { return r.second < row; });
+            if (run == column.end() || run->first > to) {
+                return false;
+            }
+            y = run->second + 1 - print.low[c];
+            return true;
+        };
+        u32 y = 0;
+        for (bool moved = true; moved;) {
+            if (y >= limit) {
+                return kInvalidId;
+            }
+            moved = blocker >= x && blocker < x + print.width && push(blocker - x, y);
+            for (u32 c = 0; c < print.width && !moved; ++c) {
+                if (push(c, y)) {
+                    moved = true;
+                    blocker = x + c;
+                }
+            }
+            if (y + print.height > resolution) {
+                return kInvalidId;
+            }
+        }
+        return y;
     };
 
     // Angles to try: the island lying along its own long axis first, then the
     // four quarter turns of that. A turn is free and a bad fit is not.
-    const auto anglesFor = [&](std::span<const u32> group) {
+    const auto anglesFor = [&](const Group& group) {
         std::vector<f32> angles;
         if (!options.rotate) {
             angles.push_back(0.0f);
             return angles;
         }
         constexpr f32 kHalfPi = 1.57079632679f;
-        const f32 principal = principalAngle(mesh, islands, group, set);
+        const f32 principal = principalAngle(meshOf(group), islandsOf(group), group.islands, setOf(group));
         angles.push_back(principal);
         for (u32 k = 1; k < 4; ++k) {
             angles.push_back(principal + kHalfPi * static_cast<f32>(k));
@@ -702,31 +881,52 @@ PackResult Pack(Mesh& mesh, const UvIslands& islands, u32 set, const PackOptions
         angles.push_back(0.0f);
         return angles;
     };
+    std::vector<std::vector<f32>> angles(groups.size());
+    std::vector<Shape> shapes(groups.size());
+    for (const u32 g : order) {
+        angles[g] = anglesFor(groups[g]);
+        shapes[g] = shapeOf(meshOf(groups[g]), islandsOf(groups[g]), groups[g].islands, setOf(groups[g]));
+    }
 
-    // One attempt at the whole layout, at `scale` over the free islands.
+    // One attempt at the whole layout, at `scale` over the moving islands.
     struct Placement {
         u32 group = 0;
         f32 angle = 0.0f;
         Vector2f centre{0.0f, 0.0f};
         Vector2f delta{0.0f, 0.0f};
     };
-    const auto attempt = [&](f32 scale, std::vector<Placement>& placements) {
+    // With @p skipped, a group with no room is noted and the rest go on; without
+    // it, the attempt fails.
+    // No layout fits whose islands alone cover more than the free texels.
+    const f64 freeTexels = static_cast<f64>(std::count(occupied.begin(), occupied.end(), static_cast<u8>(0)));
+    const auto attempt = [&](f32 scale, std::vector<Placement>& placements,
+                             std::vector<u32>* skipped) {
         placements.clear();
-        std::vector<u32> skyline = skylineOf();
+        Runs runs = runsOf();
+        const f64 texels = static_cast<f64>(resolution) * scale;
+        f64 free = freeTexels;
+        f64 needed = 0.0;
         for (const u32 g : order) {
+            needed += static_cast<f64>(floorOf[g]) * texels * texels;
+        }
+        for (const u32 g : order) {
+            // What is left cannot fit in what is free: fail now, not at the end.
+            if (!skipped && needed > free) {
+                return false;
+            }
+            needed -= static_cast<f64>(floorOf[g]) * texels * texels;
             bool placed = false;
             f32 bestAngle = 0.0f;
             u32 bestX = 0;
             u32 bestY = 0;
             u32 bestTop = kInvalidId;
             Vector2f bestOrigin{0.0f, 0.0f};
+            Footprint chosen;
             bool anyPrint = false;
-            for (const f32 angle : anglesFor(groups[g])) {
-                Vector2f centre{0.0f, 0.0f};
-                const Footprint print =
-                    footprintOf(mesh, islands, groups[g], set,
-                                static_cast<f32>(resolution) * scale, options.padding, angle,
-                                centre);
+            const Vector2f centre = shapes[g].centre;
+            for (const f32 angle : angles[g]) {
+                Footprint print =
+                    footprintOf(shapes[g], static_cast<f32>(resolution) * scale, options.padding, angle, false);
                 if (print.empty()) {
                     continue;
                 }
@@ -734,36 +934,32 @@ PackResult Pack(Mesh& mesh, const UvIslands& islands, u32 set, const PackOptions
                 if (print.width > resolution || print.height > resolution) {
                     continue;
                 }
-                for (u32 x = 0; x + print.width <= resolution; ++x) {
-                    // The lowest the island can sit at this column, given what
-                    // is already below it.
-                    u32 y = 0;
-                    for (u32 c = 0; c < print.width; ++c) {
-                        if (print.low[c] == kInvalidId) {
-                            continue;
-                        }
-                        const u32 need = skyline[x + c] > print.low[c]
-                                             ? skyline[x + c] - print.low[c]
-                                             : 0;
-                        y = std::max(y, need);
+                u32 height = 0;
+                for (u32 c = 0; c < print.width; ++c) {
+                    if (print.high[c] != kInvalidId) {
+                        height = std::max(height, print.high[c]);
                     }
-                    if (y + print.height > resolution) {
+                }
+                bool better = false;
+                u32 blocker = kInvalidId;
+                for (u32 x = 0; x + print.width <= resolution; ++x) {
+                    // The lowest the island can sit at this column, clear of
+                    // everything in its way; only a lower top than the best
+                    // so far is worth the search.
+                    const u32 limit = bestTop == kInvalidId ? resolution : (bestTop > height ? bestTop - height : 0);
+                    const u32 y = lowestAt(print, x, runs, limit, blocker);
+                    if (y == kInvalidId) {
                         continue;
                     }
-                    u32 top = 0;
-                    for (u32 c = 0; c < print.width; ++c) {
-                        if (print.high[c] != kInvalidId) {
-                            top = std::max(top, y + print.high[c]);
-                        }
-                    }
-                    if (top < bestTop) {
-                        bestTop = top;
-                        bestAngle = angle;
-                        bestX = x;
-                        bestY = y;
-                        bestOrigin = print.origin;
-                        placed = true;
-                    }
+                    bestTop = y + height;
+                    bestAngle = angle;
+                    bestX = x;
+                    bestY = y;
+                    bestOrigin = print.origin;
+                    placed = better = true;
+                }
+                if (better) {
+                    chosen = std::move(print);
                 }
             }
             if (!anyPrint) {
@@ -772,14 +968,13 @@ PackResult Pack(Mesh& mesh, const UvIslands& islands, u32 set, const PackOptions
                 continue;
             }
             if (!placed) {
-                return false;
+                if (!skipped) {
+                    return false;
+                }
+                skipped->push_back(g);
+                continue;
             }
             // Where the mask landed, turned back into a move in UV.
-            Vector2f centre{0.0f, 0.0f};
-            const Footprint chosen =
-                footprintOf(mesh, islands, groups[g], set,
-                            static_cast<f32>(resolution) * scale, options.padding, bestAngle,
-                            centre);
             const f32 margin = static_cast<f32>(options.padding + 2);
             // The island is scaled and turned about its own centre, so the move
             // that lands its corner on the chosen texel has to undo what
@@ -790,50 +985,219 @@ PackResult Pack(Mesh& mesh, const UvIslands& islands, u32 set, const PackOptions
                 (static_cast<f32>(bestY) + margin) / static_cast<f32>(resolution) -
                     bestOrigin.y * scale - centre.y * (1.0f - scale)};
             placements.push_back(Placement{g, bestAngle, centre, delta});
+            free -= static_cast<f64>(chosen.covered);
             for (u32 c = 0; c < chosen.width; ++c) {
-                if (chosen.high[c] != kInvalidId) {
-                    skyline[bestX + c] = bestY + chosen.high[c] + 1;
+                if (chosen.high[c] == kInvalidId) {
+                    continue;
                 }
+                std::vector<std::pair<u32, u32>>& column = runs[bestX + c];
+                column.emplace_back(bestY + chosen.low[c], bestY + chosen.high[c]);
+                std::sort(column.begin(), column.end());
+                std::vector<std::pair<u32, u32>> merged;
+                for (const auto& run : column) {
+                    if (!merged.empty() && run.first <= merged.back().second + 1) {
+                        merged.back().second = std::max(merged.back().second, run.second);
+                    } else {
+                        merged.push_back(run);
+                    }
+                }
+                column = std::move(merged);
             }
         }
         return true;
     };
 
-    // --- fit, scaling the free islands down together if they will not --------
+    // --- fit, scaling the moving islands down together if they will not ------
     std::vector<Placement> placements;
     f32 scale = 1.0f;
-    if (!attempt(scale, placements)) {
+    f32 ceiling = 1.0f;
+    bool fitted = !options.allowScale;
+    if (!options.allowScale) {
+        std::vector<u32> skipped;
+        attempt(scale, placements, &skipped);
+        for (const u32 g : skipped) {
+            std::vector<u32>& unplaced = out.unplacedByInput[groups[g].input];
+            unplaced.insert(unplaced.end(), groups[g].islands.begin(), groups[g].islands.end());
+        }
+        for (std::vector<u32>& unplaced : out.unplacedByInput) {
+            std::sort(unplaced.begin(), unplaced.end());
+        }
+    } else {
+        // The search starts below the scale the islands' area alone rules
+        // out, not at a first attempt sure to fail.
+        f64 needed = 0.0;
+        for (const u32 g : order) {
+            needed += static_cast<f64>(floorOf[g]) * resolution * resolution;
+        }
+        ceiling = needed > freeTexels ? static_cast<f32>(std::sqrt(freeTexels / needed)) : 1.0f;
+        fitted = ceiling >= 1.0f && attempt(scale, placements, nullptr);
+    }
+    if (!fitted) {
         f32 low = 0.0f;
-        f32 high = 1.0f;
+        f32 high = ceiling;
+        std::vector<Placement> fits;
         for (u32 step = 0; step < 8; ++step) {
             const f32 middle = (low + high) * 0.5f;
-            if (attempt(middle, placements)) {
+            if (attempt(middle, placements, nullptr)) {
                 low = middle;
+                fits = placements;
             } else {
                 high = middle;
             }
         }
-        if (low <= 0.0f || !attempt(low, placements)) {
+        if (low <= 0.0f) {
             return out;
         }
+        placements = std::move(fits);
         scale = low;
     }
     out.scaled = scale;
 
     // --- write it ------------------------------------------------------------
     for (const Placement& placement : placements) {
-        transformGroup(mesh, islands, groups[placement.group], set, placement.centre, scale,
+        const Group& group = groups[placement.group];
+        transformGroup(meshOf(group), islandsOf(group), group.islands, setOf(group), placement.centre, scale,
                        placement.angle, placement.delta);
         ++out.placed;
     }
 
     // --- what it covers ------------------------------------------------------
     f32 covered = 0.0f;
-    for (u32 island = 0; island < islands.count; ++island) {
-        covered += detail::AreasOf(mesh, islands, island, positions, uvs).uv;
+    for (const PackInput& in : inputs) {
+        if (!in.mesh || !in.islands) {
+            continue;
+        }
+        const std::span<const Vector3f> positions =
+            in.mesh->attributes.get<const Vector3f>(names::kPosition, Domain::Vertex);
+        const std::span<const Vector2f> uvs =
+            in.mesh->attributes.get<const Vector2f>(names::uv(in.set), Domain::Halfedge);
+        for (u32 island = 0; island < in.islands->count; ++island) {
+            covered += detail::AreasOf(*in.mesh, *in.islands, island, positions, uvs).uv;
+        }
     }
     out.coverage = std::clamp(covered, 0.0f, 1.0f);
     return out;
+}
+
+f32 OrientIsland(Mesh& mesh, const UvIslands& islands, u32 island, u32 set) {
+    const std::span<const Vector2f> uvs =
+        mesh.attributes.get<const Vector2f>(names::uv(set), Domain::Halfedge);
+    if (uvs.empty() || !mesh.hasConnectivity()) {
+        return 0.0f;
+    }
+    std::vector<Vector2f> points;
+    for (const u32 corner : cornersOfIsland(mesh, islands, island)) {
+        if (corner < uvs.size()) {
+            points.push_back(uvs[corner]);
+        }
+    }
+    const auto less = [](const Vector2f& a, const Vector2f& b) { return a.x != b.x ? a.x < b.x : a.y < b.y; };
+    std::sort(points.begin(), points.end(), less);
+    points.erase(std::unique(points.begin(), points.end(),
+                             [](const Vector2f& a, const Vector2f& b) { return a.x == b.x && a.y == b.y; }),
+                 points.end());
+    if (points.size() < 3) {
+        return 0.0f;
+    }
+    // The convex hull, Andrew's monotone chain: the smallest box lies along one
+    // of its edges.
+    const auto turn = [](const Vector2f& o, const Vector2f& a, const Vector2f& b) {
+        return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+    };
+    std::vector<Vector2f> hull(points.size() * 2);
+    std::size_t k = 0;
+    for (const Vector2f& p : points) {
+        while (k >= 2 && turn(hull[k - 2], hull[k - 1], p) <= 0.0f) {
+            --k;
+        }
+        hull[k++] = p;
+    }
+    for (std::size_t i = points.size() - 1, lower = k + 1; i-- > 0;) {
+        while (k >= lower && turn(hull[k - 2], hull[k - 1], points[i]) <= 0.0f) {
+            --k;
+        }
+        hull[k++] = points[i];
+    }
+    hull.resize(k > 1 ? k - 1 : k);
+    // The box @p radians turns the hull into, as width and height.
+    const auto boxOf = [&](f32 radians) {
+        const f32 c = std::cos(radians);
+        const f32 s = std::sin(radians);
+        f32 lowX = 1e30f, lowY = 1e30f, highX = -1e30f, highY = -1e30f;
+        for (const Vector2f& p : hull) {
+            const f32 x = p.x * c - p.y * s;
+            const f32 y = p.x * s + p.y * c;
+            lowX = std::min(lowX, x);
+            highX = std::max(highX, x);
+            lowY = std::min(lowY, y);
+            highY = std::max(highY, y);
+        }
+        return Vector2f{highX - lowX, highY - lowY};
+    };
+    constexpr f32 kQuarter = 1.57079632679f;
+    // Every edge's turn, folded to within an eighth of a turn of none: a
+    // quarter turn more is the same box.
+    f32 best = 0.0f;
+    f32 bestArea = boxOf(0.0f).x * boxOf(0.0f).y;
+    for (std::size_t i = 0; i < hull.size(); ++i) {
+        const Vector2f& a = hull[i];
+        const Vector2f& b = hull[(i + 1) % hull.size()];
+        f32 t = -std::atan2(b.y - a.y, b.x - a.x);
+        t -= kQuarter * std::round(t / kQuarter);
+        const Vector2f box = boxOf(t);
+        // Strictly smaller, by more than rounding: an island already square to
+        // the axes stays as it is.
+        if (box.x * box.y < bestArea * (1.0f - 1e-5f)) {
+            bestArea = box.x * box.y;
+            best = t;
+        }
+    }
+    // Lying along u, as the packer tries first.
+    const Vector2f box = boxOf(best);
+    if (box.y > box.x * (1.0f + 1e-5f)) {
+        best += best > 0.0f ? -kQuarter : kQuarter;
+    }
+    if (std::abs(best) < 1e-6f) {
+        return 0.0f;
+    }
+    TurnIsland(mesh, islands, island, set, best, Vector2f{0.0f, 0.0f});
+    return best;
+}
+
+bool IslandIsPinned(const Mesh& mesh, const UvIslands& islands, u32 island, u32 set) {
+    const std::span<const u8> pins =
+        mesh.attributes.get<const u8>(names::uvPin(set), Domain::Halfedge);
+    const std::span<const u32> faces = islands.facesOf(island);
+    if (pins.empty() || faces.empty() || !mesh.hasConnectivity()) {
+        return false;
+    }
+    const Topology& topology = std::as_const(mesh).topology();
+    for (const u32 face : faces) {
+        for (const HalfedgeId h : topology.fh(FaceId(face))) {
+            if (h.index() >= pins.size() || pins[h.index()] == 0) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+std::vector<u32> PlaceInFreeSpace(Mesh& mesh, const UvIslands& islands, u32 set,
+                                  std::span<const u8> movable, std::span<const u32> groupOf,
+                                  u32 resolution, u32 padding) {
+    PackOptions options;
+    options.resolution = resolution;
+    options.padding = padding;
+    options.movable = movable;
+    options.groupOf = groupOf;
+    // At the size they were made: a new island is born at the model's density,
+    // and shrinking it to fit would be a density nobody asked for.
+    options.allowScale = false;
+    options.refuseTiling = false;
+    // New islands that happen to lie on one another -- a solve lays every
+    // unmapped piece at the same place -- are not a stack a file meant.
+    options.keepStacks = false;
+    return Pack(mesh, islands, set, options).unplaced;
 }
 
 StackResult Stack(Mesh& mesh, const UvIslands& islands, u32 primary, u32 other, u32 set,

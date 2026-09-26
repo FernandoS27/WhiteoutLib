@@ -27,6 +27,7 @@
 #include "../../skinning/points.h"
 #include "../ids.h"
 #include "../mesh.h"
+#include "islands.h"
 
 namespace whiteout {
 namespace models {
@@ -81,6 +82,22 @@ struct SeamPath {
 /// what looks like one surface means one surface.
 SeamPath FindSeamPath(const Mesh& mesh, const skinning::PointTable& points, EdgeId from,
                       EdgeId to, const SeamPathOptions& options = {});
+
+/// The one cut that opens the closed region @p faces into a disc
+/// (EDIT_MODE_UV_REDESIGN.md §4.4): between the region's two geodesically
+/// farthest points, round the side away from `options.visible`. Only edges of
+/// the region are walked. The caller marks what comes back, so its undo step
+/// holds the marks; `stopped` when the region has fewer than two points.
+SeamPath ClosingSeam(const Mesh& mesh, const skinning::PointTable& points,
+                     std::span<const FaceId> faces, const SeamPathOptions& options = {});
+
+/// The cut that opens a ring (EDIT_MODE_UV_REDESIGN.md §11): an island with two
+/// boundary loops or more -- a belt, a bracelet -- cut along its hidden side
+/// from its longest loop to its second longest, so it lies out as a strip.
+/// Only the island's own edges are walked; `stopped` when it has fewer than
+/// two loops or nothing joins them.
+SeamPath RingSeam(const Mesh& mesh, const skinning::PointTable& points, const UvIslands& islands,
+                  u32 island, const SeamPathOptions& options = {});
 
 struct SkeletonSeams {
     u32 parts = 0;

@@ -71,9 +71,10 @@ struct UvBounds {
 
 UvBounds BoundsOf(const Mesh& mesh, const UvIslands& islands, u32 island, u32 set);
 
-/// True when every face of @p island is free (`uvFreeN`). An island the file
-/// placed is locked whole; a mixed one counts as locked, because moving half an
-/// island is not a thing a layout may do.
+/// True when every face of @p island is free (`uvFreeN`), which the editor
+/// reads as *touched*: something has worked on it since the file placed it
+/// (EDIT_MODE_UV_REDESIGN.md §4.1). A mixed island counts as not, because
+/// moving half an island is not a thing a layout may do.
 bool IslandIsFree(const Mesh& mesh, const UvIslands& islands, u32 island, u32 set);
 
 /// Moves @p island by @p delta and scales it about its own centre by @p scale.
@@ -104,6 +105,22 @@ struct PackOptions {
     /// a map that must give every surface its own texels, which is what a
     /// baked occlusion map needs (EDIT_MODE_UV_DESIGN.md §9.2).
     bool keepStacks = true;
+    /// Per island, `1` where it may move. Empty is the free ones
+    /// (`IslandIsFree`); everything else is an obstacle.
+    std::span<const u8> movable;
+    /// Per island, a group it moves with as one block, `kInvalidId` for none.
+    /// Joined with the stacks: a group lands where its pieces keep their places
+    /// to one another.
+    std::span<const u32> groupOf;
+    /// An island whose every corner is pinned is an obstacle whatever
+    /// `movable` says: a pin is what Lock is (EDIT_MODE_UV_REDESIGN.md §4.2).
+    bool leavePinned = true;
+    /// Scale the moving islands down together when they do not fit. Off, what
+    /// does not fit stays where it was and is named in `unplaced`.
+    bool allowScale = true;
+    /// A fixed island outside the tile refuses the pack. Off, it is simply not
+    /// an obstacle, which is what placing a new island beside a tiling map wants.
+    bool refuseTiling = true;
 };
 
 struct PackResult {
@@ -116,6 +133,10 @@ struct PackResult {
     u32 placed = 0;
     /// The share of the tile the layout covers afterwards, `[0, 1]`.
     f32 coverage = 0.0f;
+    /// With `allowScale` off: the islands that found no room, ascending.
+    std::vector<u32> unplaced;
+    /// `unplaced` per input of `PackMeshes`.
+    std::vector<std::vector<u32>> unplacedByInput;
 };
 
 /// Lays the free islands of @p set out in the tile, around the locked ones.
@@ -125,6 +146,39 @@ struct PackResult {
 /// part of a model without the rest of it moving under a texture that is
 /// already painted.
 PackResult Pack(Mesh& mesh, const UvIslands& islands, u32 set, const PackOptions& options = {});
+
+/// One mesh of a `PackMeshes`: its islands, the set, and what may move in it
+/// (`PackOptions::movable` and `groupOf`, which `PackMeshes` reads from here).
+struct PackInput {
+    Mesh* mesh = nullptr;
+    const UvIslands* islands = nullptr;
+    u32 set = 0;
+    std::span<const u8> movable;
+    std::span<const u32> groupOf;
+};
+
+/// `Pack` over every mesh that draws one image, on one occupancy map
+/// (EDIT_MODE_UV_REDESIGN.md §10): what one mesh fixed is an obstacle to every
+/// other, so two meshes on one texture no longer land on one another. `Pack`
+/// is the one-mesh call.
+PackResult PackMeshes(std::span<const PackInput> inputs, const PackOptions& options = {});
+
+/// Turns @p island about its own centre so its smallest bounding box is square
+/// to the axes, lying along u (EDIT_MODE_UV_REDESIGN.md §9, Blender's Align
+/// Rotation): rotating calipers over its convex hull. Returns the turn, in
+/// radians.
+f32 OrientIsland(Mesh& mesh, const UvIslands& islands, u32 island, u32 set);
+
+/// True when every corner of every face of @p island is pinned in @p set.
+bool IslandIsPinned(const Mesh& mesh, const UvIslands& islands, u32 island, u32 set);
+
+/// `Pack` with only @p movable moving, at the size they are, around every other
+/// island (EDIT_MODE_UV_REDESIGN.md §4.3): where a new or remade island lands.
+/// @p groupOf is `PackOptions::groupOf`. What does not fit is left where it was
+/// and returned, for the caller's staging strip.
+std::vector<u32> PlaceInFreeSpace(Mesh& mesh, const UvIslands& islands, u32 set,
+                                  std::span<const u8> movable, std::span<const u32> groupOf,
+                                  u32 resolution, u32 padding = 4);
 
 /// Islands whose UV point sets coincide, as groups of two or more: the pairs a
 /// file stacked on purpose so two parts share one patch of texture. A pack

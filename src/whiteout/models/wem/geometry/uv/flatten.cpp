@@ -8,6 +8,7 @@
 #include <whiteout/models/wem/geometry/uv/seams.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <unordered_map>
 #include <utility>
@@ -450,6 +451,99 @@ FlattenResult LscmPinning(Mesh& mesh, const UvIslands& islands, u32 island, u32 
             }
         }
     }
+    // --- folds ---------------------------------------------------------------
+    //
+    // LSCM keeps angles, not orientation: where a cut bends hard it can fold a
+    // sliver over. Each free wedge of a folded triangle moves toward the mean
+    // of the wedges it shares a triangle with, a step kept only when it leaves
+    // fewer folds round it and folds nothing that was not; a few passes, no
+    // second solve.
+    {
+        std::vector<std::array<u32, 3>> tris;
+        for (const u32 face : faces) {
+            for (const Tri& tri : detail::TrianglesOf(mesh, FaceId(face))) {
+                std::array<u32, 3> t{};
+                bool ok = true;
+                for (u32 k = 0; k < 3 && ok; ++k) {
+                    const u32 wedge = islands.wedgeOf(tri.corner[k]);
+                    ok = wedge != kInvalidId && localOf[wedge] != kInvalidId;
+                    if (ok) {
+                        t[k] = localOf[wedge];
+                    }
+                }
+                if (ok && t[0] != t[1] && t[1] != t[2] && t[0] != t[2]) {
+                    tris.push_back(t);
+                }
+            }
+        }
+        const auto areaOf = [&](u32 t) {
+            return detail::TriAreaUv(solved[tris[t][0]], solved[tris[t][1]], solved[tris[t][2]]);
+        };
+        i64 balance = 0;
+        for (u32 t = 0; t < tris.size(); ++t) {
+            const f32 area = areaOf(t);
+            balance += area > 0.0f ? 1 : (area < 0.0f ? -1 : 0);
+        }
+        const f32 sign = balance >= 0 ? 1.0f : -1.0f;
+        const auto folded = [&](u32 t) { return areaOf(t) * sign < 0.0f; };
+        std::vector<std::vector<u32>> trisOf(wedges.size());
+        for (u32 t = 0; t < tris.size(); ++t) {
+            for (const u32 w : tris[t]) {
+                trisOf[w].push_back(t);
+            }
+        }
+        std::vector<u8> was;
+        bool moved = true;
+        for (u32 pass = 0; pass < 16 && moved; ++pass) {
+            moved = false;
+            for (u32 t = 0; t < tris.size(); ++t) {
+                if (!folded(t)) {
+                    continue;
+                }
+                for (const u32 w : tris[t]) {
+                    if (pinned[w] != 0) {
+                        continue;
+                    }
+                    was.clear();
+                    u32 before = 0;
+                    for (const u32 u : trisOf[w]) {
+                        was.push_back(folded(u) ? 1 : 0);
+                        before += was.back();
+                    }
+                    Vector2f mean{0.0f, 0.0f};
+                    u32 count = 0;
+                    for (const u32 u : trisOf[w]) {
+                        for (const u32 v : tris[u]) {
+                            if (v != w) {
+                                mean = mean + solved[v];
+                                ++count;
+                            }
+                        }
+                    }
+                    if (before == 0 || count == 0) {
+                        continue;
+                    }
+                    mean = mean * (1.0f / static_cast<f32>(count));
+                    const Vector2f start = solved[w];
+                    for (const f32 step : {1.0f, 0.5f, 0.25f}) {
+                        solved[w] = start + (mean - start) * step;
+                        u32 after = 0;
+                        bool made = false;
+                        for (u32 k = 0; k < trisOf[w].size(); ++k) {
+                            const bool now = folded(trisOf[w][k]);
+                            after += now ? 1 : 0;
+                            made = made || (now && was[k] == 0);
+                        }
+                        if (after < before && !made) {
+                            moved = true;
+                            break;
+                        }
+                        solved[w] = start;
+                    }
+                }
+            }
+        }
+    }
     for (u32 i = 0; i < wedges.size(); ++i) {
         writeWedge(islands, uvs, wedges[i], solved[i]);
     }
@@ -882,6 +976,21 @@ RectangleResult Rectangle(Mesh& mesh, const UvIslands& islands, u32 island, u32 
         out.solve.refusal = FlattenResult::Refusal::NoFaces;
         return out;
     }
+    // What the island covered before: the rectangle is laid in world units and
+    // fitted back over it, as any re-solve lands, not left a model wide.
+    const f32 areaBefore = detail::AreasOf(mesh, islands, island, positions, uvs).uv;
+    Vector2f centreBefore{0.0f, 0.0f};
+    {
+        Vector2f low{1e30f, 1e30f};
+        Vector2f high{-1e30f, -1e30f};
+        for (const u32 face : islands.facesOf(island)) {
+            for (const HalfedgeId h : topology.fh(FaceId(face))) {
+                low = Vector2f{std::min(low.x, uvs[h.index()].x), std::min(low.y, uvs[h.index()].y)};
+                high = Vector2f{std::max(high.x, uvs[h.index()].x), std::max(high.y, uvs[h.index()].y)};
+            }
+        }
+        centreBefore = (low + high) * 0.5f;
+    }
     std::vector<u32> ring;       // the wedge at each step of the loop
     std::vector<Vector3f> place; // and where it is in the world
     ring.reserve(count);
@@ -956,8 +1065,91 @@ RectangleResult Rectangle(Mesh& mesh, const UvIslands& islands, u32 island, u32 
     }
     out.solve = LscmPinning(mesh, islands, island, set,
                             std::span<const u32>(pinnedWedges.data(), pinnedWedges.size()));
+    const f32 areaAfter = detail::AreasOf(mesh, islands, island, positions, uvs).uv;
+    if (out.solve.ok() && areaBefore > 1e-12f && areaAfter > 1e-12f) {
+        const f32 scale = std::sqrt(areaBefore / areaAfter);
+        const Vector2f centreAfter{width * 0.5f, height * 0.5f};
+        for (const u32 face : islands.facesOf(island)) {
+            for (const HalfedgeId h : topology.fh(FaceId(face))) {
+                uvs[h.index()] = centreBefore + (uvs[h.index()] - centreAfter) * scale;
+            }
+        }
+    }
     return out;
 }
+
+namespace {
+
+/// Box (EDIT_MODE_UV_REDESIGN.md §8): each face to the frame axis its normal is
+/// nearest, projected on that plane the way round that keeps its winding, and
+/// a cut wherever two planes meet.
+FlattenResult projectBox(Mesh& mesh, std::span<const FaceId> faces, u32 set, const ProjectFrame& frame) {
+    FlattenResult result;
+    const Topology& topology = std::as_const(mesh).topology();
+    const std::span<const Vector3f> positions =
+        std::as_const(mesh).attributes.get<const Vector3f>(names::kPosition, Domain::Vertex);
+    const std::span<Vector2f> uvs =
+        mesh.attributes.getOrCreate<Vector2f>(names::uv(set), Domain::Halfedge, AttrType::F32x2);
+    constexpr u8 kNone = 0xFF;
+    std::vector<u8> side(topology.faceCount(), kNone);
+    for (const FaceId face : faces) {
+        if (!face.valid() || topology.isDeleted(face)) {
+            continue;
+        }
+        // Newell's normal: right for any polygon, planar or not.
+        Vector3f n{0.0f, 0.0f, 0.0f};
+        for (const HalfedgeId h : topology.fh(face)) {
+            const Vector3f& p = positions[topology.from(h).index()];
+            const Vector3f& q = positions[topology.from(topology.next(h)).index()];
+            n.x += (p.y - q.y) * (p.z + q.z);
+            n.y += (p.z - q.z) * (p.x + q.x);
+            n.z += (p.x - q.x) * (p.y + q.y);
+        }
+        const f32 along[3] = {n.dot(frame.axisU), n.dot(frame.axisV), n.dot(frame.axisN)};
+        u32 axis = 0;
+        for (u32 k = 1; k < 3; ++k) {
+            if (std::abs(along[k]) > std::abs(along[axis])) {
+                axis = k;
+            }
+        }
+        side[face.index()] = static_cast<u8>(axis * 2 + (along[axis] < 0.0f ? 1 : 0));
+        for (const HalfedgeId h : topology.fh(face)) {
+            const Vector3f d = positions[topology.from(h).index()] - frame.origin;
+            const f32 u = d.dot(frame.axisU);
+            const f32 v = d.dot(frame.axisV);
+            const f32 w = d.dot(frame.axisN);
+            // Each pair (a, b) has a x b along the side's outward axis, so a
+            // face seen from outside keeps its turn in the map.
+            switch (side[face.index()]) {
+            case 0: uvs[h.index()] = Vector2f{v, w}; break;   // +U
+            case 1: uvs[h.index()] = Vector2f{-v, w}; break;  // -U
+            case 2: uvs[h.index()] = Vector2f{-u, w}; break;  // +V
+            case 3: uvs[h.index()] = Vector2f{u, w}; break;   // -V
+            case 4: uvs[h.index()] = Vector2f{u, v}; break;   // +N
+            default: uvs[h.index()] = Vector2f{-u, v}; break; // -N
+            }
+        }
+    }
+    std::vector<EdgeId> cuts;
+    for (const FaceId face : faces) {
+        if (!face.valid() || face.index() >= side.size() || side[face.index()] == kNone) {
+            continue;
+        }
+        for (const HalfedgeId h : topology.fh(face)) {
+            const FaceId other = topology.face(topology.opposite(h));
+            if (other.valid() && side[other.index()] != kNone && side[other.index()] != side[face.index()] &&
+                other.index() > face.index()) {
+                cuts.push_back(Topology::edge(h));
+            }
+        }
+    }
+    if (!cuts.empty()) {
+        ApplyMarks(mesh, set, std::span<const EdgeId>(cuts.data(), cuts.size()), true);
+    }
+    return result;
+}
+
+} // namespace
 
 FlattenResult Project(Mesh& mesh, std::span<const FaceId> faces, u32 set, ProjectShape shape,
                       const ProjectFrame& frame) {
@@ -965,6 +1157,9 @@ FlattenResult Project(Mesh& mesh, std::span<const FaceId> faces, u32 set, Projec
     if (!mesh.hasConnectivity() || faces.empty()) {
         result.refusal = FlattenResult::Refusal::NoFaces;
         return result;
+    }
+    if (shape == ProjectShape::Box) {
+        return projectBox(mesh, faces, set, frame);
     }
     const Topology& topology = std::as_const(mesh).topology();
     const std::span<const Vector3f> positions =
