@@ -49,6 +49,7 @@
 #include <array>
 #include <cctype>
 #include <bit>
+#include <cmath>
 #include <map>
 #include <string>
 #include <unordered_map>
@@ -903,6 +904,54 @@ void KeyCameraRests(const Model& model, const mdx_anim::ExportContext& context, 
         key(camera.focusDistanceTracks, payload->focusDistance);
         key(camera.focalLengthTracks, payload->focalLength);
         key(camera.fStopTracks, payload->fStop);
+    }
+}
+
+/// Warcraft III sizes an emitter's particle pool as `rate × 1.15 × lifespan`
+/// cast to unsigned (`CParticleEmitter{,2}::SyncAllocation`), so a negative
+/// rate or lifespan, static or keyed, asks for four billion particles and the
+/// game dies on the model. World of Warcraft reads a negative rate as "emit
+/// nothing", which 0 says here too.
+void ClampEmitterPools(mdx::Model& out, Diagnostics& diagnostics) {
+    bool clamped = false;
+    const auto atLeastZero = [&clamped](f32& value) {
+        if (!std::isfinite(value) || value < 0.0f) {
+            value = 0.0f;
+            clamped = true;
+        }
+    };
+    const auto trackAtLeastZero = [&atLeastZero](mdx::Track<f32>& track) {
+        if (mdx::isSmoothInterpolation(track.interpolationType)) {
+            for (auto& key : track.tangentKeys()) {
+                atLeastZero(key.value);
+            }
+        } else {
+            for (f32& key : track.keys()) {
+                atLeastZero(key);
+            }
+        }
+    };
+    const auto report = [&](const mdx::Node& node) {
+        if (clamped) {
+            diagnostics.info(DiagCode::AnimTrackApproximated,
+                             "particle emitter '" + node.name +
+                                 "': a negative emission rate or lifespan was written as 0, "
+                                 "which is all Warcraft III can take");
+        }
+        clamped = false;
+    };
+    for (mdx::ParticleEmitter2& emitter : out.particleEmitters2) {
+        atLeastZero(emitter.emissionRate);
+        atLeastZero(emitter.lifespan);
+        trackAtLeastZero(emitter.emissionRateTracks);
+        report(emitter.node);
+    }
+    for (mdx::ParticleEmitter& emitter : out.particleEmitters) {
+        atLeastZero(emitter.emissionRate);
+        atLeastZero(emitter.lifespan);
+        trackAtLeastZero(emitter.emissionRateTracks);
+        trackAtLeastZero(emitter.lifespanTracks);
+        report(emitter.node);
     }
 }
 
@@ -2801,6 +2850,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
     // And after it, because the keyed records are only now all made.
     LinkGeosetAnimations(model, animContext, out, diagnostics);
     KeyCameraRests(model, animContext, out);
+    ClampEmitterPools(out, diagnostics);
 
     result.value = std::move(out);
     return result;

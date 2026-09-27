@@ -9,6 +9,7 @@
 /// payloads have to hold: the profile registry, `Validate`, each converter in
 /// both directions, and the operations that edit a tree (compaction, rescale).
 
+#include <algorithm>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -848,6 +849,33 @@ TEST_CASE("wem mdx carries all three Warcraft III systems both ways", "[wem][nod
     // own order.
     CHECK(e1.node.objectId < e2.node.objectId);
     CHECK(e2.node.objectId < er.node.objectId);
+}
+
+TEST_CASE("wem mdx writes no negative emission rate or lifespan", "[wem][node][emitter]") {
+    // Warcraft III sizes a pool as rate x 1.15 x lifespan cast to unsigned, so a
+    // negative one asks for four billion particles and the game dies on the
+    // model. World of Warcraft ships them (boundfireelemental's rate keys reach
+    // -11.45) and reads them as no emission.
+    mdx::Model source = makeMdx();
+    source.particleEmitters2[0].emissionRate = -11.5f;
+    source.particleEmitters2[0].emissionRateTracks = mdxTrack<f32>({0, 1000}, {5.0f, -11.5f});
+    source.particleEmitters[0].lifespanTracks = mdxTrack<f32>({0, 1000}, {1.5f, -2.0f});
+    const Document document = fromMdx(source);
+
+    MdxConverter converter;
+    Result<mdx::Model> back = converter.toMdx(document, ProfileId::Wc3Classic, 800);
+    REQUIRE(back.ok());
+    REQUIRE(back->particleEmitters2.size() == 1u);
+    REQUIRE(back->particleEmitters.size() == 1u);
+    const auto noneBelowZero = [](const mdx::Track<f32>& track, f32 highest) {
+        const auto keys = track.keys();
+        REQUIRE_FALSE(keys.empty());
+        CHECK(*std::min_element(keys.begin(), keys.end()) == 0.0f);
+        CHECK(*std::max_element(keys.begin(), keys.end()) == highest);
+    };
+    CHECK(back->particleEmitters2[0].emissionRate == 0.0f);
+    noneBelowZero(back->particleEmitters2[0].emissionRateTracks, 5.0f);
+    noneBelowZero(back->particleEmitters[0].lifespanTracks, 1.5f);
 }
 
 TEST_CASE("wem mdx carries a PopcornFX emitter both ways", "[wem][node][emitter]") {
