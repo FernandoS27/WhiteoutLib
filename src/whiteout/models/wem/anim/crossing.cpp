@@ -464,14 +464,8 @@ u32 ResampleForTarget(Document& staged, ProfileId target, Game previewStorage,
     return ConvertClips(staged, crossing, rule, previewStorage, game, diagnostics);
 }
 
-namespace {
-
-/// Keys that play @p poseAt: for every channel of @p seeds, the pose's value at
-/// each of its seed times, then refined wherever the one track, read by
-/// @p view's rule, parts from the pose at a span's quarter points. The pose at
-/// a time is computed once for every channel.
-SubTrackContainer BakePose(const Model& model, const Clip& view, std::map<u32, std::set<i32>> seeds,
-                           const std::function<std::vector<std::vector<u8>>(i32)>& poseAt) {
+SubTrackContainer BakeSampled(const Model& model, const Clip& view, std::map<u32, std::set<i32>> seeds,
+                              const std::function<std::vector<std::vector<u8>>(i32)>& poseAt) {
     const CrossingTolerance tolerance = TolerancesOf(model);
     const i32 duration = static_cast<i32>(ClipMs(view));
     std::map<i32, std::vector<std::vector<u8>>> poses;
@@ -524,8 +518,6 @@ SubTrackContainer BakePose(const Model& model, const Clip& view, std::map<u32, s
     return out;
 }
 
-} // namespace
-
 u32 FlattenContainers(Document& document, Diagnostics& diagnostics) {
     u32 flattened = 0;
     for (u32 c = 0; c < document.clips.size(); ++c) {
@@ -544,7 +536,7 @@ u32 FlattenContainers(Document& document, Diagnostics& diagnostics) {
                 seeds[track.channel].insert(ms.begin(), ms.end());
             }
         }
-        SubTrackContainer merged = BakePose(model, clip, std::move(seeds), [&](i32 ms) {
+        SubTrackContainer merged = BakeSampled(model, clip, std::move(seeds), [&](i32 ms) {
             return Alone(animator, c, static_cast<f32>(ms) / 1000.0f);
         });
         merged.name = clip.containers.front().name;
@@ -604,7 +596,7 @@ Clip BakeMix(const Document& document, u32 model, const Mix& mix, f32 duration, 
     const Animator animator(document, model);
     Mix alone = mix;
     alone.globals = false; // They play under the baked clip in game.
-    made.containers.push_back(BakePose(document.models[model], made, std::move(seeds), [&](i32 ms) {
+    made.containers.push_back(BakeSampled(document.models[model], made, std::move(seeds), [&](i32 ms) {
         Mix at = alone;
         for (Play& play : at.plays) {
             play.seconds += static_cast<f32>(ms) / 1000.0f;

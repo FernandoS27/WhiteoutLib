@@ -33,6 +33,7 @@
  * `CheckMeshReferencers` cross-checks every listed field.
  */
 
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -130,6 +131,24 @@ struct MeshMergeResult {
  * is the converter's question (`MdxConverter::checkGeoset`), not this one.
  */
 MeshMergeResult MergeMeshesInto(Model& model, std::span<const u32> meshes, u32 keep);
+
+/// The mesh `MergeMeshesInto` puts at `keep`, and where the inputs' sections
+/// landed in it (inputs in merge order: `keep` first, then the rest ascending).
+struct MergedMesh {
+    Mesh mesh;
+    std::vector<u32> sectionRemap;
+};
+
+/// `MergeMeshesInto`'s first half: the merged mesh, built without touching the
+/// model, so a caller can ask a converter about it before committing. Empty,
+/// with the refusal in @p out, wherever `MergeMeshesInto` refuses.
+std::optional<MergedMesh> MergedMeshOf(const Model& model, std::span<const u32> meshes, u32 keep,
+                                       Diagnostics& out);
+
+/// `MergeMeshesInto`'s second half: commits @p built, which `MergedMeshOf` made
+/// from the same model, meshes and `keep`.
+MeshMergeResult MergeMeshesInto(Model& model, std::span<const u32> meshes, u32 keep,
+                                MergedMesh built);
 
 } // namespace wem
 } // namespace models

@@ -160,6 +160,13 @@ Animator::Animator(const Document& document, u32 model, Game storage) {
     for (std::size_t c = 0; c < channels.size(); ++c) {
         held_[c] = HeldByRenderer(document, model, channels[c]) ? 1 : 0;
     }
+    const NodeTree& tree = model_->nodes;
+    if (tree.rig == RigConvention::ExplicitBind) {
+        inverseBinds_.resize(tree.size());
+        for (u32 n = 0; n < tree.size(); ++n) {
+            inverseBinds_[n] = tree.inverseBindMatrix(n);
+        }
+    }
 }
 
 const std::vector<u8>& Animator::restOf(std::size_t c) const {
@@ -168,30 +175,7 @@ const std::vector<u8>& Animator::restOf(std::size_t c) const {
     }
     restKnown_[c] = 1;
     const AnimChannel& channel = model_->animChannels.channels[c];
-    const NodeTree& tree = model_->nodes;
-    // A bone keyed absolutely rests at its own local transform, whichever
-    // game stores it; a pivot rig's offsets rest at the identity, which is
-    // what either game's rest says.
-    if (tree.rig == RigConvention::ExplicitBind && IsNodeTransform(channel.target) &&
-        channel.target.node < tree.size()) {
-        const Transform& local = tree.nodes[channel.target.node].local;
-        switch (channel.target.channel) {
-        case Channel::Translation:
-            rests_[c] = Bytes(local.translation);
-            break;
-        case Channel::Rotation:
-            rests_[c] = Bytes(local.rotation);
-            break;
-        default:
-            rests_[c] = channel.valueType == geom::AttrType::F32 ? Bytes(local.scale.x)
-                                                                : Bytes(local.scale);
-            break;
-        }
-        if (rests_[c].size() == geom::AttrTypeSize(channel.valueType)) {
-            return rests_[c];
-        }
-    }
-    TrackRests rests = RestsOf(*document_, modelIndex_, channel, storage_);
+    TrackRests rests = RestsPlayed(*document_, modelIndex_, channel, storage_);
     // Which of the two applies costs a walk of every clip; most channels have
     // one rest and need none.
     rests_[c] = rests.differ() && KeyedAnywhere(*document_, modelIndex_, channel.id)
@@ -411,14 +395,21 @@ void Animator::sample(const Mix& mix, Pose& out, bool nodesOnly) const {
             accumulated += contributions[i].weight;
         }
     }
+    place(out);
+}
 
+void Animator::place(Pose& out) const {
+    if (model_ == nullptr) {
+        return;
+    }
+    const std::vector<AnimChannel>& channels = model_->animChannels.channels;
     const NodeTree& tree = model_->nodes;
     const bool pivoted = tree.rig == RigConvention::PivotRelative;
     out.local.resize(tree.size());
     for (u32 n = 0; n < tree.size(); ++n) {
         out.local[n] = pivoted ? Transform{} : tree.nodes[n].local;
     }
-    for (std::size_t c = 0; c < channels.size(); ++c) {
+    for (std::size_t c = 0; c < channels.size() && c < out.channelValues.size(); ++c) {
         const TrackTarget& target = channels[c].target;
         const std::vector<u8>& value = out.channelValues[c];
         if (!IsNodeTransform(target) || target.node >= tree.size()) {
@@ -439,23 +430,16 @@ void Animator::sample(const Mix& mix, Pose& out, bool nodesOnly) const {
     }
 }
 
-void Animator::compose(Pose& pose) const {
+Animator::Composition Animator::composition() const {
+    Composition out;
     if (model_ == nullptr) {
-        return;
+        return out;
     }
     const NodeTree& tree = model_->nodes;
     const u32 count = tree.size();
     const bool pivoted = tree.rig == RigConvention::PivotRelative;
-    if (pose.local.size() != count) {
-        pose.local.resize(count, Transform{});
-    }
-    // The pivot and the parent exactly as `toMdx` writes them: a pivot rig's
-    // pivot, and no parent for a node under a camera, which has no object id.
-    const auto pivotOf = [&](u32 node) {
-        return pivoted ? tree.nodes[node].pivot : tree.worldBind(node).translation;
-    };
-    pose.skinning.assign(count, Matrix44f::identity());
-    pose.frame.assign(count, Matrix44f::identity());
+    out.order.reserve(count);
+    out.parent.assign(count, kInvalidNode);
     // Parents first, whatever the storage order: an import can leave a parent
     // after its child (a Hive rig numbers `Bip001 Pelvis` ahead of the bone it
     // hangs from), and composing in index order would take such a node for a
@@ -484,33 +468,62 @@ void Animator::compose(Pose& pose) const {
                 continue;
             }
             stack.pop_back();
-            const Transform& trs = pose.local[i];
-            if (camera) {
-                // Not in the hierarchy: its position, plus the translation keys
-                // the renderer adds to it.
-                pose.frame[i] = ToMatrix(tree.worldBind(i));
-                pose.frame[i].data[3][0] += trs.translation.x;
-                pose.frame[i].data[3][1] += trs.translation.y;
-                pose.frame[i].data[3][2] += trs.translation.z;
-                state[i] = kDone;
-                continue;
+            if (!camera && hasParent && state[parent] == kDone) {
+                out.parent[i] = parent;
             }
-            const bool rooted = hasParent && state[parent] == kDone;
-            if (pivoted) {
-                const Matrix44f parentFrame = rooted ? pose.frame[parent] : Matrix44f::identity();
-                const Vector3f parentPivot = rooted ? pivotOf(parent) : Vector3f{0, 0, 0};
-                const Vector3f pivot = pivotOf(i);
-                pose.frame[i] = ComposeNode(parentFrame, parentPivot, pivot, trs.translation,
-                                            trs.rotation, trs.scale, MdxNodeFlags(node))
-                                    .frame;
-                pose.skinning[i] = SkinFromFrame(pose.frame[i], pivot);
-            } else {
-                const Matrix44f own = ToMatrix(trs);
-                pose.frame[i] = rooted ? own * pose.frame[parent] : own;
-                pose.skinning[i] = tree.inverseBindMatrix(i) * pose.frame[i];
-            }
+            out.order.push_back(i);
             state[i] = kDone;
         }
+    }
+    return out;
+}
+
+void Animator::composeNode(Pose& pose, u32 i, u32 parent) const {
+    const NodeTree& tree = model_->nodes;
+    const bool pivoted = tree.rig == RigConvention::PivotRelative;
+    const Node& node = tree.nodes[i];
+    const Transform& trs = pose.local[i];
+    // The pivot exactly as `toMdx` writes it.
+    const auto pivotOf = [&](u32 n) {
+        return pivoted ? tree.nodes[n].pivot : tree.worldBind(n).translation;
+    };
+    const bool rooted = parent < tree.size();
+    if (pivoted && node.kind == NodeKind::Camera) {
+        // Not in the hierarchy: its position, plus the translation keys the
+        // renderer adds to it.
+        pose.frame[i] = ToMatrix(tree.worldBind(i));
+        pose.frame[i].data[3][0] += trs.translation.x;
+        pose.frame[i].data[3][1] += trs.translation.y;
+        pose.frame[i].data[3][2] += trs.translation.z;
+        pose.skinning[i] = Matrix44f::identity();
+    } else if (pivoted) {
+        const Matrix44f parentFrame = rooted ? pose.frame[parent] : Matrix44f::identity();
+        const Vector3f parentPivot = rooted ? pivotOf(parent) : Vector3f{0, 0, 0};
+        const Vector3f pivot = pivotOf(i);
+        pose.frame[i] = ComposeNode(parentFrame, parentPivot, pivot, trs.translation, trs.rotation,
+                                    trs.scale, MdxNodeFlags(node))
+                            .frame;
+        pose.skinning[i] = SkinFromFrame(pose.frame[i], pivot);
+    } else {
+        const Matrix44f own = ToMatrix(trs);
+        pose.frame[i] = rooted ? own * pose.frame[parent] : own;
+        pose.skinning[i] = inverseBinds_[i] * pose.frame[i];
+    }
+}
+
+void Animator::compose(Pose& pose) const {
+    if (model_ == nullptr) {
+        return;
+    }
+    const u32 count = model_->nodes.size();
+    if (pose.local.size() != count) {
+        pose.local.resize(count, Transform{});
+    }
+    pose.skinning.assign(count, Matrix44f::identity());
+    pose.frame.assign(count, Matrix44f::identity());
+    const Composition order = composition();
+    for (const u32 node : order.order) {
+        composeNode(pose, node, order.parent[node]);
     }
 }
 

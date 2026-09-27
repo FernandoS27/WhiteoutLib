@@ -101,11 +101,30 @@ public:
     /// needs.
     void sample(const Mix& mix, Pose& out, bool nodesOnly = false) const;
 
+    /// @p pose's `local` transforms from its channel values, as `sample` ends:
+    /// for a host that changes the values between the two, as a blend of its
+    /// own does.
+    void place(Pose& pose) const;
+
     /// @p pose's frames and skinning matrices from its `local` transforms,
     /// parents first, by the model's rig: Warcraft III's composition with the
     /// nodes' inherit flags on a pivot rig (a camera stands at its bind plus its
     /// translation), `S·R·T` onto the parent on an explicit-bind one.
     void compose(Pose& pose) const;
+
+    /// The order `compose` places the nodes in, parents first, and the parent
+    /// each is composed onto: `kInvalidNode` for a root, a camera, a node under
+    /// a camera, an M3 bone in model space, or where a cycle is cut.
+    struct Composition {
+        std::vector<u32> order;
+        std::vector<u32> parent;
+    };
+    Composition composition() const;
+
+    /// One node of @p pose composed as `compose` composes it: its frame and
+    /// skinning matrix from its `local` and @p parent's frame. For a caller that
+    /// re-composes part of a pose, in `composition()`'s order.
+    void composeNode(Pose& pose, u32 node, u32 parent) const;
 
 private:
     struct Layer {
@@ -138,6 +157,8 @@ private:
     mutable std::vector<std::vector<u8>> rests_;
     mutable std::vector<u8> restKnown_;
     std::vector<u8> held_;
+    /// An explicit-bind rig's inverse binds, found once: every compose reads them.
+    std::vector<Matrix44f> inverseBinds_;
     mutable std::vector<ClipLayers> clips_;
 };
 

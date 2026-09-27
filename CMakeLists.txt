@@ -438,6 +438,7 @@ add_library(whiteout_lib
     src/whiteout/models/wem/nodes/visitor.cpp
     src/whiteout/models/wem/nodes/remove.cpp
     src/whiteout/models/wem/meshes/remove.cpp
+    src/whiteout/models/wem/optimize.cpp
     src/whiteout/models/wem/geometry/bvh.cpp
     src/whiteout/models/wem/skinning/quantize.cpp
     src/whiteout/models/wem/skinning/points.cpp
@@ -461,6 +462,8 @@ add_library(whiteout_lib
     src/whiteout/models/wem/anim/clip.cpp
     src/whiteout/models/wem/anim/crossing.cpp
     src/whiteout/models/wem/anim/curves.cpp
+    src/whiteout/models/wem/anim/key_reduce.cpp
+    src/whiteout/models/wem/anim/key_reduce_tolerance.cpp
     src/whiteout/models/wem/anim/m3_math.cpp
     src/whiteout/models/wem/anim/pose.cpp
     src/whiteout/models/wem/anim/rests.cpp

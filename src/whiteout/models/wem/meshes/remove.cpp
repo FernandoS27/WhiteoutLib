@@ -232,11 +232,11 @@ void CheckMeshReferencers(const Model& model, Diagnostics& out) {
     }
 }
 
-MeshMergeResult MergeMeshesInto(Model& model, std::span<const u32> meshes, u32 keep) {
-    MeshMergeResult result;
-    const auto refuse = [&result](const std::string& why) {
-        result.diagnostics.error(DiagCode::OperationUnsupported, "merge refused: " + why);
-        return std::move(result);
+std::optional<MergedMesh> MergedMeshOf(const Model& model, std::span<const u32> meshes, u32 keep,
+                                       Diagnostics& out) {
+    const auto refuse = [&out](const std::string& why) -> std::optional<MergedMesh> {
+        out.error(DiagCode::OperationUnsupported, "merge refused: " + why);
+        return std::nullopt;
     };
 
     std::vector<u32> picked(meshes.begin(), meshes.end());
@@ -331,6 +331,25 @@ MeshMergeResult MergeMeshesInto(Model& model, std::span<const u32> meshes, u32 k
         record.section = 0;
     }
     merged.recomputeBounds();
+    return MergedMesh{std::move(merged), sectionRemap};
+}
+
+MeshMergeResult MergeMeshesInto(Model& model, std::span<const u32> meshes, u32 keep) {
+    MeshMergeResult result;
+    std::optional<MergedMesh> built = MergedMeshOf(model, meshes, keep, result.diagnostics);
+    if (!built) {
+        return result;
+    }
+    return MergeMeshesInto(model, meshes, keep, std::move(*built));
+}
+
+MeshMergeResult MergeMeshesInto(Model& model, std::span<const u32> meshes, u32 keep,
+                                MergedMesh built) {
+    MeshMergeResult result;
+    std::vector<u32> picked(meshes.begin(), meshes.end());
+    std::sort(picked.begin(), picked.end());
+    picked.erase(std::unique(picked.begin(), picked.end()), picked.end());
+    const std::vector<u32>& sectionRemap = built.sectionRemap;
 
     // The referencers, while the old numbering still holds.
     const u32 count = static_cast<u32>(model.meshes.size());
@@ -380,7 +399,7 @@ MeshMergeResult MergeMeshesInto(Model& model, std::span<const u32> meshes, u32 k
         }
     }
 
-    model.meshes[keep] = std::move(merged);
+    model.meshes[keep] = std::move(built.mesh);
     for (u32 m = count; m-- > 0;) {
         if (absorbed(m)) {
             model.meshes.erase(model.meshes.begin() + m);

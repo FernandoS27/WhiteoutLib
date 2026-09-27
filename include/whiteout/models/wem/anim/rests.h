@@ -61,6 +61,11 @@ TrackRests RestsOf(const Document& document, u32 model, const TrackTarget& targe
 /// `initValue` where it has one.
 TrackRests RestsOf(const Document& document, u32 model, const AnimChannel& channel, Game game);
 
+/// The rests an opaque layer of the `Animator` fills @p channel with under
+/// @p storage: `RestsOf`, except that a bone of an explicit-bind rig rests at
+/// its own local transform either way, whichever game stores it.
+TrackRests RestsPlayed(const Document& document, u32 model, const AnimChannel& channel, Game storage);
+
 /// The first of @p model's clips, in document order, that keys @p channelId.
 /// MDX's export takes a merged track's clock from it (§1.4), which is what
 /// makes a channel a global loop's or the sequences'.

@@ -387,6 +387,39 @@ TrackRests RestsOf(const Document& document, u32 model, const TrackTarget& targe
     return RestsOf(document, model, target, type, GameOf(document.defaultProfile));
 }
 
+TrackRests RestsPlayed(const Document& document, u32 model, const AnimChannel& channel, Game storage) {
+    const TrackTarget& target = channel.target;
+    const bool transform = target.kind == TrackTarget::Kind::Node &&
+                           (target.channel == Channel::Translation ||
+                            target.channel == Channel::Rotation || target.channel == Channel::Scale);
+    if (model < document.models.size() && transform) {
+        const NodeTree& tree = document.models[model].nodes;
+        if (tree.rig == RigConvention::ExplicitBind && target.node < tree.size()) {
+            // A bone keyed absolutely rests at its own local transform; a pivot
+            // rig's offsets rest at the identity, which is what either game's
+            // rest says.
+            const Transform& local = tree.nodes[target.node].local;
+            std::vector<u8> rest;
+            switch (target.channel) {
+            case Channel::Translation:
+                rest = Bytes(local.translation);
+                break;
+            case Channel::Rotation:
+                rest = Bytes(local.rotation);
+                break;
+            default:
+                rest = channel.valueType == geom::AttrType::F32 ? Bytes(local.scale.x)
+                                                               : Bytes(local.scale);
+                break;
+            }
+            if (rest.size() == geom::AttrTypeSize(channel.valueType)) {
+                return Same(std::move(rest));
+            }
+        }
+    }
+    return RestsOf(document, model, channel, storage);
+}
+
 const Clip* ClockOwner(const Document& document, u32 model, u32 channelId) {
     for (const Clip& clip : document.clips) {
         if (clip.model != model)

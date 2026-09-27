@@ -96,6 +96,12 @@ whiteout_add_test(wem_ops_test wem_ops_test.cpp)
 # G18: merging meshes into one geoset, the mesh-axis referencer table, and the
 # converter's say on whether toMdx could write the result.
 whiteout_add_test(wem_mesh_ops_test wem_mesh_ops_test.cpp)
+# Optimize on conversion (EDIT_MODE_OPTIMIZE_DESIGN.md §6): merges, node
+# reduction and material merges, each posed against the source it came from.
+whiteout_add_test(wem_optimize_test wem_optimize_test.cpp)
+# The key reducer (EDIT_MODE_KEY_OPTIMIZE_DESIGN.md §8): every channel read the
+# same, directly and through the written file.
+whiteout_add_test(wem_key_reduce_test wem_key_reduce_test.cpp)
 # G29's drop arm (EDIT_MODE_MODELLING_PLAN.md MX1): a document holds LOD 0 and
 # every-level meshes only, and every mesh referencer follows the drop.
 whiteout_add_test(wem_lod_drop_test wem_lod_drop_test.cpp)

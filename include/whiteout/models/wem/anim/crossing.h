@@ -20,6 +20,9 @@
  * clip's layers instead of one track.
  */
 
+#include <functional>
+#include <map>
+#include <set>
 #include <span>
 
 #include <whiteout/common_types.h>
@@ -92,6 +95,16 @@ u32 ResampleForTarget(Document& staged, ProfileId target, Game previewStorage,
 /// since container 0 is already the whole pose. Returns the clips flattened;
 /// reports `AnimLayersFlattened`.
 u32 FlattenContainers(Document& document, Diagnostics& diagnostics);
+
+/// Keys that play @p poseAt over @p view: every channel of @p seeds keyed at
+/// each of its seed times and at both ends, then refined wherever the one
+/// track, read by @p view's rule, parts from the pose at a span's quarter
+/// points. @p poseAt gives every channel of @p model's table at a whole
+/// millisecond, each one element of its value type, and is called once a
+/// time. A discrete channel is keyed as a step. What `FlattenContainers` and
+/// `BakeMix` bake with, for a host that composes its poses itself.
+SubTrackContainer BakeSampled(const Model& model, const Clip& view, std::map<u32, std::set<i32>> seeds,
+                              const std::function<std::vector<std::vector<u8>>(i32)>& poseAt);
 
 /// *Bake mix as clip* (§6.2, §7.4): what @p mix shows over @p duration
 /// seconds, as one clip named @p name of rule @p rule on @p model — every
