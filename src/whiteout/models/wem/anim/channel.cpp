@@ -262,6 +262,16 @@ const char* ToString(Channel channel) {
         return "stageSourceWeight";
     case Channel::StageSourceEnabled:
         return "stageSourceEnabled";
+    case Channel::FocusDistance:
+        return "focusDistance";
+    case Channel::FocalLength:
+        return "focalLength";
+    case Channel::FStop:
+        return "fStop";
+    case Channel::Target:
+        return "target";
+    case Channel::Roll:
+        return "roll";
     case Channel::Count:
         break;
     }
@@ -291,6 +301,7 @@ geom::AttrType DefaultValueType(Channel channel) {
     case Channel::Color:
     case Channel::UvTranslate:
     case Channel::UvScale:
+    case Channel::Target:
         return geom::AttrType::F32x3;
     case Channel::Rotation:
     case Channel::UvRotate:
@@ -313,6 +324,10 @@ geom::AttrType DefaultValueType(Channel channel) {
     case Channel::StageWeight:
     case Channel::StageSourceWeight:
     case Channel::StageSourceEnabled:
+    case Channel::FocusDistance:
+    case Channel::FocalLength:
+    case Channel::FStop:
+    case Channel::Roll:
     case Channel::Count:
         break;
     }

@@ -83,6 +83,12 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("Diablo3", whiteout::models::wem::ProfileId::Diablo3)
         .value("Count", whiteout::models::wem::ProfileId::Count);
 
+    enum_<whiteout::models::wem::Game>("WemGame")
+        .value("Warcraft", whiteout::models::wem::Game::Warcraft)
+        .value("StarCraft", whiteout::models::wem::Game::StarCraft)
+        .value("Wow", whiteout::models::wem::Game::Wow)
+        .value("Diablo", whiteout::models::wem::Game::Diablo);
+
     enum_<whiteout::models::wem::CoordSpace>("WemCoordSpace")
         .value("Blizzard", whiteout::models::wem::CoordSpace::Blizzard)
         .value("Sc2", whiteout::models::wem::CoordSpace::Sc2);
@@ -649,6 +655,11 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("StageWeight", whiteout::models::wem::Channel::StageWeight)
         .value("StageSourceWeight", whiteout::models::wem::Channel::StageSourceWeight)
         .value("StageSourceEnabled", whiteout::models::wem::Channel::StageSourceEnabled)
+        .value("FocusDistance", whiteout::models::wem::Channel::FocusDistance)
+        .value("FocalLength", whiteout::models::wem::Channel::FocalLength)
+        .value("FStop", whiteout::models::wem::Channel::FStop)
+        .value("Target", whiteout::models::wem::Channel::Target)
+        .value("Roll", whiteout::models::wem::Channel::Roll)
         .value("Count", whiteout::models::wem::Channel::Count);
 
     enum_<whiteout::models::wem::Interpolation>("WemInterpolation")
@@ -664,6 +675,11 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("AutoPlay", whiteout::models::wem::ClipFlags::AutoPlay)
         .value("Persistent", whiteout::models::wem::ClipFlags::Persistent)
         .value("WorldClocked", whiteout::models::wem::ClipFlags::WorldClocked);
+
+    enum_<whiteout::models::wem::ReadRule>("WemReadRule")
+        .value("Wc3", whiteout::models::wem::ReadRule::Wc3)
+        .value("Sc2", whiteout::models::wem::ReadRule::Sc2)
+        .value("Wow", whiteout::models::wem::ReadRule::Wow);
 
     enum_<whiteout::models::wem::ValidateLevel>("WemValidateLevel")
         .value("Structural", whiteout::models::wem::ValidateLevel::Structural)
@@ -1434,6 +1450,9 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("nearClip", &whiteout::models::wem::CameraPayload::nearClip)
         .property("farClip", &whiteout::models::wem::CameraPayload::farClip)
         .property("target", &whiteout::models::wem::CameraPayload::target)
+        .property("focusDistance", &whiteout::models::wem::CameraPayload::focusDistance)
+        .property("focalLength", &whiteout::models::wem::CameraPayload::focalLength)
+        .property("fStop", &whiteout::models::wem::CameraPayload::fStop)
     ;
 
     class_<whiteout::models::wem::ParticlePayload>("WemParticlePayload")
@@ -1538,6 +1557,12 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("channels", &whiteout::models::wem::AnimChannelTable::channels)
     ;
 
+    class_<whiteout::models::wem::TrackSet>("WemTrackSet")
+        .constructor<>()
+        .property("name", &whiteout::models::wem::TrackSet::name)
+        .property("channels", &whiteout::models::wem::TrackSet::channels)
+    ;
+
     class_<whiteout::models::wem::SubTrack>("WemSubTrack")
         .constructor<>()
         .property("channel", &whiteout::models::wem::SubTrack::channel)
@@ -1564,6 +1589,12 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("value", &whiteout::models::wem::ClipEvent::value)
     ;
 
+    class_<whiteout::models::wem::ClipTrackSet>("WemClipTrackSet")
+        .constructor<>()
+        .property("set", &whiteout::models::wem::ClipTrackSet::set)
+        .property("priority", &whiteout::models::wem::ClipTrackSet::priority)
+    ;
+
     class_<whiteout::models::wem::Clip>("WemClip")
         .constructor<>()
         .property("name", &whiteout::models::wem::Clip::name)
@@ -1575,6 +1606,8 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("events", &whiteout::models::wem::Clip::events)
         .property("native", &whiteout::models::wem::Clip::native)
         .property("bounds", &whiteout::models::wem::Clip::bounds)
+        .property("trackSets", &whiteout::models::wem::Clip::trackSets)
+        .property("readRule", &whiteout::models::wem::Clip::readRule)
     ;
 
     class_<whiteout::models::wem::AnimTag>("WemAnimTag")
@@ -1626,7 +1659,9 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("animSet", &whiteout::models::wem::Model::animSet)
         .property("profileSets", &whiteout::models::wem::Model::profileSets)
         .property("bounds", &whiteout::models::wem::Model::bounds)
+        .property("tPose", &whiteout::models::wem::Model::tPose)
         .property("lodExport", &whiteout::models::wem::Model::lodExport)
+        .property("trackSets", &whiteout::models::wem::Model::trackSets)
         .function("slotIndex", &whiteout::models::wem::Model::slotIndex)
         .function("addSlot", &whiteout::models::wem::Model::addSlot)
         .function("drawnProfiles", &whiteout::models::wem::Model::drawnProfiles)
@@ -1746,6 +1781,7 @@ EMSCRIPTEN_BINDINGS(wem) {
     register_vector<whiteout::models::wem::AssetKey>("VectorWemAssetKey");
     register_vector<whiteout::models::wem::Clip>("VectorWemClip");
     register_vector<whiteout::models::wem::ClipEvent>("VectorWemClipEvent");
+    register_vector<whiteout::models::wem::ClipTrackSet>("VectorWemClipTrackSet");
     register_vector<whiteout::models::wem::CombinerStage>("VectorWemCombinerStage");
     register_vector<whiteout::models::wem::CompositeLayer>("VectorWemCompositeLayer");
     register_vector<whiteout::models::wem::Diagnostic>("VectorWemDiagnostic");
@@ -1767,6 +1803,7 @@ EMSCRIPTEN_BINDINGS(wem) {
     register_vector<whiteout::models::wem::SubTrack>("VectorWemSubTrack");
     register_vector<whiteout::models::wem::SubTrackContainer>("VectorWemSubTrackContainer");
     register_vector<whiteout::models::wem::TextureRef>("VectorWemTextureRef");
+    register_vector<whiteout::models::wem::TrackSet>("VectorWemTrackSet");
     register_vector<whiteout::models::wem::Transform>("VectorWemTransform");
     register_vector<whiteout::models::wem::UnknownChunk>("VectorWemUnknownChunk");
 

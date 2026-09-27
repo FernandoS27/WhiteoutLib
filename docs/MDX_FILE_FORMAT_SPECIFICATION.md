@@ -95,6 +95,8 @@ pre {
 | 2026-09-13 | 2.2 | Warcraft III 3.0.0 and MDX version **1800**, read out of `Warcraft III.decrypted.exe` 3.0.0.24268 and checked against the shipped 3.0.0 assets: the CAMS packed size-and-variant word; the v1400 `u16` SKIN stream; the Light fields added at v700, v1300 and v1600 together with the non-zero defaults the client substitutes below v1600; the new Light and Camera tracks (KLSS, KLSE, KLQF, KLLF, KLDA, KCVS, IDUF, ELAF, PTSF); and the `DILG` glider chunk. |
 | 2026-09-13 | 2.3 | Materials and layers in 3.0.0, from the same binary: two ShadingFlags bits that no earlier revision recorded (`0x200` BackFacesForShadows, `0x400` AmbientOcclusion); the shader-name registry behind the `shader` string and the `ShaderType` enum, including `Shader_HD_Crystal` (24); the material `flags` word, which the 3.0.0 client reads into a discarded register and writes as a constant zero; and the measured `900 <= version < 1100` gate on the material shader string. |
 | 2026-09-13 | 2.4 | Audited the geometry and emitter chunks against the 3.0.0 client: **no** version gate and **no** new field exists in PREM, PRE2, RIBB or CORN, and the geoset's optional sub-chunk set is still exactly TANG / SKIN / UVAS. Corrected the CORN colour layout — `float[3]` plus a separate `f32 alpha`, and KPPC is a three-float track like KRCO, not `float[4]` RGBA. Documented that node flag bits 15–20 are reinterpreted per emitter chunk (CORN reads `0x20000` as Unfogged and `0x40000` as PopcornScaling), that the 3.0.0 client never takes a node's type from `flags`, and the 16-layer UVAS limit. |
+| 2026-09-27 | 2.6 | How the 3.0.0 client *plays* a camera, not only how it reads one (`AnimateCamera`, `MdlReadCameras`, the cinematic player): the depth-of-field formula and its defaults, the KCVS hold, the `CAM_` filter and the shot-to-sequence pairing of in-engine cinematics. Swept all 14,984 shipped `.mdx` files: 5,217 cameras, every one variant 3; IDUF keyed on 82, all three depth-of-field tracks on 57; KCVS on none. |
+| 2026-09-27 | 2.7 | How the 3.0.0 client *frames* a camera (`CCineCamera` vs `CCamera`, `SetupWorldProjection`): the roll's sign and axis, including `CCamera`'s fixed model-X axis, and the `CAM_` field of view (horizontal over 16:9) against every other camera's (diagonal). |
 | 2026-09-13 | 2.5 | Reverse-engineered the `DILG` glider chunk end to end and closed the chunk inventory. A glider entry is a **geoset id**, and the list is a ray-intersection whitelist consumed by the client's world-picking query — it changes what a ray can hit, never what is drawn. Recorded the binary reader's store defect (every entry lands in element 0), the MDL `Glider` block, and the fact that DILG is written last. Confirmed the chunk dispatcher handles exactly 26 tags, so `DILG` is the only chunk 3.0.0 added and there is no rope, cloth or physics chunk in the format. |
 
 ## Table of Contents
@@ -1125,7 +1127,7 @@ Camera {
 > **The leading word is not a plain size**, and this is the single most
 > destructive thing to get wrong in the whole format. The client masks it as
 > `size = word & 0x00FFFFFF` and `variant = word >> 24`. Warcraft III 3.0.0
-> writes **variant 3 on every camera** (276 of 276), so a reader that takes all
+> writes **variant 3 on every camera** (5,217 of 5,217 shipped), so a reader that takes all
 > 32 bits as the size computes an end position about 48 MB past the entry, walks
 > off the end of the file looking for tracks, and — if its reader reports a
 > failed stream as "no progress" rather than as an error — never terminates.
@@ -1140,6 +1142,72 @@ Camera {
 > no fields for them. Their tags read as the reverse of their mnemonics
 > (`FUDI`, `FALE`, `FSTP` written backwards), unlike the `K`-prefixed tags,
 > which are stored forwards.
+
+#### How the client plays a camera (3.0.0)
+
+`AnimateCamera` evaluates one camera per frame, in this order:
+
+1. **KCVS** (default 1). At exactly 0 the function returns: the camera keeps
+   last frame's position, target, roll and depth of field. Nothing else reads
+   it (`ModelIsCameraEnabled` has no caller).
+2. KCTR and KTTR offset `position` and `targetPosition`; KCRL is the roll.
+3. **Depth of field.** Each of IDUF, ELAF and PTSF either has a key in the
+   playing window or has no value. The focus distance is written every frame:
+   IDUF's value, or **0** without one, and 0 turns the pass off. The blur
+   scale `focalLength² / fStop` is written **only while all three have a
+   value**; otherwise the camera keeps the scale it last had. The 51 / 8.1
+   defaults in the function are never observed.
+
+The camera's two numbers reach `GBuffer::ApplyDepthOfField(focus, scale)`
+(the HD pass; see the DoF shader) from the in-engine cinematic player and the
+3D campaign backdrops. Both multiply the scale by **0.5** first, and both skip
+the pass unless focus and scale are non-zero. The world camera's own depth of
+field is the JASS camera fields and is unrelated.
+
+The values are photographic: shipped cinematics key focal lengths of 16–150
+(millimetres), f-stops of 2.8–15, and focus distances in model units.
+Exporters key a constant once, at 0, which reaches only the sequence whose
+window holds 0.
+
+#### Which cameras the client keeps
+
+`MdlReadCameras` keeps only the cameras whose name contains `CAM_` when any
+does, and all of them otherwise. An in-engine cinematic plays shot *i* as
+sequence *i* seen through `CAM_` camera *i* (`Shot 010` ↔ `CAM_010`, …).
+The animation side (`AnimBuild`) still adds every camera and
+`AnimateAllCameras` pairs the two lists by index, so a model that puts a
+non-`CAM_` camera before its `CAM_` ones animates the wrong camera; no shipped
+file does.
+
+#### How the client frames a camera
+
+A kept `CAM_` camera is a `CCineCamera`; every other camera is a plain
+`CCamera`. The two build their view and projection differently, and roll is
+where it shows.
+
+| | `CCineCamera` (`CAM_`) | `CCamera` (every other camera) |
+|---|---|---|
+| Up vector | `u·cos(roll) − right·sin(roll)`: `u` is world +Z made perpendicular to the line of sight (+X when it is vertical), `right = forward × u` | `(0, −sin(roll), cos(roll))` in model space |
+| Field of view | Horizontal over a 16:9 frame: vertical = `2·atan(tan(fov/2) / (16/9))` at any viewport shape | Diagonal: vertical = `fov / sqrt(aspect² + 1)` |
+
+`CCamera` takes its up vector from its angle of attack and direction, which
+nothing sets on a model camera, so they stay 0. Its roll therefore turns about
+the model's X axis wherever the camera looks. That is a roll about the line of
+sight only for a camera looking down −X. Portraits look that way: of the 274
+shipped `CCamera`s with a non-zero roll, 250 are `Portrait_Camera`s, and the
+worst is 18° off. A camera looking down ±Y does not roll at all, until past
+90° the image flips. The 60 rolling `CAM_` cameras reach 169°.
+Both classes agree on the
+sign, and so do Blizzard's own MDX → M3 camera conversions.
+
+KCRL is in radians, and 0 with no key in the playing window. Like any track,
+the camera tracks follow their own global sequence when they name one. Shipped
+camera-shake rigs (`objects\cinematiccameras\*noise.mdx`) do.
+
+#### Writing
+
+The client writes variant 3 over every camera's size. A 2.x client reads all
+32 bits as the size, so a file meant for it keeps the byte clear.
 
 ### 7.21 CLID — Collision Shapes
 

@@ -432,6 +432,41 @@ static void runCorpus(MdlFormat fmt) {
     CHECK(binaryFail == 0);
 }
 
+// 3.0.0 writes variant 3 over every camera's 24-bit size, and a 2.x client
+// reads the whole word as the size, so only v1800 carries it.
+TEST_CASE("mdx_camera_variant_byte", "[mdx][camera]") {
+    Model model;
+    model.version = 1800;
+    Camera camera;
+    camera.name = "CAM_010";
+    camera.position = Vector3f{300, 0, 120};
+    camera.fieldOfView = 0.54f;
+    camera.focusDistanceTracks.isUsed = true;
+    camera.focusDistanceTracks.timestamps = {0};
+    camera.focusDistanceTracks.keys_data = {508.9f};
+    camera.focusDistanceTracks.keyCount = 1;
+    model.cameras.push_back(camera);
+
+    Writer writer;
+    Parser parser;
+    for (const u32 version : {800u, 1200u, 1800u}) {
+        INFO("version " << version);
+        model.version = version;
+        const std::vector<u8> bytes = writer.write(model);
+        const std::string_view text(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+        const std::size_t cams = text.find("CAMS");
+        REQUIRE(cams != std::string_view::npos);
+        u32 word = 0;
+        std::memcpy(&word, bytes.data() + cams + 8, sizeof(word));
+        CHECK((word >> 24) == (version >= 1800 ? 3u : 0u));
+
+        const Model reread = parser.parse(std::span<const u8>(bytes.data(), bytes.size()), MDLXFormat::MDX);
+        REQUIRE(reread.cameras.size() == 1);
+        CHECK(reread.cameras[0].name == "CAM_010");
+        CHECK(reread.cameras[0].focusDistanceTracks.isUsed == (version > 800));
+    }
+}
+
 // Diagnostic: round-trip a single named model and dump the full detail.
 // Override the target with the WHITEOUT_RT_FILE environment variable.
 TEST_CASE("mdx_mdl_roundtrip_diagnostic", "[mdl][roundtrip][diag]") {

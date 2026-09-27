@@ -319,6 +319,39 @@ TEST_CASE("wem an SD material serves Reforged only from a Reforged-era file", "[
 // What a written Reforged material has to look like
 // ============================================================================
 
+TEST_CASE("wem a converted SD layer is written SD on HD in a Reforged file",
+          "[wem][materials][mdx]") {
+    // A World of Warcraft chain has no native block, so it goes out through the
+    // kind mapping as SD layers. The game draws ids 0 and 2 alike in either mode.
+    Material material;
+    material.name = "batch_0";
+    CombinersBody body;
+    CombinerStage stage;
+    stage.input.texture = 0;
+    body.stages.push_back(stage);
+    material.InitCommon().body = std::move(body);
+
+    Diagnostics diagnostics;
+    const mdx::Material reforged = mdx_core::ExportMaterial(material, ProfileId::Wc3Reforged,
+                                                            makeContext(1800), diagnostics);
+    REQUIRE_FALSE(reforged.layers.empty());
+    for (const Layer& layer : reforged.layers) {
+        CHECK_FALSE(layer.is_hd);
+        CHECK(layer.shader == Layer::ShaderType::SDOnHD);
+    }
+
+    // Below v1100 a layer has no id, and the material's name says it.
+    const mdx::Material named = mdx_core::ExportMaterial(material, ProfileId::Wc3Reforged,
+                                                         makeContext(1000), diagnostics);
+    CHECK(named.shader == "Shader_SD_FixedFunction");
+
+    // A classic file keeps plain SD, the one shader it may use.
+    const mdx::Material classic = mdx_core::ExportMaterial(material, ProfileId::Wc3Classic,
+                                                           makeContext(800), diagnostics);
+    REQUIRE_FALSE(classic.layers.empty());
+    CHECK(classic.layers[0].shader == Layer::ShaderType::SD);
+}
+
 TEST_CASE("wem a Reforged material never leaves a slot empty", "[wem][materials][mdx]") {
     // Measured, not chosen: across the 12,893 six-slot HD layers in
     // `war3.w3mod` not one slot is `-1`. The engine reads that field as a

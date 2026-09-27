@@ -59,6 +59,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimTag>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AssetKey>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Clip>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ClipEvent>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ClipTrackSet>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::CombinerStage>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::CompositeLayer>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Diagnostic>);
@@ -80,6 +81,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::SlotBinding>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::SubTrack>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::SubTrackContainer>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::TextureRef>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::TrackSet>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Transform>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::UnknownChunk>);
 
@@ -150,26 +152,6 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 1 of bind_wem(), which calls the parts in order.
 void bind_wem_1(py::module_& m) {
-    py::class_<whiteout::models::wem::Wc3CornEmitterPayload>(m, "Wc3CornEmitterPayload", R"doc(`CORN`: a PopcornFX effect run at the node (Reforged).
-
-The effect itself is a `.pkb` WEM does not hold, named by `effect`; what the model owns is the five numbers the game hands the effect every frame. They are MULTIPLIERS on the effect's own values (the game's reader names each track so: "lifespan multiplier keys", ...), which is why they rest at 1.
-
-Its colour, alpha and visibility key on the shared `Color`, `Alpha` and `Visibility` channels and rest here; lifespan, emission rate and speed are `Wc3CornProperty` channels. A keyed colour is blue first in the file, like every other Warcraft III colour key (`ReadBinParticleEmitterPopcorn` keeps the keys as read and reverses only the static colour); the channel is RGB.)doc")
-        .def(py::init<>())
-        .def_readwrite("lifespan", &whiteout::models::wem::Wc3CornEmitterPayload::lifespan, R"doc(Multiplies the effect's particle lifespan.)doc")
-        .def_readwrite("emission_rate", &whiteout::models::wem::Wc3CornEmitterPayload::emissionRate, R"doc(Multiplies its emission rate.)doc")
-        .def_readwrite("speed", &whiteout::models::wem::Wc3CornEmitterPayload::speed, R"doc(Multiplies its particle speed.)doc")
-        .def_readwrite("color", &whiteout::models::wem::Wc3CornEmitterPayload::color, R"doc(Multiplies its colour. RGB, red first.)doc")
-        .def_readwrite("alpha", &whiteout::models::wem::Wc3CornEmitterPayload::alpha, R"doc(Multiplies its alpha.)doc")
-        .def_readwrite("replaceable_id", &whiteout::models::wem::Wc3CornEmitterPayload::replaceableId, R"doc(The team colour/glow the effect's textures take.)doc")
-        .def_readwrite("effect", &whiteout::models::wem::Wc3CornEmitterPayload::effect, R"doc(The PopcornFX effect, by path — a `.pkb`.)doc")
-        .def_readwrite("anim_visibility_guide", &whiteout::models::wem::Wc3CornEmitterPayload::animVisibilityGuide, R"doc(The effect's animation-visibility guide, by name. Opaque here: the engine resolves it against the effect.)doc")
-        .def_readwrite("unshaded", &whiteout::models::wem::Wc3CornEmitterPayload::unshaded, R"doc(0x8000.)doc")
-        .def_readwrite("sort_prims_far_z", &whiteout::models::wem::Wc3CornEmitterPayload::sortPrimsFarZ, R"doc(0x10000.)doc")
-        .def_readwrite("unfogged", &whiteout::models::wem::Wc3CornEmitterPayload::unfogged, R"doc(0x20000.)doc")
-        .def_readwrite("popcorn_scaling", &whiteout::models::wem::Wc3CornEmitterPayload::popcornScaling, R"doc(0x40000: the node's scale reaches the effect.)doc")
-    ;
-
     py::class_<whiteout::models::wem::M2ParticleEmitterPayload>(m, "M2ParticleEmitterPayload", R"doc(`M2Particle`: WoW's emitter — Warcraft III's `PRE2` grown up.
 
 The record's own frame and flags. The emitter sits on its node the way the game places it: turned a quarter about Z (`baseFlip`), so the record's X is the node's Y. `flags` is the record's word as the file holds it (its bits are `m2::ParticleFlag`); what they mean to another system is the crossing's to decide, not a field's.
@@ -519,7 +501,10 @@ Both halves are optional and independent. `asset` is what the source named — a
         .def_readwrite("fov", &whiteout::models::wem::CameraPayload::fov)
         .def_readwrite("near_clip", &whiteout::models::wem::CameraPayload::nearClip)
         .def_readwrite("far_clip", &whiteout::models::wem::CameraPayload::farClip)
-        .def_readwrite("target", &whiteout::models::wem::CameraPayload::target, R"doc(Where the camera looks, in model space. MDX and M2 store one; M3 and glTF aim a camera by its node's orientation instead, and leave this at the origin — which is also what a v3 `NODE` reads as.)doc")
+        .def_readwrite("target", &whiteout::models::wem::CameraPayload::target, R"doc(Where the camera looks, in model space. MDX and M2 store one; M3 and glTF aim a camera by its node's orientation instead, and leave this at the origin — which is also what a v3 `NODE` reads as. `Channel::Target` keys offset it, as `Translation` keys offset the node.)doc")
+        .def_readwrite("focus_distance", &whiteout::models::wem::CameraPayload::focusDistance, R"doc(Warcraft III 3.0's depth of field; 0 is unset. The game blurs only where all three have a value (`AnimateCamera`), and MDX stores no rests for them, only the IDUF/ELAF/PTSF keys.)doc")
+        .def_readwrite("focal_length", &whiteout::models::wem::CameraPayload::focalLength, R"doc(Millimetres.)doc")
+        .def_readwrite("f_stop", &whiteout::models::wem::CameraPayload::fStop)
     ;
 
     py::class_<whiteout::models::wem::ParticlePayload>(m, "ParticlePayload")
@@ -603,7 +588,7 @@ The same composition D3's `Skeleton_ComposeWorldPose` performs. A node flagged `
 
 A `PoseStorage::Matrix` entry answers with the *decomposition* of the stored matrix, which is what `poses` holds — use @ref poseMatrixOf when the exact value is what matters.)doc")
         .def("pose_matrix_of", &whiteout::models::wem::NodeTree::poseMatrixOf, py::arg("node"), py::arg("pose"), R"doc(The same value as a matrix, and the authoritative one: a `PoseStorage::Matrix` entry with a stored matrix answers with it unchanged, and everything else composes @ref poseOf.)doc")
-        .def("conform_poses", &whiteout::models::wem::NodeTree::conformPoses, R"doc(Resizes every Bone node's `poses` to `poseSchema.size()`, filling new entries from `worldBind`/`local` as the schema's space asks.)doc")
+        .def("conform_poses", &whiteout::models::wem::NodeTree::conformPoses, R"doc(Resizes every node's `poses` to `poseSchema.size()`, filling new entries from `worldBind`/`local` as the schema's space asks. Every kind, because a pose entry need not be a bind: MDX's `BPOS` is one and it is indexed by `objectId`, which numbers attachments, events and collision shapes too.)doc")
         .def("inverse_bind_matrix", &whiteout::models::wem::NodeTree::inverseBindMatrix, py::arg("node"), R"doc(The matrix a skinning palette multiplies @p node's animated frame by — `skin = inverseBindMatrix(b) * world(b)`.
 
 The one question every exporter and every evaluator actually has, and the only place `rig` needs to be read to answer it: an `ExplicitBind` tree answers with the shipped `IREF`/`tTransform4`, and a `PivotRelative` one with the inverse of the composed rest chain — identity in the animation's own terms, but the pivot chain is what `local` holds there, so the inverse of `worldBind` is what makes the two agree at the bind pose.)doc")
@@ -642,6 +627,14 @@ Empty is a normal state — a model with no animation carries no channels.)doc")
         .def_readwrite("channels", &whiteout::models::wem::AnimChannelTable::channels)
     ;
 
+    py::class_<whiteout::models::wem::TrackSet>(m, "TrackSet", R"doc(A named group of channels a clip can play on its own layer — the StarCraft II Art Tools' "track set", the source of split-body animation.
+
+Only the grouping lives here. Which clips play a set, and at what priority, is each clip's `Clip::trackSets`; the containers themselves are made at export (`LayeredContainers`), so a clip's edited tracks stay in one place.)doc")
+        .def(py::init<>())
+        .def_readwrite("name", &whiteout::models::wem::TrackSet::name)
+        .def_readwrite("channels", &whiteout::models::wem::TrackSet::channels, R"doc(`AnimChannel::id`s. A stale id is ignored, not an error.)doc")
+    ;
+
     py::class_<whiteout::models::wem::SubTrack>(m, "SubTrack", R"doc(One channel's keyframe stream. M3's SD entry.
 
 `times` are **seconds**, converted at import from whatever ticks the source counts in, and are **not clamped or padded to `Clip::duration`**: M3 wraps the playhead modulo the *track's* own length, so a sub-track outlasting or undershooting its clip is data, not an error (§10.8.2).)doc")
@@ -676,6 +669,14 @@ The node's **kind is not fixed**: MDX and `.m2` name a dedicated `Event` node, `
         .def_readwrite("value", &whiteout::models::wem::ClipEvent::value)
     ;
 
+    py::class_<whiteout::models::wem::ClipTrackSet>(m, "ClipTrackSet", R"doc(One of the model's `TrackSet`s this clip plays on a layer of its own.
+
+Every clip also plays the "default" set — whatever no listed set claims — in its own containers, at their priority.)doc")
+        .def(py::init<>())
+        .def_readwrite("set", &whiteout::models::wem::ClipTrackSet::set, R"doc(-> the clip's `Model::trackSets`.)doc")
+        .def_readwrite("priority", &whiteout::models::wem::ClipTrackSet::priority, R"doc(The layer's STC `animPriority`.)doc")
+    ;
+
     py::class_<whiteout::models::wem::Clip>(m, "Clip", R"doc(One playable animation. M3's SEQS plus its STG_.
 
 `model` exists because a document holds several models (§9.1) and a channel id is only meaningful within one model's table — a clip that did not say whose nodes its sub-tracks name would be ambiguous the moment a D3 actor brought a second model along on a hardpoint.)doc")
@@ -691,6 +692,8 @@ The node's **kind is not fixed**: MDX and `.m2` name a dedicated `Event` node, `
         .def_readwrite("bounds", &whiteout::models::wem::Clip::bounds, R"doc(What the model occupies while this clip plays, when the source said so. All zeros when it did not — which `valid()` calls well-formed, so test the extent for volume, not validity.
 
 The one place WEM stores a bound it does not recompute. All four formats ship one per sequence — MDX's `Sequence::extent`, M2's `bounds`, M3's SEQS extents — and it is not derivable from the geometry: it is the union over the *posed* mesh across the clip, so recovering it means evaluating the whole skeleton at a sampling the source never recorded. A host reads it to frame a camera, and a conservative substitute (the model's own bounds) frames every clip as though it were the widest.)doc")
+        .def_readwrite("track_sets", &whiteout::models::wem::Clip::trackSets, R"doc(The track sets this clip plays split out of container 0; see `LayeredContainers`.)doc")
+        .def_readwrite("read_rule", &whiteout::models::wem::Clip::readRule, R"doc(How its tracks are read. A clip written before v4 derives it once, as it is read (`DerivedReadRule`).)doc")
     ;
 
     py::class_<whiteout::models::wem::AnimTag>(m, "AnimTag", R"doc(One (tag -> clip) row. A struct rather than a `std::pair` because a pair has no `reflect()` and naming the halves is worth more than the two lines.)doc")
@@ -759,7 +762,9 @@ A document holds LOD 0 only: import drops the rest (`DropLevelsOfDetail`), and t
 On the `Model` because that is what a D3 actor's `snoAnimSet` names once the actor has become one (§9.1) — there is no `Actor` to hang it on, and a document-level pairing would be a side table with the model index in it, which is the shape §10.2 exists to avoid. Two actors sharing an appearance but not an animset are therefore two models, the same way two that equip differently are.)doc")
         .def_readwrite("profile_sets", &whiteout::models::wem::Model::profileSets)
         .def_readwrite("bounds", &whiteout::models::wem::Model::bounds)
+        .def_readwrite("t_pose", &whiteout::models::wem::Model::tPose, R"doc(Which of them is the recovered T-pose (EDIT_MODE_TPOSE_DESIGN.md §7), or `kInvalidIndex` for none. An index rather than a name because the list is already indexed by every node's `poseDeltas`, and a rename must not lose it. No exporter reads it.)doc")
         .def_readwrite("lod_export", &whiteout::models::wem::Model::lodExport, R"doc(How the `.mdx` export makes levels of detail (`LodExport`).)doc")
+        .def_readwrite("track_sets", &whiteout::models::wem::Model::trackSets, R"doc(The named channel groups clips play on layers of their own (`Clip::trackSets`).)doc")
         .def("slot_index", &whiteout::models::wem::Model::slotIndex, py::arg("name"), R"doc(The index of the slot named @p name, or `kInvalidIndex`.)doc")
         .def("add_slot", &whiteout::models::wem::Model::addSlot, py::arg("name"), R"doc(Appends a slot if it is not already there and returns its index.)doc")
         .def("drawn_profiles", &whiteout::models::wem::Model::drawnProfiles, R"doc(The mask of profiles at least one section draws in. Cheap, and what a UI wants when it asks "what is actually in this file".)doc")
@@ -898,4 +903,5 @@ Colours are RGBA in 0..1, the channel convention; a `u16` squirt count widens to
     py::bind_vector<std::vector<whiteout::models::wem::AnimTag>>(m, "VectorWemAnimTag");
     py::bind_vector<std::vector<whiteout::models::wem::AssetKey>>(m, "VectorWemAssetKey");
     py::bind_vector<std::vector<whiteout::models::wem::Clip>>(m, "VectorWemClip");
+    py::bind_vector<std::vector<whiteout::models::wem::ClipEvent>>(m, "VectorWemClipEvent");
 }

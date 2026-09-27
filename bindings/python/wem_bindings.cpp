@@ -59,6 +59,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimTag>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AssetKey>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Clip>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ClipEvent>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ClipTrackSet>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::CombinerStage>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::CompositeLayer>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Diagnostic>);
@@ -80,6 +81,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::SlotBinding>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::SubTrack>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::SubTrackContainer>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::TextureRef>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::TrackSet>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Transform>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::UnknownChunk>);
 
@@ -161,6 +163,13 @@ void bind_wem(py::module_& m) {
         .value("HEROES", whiteout::models::wem::ProfileId::Heroes, R"doc(Heroes of the Storm (`.m3`, MODL v30+ — MADD available).)doc")
         .value("DIABLO3", whiteout::models::wem::ProfileId::Diablo3, R"doc(Diablo III (`.app` / `.acr`).)doc")
         .value("COUNT", whiteout::models::wem::ProfileId::Count)
+    ;
+
+    py::enum_<whiteout::models::wem::Game>(m, "Game", R"doc(The game a profile belongs to. Classic, Reforged and Generic are one game — Generic is drawn as Reforged — and so are StarCraft II and Heroes: what depends on the game (a clip's read rule, the storage policies) follows this, never a profile compared by hand.)doc")
+        .value("WARCRAFT", whiteout::models::wem::Game::Warcraft)
+        .value("STAR_CRAFT", whiteout::models::wem::Game::StarCraft)
+        .value("WOW", whiteout::models::wem::Game::Wow)
+        .value("DIABLO", whiteout::models::wem::Game::Diablo)
     ;
 
     py::enum_<whiteout::models::wem::CoordSpace>(m, "CoordSpace", R"doc(The authoring space a format's geometry arrives in.
@@ -815,9 +824,14 @@ Closed on purpose. A source property with no entry here is **dropped with an `An
         .value("QUADRATIC_FALLOFF", whiteout::models::wem::Channel::QuadraticFalloff, R"doc(F32. MDX KLQF (v1600).)doc")
         .value("LINEAR_FALLOFF", whiteout::models::wem::Channel::LinearFalloff, R"doc(F32. MDX KLLF (v1600).)doc")
         .value("DAMPING", whiteout::models::wem::Channel::Damping, R"doc(F32. MDX KLDA (v1600).)doc")
-        .value("STAGE_WEIGHT", whiteout::models::wem::Channel::StageWeight, R"doc(F32. A pose stage's weight, on its first driven node with `sub` the stage's id.)doc")
-        .value("STAGE_SOURCE_WEIGHT", whiteout::models::wem::Channel::StageSourceWeight, R"doc(F32. A constraint source's weight, on the stage's driven node.)doc")
-        .value("STAGE_SOURCE_ENABLED", whiteout::models::wem::Channel::StageSourceEnabled, R"doc(F32. Whether a Link's source is enabled, on the stage's driven node.)doc")
+        .value("STAGE_WEIGHT", whiteout::models::wem::Channel::StageWeight, R"doc(F32. A pose stage's weight, on its first driven node with `sub` the stage's id (WEM_ANIMATION_RUNTIME_DESIGN.md §5.1). The editor's own: every exporter skips it, and an export's bake consumes it.)doc")
+        .value("STAGE_SOURCE_WEIGHT", whiteout::models::wem::Channel::StageSourceWeight, R"doc(F32. A constraint source's weight, on the stage's driven node with `sub` `StageSub(stage, source)`. The editor's own, as `StageWeight` is.)doc")
+        .value("STAGE_SOURCE_ENABLED", whiteout::models::wem::Channel::StageSourceEnabled, R"doc(F32. Whether a Link's source is enabled (above 0.5), held from key to key as a visibility is; placed as `StageSourceWeight` is.)doc")
+        .value("FOCUS_DISTANCE", whiteout::models::wem::Channel::FocusDistance, R"doc(F32. MDX IDUF, in scene units; 0 turns depth of field off.)doc")
+        .value("FOCAL_LENGTH", whiteout::models::wem::Channel::FocalLength, R"doc(F32. MDX ELAF, in millimetres.)doc")
+        .value("F_STOP", whiteout::models::wem::Channel::FStop, R"doc(F32. MDX PTSF.)doc")
+        .value("TARGET", whiteout::models::wem::Channel::Target, R"doc(F32x3. An offset from `CameraPayload::target`: MDX KTTR, M2 `targetPositions`.)doc")
+        .value("ROLL", whiteout::models::wem::Channel::Roll, R"doc(F32. Radians about the line of sight: MDX KCRL, M2 `roll`.)doc")
         .value("COUNT", whiteout::models::wem::Channel::Count)
     ;
 
@@ -837,6 +851,14 @@ Closed on purpose. A source property with no entry here is **dropped with an `An
         .value("AUTO_PLAY", whiteout::models::wem::ClipFlags::AutoPlay, R"doc(Started at anim-state init, not by a play request.)doc")
         .value("PERSISTENT", whiteout::models::wem::ClipFlags::Persistent, R"doc(Survives an anim-state change.)doc")
         .value("WORLD_CLOCKED", whiteout::models::wem::ClipFlags::WorldClocked, R"doc(Timed off the world clock, not the play's own bracket.)doc")
+    ;
+
+    py::enum_<whiteout::models::wem::ReadRule>(m, "ReadRule", R"doc(How one of a clip's tracks is read: the interpolation, the window and the wrap of the game the clip was made for (WEM_ANIMATION_RUNTIME_DESIGN.md §3.1).
+
+Stored, because a conversion rewrites the keys for another game and the rule has to say which arithmetic the keys now in the clip were written for.)doc")
+        .value("WC3", whiteout::models::wem::ReadRule::Wc3, R"doc(Warcraft III: keys inside the window, the MDX curves, the window's wrap.)doc")
+        .value("SC2", whiteout::models::wem::ReadRule::Sc2, R"doc(StarCraft II: a raw quaternion lerp; a looping track wraps at its own last key.)doc")
+        .value("WOW", whiteout::models::wem::ReadRule::Wow, R"doc(World of Warcraft: a quaternion nlerp without a sign flip; the ends hold.)doc")
     ;
 
     py::enum_<whiteout::models::wem::ValidateLevel>(m, "ValidateLevel")
@@ -1172,7 +1194,7 @@ The vertex is left sorted heaviest first, with ties by bone, which is the order 
     py::class_<whiteout::models::wem::MeshSection>(m, "MeshSection", R"doc(Metadata only; one per draw section. The faces that belong to it are the ones whose `section` attribute names it.)doc")
         .def(py::init<>())
         .def_readwrite("name", &whiteout::models::wem::MeshSection::name)
-        .def_readwrite("material_slot", &whiteout::models::wem::MeshSection::materialSlot, R"doc(-> `Model::materialSlots[]`.)doc")
+        .def_readwrite("material_slot", &whiteout::models::wem::MeshSection::materialSlot, R"doc(-> `Model::materialSlots[]`, or `kInvalidIndex` for NO MATERIAL: a section made by an editor before one has been chosen for it. The sentinel is the emitter links' (§10.9), so one rule covers both, and every profile draws such a section as plain white (`toMdx` writes it a blank SD material; a profile that cannot say "none" must write one).)doc")
         .def_readwrite("profiles", &whiteout::models::wem::MeshSection::profiles, R"doc(Which profiles draw this section (§6).)doc")
         .def_readwrite("rigid_node", &whiteout::models::wem::MeshSection::rigidNode, R"doc(Set: every vertex binds here at weight 1 (§5.6).)doc")
         .def_readwrite("selection_group", &whiteout::models::wem::MeshSection::selectionGroup, R"doc(MDX geoset group / M2 skinSectionId.)doc")
@@ -1281,6 +1303,26 @@ Its colour, alpha and flipbook cell key on the shared `Color`, `Alpha` and `Text
         .def_readwrite("columns", &whiteout::models::wem::Wc3RibbonEmitterPayload::columns)
         .def_readwrite("material_slot", &whiteout::models::wem::Wc3RibbonEmitterPayload::materialSlot, R"doc(-> `Model::materialSlots`.)doc")
         .def_readwrite("gravity", &whiteout::models::wem::Wc3RibbonEmitterPayload::gravity)
+    ;
+
+    py::class_<whiteout::models::wem::Wc3CornEmitterPayload>(m, "Wc3CornEmitterPayload", R"doc(`CORN`: a PopcornFX effect run at the node (Reforged).
+
+The effect itself is a `.pkb` WEM does not hold, named by `effect`; what the model owns is the five numbers the game hands the effect every frame. They are MULTIPLIERS on the effect's own values (the game's reader names each track so: "lifespan multiplier keys", ...), which is why they rest at 1.
+
+Its colour, alpha and visibility key on the shared `Color`, `Alpha` and `Visibility` channels and rest here; lifespan, emission rate and speed are `Wc3CornProperty` channels. A keyed colour is blue first in the file, like every other Warcraft III colour key (`ReadBinParticleEmitterPopcorn` keeps the keys as read and reverses only the static colour); the channel is RGB.)doc")
+        .def(py::init<>())
+        .def_readwrite("lifespan", &whiteout::models::wem::Wc3CornEmitterPayload::lifespan, R"doc(Multiplies the effect's particle lifespan.)doc")
+        .def_readwrite("emission_rate", &whiteout::models::wem::Wc3CornEmitterPayload::emissionRate, R"doc(Multiplies its emission rate.)doc")
+        .def_readwrite("speed", &whiteout::models::wem::Wc3CornEmitterPayload::speed, R"doc(Multiplies its particle speed.)doc")
+        .def_readwrite("color", &whiteout::models::wem::Wc3CornEmitterPayload::color, R"doc(Multiplies its colour. RGB, red first.)doc")
+        .def_readwrite("alpha", &whiteout::models::wem::Wc3CornEmitterPayload::alpha, R"doc(Multiplies its alpha.)doc")
+        .def_readwrite("replaceable_id", &whiteout::models::wem::Wc3CornEmitterPayload::replaceableId, R"doc(The team colour/glow the effect's textures take.)doc")
+        .def_readwrite("effect", &whiteout::models::wem::Wc3CornEmitterPayload::effect, R"doc(The PopcornFX effect, by path — a `.pkb`.)doc")
+        .def_readwrite("anim_visibility_guide", &whiteout::models::wem::Wc3CornEmitterPayload::animVisibilityGuide, R"doc(The effect's animation-visibility guide, by name. Opaque here: the engine resolves it against the effect.)doc")
+        .def_readwrite("unshaded", &whiteout::models::wem::Wc3CornEmitterPayload::unshaded, R"doc(0x8000.)doc")
+        .def_readwrite("sort_prims_far_z", &whiteout::models::wem::Wc3CornEmitterPayload::sortPrimsFarZ, R"doc(0x10000.)doc")
+        .def_readwrite("unfogged", &whiteout::models::wem::Wc3CornEmitterPayload::unfogged, R"doc(0x20000.)doc")
+        .def_readwrite("popcorn_scaling", &whiteout::models::wem::Wc3CornEmitterPayload::popcornScaling, R"doc(0x40000: the node's scale reaches the effect.)doc")
     ;
 
     bind_wem_1(m);

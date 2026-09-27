@@ -383,7 +383,10 @@ private:
         for (std::size_t c = 0; c < source_.cameras.size(); ++c) {
             const u32 node = context_.bases.camera + static_cast<u32>(c);
             if (node < model_.nodes.size()) {
-                addTrack(source_.cameras[c].positions, nodeTarget(node, Channel::Translation));
+                const m2::Camera& camera = source_.cameras[c];
+                addTrack(camera.positions, nodeTarget(node, Channel::Translation));
+                addTrack(camera.targetPositions, nodeTarget(node, Channel::Target));
+                addTrack(camera.roll, nodeTarget(node, Channel::Roll));
             }
         }
         for (std::size_t e = 0; e < source_.particleEmitters.size(); ++e) {
@@ -1005,10 +1008,21 @@ private:
             break;
         }
         case ExportContext::Slot::Camera:
-            if (channel.target.channel == Channel::Translation &&
-                slot.index < out_.cameras.size()) {
+            if (slot.index >= out_.cameras.size()) {
+                break;
+            }
+            switch (channel.target.channel) {
+            case Channel::Translation:
                 emit(channel, out_.cameras[slot.index].positions);
                 return;
+            case Channel::Target:
+                emit(channel, out_.cameras[slot.index].targetPositions);
+                return;
+            case Channel::Roll:
+                emit(channel, out_.cameras[slot.index].roll);
+                return;
+            default:
+                break;
             }
             break;
         default:

@@ -871,6 +871,41 @@ std::vector<u32> TextureWrapBits(const Document& document, const ProfileMaterial
     return bits;
 }
 
+/// A camera's depth-of-field rests, as keys: MDX has no static for them, and
+/// the game reads only the keys inside the playing window, so a rest with no
+/// track of its own is keyed at every sequence's start.
+void KeyCameraRests(const Model& model, const mdx_anim::ExportContext& context, mdx::Model& out) {
+    std::vector<u32> starts;
+    for (const mdx::Sequence& sequence : out.sequences) {
+        starts.push_back(sequence.intervalStart);
+    }
+    if (starts.empty()) {
+        starts.push_back(0);
+    }
+    const auto key = [&starts](mdx::Track<f32>& track, f32 value) {
+        if (track.isUsed || value == 0.0f) {
+            return;
+        }
+        track = {};
+        track.isUsed = true;
+        track.timestamps = starts;
+        track.keys_data.assign(starts.size(), value);
+        track.keyCount = starts.size();
+    };
+    for (std::size_t i = 0; i < model.nodes.size() && i < context.nodeSlots.size(); ++i) {
+        const mdx_anim::ExportContext::NodeSlot& slot = context.nodeSlots[i];
+        const auto* payload = std::get_if<CameraPayload>(&model.nodes.nodes[i].payload);
+        if (slot.slot != mdx_anim::ExportContext::Slot::Camera || slot.index >= out.cameras.size() ||
+            payload == nullptr) {
+            continue;
+        }
+        mdx::Camera& camera = out.cameras[slot.index];
+        key(camera.focusDistanceTracks, payload->focusDistance);
+        key(camera.focalLengthTracks, payload->focalLength);
+        key(camera.fStopTracks, payload->fStop);
+    }
+}
+
 /// The geoset animations' flags words and the bones' links to them, written
 /// once every record exists (EDIT_MODE_MESH_DESIGN.md §7.6). A bone's link is
 /// derived from its `gateMesh` rather than carried: the table the file's raw
@@ -2602,13 +2637,16 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
     // slot's so that no slot's index moves, and its single layer names a
     // texture with no file, which is the file's own way of saying the stage is
     // untextured. Warcraft III and this viewer both draw that plain white, and
-    // an SD layer (`ShaderType::SD`, the default) is what a mesh with nothing
-    // said about it should be drawn with.
+    // an SD layer (SD on HD in a Reforged file, as `ExportMaterial` writes) is
+    // what a mesh with nothing said about it should be drawn with.
     //
     // A slot out of range takes it too: a geoset naming a material the file
     // does not hold is worse than a white one, and it is the same question.
     if (blankMaterial != kInvalidIndex) {
         mdx::Layer layer;
+        if (profile == ProfileId::Wc3Reforged) {
+            layer.shader = mdx::Layer::ShaderType::SDOnHD;
+        }
         layer.textureId = context.stockBase + static_cast<u32>(stockTextures.size());
         stockTextures.push_back(mdx::Texture{});
         mdx::Material material;
@@ -2762,6 +2800,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
     mdx_anim::Export(document, 0, profile, animContext, out, diagnostics);
     // And after it, because the keyed records are only now all made.
     LinkGeosetAnimations(model, animContext, out, diagnostics);
+    KeyCameraRests(model, animContext, out);
 
     result.value = std::move(out);
     return result;

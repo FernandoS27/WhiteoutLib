@@ -351,8 +351,15 @@ struct CameraPayload {
     f32 farClip = 0;
     /// Where the camera looks, in model space. MDX and M2 store one; M3 and glTF
     /// aim a camera by its node's orientation instead, and leave this at the
-    /// origin — which is also what a v3 `NODE` reads as.
+    /// origin — which is also what a v3 `NODE` reads as. `Channel::Target` keys
+    /// offset it, as `Translation` keys offset the node.
     Vector3f target{0, 0, 0};
+    /// Warcraft III 3.0's depth of field; 0 is unset. The game blurs only where
+    /// all three have a value (`AnimateCamera`), and MDX stores no rests for
+    /// them, only the IDUF/ELAF/PTSF keys.
+    f32 focusDistance = 0;
+    f32 focalLength = 0; ///< Millimetres.
+    f32 fStop = 0;
 
     template <class V>
     void reflect(V& v) {
@@ -360,6 +367,9 @@ struct CameraPayload {
         v.field("nearClip", nearClip);
         v.field("farClip", farClip);
         v.since(4).field("target", target);
+        v.since(13).field("focusDistance", focusDistance);
+        v.since(13).field("focalLength", focalLength);
+        v.since(13).field("fStop", fStop);
     }
 };
 

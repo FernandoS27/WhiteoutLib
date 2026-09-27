@@ -513,6 +513,177 @@ TEST_CASE("wem mdx a camera keeps where it looks", "[wem][convert][mdx][nodes]")
     CHECK(out.farClippingPlane == 2000.0f);
 }
 
+TEST_CASE("wem mdx a camera keeps 3.0's depth of field", "[wem][convert][mdx][nodes]") {
+    // IDUF/ELAF/PTSF had no channel, so every cinematic camera an edit rebuilt
+    // lost its focus (82 of 5,217 shipped cameras key it).
+    mdx::Model source = makeModel();
+    source.version = 1800;
+    for (const auto& [start, end] : {std::pair{0u, 1000u}, std::pair{1033u, 2000u}}) {
+        mdx::Sequence shot;
+        shot.name = "Shot";
+        shot.intervalStart = start;
+        shot.intervalEnd = end;
+        source.sequences.push_back(shot);
+    }
+    const auto keyed = [](std::vector<u32> times, std::vector<f32> values) {
+        mdx::Track<f32> track;
+        track.isUsed = true;
+        track.interpolationType = mdx::InterpolationType::Linear;
+        track.keyCount = times.size();
+        track.timestamps = std::move(times);
+        track.keys_data = std::move(values);
+        return track;
+    };
+    mdx::Camera camera;
+    camera.name = "CAM_010";
+    camera.position = Vector3f{300, 0, 120};
+    camera.targetPosition = Vector3f{0, 0, 90};
+    camera.fieldOfView = 0.54f;
+    camera.farClippingPlane = 5000.0f;
+    camera.nearClippingPlane = 30.0f;
+    camera.focusDistanceTracks = keyed({0, 1000}, {508.9f, 620.0f});
+    camera.focalLengthTracks = keyed({0}, {65.0f});
+    camera.fStopTracks = keyed({0}, {5.6f});
+    source.cameras.push_back(camera);
+
+    const MdxConverter converter;
+    Result<Document> imported = converter.fromMdx(source);
+    REQUIRE(imported.ok());
+    const Model& model = imported->models[0];
+    REQUIRE(model.nodes.ofKind(NodeKind::Camera).size() == 1u);
+    const u32 node = model.nodes.ofKind(NodeKind::Camera)[0];
+    // Keyed only: the rests stay unset, as the file states none.
+    const auto& payload = std::get<CameraPayload>(model.nodes.nodes[node].payload);
+    CHECK(payload.focusDistance == 0.0f);
+    CHECK(payload.focalLength == 0.0f);
+    CHECK(payload.fStop == 0.0f);
+    for (const Channel channel : {Channel::FocusDistance, Channel::FocalLength, Channel::FStop}) {
+        INFO(ToString(channel));
+        u32 found = 0;
+        for (const AnimChannel& declared : model.animChannels.channels) {
+            found += declared.target.node == node && declared.target.channel == channel ? 1 : 0;
+        }
+        CHECK(found == 1u);
+    }
+
+    // Through the file (`NODE` v13) and back.
+    Writer writer;
+    const std::vector<u8> bytes = writer.write(*imported);
+    Parser parser;
+    std::optional<Document> reread = parser.parse(std::span<const u8>(bytes.data(), bytes.size()));
+    REQUIRE(reread.has_value());
+    Result<mdx::Model> exported = converter.toMdx(*reread, ProfileId::Wc3Classic, 1800);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->cameras.size() == 1u);
+    const mdx::Camera& out = exported->cameras[0];
+    const auto same = [](const mdx::Track<f32>& a, const mdx::Track<f32>& b) {
+        return a.isUsed == b.isUsed && a.timestamps == b.timestamps && a.keys_data == b.keys_data;
+    };
+    CHECK(same(out.focusDistanceTracks, camera.focusDistanceTracks));
+    CHECK(same(out.focalLengthTracks, camera.focalLengthTracks));
+    CHECK(same(out.fStopTracks, camera.fStopTracks));
+}
+
+TEST_CASE("wem mdx a camera keeps its target and roll keys", "[wem][convert][mdx][nodes]") {
+    // KTTR and KCRL had no channel, so an edit rebuilt every shot as a still
+    // aim with no roll (799 shipped cameras key KCRL; a1m1c010's CAM_010 rolls
+    // to -90 degrees).
+    mdx::Model source = makeModel();
+    source.version = 1800;
+    mdx::Sequence shot;
+    shot.name = "Shot";
+    shot.intervalStart = 0;
+    shot.intervalEnd = 1000;
+    source.sequences.push_back(shot);
+    mdx::Camera camera;
+    camera.name = "CAM_010";
+    camera.position = Vector3f{300, 0, 120};
+    camera.targetPosition = Vector3f{0, 0, 90};
+    camera.targetPositionTracks.isUsed = true;
+    camera.targetPositionTracks.interpolationType = mdx::InterpolationType::Linear;
+    camera.targetPositionTracks.keyCount = 2;
+    camera.targetPositionTracks.timestamps = {0, 1000};
+    camera.targetPositionTracks.keys_data = {Vector3f{0, 0, 0}, Vector3f{0, 40, -10}};
+    camera.targetRotationTracks.isUsed = true;
+    camera.targetRotationTracks.interpolationType = mdx::InterpolationType::Linear;
+    camera.targetRotationTracks.keyCount = 2;
+    camera.targetRotationTracks.timestamps = {0, 1000};
+    camera.targetRotationTracks.keys_data = {0.0f, -1.5708f};
+    source.cameras.push_back(camera);
+
+    const MdxConverter converter;
+    Result<Document> imported = converter.fromMdx(source);
+    REQUIRE(imported.ok());
+    const Model& model = imported->models[0];
+    const u32 node = model.nodes.ofKind(NodeKind::Camera)[0];
+    for (const auto& [channel, type] :
+         {std::pair{Channel::Target, geom::AttrType::F32x3}, std::pair{Channel::Roll, geom::AttrType::F32}}) {
+        INFO(ToString(channel));
+        const AnimChannel* found = nullptr;
+        for (const AnimChannel& declared : model.animChannels.channels) {
+            if (declared.target.node == node && declared.target.channel == channel) {
+                found = &declared;
+            }
+        }
+        REQUIRE(found != nullptr);
+        CHECK(found->valueType == type);
+    }
+    // The aim moves what the camera looks at, never the camera.
+    for (const AnimChannel& declared : model.animChannels.channels) {
+        CHECK_FALSE((declared.target.node == node && declared.target.channel == Channel::Translation));
+    }
+
+    Writer writer;
+    const std::vector<u8> bytes = writer.write(*imported);
+    Parser parser;
+    std::optional<Document> reread = parser.parse(std::span<const u8>(bytes.data(), bytes.size()));
+    REQUIRE(reread.has_value());
+    Result<mdx::Model> exported = converter.toMdx(*reread, ProfileId::Wc3Classic, 1800);
+    REQUIRE(exported.ok());
+    const mdx::Camera& out = exported->cameras[0];
+    CHECK(out.targetPosition == camera.targetPosition);
+    CHECK(out.targetPositionTracks.timestamps == camera.targetPositionTracks.timestamps);
+    CHECK(out.targetPositionTracks.keys_data == camera.targetPositionTracks.keys_data);
+    CHECK(out.targetRotationTracks.timestamps == camera.targetRotationTracks.timestamps);
+    CHECK(out.targetRotationTracks.keys_data == camera.targetRotationTracks.keys_data);
+    CHECK_FALSE(out.positionTracks.isUsed);
+}
+
+TEST_CASE("wem mdx a camera's depth-of-field rests reach every sequence", "[wem][convert][mdx][nodes]") {
+    // MDX has no static for them and the game reads only the keys inside the
+    // playing window, so a rest keyed once at 0 would reach the first sequence
+    // alone. An unset rest writes nothing.
+    mdx::Model source = makeModel();
+    source.version = 1800;
+    for (const auto& [start, end] : {std::pair{0u, 1000u}, std::pair{1033u, 2000u}}) {
+        mdx::Sequence shot;
+        shot.name = "Shot";
+        shot.intervalStart = start;
+        shot.intervalEnd = end;
+        source.sequences.push_back(shot);
+    }
+    mdx::Camera camera;
+    camera.name = "Portrait";
+    camera.position = Vector3f{100, 0, 50};
+    source.cameras.push_back(camera);
+
+    const MdxConverter converter;
+    Result<Document> imported = converter.fromMdx(source);
+    REQUIRE(imported.ok());
+    Model& model = imported->models[0];
+    auto& payload = std::get<CameraPayload>(model.nodes.nodes[model.nodes.ofKind(NodeKind::Camera)[0]].payload);
+    payload.focusDistance = 250.0f;
+    payload.fStop = 2.8f;
+
+    Result<mdx::Model> exported = converter.toMdx(*imported, ProfileId::Wc3Classic, 1800);
+    REQUIRE(exported.ok());
+    const mdx::Camera& out = exported->cameras[0];
+    CHECK(out.focusDistanceTracks.timestamps == std::vector<u32>{0, 1033});
+    CHECK(out.focusDistanceTracks.keys_data == std::vector<f32>{250.0f, 250.0f});
+    CHECK(out.fStopTracks.keys_data == std::vector<f32>{2.8f, 2.8f});
+    CHECK_FALSE(out.focalLengthTracks.isUsed);
+}
+
 TEST_CASE("wem mdx a light keeps its ambient term and its shadow", "[wem][convert][mdx][nodes]") {
     // The import kept the two intensities in thousandths and not the colour,
     // and the export wrote none of the three: a rebuilt light had no ambient.

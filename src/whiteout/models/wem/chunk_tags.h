@@ -279,7 +279,7 @@ struct ChunkTagTraits<Matrix44f> {
 /// rest of the World of Warcraft particle record (inherit and follow, tumble,
 /// the `EXPT` multipliers and the `EXP2` alpha cutoff); v12 `poseSources`,
 /// where each of a node's saved deltas came from (EDIT_MODE_TPOSE_DESIGN.md
-/// §7).
+/// §7); v13 a camera's depth of field (MDX v1800's IDUF/ELAF/PTSF rests).
 /// An older chunk holds none of them, so it reads unchanged. A NEWER one does
 /// not: records sit back to back, and nothing checks a chunk's version against
 /// this, so a build older than a field misreads every node after the first
@@ -287,7 +287,7 @@ struct ChunkTagTraits<Matrix44f> {
 template <>
 struct ChunkTagTraits<Node> {
     static constexpr u32 value = kTag("NODE");
-    static constexpr u32 max_version = 12;
+    static constexpr u32 max_version = 13;
     static constexpr bool is_trivial = false;
 };
 

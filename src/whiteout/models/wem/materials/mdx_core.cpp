@@ -1419,6 +1419,22 @@ mdx::Material ExportMaterial(const Material& material, ProfileId profile, const 
         set(Layer::ShadingFlag::NoDepthTest, shading->noDepthTest);
         set(Layer::ShadingFlag::NoDepthSet, shading->noDepthWrite);
     }
+    // A Reforged file says SD on HD for its SD layers. Warcraft III draws ids 0
+    // and 2 through the same program in either mode (`MatSelect`), so this
+    // names what the layer is without changing how it draws.
+    if (profile == ProfileId::Wc3Reforged) {
+        bool anyHd = false;
+        for (Layer& layer : dst.layers) {
+            if (!layer.is_hd && layer.shader == Layer::ShaderType::SD) {
+                layer.shader = Layer::ShaderType::SDOnHD;
+            }
+            anyHd = anyHd || layer.is_hd;
+        }
+        // Below v1100 a layer has no id, and the material's name is the signal.
+        if (!anyHd && context.modelVersion >= 900 && context.modelVersion < 1100) {
+            dst.shader = kSdOnHdShader;
+        }
+    }
     placeTexturesForVersion(context.modelVersion, dst);
     return dst;
 }

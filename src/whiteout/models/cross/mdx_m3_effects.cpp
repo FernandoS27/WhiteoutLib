@@ -267,6 +267,7 @@ private:
         Rest(record.focusDistance, 5.0f * L);
         Rest(record.farFocusRange, 1.0f * L);
         Rest(record.nearFocusRange, 2.0f * L);
+        crossDepthOfField(camera, record, where);
 
         const u32 bone = node < map_.nodeBone.size() ? map_.nodeBone[node] : kInvalidIndex;
         if (bone == kInvalidIndex || bone >= out_.bones.size() || record.boneIndex != bone ||
@@ -359,13 +360,37 @@ private:
             aim.keys_data.push_back(framed ? wem::FromMatrix(keyFrame).rotation : rest.rotation);
         }
         aim.keyCount = aim.timestamps.size();
-        // WEM holds no camera target, so this is the one place a crossing
-        // turns a bone `toM3` made: the rest, its IREF and its rotation stream.
+        // CAM_ has no AnimRef for a target or roll (`m3_anim` drops them), so
+        // this is the one place a crossing turns a bone `toM3` made: the rest,
+        // its IREF and its rotation stream.
         // The file latches its bone flags as solved, so a newly keyed bone is
         // solved again or the engine plays it frozen.
         if (streams_.keyed(aim, m3_sink::Stream::Sd4q, {&carrier.rotation},
                            &carrier.rotation.initValue)) {
             wem::m3_anim::SolveBoneAnimFlags(out_);
+        }
+    }
+
+    /// 3.0's depth of field onto CAM_'s own, over Blizzard's rests: IDUF is the
+    /// focus and PTSF the bokeh f-stop. StarCraft II takes its focal length
+    /// from the field of view, so ELAF has nowhere to go.
+    void crossDepthOfField(const mdx::Camera& camera, m3::Camera& record, const ElementRef& where) {
+        if (Keyed(camera.focusDistanceTracks) && mdx_slice::WellFormed(camera.focusDistanceTracks)) {
+            mdx::Track<f32> focus = camera.focusDistanceTracks;
+            for (f32& value : focus.keys_data) {
+                value *= options_.lengthScale; // tangents included: they are in the value's units
+            }
+            streams_.keyed(focus, m3_sink::Stream::Sdr3, {&record.focusDistance});
+        }
+        if (Keyed(camera.fStopTracks) && mdx_slice::WellFormed(camera.fStopTracks)) {
+            streams_.keyed(camera.fStopTracks, m3_sink::Stream::Sdr3, {&record.bokehFStop});
+        }
+        if (Keyed(camera.focalLengthTracks)) {
+            report_.diagnostics.info(DiagCode::AnimTrackDropped,
+                                     "camera '" + camera.name +
+                                         "' keys a focal length; StarCraft II's derives from the "
+                                         "field of view",
+                                     where);
         }
     }
 

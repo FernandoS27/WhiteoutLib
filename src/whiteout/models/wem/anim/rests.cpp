@@ -237,6 +237,21 @@ TrackRests WarcraftRests(const Document& document, u32 model, const TrackTarget&
                 return none;
             }
         }
+        // A camera's depth of field has no value where its track has no key
+        // (`AnimateCamera` writes a focus of 0 and leaves the blur unset); the
+        // rests reach the file as keys (`KeyCameraRests`).
+        if (const auto* camera = std::get_if<CameraPayload>(&node.payload)) {
+            switch (channel) {
+            case Channel::FocusDistance:
+                return Pair(AsType(type, camera->focusDistance), AsType(type, 0.0f));
+            case Channel::FocalLength:
+                return Pair(AsType(type, camera->focalLength), AsType(type, 0.0f));
+            case Channel::FStop:
+                return Pair(AsType(type, camera->fStop), AsType(type, 0.0f));
+            default:
+                return none;
+            }
+        }
         // A PopcornFX emitter (`SetPopcornValues`): its multipliers play the
         // static unkeyed and 1 keyed elsewhere, its colour the static or
         // black, and its alpha 1 either way — the static alpha is never read.

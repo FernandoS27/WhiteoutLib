@@ -391,6 +391,41 @@ Camera "Portrait" {
     CHECK(approx(model.cameras[0].targetPosition.y, 5.0f));
 }
 
+TEST_CASE("camera_depth_of_field", "[mdl_converter]") {
+    // 3.0's scalar forms push one key at 0; the keyed forms carry their block.
+    // The scalar focus is `DOFDistance` -- 3.0 has no `FocusDistance` keyword.
+    std::vector<std::string> issues;
+    auto model = convertMdlToModel(R"(
+Camera "CAM_010" {
+    Position { 300.0, 0.0, 120.0 },
+    FieldOfView 0.54,
+    FarClip 5000.0,
+    NearClip 30.0,
+    DOFDistance 508.9,
+    FocalLength 65.0,
+    FStopKeys 2 {
+        Linear,
+        0: 5.6,
+        1000: 8.0,
+    }
+    Target {
+        Position { 0.0, 0.0, 90.0 },
+    }
+}
+)", issues);
+    REQUIRE(issues.empty());
+    REQUIRE(model.cameras.size() == 1);
+    const Camera& cam = model.cameras[0];
+    REQUIRE(cam.focusDistanceTracks.isUsed);
+    CHECK(cam.focusDistanceTracks.timestamps == std::vector<u32>{0});
+    CHECK(approx(cam.focusDistanceTracks.keys_data[0], 508.9f));
+    REQUIRE(cam.focalLengthTracks.isUsed);
+    CHECK(approx(cam.focalLengthTracks.keys_data[0], 65.0f));
+    REQUIRE(cam.fStopTracks.isUsed);
+    CHECK(cam.fStopTracks.timestamps == std::vector<u32>{0, 1000});
+    CHECK(approx(cam.fStopTracks.keys_data[1], 8.0f));
+}
+
 TEST_CASE("collision_shape_sphere", "[mdl_converter]") {
     std::vector<std::string> issues;
     auto model = convertMdlToModel(R"(

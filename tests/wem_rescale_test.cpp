@@ -127,6 +127,9 @@ Document makeRescaleDocument() {
     cameraPayload.nearClip = 0.1f;
     cameraPayload.farClip = 500.0f;
     cameraPayload.target = Vector3f{10, -20, 30};
+    cameraPayload.focusDistance = 250.0f;
+    cameraPayload.focalLength = 65.0f;
+    cameraPayload.fStop = 5.6f;
 
     const u32 shape = addNode(model, "shape", NodeKind::CollisionShape);
     auto& collision = std::get<CollisionPayload>(model.nodes.nodes[shape].payload);
@@ -241,6 +244,11 @@ TEST_CASE("wem a rescale moves every length in the document", "[wem][rescale]") 
     CHECK_THAT(camera.nearClip, WithinAbs(0.1f * k, 1e-2f));
     CHECK_THAT(camera.farClip, WithinAbs(500.0f * k, 1e-1f));
     CHECK_THAT(camera.target.y, WithinAbs(-20.0f * k, 1e-2f)); ///< A point, like a pivot.
+    // The game blurs by (1/focus - 1/depth) * focalLength^2 / fStop: the focus is
+    // a distance, and the f-stop carries the inverse so the blur holds.
+    CHECK_THAT(camera.focusDistance, WithinAbs(250.0f * k, 1e-2f));
+    CHECK(camera.focalLength == 65.0f);
+    CHECK_THAT(camera.fStop, WithinAbs(5.6f / k, 1e-2f));
 
     const auto& collision = std::get<CollisionPayload>(model.nodes.nodes[4].payload);
     CHECK_THAT(collision.shape.sphere.radius, WithinAbs(5.0f * k, 1e-2f));
@@ -349,6 +357,9 @@ TEST_CASE("wem a rescale moves translation keys and no others", "[wem][rescale]"
     const u32 scaleChannel = addTrack(model, clip, 1, Channel::Scale, {2.0f, 2.0f, 2.0f});
     const u32 alpha = addTrack(model, clip, 1, Channel::Alpha, {0.75f});
     const u32 attenuation = addTrack(model, clip, 2, Channel::AttenuationEnd, {30.0f});
+    // A camera's aim is a point in the model; its roll an angle.
+    const u32 target = addTrack(model, clip, 1, Channel::Target, {0.0f, 4.0f, 0.0f});
+    const u32 roll = addTrack(model, clip, 1, Channel::Roll, {-1.5f});
 
     // An un-keyed channel's rest value is a value of the channel like any other.
     AnimChannel rest;
@@ -368,6 +379,8 @@ TEST_CASE("wem a rescale moves translation keys and no others", "[wem][rescale]"
 
     CHECK_THAT(readTrack(document.clips[0], translation)[2], WithinAbs(300.0f, 1e-2f));
     CHECK_THAT(readTrack(document.clips[0], attenuation)[0], WithinAbs(3000.0f, 1e-1f));
+    CHECK_THAT(readTrack(document.clips[0], target)[1], WithinAbs(400.0f, 1e-2f));
+    CHECK(readTrack(document.clips[0], roll)[0] == -1.5f);
     CHECK(readTrack(document.clips[0], rotation)[3] == 0.866f);
     CHECK(readTrack(document.clips[0], scaleChannel)[0] == 2.0f);
     CHECK(readTrack(document.clips[0], alpha)[0] == 0.75f);

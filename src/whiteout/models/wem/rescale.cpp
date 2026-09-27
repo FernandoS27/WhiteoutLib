@@ -49,16 +49,20 @@ void scaleMatrixTranslation(Matrix44f& matrix, f32 factor) {
 /// A Warcraft III light's falloff is the one negative power: it is a factor of
 /// `exp(-damping d²) / (1 + linear d + quadratic d²)`, and it falls off over the
 /// rescaled model as it did over the original only when each coefficient carries
-/// the inverse of its term's length.
+/// the inverse of its term's length. A camera's f-stop is the same case: the
+/// game blurs by `(1/focus - 1/depth) · focalLength² / fStop`.
 int lengthPower(const Model& model, const AnimChannel& channel) {
     switch (channel.target.channel) {
     case Channel::Translation:
+    case Channel::Target:
     case Channel::AttenuationStart:
     case Channel::AttenuationEnd:
     case Channel::ShadowCastingStart:
     case Channel::ShadowCastingEnd:
+    case Channel::FocusDistance:
         return 1;
     case Channel::LinearFalloff:
+    case Channel::FStop:
         return -1;
     case Channel::QuadraticFalloff:
     case Channel::Damping:
@@ -226,6 +230,8 @@ void rescaleNode(Node& node, f32 factor) {
         camera->nearClip *= factor;
         camera->farClip *= factor;
         scale(camera->target, factor);
+        camera->focusDistance *= factor;
+        camera->fStop /= factor; // per distance (`lengthPower`)
     } else if (auto* collision = std::get_if<CollisionPayload>(&node.payload)) {
         scale(collision->shape.box, factor);
         scale(collision->shape.sphere, factor);

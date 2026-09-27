@@ -1399,14 +1399,14 @@ Camera Parser::Impl::parseCamera(BinaryReader& reader, u32 /*maxSize*/) {
     u32 const startPos = reader.getPosition();
 
     // The leading u32 is a 24-bit inclusive size with a variant byte on top:
-    // Warcraft III 3.0.0 ships every camera as variant 3, so reading all 32
-    // bits puts endPos 48 MB past the entry, the track walk runs off the end
-    // of the file and the parse never finishes. The game masks it the same way
-    // (its CAMS reader keeps `& 0xFFFFFF` for the size and switches on
-    // `& 0xFF000000`), and variants 1 and 2 -- neither of which the shipped
-    // data uses -- carry twelve bytes it skips before the target position.
+    // Warcraft III 3.0.0 ships every camera as variant 3 (5217 of 5217), so
+    // reading all 32 bits puts endPos 48 MB past the entry, the track walk runs
+    // off the end of the file and the parse never finishes. The game masks it
+    // the same way (its CAMS reader keeps `& 0xFFFFFF` for the size and
+    // switches on `& 0xFF000000`), and variants 1 and 2 -- neither of which the
+    // shipped data uses -- carry twelve bytes it skips before the target.
     u32 const sizeAndVariant = reader.read<u32>();
-    u32 const inclusiveSize = sizeAndVariant & 0x00FFFFFFu;
+    u32 const inclusiveSize = sizeAndVariant & kCameraSizeMask;
     u32 const variant = sizeAndVariant >> 24;
     cam.name = reader.readString(80);
     cam.position = reader.read<Vector3f>();

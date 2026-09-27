@@ -181,15 +181,21 @@ constexpr u32 KLSE_TAG = makeTag("KLSE"); ///< Light shadow-casting end animatio
 constexpr u32 KLQF_TAG = makeTag("KLQF"); ///< Light quadratic falloff animation (v1600+)
 constexpr u32 KLLF_TAG = makeTag("KLLF"); ///< Light linear falloff animation (v1600+)
 constexpr u32 KLDA_TAG = makeTag("KLDA"); ///< Light damping animation (v1600+)
-constexpr u32 KCVS_TAG = makeTag("KCVS"); ///< Camera visibility animation
-constexpr u32 IDUF_TAG = makeTag("IDUF"); ///< Camera focus-distance animation (Reforged 3.0)
-constexpr u32 ELAF_TAG = makeTag("ELAF"); ///< Camera focal-length animation (Reforged 3.0)
-constexpr u32 PTSF_TAG = makeTag("PTSF"); ///< Camera f-stop animation (Reforged 3.0)
 
 // Track chunk tags (Camera)
 constexpr u32 KCTR_TAG = makeTag("KCTR"); ///< Camera position animation
 constexpr u32 KCRL_TAG = makeTag("KCRL"); ///< Camera target rotation animation
 constexpr u32 KTTR_TAG = makeTag("KTTR"); ///< Camera target position animation
+constexpr u32 KCVS_TAG = makeTag("KCVS"); ///< Camera visibility animation
+constexpr u32 IDUF_TAG = makeTag("IDUF"); ///< Camera focus-distance animation (Reforged 3.0)
+constexpr u32 ELAF_TAG = makeTag("ELAF"); ///< Camera focal-length animation (Reforged 3.0)
+constexpr u32 PTSF_TAG = makeTag("PTSF"); ///< Camera f-stop animation (Reforged 3.0)
+
+// A camera entry's leading u32 is a 24-bit inclusive size under a variant byte.
+// 3.0.0 writes variant 3; variants 1 and 2 carry 12 bytes it skips before the
+// target position (no shipped file uses them).
+constexpr u32 kCameraSizeMask = 0x00FFFFFFu;
+constexpr u32 kCameraVariant3 = 0x03000000u;
 
 // Track chunk tags (Attachment)
 constexpr u32 KATV_TAG = makeTag("KATV"); ///< Attachment visibility animation

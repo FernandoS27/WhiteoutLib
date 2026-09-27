@@ -1263,15 +1263,27 @@ void convertCamera(const MdlNode& block, Model& model) {
     cam.positionTracks = getTrack<Vector3f>(block, "Translation");
     cam.targetRotationTracks = getTrack<f32>(block, "Rotation");
     cam.visibilityTracks = getTrack<f32>(block, "Visibility");
-    // The un-suffixed names are what this library wrote before matching 3.0's
-    // keywords; still read so those files keep their tracks.
-    auto keyed = [&](std::string_view name, std::string_view legacy) {
+    // The un-suffixed blocks are what this library wrote before matching 3.0's
+    // keywords; still read so those files keep their tracks. 3.0's scalar forms
+    // push one key at 0 -- `DOFDistance`, not `FocusDistance`. (The game's own
+    // reader files scalar FocalLength and FStop under each other; its keyed
+    // forms and writer do not, so they are read as named.)
+    auto keyed = [&](std::string_view name, std::string_view legacy, std::string_view scalar) {
         Track<f32> track = getTrack<f32>(block, name);
-        return track.isUsed ? track : getTrack<f32>(block, legacy);
+        if (!track.isUsed)
+            track = getTrack<f32>(block, legacy);
+        const MdlProperty* p = track.isUsed ? nullptr : findProp(block, scalar);
+        if (p && !p->values.empty() && p->values[0].isNumber()) {
+            track.isUsed = true;
+            track.timestamps = {0};
+            track.keys_data = {static_cast<f32>(p->values[0].asNumber())};
+            track.keyCount = 1;
+        }
+        return track;
     };
-    cam.focusDistanceTracks = keyed("FocusDistanceKeys", "FocusDistance");
-    cam.focalLengthTracks = keyed("FocalLengthKeys", "FocalLength");
-    cam.fStopTracks = keyed("FStopKeys", "FStop");
+    cam.focusDistanceTracks = keyed("FocusDistanceKeys", "FocusDistance", "DOFDistance");
+    cam.focalLengthTracks = keyed("FocalLengthKeys", "FocalLength", "FocalLength");
+    cam.fStopTracks = keyed("FStopKeys", "FStop", "FStop");
 
     // Target sub-block
     if (auto* target = findBlock(block, "Target")) {

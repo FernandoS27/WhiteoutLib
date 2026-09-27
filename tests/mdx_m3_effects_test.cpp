@@ -2069,6 +2069,42 @@ TEST_CASE("wem m3 a camera's keyed position, target and roll turn its bone",
     CHECK(dot3(qx, rolled) == Catch::Approx(1.0f).margin(1e-4));
 }
 
+TEST_CASE("wem m3 a camera's 3.0 depth of field keys CAM_'s focus and f-stop",
+          "[wem][m3][cameras]") {
+    // IDUF is CAM_'s focus distance in the written units, PTSF its bokeh
+    // f-stop; ELAF has no field, since StarCraft II derives it from the FOV.
+    mdx::Model model = makeModel();
+    mdx::Camera camera = makeCamera(Vector3f{100, 0, 100}, Vector3f{0, 0, 100});
+    camera.focusDistanceTracks =
+        makeTrack(mdx::InterpolationType::Linear, {0, 1000}, std::vector<f32>{500.0f, 800.0f});
+    camera.focalLengthTracks = makeTrack(mdx::InterpolationType::Linear, {0}, std::vector<f32>{65.0f});
+    camera.fStopTracks = makeTrack(mdx::InterpolationType::Linear, {0}, std::vector<f32>{5.6f});
+    model.cameras.push_back(camera);
+    const Crossed out = crossAndRead(model);
+
+    REQUIRE(out.model.cameras.size() == 1);
+    const m3::Camera& record = out.model.cameras[0];
+    REQUIRE(record.focusDistance.animId != 0u);
+    REQUIRE(record.bokehFStop.animId != 0u);
+    const u32 stand = sequenceNamed(out.model, "Stand");
+    REQUIRE(stand != kInvalidIndex);
+    const u32 stc = out.model.animationGroups.at(stand).subtrackIndices.at(0);
+
+    const u32 focus = refFor(out.model, stc, record.focusDistance.animId);
+    REQUIRE(focus != kInvalidIndex);
+    CHECK((focus >> 16) == 5u);
+    const auto& focusKeys = out.model.subTrackCollections[stc].sdr3.at(focus & 0xFFFF);
+    REQUIRE(focusKeys.keys.size() >= 2);
+    CHECK(focusKeys.keys.front() == Catch::Approx(5.0f));
+    CHECK(focusKeys.keys.back() == Catch::Approx(8.0f));
+
+    const u32 fStop = refFor(out.model, stc, record.bokehFStop.animId);
+    REQUIRE(fStop != kInvalidIndex);
+    const auto& fStopKeys = out.model.subTrackCollections[stc].sdr3.at(fStop & 0xFFFF);
+    REQUIRE_FALSE(fStopKeys.keys.empty());
+    CHECK(fStopKeys.keys.front() == Catch::Approx(5.6f));
+}
+
 TEST_CASE("wem m3 a Warcraft III ribbon reads back as the RIB_ its rows name",
           "[wem][m3][ribbons]") {
     mdx::Model model = makeModel();

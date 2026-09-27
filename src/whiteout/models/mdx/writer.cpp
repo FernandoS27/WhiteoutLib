@@ -22,8 +22,9 @@ struct SizeEnclosure {
     u32 startPos;
     u32 sizePos;
     BinaryWriter& writer;
+    u32 sizeFlags = 0; ///< ORed into the size word (a camera's variant byte)
 
-    SizeEnclosure(BinaryWriter& writer, u32 tag = 0) : writer(writer) {
+    SizeEnclosure(BinaryWriter& writer, u32 tag = 0, u32 sizeFlags = 0) : writer(writer), sizeFlags(sizeFlags) {
 
         if (tag != 0) {
             writer.write(tag);
@@ -41,7 +42,7 @@ struct SizeEnclosure {
         u32 const endPos = writer.getPosition();
         u32 const actualSize = endPos - sizePos;
         writer.setPosition(startPos); // Move back to size field
-        writer.write(actualSize);
+        writer.write(actualSize | sizeFlags);
         writer.setPosition(endPos); // Move back to end
     }
 };
@@ -824,7 +825,9 @@ void Writer::Impl::writeCAMS(BinaryWriter& writer, const Model& mdx) {
 }
 
 void Writer::Impl::writeCamera(BinaryWriter& writer, const Camera& cam, const Model& mdx) {
-    SizeEnclosure const sizeEnclosure(writer);
+    // 3.0.0 stamps variant 3 on every camera it writes; a 2.x client reads the
+    // whole word as the size, so earlier versions keep it clear.
+    SizeEnclosure const sizeEnclosure(writer, 0, mdx.version >= 1800 ? kCameraVariant3 : 0u);
 
     writer.writeString(cam.name, 80);
     writer.write(cam.position);

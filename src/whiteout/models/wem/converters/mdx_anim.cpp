@@ -362,10 +362,16 @@ private:
             if (c >= context_.cameraNodes.size() || context_.cameraNodes[c] == kInvalidNode) {
                 continue;
             }
-            addTrack(source_.cameras[c].positionTracks,
-                     nodeTarget(context_.cameraNodes[c], Channel::Translation));
-            addTrack(source_.cameras[c].visibilityTracks,
-                     nodeTarget(context_.cameraNodes[c], Channel::Visibility));
+            const mdx::Camera& camera = source_.cameras[c];
+            const u32 node = context_.cameraNodes[c];
+            addTrack(camera.positionTracks, nodeTarget(node, Channel::Translation));
+            addTrack(camera.targetPositionTracks, nodeTarget(node, Channel::Target));
+            addTrack(camera.targetRotationTracks, nodeTarget(node, Channel::Roll));
+            addTrack(camera.visibilityTracks, nodeTarget(node, Channel::Visibility));
+            // 3.0's depth of field, keyed only: the payload keeps the game's rests.
+            addTrack(camera.focusDistanceTracks, nodeTarget(node, Channel::FocusDistance));
+            addTrack(camera.focalLengthTracks, nodeTarget(node, Channel::FocalLength));
+            addTrack(camera.fStopTracks, nodeTarget(node, Channel::FStop));
         }
     }
 
@@ -1318,16 +1324,36 @@ private:
         }
         const ExportContext::NodeSlot& slot = context_.nodeSlots[wemNode];
 
-        // A camera's position and visibility are the node tracks that are not
-        // on a node chunk, because a camera is not one.
+        // A camera's tracks are not on a node chunk, because a camera is not one.
         if (slot.slot == ExportContext::Slot::Camera) {
             if (slot.index >= out_.cameras.size()) {
                 return;
             }
-            if (channel.target.channel == Channel::Translation) {
-                Emit(merged, out_.cameras[slot.index].positionTracks);
-            } else if (channel.target.channel == Channel::Visibility) {
-                Emit(merged, out_.cameras[slot.index].visibilityTracks);
+            mdx::Camera& camera = out_.cameras[slot.index];
+            switch (channel.target.channel) {
+            case Channel::Translation:
+                Emit(merged, camera.positionTracks);
+                break;
+            case Channel::Target:
+                Emit(merged, camera.targetPositionTracks);
+                break;
+            case Channel::Roll:
+                Emit(merged, camera.targetRotationTracks);
+                break;
+            case Channel::Visibility:
+                Emit(merged, camera.visibilityTracks);
+                break;
+            case Channel::FocusDistance:
+                Emit(merged, camera.focusDistanceTracks);
+                break;
+            case Channel::FocalLength:
+                Emit(merged, camera.focalLengthTracks);
+                break;
+            case Channel::FStop:
+                Emit(merged, camera.fStopTracks);
+                break;
+            default:
+                break;
             }
             return;
         }

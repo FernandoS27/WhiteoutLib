@@ -59,6 +59,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimTag>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AssetKey>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Clip>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ClipEvent>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ClipTrackSet>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::CombinerStage>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::CompositeLayer>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Diagnostic>);
@@ -80,6 +81,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::SlotBinding>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::SubTrack>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::SubTrackContainer>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::TextureRef>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::TrackSet>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Transform>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::UnknownChunk>);
 
@@ -150,7 +152,7 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 2 of bind_wem(), which calls the parts in order.
 void bind_wem_2(py::module_& m) {
-    py::bind_vector<std::vector<whiteout::models::wem::ClipEvent>>(m, "VectorWemClipEvent");
+    py::bind_vector<std::vector<whiteout::models::wem::ClipTrackSet>>(m, "VectorWemClipTrackSet");
     py::bind_vector<std::vector<whiteout::models::wem::CombinerStage>>(m, "VectorWemCombinerStage");
     py::bind_vector<std::vector<whiteout::models::wem::CompositeLayer>>(m, "VectorWemCompositeLayer");
     py::bind_vector<std::vector<whiteout::models::wem::Diagnostic>>(m, "VectorWemDiagnostic");
@@ -172,6 +174,7 @@ void bind_wem_2(py::module_& m) {
     py::bind_vector<std::vector<whiteout::models::wem::SubTrack>>(m, "VectorWemSubTrack");
     py::bind_vector<std::vector<whiteout::models::wem::SubTrackContainer>>(m, "VectorWemSubTrackContainer");
     py::bind_vector<std::vector<whiteout::models::wem::TextureRef>>(m, "VectorWemTextureRef");
+    py::bind_vector<std::vector<whiteout::models::wem::TrackSet>>(m, "VectorWemTrackSet");
     py::bind_vector<std::vector<whiteout::models::wem::Transform>>(m, "VectorWemTransform");
     py::bind_vector<std::vector<whiteout::models::wem::UnknownChunk>>(m, "VectorWemUnknownChunk");
 

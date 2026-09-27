@@ -126,6 +126,18 @@ enum class Channel : u8 {
     /// key as a visibility is; placed as `StageSourceWeight` is.
     StageSourceEnabled,
 
+    // A Warcraft III 3.0 camera's depth of field (`CameraPayload`). The game
+    // blurs by (1/focus - 1/depth) * focalLength^2 / fStop / 2, and only while
+    // all three are keyed in the playing window.
+    FocusDistance, ///< F32. MDX IDUF, in scene units; 0 turns depth of field off.
+    FocalLength,   ///< F32. MDX ELAF, in millimetres.
+    FStop,         ///< F32. MDX PTSF.
+
+    // A camera's aim, kept apart from `Translation` because every consumer of
+    // that one moves the node: these move only what the camera looks at.
+    Target, ///< F32x3. An offset from `CameraPayload::target`: MDX KTTR, M2 `targetPositions`.
+    Roll,   ///< F32. Radians about the line of sight: MDX KCRL, M2 `roll`.
+
     Count
 };
 

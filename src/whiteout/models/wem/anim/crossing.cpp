@@ -61,7 +61,7 @@ bool Same(geom::AttrType type, const TrackTarget& target, const u8* a, const u8*
         return std::memcmp(a, b, size) == 0;
     }
     const bool position = target.kind == TrackTarget::Kind::Node &&
-                          target.channel == Channel::Translation;
+                          (target.channel == Channel::Translation || target.channel == Channel::Target);
     for (std::size_t at = 0; at < size; at += sizeof(f32)) {
         const f32 x = Load(a + at);
         const f32 y = Load(b + at);

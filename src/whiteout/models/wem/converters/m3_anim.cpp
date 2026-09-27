@@ -1318,6 +1318,18 @@ private:
                 channel->target.material.profile != profile()) {
                 continue;
             }
+            // Likewise a camera's aim and lens: CAM_ looks down the bone it
+            // rides and has no AnimRef for them. A Warcraft III source's
+            // crossing turns that bone and keys CAM_'s focus (`CameraCrossing`).
+            if (isCameraLens(channel->target)) {
+                if (cameraDropped_.insert(channel->id).second) {
+                    diagnostics_.info(DiagCode::AnimTrackDropped,
+                                      std::string("a camera's ") + ToString(channel->target.channel) +
+                                          " keys have no CAM_ field",
+                                      ElementRef(ElementKind::Channel, channel->id), profile());
+                }
+                continue;
+            }
             // Likewise an emitter system this profile does not carry: it went
             // out as its placement (`checkNodeKinds` said so), no record holds
             // an AnimRef for its properties, and a Warcraft III one is crossed
@@ -1400,6 +1412,24 @@ private:
 
     ProfileId profile() const {
         return context_.profile;
+    }
+
+    /// Whether @p target is a camera's target, roll or depth of field.
+    bool isCameraLens(const TrackTarget& target) const {
+        if (target.kind != TrackTarget::Kind::Node || target.node >= model_.nodes.size() ||
+            model_.nodes.nodes[target.node].kind != NodeKind::Camera) {
+            return false;
+        }
+        switch (target.channel) {
+        case Channel::Target:
+        case Channel::Roll:
+        case Channel::FocusDistance:
+        case Channel::FocalLength:
+        case Channel::FStop:
+            return true;
+        default:
+            return false;
+        }
     }
 
     /// @p container with its Hermite and Bezier tracks restated as the lines
@@ -2058,6 +2088,8 @@ private:
     std::set<u32> colorSeeded_;
     /// Light ambient channels already reported as dropped.
     std::set<u32> ambientDropped_;
+    /// Camera channels (`isCameraLens`) already reported as dropped.
+    std::set<u32> cameraDropped_;
     /// Channels some clip interpolates, so no clip may leave them stepped.
     m3_sink::Wiring wiring_;
 };

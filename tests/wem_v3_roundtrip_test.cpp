@@ -411,19 +411,27 @@ TEST_CASE("wem a v3 document survives write and read", "[wem][format][v3]") {
     CHECK(writeDocument(reread) == bytes);
 }
 
-TEST_CASE("wem a camera's target survives write and read", "[wem][format][nodes]") {
+TEST_CASE("wem a camera's target and depth of field survive write and read", "[wem][format][nodes]") {
     Document original = makeDocument();
     NodeTree& nodes = original.models.front().nodes;
     REQUIRE_FALSE(nodes.ofKind(NodeKind::Camera).empty());
     const u32 camera = nodes.ofKind(NodeKind::Camera)[0];
-    std::get<CameraPayload>(nodes.nodes[camera].payload).target = Vector3f{12, -3, 45};
+    auto& payload = std::get<CameraPayload>(nodes.nodes[camera].payload);
+    payload.target = Vector3f{12, -3, 45};
+    payload.focusDistance = 508.9f;
+    payload.focalLength = 65.0f;
+    payload.fStop = 5.6f;
 
     std::vector<std::string> issues;
     const Document reread = readDocument(writeDocument(original), issues);
     CHECK(issues.empty());
     const Node& node = reread.models.front().nodes.nodes[camera];
     REQUIRE(node.kind == NodeKind::Camera);
-    CHECK(std::get<CameraPayload>(node.payload).target == Vector3f(12, -3, 45));
+    const auto& read = std::get<CameraPayload>(node.payload);
+    CHECK(read.target == Vector3f(12, -3, 45));
+    CHECK(read.focusDistance == 508.9f);
+    CHECK(read.focalLength == 65.0f);
+    CHECK(read.fStop == 5.6f);
 }
 
 TEST_CASE("wem a bone gate survives write and read", "[wem][format][nodes]") {
@@ -581,6 +589,47 @@ void cutLightTermsFromNodeChunk(std::vector<u8>& bytes, u32 lights) {
     FAIL("no NODE chunk to cut the light terms from");
 }
 
+/// The fourth: every camera's depth of field (v13), its three floats set by
+/// the caller to `kLensMarker` so the run can be found and cut whole.
+constexpr f32 kLensMarker[3] = {1234.5f, 67.25f, 3.125f};
+
+void cutCameraLensFromNodeChunk(std::vector<u8>& bytes, u32 cameras) {
+    u8 lens[sizeof(kLensMarker)];
+    std::memcpy(lens, kLensMarker, sizeof(lens));
+
+    WEMHeader header{};
+    std::memcpy(&header, bytes.data(), sizeof(header));
+    std::vector<IndexEntry> entries(header.indexCount);
+    std::memcpy(entries.data(), bytes.data() + header.indexOffset,
+                entries.size() * sizeof(IndexEntry));
+
+    for (const IndexEntry& entry : entries) {
+        if (entry.tag != ChunkTagTraits<Node>::value) {
+            continue;
+        }
+        u32 end = header.indexOffset > entry.offset ? header.indexOffset : u32(bytes.size());
+        for (const IndexEntry& other : entries) {
+            if (other.offset > entry.offset && other.offset < end) {
+                end = other.offset;
+            }
+        }
+        std::vector<u32> found;
+        for (u32 at = entry.offset; at + sizeof(lens) <= end; ++at) {
+            if (std::memcmp(bytes.data() + at, lens, sizeof(lens)) == 0) {
+                found.push_back(at);
+                at += static_cast<u32>(sizeof(lens)) - 1;
+            }
+        }
+        REQUIRE(found.size() == cameras);
+        for (auto at = found.rbegin(); at != found.rend(); ++at) {
+            std::memmove(bytes.data() + *at, bytes.data() + *at + sizeof(lens), end - *at - sizeof(lens));
+        }
+        std::memset(bytes.data() + end - sizeof(lens) * found.size(), 0xAA, sizeof(lens) * found.size());
+        return;
+    }
+    FAIL("no NODE chunk to cut the camera lens from");
+}
+
 } // namespace
 
 TEST_CASE("wem a v4 bone reads its gate from the MDX bag pair", "[wem][format][nodes]") {
@@ -598,10 +647,17 @@ TEST_CASE("wem a v4 bone reads its gate from the MDX bag pair", "[wem][format][n
     seed(gated, 0x5EA7C0DE, 2, 7);
     seed(ungated, 0x5EA7C0DF, 3, 0xFFFFFFFF);
     seed(unlinked, 0x5EA7C0E0, 0xFFFFFFFF, 0xFFFFFFFF);
+    for (const u32 camera : nodes.ofKind(NodeKind::Camera)) {
+        auto& lens = std::get<CameraPayload>(nodes.nodes[camera].payload);
+        lens.focusDistance = kLensMarker[0];
+        lens.focalLength = kLensMarker[1];
+        lens.fStop = kLensMarker[2];
+    }
 
     std::vector<u8> bytes = writeDocument(original);
-    // A v4 record holds neither the gate (v5), the skin setup (v6) nor a
-    // light's 3.0 terms (v7).
+    // A v4 record holds neither the gate (v5), the skin setup (v6), a light's
+    // 3.0 terms (v7) nor a camera's depth of field (v13).
+    cutCameraLensFromNodeChunk(bytes, static_cast<u32>(nodes.ofKind(NodeKind::Camera).size()));
     cutLightTermsFromNodeChunk(bytes, static_cast<u32>(nodes.ofKind(NodeKind::Light).size()));
     cutSkinFromNodeChunk(bytes);
     for (const u32 pattern : {0x5EA7C0DEu, 0x5EA7C0DFu, 0x5EA7C0E0u}) {
