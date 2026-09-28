@@ -161,6 +161,7 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 3 of bind_wem(), which calls the parts in order.
 void bind_wem_3(py::module_& m) {
+    py::bind_vector<std::vector<whiteout::models::wem::Material>>(m, "VectorWemMaterial");
     py::bind_vector<std::vector<whiteout::models::wem::MaterialFeature>>(m, "VectorWemMaterialFeature");
     py::bind_vector<std::vector<whiteout::models::wem::Mesh>>(m, "VectorWemMesh");
     py::bind_vector<std::vector<whiteout::models::wem::MeshSection>>(m, "VectorWemMeshSection");

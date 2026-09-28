@@ -264,6 +264,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("ClothAnchorBoneOutOfRange", whiteout::models::wem::DiagCode::ClothAnchorBoneOutOfRange)
         .value("ClothSectionSplit", whiteout::models::wem::DiagCode::ClothSectionSplit)
         .value("ClothTopologyInvalid", whiteout::models::wem::DiagCode::ClothTopologyInvalid)
+        .value("PhysicsChunkDropped", whiteout::models::wem::DiagCode::PhysicsChunkDropped)
         .value("Count", whiteout::models::wem::DiagCode::Count);
 
     enum_<whiteout::models::wem::ElementKind>("WemElementKind")
@@ -765,6 +766,12 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("GravityHold", whiteout::models::wem::JointFriction::GravityHold)
         .value("Count", whiteout::models::wem::JointFriction::Count);
 
+    enum_<whiteout::models::wem::JointMotorMode>("WemJointMotorMode")
+        .value("Off", whiteout::models::wem::JointMotorMode::Off)
+        .value("Position", whiteout::models::wem::JointMotorMode::Position)
+        .value("Velocity", whiteout::models::wem::JointMotorMode::Velocity)
+        .value("Count", whiteout::models::wem::JointMotorMode::Count);
+
     enum_<whiteout::models::wem::ClothColliderKind>("WemClothColliderKind")
         .value("Capsule", whiteout::models::wem::ClothColliderKind::Capsule)
         .value("Plane", whiteout::models::wem::ClothColliderKind::Plane)
@@ -776,6 +783,13 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("Always", whiteout::models::wem::RigStart::Always)
         .value("Never", whiteout::models::wem::RigStart::Never)
         .value("Count", whiteout::models::wem::RigStart::Count);
+
+    enum_<whiteout::models::wem::WowPhysicsKind>("WemWowPhysicsKind")
+        .value("WornItem", whiteout::models::wem::WowPhysicsKind::WornItem)
+        .value("Vegetation", whiteout::models::wem::WowPhysicsKind::Vegetation)
+        .value("Ragdoll", whiteout::models::wem::WowPhysicsKind::Ragdoll)
+        .value("PrivateWorld", whiteout::models::wem::WowPhysicsKind::PrivateWorld)
+        .value("Count", whiteout::models::wem::WowPhysicsKind::Count);
 
     enum_<whiteout::models::wem::ValidateLevel>("WemValidateLevel")
         .value("Structural", whiteout::models::wem::ValidateLevel::Structural)
@@ -793,6 +807,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("maxHullFaces", &whiteout::models::wem::PhysicsCaps::maxHullFaces)
         .property("maxHullHalfEdges", &whiteout::models::wem::PhysicsCaps::maxHullHalfEdges)
         .property("maxClothAnchorBone", &whiteout::models::wem::PhysicsCaps::maxClothAnchorBone)
+        .property("switches", &whiteout::models::wem::PhysicsCaps::switches)
     ;
 
     class_<whiteout::models::wem::ProfileDesc>("WemProfileDesc")
@@ -1778,6 +1793,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("vertices", &whiteout::models::wem::PhysicsShape::vertices)
         .property("triangles", &whiteout::models::wem::PhysicsShape::triangles)
         .property("material", &whiteout::models::wem::PhysicsShape::material)
+        .property("gameFlags", &whiteout::models::wem::PhysicsShape::gameFlags)
     ;
 
     class_<whiteout::models::wem::Sc2BodyExtension>("WemSc2BodyExtension")
@@ -1789,6 +1805,14 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("simulateCollision", &whiteout::models::wem::Sc2BodyExtension::simulateCollision)
         .property("keepsBoneDriven", &whiteout::models::wem::Sc2BodyExtension::keepsBoneDriven)
         .property("untracedFlags", &whiteout::models::wem::Sc2BodyExtension::untracedFlags)
+    ;
+
+    class_<whiteout::models::wem::WowBodyExtension>("WemWowBodyExtension")
+        .constructor<>()
+        .property("followFactor", &whiteout::models::wem::WowBodyExtension::followFactor)
+        .property("hasChildren", &whiteout::models::wem::WowBodyExtension::hasChildren)
+        .property("ragdollRoot", &whiteout::models::wem::WowBodyExtension::ragdollRoot)
+        .property("parent", &whiteout::models::wem::WowBodyExtension::parent)
     ;
 
     class_<whiteout::models::wem::PhysicsBody>("WemPhysicsBody")
@@ -1806,6 +1830,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("exemptFromRagdoll", &whiteout::models::wem::PhysicsBody::exemptFromRagdoll)
         .property("forceChannels", &whiteout::models::wem::PhysicsBody::forceChannels)
         .property("sc2", &whiteout::models::wem::PhysicsBody::sc2)
+        .property("wow", &whiteout::models::wem::PhysicsBody::wow)
     ;
 
     class_<whiteout::models::wem::JointSpring>("WemJointSpring")
@@ -1832,6 +1857,10 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("restLength", &whiteout::models::wem::PhysicsJoint::restLength)
         .property("breakForce", &whiteout::models::wem::PhysicsJoint::breakForce)
         .property("breakTorque", &whiteout::models::wem::PhysicsJoint::breakTorque)
+        .property("motor", &whiteout::models::wem::PhysicsJoint::motor)
+        .property("maxMotorForce", &whiteout::models::wem::PhysicsJoint::maxMotorForce)
+        .property("motorSpeed", &whiteout::models::wem::PhysicsJoint::motorSpeed)
+        .property("referenceTranslation", &whiteout::models::wem::PhysicsJoint::referenceTranslation)
     ;
 
     class_<whiteout::models::wem::SectionRef>("WemSectionRef")
@@ -1888,12 +1917,30 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("sc2", &whiteout::models::wem::Cloth::sc2)
     ;
 
+    class_<whiteout::models::wem::WowVegetation>("WemWowVegetation")
+        .constructor<>()
+        .property("posMaxPush", &whiteout::models::wem::WowVegetation::posMaxPush)
+        .property("posPushAmt", &whiteout::models::wem::WowVegetation::posPushAmt)
+        .property("posRelaxSpeed", &whiteout::models::wem::WowVegetation::posRelaxSpeed)
+        .property("velMaxPush", &whiteout::models::wem::WowVegetation::velMaxPush)
+        .property("velSpeed", &whiteout::models::wem::WowVegetation::velSpeed)
+        .property("minPushDist", &whiteout::models::wem::WowVegetation::minPushDist)
+    ;
+
+    class_<whiteout::models::wem::WowRigExtension>("WemWowRigExtension")
+        .constructor<>()
+        .property("kind", &whiteout::models::wem::WowRigExtension::kind)
+        .property("vegetation", &whiteout::models::wem::WowRigExtension::vegetation)
+        .property("allowList", &whiteout::models::wem::WowRigExtension::allowList)
+    ;
+
     class_<whiteout::models::wem::PhysicsRig>("WemPhysicsRig")
         .constructor<>()
         .property("id", &whiteout::models::wem::PhysicsRig::id)
         .property("name", &whiteout::models::wem::PhysicsRig::name)
         .property("start", &whiteout::models::wem::PhysicsRig::start)
         .property("bodies", &whiteout::models::wem::PhysicsRig::bodies)
+        .property("wow", &whiteout::models::wem::PhysicsRig::wow)
     ;
 
     class_<whiteout::models::wem::PhysicsSet>("WemPhysicsSet")

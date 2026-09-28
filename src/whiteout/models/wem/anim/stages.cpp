@@ -10,6 +10,7 @@
 
 #include "whiteout/models/wem/anim/crossing.h"
 #include "whiteout/models/wem/anim/track_read.h"
+#include "whiteout/models/wem/physics/crossing.h"
 #include "whiteout/models/wem/rigging/ik.h"
 
 namespace whiteout {
@@ -904,23 +905,6 @@ bool RunsNatively(const Model& model, const PoseStage& stage, ProfileId target) 
            model.physics.cloth(stage.cloth) != nullptr;
 }
 
-/// @p record's @p channel switch, declared when it has none.
-u32 SwitchChannel(Model& model, u32 record, Channel channel) {
-    for (const AnimChannel& entry : model.animChannels.channels) {
-        if (entry.target.kind == TrackTarget::Kind::Physics && entry.target.sub == record &&
-            entry.target.channel == channel) {
-            return entry.id;
-        }
-    }
-    AnimChannel made;
-    made.id = model.animChannels.nextFreeId();
-    made.target.kind = TrackTarget::Kind::Physics;
-    made.target.sub = record;
-    made.target.channel = channel;
-    made.valueType = geom::AttrType::F32;
-    return model.animChannels.add(made);
-}
-
 /// A natively run stage's weight as the switches the game reads: each rig
 /// body's `PhysicsDynamic`, or the cloth's `ClothActive`, on wherever the
 /// weight is over a half at the bake's rate. They replace the records' own.
@@ -938,7 +922,7 @@ void WeightToSwitches(Document& document, u32 m, const PoseStage& stage) {
         } else {
             continue;
         }
-        switches.push_back(SwitchChannel(model, record, channel));
+        switches.push_back(PhysicsSwitchChannel(model, record, channel));
     }
     const AnimChannel* weight = StageWeightChannel(model, stage);
     const u32 weightId = weight != nullptr ? weight->id : 0;
@@ -1014,6 +998,8 @@ void RemoveStages(Document& document, u32 model) {
 
 u32 BakeStages(Document& document, ProfileId target, const StageHooks* hooks, Diagnostics& diagnostics) {
     u32 rewritten = 0;
+    // The rigs and cages first, so a stage over a rig overrides its start.
+    rewritten += FitPhysicsToProfile(document, target, diagnostics);
     // StarCraft II plays every layer itself (§4): its clips go out as
     // authored. Anything else has one layer, flattened first so the stages
     // below write over the whole pose.
@@ -1028,9 +1014,18 @@ u32 BakeStages(Document& document, ProfileId target, const StageHooks* hooks, Di
         // their switches, not as keys.
         for (PoseStage& stage : document.models[m].poseStages) {
             if (stage.enabled && RunsNatively(document.models[m], stage, target)) {
-                WeightToSwitches(document, m, stage);
-                diagnostics.info(DiagCode::AnimStageBaked, "stage '" + stage.name + "' left to the game's physics",
-                                 ElementRef(ElementKind::Node, stage.driven.empty() ? kInvalidNode : stage.driven.front()));
+                const ElementRef where(ElementKind::Node, stage.driven.empty() ? kInvalidNode : stage.driven.front());
+                // A game with no switches runs what it builds from creation.
+                if (Profile(target).physics.switches) {
+                    WeightToSwitches(document, m, stage);
+                    diagnostics.info(DiagCode::AnimStageBaked, "stage '" + stage.name + "' left to the game's physics",
+                                     where);
+                } else {
+                    diagnostics.info(DiagCode::AnimStageBaked,
+                                     "stage '" + stage.name +
+                                         "' left to the game's physics, which runs from creation; its weight is not kept",
+                                     where);
+                }
                 stage.enabled = false;
             }
         }

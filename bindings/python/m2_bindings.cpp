@@ -979,7 +979,7 @@ The chunk stores fixed-size headers and variable-size payloads in two blocks; bo
         .def_readwrite("cone_angle", &whiteout::m2::ShoulderJoint::coneAngle, R"doc(Degrees: the corpus holds 20, 35, 45 and 60. Stored as authored, so the conversion is the consumer's.)doc")
         .def_readwrite("max_motor_torque", &whiteout::m2::ShoulderJoint::maxMotorTorque)
         .def_readwrite("motor_mode", &whiteout::m2::ShoulderJoint::motorMode, R"doc(low byte: 0 off, 1 position, 2 velocity)doc")
-        .def_readwrite("motor_frequency_hz", &whiteout::m2::ShoulderJoint::motorFrequencyHz, R"doc(SHJ2)doc")
+        .def_readwrite("motor_frequency_hz", &whiteout::m2::ShoulderJoint::motorFrequencyHz, R"doc(SHJ2. A SHOJ gets the upgrader's 1.0 Hz and 0.7 (`PHYS_FORMAT.md` §5).)doc")
         .def_readwrite("motor_damping_ratio", &whiteout::m2::ShoulderJoint::motorDampingRatio, R"doc(SHJ2)doc")
     ;
 
@@ -993,7 +993,7 @@ The chunk stores fixed-size headers and variable-size payloads in two blocks; bo
         .def_readwrite("max_motor_force", &whiteout::m2::PrismaticJoint::maxMotorForce)
         .def_readwrite("motor_speed", &whiteout::m2::PrismaticJoint::motorSpeed, R"doc(Target velocity, written into the live joint like @ref referenceTranslation.)doc")
         .def_readwrite("motor_mode", &whiteout::m2::PrismaticJoint::motorMode)
-        .def_readwrite("motor_frequency_hz", &whiteout::m2::PrismaticJoint::motorFrequencyHz, R"doc(PRS2)doc")
+        .def_readwrite("motor_frequency_hz", &whiteout::m2::PrismaticJoint::motorFrequencyHz, R"doc(PRS2; the upgrader's value for a PRSJ)doc")
         .def_readwrite("motor_damping_ratio", &whiteout::m2::PrismaticJoint::motorDampingRatio, R"doc(PRS2)doc")
     ;
 
@@ -1005,7 +1005,7 @@ The chunk stores fixed-size headers and variable-size payloads in two blocks; bo
         .def_readwrite("upper_angle", &whiteout::m2::RevoluteJoint::upperAngle)
         .def_readwrite("max_motor_torque", &whiteout::m2::RevoluteJoint::maxMotorTorque)
         .def_readwrite("motor_mode", &whiteout::m2::RevoluteJoint::motorMode, R"doc(1: position mode (frequency > 0), 2: velocity mode.)doc")
-        .def_readwrite("motor_frequency_hz", &whiteout::m2::RevoluteJoint::motorFrequencyHz, R"doc(REV2)doc")
+        .def_readwrite("motor_frequency_hz", &whiteout::m2::RevoluteJoint::motorFrequencyHz, R"doc(REV2; the upgrader's value for a REVJ)doc")
         .def_readwrite("motor_damping_ratio", &whiteout::m2::RevoluteJoint::motorDampingRatio, R"doc(REV2)doc")
     ;
 

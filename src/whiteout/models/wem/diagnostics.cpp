@@ -143,6 +143,8 @@ constexpr const char* kDiagCodeNames[] = {
     "ClothAnchorBoneOutOfRange",
     "ClothSectionSplit",
     "ClothTopologyInvalid",
+    "PhysicsChunkDropped",
+    "PhysicsRigDropped",
 };
 
 static_assert(sizeof(kDiagCodeNames) / sizeof(kDiagCodeNames[0]) ==

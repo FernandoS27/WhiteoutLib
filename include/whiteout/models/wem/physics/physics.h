@@ -31,6 +31,7 @@
 
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <whiteout/common_types.h>
@@ -50,6 +51,17 @@ namespace wem {
 enum class PhysicsShapeKind : u8 { Box, Sphere, Capsule, Cylinder, ConvexHull, TriangleMesh, Count };
 
 const char* ToString(PhysicsShapeKind kind);
+
+struct PhysicsShape;
+
+/// A capsule's two cap centres in its node's frame: its `points` through its
+/// matrix when it states them, else half its `length` either way along the
+/// matrix's +Z. An identity matrix leaves stated ends untouched, to the bit.
+std::pair<Vector3f, Vector3f> CapsuleEnds(const PhysicsShape& shape);
+
+/// The centred frame whose +Z runs from @p a to @p b, and in @p length the
+/// distance between them: how StarCraft II states a capsule.
+Matrix44f CapsuleFrame(const Vector3f& a, const Vector3f& b, f32& length);
 
 struct PhysicsMaterial {
     f32 density = 1000.0f; ///< The StarCraft II upgrade's default.
@@ -72,11 +84,19 @@ struct PhysicsShape {
     Matrix44f transform = Matrix44f::identity();
     Vector3f halfExtents{0, 0, 0}; ///< Box.
     f32 radius = 0.0f;             ///< Sphere, capsule, cylinder.
-    f32 length = 0.0f;             ///< Along own +Z: a capsule's between its cap centres, a cylinder's whole.
-    std::vector<Vector3f> points;  ///< Convex hull: the vertex set, own frame.
+    /// Along own +Z, centred: a cylinder's whole, and a capsule's between its
+    /// cap centres when it does not state them in `points`.
+    f32 length = 0.0f;
+    /// Own frame. A convex hull's vertex set; a capsule's two cap centres when
+    /// the source states its ends (World of Warcraft, Diablo III), which a
+    /// centred frame cannot hold to the bit.
+    std::vector<Vector3f> points;
     std::vector<Vector3f> vertices; ///< Triangle mesh, own frame.
     std::vector<u32> triangles;    ///< Triangle mesh, three per face.
     PhysicsMaterial material;
+    /// Domino's fixture `gameFlags`, for a game's contact callbacks. World of
+    /// Warcraft authors it (0 in every shipped shape).
+    u16 gameFlags = 0;
 
     template <class V>
     void reflect(V& v) {
@@ -89,6 +109,7 @@ struct PhysicsShape {
         v.field("vertices", vertices);
         v.field("triangles", triangles);
         v.field("material", material);
+        v.since(2).field("gameFlags", gameFlags);
     }
 };
 
@@ -126,6 +147,30 @@ struct Sc2BodyExtension {
     }
 };
 
+/// What only World of Warcraft means by a body: its kinematic drive and how
+/// the runtime groups bodies (`PHYS_FORMAT.md` §3.1, §4.6).
+struct WowBodyExtension {
+    /// The fraction of the way a kinematic body is snapped to its bone each
+    /// step, before the fast-motion ramp takes over. Not a Domino parameter.
+    f32 followFactor = 0.9f;
+    /// A kinematic body other bodies hang off: its snap carries them.
+    bool hasChildren = false;
+    /// The ragdoll's root: its snap carries the groups of kinematic bodies
+    /// that have no children.
+    bool ragdollRoot = false;
+    /// A dynamic body: the kinematic body it hangs off, by id. 0 writes as the
+    /// first body, as the file's own zero does.
+    u32 parent = 0;
+
+    template <class V>
+    void reflect(V& v) {
+        v.field("followFactor", followFactor);
+        v.field("hasChildren", hasChildren);
+        v.field("ragdollRoot", ragdollRoot);
+        v.field("parent", parent);
+    }
+};
+
 struct PhysicsBody {
     u32 id = 0;
     u32 node = kInvalidNode;
@@ -147,6 +192,7 @@ struct PhysicsBody {
     /// StarCraft II's `localForces | worldForces << 16`.
     u32 forceChannels = 0;
     std::optional<Sc2BodyExtension> sc2;
+    std::optional<WowBodyExtension> wow;
 
     template <class V>
     void reflect(V& v) {
@@ -163,6 +209,7 @@ struct PhysicsBody {
         v.field("exemptFromRagdoll", exemptFromRagdoll);
         v.field("forceChannels", forceChannels);
         v.optional("sc2", sc2);
+        v.since(2).optional("wow", wow);
     }
 };
 
@@ -181,6 +228,11 @@ enum class JointFriction : u8 {
     GravityHold, ///< A multiplier on an estimated gravity-holding torque (StarCraft II).
     Count
 };
+
+/// A joint motor's mode (Domino's `motorMode`).
+enum class JointMotorMode : u8 { Off, Position, Velocity, Count };
+
+const char* ToString(JointMotorMode mode);
 
 struct JointSpring {
     f32 hz = 0.0f;
@@ -202,8 +254,8 @@ struct PhysicsJoint {
     Matrix44f frameB = Matrix44f::identity(); ///< The joint frame in body B's node frame. @bind skip
     bool collideConnected = false;
     bool limitEnabled = false;
-    f32 lower = 0.0f; ///< Radians.
-    f32 upper = 0.0f; ///< Radians.
+    f32 lower = 0.0f; ///< Radians; a distance for Prismatic.
+    f32 upper = 0.0f; ///< Radians; a distance for Prismatic.
     f32 cone = 0.0f;  ///< Radians; a runtime clamps it to [10°, 170°] on use.
     JointFriction friction = JointFriction::None;
     f32 frictionAmount = 0.0f;
@@ -213,6 +265,12 @@ struct PhysicsJoint {
     f32 restLength = 0.0f;  ///< Distance joint.
     f32 breakForce = 0.0f;  ///< 0 = unbreakable.
     f32 breakTorque = 0.0f; ///< 0 = unbreakable.
+    /// The motor of a ConeTwist, Revolute or Prismatic joint. Its spring is the
+    /// free axis's: `angularSpring`, or `linearSpring` for Prismatic.
+    JointMotorMode motor = JointMotorMode::Off;
+    f32 maxMotorForce = 0.0f;        ///< A torque; a force for Prismatic.
+    f32 motorSpeed = 0.0f;           ///< Prismatic: the target velocity.
+    f32 referenceTranslation = 0.0f; ///< Prismatic: where the limits are measured from.
 
     template <class V>
     void reflect(V& v) {
@@ -234,6 +292,10 @@ struct PhysicsJoint {
         v.field("restLength", restLength);
         v.field("breakForce", breakForce);
         v.field("breakTorque", breakTorque);
+        v.since(2).field("motor", motor);
+        v.since(2).field("maxMotorForce", maxMotorForce);
+        v.since(2).field("motorSpeed", motorSpeed);
+        v.since(2).field("referenceTranslation", referenceTranslation);
     }
 };
 
@@ -380,6 +442,55 @@ struct Cloth {
 /// When a rig starts simulating.
 enum class RigStart : u8 { Animated, OnDeath, Always, Never, Count };
 
+/// What World of Warcraft makes of a model's physics (`PHYT`). The file's 0
+/// and 1 take the same branch in the client and are one kind here.
+enum class WowPhysicsKind : u8 {
+    WornItem,     ///< A ragdoll whose kinematic bodies follow the model, not their bones.
+    Vegetation,   ///< A phantom built from the model's bounds, pushed by units. No bodies.
+    Ragdoll,      ///< A ragdoll in the shared world.
+    PrivateWorld, ///< A ragdoll in a world of its own, solved with more position iterations.
+    Count
+};
+
+const char* ToString(WowPhysicsKind kind);
+
+/// `PHYV`: the six `physVeg*` values a vegetation phantom is pushed by, in
+/// yards (`PHYS_FORMAT.md` §3.9).
+struct WowVegetation {
+    f32 posMaxPush = 1.25f;
+    f32 posPushAmt = 0.25f;
+    f32 posRelaxSpeed = 8.0f;
+    f32 velMaxPush = 0.1f;
+    f32 velSpeed = 20.0f;
+    f32 minPushDist = 4.0f; ///< Squared.
+
+    template <class V>
+    void reflect(V& v) {
+        v.field("posMaxPush", posMaxPush);
+        v.field("posPushAmt", posPushAmt);
+        v.field("posRelaxSpeed", posRelaxSpeed);
+        v.field("velMaxPush", velMaxPush);
+        v.field("velSpeed", velSpeed);
+        v.field("minPushDist", minPushDist);
+    }
+};
+
+/// What only World of Warcraft means by a rig: the object its physics becomes.
+struct WowRigExtension {
+    WowPhysicsKind kind = WowPhysicsKind::Ragdoll;
+    std::optional<WowVegetation> vegetation;
+    /// `PHAO`: name CRCs of the host skeletons whose wearer keeps the bodies'
+    /// follow factors. On any other host they give way to a flat 0.7.
+    std::vector<u32> allowList;
+
+    template <class V>
+    void reflect(V& v) {
+        v.field("kind", kind);
+        v.optional("vegetation", vegetation);
+        v.field("allowList", allowList);
+    }
+};
+
 /// A named subset of bodies a game switches on at once (World of Warcraft,
 /// Diablo III). StarCraft II has none: its import makes none and its export
 /// ignores them.
@@ -388,6 +499,7 @@ struct PhysicsRig {
     std::string name;
     RigStart start = RigStart::Animated;
     std::vector<u32> bodies; ///< Body ids.
+    std::optional<WowRigExtension> wow;
 
     template <class V>
     void reflect(V& v) {
@@ -395,6 +507,7 @@ struct PhysicsRig {
         v.field("name", name);
         v.field("start", start);
         v.field("bodies", bodies);
+        v.since(2).optional("wow", wow);
     }
 };
 

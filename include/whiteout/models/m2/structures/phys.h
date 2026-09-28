@@ -238,8 +238,9 @@ struct ShoulderJoint {
     f32 coneAngle = 0.0f;
     f32 maxMotorTorque = 0.0f;
     u32 motorMode = 0;            ///< low byte: 0 off, 1 position, 2 velocity
-    f32 motorFrequencyHz = 0.0f;  ///< SHJ2
-    f32 motorDampingRatio = 0.0f; ///< SHJ2
+    /// SHJ2. A SHOJ gets the upgrader's 1.0 Hz and 0.7 (`PHYS_FORMAT.md` §5).
+    f32 motorFrequencyHz = 1.0f;
+    f32 motorDampingRatio = 0.7f; ///< SHJ2
 };
 
 /// @brief PRSJ/PRS2 — a sliding joint, version 2+.
@@ -257,8 +258,8 @@ struct PrismaticJoint {
     /// Target velocity, written into the live joint like @ref referenceTranslation.
     f32 motorSpeed = 0.0f;
     u32 motorMode = 0;
-    f32 motorFrequencyHz = 0.0f;  ///< PRS2
-    f32 motorDampingRatio = 0.0f; ///< PRS2
+    f32 motorFrequencyHz = 1.0f;  ///< PRS2; the upgrader's value for a PRSJ
+    f32 motorDampingRatio = 0.7f; ///< PRS2
 };
 
 /// @brief REVJ/REV2 — a hinge, version 2+.
@@ -271,8 +272,8 @@ struct RevoluteJoint {
     f32 maxMotorTorque = 0.0f;
     /// 1: position mode (frequency > 0), 2: velocity mode.
     u32 motorMode = 0;
-    f32 motorFrequencyHz = 0.0f;  ///< REV2
-    f32 motorDampingRatio = 0.0f; ///< REV2
+    f32 motorFrequencyHz = 1.0f;  ///< REV2; the upgrader's value for a REVJ
+    f32 motorDampingRatio = 0.7f; ///< REV2
 };
 
 /// @brief DSTJ — holds two anchors a fixed distance apart, version 2+.

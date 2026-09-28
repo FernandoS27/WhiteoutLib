@@ -35,16 +35,15 @@
  * happens to ship inside a drawable, and WEM is a model format. The counts ride
  * `native` so nothing goes missing silently.
  *
- * A sub-object's `ClothStructure` goes the same way and for a different reason.
- * §18 lets cloth ride along **as a native block**, and D3's is per sub-object —
- * particles, staples and two constraint sets — which is the one scope WEM has
- * no typed native block for: a *material* has one per format (§7.3) and a
- * section has only the shared name/value bag. The section keeps
- * `SectionFlags::ClothSimulated`, so nothing about it is a guess on the way
- * back; it simply draws skinned, and the export reports how many did.
+ * A sub-object's `ClothStructure` comes in as WEM cloth (`d3_physics`): a
+ * hidden cage section of its own beside the sub-object, which is flagged
+ * `ClothInfluenced`. D3 is never written back, so the reopened appearance
+ * drops the cage and draws the piece skinned, and the export reports how many.
  */
 
 #include "whiteout/models/wem/d3_converter.h"
+
+#include <functional>
 #include "whiteout/models/wem/geometry/builder.h"
 #include "whiteout/models/wem/geometry/render_view.h"
 
@@ -53,6 +52,7 @@
 #include "../materials/d3_core.h"
 #include "../native/d3_copy.h"
 #include "d3_anim.h"
+#include "d3_physics.h"
 #include "skin_skeleton.h"
 
 #include <algorithm>
@@ -343,8 +343,13 @@ bool WardrobeShows(const d3n::GeosetName& descriptor,
 /// address their own vertex array — so the concatenation carries a base offset.
 Mesh ImportGeoSet(const d3n::GeoSet& geoSet, const std::string& name, Model& model,
                   const std::vector<u32>& boneToNode, const D3ImportOptions& options,
-                  Diagnostics& out) {
+                  const std::function<const d3n::Cloth*(const d3n::SubObject&)>& clothOf,
+                  std::vector<d3_physics::ClothSite>& sites, Diagnostics& out) {
     geom::MeshBuilder builder;
+    // Per builder vertex, the cage vertex it draws from (WEM_PHYSICS_DESIGN.md §8.2).
+    std::vector<u32> bindVertex;
+    std::vector<const d3n::SubObject*> clothOfSite;
+    std::vector<u32> clothBase;
 
     struct Pending {
         u32 section = 0;
@@ -370,8 +375,10 @@ Mesh ImportGeoSet(const d3n::GeoSet& geoSet, const std::string& name, Model& mod
                      ElementRef(ElementKind::Section, static_cast<u32>(s)), ProfileId::Diablo3);
         }
         section.bounds = ToExtent(sub.tBounds);
-        if (!sub.arClothData.empty()) {
-            section.flags |= SectionFlags::ClothSimulated;
+        // The client builds a cloth only for a look whose `.clt` has mass.
+        const d3n::Cloth* tuning = sub.arClothData.empty() ? nullptr : clothOf(sub);
+        if (tuning != nullptr) {
+            section.flags |= SectionFlags::ClothInfluenced;
         }
         if (sub.snoSurface.valid()) {
             section.native.set("surfaceSno", static_cast<i64>(sub.snoSurface.id));
@@ -443,6 +450,14 @@ Mesh ImportGeoSet(const d3n::GeoSet& geoSet, const std::string& name, Model& mod
                                      boneToNode[bone], influence->flWeight);
             }
         }
+        if (tuning != nullptr) {
+            d3_physics::ClothSite site;
+            site.bound = entry.section;
+            site.tuning = tuning;
+            sites.push_back(site);
+            clothOfSite.push_back(&sub);
+            clothBase.push_back(entry.base);
+        }
     }
 
     for (std::size_t s = 0; s < geoSet.arSubObjects.size(); ++s) {
@@ -486,6 +501,27 @@ Mesh ImportGeoSet(const d3n::GeoSet& geoSet, const std::string& name, Model& mod
         }
     }
 
+    // The cages go after every sub-object, so section `i` stays sub-object `i`
+    // of its geoset, which `toAppearance` and the hosts rely on.
+    for (std::size_t c = 0; c < sites.size(); ++c) {
+        sites[c].cage = d3_physics::AddCage(builder, *clothOfSite[c], sites[c].bound, clothBase[c], boneToNode,
+                                            bindVertex, out);
+    }
+    if (!sites.empty()) {
+        bindVertex.resize(builder.vertexCount(), geom::kInvalidId);
+        const std::array<u32, 4> none{geom::kInvalidId, geom::kInvalidId, geom::kInvalidId, geom::kInvalidId};
+        for (u32 v = 0; v < builder.vertexCount(); ++v) {
+            std::array<u32, 4> lanes = none;
+            std::array<f32, 4> weights{0, 0, 0, 0};
+            if (bindVertex[v] != geom::kInvalidId) {
+                lanes[0] = bindVertex[v];
+                weights[0] = 1.0f;
+            }
+            builder.setVertexAttr(geom::VertexId(v), geom::names::kClothBindVertex, lanes);
+            builder.setVertexAttr(geom::VertexId(v), geom::names::kClothBindWeight, weights);
+        }
+    }
+
     geom::MeshBuilder::BuildOutcome outcome = builder.build();
     outcome.mesh.name = name;
     outcome.mesh.recomputeBounds();
@@ -509,6 +545,9 @@ struct AssetSource::Impl {
     std::unordered_map<i32, std::optional<d3n::ShaderMap>> shaderMaps;
     std::unordered_map<i32, std::optional<d3n::Shaders>> shaders;
     std::unordered_map<i32, std::optional<d3n::Material>> materials;
+    std::unordered_map<i32, std::optional<d3n::Physics>> physics;
+    std::unordered_map<i32, std::optional<d3n::Cloth>> cloths;
+    std::unordered_map<i32, std::vector<u8>> appearanceBytes;
 
     explicit Impl(sno::d3::native::AssetProvider& source) : provider(source) {}
 
@@ -576,6 +615,24 @@ const d3n::Shaders* AssetSource::shaders(i32 snoId) {
 const d3n::Material* AssetSource::material(i32 snoId) {
     return pImpl->fetch(pImpl->materials, d3n::Group::Material, snoId,
                         [](const std::vector<u8>& bytes) { return d3n::parseMaterial(bytes); });
+}
+
+const d3n::Physics* AssetSource::physics(i32 snoId) {
+    return pImpl->fetch(pImpl->physics, d3n::Group::Physics, snoId,
+                        [](const std::vector<u8>& bytes) { return d3n::parsePhysics(bytes); });
+}
+
+const d3n::Cloth* AssetSource::cloth(i32 snoId) {
+    return pImpl->fetch(pImpl->cloths, d3n::Group::Cloth, snoId,
+                        [](const std::vector<u8>& bytes) { return d3n::parseCloth(bytes); });
+}
+
+std::span<const u8> AssetSource::appearanceBytes(i32 snoId) {
+    auto found = pImpl->appearanceBytes.find(snoId);
+    if (found == pImpl->appearanceBytes.end()) {
+        found = pImpl->appearanceBytes.emplace(snoId, pImpl->provider.load(d3n::Group::Appearance, snoId)).first;
+    }
+    return found->second;
 }
 
 const AssetSource::Stats& AssetSource::stats() const {
@@ -795,11 +852,24 @@ Result<Document> D3Converter::fromAppearance(const d3n::Appearances& source, Ass
     // not a level of detail either -- our view draws it -- so it says which
     // array it is on its sections (EDIT_MODE_MODELLING_DESIGN.md §8.1), where
     // the drop never looks.
-    model.meshes.push_back(
-        ImportGeoSet(source.tGeoSet0, "geoset0", model, nodes.boneToNode, options, diagnostics));
+    const u32 clothLook = set.defaultLook;
+    const auto clothOf = [&](const d3n::SubObject& sub) -> const d3n::Cloth* {
+        return assets != nullptr ? d3_physics::ClothTuning(source, sub, clothLook, *assets) : nullptr;
+    };
+    std::vector<d3_physics::ClothSite> clothSites;
+    model.meshes.push_back(ImportGeoSet(source.tGeoSet0, "geoset0", model, nodes.boneToNode, options, clothOf,
+                                        clothSites, diagnostics));
+    for (d3_physics::ClothSite& site : clothSites) {
+        site.mesh = 0;
+    }
     if (!source.tGeoSet1.arSubObjects.empty()) {
-        Mesh second =
-            ImportGeoSet(source.tGeoSet1, "geoset1", model, nodes.boneToNode, options, diagnostics);
+        std::vector<d3_physics::ClothSite> secondSites;
+        Mesh second = ImportGeoSet(source.tGeoSet1, "geoset1", model, nodes.boneToNode, options, clothOf,
+                                   secondSites, diagnostics);
+        for (d3_physics::ClothSite& site : secondSites) {
+            site.mesh = static_cast<u32>(model.meshes.size());
+            clothSites.push_back(site);
+        }
         for (MeshSection& section : second.sections) {
             section.native.set("d3GeoSet", 1);
         }
@@ -809,6 +879,18 @@ Result<Document> D3Converter::fromAppearance(const d3n::Appearances& source, Ass
     // Sub-objects can add slots the material list did not have, so the bindings
     // are sized last.
     set.resizeBindings(model.materialSlots.size());
+
+    // --- physics -------------------------------------------------------------
+    d3_physics::Sources physicsSources;
+    if (assets != nullptr) {
+        physicsSources.appearanceBytes = assets->appearanceBytes(source.dwSnoId);
+        physicsSources.physics = options.physics >= 0 ? assets->physics(options.physics) : nullptr;
+    }
+    d3_physics::ImportRigs(source, physicsSources, nodes.boneToNode, model, diagnostics);
+    d3_physics::ImportCloths(source, clothSites, nodes.boneToNode, model, diagnostics);
+    if (options.physics >= 0) {
+        set.native.set("physicsSnoId", static_cast<i64>(options.physics));
+    }
 
     set.native.set("appearanceSnoId", static_cast<i64>(source.dwSnoId));
     set.native.set("sourceVersion", static_cast<i64>(kAppearanceVersion));
@@ -881,7 +963,10 @@ Result<u32> D3Converter::appendActor(Document& document, const d3n::Actor& sourc
                 set != nullptr ? set->native.find("animSetSnoId") : nullptr;
             const i64 wantedAnimSet = source.snoAnimSet.valid() ? source.snoAnimSet.id : -1;
             const bool sameAnimSet = animSet != nullptr && animSet->value == wantedAnimSet;
-            if (sameLook && sameAnimSet) {
+            // The `.phy` is the rigs' material, so it is the reuse key's too.
+            const i64 wantedPhysics = source.snoPhysics.valid() ? source.snoPhysics.id : -1;
+            const bool samePhysics = set->native.value("physicsSnoId", -1) == wantedPhysics;
+            if (sameLook && sameAnimSet && samePhysics) {
                 result.value = existing;
                 return result;
             }
@@ -902,6 +987,7 @@ Result<u32> D3Converter::appendActor(Document& document, const d3n::Actor& sourc
     // one built.
     D3ImportOptions resolved = options;
     resolved.materialLook = wantedLook;
+    resolved.physics = source.snoPhysics.valid() ? source.snoPhysics.id : -1;
 
     Result<Document> built = fromAppearance(*appearance, &assets, resolved);
     diagnostics.append(built.diagnostics);
@@ -1378,12 +1464,8 @@ public:
         appearance.tGeoSet1.dwSubObjectCount =
             static_cast<i32>(appearance.tGeoSet1.arSubObjects.size());
 
-        // §18 lets rigid bodies, joints and cloth ride along **as native
-        // blocks**, and D3's cloth is per sub-object — a `ClothStructure` of
-        // particles, staples and two constraint sets — which is the one scope
-        // WEM has no typed native block for. So the section keeps
-        // `ClothSimulated` and loses the simulation: the piece draws, skinned,
-        // where it would have hung.
+        // D3 is never written back (WEM_PHYSICS_DESIGN.md §8.2), so a cloth's
+        // piece draws skinned where it would have hung.
         if (clothSections_ != 0) {
             out_.warn(DiagCode::OperationUnsupported,
                       std::to_string(clothSections_) +
@@ -1648,6 +1730,10 @@ private:
                 }
                 const MeshSection* section =
                     range.section < mesh.sections.size() ? &mesh.sections[range.section] : nullptr;
+                // A cage is WEM's form of a cloth, which no appearance carries.
+                if (section != nullptr && hasFlag(section->flags, SectionFlags::ClothSimulated)) {
+                    continue;
+                }
 
                 d3n::SubObject sub;
                 sub.szName = section != nullptr ? section->name : std::string();
@@ -1673,7 +1759,7 @@ private:
                                     binormals, color0,  color1, boneIndices, boneWeights};
                 writeSubObject(render, range, slices, section, sub, clamped);
 
-                if (section != nullptr && hasFlag(section->flags, SectionFlags::ClothSimulated)) {
+                if (section != nullptr && hasFlag(section->flags, SectionFlags::ClothInfluenced)) {
                     ++clothSections_;
                 }
                 // **Geoset order, not mesh order.** A renderer walks `tGeoSet0`

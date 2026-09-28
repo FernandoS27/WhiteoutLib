@@ -11,6 +11,7 @@
  * | Referencer | Field | When it goes |
  * |---|---|---|
  * | `PhysicsBody` | `node` | the body goes, and every joint on it |
+ * | `WowBodyExtension` | `parent` (a body id) | cleared; the body stays |
  * | `ClothCollider` | `node` (`kInvalidNode` = the root) | the collider goes, and leaves every cloth's list |
  * | `Cloth` | `cage` | the cloth goes |
  * | `ClothBinding` | `section` | the binding goes |
@@ -48,6 +49,10 @@ std::vector<u32> RemapPhysicsMeshes(PhysicsSet& physics, std::span<const u32> me
 /// (`kInvalidIndex` = gone). Returns the ids of the cloths that lost their cage.
 std::vector<u32> RemapPhysicsSections(PhysicsSet& physics, u32 mesh, std::span<const u32> sectionRemap);
 
+/// Removes the bodies @p ids name, and the joints on them. Returns the ids of
+/// every record that went.
+std::vector<u32> RemovePhysicsBodies(PhysicsSet& physics, std::span<const u32> ids);
+
 /// Invalidates the `Kind::Physics` channels that name one of @p removed:
 /// `sub` becomes 0, the declaration and its sub-tracks stay.
 void InvalidatePhysicsChannels(AnimChannelTable& channels, std::span<const u32> removed, Diagnostics& out);
@@ -70,8 +75,10 @@ Matrix44f AffineInverse(const Matrix44f& m);
 bool PhysicsUsesNode(const PhysicsSet& physics, u32 node);
 
 /// Restates every length of the set at @p factor: shape dimensions, points,
-/// vertices and matrix translations, joint-frame translations, collider sizes
-/// and translations, wind and the skin offset. Densities stay; gravity is a scale.
+/// vertices and matrix translations, joint-frame translations, a slide's limits
+/// and speed, collider sizes and translations, wind, the skin offset and a
+/// vegetation push; and break, motor and friction forces and torques at its
+/// fourth power. Densities stay; gravity is a scale.
 void RescalePhysics(PhysicsSet& physics, f32 factor);
 
 /// The structural and warning rules of §3.11 against @p model.

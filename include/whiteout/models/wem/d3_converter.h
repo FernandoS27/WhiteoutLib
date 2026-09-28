@@ -111,6 +111,13 @@ public:
     /// reference is kept on the native block, and re-resolving it is what this
     /// is for.
     const sno::d3::native::Material* material(i32 snoId);
+    /// Group 28, an actor's `.phy`: the material its rigs are built with.
+    const sno::d3::native::Physics* physics(i32 snoId);
+    /// Group 11, a look's `.clt`: its cloth's tuning.
+    const sno::d3::native::Cloth* cloth(i32 snoId);
+    /// The raw `.app`: a polytope cook points into its payload. Empty when it
+    /// does not load.
+    std::span<const u8> appearanceBytes(i32 snoId);
 
     /// What the cache did. `loads` is provider round trips and `hits` is what
     /// the cache saved, so a test asserting sharing reads these.
@@ -165,6 +172,10 @@ struct D3ImportOptions {
     /// thumbnail grid loads one `.ans` and every `.ani` it names per cell, which
     /// is a lot of parsing for a still frame.
     bool importAnimation = true;
+
+    /// The actor's `.phy` (`Actor::snoPhysics`), which gives its rigs their
+    /// material. -1 takes the client's defaults. `fromActor` fills it.
+    i32 physics = -1;
 };
 
 // ============================================================================

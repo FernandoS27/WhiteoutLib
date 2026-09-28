@@ -84,10 +84,19 @@ NodeKindMask nodeKindsOf(ProfileId id) {
     }
 }
 
-/// §3.11: StarCraft II and Heroes read the one `.m3` physics set; every other
-/// profile's export bakes physics into keys.
+/// §3.11 and §8.1: StarCraft II and Heroes read the one `.m3` physics set and
+/// World of Warcraft its `.phys`; every other profile's export bakes physics
+/// into keys.
 PhysicsCaps physicsOf(ProfileId id) {
     PhysicsCaps caps;
+    if (id == ProfileId::Wow) {
+        caps.shapeKinds = 0x17u; // Box, Sphere, Capsule, ConvexHull
+        caps.jointKinds = 0x3Fu; // all six
+        caps.maxHullVertices = 255; // the same u8 half-edge tables
+        caps.maxHullFaces = 255;
+        caps.maxHullHalfEdges = 256;
+        return caps;
+    }
     if (id != ProfileId::Sc2 && id != ProfileId::Heroes) {
         return caps;
     }
@@ -99,6 +108,7 @@ PhysicsCaps physicsOf(ProfileId id) {
     caps.maxHullFaces = 255;
     caps.maxHullHalfEdges = 256;
     caps.maxClothAnchorBone = 255; // `vertexBones` holds bytes
+    caps.switches = true;
     return caps;
 }
 

@@ -38,6 +38,16 @@ void Sweep(PhysicsSet& physics, const std::set<u32>& gone, std::vector<u32>& rem
     for (PhysicsRig& rig : physics.rigs) {
         std::erase_if(rig.bodies, [&](u32 id) { return gone.count(id) != 0; });
     }
+    for (PhysicsBody& body : physics.bodies) {
+        if (body.wow.has_value() && gone.count(body.wow->parent) != 0) {
+            body.wow->parent = 0;
+        }
+    }
+}
+
+/// Whether @p kind has a limit range: a twist, an angle or a slide.
+bool HasRange(JointKind kind) {
+    return kind == JointKind::ConeTwist || kind == JointKind::Revolute || kind == JointKind::Prismatic;
 }
 
 void ScaleTranslation(Matrix44f& m, f32 factor) {
@@ -109,6 +119,20 @@ std::vector<u32> RemapPhysicsNodes(PhysicsSet& physics, std::span<const u32> rem
             return true;
         }
         return false;
+    });
+    Sweep(physics, gone, removed);
+    return removed;
+}
+
+std::vector<u32> RemovePhysicsBodies(PhysicsSet& physics, std::span<const u32> ids) {
+    const std::set<u32> gone(ids.begin(), ids.end());
+    std::vector<u32> removed;
+    std::erase_if(physics.bodies, [&](const PhysicsBody& body) {
+        const bool drop = gone.count(body.id) != 0;
+        if (drop) {
+            removed.push_back(body.id);
+        }
+        return drop;
     });
     Sweep(physics, gone, removed);
     return removed;
@@ -254,10 +278,34 @@ void RescalePhysics(PhysicsSet& physics, f32 factor) {
             }
         }
     }
+    // A force or a torque at an unchanged density goes as mass times length:
+    // the fourth power, the one D3 applies with actor scale.
+    const f32 fourth = factor * factor * factor * factor;
     for (PhysicsJoint& joint : physics.joints) {
         ScaleTranslation(joint.frameA, factor);
         ScaleTranslation(joint.frameB, factor);
         joint.restLength *= factor;
+        joint.breakForce *= fourth;
+        joint.breakTorque *= fourth;
+        joint.maxMotorForce *= fourth;
+        if (joint.friction == JointFriction::Torque) {
+            joint.frictionAmount *= fourth;
+        }
+        if (joint.kind == JointKind::Prismatic) {
+            joint.lower *= factor;
+            joint.upper *= factor;
+            joint.referenceTranslation *= factor;
+            joint.motorSpeed *= factor;
+        }
+    }
+    for (PhysicsRig& rig : physics.rigs) {
+        if (rig.wow.has_value() && rig.wow->vegetation.has_value()) {
+            WowVegetation& push = *rig.wow->vegetation;
+            push.posMaxPush *= factor;
+            push.posPushAmt *= factor;
+            push.velMaxPush *= factor;
+            push.minPushDist *= factor * factor;
+        }
     }
     for (ClothCollider& collider : physics.colliders) {
         ScaleTranslation(collider.transform, factor);
@@ -291,6 +339,11 @@ void CheckPhysics(const Model& model, Diagnostics& out) {
                       ElementRef(ElementKind::PhysicsRecord, body.id));
         }
         for (const PhysicsShape& shape : body.shapes) {
+            if (shape.kind == PhysicsShapeKind::Capsule && shape.points.size() != 0 && shape.points.size() != 2) {
+                out.error(DiagCode::PhysicsShapeDegenerate,
+                          "a capsule states " + number(shape.points.size()) + " ends, not two",
+                          ElementRef(ElementKind::PhysicsRecord, body.id));
+            }
             if (shape.kind == PhysicsShapeKind::ConvexHull && shape.points.size() < 4) {
                 out.warn(DiagCode::PhysicsShapeDegenerate,
                          "a hull of " + number(shape.points.size()) + " points has no volume",
@@ -303,6 +356,17 @@ void CheckPhysics(const Model& model, Diagnostics& out) {
                 out.error(DiagCode::PhysicsShapeDegenerate,
                           "a triangle mesh with no triangle, or an index past its vertices",
                           ElementRef(ElementKind::PhysicsRecord, body.id));
+            }
+        }
+        if (body.wow.has_value() && body.wow->parent != 0) {
+            const PhysicsBody* parent = physics.body(body.wow->parent);
+            if (parent == nullptr) {
+                out.error(DiagCode::PhysicsReferenceInvalid, "a body hangs off a missing body",
+                          ElementRef(ElementKind::PhysicsRecord, body.id));
+            } else if (parent->motion != BodyMotion::Kinematic) {
+                out.warn(DiagCode::PhysicsReferenceInvalid,
+                         "a body hangs off a body that is not kinematic, so nothing carries it",
+                         ElementRef(ElementKind::PhysicsRecord, body.id));
             }
         }
         const bool massless = std::none_of(body.shapes.begin(), body.shapes.end(),
@@ -429,6 +493,9 @@ void CheckPhysicsForProfile(const Model& model, ProfileId profile, Diagnostics& 
     if (physics.empty() || !caps.any()) {
         return; // a profile without physics bakes it
     }
+    // StarCraft II binds a joint by bone and fixes gravity; World of Warcraft
+    // names bodies and derives a limit from its range.
+    const bool sc2 = GameOf(profile) == Game::StarCraft;
     for (const PhysicsBody& body : physics.bodies) {
         const ElementRef where(ElementKind::PhysicsRecord, body.id);
         for (const PhysicsShape& shape : body.shapes) {
@@ -443,7 +510,7 @@ void CheckPhysicsForProfile(const Model& model, ProfileId profile, Diagnostics& 
                          where, profile);
             }
         }
-        if (body.gravityScale != 1.0f) {
+        if (sc2 && body.gravityScale != 1.0f) {
             out.info(DiagCode::PhysicsGravityScaleDropped, "a body's gravity scale is not 1", where,
                      profile);
         }
@@ -457,14 +524,20 @@ void CheckPhysicsForProfile(const Model& model, ProfileId profile, Diagnostics& 
         }
         const PhysicsBody* a = physics.body(joint.bodyA);
         const PhysicsBody* b = physics.body(joint.bodyB);
-        if (a != nullptr && b != nullptr &&
+        if (sc2 && a != nullptr && b != nullptr &&
             (physics.firstBodyOn(a->node) != a || physics.firstBodyOn(b->node) != b)) {
             out.warn(DiagCode::PhysicsJointBodyAmbiguous,
                      "a joint's body is not the first on its node, which the profile binds", where,
                      profile);
         }
-        if (joint.linearSpring.hz != 0.0f || joint.restLength != 0.0f || joint.breakForce != 0.0f ||
-            joint.breakTorque != 0.0f) {
+        const bool dropped =
+            sc2 ? joint.linearSpring.hz != 0.0f || joint.restLength != 0.0f || joint.breakForce != 0.0f ||
+                      joint.breakTorque != 0.0f || joint.friction == JointFriction::Torque ||
+                      joint.motor != JointMotorMode::Off
+                : joint.collideConnected || joint.breakForce != 0.0f || joint.breakTorque != 0.0f ||
+                      joint.friction == JointFriction::GravityHold ||
+                      (HasRange(joint.kind) && joint.limitEnabled != (joint.upper > joint.lower));
+        if (dropped) {
             out.info(DiagCode::PhysicsJointFieldDropped, "a joint field the profile cannot say", where,
                      profile);
         }
@@ -472,6 +545,7 @@ void CheckPhysicsForProfile(const Model& model, ProfileId profile, Diagnostics& 
     if (!physics.cloths.empty() && !caps.cloth) {
         out.warn(DiagCode::PhysicsUnsupported, "cloth the profile cannot carry",
                  ElementRef(ElementKind::Document, 0), profile);
+        return;
     }
     for (const Cloth& cloth : physics.cloths) {
         if (cloth.cage.mesh >= model.meshes.size()) {

@@ -10,6 +10,7 @@
 
 #include <array>
 #include <cstring>
+#include <set>
 #include <span>
 #include <vector>
 
@@ -18,6 +19,8 @@
 #include <whiteout/models/wem/meshes/remove.h>
 #include <whiteout/models/wem/nodes/remove.h>
 #include <whiteout/models/wem/parser.h>
+#include <whiteout/models/wem/geometry/builder.h>
+#include <whiteout/models/wem/physics/crossing.h>
 #include <whiteout/models/wem/physics/references.h>
 #include <whiteout/models/wem/retarget.h>
 #include <whiteout/models/wem/validate.h>
@@ -394,3 +397,274 @@ TEST_CASE("wem validation names a stage whose rig is not there", "[wem][physics]
     AddStage(document, StageKind::Ragdoll, 999, 0);
     CHECK(PhysicsErrors(Validate(document, ValidateLevel::Structural)));
 }
+
+TEST_CASE("wem the World of Warcraft extensions survive the .wem container", "[wem][physics]") {
+    Document document = PhysicsDocument();
+    PhysicsSet& physics = document.models[0].physics;
+    physics.bodies[1].wow = WowBodyExtension{0.25f, false, false, physics.bodies[0].id};
+    physics.bodies[0].shapes[0].gameFlags = 3;
+    physics.joints[0].motor = JointMotorMode::Velocity;
+    physics.joints[0].maxMotorForce = 4.0f;
+    PhysicsRig rig;
+    rig.id = physics.allocateId();
+    rig.wow = WowRigExtension{};
+    rig.wow->kind = WowPhysicsKind::PrivateWorld;
+    rig.wow->vegetation = WowVegetation{};
+    rig.wow->allowList = {0xABCDu};
+    physics.rigs.push_back(rig);
+    Writer writer;
+    const std::vector<u8> bytes = writer.write(document);
+    Parser parser;
+    const std::optional<Document> read = parser.parse(std::span<const u8>(bytes));
+    REQUIRE(read.has_value());
+    const PhysicsSet& back = read->models[0].physics;
+    REQUIRE(back.bodies[1].wow.has_value());
+    CHECK(back.bodies[1].wow->followFactor == 0.25f);
+    CHECK(back.bodies[1].wow->parent == physics.bodies[0].id);
+    CHECK(back.bodies[0].shapes[0].gameFlags == 3);
+    CHECK(back.joints[0].motor == JointMotorMode::Velocity);
+    CHECK(back.joints[0].maxMotorForce == 4.0f);
+    REQUIRE(back.rigs.size() == 1);
+    REQUIRE(back.rigs[0].wow.has_value());
+    CHECK(back.rigs[0].wow->kind == WowPhysicsKind::PrivateWorld);
+    CHECK(back.rigs[0].wow->vegetation.has_value());
+    CHECK(back.rigs[0].wow->allowList == std::vector<u32>{0xABCDu});
+}
+
+TEST_CASE("wem a body that goes lets go of what hung off it", "[wem][physics]") {
+    Document document = PhysicsDocument();
+    PhysicsSet& physics = document.models[0].physics;
+    physics.bodies[0].motion = BodyMotion::Kinematic;
+    physics.bodies[1].motion = BodyMotion::Dynamic;
+    physics.bodies[1].wow = WowBodyExtension{};
+    physics.bodies[1].wow->parent = physics.bodies[0].id;
+    const std::vector<u32> remap{kInvalidNode, 0};
+    RemapPhysicsNodes(physics, remap);
+    REQUIRE(physics.bodies.size() == 1);
+    CHECK(physics.bodies[0].wow->parent == 0u);
+}
+
+TEST_CASE("wem validation names a body hanging off a missing body", "[wem][physics]") {
+    Document document = PhysicsDocument();
+    PhysicsBody& body = document.models[0].physics.bodies[1];
+    body.wow = WowBodyExtension{};
+    body.wow->parent = 999;
+    CHECK(PhysicsErrors(Validate(document, ValidateLevel::Structural)));
+}
+
+TEST_CASE("wem a rig stage is left to World of Warcraft without switches", "[wem][physics]") {
+    Document document = PhysicsDocument();
+    AddStage(document, StageKind::Ragdoll, AddRig(document), 0);
+    Diagnostics report;
+    BakeStages(document, ProfileId::Wow, nullptr, report);
+    CHECK(report.countOf(DiagCode::AnimStageNotBaked) == 0u);
+    CHECK(document.models[0].poseStages.empty());
+    // The game simulates from creation: no switch is keyed.
+    CHECK(FindSubTrack(document.clips[0], 77) == nullptr);
+}
+
+TEST_CASE("wem physics rescales a slide and a vegetation push", "[wem][physics]") {
+    Document document = PhysicsDocument();
+    PhysicsSet& physics = document.models[0].physics;
+    PhysicsJoint& joint = physics.joints[0];
+    joint.kind = JointKind::Prismatic;
+    joint.lower = -1.0f;
+    joint.upper = 2.0f;
+    joint.referenceTranslation = 0.5f;
+    PhysicsRig rig;
+    rig.id = physics.allocateId();
+    rig.wow = WowRigExtension{};
+    rig.wow->vegetation = WowVegetation{};
+    physics.rigs.push_back(rig);
+    REQUIRE(RescaleDocument(document, 2.0f).ok);
+    CHECK(physics.joints[0].upper == 4.0f);
+    CHECK(physics.joints[0].referenceTranslation == 1.0f);
+    CHECK(physics.rigs[0].wow->vegetation->posMaxPush == 2.5f);
+    CHECK(physics.rigs[0].wow->vegetation->minPushDist == 16.0f); // squared
+}
+
+TEST_CASE("wem a capsule stated by its ends keeps them to the bit", "[wem][physics]") {
+    PhysicsShape stated;
+    stated.kind = PhysicsShapeKind::Capsule;
+    stated.points = {{0.1f, -0.2f, 0.3f}, {-5.5f, 1e-3f, 7.25f}};
+    const auto [a, b] = CapsuleEnds(stated);
+    CHECK(a == stated.points[0]);
+    CHECK(b == stated.points[1]);
+    // StarCraft II's form of the same capsule: a centred frame and a length.
+    PhysicsShape centred;
+    centred.kind = PhysicsShapeKind::Capsule;
+    centred.transform = CapsuleFrame(a, b, centred.length);
+    const auto [c, d] = CapsuleEnds(centred);
+    CHECK(c.x == Catch::Approx(a.x).margin(1e-5));
+    CHECK(d.z == Catch::Approx(b.z).margin(1e-5));
+}
+
+// ============================================================================
+// Crossings (WEM_PHYSICS_DESIGN.md §8.3)
+// ============================================================================
+
+namespace {
+
+/// Two rigs over the two bodies: the root's from creation, the arm's on death,
+/// and a Death and a Stand clip.
+Document RiggedDocument() {
+    Document document = PhysicsDocument();
+    PhysicsSet& physics = document.models[0].physics;
+    PhysicsRig always;
+    always.id = physics.allocateId();
+    always.name = "anchored";
+    always.start = RigStart::Always;
+    always.bodies = {physics.bodies[0].id};
+    PhysicsRig death;
+    death.id = physics.allocateId();
+    death.name = "collapse";
+    death.start = RigStart::OnDeath;
+    death.bodies = {physics.bodies[1].id};
+    physics.rigs = {always, death};
+    for (const char* name : {"Death 01", "Stand"}) {
+        Clip clip;
+        clip.name = name;
+        clip.model = 0;
+        clip.duration = 1.0f;
+        clip.containers.emplace_back();
+        document.clips.push_back(clip);
+    }
+    return document;
+}
+
+} // namespace
+
+TEST_CASE("wem a Death clip is one by its name", "[wem][physics]") {
+    CHECK(IsDeathClipName("Death"));
+    CHECK(IsDeathClipName("death 02"));
+    CHECK(IsDeathClipName("Death Fire"));
+    CHECK_FALSE(IsDeathClipName("Deathwing"));
+    CHECK_FALSE(IsDeathClipName("Stand"));
+}
+
+TEST_CASE("wem a death rig comes on in the Death clips for StarCraft II", "[wem][physics]") {
+    Document document = RiggedDocument();
+    Diagnostics report;
+    FitPhysicsToProfile(document, ProfileId::Sc2, report);
+    const PhysicsSet& physics = document.models[0].physics;
+    // The model's death rig is the one SC2 switches, alone: the other's body goes.
+    REQUIRE(physics.bodies.size() == 1);
+    CHECK(report.countOf(DiagCode::PhysicsRigDropped) == 1u);
+    CHECK_FALSE(physics.bodies[0].simulates);
+    // The arm's own switch (channel 77) is keyed on in the Death clip only.
+    const auto clip = [&](const char* name) -> const Clip& {
+        return *std::find_if(document.clips.begin(), document.clips.end(),
+                             [&](const Clip& c) { return c.name == name; });
+    };
+    const SubTrack* death = FindSubTrack(clip("Death 01"), 77);
+    REQUIRE(death != nullptr);
+    CHECK(death->interp == Interpolation::Step);
+    REQUIRE(death->times.size() == 1);
+    f32 on = 0.0f;
+    std::memcpy(&on, death->values.data(), sizeof on);
+    CHECK(on == 1.0f);
+    CHECK(FindSubTrack(clip("Stand"), 77) == nullptr);
+}
+
+TEST_CASE("wem World of Warcraft keeps the rigs that start from creation", "[wem][physics]") {
+    Document document = RiggedDocument();
+    Diagnostics report;
+    FitPhysicsToProfile(document, ProfileId::Wow, report);
+    const PhysicsSet& physics = document.models[0].physics;
+    REQUIRE(physics.bodies.size() == 1);
+    CHECK(physics.bodies[0].node == 0); // the root's, from the Always rig
+    CHECK(physics.joints.empty());
+    CHECK(report.countOf(DiagCode::PhysicsRigDropped) == 1u);
+}
+
+TEST_CASE("wem a cage over the target's particles is decimated", "[wem][physics]") {
+    // A 20 x 20 grid of particles, its first row pinned, and one bound vertex.
+    Document document = makeDocument(ProfileId::Sc2);
+    Model& model = document.models[0];
+    model.nodes.add(Bone("root", kInvalidNode, 0));
+    geom::MeshBuilder builder;
+    MeshSection cage;
+    cage.flags = SectionFlags::Hidden | SectionFlags::ClothSimulated;
+    const u32 cageSection = builder.addSection(cage);
+    MeshSection drawn;
+    drawn.flags = SectionFlags::ClothInfluenced;
+    const u32 drawnSection = builder.addSection(drawn);
+    constexpr u32 kSide = 20;
+    for (u32 y = 0; y < kSide; ++y) {
+        for (u32 x = 0; x < kSide; ++x) {
+            const geom::VertexId v = builder.addVertex(Vector3f{static_cast<f32>(x), 0, -static_cast<f32>(y)});
+            builder.setVertexAttr(v, geom::names::kClothMovable, static_cast<u8>(y == 0 ? 0 : 1));
+            builder.addInfluence(v, 0, 1.0f);
+        }
+    }
+    for (u32 y = 0; y + 1 < kSide; ++y) {
+        for (u32 x = 0; x + 1 < kSide; ++x) {
+            const u32 a = y * kSide + x;
+            builder.addTriangle(geom::VertexId(a), geom::VertexId(a + 1), geom::VertexId(a + kSide), cageSection);
+            builder.addTriangle(geom::VertexId(a + 1), geom::VertexId(a + kSide + 1), geom::VertexId(a + kSide),
+                                cageSection);
+        }
+    }
+    // A drawn triangle, each corner bound to a particle near the bottom.
+    const u32 first = builder.vertexCount();
+    for (u32 k = 0; k < 3; ++k) {
+        builder.addVertex(Vector3f{static_cast<f32>(k), 1, -19});
+    }
+    builder.addTriangle(geom::VertexId(first), geom::VertexId(first + 1), geom::VertexId(first + 2), drawnSection);
+    const std::array<u32, 4> none{geom::kInvalidId, geom::kInvalidId, geom::kInvalidId, geom::kInvalidId};
+    for (u32 v = 0; v < builder.vertexCount(); ++v) {
+        std::array<u32, 4> lanes = none;
+        std::array<f32, 4> weights{0, 0, 0, 0};
+        if (v >= first) {
+            lanes[0] = (kSide - 1) * kSide + (v - first);
+            weights[0] = 1.0f;
+        }
+        builder.setVertexAttr(geom::VertexId(v), geom::names::kClothBindVertex, lanes);
+        builder.setVertexAttr(geom::VertexId(v), geom::names::kClothBindWeight, weights);
+    }
+    model.meshes = {builder.build().mesh};
+    Cloth cloth;
+    cloth.id = model.physics.allocateId();
+    cloth.cage = SectionRef{0, cageSection};
+    cloth.bindings.push_back(ClothBinding{SectionRef{0, drawnSection}});
+    model.physics.cloths.push_back(cloth);
+
+    Diagnostics report;
+    FitPhysicsToProfile(document, ProfileId::Sc2, report);
+    const Mesh& mesh = document.models[0].meshes[0];
+    std::set<u32> particles;
+    const geom::FaceSet& faces = mesh.faceSet();
+    const std::span<const u32> sections = mesh.faceSections();
+    std::size_t corner = 0;
+    for (std::size_t f = 0; f < faces.faceValence.size(); ++f) {
+        for (u32 k = 0; k < faces.faceValence[f]; ++k) {
+            if (sections[f] == cageSection) {
+                particles.insert(faces.cornerVertex[corner + k]);
+            }
+        }
+        corner += faces.faceValence[f];
+    }
+    CHECK(particles.size() <= 256u);
+    CHECK(particles.size() > 100u);
+    // The pinned top row survives as pins, and the binding still names the cage.
+    const auto movable = mesh.attributes.get<u8>(geom::names::kClothMovable, geom::Domain::Vertex);
+    std::size_t pinned = 0;
+    for (const u32 v : particles) {
+        pinned += movable[v] == 0 ? 1 : 0;
+    }
+    CHECK(pinned >= 2u);
+    CHECK_FALSE(PhysicsErrors(Validate(document, ValidateLevel::Structural)));
+    CHECK(report.countOf(DiagCode::ClothParticleLimit) == 1u);
+}
+
+TEST_CASE("wem physics rescales forces and torques at the fourth power", "[wem][physics]") {
+    Document document = PhysicsDocument();
+    PhysicsJoint& joint = document.models[0].physics.joints[0];
+    joint.breakForce = 1.0f;
+    joint.friction = JointFriction::Torque;
+    joint.frictionAmount = 2.0f;
+    REQUIRE(RescaleDocument(document, 2.0f).ok);
+    CHECK(document.models[0].physics.joints[0].breakForce == 16.0f);
+    CHECK(document.models[0].physics.joints[0].frictionAmount == 32.0f);
+}
+

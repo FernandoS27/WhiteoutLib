@@ -383,6 +383,7 @@ Codes are grouped by area and never renumbered once shipped: the recorded expect
         .value("CLOTH_ANCHOR_BONE_OUT_OF_RANGE", whiteout::models::wem::DiagCode::ClothAnchorBoneOutOfRange, R"doc(A cloth anchor names a bone past the byte the target stores.)doc")
         .value("CLOTH_SECTION_SPLIT", whiteout::models::wem::DiagCode::ClothSectionSplit, R"doc(A cloth section needs more bones than one region's palette.)doc")
         .value("CLOTH_TOPOLOGY_INVALID", whiteout::models::wem::DiagCode::ClothTopologyInvalid, R"doc(A cage not flagged, a binding in another mesh, a lane past the cage.)doc")
+        .value("PHYSICS_CHUNK_DROPPED", whiteout::models::wem::DiagCode::PhysicsChunkDropped, R"doc(A source chunk nothing reads (a `.phys` chunk no client knows).)doc")
         .value("COUNT", whiteout::models::wem::DiagCode::Count)
     ;
 
@@ -961,6 +962,13 @@ Stored, because a conversion rewrites the keys for another game and the rule has
         .value("COUNT", whiteout::models::wem::JointFriction::Count)
     ;
 
+    py::enum_<whiteout::models::wem::JointMotorMode>(m, "JointMotorMode", R"doc(A joint motor's mode (Domino's `motorMode`).)doc")
+        .value("OFF", whiteout::models::wem::JointMotorMode::Off)
+        .value("POSITION", whiteout::models::wem::JointMotorMode::Position)
+        .value("VELOCITY", whiteout::models::wem::JointMotorMode::Velocity)
+        .value("COUNT", whiteout::models::wem::JointMotorMode::Count)
+    ;
+
     py::enum_<whiteout::models::wem::ClothColliderKind>(m, "ClothColliderKind")
         .value("CAPSULE", whiteout::models::wem::ClothColliderKind::Capsule)
         .value("PLANE", whiteout::models::wem::ClothColliderKind::Plane)
@@ -973,6 +981,14 @@ Stored, because a conversion rewrites the keys for another game and the rule has
         .value("ALWAYS", whiteout::models::wem::RigStart::Always)
         .value("NEVER", whiteout::models::wem::RigStart::Never)
         .value("COUNT", whiteout::models::wem::RigStart::Count)
+    ;
+
+    py::enum_<whiteout::models::wem::WowPhysicsKind>(m, "WowPhysicsKind", R"doc(What World of Warcraft makes of a model's physics (`PHYT`). The file's 0 and 1 take the same branch in the client and are one kind here.)doc")
+        .value("WORN_ITEM", whiteout::models::wem::WowPhysicsKind::WornItem, R"doc(A ragdoll whose kinematic bodies follow the model, not their bones.)doc")
+        .value("VEGETATION", whiteout::models::wem::WowPhysicsKind::Vegetation, R"doc(A phantom built from the model's bounds, pushed by units. No bodies.)doc")
+        .value("RAGDOLL", whiteout::models::wem::WowPhysicsKind::Ragdoll, R"doc(A ragdoll in the shared world.)doc")
+        .value("PRIVATE_WORLD", whiteout::models::wem::WowPhysicsKind::PrivateWorld, R"doc(A ragdoll in a world of its own, solved with more position iterations.)doc")
+        .value("COUNT", whiteout::models::wem::WowPhysicsKind::Count)
     ;
 
     py::enum_<whiteout::models::wem::ValidateLevel>(m, "ValidateLevel")
@@ -993,6 +1009,7 @@ Empty for a profile whose format has none: its exports bake physics into keys in
         .def_readwrite("max_hull_faces", &whiteout::models::wem::PhysicsCaps::maxHullFaces)
         .def_readwrite("max_hull_half_edges", &whiteout::models::wem::PhysicsCaps::maxHullHalfEdges)
         .def_readwrite("max_cloth_anchor_bone", &whiteout::models::wem::PhysicsCaps::maxClothAnchorBone, R"doc(The highest bone index a cloth anchor may name.)doc")
+        .def_readwrite("switches", &whiteout::models::wem::PhysicsCaps::switches, R"doc(Whether animation switches a body or cloth on and off (StarCraft II's `PhysicsDynamic` and `ClothActive` keys). Without it, what the target builds simulates from creation.)doc")
     ;
 
     py::class_<whiteout::models::wem::ProfileDesc>(m, "ProfileDesc", R"doc(Everything WEM knows about a profile, as data.)doc")
@@ -1288,36 +1305,6 @@ The importer's path, and only the importer's: this is the call that says "I am d
         .def("native_is_authoritative", &whiteout::models::wem::Material::NativeIsAuthoritative, R"doc(§7.1: a consumer reading this material draws from the native block.)doc")
         .def("needs_native_re_derive", &whiteout::models::wem::Material::NeedsNativeReDerive, R"doc(An exporter that sees this must re-derive the native block or refuse.)doc")
         .def("skipped_native", &whiteout::models::wem::Material::skippedNative, R"doc(The native block this build could not read, if there was one. Not the block -- its bytes are preserved at the container level -- but the two facts the record itself has to carry: what kind it was, and which index-table slot it is still in.)doc")
-    ;
-
-    py::class_<whiteout::models::wem::geom::SkinBinding>(m, "SkinBinding", R"doc(Per-vertex influences in CSR form.
-
-`offsets` is `vertexCount + 1` entries; vertex `v` owns `influences[offsets[v] .. offsets[v + 1])`, sorted by descending weight. An empty binding (`offsets.empty()`) means the mesh is not skinned at all, which is different from every vertex having zero influences.)doc")
-        .def(py::init<>())
-        .def_readwrite("offsets", &whiteout::models::wem::geom::SkinBinding::offsets)
-        .def("empty", &whiteout::models::wem::geom::SkinBinding::empty)
-        .def("vertex_count", &whiteout::models::wem::geom::SkinBinding::vertexCount)
-        .def("for_vertex", py::overload_cast<whiteout::u32>(&whiteout::models::wem::geom::SkinBinding::forVertex, py::const_), py::arg("vertex"))
-        .def("max_influences", &whiteout::models::wem::geom::SkinBinding::maxInfluences, R"doc(Widest influence count over all vertices — what an exporter compares against `ProfileDesc::maxBoneInfluences`.)doc")
-        .def("reset", &whiteout::models::wem::geom::SkinBinding::reset, py::arg("vertexCount"), R"doc(Starts an empty binding for @p vertexCount vertices, all unskinned.)doc")
-        .def("append_vertex", &whiteout::models::wem::geom::SkinBinding::appendVertex, py::arg("values"), R"doc(Appends one vertex's influences at the end. Valid only while building in vertex order, which is how importers and `VertexSplit` both work.)doc")
-        .def("assign_vertex", &whiteout::models::wem::geom::SkinBinding::assignVertex, py::arg("vertex"), py::arg("values"), R"doc(Replaces one vertex's influences, whatever their count.
-
-The binding is CSR, so this splices: every later vertex's influences move and every later offset shifts. It is what an editor writes through -- `appendVertex` only ever grows the array, and a `reset(n)` before it yields n + k vertices rather than k.
-
-The vertex is left sorted heaviest first, with ties by bone, which is the order `SkinBinding` documents and the render view relies on. A vertex past the binding is ignored; an empty binding stays empty.)doc")
-        .def("append_copy_of", &whiteout::models::wem::geom::SkinBinding::appendCopyOf, py::arg("source"), R"doc(Appends a vertex whose influences copy @p source's — what a `VertexSplit` needs, since a split always creates its vertex at the end.)doc")
-        .def("remap_vertices",
-            [](whiteout::models::wem::geom::SkinBinding& self, py::array_t<whiteout::u32, py::array::c_style | py::array::forcecast> __py_arr_0, whiteout::u32 newCount) {
-                auto __buf_0 = __py_arr_0.request();
-                std::span<const whiteout::u32> remap(
-                    static_cast<const whiteout::u32*>(__buf_0.ptr),
-                    static_cast<std::size_t>(__buf_0.size));
-                self.remapVertices(remap, newCount);
-            }, py::arg("remap"), py::arg("newCount"), R"doc(Rebuilds through a `GarbageCollection` table; `remap[old] == kInvalidId` drops the vertex.)doc")
-        .def("normalize", &whiteout::models::wem::geom::SkinBinding::normalize, R"doc(Scales each vertex's weights to sum to 1. Vertices with no influence, or with a total of zero, are left alone.)doc")
-        .def("is_normalized", &whiteout::models::wem::geom::SkinBinding::isNormalized, py::arg("tolerance") = whiteout::f32{}, R"doc(True when every skinned vertex's weights sum to 1 within @p tolerance.)doc")
-        .def("sort_by_weight", &whiteout::models::wem::geom::SkinBinding::sortByWeight, R"doc(Sorts each vertex's influences by descending weight — the documented order, which import must establish and edits must preserve.)doc")
     ;
 
     bind_wem_1(m);

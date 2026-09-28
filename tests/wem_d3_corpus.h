@@ -92,6 +92,10 @@ private:
             return "Anim";
         case d3n::Group::AnimSet:
             return "AnimSet";
+        case d3n::Group::Physics:
+            return "Physics";
+        case d3n::Group::Cloth:
+            return "Cloth";
         default:
             return nullptr;
         }

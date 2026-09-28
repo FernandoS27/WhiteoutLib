@@ -604,6 +604,16 @@ m3::PhysicsShape ExportShape(const PhysicsShape& shape, ProfileId profile, u32 b
         out.shapeDimensions = {shape.radius, 0.0f, 0.0f};
         break;
     case PhysicsShapeKind::Capsule:
+        if (shape.points.size() == 2) {
+            // Stated by its ends: StarCraft II's centred frame through them.
+            const auto [a, b] = CapsuleEnds(shape);
+            f32 length = 0.0f;
+            out.transform = UnrebaseFrame(CapsuleFrame(a, b, length));
+            out.shapeDimensions = {shape.radius, length, 0.0f};
+            break;
+        }
+        out.shapeDimensions = {shape.radius, shape.length, 0.0f};
+        break;
     case PhysicsShapeKind::Cylinder:
         out.shapeDimensions = {shape.radius, shape.length, 0.0f};
         break;
@@ -778,10 +788,12 @@ ExportRecords Export(const Model& model, ProfileId profile, const ClothEmission&
                              "a joint's body is not the first on its node, which StarCraft II binds",
                              ElementRef(ElementKind::PhysicsRecord, joint.id), profile);
         }
+        // A motor is another game's: its spring is not StarCraft II's weld spring.
+        const bool motor = joint.motor != JointMotorMode::Off;
         if (joint.linearSpring.hz != 0.0f || joint.restLength != 0.0f || joint.breakForce != 0.0f ||
-            joint.breakTorque != 0.0f || joint.friction == JointFriction::Torque) {
+            joint.breakTorque != 0.0f || joint.friction == JointFriction::Torque || motor) {
             diagnostics.info(DiagCode::PhysicsJointFieldDropped,
-                             "a joint's springs, rest length, breaking or friction torque",
+                             "a joint's springs, rest length, breaking, friction torque or motor",
                              ElementRef(ElementKind::PhysicsRecord, joint.id), profile);
         }
         m3::PhysicsJoint record;
@@ -795,9 +807,9 @@ ExportRecords Export(const Model& model, ProfileId profile, const ClothEmission&
         record.limitMax = joint.upper;
         record.coneAngle = joint.cone;
         record.enableFriction = joint.friction == JointFriction::GravityHold ? 1u : 0u;
-        record.friction = joint.frictionAmount;
-        record.dampingRatio = joint.angularSpring.damping;
-        record.angularFrequency = joint.angularSpring.hz;
+        record.friction = joint.friction == JointFriction::Torque ? 0.0f : joint.frictionAmount;
+        record.dampingRatio = motor ? 0.0f : joint.angularSpring.damping;
+        record.angularFrequency = motor ? 0.0f : joint.angularSpring.hz;
         record.breakThreshold = 1.0f; // never read; the retail value
         record.enableShape = joint.collideConnected ? 1u : 0u;
         record.forceVersion(0);
@@ -805,6 +817,16 @@ ExportRecords Export(const Model& model, ProfileId profile, const ClothEmission&
     }
 
     // --- cloth ---------------------------------------------------------------
+    // PHCC holds capsules only: a plane is left out.
+    const auto writable = [&](u32 id) {
+        const ClothCollider* collider = physics.collider(id);
+        if (collider != nullptr && collider->kind != ClothColliderKind::Capsule) {
+            diagnostics.warn(DiagCode::PhysicsUnsupported, "a plane cloth collider, which PHCC cannot hold; not written",
+                             ElementRef(ElementKind::PhysicsRecord, id), profile);
+            return false;
+        }
+        return collider != nullptr;
+    };
     const auto colliderRecord = [&](const ClothCollider& collider, std::set<u32>& bones) {
         m3::ClothCollider record;
         record.transform = UnrebaseFrame(collider.transform);
@@ -814,10 +836,6 @@ ExportRecords Export(const Model& model, ProfileId profile, const ClothEmission&
         record.bone = bone > 0xFFFFu ? kNoBone : bone;
         if (record.bone != kNoBone) {
             bones.insert(record.bone);
-        }
-        if (collider.kind != ClothColliderKind::Capsule) {
-            diagnostics.warn(DiagCode::PhysicsUnsupported, "a plane cloth collider; written as a capsule",
-                             ElementRef(ElementKind::PhysicsRecord, collider.id), profile);
         }
         return record;
     };
@@ -832,11 +850,14 @@ ExportRecords Export(const Model& model, ProfileId profile, const ClothEmission&
         }
         const CageRegion& written = cage->second;
         const std::size_t particles = written.vertices.size();
+        // `FitPhysicsToProfile` decimated what it could; what is left out of
+        // range is not written, the bound sections drawing skinned.
         if (particles < 3 || particles > caps.maxClothParticles) {
             diagnostics.warn(DiagCode::ClothParticleLimit,
                              "a cage of " + std::to_string(particles) + " particles, outside 3-" +
-                                 std::to_string(caps.maxClothParticles),
+                                 std::to_string(caps.maxClothParticles) + "; not written",
                              ElementRef(ElementKind::PhysicsRecord, cloth.id), profile);
+            continue;
         }
         m3::ClothPhysics record;
         record.cageRegion = written.region;
@@ -859,12 +880,10 @@ ExportRecords Export(const Model& model, ProfileId profile, const ClothEmission&
         record.vertexBones = written.bones;
         record.vertexWeights = written.weights;
         for (const u32 id : cloth.colliders) {
-            const ClothCollider* collider = physics.collider(id);
-            if (collider == nullptr) {
-                continue;
-            }
             usedColliders.insert(id);
-            record.colliders.push_back(colliderRecord(*collider, bones));
+            if (writable(id)) {
+                record.colliders.push_back(colliderRecord(*physics.collider(id), bones));
+            }
         }
         // The cage-local number of each WEM vertex, for the PHAC lanes.
         std::map<u32, u16> cageLocal;
@@ -942,7 +961,7 @@ ExportRecords Export(const Model& model, ProfileId profile, const ClothEmission&
     m3::ClothPhysics offered;
     std::set<u32> offeredBones;
     for (const ClothCollider& collider : physics.colliders) {
-        if (usedColliders.count(collider.id) == 0) {
+        if (usedColliders.count(collider.id) == 0 && writable(collider.id)) {
             offered.colliders.push_back(colliderRecord(collider, offeredBones));
         }
     }

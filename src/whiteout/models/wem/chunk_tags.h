@@ -537,21 +537,21 @@ struct ChunkTagTraits<StageSource> {
 template <>
 struct ChunkTagTraits<PhysicsBody> {
     static constexpr u32 value = kTag("PBDY");
-    static constexpr u32 max_version = 1;
+    static constexpr u32 max_version = 2; // v2: the `wow` extension
     static constexpr bool is_trivial = false;
 };
 
 template <>
 struct ChunkTagTraits<PhysicsShape> {
     static constexpr u32 value = kTag("PSHP");
-    static constexpr u32 max_version = 1;
+    static constexpr u32 max_version = 2; // v2: `gameFlags`
     static constexpr bool is_trivial = false;
 };
 
 template <>
 struct ChunkTagTraits<PhysicsJoint> {
     static constexpr u32 value = kTag("PJNT");
-    static constexpr u32 max_version = 1;
+    static constexpr u32 max_version = 2; // v2: the motor and the reference translation
     static constexpr bool is_trivial = false;
 };
 
@@ -579,7 +579,7 @@ struct ChunkTagTraits<ClothBinding> {
 template <>
 struct ChunkTagTraits<PhysicsRig> {
     static constexpr u32 value = kTag("PRIG");
-    static constexpr u32 max_version = 1;
+    static constexpr u32 max_version = 2; // v2: the `wow` extension
     static constexpr bool is_trivial = false;
 };
 

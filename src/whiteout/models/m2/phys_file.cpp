@@ -6,6 +6,7 @@
 #include "binary_writer_visitor.h"
 #include "chunk_parser.h"
 
+#include <cmath>
 #include <cstring>
 
 namespace whiteout {
@@ -13,6 +14,21 @@ namespace m2 {
 
 using common::BinaryReader;
 using common::BinaryWriter;
+
+f32 capsuleDensity(f32 density, const CapsuleShape& capsule, u16 version) {
+    if (version > 4) {
+        return density;
+    }
+    // Older exporters sized the caps as a sphere volume missing its pi.
+    constexpr f32 kPi = 3.14159265f;
+    const f32 dx = capsule.localPosition2.x - capsule.localPosition1.x;
+    const f32 dy = capsule.localPosition2.y - capsule.localPosition1.y;
+    const f32 dz = capsule.localPosition2.z - capsule.localPosition1.z;
+    const f32 r3 = capsule.radius * capsule.radius * capsule.radius;
+    const f32 cylinder = std::sqrt(dx * dx + dy * dy + dz * dz) * kPi * capsule.radius * capsule.radius;
+    const f32 authored = (4.0f / 3.0f) * kPi * r3 + cylinder;
+    return authored > 0.0f ? density * ((4.0f / 3.0f) * r3 + cylinder) / authored : density;
+}
 
 std::optional<PhysicsData> parsePhysics(std::span<const u8> data,
                                         std::vector<std::string>* issues) {

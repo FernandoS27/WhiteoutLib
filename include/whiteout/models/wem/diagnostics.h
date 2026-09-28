@@ -193,6 +193,8 @@ enum class DiagCode : u16 {
     ClothAnchorBoneOutOfRange,   ///< A cloth anchor names a bone past the byte the target stores.
     ClothSectionSplit,           ///< A cloth section needs more bones than one region's palette.
     ClothTopologyInvalid,        ///< A cage not flagged, a binding in another mesh, a lane past the cage.
+    PhysicsChunkDropped,         ///< A source chunk nothing reads (a `.phys` chunk no client knows).
+    PhysicsRigDropped,           ///< A rig the target cannot start its way; its own bodies are not written.
 
     Count
 };

@@ -161,6 +161,24 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 2 of bind_wem(), which calls the parts in order.
 void bind_wem_2(py::module_& m) {
+    py::class_<whiteout::models::wem::PhysicsBody>(m, "PhysicsBody")
+        .def(py::init<>())
+        .def_readwrite("id", &whiteout::models::wem::PhysicsBody::id)
+        .def_readwrite("node", &whiteout::models::wem::PhysicsBody::node)
+        .def_readwrite("motion", &whiteout::models::wem::PhysicsBody::motion)
+        .def_readwrite("simulates", &whiteout::models::wem::PhysicsBody::simulates, R"doc(The rest value of `Channel::PhysicsDynamic`: whether it simulates where no key says otherwise.)doc")
+        .def_readwrite("shapes", &whiteout::models::wem::PhysicsBody::shapes)
+        .def_readwrite("linear_damping", &whiteout::models::wem::PhysicsBody::linearDamping)
+        .def_readwrite("angular_damping", &whiteout::models::wem::PhysicsBody::angularDamping)
+        .def_readwrite("inertia_scale", &whiteout::models::wem::PhysicsBody::inertiaScale)
+        .def_readwrite("gravity_scale", &whiteout::models::wem::PhysicsBody::gravityScale, R"doc(StarCraft II hard-wires 1; World of Warcraft authors it.)doc")
+        .def_readwrite("inherit_dynamic", &whiteout::models::wem::PhysicsBody::inheritDynamic, R"doc(Takes the nearest bodied ancestor's current state instead of its own (StarCraft II flag 0x40).)doc")
+        .def_readwrite("exempt_from_ragdoll", &whiteout::models::wem::PhysicsBody::exemptFromRagdoll, R"doc(Stays kinematic when the model ragdolls (StarCraft II flag 0x100).)doc")
+        .def_readwrite("force_channels", &whiteout::models::wem::PhysicsBody::forceChannels, R"doc(Which force fields act on it: matched against `ForceFieldPayload::channels`. StarCraft II's `localForces | worldForces << 16`.)doc")
+        .def_readwrite("sc2", &whiteout::models::wem::PhysicsBody::sc2)
+        .def_readwrite("wow", &whiteout::models::wem::PhysicsBody::wow)
+    ;
+
     py::class_<whiteout::models::wem::JointSpring>(m, "JointSpring")
         .def(py::init<>())
         .def_readwrite("hz", &whiteout::models::wem::JointSpring::hz)
@@ -175,8 +193,8 @@ void bind_wem_2(py::module_& m) {
         .def_readwrite("kind", &whiteout::models::wem::PhysicsJoint::kind)
         .def_readwrite("collide_connected", &whiteout::models::wem::PhysicsJoint::collideConnected)
         .def_readwrite("limit_enabled", &whiteout::models::wem::PhysicsJoint::limitEnabled)
-        .def_readwrite("lower", &whiteout::models::wem::PhysicsJoint::lower, R"doc(Radians.)doc")
-        .def_readwrite("upper", &whiteout::models::wem::PhysicsJoint::upper, R"doc(Radians.)doc")
+        .def_readwrite("lower", &whiteout::models::wem::PhysicsJoint::lower, R"doc(Radians; a distance for Prismatic.)doc")
+        .def_readwrite("upper", &whiteout::models::wem::PhysicsJoint::upper, R"doc(Radians; a distance for Prismatic.)doc")
         .def_readwrite("cone", &whiteout::models::wem::PhysicsJoint::cone, R"doc(Radians; a runtime clamps it to [10°, 170°] on use.)doc")
         .def_readwrite("friction", &whiteout::models::wem::PhysicsJoint::friction)
         .def_readwrite("friction_amount", &whiteout::models::wem::PhysicsJoint::frictionAmount)
@@ -185,6 +203,10 @@ void bind_wem_2(py::module_& m) {
         .def_readwrite("rest_length", &whiteout::models::wem::PhysicsJoint::restLength, R"doc(Distance joint.)doc")
         .def_readwrite("break_force", &whiteout::models::wem::PhysicsJoint::breakForce, R"doc(0 = unbreakable.)doc")
         .def_readwrite("break_torque", &whiteout::models::wem::PhysicsJoint::breakTorque, R"doc(0 = unbreakable.)doc")
+        .def_readwrite("motor", &whiteout::models::wem::PhysicsJoint::motor, R"doc(The motor of a ConeTwist, Revolute or Prismatic joint. Its spring is the free axis's: `angularSpring`, or `linearSpring` for Prismatic.)doc")
+        .def_readwrite("max_motor_force", &whiteout::models::wem::PhysicsJoint::maxMotorForce, R"doc(A torque; a force for Prismatic.)doc")
+        .def_readwrite("motor_speed", &whiteout::models::wem::PhysicsJoint::motorSpeed, R"doc(Prismatic: the target velocity.)doc")
+        .def_readwrite("reference_translation", &whiteout::models::wem::PhysicsJoint::referenceTranslation, R"doc(Prismatic: where the limits are measured from.)doc")
     ;
 
     py::class_<whiteout::models::wem::SectionRef>(m, "SectionRef", R"doc(A section of a mesh of the same model.)doc")
@@ -243,12 +265,30 @@ void bind_wem_2(py::module_& m) {
         .def_readwrite("sc2", &whiteout::models::wem::Cloth::sc2)
     ;
 
+    py::class_<whiteout::models::wem::WowVegetation>(m, "WowVegetation", R"doc(`PHYV`: the six `physVeg*` values a vegetation phantom is pushed by, in yards (`PHYS_FORMAT.md` §3.9).)doc")
+        .def(py::init<>())
+        .def_readwrite("pos_max_push", &whiteout::models::wem::WowVegetation::posMaxPush)
+        .def_readwrite("pos_push_amt", &whiteout::models::wem::WowVegetation::posPushAmt)
+        .def_readwrite("pos_relax_speed", &whiteout::models::wem::WowVegetation::posRelaxSpeed)
+        .def_readwrite("vel_max_push", &whiteout::models::wem::WowVegetation::velMaxPush)
+        .def_readwrite("vel_speed", &whiteout::models::wem::WowVegetation::velSpeed)
+        .def_readwrite("min_push_dist", &whiteout::models::wem::WowVegetation::minPushDist, R"doc(Squared.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::WowRigExtension>(m, "WowRigExtension", R"doc(What only World of Warcraft means by a rig: the object its physics becomes.)doc")
+        .def(py::init<>())
+        .def_readwrite("kind", &whiteout::models::wem::WowRigExtension::kind)
+        .def_readwrite("vegetation", &whiteout::models::wem::WowRigExtension::vegetation)
+        .def_readwrite("allow_list", &whiteout::models::wem::WowRigExtension::allowList, R"doc(`PHAO`: name CRCs of the host skeletons whose wearer keeps the bodies' follow factors. On any other host they give way to a flat 0.7.)doc")
+    ;
+
     py::class_<whiteout::models::wem::PhysicsRig>(m, "PhysicsRig", R"doc(A named subset of bodies a game switches on at once (World of Warcraft, Diablo III). StarCraft II has none: its import makes none and its export ignores them.)doc")
         .def(py::init<>())
         .def_readwrite("id", &whiteout::models::wem::PhysicsRig::id)
         .def_readwrite("name", &whiteout::models::wem::PhysicsRig::name)
         .def_readwrite("start", &whiteout::models::wem::PhysicsRig::start)
         .def_readwrite("bodies", &whiteout::models::wem::PhysicsRig::bodies, R"doc(Body ids.)doc")
+        .def_readwrite("wow", &whiteout::models::wem::PhysicsRig::wow)
     ;
 
     py::class_<whiteout::models::wem::PhysicsSet>(m, "PhysicsSet")
@@ -477,5 +517,4 @@ Colours are RGBA in 0..1, the channel convention; a `u16` squirt count widens to
     py::bind_vector<std::vector<whiteout::models::wem::Diagnostic>>(m, "VectorWemDiagnostic");
     py::bind_vector<std::vector<whiteout::models::wem::Diagnostics::CodeCount>>(m, "VectorDiagnosticsCodeCount");
     py::bind_vector<std::vector<whiteout::models::wem::Look>>(m, "VectorWemLook");
-    py::bind_vector<std::vector<whiteout::models::wem::Material>>(m, "VectorWemMaterial");
 }

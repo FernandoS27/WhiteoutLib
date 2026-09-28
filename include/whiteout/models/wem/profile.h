@@ -265,6 +265,10 @@ struct PhysicsCaps {
     u32 maxHullFaces = 0;
     u32 maxHullHalfEdges = 0;
     u32 maxClothAnchorBone = 0; ///< The highest bone index a cloth anchor may name.
+    /// Whether animation switches a body or cloth on and off (StarCraft II's
+    /// `PhysicsDynamic` and `ClothActive` keys). Without it, what the target
+    /// builds simulates from creation.
+    bool switches = false;
 
     bool any() const {
         return shapeKinds != 0 || cloth;

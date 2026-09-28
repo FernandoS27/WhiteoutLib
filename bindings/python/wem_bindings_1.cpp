@@ -161,6 +161,36 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 1 of bind_wem(), which calls the parts in order.
 void bind_wem_1(py::module_& m) {
+    py::class_<whiteout::models::wem::geom::SkinBinding>(m, "SkinBinding", R"doc(Per-vertex influences in CSR form.
+
+`offsets` is `vertexCount + 1` entries; vertex `v` owns `influences[offsets[v] .. offsets[v + 1])`, sorted by descending weight. An empty binding (`offsets.empty()`) means the mesh is not skinned at all, which is different from every vertex having zero influences.)doc")
+        .def(py::init<>())
+        .def_readwrite("offsets", &whiteout::models::wem::geom::SkinBinding::offsets)
+        .def("empty", &whiteout::models::wem::geom::SkinBinding::empty)
+        .def("vertex_count", &whiteout::models::wem::geom::SkinBinding::vertexCount)
+        .def("for_vertex", py::overload_cast<whiteout::u32>(&whiteout::models::wem::geom::SkinBinding::forVertex, py::const_), py::arg("vertex"))
+        .def("max_influences", &whiteout::models::wem::geom::SkinBinding::maxInfluences, R"doc(Widest influence count over all vertices — what an exporter compares against `ProfileDesc::maxBoneInfluences`.)doc")
+        .def("reset", &whiteout::models::wem::geom::SkinBinding::reset, py::arg("vertexCount"), R"doc(Starts an empty binding for @p vertexCount vertices, all unskinned.)doc")
+        .def("append_vertex", &whiteout::models::wem::geom::SkinBinding::appendVertex, py::arg("values"), R"doc(Appends one vertex's influences at the end. Valid only while building in vertex order, which is how importers and `VertexSplit` both work.)doc")
+        .def("assign_vertex", &whiteout::models::wem::geom::SkinBinding::assignVertex, py::arg("vertex"), py::arg("values"), R"doc(Replaces one vertex's influences, whatever their count.
+
+The binding is CSR, so this splices: every later vertex's influences move and every later offset shifts. It is what an editor writes through -- `appendVertex` only ever grows the array, and a `reset(n)` before it yields n + k vertices rather than k.
+
+The vertex is left sorted heaviest first, with ties by bone, which is the order `SkinBinding` documents and the render view relies on. A vertex past the binding is ignored; an empty binding stays empty.)doc")
+        .def("append_copy_of", &whiteout::models::wem::geom::SkinBinding::appendCopyOf, py::arg("source"), R"doc(Appends a vertex whose influences copy @p source's — what a `VertexSplit` needs, since a split always creates its vertex at the end.)doc")
+        .def("remap_vertices",
+            [](whiteout::models::wem::geom::SkinBinding& self, py::array_t<whiteout::u32, py::array::c_style | py::array::forcecast> __py_arr_0, whiteout::u32 newCount) {
+                auto __buf_0 = __py_arr_0.request();
+                std::span<const whiteout::u32> remap(
+                    static_cast<const whiteout::u32*>(__buf_0.ptr),
+                    static_cast<std::size_t>(__buf_0.size));
+                self.remapVertices(remap, newCount);
+            }, py::arg("remap"), py::arg("newCount"), R"doc(Rebuilds through a `GarbageCollection` table; `remap[old] == kInvalidId` drops the vertex.)doc")
+        .def("normalize", &whiteout::models::wem::geom::SkinBinding::normalize, R"doc(Scales each vertex's weights to sum to 1. Vertices with no influence, or with a total of zero, are left alone.)doc")
+        .def("is_normalized", &whiteout::models::wem::geom::SkinBinding::isNormalized, py::arg("tolerance") = whiteout::f32{}, R"doc(True when every skinned vertex's weights sum to 1 within @p tolerance.)doc")
+        .def("sort_by_weight", &whiteout::models::wem::geom::SkinBinding::sortByWeight, R"doc(Sorts each vertex's influences by descending weight — the documented order, which import must establish and edits must preserve.)doc")
+    ;
+
     py::class_<whiteout::models::wem::MeshSection>(m, "MeshSection", R"doc(Metadata only; one per draw section. The faces that belong to it are the ones whose `section` attribute names it.)doc")
         .def(py::init<>())
         .def_readwrite("name", &whiteout::models::wem::MeshSection::name)
@@ -895,11 +925,12 @@ D3's `.ans` is the shape this exists for: 30 tag maps in one asset, one core and
         .def_readwrite("kind", &whiteout::models::wem::PhysicsShape::kind)
         .def_readwrite("half_extents", &whiteout::models::wem::PhysicsShape::halfExtents, R"doc(Box.)doc")
         .def_readwrite("radius", &whiteout::models::wem::PhysicsShape::radius, R"doc(Sphere, capsule, cylinder.)doc")
-        .def_readwrite("length", &whiteout::models::wem::PhysicsShape::length, R"doc(Along own +Z: a capsule's between its cap centres, a cylinder's whole.)doc")
-        .def_readwrite("points", &whiteout::models::wem::PhysicsShape::points, R"doc(Convex hull: the vertex set, own frame.)doc")
+        .def_readwrite("length", &whiteout::models::wem::PhysicsShape::length, R"doc(Along own +Z, centred: a cylinder's whole, and a capsule's between its cap centres when it does not state them in `points`.)doc")
+        .def_readwrite("points", &whiteout::models::wem::PhysicsShape::points, R"doc(Own frame. A convex hull's vertex set; a capsule's two cap centres when the source states its ends (World of Warcraft, Diablo III), which a centred frame cannot hold to the bit.)doc")
         .def_readwrite("vertices", &whiteout::models::wem::PhysicsShape::vertices, R"doc(Triangle mesh, own frame.)doc")
         .def_readwrite("triangles", &whiteout::models::wem::PhysicsShape::triangles, R"doc(Triangle mesh, three per face.)doc")
         .def_readwrite("material", &whiteout::models::wem::PhysicsShape::material)
+        .def_readwrite("game_flags", &whiteout::models::wem::PhysicsShape::gameFlags, R"doc(Domino's fixture `gameFlags`, for a game's contact callbacks. World of Warcraft authors it (0 in every shipped shape).)doc")
     ;
 
     py::class_<whiteout::models::wem::Sc2BodyExtension>(m, "Sc2BodyExtension", R"doc(What only StarCraft II means by a body.)doc")
@@ -913,21 +944,12 @@ D3's `.ans` is the shape this exists for: 30 tag maps in one asset, one core and
         .def_readwrite("untraced_flags", &whiteout::models::wem::Sc2BodyExtension::untracedFlags, R"doc(Flags 0x10, 0x20 and 0x200: consistently authored, no reader found in the client yet (WEM_PHYSICS_DESIGN.md §14), so kept as they came.)doc")
     ;
 
-    py::class_<whiteout::models::wem::PhysicsBody>(m, "PhysicsBody")
+    py::class_<whiteout::models::wem::WowBodyExtension>(m, "WowBodyExtension", R"doc(What only World of Warcraft means by a body: its kinematic drive and how the runtime groups bodies (`PHYS_FORMAT.md` §3.1, §4.6).)doc")
         .def(py::init<>())
-        .def_readwrite("id", &whiteout::models::wem::PhysicsBody::id)
-        .def_readwrite("node", &whiteout::models::wem::PhysicsBody::node)
-        .def_readwrite("motion", &whiteout::models::wem::PhysicsBody::motion)
-        .def_readwrite("simulates", &whiteout::models::wem::PhysicsBody::simulates, R"doc(The rest value of `Channel::PhysicsDynamic`: whether it simulates where no key says otherwise.)doc")
-        .def_readwrite("shapes", &whiteout::models::wem::PhysicsBody::shapes)
-        .def_readwrite("linear_damping", &whiteout::models::wem::PhysicsBody::linearDamping)
-        .def_readwrite("angular_damping", &whiteout::models::wem::PhysicsBody::angularDamping)
-        .def_readwrite("inertia_scale", &whiteout::models::wem::PhysicsBody::inertiaScale)
-        .def_readwrite("gravity_scale", &whiteout::models::wem::PhysicsBody::gravityScale, R"doc(StarCraft II hard-wires 1; World of Warcraft authors it.)doc")
-        .def_readwrite("inherit_dynamic", &whiteout::models::wem::PhysicsBody::inheritDynamic, R"doc(Takes the nearest bodied ancestor's current state instead of its own (StarCraft II flag 0x40).)doc")
-        .def_readwrite("exempt_from_ragdoll", &whiteout::models::wem::PhysicsBody::exemptFromRagdoll, R"doc(Stays kinematic when the model ragdolls (StarCraft II flag 0x100).)doc")
-        .def_readwrite("force_channels", &whiteout::models::wem::PhysicsBody::forceChannels, R"doc(Which force fields act on it: matched against `ForceFieldPayload::channels`. StarCraft II's `localForces | worldForces << 16`.)doc")
-        .def_readwrite("sc2", &whiteout::models::wem::PhysicsBody::sc2)
+        .def_readwrite("follow_factor", &whiteout::models::wem::WowBodyExtension::followFactor, R"doc(The fraction of the way a kinematic body is snapped to its bone each step, before the fast-motion ramp takes over. Not a Domino parameter.)doc")
+        .def_readwrite("has_children", &whiteout::models::wem::WowBodyExtension::hasChildren, R"doc(A kinematic body other bodies hang off: its snap carries them.)doc")
+        .def_readwrite("ragdoll_root", &whiteout::models::wem::WowBodyExtension::ragdollRoot, R"doc(The ragdoll's root: its snap carries the groups of kinematic bodies that have no children.)doc")
+        .def_readwrite("parent", &whiteout::models::wem::WowBodyExtension::parent, R"doc(A dynamic body: the kinematic body it hangs off, by id. 0 writes as the first body, as the file's own zero does.)doc")
     ;
 
 }

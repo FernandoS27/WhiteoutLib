@@ -34,5 +34,13 @@ std::optional<PhysicsData> parsePhysics(std::span<const u8> data,
 /// which is the only place it applies.
 std::vector<u8> writePhysics(const PhysicsData& physics);
 
+/// The multiply the client turns a shoulder or revolute angle into radians
+/// with: degrees on disk (`PHYS_FORMAT.md` §3.8).
+inline constexpr f32 kPhysicsDegreesToRadians = 3.14159265f / 180.0f;
+
+/// @brief @p density as the client uses it for @p capsule: rescaled in a file
+///        of version 4 or below (`PHYS_FORMAT.md` §4.2), as it is otherwise.
+f32 capsuleDensity(f32 density, const CapsuleShape& capsule, u16 version);
+
 } // namespace m2
 } // namespace whiteout

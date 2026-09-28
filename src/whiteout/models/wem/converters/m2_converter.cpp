@@ -41,6 +41,7 @@
 #include "../../../common/checksum.h"
 #include "../materials/m2_core.h"
 #include "m2_anim.h"
+#include "m2_physics.h"
 #include "skin_skeleton.h"
 
 #include <algorithm>
@@ -667,6 +668,9 @@ Result<Document> M2Converter::fromM2(const m2::Model& source, u32 sourceVersion)
     set.resizeBindings(model.materialSlots.size());
     model.profileSets.push_back(std::move(set));
 
+    // Bones are nodes 0..n-1, as `ImportNodes` numbers them.
+    m2_physics::Import(source, model, diagnostics);
+
     const u32 modelIndex = static_cast<u32>(document.models.size());
     document.models.push_back(std::move(model));
     m2_anim::Import(source, animContext, document, modelIndex, diagnostics);
@@ -749,7 +753,11 @@ Result<m2::Model> M2Converter::toM2(const Document& document, ProfileId profile,
             boneOf[node.parent] != 0xFFFFu) {
             bone.parentBoneId = static_cast<i16>(boneOf[node.parent]);
         }
-        bone.pivot = model.nodes.worldBind(static_cast<u32>(n)).translation;
+        // A pivot rig states the rest as the pivot, which composing the local
+        // offsets gives back only to the last bit (as `toMdx`'s `PIVT`).
+        bone.pivot = model.nodes.rig == RigConvention::PivotRelative
+                         ? node.pivot
+                         : model.nodes.worldBind(static_cast<u32>(n)).translation;
         out.bones.push_back(std::move(bone));
     }
 
@@ -812,6 +820,28 @@ Result<m2::Model> M2Converter::toM2(const Document& document, ProfileId profile,
         default:
             break;
         }
+    }
+
+    // --- physics ------------------------------------------------------------
+    //
+    // Written inline at version 6, with the two flags every shipped physics
+    // model carries. A dynamic body's bone must be flagged kinematic for the
+    // animation to leave it to the body; a bone from another game has no
+    // flags to say so, and gets it.
+    const auto boneOfNode = [&](u32 node) { return node < boneOf.size() ? boneOf[node] : 0xFFFFu; };
+    if (std::optional<m2::PhysicsData> physics = m2_physics::Export(model, profile, boneOfNode, diagnostics)) {
+        for (const PhysicsBody& body : model.physics.bodies) {
+            const u32 bone = boneOfNode(body.node);
+            if (body.motion == BodyMotion::Dynamic && bone < out.bones.size() &&
+                model.nodes.nodes[body.node].native.find("m2FlagBits") == nullptr) {
+                out.bones[bone].flags |= static_cast<u32>(m2::BoneFlag::Kinematic);
+            }
+        }
+        out.physics = std::move(physics);
+        out.physicsFileId.reset();
+        out.globalFlags.value = static_cast<m2::GlobalFlag>(static_cast<u32>(out.globalFlags.value) |
+                                                            static_cast<u32>(m2::GlobalFlag::LoadPhysicsData) |
+                                                            static_cast<u32>(m2::GlobalFlag::SuppressPhysicsFile));
     }
 
     // --- geometry + batches -------------------------------------------------
