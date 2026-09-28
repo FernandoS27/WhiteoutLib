@@ -35,7 +35,7 @@ enum class StageKind : u8 {
     Position,    ///< The driven node stands at its sources' weighted position.
     Orientation, ///< The driven node takes its sources' weighted rotation.
     LookAt,      ///< The driven node's `axis` points at its sources' weighted position.
-    Link,        ///< The driven node rides its first enabled source, or its own parent.
+    Link,        ///< The driven node rides its sources, blended by share, and its own parent what they leave.
     LimbIk,      ///< Upper, lower and end reach the goal (`SolveLimb`).
     ChainIk,     ///< A chain of any length reaches the goal (`SolveChain`).
     Spring,      ///< A damped jiggle: each driven node lags where it is carried.
@@ -78,7 +78,7 @@ struct StageSource {
     /// The node read. On a Link, `kInvalidNode` is the world.
     u32 node = kInvalidNode;
     /// Where nothing keys its channel: its share of the pull, 1 for all of it
-    /// — on a Link, whether it is enabled (above 0.5).
+    /// — on a Link, of the carry (`LinkShares`).
     f32 weight = 1.0f;
 
     template <class V>
@@ -101,7 +101,7 @@ struct PoseStage {
     /// IK: the goal, and a pole.
     std::vector<u32> targets;
     /// A constraint's sources: a Position, Orientation or Look At blends them
-    /// by weight; a Link rides one at a time.
+    /// by weight; a Link by share, which it clamps to sum to at most 1.
     std::vector<StageSource> sources;
 
     /// Position, Orientation: where the driven node stood relative to the

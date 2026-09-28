@@ -127,7 +127,7 @@ struct Rig {
     }
 
     /// @p stage's source @p source's channel, keyed at @p times to @p values;
-    /// stepped for a Link, whose values say whether it is enabled.
+    /// stepped for a Link, whose values are its shares.
     void key(const PoseStage& stage, u32 source, std::vector<f32> times, std::vector<f32> values) {
         Model& model = document.models[0];
         AnimChannel entry;
@@ -329,6 +329,73 @@ TEST_CASE("wem a Link rides its first enabled source, and none is its own parent
     link.sources[0].weight = 0.0f;
     link.sources[1].weight = 0.0f;
     CHECK(Worst(Frames(rig.document, 0.6f, true)[rig.tip], Frames(rig.document, 0.6f, false)[rig.tip]) < 1e-5f);
+}
+
+TEST_CASE("wem a Link blends its sources by share, and its own parent takes what they leave",
+          "[wem][anim][stages]") {
+    // Half the target and half the root, which carries the tip as its own
+    // parent does; and half the target alone.
+    const auto linked = [](bool both) {
+        Rig rig;
+        const PoseStage& link = rig.stage(StageKind::Link, {rig.tip}, {rig.target, rig.root});
+        rig.key(link, 1, {0.0f}, {0.5f});
+        if (both) {
+            rig.key(link, 2, {0.0f}, {0.5f});
+        }
+        return rig;
+    };
+    const Rig halves = linked(true);
+    const Rig half = linked(false);
+    const Rig& rig = halves;
+    CHECK(Worst(Frames(halves.document, 1.4f, true)[rig.tip], Frames(half.document, 1.4f, true)[rig.tip]) < 1e-3f);
+    // Where the keys switch it on it keeps its place, and then it moves.
+    CHECK(Worst(Frames(halves.document, 0.0f, true)[rig.tip], Frames(halves.document, 0.0f, false)[rig.tip]) < 1e-3f);
+    const std::vector<Matrix44f> free = Frames(halves.document, 1.4f, false);
+    const std::vector<Matrix44f> staged = Frames(halves.document, 1.4f, true);
+    CHECK((OriginOf(staged[rig.tip]) - OriginOf(free[rig.tip])).length() > 1.0f);
+    // Its carrier stands halfway between the parent and where the target alone
+    // would carry it.
+    Rig whole;
+    whole.key(whole.stage(StageKind::Link, {whole.tip}, {whole.target}), 1, {0.0f}, {1.0f});
+    const Matrix44f local = free[rig.tip] * Matrix44f::inverse(free[rig.head]);
+    const Matrix44f riding = Matrix44f::inverse(local) * Frames(whole.document, 1.4f, true)[rig.tip];
+    const Matrix44f carrier = Matrix44f::inverse(local) * staged[rig.tip];
+    CHECK((OriginOf(carrier) - (OriginOf(riding) + OriginOf(free[rig.head])) * 0.5f).length() < 1e-2f);
+    CheckBake(halves.document, rig.tip, ProfileId::Wc3Reforged, 0.02f, false);
+}
+
+TEST_CASE("wem a Link's shares add up to 1 at most, the first sources first", "[wem][anim][stages]") {
+    // The target, then the world.
+    const auto tip = [](f32 target, f32 world) {
+        Rig rig;
+        PoseStage& link = rig.stage(StageKind::Link, {rig.tip}, {rig.target});
+        link.sources.push_back(StageSource{2, kInvalidNode, 0.0f});
+        rig.key(link, 1, {0.0f}, {target});
+        rig.key(link, 2, {0.0f}, {world});
+        return Frames(rig.document, 1.4f, true)[rig.tip];
+    };
+    CHECK(Worst(tip(1.0f, 1.0f), tip(1.0f, 0.0f)) < 1e-4f);
+    CHECK(Worst(tip(0.7f, 0.5f), tip(0.7f, 0.3f)) < 1e-4f);
+    CHECK(Worst(tip(0.7f, 0.3f), tip(0.7f, 0.0f)) > 1e-2f);
+}
+
+TEST_CASE("wem a Link keyed Linear hands its node over without a jump", "[wem][anim][stages]") {
+    Rig rig;
+    PoseStage& link = rig.stage(StageKind::Link, {rig.tip}, {rig.target});
+    link.sources.push_back(StageSource{2, kInvalidNode, 0.0f});
+    // From the target to the world over the first second.
+    rig.key(link, 1, {0.0f, 1.0f}, {1.0f, 0.0f});
+    rig.key(link, 2, {0.0f, 1.0f}, {0.0f, 1.0f});
+    for (SubTrack& track : rig.document.clips[0].containers[0].subTracks) {
+        if (track.interp == Interpolation::Step) {
+            track.interp = Interpolation::Linear;
+        }
+    }
+    const auto at = [&](f32 seconds) { return OriginOf(Frames(rig.document, seconds, true)[rig.tip]); };
+    CHECK((at(0.999f) - at(1.0f)).length() < 1.0f);
+    CHECK((at(1.0f) - at(1.001f)).length() < 1.0f);
+    // Then the world holds it.
+    CHECK((at(1.0f) - at(1.5f)).length() < 1e-2f);
 }
 
 TEST_CASE("wem a Link to the world holds its node still", "[wem][anim][stages]") {

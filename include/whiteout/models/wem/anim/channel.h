@@ -122,8 +122,8 @@ enum class Channel : u8 {
     /// F32. A constraint source's weight, on the stage's driven node with
     /// `sub` `StageSub(stage, source)`. The editor's own, as `StageWeight` is.
     StageSourceWeight,
-    /// F32. Whether a Link's source is enabled (above 0.5), held from key to
-    /// key as a visibility is; placed as `StageSourceWeight` is.
+    /// F32. A Link source's share of the carry (`LinkShares`), held from key
+    /// to key as a visibility is; placed as `StageSourceWeight` is.
     StageSourceEnabled,
 
     // A Warcraft III 3.0 camera's depth of field (`CameraPayload`). The game

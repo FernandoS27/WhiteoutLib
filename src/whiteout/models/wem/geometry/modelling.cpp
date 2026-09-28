@@ -6799,6 +6799,70 @@ ModelPlan PlanSymmetrize(Mesh& mesh, const PointTable& points, const SymmetrizeP
     return plan;
 }
 
+ModelPlan PlanMirror(Mesh& mesh, const MirrorParams& params, std::span<const u32> boneMirror) {
+    ModelPlan plan;
+    if (!(params.normal.length() > 1e-12f)) {
+        plan.refusal = ModelRefusal::ZeroAmount;
+        return plan;
+    }
+    if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
+        plan.refusal = ModelRefusal::NotBuiltYet;
+        return plan;
+    }
+    const Vector3f normal = params.normal.normalized();
+    const auto reflectDirection = [&](const Vector3f& d) { return d - normal * (2.0f * d.dot(normal)); };
+    // Every face reversed, its corners with it, and nothing renumbered: the
+    // same vertices and faces, wound the other way.
+    const std::vector<u32> snapshot = detail::snapshotCornersBuilt(mesh);
+    detail::RebuildMapping mapping = detail::identityMapping(mesh);
+    const std::vector<u32> bases = cornerBases(mapping.faces);
+    for (std::size_t f = 0; f < mapping.faces.faceCount(); ++f) {
+        std::reverse(mapping.faces.cornerVertex.begin() + bases[f], mapping.faces.cornerVertex.begin() + bases[f + 1]);
+        std::reverse(mapping.cornerSource.begin() + bases[f], mapping.cornerSource.begin() + bases[f + 1]);
+        plan.changedFaces.push_back(static_cast<u32>(f));
+    }
+    const detail::RebuildResult result = detail::rebuild(mesh, std::move(mapping), snapshot);
+    if (!result.ok || result.repair.changed) {
+        plan.refusal = ModelRefusal::WouldFold;
+        return plan;
+    }
+    for (Vector3f& place : mesh.attributes.get<Vector3f>(names::kPosition, Domain::Vertex))
+        place = place - normal * (2.0f * (place - params.origin).dot(normal));
+    for (const Domain domain : {Domain::Halfedge, Domain::Vertex}) {
+        for (Vector3f& n : mesh.attributes.get<Vector3f>(names::kNormal, domain))
+            n = reflectDirection(n);
+        for (Vector3f& b : mesh.attributes.get<Vector3f>(names::kBinormal, domain))
+            b = reflectDirection(b);
+        for (Vector4f& t : mesh.attributes.get<Vector4f>(names::kTangent, domain)) {
+            const Vector3f turned = reflectDirection(Vector3f{t.x, t.y, t.z});
+            t = {turned.x, turned.y, turned.z, -t.w}; // a mirrored island
+        }
+    }
+    if (!boneMirror.empty()) {
+        const auto mirrored = [&](u32 bone) {
+            if (bone < boneMirror.size() && boneMirror[bone] != kInvalidId)
+                return boneMirror[bone];
+            ++plan.kept;
+            return bone;
+        };
+        for (u32 v = 0; v < mesh.skin.vertexCount(); ++v) {
+            const std::span<const Influence> was = mesh.skin.forVertex(v);
+            if (was.empty())
+                continue;
+            std::vector<Influence> now(was.begin(), was.end());
+            for (Influence& one : now)
+                one.bone = mirrored(one.bone);
+            mesh.skin.assignVertex(v, now);
+        }
+        for (auto& section : mesh.sections)
+            if (section.rigidNode)
+                section.rigidNode = mirrored(*section.rigidNode);
+    }
+    plan.changed = static_cast<u32>(plan.changedFaces.size());
+    mesh.recomputeBounds();
+    return plan;
+}
+
 namespace {
 
 /// Both forms of Make Planar once the plane is settled (§3.17): one motion per

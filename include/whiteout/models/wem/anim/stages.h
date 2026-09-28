@@ -57,9 +57,10 @@ f32 StageWeight(const Model& model, const PoseStage& stage, const Pose& pose);
 /// `weight` where it has none.
 f32 SourceWeight(const Model& model, const PoseStage& stage, const StageSource& source, const Pose& pose);
 
-/// The source a Link rides in @p pose: its first enabled one, 0 for none,
-/// which is the node's own parent.
-u32 ActiveSource(const Model& model, const PoseStage& stage, const Pose& pose);
+/// Each of a Link's sources' share of the node in @p pose, in `sources`' order:
+/// its value, clamped so the shares, the first sources first, sum to at most 1.
+/// What they leave is the node's own parent's.
+std::vector<f32> LinkShares(const Model& model, const PoseStage& stage, const Pose& pose);
 
 /// @p node's local transform that stands it at model-space @p frame over its
 /// parent's frame in @p pose, by the rig's composition: what a host writes a
@@ -111,19 +112,18 @@ private:
         std::map<u32, Body> bodies; ///< By stage id.
     };
 
-    /// What carries a Link's node: the source, and the offset its switches
-    /// left under it.
+    /// The offset a Link's switches left under each of its carriers: the
+    /// node's own parent, then its sources in order.
     struct LinkCarry {
-        u32 source = 0;
-        Matrix44f offset = Matrix44f::identity();
+        std::vector<Matrix44f> offsets;
     };
 
     void constrainOne(const Animator& animator, const Mix* mix, Pose& pose, const PoseStage& stage) const;
     /// The constraint and IK stages that run before @p stage.
     void constrainBefore(const Animator& animator, const Mix* mix, Pose& pose, const PoseStage& stage) const;
     /// Where @p mix's switches have left a Link: every key of its sources'
-    /// Enabled replayed from the clip's start, the offset rebased wherever the
-    /// source it rides changes, so the node keeps its place.
+    /// Enabled replayed from the clip's start, the offsets rebased wherever the
+    /// shares change, so the node keeps its place.
     LinkCarry linkCarry(const Animator& animator, const Mix* mix, const PoseStage& stage) const;
     void step(const Animator& animator, const Mix& mix, f32 at, f32 loop, const StageHooks* hooks);
     void simulate(const Animator& animator, Pose& pose, const PoseStage& stage, f32 dt, const StageHooks* hooks);

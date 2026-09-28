@@ -205,21 +205,95 @@ SourceBlend BlendSources(const Model& model, const PoseStage& stage, const Pose&
     return out;
 }
 
-/// The frame a Link's source @p id carries @p node by in @p pose: the
-/// source's, the identity for the world, the node's own parent's for none.
-Matrix44f Carrier(const NodeTree& tree, const PoseStage& stage, u32 id, u32 node, const Pose& pose) {
+/// A share this small carries nothing.
+constexpr f32 kShareEpsilon = 1e-6f;
+
+/// The frames that can carry a Link's @p node in @p pose: its own parent's,
+/// then each source's in order — the identity for the world, the parent's for
+/// a node gone.
+std::vector<Matrix44f> Carriers(const NodeTree& tree, const PoseStage& stage, u32 node, const Pose& pose) {
+    std::vector<Matrix44f> out;
+    out.push_back(ParentFrame(tree, pose, node));
     for (const StageSource& source : stage.sources) {
-        if (id == 0 || source.id != id) {
-            continue;
-        }
         if (source.node == kInvalidNode) {
-            return Matrix44f::identity();
-        }
-        if (ValidNode(tree, source.node)) {
-            return pose.frame[source.node];
+            out.push_back(Matrix44f::identity());
+        } else {
+            out.push_back(ValidNode(tree, source.node) ? pose.frame[source.node] : out.front());
         }
     }
-    return ParentFrame(tree, pose, node);
+    return out;
+}
+
+/// Each carrier's share in @p pose, as `Carriers` lists them: the sources'
+/// (`LinkShares`), and the parent's what they leave.
+std::vector<f32> CarrierShares(const Model& model, const PoseStage& stage, const Pose& pose) {
+    std::vector<f32> out(1, 0.0f);
+    f32 left = 1.0f;
+    for (const f32 share : LinkShares(model, stage, pose)) {
+        out.push_back(share);
+        left -= share;
+    }
+    out.front() = std::max(left, 0.0f);
+    return out;
+}
+
+bool SameShares(const std::vector<f32>& a, const std::vector<f32>& b) {
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        if (std::fabs(a[i] - b[i]) > kShareEpsilon) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// Each carrier under the offset a Link's switches left it.
+std::vector<Matrix44f> Carried(const std::vector<Matrix44f>& offsets, const std::vector<Matrix44f>& carriers) {
+    std::vector<Matrix44f> out;
+    for (std::size_t i = 0; i < carriers.size(); ++i) {
+        out.push_back(offsets[i] * carriers[i]);
+    }
+    return out;
+}
+
+/// @p frames blended by @p shares: where they stand, how they turn (each the
+/// short way round from the heaviest) and their scale. A lone one is itself.
+Matrix44f BlendFrames(const std::vector<Matrix44f>& frames, const std::vector<f32>& shares) {
+    std::size_t heaviest = 0;
+    std::size_t count = 0;
+    f32 total = 0.0f;
+    for (std::size_t i = 0; i < frames.size(); ++i) {
+        if (shares[i] > kShareEpsilon) {
+            total += shares[i];
+            ++count;
+        }
+        if (shares[i] > shares[heaviest]) {
+            heaviest = i;
+        }
+    }
+    if (count <= 1) {
+        return frames[heaviest];
+    }
+    const Quaternion first = FromMatrix(frames[heaviest]).rotation;
+    Transform out;
+    out.translation = Vector3f{0, 0, 0};
+    out.scale = Vector3f{0, 0, 0};
+    Quaternion sum{0, 0, 0, 0};
+    for (std::size_t i = 0; i < frames.size(); ++i) {
+        if (shares[i] <= kShareEpsilon) {
+            continue;
+        }
+        const f32 w = shares[i] / total;
+        const Transform part = FromMatrix(frames[i]);
+        out.translation = out.translation + part.translation * w;
+        out.scale = out.scale + part.scale * w;
+        Quaternion r = part.rotation;
+        if (first.dot(r) < 0.0f) {
+            r = Quaternion{-r.x, -r.y, -r.z, -r.w};
+        }
+        sum = Quaternion{sum.x + r.x * w, sum.y + r.y * w, sum.z + r.z * w, sum.w + r.w * w};
+    }
+    out.rotation = sum.normalized();
+    return ToMatrix(out);
 }
 
 } // namespace
@@ -306,13 +380,17 @@ f32 SourceWeight(const Model& model, const PoseStage& stage, const StageSource& 
     return weight;
 }
 
-u32 ActiveSource(const Model& model, const PoseStage& stage, const Pose& pose) {
+std::vector<f32> LinkShares(const Model& model, const PoseStage& stage, const Pose& pose) {
+    std::vector<f32> out;
+    out.reserve(stage.sources.size());
+    f32 left = 1.0f;
     for (const StageSource& source : stage.sources) {
-        if (SourceWeight(model, stage, source, pose) > 0.5f) {
-            return source.id;
-        }
+        const f32 value = SourceWeight(model, stage, source, pose);
+        const f32 share = value > 0.0f ? std::min(value, left) : 0.0f;
+        out.push_back(share);
+        left -= share;
     }
-    return 0;
+    return out;
 }
 
 void CaptureStageOffset(const Document& document, u32 model, PoseStage& stage) {
@@ -421,11 +499,13 @@ void StageRunner::constrainOne(const Animator& animator, const Mix* mix, Pose& p
     }
     case StageKind::Link: {
         // The node's own animation under whatever carries it: its place under
-        // its parent, then the offset the last switch left, then the carrier.
+        // its parent, then its carriers, each under the offset the last switch
+        // left it, blended by their shares.
         const Matrix44f local = pose.frame[node] * Matrix44f::inverse(ParentFrame(tree, pose, node));
         const LinkCarry carry = linkCarry(animator, mix, stage);
-        Place(animator, tree, pose, node, local * carry.offset * Carrier(tree, stage, carry.source, node, pose),
-              weight);
+        const Matrix44f carrier = BlendFrames(Carried(carry.offsets, Carriers(tree, stage, node, pose)),
+                                              CarrierShares(*model_, stage, pose));
+        Place(animator, tree, pose, node, local * carrier, weight);
         return;
     }
     case StageKind::LimbIk: {
@@ -521,21 +601,23 @@ StageRunner::LinkCarry StageRunner::linkCarry(const Animator& animator, const Mi
         constrainBefore(animator, &at, pose, stage);
         return pose;
     };
-    // At rest it rides what is enabled there, offset so that it stands where
-    // its parent puts it.
+    // At rest every carrier is offset so that it stands the node where its
+    // parent puts it.
     Mix rest;
     rest.globals = false;
     const Pose resting = poseAt(rest);
+    const std::vector<Matrix44f> still = Carriers(tree, stage, node, resting);
     LinkCarry carry;
-    carry.source = ActiveSource(*model_, stage, resting);
-    carry.offset =
-        ParentFrame(tree, resting, node) * Matrix44f::inverse(Carrier(tree, stage, carry.source, node, resting));
+    for (const Matrix44f& carrier : still) {
+        carry.offsets.push_back(still.front() * Matrix44f::inverse(carrier));
+    }
     if (mix == nullptr) {
         return carry;
     }
     // The switches are where the sources' Enabled keys are, in the newest play
-    // that keys any, up to where it plays. At each the offset changes carrier
-    // so the node stays put: `local·O·C_old = local·O'·C_new` at that moment.
+    // that keys any, up to where it plays. Where one changes the shares, every
+    // carrier is rebased onto the blend the old shares made, so the node stays
+    // put: `O_i' = K_old·C_i⁻¹` at that moment.
     std::vector<u32> channels;
     for (const AnimChannel& entry : model_->animChannels.channels) {
         if (entry.target.kind == TrackTarget::Kind::Node && entry.target.channel == Channel::StageSourceEnabled &&
@@ -543,6 +625,7 @@ StageRunner::LinkCarry StageRunner::linkCarry(const Animator& animator, const Mi
             channels.push_back(entry.id);
         }
     }
+    std::vector<f32> held = CarrierShares(*model_, stage, resting);
     for (const Play& play : mix->plays) {
         if (play.clip >= document_->clips.size() || document_->clips[play.clip].model != modelIndex_) {
             continue;
@@ -566,21 +649,36 @@ StageRunner::LinkCarry StageRunner::linkCarry(const Animator& animator, const Mi
         if (times.empty()) {
             continue;
         }
-        for (const f32 t : times) {
+        const auto shifted = [&](f32 t) {
             Mix moved = *mix;
             const f32 shift = t - now;
             for (Play& other : moved.plays) {
                 other.seconds = std::max(other.seconds + shift, 0.0f);
             }
             moved.worldSeconds = std::max(moved.worldSeconds + shift, 0.0f);
-            const Pose at = poseAt(moved);
-            const u32 id = ActiveSource(*model_, stage, at);
-            if (id == carry.source) {
+            return moved;
+        };
+        constexpr f32 kMillisecond = 0.001f;
+        for (const f32 t : times) {
+            // The shares just before, as they played a millisecond earlier: a
+            // stepped key's the last key's, an interpolated one's nearly its
+            // own. At the clip's start, rest's.
+            if (t >= kMillisecond) {
+                Pose before;
+                animator.sample(shifted(t - kMillisecond), before, true);
+                held = CarrierShares(*model_, stage, before);
+            }
+            const Pose at = poseAt(shifted(t));
+            const std::vector<f32> shares = CarrierShares(*model_, stage, at);
+            if (SameShares(shares, held)) {
                 continue;
             }
-            carry.offset = carry.offset * Carrier(tree, stage, carry.source, node, at) *
-                           Matrix44f::inverse(Carrier(tree, stage, id, node, at));
-            carry.source = id;
+            const std::vector<Matrix44f> carriers = Carriers(tree, stage, node, at);
+            const Matrix44f standing = BlendFrames(Carried(carry.offsets, carriers), held);
+            for (std::size_t i = 0; i < carriers.size(); ++i) {
+                carry.offsets[i] = standing * Matrix44f::inverse(carriers[i]);
+            }
+            held = shares;
         }
         break;
     }

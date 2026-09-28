@@ -607,6 +607,28 @@ struct SymmetrizeParams {
 ModelPlan PlanSymmetrize(Mesh& mesh, const PointTable& points, const SymmetrizeParams& params,
                          std::span<const u32> boneMirror = {});
 
+/// Mirror's plane: a point on it and its direction.
+struct MirrorParams {
+    Vector3f origin{0.0f, 0.0f, 0.0f};
+    Vector3f normal{1.0f, 0.0f, 0.0f};
+};
+
+/**
+ * @brief Mirror: every vertex of @p mesh reflected in a plane, in place.
+ *
+ * Symmetrize's copy step over the whole mesh, with nothing kept: a reflection
+ * turns the winding round, so every face is rebuilt reversed with its corners,
+ * each corner's normal and binormal reflected and its tangent reflected with
+ * `w` negated. The stored triangulation comes back reversed with its loop and
+ * every edge keeps its flags, so nothing is re-shaded or re-creased.
+ *
+ * With @p boneMirror the skin, and every rigid section's node, go through it; a
+ * bone with no mirror keeps itself, and `kept` counts the influences that did.
+ *
+ * Refused with `ZeroAmount` for a zero-length normal.
+ */
+ModelPlan PlanMirror(Mesh& mesh, const MirrorParams& params, std::span<const u32> boneMirror = {});
+
 /**
  * @brief Make Planar (§3.17): @p vertices moved onto the plane that fits them
  *        best, or onto the axis plane through their centre.

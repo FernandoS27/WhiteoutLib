@@ -424,6 +424,7 @@ add_library(whiteout_lib
     src/whiteout/models/wem/geometry/render_view.cpp
     src/whiteout/models/wem/geometry/interpolate.cpp
     src/whiteout/models/wem/geometry/modelling.cpp
+    src/whiteout/models/wem/geometry/lattice.cpp
     src/whiteout/models/wem/geometry/triangulation.cpp
     src/whiteout/models/wem/geometry/select.cpp
     src/whiteout/models/wem/geometry/primitives.cpp
