@@ -31,6 +31,8 @@ enum class PhysicsBodyType : u16 {
     /// Simulated. Becomes `dmBodyType` 0 and gets its bone transform written
     /// back every frame. These are the cloth/tassel segments.
     Dynamic = 1,
+    /// Any value from 2 up: `dmBodyType` 2. No shipped body uses it.
+    Static = 2,
 };
 
 /// @brief Which shape chunk a PhysicsShape indexes into.
@@ -51,42 +53,54 @@ enum class PhysicsJointType : u16 {
     Distance = 5,  ///< DSTJ, version 2+
 };
 
+/// @name PhysicsBody::attachment
+/// @{
+/// Other bodies hang off this one: the dynamic bodies naming it are carried
+/// with it when it is snapped to its bone.
+constexpr u16 kPhysicsAttachmentHasChildren = 0x8000;
+/// The ragdoll's root: its snap carries every body grouped behind a body that
+/// is not a parent itself.
+constexpr u16 kPhysicsAttachmentRagdollRoot = 0x4000;
+/// Without either flag, the index of the body this one hangs off.
+constexpr u16 kPhysicsAttachmentParentMask = 0x3FFF;
+/// @}
+
 /// @brief One rigid body, bound to a single model bone — BODY/BDY2/BDY3/BDY4.
 ///
 /// The four on-disk layouts are the same fields accreting over time, so they
 /// share one struct; PhysicsData::version decides which of them is written
-/// back, and fields the older layouts lack keep their defaults.
+/// back, and fields the older layouts lack keep the values the client's
+/// upgrader gives them (`PHYS_FORMAT.md` §5).
 struct PhysicsBody {
     PhysicsBodyType type = PhysicsBodyType::Kinematic;
+    /// BODY/BDY2 store it as a u32 at +16 and the client keeps the low 16 bits;
+    /// BDY3 moved it into the u16 at +2.
     u16 boneIndex = 0;
-    /// Offset from the bone's animated position, not an absolute position: the
-    /// client spawns the body at `bonePosition + position`.
+    /// The body's model-space origin, where the client creates it; the first
+    /// step moves it onto its bone's animated pivot.
     Vector3f position;
     /// First entry in PhysicsData::shapes belonging to this body. 32 bits wide
-    /// in BODY/BDY2, 16 from BDY3 on — writing a larger index back into one of
-    /// those truncates it.
+    /// in every layout.
     i32 shapeIndex = 0;
     i32 shapeCount = 0;
-    /// BDY3+. 1.0 on all but 45 of 1213 kinematic bodies but tuned freely on
-    /// dynamic ones, negatives included — the shape of `dmBodyDef::m_gravityScale`.
+    /// BDY2+. 1.0 on all but 45 of 1213 kinematic bodies but tuned freely on
+    /// dynamic ones, negatives included — `dmBodyDef+0x30`.
     f32 gravityScale = 1.0f;
-    /// BDY2+. 1.0 in 3457 of 3526 bodies, otherwise 1.1-10 —
-    /// `dmBodyDef::m_inertiaScale`.
+    /// BDY3+. 1.0 in 3457 of 3526 bodies, otherwise 1.1-10 — `dmBodyDef+0x2C`.
     f32 inertiaScale = 1.0f;
     /// BDY3+. Zero on 1196 of 1213 kinematic bodies and 0-10 on dynamic ones —
-    /// `dmBodyDef::m_linearDamping`.
+    /// `dmBodyDef+0x24`.
     f32 linearDamping = 0.0f;
     /// BDY3+. Same kinematic/dynamic split as @ref linearDamping —
-    /// `dmBodyDef::m_angularDamping`.
+    /// `dmBodyDef+0x28`.
     f32 angularDamping = 0.0f;
-    /// BDY3+. Unidentified. Unlike the four above it is set on kinematic and
-    /// dynamic bodies alike, so it is not a rigid-body integration parameter;
-    /// values cluster on 0.5, 0.01, 0.9 and 0.1.
-    f32 unknown28 = 0.89999998f;
-    /// BDY4+. Unidentified; 0 in half the corpus, otherwise small values or
-    /// 0x8000 alone, which reads like a bit field.
-    u16 unknown2c = 0;
-    u16 padding2e = 0; ///< BDY4+. Zero in every corpus body.
+    /// BDY4. The fraction of the way a kinematic body is snapped to its animated
+    /// pose each step, ramping to a full teleport when the motion is fast. Not a
+    /// Domino parameter. Older layouts get the upgrader's 0.9.
+    f32 followFactor = 0.9f;
+    /// BDY3+ (+40 in BDY3, +44 in BDY4): see the `kPhysicsAttachment*` constants.
+    u16 attachment = 0;
+    u16 padding = 0; ///< BDY3+. Zero in every corpus body.
 };
 
 /// @brief One collision shape reference — SHAP/SHP2. Points at an entry of the
@@ -94,18 +108,23 @@ struct PhysicsBody {
 struct PhysicsShape {
     PhysicsShapeType shapeType = PhysicsShapeType::Box;
     i16 shapeIndex = 0;
-    u32 padding04 = 0; ///< Zero in every corpus shape.
+    /// `dmFixtureDef.gameFlags`. Zero in every corpus shape.
+    u16 gameFlags = 0;
+    u16 padding06 = 0;
     f32 friction = 0.0f;
     f32 restitution = 0.0f;
+    /// Rescaled by the client for capsules in files of version 4 and below
+    /// (`PHYS_FORMAT.md` §4.2).
     f32 density = 0.0f;
-    /// SHP2+. Unidentified, but a float: only 0, 0.01, 0.8 and 1.0 occur. The
-    /// one `dmFixtureDef` float the rest of this struct does not account for is
-    /// `m_rollingResistance`.
-    f32 unknown14 = 0.0f;
-    /// SHP2+. 1.0 in 3229 of 3230 shapes, matching the `m_scaleOrRadius` the
-    /// client hands every fixture.
-    f32 scale = 1.0f;
-    u16 unknown1c = 0;  ///< SHP2+. Zero in every corpus shape.
+    /// @name SHP2+, parsed and never read
+    /// The client copies these onto its shape def and no `CreateInstance`
+    /// reads them (`PHYS_FORMAT.md` §4.5). SHAP's upgrade gives 0, 1.0 and 0.
+    /// @{
+    f32 unused14 = 0.0f;
+    /// 1.0 in 3229 of 3230 shapes, and still not the fixture scale.
+    f32 unused18 = 1.0f;
+    u16 unused1c = 0;
+    /// @}
     u16 padding1e = 0;  ///< SHP2+. Uninitialised on disk; kept so writes match.
 };
 
@@ -194,7 +213,9 @@ struct WeldJoint {
     f32 angularDampingRatio = 0.0f;
     f32 linearFrequencyHz = 0.0f;  ///< WLJ2+
     f32 linearDampingRatio = 0.0f; ///< WLJ2+
-    f32 unknown70 = 0.0f;          ///< WLJ3+. Zero in 265 of 274 weld joints.
+    /// WLJ3+. Copied onto the weld def and never sent to Domino. Zero in 265 of
+    /// 274 weld joints.
+    f32 unused70 = 0.0f;
 };
 
 /// @brief SPHJ — a ball joint between two anchor points.
@@ -208,14 +229,15 @@ struct SphericalJoint {
 struct ShoulderJoint {
     PhysicsFrame frameA;
     PhysicsFrame frameB;
+    /// Degrees, like the cone; the client converts both to radians and enables
+    /// the twist limit when `upper > lower`.
     f32 lowerTwistAngle = 0.0f;
     f32 upperTwistAngle = 0.0f;
-    /// Degrees: the corpus holds 20, 35, 45 and 60, while `dmShoulderJoint`
-    /// clamps its own cone to [10°, 170°] expressed in radians — so the loader
-    /// converts on the way in.
+    /// Degrees: the corpus holds 20, 35, 45 and 60. Stored as authored, so the
+    /// conversion is the consumer's.
     f32 coneAngle = 0.0f;
-    f32 maxMotorTorque = 0.0f;    ///< version 2+
-    u32 motorMode = 0;            ///< version 2+
+    f32 maxMotorTorque = 0.0f;
+    u32 motorMode = 0;            ///< low byte: 0 off, 1 position, 2 velocity
     f32 motorFrequencyHz = 0.0f;  ///< SHJ2
     f32 motorDampingRatio = 0.0f; ///< SHJ2
 };
@@ -224,13 +246,16 @@ struct ShoulderJoint {
 struct PrismaticJoint {
     PhysicsFrame frameA;
     PhysicsFrame frameB;
+    /// Distances, not angles; the limit is enabled when `upper > lower`.
     f32 lowerLimit = 0.0f;
     f32 upperLimit = 0.0f;
-    /// Unidentified; zero in all twelve corpus prismatic joints. Domino's
-    /// prismatic def carries an enable-limit flag next to the limit pair.
-    f32 unknown68 = 0.0f;
+    /// The zero point the limit is measured from. No `dmJointDef` slot: the
+    /// client writes it into the live joint after creation. Zero in all twelve
+    /// corpus prismatics.
+    f32 referenceTranslation = 0.0f;
     f32 maxMotorForce = 0.0f;
-    f32 unknown70 = 0.0f; ///< Unidentified; zero in all twelve.
+    /// Target velocity, written into the live joint like @ref referenceTranslation.
+    f32 motorSpeed = 0.0f;
     u32 motorMode = 0;
     f32 motorFrequencyHz = 0.0f;  ///< PRS2
     f32 motorDampingRatio = 0.0f; ///< PRS2
@@ -240,6 +265,7 @@ struct PrismaticJoint {
 struct RevoluteJoint {
     PhysicsFrame frameA;
     PhysicsFrame frameB;
+    /// Degrees; the limit is enabled when `upper > lower`.
     f32 lowerAngle = 0.0f;
     f32 upperAngle = 0.0f;
     f32 maxMotorTorque = 0.0f;
@@ -256,10 +282,53 @@ struct DistanceJoint {
     f32 distance = 0.0f;
 };
 
-/// @brief PHYV — six floats that overwrite the head of a tuning block the
-///        client otherwise fills with constants. Version 1+.
+/// @brief PHYV — the per-model vegetation push: the six `physVeg*` console
+///        variables in registration order (`PHYS_FORMAT.md` §3.9).
+///
+/// Read only for a `PHYT` 2 model, which becomes a phantom pushed by units
+/// walking through it rather than a ragdoll.
 struct PhysicsTuning {
-    std::array<f32, 6> values = {};
+    /// Yards a bone may be pushed from its base before it is clamped.
+    f32 posMaxPush = 1.25f;
+    /// Yards per frame a bone is pushed while a unit moves along it, times dt.
+    f32 posPushAmt = 0.25f;
+    /// How fast the bone returns to rest once the unit leaves.
+    f32 posRelaxSpeed = 8.0f;
+    /// Extra push along a moving unit's velocity.
+    f32 velMaxPush = 0.1f;
+    /// How fast the bone sways along that velocity.
+    f32 velSpeed = 20.0f;
+    /// **Squared** distance inside which a unit starts pushing. The client uses
+    /// 8.0 for a model with no PHYV.
+    f32 minPushDist = 4.0f;
+};
+
+/// @brief What a model's `PHYT` makes of it (`PHYS_FORMAT.md` §3.10).
+///
+/// A file with no PHYT reads as 0.
+enum class PhysicsObjectKind : u32 {
+    /// Ragdoll whose kinematic bodies follow the model, not their bones: items
+    /// worn on a character. 0 and 1 take the same branch in the client.
+    AttachedRagdoll = 0,
+    AttachedRagdollAlt = 1,
+    /// Vegetation phantom built from the model's bounds and pushed by units.
+    /// Needs a PHYV, and builds no bodies.
+    VegetationPhantom = 2,
+    /// Ragdoll in the shared physics world.
+    Ragdoll = 3,
+    /// Ragdoll in a physics world of its own, solved with twelve position
+    /// iterations rather than two.
+    PrivateWorldRagdoll = 4,
+};
+
+/// @brief PHAO — the host skeletons this file's follow factors were tuned on.
+///
+/// On a host whose key-bone-4 name CRC is not listed, the client discards every
+/// body's @ref PhysicsBody::followFactor for a flat 0.7. No shipped file has one.
+struct PhysicsAllowList {
+    /// The chunk's leading u32. The client keeps its low byte and never reads it.
+    u32 header = 0;
+    std::vector<u32> keys;
 };
 
 /// @brief A `.phys` chunk this library does not know, kept verbatim so a
@@ -280,8 +349,10 @@ struct PhysicsData {
     /// 0 (MoP) through 6. Decides which layout each chunk is written in — see
     /// the per-field version notes on the structs above.
     u16 version = 6;
-    /// PHYT, version 1+. A small enum, 0 through 4; meaning unknown.
+    /// PHYT, version 1+: a PhysicsObjectKind, kept raw so any value round-trips.
     std::optional<u32> phyt;
+    /// PHAO. Absent in every shipped file.
+    std::optional<PhysicsAllowList> allowList;
 
     std::vector<PhysicsBody> bodies;
     std::vector<PhysicsShape> shapes;

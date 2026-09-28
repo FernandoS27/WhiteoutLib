@@ -71,18 +71,30 @@ EMSCRIPTEN_BINDINGS(m2) {
         .value("None", whiteout::m2::GlobalFlag::None)
         .value("TiltX", whiteout::m2::GlobalFlag::TiltX)
         .value("TiltY", whiteout::m2::GlobalFlag::TiltY)
-        .value("AddBackReferences", whiteout::m2::GlobalFlag::AddBackReferences)
+        .value("WorldAbsoluteTransform", whiteout::m2::GlobalFlag::WorldAbsoluteTransform)
         .value("UseTextureCombinerCombos", whiteout::m2::GlobalFlag::UseTextureCombinerCombos)
-        .value("IsCamera", whiteout::m2::GlobalFlag::IsCamera)
+        .value("AnimatedBounds", whiteout::m2::GlobalFlag::AnimatedBounds)
         .value("LoadPhysicsData", whiteout::m2::GlobalFlag::LoadPhysicsData)
-        .value("Unk_0x80", whiteout::m2::GlobalFlag::Unk_0x80)
-        .value("Unk_0x100", whiteout::m2::GlobalFlag::Unk_0x100)
+        .value("VisibleGeometryOptimise", whiteout::m2::GlobalFlag::VisibleGeometryOptimise)
+        .value("ParentLinkedParticles", whiteout::m2::GlobalFlag::ParentLinkedParticles)
         .value("NewParticleRecord", whiteout::m2::GlobalFlag::NewParticleRecord)
         .value("Unk_0x400", whiteout::m2::GlobalFlag::Unk_0x400)
         .value("TextureTransformsUsesBoneSequences", whiteout::m2::GlobalFlag::TextureTransformsUsesBoneSequences)
         .value("Unk_0x1000", whiteout::m2::GlobalFlag::Unk_0x1000)
-        .value("ChunkedAnimFiles", whiteout::m2::GlobalFlag::ChunkedAnimFiles)
-        .value("UpgradedFormat", whiteout::m2::GlobalFlag::UpgradedFormat);
+        .value("PerSkinVertexBlocks", whiteout::m2::GlobalFlag::PerSkinVertexBlocks)
+        .value("ParentSkeletonBound", whiteout::m2::GlobalFlag::ParentSkeletonBound)
+        .value("LightAttenuationTracks", whiteout::m2::GlobalFlag::LightAttenuationTracks)
+        .value("RibbonTextureTransforms", whiteout::m2::GlobalFlag::RibbonTextureTransforms)
+        .value("BoneWind", whiteout::m2::GlobalFlag::BoneWind)
+        .value("ExternalSkeleton", whiteout::m2::GlobalFlag::ExternalSkeleton)
+        .value("ChunkedAnimAfm2", whiteout::m2::GlobalFlag::ChunkedAnimAfm2)
+        .value("NamedTextureRequestInert", whiteout::m2::GlobalFlag::NamedTextureRequestInert)
+        .value("SuppressPhysicsFile", whiteout::m2::GlobalFlag::SuppressPhysicsFile)
+        .value("SkipOcclusionQuery", whiteout::m2::GlobalFlag::SkipOcclusionQuery)
+        .value("ForceUnoccluded", whiteout::m2::GlobalFlag::ForceUnoccluded)
+        .value("PipelineStateOverride", whiteout::m2::GlobalFlag::PipelineStateOverride)
+        .value("FarLodLinkSubstitute", whiteout::m2::GlobalFlag::FarLodLinkSubstitute)
+        .value("SecondaryPassRenderState", whiteout::m2::GlobalFlag::SecondaryPassRenderState);
 
     enum_<whiteout::m2::SequenceFlag>("M2SequenceFlag")
         .value("None", whiteout::m2::SequenceFlag::None)
@@ -104,9 +116,17 @@ EMSCRIPTEN_BINDINGS(m2) {
         .value("CylindricalBillboardX", whiteout::m2::BoneFlag::CylindricalBillboardX)
         .value("CylindricalBillboardY", whiteout::m2::BoneFlag::CylindricalBillboardY)
         .value("CylindricalBillboardZ", whiteout::m2::BoneFlag::CylindricalBillboardZ)
+        .value("BillboardAimAtCamera", whiteout::m2::BoneFlag::BillboardAimAtCamera)
+        .value("ProceduralTransform", whiteout::m2::BoneFlag::ProceduralTransform)
         .value("Transformed", whiteout::m2::BoneFlag::Transformed)
         .value("Kinematic", whiteout::m2::BoneFlag::Kinematic)
-        .value("HelmetAnimScaled", whiteout::m2::BoneFlag::HelmetAnimScaled);
+        .value("HelmetAnimScaled", whiteout::m2::BoneFlag::HelmetAnimScaled)
+        .value("PrimarySequenceAttached", whiteout::m2::BoneFlag::PrimarySequenceAttached)
+        .value("SecondarySequenceAttached", whiteout::m2::BoneFlag::SecondarySequenceAttached)
+        .value("PhysicsInteractionOffset", whiteout::m2::BoneFlag::PhysicsInteractionOffset)
+        .value("PhysicsDriven", whiteout::m2::BoneFlag::PhysicsDriven)
+        .value("SkipSequenceBlendWeight", whiteout::m2::BoneFlag::SkipSequenceBlendWeight)
+        .value("ProceduralInWorldSpace", whiteout::m2::BoneFlag::ProceduralInWorldSpace);
 
     enum_<whiteout::m2::MaterialFlag>("M2MaterialFlag")
         .value("None", whiteout::m2::MaterialFlag::None)
@@ -167,7 +187,8 @@ EMSCRIPTEN_BINDINGS(m2) {
 
     enum_<whiteout::m2::PhysicsBodyType>("M2PhysicsBodyType")
         .value("Kinematic", whiteout::m2::PhysicsBodyType::Kinematic)
-        .value("Dynamic", whiteout::m2::PhysicsBodyType::Dynamic);
+        .value("Dynamic", whiteout::m2::PhysicsBodyType::Dynamic)
+        .value("Static", whiteout::m2::PhysicsBodyType::Static);
 
     enum_<whiteout::m2::PhysicsShapeType>("M2PhysicsShapeType")
         .value("Box", whiteout::m2::PhysicsShapeType::Box)
@@ -182,6 +203,13 @@ EMSCRIPTEN_BINDINGS(m2) {
         .value("Revolute", whiteout::m2::PhysicsJointType::Revolute)
         .value("Prismatic", whiteout::m2::PhysicsJointType::Prismatic)
         .value("Distance", whiteout::m2::PhysicsJointType::Distance);
+
+    enum_<whiteout::m2::PhysicsObjectKind>("M2PhysicsObjectKind")
+        .value("AttachedRagdoll", whiteout::m2::PhysicsObjectKind::AttachedRagdoll)
+        .value("AttachedRagdollAlt", whiteout::m2::PhysicsObjectKind::AttachedRagdollAlt)
+        .value("VegetationPhantom", whiteout::m2::PhysicsObjectKind::VegetationPhantom)
+        .value("Ragdoll", whiteout::m2::PhysicsObjectKind::Ragdoll)
+        .value("PrivateWorldRagdoll", whiteout::m2::PhysicsObjectKind::PrivateWorldRagdoll);
 
     // ── Value-object types (plain JS objects) ────────────────────────────
     value_object<whiteout::m2::Extent>("M2Extent")
@@ -637,22 +665,23 @@ EMSCRIPTEN_BINDINGS(m2) {
         .property("inertiaScale", &whiteout::m2::PhysicsBody::inertiaScale)
         .property("linearDamping", &whiteout::m2::PhysicsBody::linearDamping)
         .property("angularDamping", &whiteout::m2::PhysicsBody::angularDamping)
-        .property("unknown28", &whiteout::m2::PhysicsBody::unknown28)
-        .property("unknown2c", &whiteout::m2::PhysicsBody::unknown2c)
-        .property("padding2e", &whiteout::m2::PhysicsBody::padding2e)
+        .property("followFactor", &whiteout::m2::PhysicsBody::followFactor)
+        .property("attachment", &whiteout::m2::PhysicsBody::attachment)
+        .property("padding", &whiteout::m2::PhysicsBody::padding)
     ;
 
     class_<whiteout::m2::PhysicsShape>("M2PhysicsShape")
         .constructor<>()
         .property("shapeType", &whiteout::m2::PhysicsShape::shapeType)
         .property("shapeIndex", &whiteout::m2::PhysicsShape::shapeIndex)
-        .property("padding04", &whiteout::m2::PhysicsShape::padding04)
+        .property("gameFlags", &whiteout::m2::PhysicsShape::gameFlags)
+        .property("padding06", &whiteout::m2::PhysicsShape::padding06)
         .property("friction", &whiteout::m2::PhysicsShape::friction)
         .property("restitution", &whiteout::m2::PhysicsShape::restitution)
         .property("density", &whiteout::m2::PhysicsShape::density)
-        .property("unknown14", &whiteout::m2::PhysicsShape::unknown14)
-        .property("scale", &whiteout::m2::PhysicsShape::scale)
-        .property("unknown1c", &whiteout::m2::PhysicsShape::unknown1c)
+        .property("unused14", &whiteout::m2::PhysicsShape::unused14)
+        .property("unused18", &whiteout::m2::PhysicsShape::unused18)
+        .property("unused1c", &whiteout::m2::PhysicsShape::unused1c)
         .property("padding1e", &whiteout::m2::PhysicsShape::padding1e)
     ;
 
@@ -715,7 +744,7 @@ EMSCRIPTEN_BINDINGS(m2) {
         .property("angularDampingRatio", &whiteout::m2::WeldJoint::angularDampingRatio)
         .property("linearFrequencyHz", &whiteout::m2::WeldJoint::linearFrequencyHz)
         .property("linearDampingRatio", &whiteout::m2::WeldJoint::linearDampingRatio)
-        .property("unknown70", &whiteout::m2::WeldJoint::unknown70)
+        .property("unused70", &whiteout::m2::WeldJoint::unused70)
     ;
 
     class_<whiteout::m2::SphericalJoint>("M2SphericalJoint")
@@ -744,9 +773,9 @@ EMSCRIPTEN_BINDINGS(m2) {
         .property("frameB", &whiteout::m2::PrismaticJoint::frameB)
         .property("lowerLimit", &whiteout::m2::PrismaticJoint::lowerLimit)
         .property("upperLimit", &whiteout::m2::PrismaticJoint::upperLimit)
-        .property("unknown68", &whiteout::m2::PrismaticJoint::unknown68)
+        .property("referenceTranslation", &whiteout::m2::PrismaticJoint::referenceTranslation)
         .property("maxMotorForce", &whiteout::m2::PrismaticJoint::maxMotorForce)
-        .property("unknown70", &whiteout::m2::PrismaticJoint::unknown70)
+        .property("motorSpeed", &whiteout::m2::PrismaticJoint::motorSpeed)
         .property("motorMode", &whiteout::m2::PrismaticJoint::motorMode)
         .property("motorFrequencyHz", &whiteout::m2::PrismaticJoint::motorFrequencyHz)
         .property("motorDampingRatio", &whiteout::m2::PrismaticJoint::motorDampingRatio)
@@ -773,10 +802,18 @@ EMSCRIPTEN_BINDINGS(m2) {
 
     class_<whiteout::m2::PhysicsTuning>("M2PhysicsTuning")
         .constructor<>()
-        .function("getValues",
-                  optional_override([](const whiteout::m2::PhysicsTuning& self) { return arrayToVec(self.values); }))
-        .function("setValues",
-                  optional_override([](    whiteout::m2::PhysicsTuning& self, const std::vector<whiteout::f32>& v) { vecToArray(self.values, v); }));
+        .property("posMaxPush", &whiteout::m2::PhysicsTuning::posMaxPush)
+        .property("posPushAmt", &whiteout::m2::PhysicsTuning::posPushAmt)
+        .property("posRelaxSpeed", &whiteout::m2::PhysicsTuning::posRelaxSpeed)
+        .property("velMaxPush", &whiteout::m2::PhysicsTuning::velMaxPush)
+        .property("velSpeed", &whiteout::m2::PhysicsTuning::velSpeed)
+        .property("minPushDist", &whiteout::m2::PhysicsTuning::minPushDist)
+    ;
+
+    class_<whiteout::m2::PhysicsAllowList>("M2PhysicsAllowList")
+        .constructor<>()
+        .property("header", &whiteout::m2::PhysicsAllowList::header)
+        .property("keys", &whiteout::m2::PhysicsAllowList::keys)
     ;
 
     class_<whiteout::m2::PhysicsUnknownChunk>("M2PhysicsUnknownChunk")
@@ -792,6 +829,7 @@ EMSCRIPTEN_BINDINGS(m2) {
         .constructor<>()
         .property("version", &whiteout::m2::PhysicsData::version)
         .property("phyt", &whiteout::m2::PhysicsData::phyt)
+        .property("allowList", &whiteout::m2::PhysicsData::allowList)
         .property("bodies", &whiteout::m2::PhysicsData::bodies)
         .property("shapes", &whiteout::m2::PhysicsData::shapes)
         .property("boxShapes", &whiteout::m2::PhysicsData::boxShapes)

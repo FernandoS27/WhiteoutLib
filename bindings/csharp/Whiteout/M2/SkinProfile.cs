@@ -34,6 +34,7 @@ public sealed class SkinProfile : WhiteoutHandle
             (h, i) => new Batch(NativeMethods.whiteout_m2_M2SkinProfile_get_batches_at(h, i), owned: false));
 
 
+    /// <summary>Where this profile's vertex indices start in the model's vertex array. The client applies it only when GlobalFlag::PerSkinVertexBlocks is set.</summary>
     public uint LodVertexBase
     {
         get => NativeMethods.whiteout_m2_M2SkinProfile_get_lodVertexBase(DangerousGet());

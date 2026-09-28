@@ -16,49 +16,49 @@ void BinaryParseVisitor::visit(PhysicsFrame& frame) {
 
 void BinaryParseVisitor::visit(PhysicsBody& body, PhysBodyLayout layout) {
     body.type = static_cast<PhysicsBodyType>(reader.read<u16>());
-    // BODY/BDY2 keep the bone index down at 0x10 and address shapes with a
-    // 32-bit base; BDY3 moved it up into this padding and shrank the base.
+    // BODY/BDY2 keep the bone index as a u32 at 0x10, of which the client uses
+    // the low half; BDY3 moved it up into this padding.
     const bool legacy = layout == PhysBodyLayout::Body || layout == PhysBodyLayout::Body2;
     if (legacy) {
         reader.skip(2);
         body.position = reader.read<Vector3f>();
-        body.boneIndex = reader.read<u16>();
-        reader.skip(2);
+        body.boneIndex = static_cast<u16>(reader.read<u32>());
         body.shapeIndex = reader.read<i32>();
         body.shapeCount = reader.read<i32>();
         if (layout == PhysBodyLayout::Body2) {
-            body.inertiaScale = reader.read<f32>();
+            body.gravityScale = reader.read<f32>();
         }
         return;
     }
 
     body.boneIndex = reader.read<u16>();
     body.position = reader.read<Vector3f>();
-    body.shapeIndex = reader.read<u16>();
-    reader.skip(2);
+    body.shapeIndex = reader.read<i32>();
     body.shapeCount = reader.read<i32>();
     body.gravityScale = reader.read<f32>();
     body.inertiaScale = reader.read<f32>();
     body.linearDamping = reader.read<f32>();
     body.angularDamping = reader.read<f32>();
-    body.unknown28 = reader.read<f32>();
+    // BDY4 added the follow factor in front of the attachment word BDY3 already had.
     if (layout == PhysBodyLayout::Body4) {
-        body.unknown2c = reader.read<u16>();
-        body.padding2e = reader.read<u16>();
+        body.followFactor = reader.read<f32>();
     }
+    body.attachment = reader.read<u16>();
+    body.padding = reader.read<u16>();
 }
 
 void BinaryParseVisitor::visit(PhysicsShape& shape, PhysShapeLayout layout) {
     shape.shapeType = static_cast<PhysicsShapeType>(reader.read<u16>());
     shape.shapeIndex = reader.read<i16>();
-    shape.padding04 = reader.read<u32>();
+    shape.gameFlags = reader.read<u16>();
+    shape.padding06 = reader.read<u16>();
     shape.friction = reader.read<f32>();
     shape.restitution = reader.read<f32>();
     shape.density = reader.read<f32>();
     if (layout == PhysShapeLayout::Shape2) {
-        shape.unknown14 = reader.read<f32>();
-        shape.scale = reader.read<f32>();
-        shape.unknown1c = reader.read<u16>();
+        shape.unused14 = reader.read<f32>();
+        shape.unused18 = reader.read<f32>();
+        shape.unused1c = reader.read<u16>();
         shape.padding1e = reader.read<u16>();
     }
 }
@@ -98,7 +98,7 @@ void BinaryParseVisitor::visit(WeldJoint& joint, PhysWeldLayout layout) {
     joint.linearFrequencyHz = reader.read<f32>();
     joint.linearDampingRatio = reader.read<f32>();
     if (layout == PhysWeldLayout::Weld3) {
-        joint.unknown70 = reader.read<f32>();
+        joint.unused70 = reader.read<f32>();
     }
 }
 
@@ -114,9 +114,6 @@ void BinaryParseVisitor::visit(ShoulderJoint& joint, PhysShoulderLayout layout) 
     joint.lowerTwistAngle = reader.read<f32>();
     joint.upperTwistAngle = reader.read<f32>();
     joint.coneAngle = reader.read<f32>();
-    if (layout == PhysShoulderLayout::Shoulder) {
-        return;
-    }
     joint.maxMotorTorque = reader.read<f32>();
     joint.motorMode = reader.read<u32>();
     if (layout == PhysShoulderLayout::Shoulder2) {
@@ -130,9 +127,9 @@ void BinaryParseVisitor::visit(PrismaticJoint& joint, PhysMotorLayout layout) {
     visit(joint.frameB);
     joint.lowerLimit = reader.read<f32>();
     joint.upperLimit = reader.read<f32>();
-    joint.unknown68 = reader.read<f32>();
+    joint.referenceTranslation = reader.read<f32>();
     joint.maxMotorForce = reader.read<f32>();
-    joint.unknown70 = reader.read<f32>();
+    joint.motorSpeed = reader.read<f32>();
     joint.motorMode = reader.read<u32>();
     if (layout == PhysMotorLayout::Sprung) {
         joint.motorFrequencyHz = reader.read<f32>();
@@ -160,7 +157,12 @@ void BinaryParseVisitor::visit(DistanceJoint& joint) {
 }
 
 void BinaryParseVisitor::visit(PhysicsTuning& tuning) {
-    tuning.values = reader.readArray<f32, 6>();
+    tuning.posMaxPush = reader.read<f32>();
+    tuning.posPushAmt = reader.read<f32>();
+    tuning.posRelaxSpeed = reader.read<f32>();
+    tuning.velMaxPush = reader.read<f32>();
+    tuning.velSpeed = reader.read<f32>();
+    tuning.minPushDist = reader.read<f32>();
 }
 
 // PLYT is the one chunk that sizes itself: a count, then that many fixed-size

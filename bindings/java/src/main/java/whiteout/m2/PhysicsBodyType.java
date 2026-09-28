@@ -9,7 +9,9 @@ public enum PhysicsBodyType {
     /** Animation-driven collider. Becomes `dmBodyType` 1; the client keeps it glued to its bone and the simulation only reads it. */
     Kinematic(0),
     /** Simulated. Becomes `dmBodyType` 0 and gets its bone transform written back every frame. These are the cloth/tassel segments. */
-    Dynamic(1);
+    Dynamic(1),
+    /** Any value from 2 up: `dmBodyType` 2. No shipped body uses it. */
+    Static(2);
 
     public final int value;
     PhysicsBodyType(int v) { this.value = v; }

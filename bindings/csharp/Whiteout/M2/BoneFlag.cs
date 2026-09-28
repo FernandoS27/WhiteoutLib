@@ -4,17 +4,41 @@
 
 namespace Whiteout.M2;
 
+/// <summary>`M2CompBone.flags`, as WoW 12.1 reads it (`WOW_M2_FLAGS.md` §7).</summary>
 public enum BoneFlag : int
 {
     None = 0,
     IgnoreParentTranslate = 1,
     IgnoreParentScale = 2,
     IgnoreParentRotation = 4,
+    /// <summary>@name Billboards One switch over `flags &amp; BillboardMask`: exactly one of these, or none. Two or more set give no billboard at all. @{</summary>
     SphericalBillboard = 8,
+    /// <summary>@name Billboards One switch over `flags &amp; BillboardMask`: exactly one of these, or none. Two or more set give no billboard at all. @{</summary>
     CylindricalBillboardX = 16,
+    /// <summary>@name Billboards One switch over `flags &amp; BillboardMask`: exactly one of these, or none. Two or more set give no billboard at all. @{</summary>
     CylindricalBillboardY = 32,
+    /// <summary>@name Billboards One switch over `flags &amp; BillboardMask`: exactly one of these, or none. Two or more set give no billboard at all. @{</summary>
     CylindricalBillboardZ = 64,
+    /// <summary>Faces the camera position rather than lying flat against the view.</summary>
+    BillboardAimAtCamera = 67108864,
+    /// <summary>@} A procedural matrix is multiplied into the local transform.</summary>
+    ProceduralTransform = 128,
+    /// <summary>Has animation; with ProceduralTransform clear too, the bone skips animation.</summary>
     Transformed = 512,
+    /// <summary>Eligible for physics: a live dynamic body on the bone replaces its animation.</summary>
     Kinematic = 1024,
+    /// <summary>The helmet-scaling pass writes its per-race scale into this bone.</summary>
     HelmetAnimScaled = 4096,
+    /// <summary>runtime</summary>
+    PrimarySequenceAttached = 8192,
+    /// <summary>runtime</summary>
+    SecondarySequenceAttached = 16384,
+    /// <summary>runtime</summary>
+    PhysicsInteractionOffset = 2097152,
+    /// <summary>runtime: a dynamic body owns the bone</summary>
+    PhysicsDriven = 4194304,
+    /// <summary>With PrimarySequenceAttached, skip the per-sequence blend weight.</summary>
+    SkipSequenceBlendWeight = 8388608,
+    /// <summary>With ProceduralTransform, apply the matrix after parenting, in world space.</summary>
+    ProceduralInWorldSpace = 16777216,
 }

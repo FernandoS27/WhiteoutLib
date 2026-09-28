@@ -35,26 +35,65 @@ impl TryFrom<i32> for InterpolationType {
     }
 }
 
+/// The MD20 header's `globalFlags`, named for what WoW 12.1 does with each bit (`WOW_M2_FLAGS.md`, corrected where noted).
 /// Bit flags. Combine with `|`, test with [`GlobalFlag::contains`].
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct GlobalFlag(pub i32);
 
 impl GlobalFlag {
     pub const NONE: Self = Self(0);
+    /// The model leans to follow the ground normal, about X and about Y.
     pub const TILT_X: Self = Self(1);
+    /// The model leans to follow the ground normal, about X and about Y.
     pub const TILT_Y: Self = Self(2);
-    pub const ADD_BACK_REFERENCES: Self = Self(4);
+    /// The world transform is taken as is: no attachment parent's scale or translation is composed in, and emitters do not inherit it.
+    pub const WORLD_ABSOLUTE_TRANSFORM: Self = Self(4);
+    /// The header carries `textureCombinerCombos` after its fixed part. Read by the parser; the 12.1 client never tests it.
     pub const USE_TEXTURE_COMBINER_COMBOS: Self = Self(8);
-    pub const IS_CAMERA: Self = Self(16);
+    /// Batch bounds and sort distance come from the bone-transformed geometry.
+    pub const ANIMATED_BOUNDS: Self = Self(16);
+    /// Load physics when the model attaches to a scene. CM2Shared::FinishLoadingM2Data tests it before LegacyLoadPhysData.
     pub const LOAD_PHYSICS_DATA: Self = Self(32);
-    pub const UNK_0X_80: Self = Self(128);
-    pub const UNK_0X_100: Self = Self(256);
+    /// Enters the visible-geometry optimiser and the shadow-map gather.
+    pub const VISIBLE_GEOMETRY_OPTIMISE: Self = Self(128);
+    /// Emitters of record type 4 are relinked when the model attaches to a parent.
+    pub const PARENT_LINKED_PARTICLES: Self = Self(256);
+    /// Files of version 271 and below: the particle record carries the 16-byte multi-texture scroll tail. 12.1 reads the bit on helmets instead, as "has per-race rows in HelmetAnimScaling" (bone flag HelmetAnimScaled).
     pub const NEW_PARTICLE_RECORD: Self = Self(512);
+    /// Files of version 271 and below: the particle record carries the 16-byte multi-texture scroll tail. 12.1 reads the bit on helmets instead, as "has per-race rows in HelmetAnimScaling" (bone flag HelmetAnimScaled).
     pub const UNK_0X_400: Self = Self(1024);
+    /// Texture transforms are driven by bone sequences through textureTransformBoneMap.
     pub const TEXTURE_TRANSFORMS_USES_BONE_SEQUENCES: Self = Self(2048);
+    /// Texture transforms are driven by bone sequences through textureTransformBoneMap.
     pub const UNK_0X_1000: Self = Self(4096);
-    pub const CHUNKED_ANIM_FILES: Self = Self(8192);
-    pub const UPGRADED_FORMAT: Self = Self(2097152);
+    /// Each skin profile owns a slice of the vertex array starting at its SkinProfile::lodVertexBase; clear, every profile indexes from 0.
+    pub const PER_SKIN_VERTEX_BLOCKS: Self = Self(8192);
+    /// A skinned attachment posed by its parent model: the client rebinds its bones to the parent skeleton by Bone::boneNameCRC.
+    pub const PARENT_SKELETON_BOUND: Self = Self(16384);
+    /// Point lights take their attenuation start and end from their tracks; clear, the client uses 1.6666 and 5.2666 times the model scale. (WOW_M2_FLAGS.md reads this as a ribbon bit: the 156-byte record it describes is the light.)
+    pub const LIGHT_ATTENUATION_TRACKS: Self = Self(32768);
+    /// Ribbons resolve their textureTransformIndex through textureTransformCombos; clear, the index is ignored. (WOW_M2_FLAGS.md reads this as a particle bit: the 176-byte record is the ribbon.)
+    pub const RIBBON_TEXTURE_TRANSFORMS: Self = Self(131072);
+    /// In the bone-wind system: the palette entries of every bone but the root carry wind amplitude and phase for a wind vertex-shader permutation.
+    pub const BONE_WIND: Self = Self(262144);
+    /// Sequences and bones come from the SKID `.skel`, not the header.
+    pub const EXTERNAL_SKELETON: Self = Self(1048576);
+    /// External `.anim` files are a chunk stream whose AFM2 chunk holds the sequence data; clear, the whole file is sequence data.
+    pub const CHUNKED_ANIM_AFM_2: Self = Self(2097152);
+    /// Sets a texture-creation flag nothing in the 12.1 client reads.
+    pub const NAMED_TEXTURE_REQUEST_INERT: Self = Self(8388608);
+    /// Ignore the PFID physics file, whatever the model carries.
+    pub const SUPPRESS_PHYSICS_FILE: Self = Self(16777216);
+    /// Skip the HiZ occlusion test.
+    pub const SKIP_OCCLUSION_QUERY: Self = Self(33554432);
+    /// Treat the model as visible without querying occlusion.
+    pub const FORCE_UNOCCLUDED: Self = Self(67108864);
+    /// Patches two bytes of the M2 render-state word; the bytes' meaning is not resolved.
+    pub const PIPELINE_STATE_OVERRIDE: Self = Self(134217728);
+    /// Past a LOD threshold the model swaps its link record and releases its textures.
+    pub const FAR_LOD_LINK_SUBSTITUTE: Self = Self(268435456);
+    /// Picks which of two render-state words a secondary pass draws the model with.
+    pub const SECONDARY_PASS_RENDER_STATE: Self = Self(536870912);
 
     #[inline]
     pub const fn contains(self, other: Self) -> bool {
@@ -153,6 +192,9 @@ impl core::fmt::Debug for SequenceFlag {
     }
 }
 
+/// `M2CompBone.flags`, as WoW 12.1 reads it (`WOW_M2_FLAGS.md` §7).
+///
+/// The client ORs the file word with a runtime word, so the bits marked runtime below are never meant to come from a file.
 /// Bit flags. Combine with `|`, test with [`BoneFlag::contains`].
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct BoneFlag(pub i32);
@@ -162,13 +204,36 @@ impl BoneFlag {
     pub const IGNORE_PARENT_TRANSLATE: Self = Self(1);
     pub const IGNORE_PARENT_SCALE: Self = Self(2);
     pub const IGNORE_PARENT_ROTATION: Self = Self(4);
+    /// @name Billboards One switch over `flags & BillboardMask`: exactly one of these, or none. Two or more set give no billboard at all. @{
     pub const SPHERICAL_BILLBOARD: Self = Self(8);
+    /// @name Billboards One switch over `flags & BillboardMask`: exactly one of these, or none. Two or more set give no billboard at all. @{
     pub const CYLINDRICAL_BILLBOARD_X: Self = Self(16);
+    /// @name Billboards One switch over `flags & BillboardMask`: exactly one of these, or none. Two or more set give no billboard at all. @{
     pub const CYLINDRICAL_BILLBOARD_Y: Self = Self(32);
+    /// @name Billboards One switch over `flags & BillboardMask`: exactly one of these, or none. Two or more set give no billboard at all. @{
     pub const CYLINDRICAL_BILLBOARD_Z: Self = Self(64);
+    /// Faces the camera position rather than lying flat against the view.
+    pub const BILLBOARD_AIM_AT_CAMERA: Self = Self(67108864);
+    /// @} A procedural matrix is multiplied into the local transform.
+    pub const PROCEDURAL_TRANSFORM: Self = Self(128);
+    /// Has animation; with ProceduralTransform clear too, the bone skips animation.
     pub const TRANSFORMED: Self = Self(512);
+    /// Eligible for physics: a live dynamic body on the bone replaces its animation.
     pub const KINEMATIC: Self = Self(1024);
+    /// The helmet-scaling pass writes its per-race scale into this bone.
     pub const HELMET_ANIM_SCALED: Self = Self(4096);
+    /// runtime
+    pub const PRIMARY_SEQUENCE_ATTACHED: Self = Self(8192);
+    /// runtime
+    pub const SECONDARY_SEQUENCE_ATTACHED: Self = Self(16384);
+    /// runtime
+    pub const PHYSICS_INTERACTION_OFFSET: Self = Self(2097152);
+    /// runtime: a dynamic body owns the bone
+    pub const PHYSICS_DRIVEN: Self = Self(4194304);
+    /// With PrimarySequenceAttached, skip the per-sequence blend weight.
+    pub const SKIP_SEQUENCE_BLEND_WEIGHT: Self = Self(8388608);
+    /// With ProceduralTransform, apply the matrix after parenting, in world space.
+    pub const PROCEDURAL_IN_WORLD_SPACE: Self = Self(16777216);
 
     #[inline]
     pub const fn contains(self, other: Self) -> bool {
@@ -405,6 +470,8 @@ pub enum PhysicsBodyType {
     Kinematic = 0,
     /// Simulated. Becomes `dmBodyType` 0 and gets its bone transform written back every frame. These are the cloth/tassel segments.
     Dynamic = 1,
+    /// Any value from 2 up: `dmBodyType` 2. No shipped body uses it.
+    Static = 2,
 }
 
 impl TryFrom<i32> for PhysicsBodyType {
@@ -413,6 +480,7 @@ impl TryFrom<i32> for PhysicsBodyType {
         match v {
             0 => Ok(PhysicsBodyType::Kinematic),
             1 => Ok(PhysicsBodyType::Dynamic),
+            2 => Ok(PhysicsBodyType::Static),
             other => Err(crate::Error::UnknownEnum {
                 name: "PhysicsBodyType",
                 value: other,
@@ -481,6 +549,41 @@ impl TryFrom<i32> for PhysicsJointType {
             5 => Ok(PhysicsJointType::Distance),
             other => Err(crate::Error::UnknownEnum {
                 name: "PhysicsJointType",
+                value: other,
+            }),
+        }
+    }
+}
+
+/// What a model's `PHYT` makes of it (`PHYS_FORMAT.md` §3.10).
+///
+/// A file with no PHYT reads as 0.
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PhysicsObjectKind {
+    /// Ragdoll whose kinematic bodies follow the model, not their bones: items worn on a character. 0 and 1 take the same branch in the client.
+    AttachedRagdoll = 0,
+    /// Ragdoll whose kinematic bodies follow the model, not their bones: items worn on a character. 0 and 1 take the same branch in the client.
+    AttachedRagdollAlt = 1,
+    /// Vegetation phantom built from the model's bounds and pushed by units. Needs a PHYV, and builds no bodies.
+    VegetationPhantom = 2,
+    /// Ragdoll in the shared physics world.
+    Ragdoll = 3,
+    /// Ragdoll in a physics world of its own, solved with twelve position iterations rather than two.
+    PrivateWorldRagdoll = 4,
+}
+
+impl TryFrom<i32> for PhysicsObjectKind {
+    type Error = crate::Error;
+    fn try_from(v: i32) -> Result<Self, crate::Error> {
+        match v {
+            0 => Ok(PhysicsObjectKind::AttachedRagdoll),
+            1 => Ok(PhysicsObjectKind::AttachedRagdollAlt),
+            2 => Ok(PhysicsObjectKind::VegetationPhantom),
+            3 => Ok(PhysicsObjectKind::Ragdoll),
+            4 => Ok(PhysicsObjectKind::PrivateWorldRagdoll),
+            other => Err(crate::Error::UnknownEnum {
+                name: "PhysicsObjectKind",
                 value: other,
             }),
         }
@@ -3038,6 +3141,7 @@ impl SkinProfile {
         unsafe { ffi::whiteout_m2_M2SkinProfile_resize_batches(self.raw.as_ptr(), count) }
     }
 
+    /// Where this profile's vertex indices start in the model's vertex array. The client applies it only when GlobalFlag::PerSkinVertexBlocks is set.
     pub fn lod_vertex_base(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m2_M2SkinProfile_get_lodVertexBase(self.raw.as_ptr()) }
@@ -6545,7 +6649,7 @@ impl Default for PhysicsFrame {
 
 /// One rigid body, bound to a single model bone — BODY/BDY2/BDY3/BDY4.
 ///
-/// The four on-disk layouts are the same fields accreting over time, so they share one struct; PhysicsData::version decides which of them is written back, and fields the older layouts lack keep their defaults.
+/// The four on-disk layouts are the same fields accreting over time, so they share one struct; PhysicsData::version decides which of them is written back, and fields the older layouts lack keep the values the client's upgrader gives them (`PHYS_FORMAT.md` §5).
 pub struct PhysicsBody {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2PhysicsBody>,
 }
@@ -6602,6 +6706,7 @@ impl PhysicsBody {
         unsafe { ffi::whiteout_m2_M2PhysicsBody_set_type(self.raw.as_ptr(), value as i32) }
     }
 
+    /// BODY/BDY2 store it as a u32 at +16 and the client keeps the low 16 bits; BDY3 moved it into the u16 at +2.
     pub fn bone_index(&self) -> u16 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m2_M2PhysicsBody_get_boneIndex(self.raw.as_ptr()) }
@@ -6612,7 +6717,7 @@ impl PhysicsBody {
         unsafe { ffi::whiteout_m2_M2PhysicsBody_set_boneIndex(self.raw.as_ptr(), value) }
     }
 
-    /// Offset from the bone's animated position, not an absolute position: the client spawns the body at `bonePosition + position`.
+    /// The body's model-space origin, where the client creates it; the first step moves it onto its bone's animated pivot.
     pub fn position(&self) -> crate::math::Vector3f {
         // SAFETY: the getter returns an interior pointer to a
         // layout-identical POD; we copy it out immediately.
@@ -6632,7 +6737,7 @@ impl PhysicsBody {
         }
     }
 
-    /// First entry in PhysicsData::shapes belonging to this body. 32 bits wide in BODY/BDY2, 16 from BDY3 on — writing a larger index back into one of those truncates it.
+    /// First entry in PhysicsData::shapes belonging to this body. 32 bits wide in every layout.
     pub fn shape_index(&self) -> i32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m2_M2PhysicsBody_get_shapeIndex(self.raw.as_ptr()) }
@@ -6653,7 +6758,7 @@ impl PhysicsBody {
         unsafe { ffi::whiteout_m2_M2PhysicsBody_set_shapeCount(self.raw.as_ptr(), value) }
     }
 
-    /// BDY3+. 1.0 on all but 45 of 1213 kinematic bodies but tuned freely on dynamic ones, negatives included — the shape of `dmBodyDef::m_gravityScale`.
+    /// BDY2+. 1.0 on all but 45 of 1213 kinematic bodies but tuned freely on dynamic ones, negatives included — `dmBodyDef+0x30`.
     pub fn gravity_scale(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m2_M2PhysicsBody_get_gravityScale(self.raw.as_ptr()) }
@@ -6664,7 +6769,7 @@ impl PhysicsBody {
         unsafe { ffi::whiteout_m2_M2PhysicsBody_set_gravityScale(self.raw.as_ptr(), value) }
     }
 
-    /// BDY2+. 1.0 in 3457 of 3526 bodies, otherwise 1.1-10 — `dmBodyDef::m_inertiaScale`.
+    /// BDY3+. 1.0 in 3457 of 3526 bodies, otherwise 1.1-10 — `dmBodyDef+0x2C`.
     pub fn inertia_scale(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m2_M2PhysicsBody_get_inertiaScale(self.raw.as_ptr()) }
@@ -6675,7 +6780,7 @@ impl PhysicsBody {
         unsafe { ffi::whiteout_m2_M2PhysicsBody_set_inertiaScale(self.raw.as_ptr(), value) }
     }
 
-    /// BDY3+. Zero on 1196 of 1213 kinematic bodies and 0-10 on dynamic ones — `dmBodyDef::m_linearDamping`.
+    /// BDY3+. Zero on 1196 of 1213 kinematic bodies and 0-10 on dynamic ones — `dmBodyDef+0x24`.
     pub fn linear_damping(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m2_M2PhysicsBody_get_linearDamping(self.raw.as_ptr()) }
@@ -6686,7 +6791,7 @@ impl PhysicsBody {
         unsafe { ffi::whiteout_m2_M2PhysicsBody_set_linearDamping(self.raw.as_ptr(), value) }
     }
 
-    /// BDY3+. Same kinematic/dynamic split as @ref linearDamping — `dmBodyDef::m_angularDamping`.
+    /// BDY3+. Same kinematic/dynamic split as @ref linearDamping — `dmBodyDef+0x28`.
     pub fn angular_damping(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m2_M2PhysicsBody_get_angularDamping(self.raw.as_ptr()) }
@@ -6697,37 +6802,37 @@ impl PhysicsBody {
         unsafe { ffi::whiteout_m2_M2PhysicsBody_set_angularDamping(self.raw.as_ptr(), value) }
     }
 
-    /// BDY3+. Unidentified. Unlike the four above it is set on kinematic and dynamic bodies alike, so it is not a rigid-body integration parameter; values cluster on 0.5, 0.01, 0.9 and 0.1.
-    pub fn unknown_28(&self) -> f32 {
+    /// BDY4. The fraction of the way a kinematic body is snapped to its animated pose each step, ramping to a full teleport when the motion is fast. Not a Domino parameter. Older layouts get the upgrader's 0.9.
+    pub fn follow_factor(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m2_M2PhysicsBody_get_unknown28(self.raw.as_ptr()) }
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_get_followFactor(self.raw.as_ptr()) }
     }
 
-    pub fn set_unknown_28(&mut self, value: f32) {
+    pub fn set_follow_factor(&mut self, value: f32) {
         // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m2_M2PhysicsBody_set_unknown28(self.raw.as_ptr(), value) }
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_set_followFactor(self.raw.as_ptr(), value) }
     }
 
-    /// BDY4+. Unidentified; 0 in half the corpus, otherwise small values or 0x8000 alone, which reads like a bit field.
-    pub fn unknown_2c(&self) -> u16 {
+    /// BDY3+ (+40 in BDY3, +44 in BDY4): see the `kPhysicsAttachment*` constants.
+    pub fn attachment(&self) -> u16 {
         // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m2_M2PhysicsBody_get_unknown2c(self.raw.as_ptr()) }
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_get_attachment(self.raw.as_ptr()) }
     }
 
-    pub fn set_unknown_2c(&mut self, value: u16) {
+    pub fn set_attachment(&mut self, value: u16) {
         // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m2_M2PhysicsBody_set_unknown2c(self.raw.as_ptr(), value) }
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_set_attachment(self.raw.as_ptr(), value) }
     }
 
-    /// BDY4+. Zero in every corpus body.
-    pub fn padding_2e(&self) -> u16 {
+    /// BDY3+. Zero in every corpus body.
+    pub fn padding(&self) -> u16 {
         // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m2_M2PhysicsBody_get_padding2e(self.raw.as_ptr()) }
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_get_padding(self.raw.as_ptr()) }
     }
 
-    pub fn set_padding_2e(&mut self, value: u16) {
+    pub fn set_padding(&mut self, value: u16) {
         // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m2_M2PhysicsBody_set_padding2e(self.raw.as_ptr(), value) }
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_set_padding(self.raw.as_ptr(), value) }
     }
 }
 
@@ -6804,15 +6909,25 @@ impl PhysicsShape {
         unsafe { ffi::whiteout_m2_M2PhysicsShape_set_shapeIndex(self.raw.as_ptr(), value) }
     }
 
-    /// Zero in every corpus shape.
-    pub fn padding_04(&self) -> u32 {
+    /// `dmFixtureDef.gameFlags`. Zero in every corpus shape.
+    pub fn game_flags(&self) -> u16 {
         // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m2_M2PhysicsShape_get_padding04(self.raw.as_ptr()) }
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_get_gameFlags(self.raw.as_ptr()) }
     }
 
-    pub fn set_padding_04(&mut self, value: u32) {
+    pub fn set_game_flags(&mut self, value: u16) {
         // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m2_M2PhysicsShape_set_padding04(self.raw.as_ptr(), value) }
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_set_gameFlags(self.raw.as_ptr(), value) }
+    }
+
+    pub fn padding_06(&self) -> u16 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_get_padding06(self.raw.as_ptr()) }
+    }
+
+    pub fn set_padding_06(&mut self, value: u16) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_set_padding06(self.raw.as_ptr(), value) }
     }
 
     pub fn friction(&self) -> f32 {
@@ -6835,6 +6950,7 @@ impl PhysicsShape {
         unsafe { ffi::whiteout_m2_M2PhysicsShape_set_restitution(self.raw.as_ptr(), value) }
     }
 
+    /// Rescaled by the client for capsules in files of version 4 and below (`PHYS_FORMAT.md` §4.2).
     pub fn density(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m2_M2PhysicsShape_get_density(self.raw.as_ptr()) }
@@ -6845,37 +6961,36 @@ impl PhysicsShape {
         unsafe { ffi::whiteout_m2_M2PhysicsShape_set_density(self.raw.as_ptr(), value) }
     }
 
-    /// SHP2+. Unidentified, but a float: only 0, 0.01, 0.8 and 1.0 occur. The one `dmFixtureDef` float the rest of this struct does not account for is `m_rollingResistance`.
-    pub fn unknown_14(&self) -> f32 {
+    /// @name SHP2+, parsed and never read The client copies these onto its shape def and no `CreateInstance` reads them (`PHYS_FORMAT.md` §4.5). SHAP's upgrade gives 0, 1.0 and 0. @{
+    pub fn unused_14(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m2_M2PhysicsShape_get_unknown14(self.raw.as_ptr()) }
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_get_unused14(self.raw.as_ptr()) }
     }
 
-    pub fn set_unknown_14(&mut self, value: f32) {
+    pub fn set_unused_14(&mut self, value: f32) {
         // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m2_M2PhysicsShape_set_unknown14(self.raw.as_ptr(), value) }
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_set_unused14(self.raw.as_ptr(), value) }
     }
 
-    /// SHP2+. 1.0 in 3229 of 3230 shapes, matching the `m_scaleOrRadius` the client hands every fixture.
-    pub fn scale(&self) -> f32 {
+    /// 1.0 in 3229 of 3230 shapes, and still not the fixture scale.
+    pub fn unused_18(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m2_M2PhysicsShape_get_scale(self.raw.as_ptr()) }
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_get_unused18(self.raw.as_ptr()) }
     }
 
-    pub fn set_scale(&mut self, value: f32) {
+    pub fn set_unused_18(&mut self, value: f32) {
         // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m2_M2PhysicsShape_set_scale(self.raw.as_ptr(), value) }
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_set_unused18(self.raw.as_ptr(), value) }
     }
 
-    /// SHP2+. Zero in every corpus shape.
-    pub fn unknown_1c(&self) -> u16 {
+    pub fn unused_1c(&self) -> u16 {
         // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m2_M2PhysicsShape_get_unknown1c(self.raw.as_ptr()) }
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_get_unused1c(self.raw.as_ptr()) }
     }
 
-    pub fn set_unknown_1c(&mut self, value: u16) {
+    pub fn set_unused_1c(&mut self, value: u16) {
         // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m2_M2PhysicsShape_set_unknown1c(self.raw.as_ptr(), value) }
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_set_unused1c(self.raw.as_ptr(), value) }
     }
 
     /// SHP2+. Uninitialised on disk; kept so writes match.
@@ -7843,15 +7958,15 @@ impl WeldJoint {
         unsafe { ffi::whiteout_m2_M2WeldJoint_set_linearDampingRatio(self.raw.as_ptr(), value) }
     }
 
-    /// WLJ3+. Zero in 265 of 274 weld joints.
-    pub fn unknown_70(&self) -> f32 {
+    /// WLJ3+. Copied onto the weld def and never sent to Domino. Zero in 265 of 274 weld joints.
+    pub fn unused_70(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m2_M2WeldJoint_get_unknown70(self.raw.as_ptr()) }
+        unsafe { ffi::whiteout_m2_M2WeldJoint_get_unused70(self.raw.as_ptr()) }
     }
 
-    pub fn set_unknown_70(&mut self, value: f32) {
+    pub fn set_unused_70(&mut self, value: f32) {
         // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m2_M2WeldJoint_set_unknown70(self.raw.as_ptr(), value) }
+        unsafe { ffi::whiteout_m2_M2WeldJoint_set_unused70(self.raw.as_ptr(), value) }
     }
 }
 
@@ -8054,6 +8169,7 @@ impl ShoulderJoint {
         }
     }
 
+    /// Degrees, like the cone; the client converts both to radians and enables the twist limit when `upper > lower`.
     pub fn lower_twist_angle(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m2_M2ShoulderJoint_get_lowerTwistAngle(self.raw.as_ptr()) }
@@ -8074,7 +8190,7 @@ impl ShoulderJoint {
         unsafe { ffi::whiteout_m2_M2ShoulderJoint_set_upperTwistAngle(self.raw.as_ptr(), value) }
     }
 
-    /// Degrees: the corpus holds 20, 35, 45 and 60, while `dmShoulderJoint` clamps its own cone to [10°, 170°] expressed in radians — so the loader converts on the way in.
+    /// Degrees: the corpus holds 20, 35, 45 and 60. Stored as authored, so the conversion is the consumer's.
     pub fn cone_angle(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m2_M2ShoulderJoint_get_coneAngle(self.raw.as_ptr()) }
@@ -8085,7 +8201,6 @@ impl ShoulderJoint {
         unsafe { ffi::whiteout_m2_M2ShoulderJoint_set_coneAngle(self.raw.as_ptr(), value) }
     }
 
-    /// version 2+
     pub fn max_motor_torque(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m2_M2ShoulderJoint_get_maxMotorTorque(self.raw.as_ptr()) }
@@ -8096,7 +8211,7 @@ impl ShoulderJoint {
         unsafe { ffi::whiteout_m2_M2ShoulderJoint_set_maxMotorTorque(self.raw.as_ptr(), value) }
     }
 
-    /// version 2+
+    /// low byte: 0 off, 1 position, 2 velocity
     pub fn motor_mode(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m2_M2ShoulderJoint_get_motorMode(self.raw.as_ptr()) }
@@ -8229,6 +8344,7 @@ impl PrismaticJoint {
         }
     }
 
+    /// Distances, not angles; the limit is enabled when `upper > lower`.
     pub fn lower_limit(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m2_M2PrismaticJoint_get_lowerLimit(self.raw.as_ptr()) }
@@ -8249,15 +8365,17 @@ impl PrismaticJoint {
         unsafe { ffi::whiteout_m2_M2PrismaticJoint_set_upperLimit(self.raw.as_ptr(), value) }
     }
 
-    /// Unidentified; zero in all twelve corpus prismatic joints. Domino's prismatic def carries an enable-limit flag next to the limit pair.
-    pub fn unknown_68(&self) -> f32 {
+    /// The zero point the limit is measured from. No `dmJointDef` slot: the client writes it into the live joint after creation. Zero in all twelve corpus prismatics.
+    pub fn reference_translation(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m2_M2PrismaticJoint_get_unknown68(self.raw.as_ptr()) }
+        unsafe { ffi::whiteout_m2_M2PrismaticJoint_get_referenceTranslation(self.raw.as_ptr()) }
     }
 
-    pub fn set_unknown_68(&mut self, value: f32) {
+    pub fn set_reference_translation(&mut self, value: f32) {
         // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m2_M2PrismaticJoint_set_unknown68(self.raw.as_ptr(), value) }
+        unsafe {
+            ffi::whiteout_m2_M2PrismaticJoint_set_referenceTranslation(self.raw.as_ptr(), value)
+        }
     }
 
     pub fn max_motor_force(&self) -> f32 {
@@ -8270,15 +8388,15 @@ impl PrismaticJoint {
         unsafe { ffi::whiteout_m2_M2PrismaticJoint_set_maxMotorForce(self.raw.as_ptr(), value) }
     }
 
-    /// Unidentified; zero in all twelve.
-    pub fn unknown_70(&self) -> f32 {
+    /// Target velocity, written into the live joint like @ref referenceTranslation.
+    pub fn motor_speed(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m2_M2PrismaticJoint_get_unknown70(self.raw.as_ptr()) }
+        unsafe { ffi::whiteout_m2_M2PrismaticJoint_get_motorSpeed(self.raw.as_ptr()) }
     }
 
-    pub fn set_unknown_70(&mut self, value: f32) {
+    pub fn set_motor_speed(&mut self, value: f32) {
         // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m2_M2PrismaticJoint_set_unknown70(self.raw.as_ptr(), value) }
+        unsafe { ffi::whiteout_m2_M2PrismaticJoint_set_motorSpeed(self.raw.as_ptr(), value) }
     }
 
     pub fn motor_mode(&self) -> u32 {
@@ -8413,6 +8531,7 @@ impl RevoluteJoint {
         }
     }
 
+    /// Degrees; the limit is enabled when `upper > lower`.
     pub fn lower_angle(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m2_M2RevoluteJoint_get_lowerAngle(self.raw.as_ptr()) }
@@ -8583,7 +8702,9 @@ impl Default for DistanceJoint {
     }
 }
 
-/// PHYV — six floats that overwrite the head of a tuning block the client otherwise fills with constants. Version 1+.
+/// PHYV — the per-model vegetation push: the six `physVeg*` console variables in registration order (`PHYS_FORMAT.md` §3.9).
+///
+/// Read only for a `PHYT` 2 model, which becomes a phantom pushed by units walking through it rather than a ragdoll.
 pub struct PhysicsTuning {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2PhysicsTuning>,
 }
@@ -8628,29 +8749,186 @@ impl PhysicsTuning {
         }
     }
 
-    /// Number of elements — a fixed-size C++ array.
-    pub const fn values_len() -> usize {
-        6
+    /// Yards a bone may be pushed from its base before it is clamped.
+    pub fn pos_max_push(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsTuning_get_posMaxPush(self.raw.as_ptr()) }
     }
 
-    /// # Panics
-    /// If `index >= 6`, matching Rust slice indexing.
-    pub fn values(&self, index: usize) -> f32 {
-        assert!(index < 6, "values index {index} out of range (len 6)");
-        // SAFETY: index checked above; plain scalar read.
-        unsafe { ffi::whiteout_m2_M2PhysicsTuning_get_values_at(self.raw.as_ptr(), index) }
+    pub fn set_pos_max_push(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsTuning_set_posMaxPush(self.raw.as_ptr(), value) }
     }
 
-    /// # Panics
-    /// If `index >= 6`.
-    pub fn set_values(&mut self, index: usize, value: f32) {
-        assert!(index < 6, "values index {index} out of range (len 6)");
-        // SAFETY: index checked above.
-        unsafe { ffi::whiteout_m2_M2PhysicsTuning_set_values_at(self.raw.as_ptr(), index, value) }
+    /// Yards per frame a bone is pushed while a unit moves along it, times dt.
+    pub fn pos_push_amt(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsTuning_get_posPushAmt(self.raw.as_ptr()) }
+    }
+
+    pub fn set_pos_push_amt(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsTuning_set_posPushAmt(self.raw.as_ptr(), value) }
+    }
+
+    /// How fast the bone returns to rest once the unit leaves.
+    pub fn pos_relax_speed(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsTuning_get_posRelaxSpeed(self.raw.as_ptr()) }
+    }
+
+    pub fn set_pos_relax_speed(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsTuning_set_posRelaxSpeed(self.raw.as_ptr(), value) }
+    }
+
+    /// Extra push along a moving unit's velocity.
+    pub fn vel_max_push(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsTuning_get_velMaxPush(self.raw.as_ptr()) }
+    }
+
+    pub fn set_vel_max_push(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsTuning_set_velMaxPush(self.raw.as_ptr(), value) }
+    }
+
+    /// How fast the bone sways along that velocity.
+    pub fn vel_speed(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsTuning_get_velSpeed(self.raw.as_ptr()) }
+    }
+
+    pub fn set_vel_speed(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsTuning_set_velSpeed(self.raw.as_ptr(), value) }
+    }
+
+    /// **Squared** distance inside which a unit starts pushing. The client uses 8.0 for a model with no PHYV.
+    pub fn min_push_dist(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsTuning_get_minPushDist(self.raw.as_ptr()) }
+    }
+
+    pub fn set_min_push_dist(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsTuning_set_minPushDist(self.raw.as_ptr(), value) }
     }
 }
 
 impl Default for PhysicsTuning {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// PHAO — the host skeletons this file's follow factors were tuned on.
+///
+/// On a host whose key-bone-4 name CRC is not listed, the client discards every body's @ref PhysicsBody::followFactor for a flat 0.7. No shipped file has one.
+pub struct PhysicsAllowList {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2PhysicsAllowList>,
+}
+
+impl Drop for PhysicsAllowList {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_m2_M2PhysicsAllowList_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl PhysicsAllowList {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M2PhysicsAllowList) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| PhysicsAllowList { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for PhysicsAllowList {}
+
+impl core::fmt::Debug for PhysicsAllowList {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PhysicsAllowList").finish_non_exhaustive()
+    }
+}
+
+impl PhysicsAllowList {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_m2_M2PhysicsAllowList_new();
+            Self::from_raw(raw).expect("native PhysicsAllowList allocation failed")
+        }
+    }
+
+    /// The chunk's leading u32. The client keeps its low byte and never reads it.
+    pub fn header(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsAllowList_get_header(self.raw.as_ptr()) }
+    }
+
+    pub fn set_header(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsAllowList_set_header(self.raw.as_ptr(), value) }
+    }
+
+    /// Zero-copy view of the underlying `std::vector`.
+    pub fn keys(&self) -> &[u32] {
+        // SAFETY: `_data`/`_count` describe one contiguous C++
+        // allocation, borrowed for as long as `self` is.
+        unsafe {
+            let n = ffi::whiteout_m2_M2PhysicsAllowList_get_keys_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m2_M2PhysicsAllowList_get_keys_data(self.raw.as_ptr());
+            if p.is_null() || n == 0 {
+                &[]
+            } else {
+                core::slice::from_raw_parts(p, n)
+            }
+        }
+    }
+
+    /// Zero-copy mutable view. Resize first — the borrow forbids it after.
+    pub fn keys_mut(&mut self) -> &mut [u32] {
+        // SAFETY: as above; `&mut self` rules out aliasing and resizing.
+        unsafe {
+            let n = ffi::whiteout_m2_M2PhysicsAllowList_get_keys_count(self.raw.as_ptr());
+            let p =
+                ffi::whiteout_m2_M2PhysicsAllowList_get_keys_data(self.raw.as_ptr()) as *mut u32;
+            if p.is_null() || n == 0 {
+                &mut []
+            } else {
+                core::slice::from_raw_parts_mut(p, n)
+            }
+        }
+    }
+
+    pub fn set_keys(&mut self, values: &[u32]) {
+        // SAFETY: the native side copies `values` before returning.
+        unsafe {
+            ffi::whiteout_m2_M2PhysicsAllowList_assign_keys(
+                self.raw.as_ptr(),
+                values.as_ptr() as *const _,
+                values.len(),
+            )
+        }
+    }
+
+    pub fn resize_keys(&mut self, count: usize) {
+        // SAFETY: reallocation is safe here precisely because
+        // `&mut self` means no slice borrow is outstanding.
+        unsafe { ffi::whiteout_m2_M2PhysicsAllowList_resize_keys(self.raw.as_ptr(), count) }
+    }
+}
+
+impl Default for PhysicsAllowList {
     fn default() -> Self {
         Self::new()
     }
@@ -15237,6 +15515,10 @@ pub mod ffi {
         _private: [u8; 0],
     }
     #[repr(C)]
+    pub struct whiteout_M2PhysicsAllowList {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
     pub struct whiteout_M2PhysicsUnknownChunk {
         _private: [u8; 0],
     }
@@ -17060,18 +17342,20 @@ pub mod ffi {
             self_: *mut whiteout_M2PhysicsBody,
             value: f32,
         );
-        pub fn whiteout_m2_M2PhysicsBody_get_unknown28(self_: *mut whiteout_M2PhysicsBody) -> f32;
-        pub fn whiteout_m2_M2PhysicsBody_set_unknown28(
+        pub fn whiteout_m2_M2PhysicsBody_get_followFactor(
+            self_: *mut whiteout_M2PhysicsBody,
+        ) -> f32;
+        pub fn whiteout_m2_M2PhysicsBody_set_followFactor(
             self_: *mut whiteout_M2PhysicsBody,
             value: f32,
         );
-        pub fn whiteout_m2_M2PhysicsBody_get_unknown2c(self_: *mut whiteout_M2PhysicsBody) -> u16;
-        pub fn whiteout_m2_M2PhysicsBody_set_unknown2c(
+        pub fn whiteout_m2_M2PhysicsBody_get_attachment(self_: *mut whiteout_M2PhysicsBody) -> u16;
+        pub fn whiteout_m2_M2PhysicsBody_set_attachment(
             self_: *mut whiteout_M2PhysicsBody,
             value: u16,
         );
-        pub fn whiteout_m2_M2PhysicsBody_get_padding2e(self_: *mut whiteout_M2PhysicsBody) -> u16;
-        pub fn whiteout_m2_M2PhysicsBody_set_padding2e(
+        pub fn whiteout_m2_M2PhysicsBody_get_padding(self_: *mut whiteout_M2PhysicsBody) -> u16;
+        pub fn whiteout_m2_M2PhysicsBody_set_padding(
             self_: *mut whiteout_M2PhysicsBody,
             value: u16,
         );
@@ -17091,11 +17375,17 @@ pub mod ffi {
             self_: *mut whiteout_M2PhysicsShape,
             value: i16,
         );
-        pub fn whiteout_m2_M2PhysicsShape_get_padding04(self_: *mut whiteout_M2PhysicsShape)
-            -> u32;
-        pub fn whiteout_m2_M2PhysicsShape_set_padding04(
+        pub fn whiteout_m2_M2PhysicsShape_get_gameFlags(self_: *mut whiteout_M2PhysicsShape)
+            -> u16;
+        pub fn whiteout_m2_M2PhysicsShape_set_gameFlags(
             self_: *mut whiteout_M2PhysicsShape,
-            value: u32,
+            value: u16,
+        );
+        pub fn whiteout_m2_M2PhysicsShape_get_padding06(self_: *mut whiteout_M2PhysicsShape)
+            -> u16;
+        pub fn whiteout_m2_M2PhysicsShape_set_padding06(
+            self_: *mut whiteout_M2PhysicsShape,
+            value: u16,
         );
         pub fn whiteout_m2_M2PhysicsShape_get_friction(self_: *mut whiteout_M2PhysicsShape) -> f32;
         pub fn whiteout_m2_M2PhysicsShape_set_friction(
@@ -17114,20 +17404,18 @@ pub mod ffi {
             self_: *mut whiteout_M2PhysicsShape,
             value: f32,
         );
-        pub fn whiteout_m2_M2PhysicsShape_get_unknown14(self_: *mut whiteout_M2PhysicsShape)
-            -> f32;
-        pub fn whiteout_m2_M2PhysicsShape_set_unknown14(
+        pub fn whiteout_m2_M2PhysicsShape_get_unused14(self_: *mut whiteout_M2PhysicsShape) -> f32;
+        pub fn whiteout_m2_M2PhysicsShape_set_unused14(
             self_: *mut whiteout_M2PhysicsShape,
             value: f32,
         );
-        pub fn whiteout_m2_M2PhysicsShape_get_scale(self_: *mut whiteout_M2PhysicsShape) -> f32;
-        pub fn whiteout_m2_M2PhysicsShape_set_scale(
+        pub fn whiteout_m2_M2PhysicsShape_get_unused18(self_: *mut whiteout_M2PhysicsShape) -> f32;
+        pub fn whiteout_m2_M2PhysicsShape_set_unused18(
             self_: *mut whiteout_M2PhysicsShape,
             value: f32,
         );
-        pub fn whiteout_m2_M2PhysicsShape_get_unknown1c(self_: *mut whiteout_M2PhysicsShape)
-            -> u16;
-        pub fn whiteout_m2_M2PhysicsShape_set_unknown1c(
+        pub fn whiteout_m2_M2PhysicsShape_get_unused1c(self_: *mut whiteout_M2PhysicsShape) -> u16;
+        pub fn whiteout_m2_M2PhysicsShape_set_unused1c(
             self_: *mut whiteout_M2PhysicsShape,
             value: u16,
         );
@@ -17404,8 +17692,8 @@ pub mod ffi {
             self_: *mut whiteout_M2WeldJoint,
             value: f32,
         );
-        pub fn whiteout_m2_M2WeldJoint_get_unknown70(self_: *mut whiteout_M2WeldJoint) -> f32;
-        pub fn whiteout_m2_M2WeldJoint_set_unknown70(self_: *mut whiteout_M2WeldJoint, value: f32);
+        pub fn whiteout_m2_M2WeldJoint_get_unused70(self_: *mut whiteout_M2WeldJoint) -> f32;
+        pub fn whiteout_m2_M2WeldJoint_set_unused70(self_: *mut whiteout_M2WeldJoint, value: f32);
         // SphericalJoint
         pub fn whiteout_m2_M2SphericalJoint_new() -> *mut whiteout_M2SphericalJoint;
         pub fn whiteout_m2_M2SphericalJoint_delete(self_: *mut whiteout_M2SphericalJoint);
@@ -17527,10 +17815,10 @@ pub mod ffi {
             self_: *mut whiteout_M2PrismaticJoint,
             value: f32,
         );
-        pub fn whiteout_m2_M2PrismaticJoint_get_unknown68(
+        pub fn whiteout_m2_M2PrismaticJoint_get_referenceTranslation(
             self_: *mut whiteout_M2PrismaticJoint,
         ) -> f32;
-        pub fn whiteout_m2_M2PrismaticJoint_set_unknown68(
+        pub fn whiteout_m2_M2PrismaticJoint_set_referenceTranslation(
             self_: *mut whiteout_M2PrismaticJoint,
             value: f32,
         );
@@ -17541,10 +17829,10 @@ pub mod ffi {
             self_: *mut whiteout_M2PrismaticJoint,
             value: f32,
         );
-        pub fn whiteout_m2_M2PrismaticJoint_get_unknown70(
+        pub fn whiteout_m2_M2PrismaticJoint_get_motorSpeed(
             self_: *mut whiteout_M2PrismaticJoint,
         ) -> f32;
-        pub fn whiteout_m2_M2PrismaticJoint_set_unknown70(
+        pub fn whiteout_m2_M2PrismaticJoint_set_motorSpeed(
             self_: *mut whiteout_M2PrismaticJoint,
             value: f32,
         );
@@ -17655,15 +17943,72 @@ pub mod ffi {
         // PhysicsTuning
         pub fn whiteout_m2_M2PhysicsTuning_new() -> *mut whiteout_M2PhysicsTuning;
         pub fn whiteout_m2_M2PhysicsTuning_delete(self_: *mut whiteout_M2PhysicsTuning);
-        pub fn whiteout_m2_M2PhysicsTuning_values_size() -> usize;
-        pub fn whiteout_m2_M2PhysicsTuning_get_values_at(
+        pub fn whiteout_m2_M2PhysicsTuning_get_posMaxPush(
             self_: *mut whiteout_M2PhysicsTuning,
-            index: usize,
         ) -> f32;
-        pub fn whiteout_m2_M2PhysicsTuning_set_values_at(
+        pub fn whiteout_m2_M2PhysicsTuning_set_posMaxPush(
             self_: *mut whiteout_M2PhysicsTuning,
-            index: usize,
             value: f32,
+        );
+        pub fn whiteout_m2_M2PhysicsTuning_get_posPushAmt(
+            self_: *mut whiteout_M2PhysicsTuning,
+        ) -> f32;
+        pub fn whiteout_m2_M2PhysicsTuning_set_posPushAmt(
+            self_: *mut whiteout_M2PhysicsTuning,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2PhysicsTuning_get_posRelaxSpeed(
+            self_: *mut whiteout_M2PhysicsTuning,
+        ) -> f32;
+        pub fn whiteout_m2_M2PhysicsTuning_set_posRelaxSpeed(
+            self_: *mut whiteout_M2PhysicsTuning,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2PhysicsTuning_get_velMaxPush(
+            self_: *mut whiteout_M2PhysicsTuning,
+        ) -> f32;
+        pub fn whiteout_m2_M2PhysicsTuning_set_velMaxPush(
+            self_: *mut whiteout_M2PhysicsTuning,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2PhysicsTuning_get_velSpeed(
+            self_: *mut whiteout_M2PhysicsTuning,
+        ) -> f32;
+        pub fn whiteout_m2_M2PhysicsTuning_set_velSpeed(
+            self_: *mut whiteout_M2PhysicsTuning,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2PhysicsTuning_get_minPushDist(
+            self_: *mut whiteout_M2PhysicsTuning,
+        ) -> f32;
+        pub fn whiteout_m2_M2PhysicsTuning_set_minPushDist(
+            self_: *mut whiteout_M2PhysicsTuning,
+            value: f32,
+        );
+        // PhysicsAllowList
+        pub fn whiteout_m2_M2PhysicsAllowList_new() -> *mut whiteout_M2PhysicsAllowList;
+        pub fn whiteout_m2_M2PhysicsAllowList_delete(self_: *mut whiteout_M2PhysicsAllowList);
+        pub fn whiteout_m2_M2PhysicsAllowList_get_header(
+            self_: *mut whiteout_M2PhysicsAllowList,
+        ) -> u32;
+        pub fn whiteout_m2_M2PhysicsAllowList_set_header(
+            self_: *mut whiteout_M2PhysicsAllowList,
+            value: u32,
+        );
+        pub fn whiteout_m2_M2PhysicsAllowList_get_keys_count(
+            self_: *mut whiteout_M2PhysicsAllowList,
+        ) -> usize;
+        pub fn whiteout_m2_M2PhysicsAllowList_resize_keys(
+            self_: *mut whiteout_M2PhysicsAllowList,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2PhysicsAllowList_get_keys_data(
+            self_: *mut whiteout_M2PhysicsAllowList,
+        ) -> *const u32;
+        pub fn whiteout_m2_M2PhysicsAllowList_assign_keys(
+            self_: *mut whiteout_M2PhysicsAllowList,
+            data: *const u32,
+            count: usize,
         );
         // PhysicsUnknownChunk
         pub fn whiteout_m2_M2PhysicsUnknownChunk_new() -> *mut whiteout_M2PhysicsUnknownChunk;

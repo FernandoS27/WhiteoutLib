@@ -31,7 +31,7 @@ import whiteout.m2.internal.Native;
  * external access if a handle is shared across threads.
  */
 public final class PhysicsData implements AutoCloseable {
-    private static final long BYTES = 376L;
+    private static final long BYTES = 416L;
 
     final MemorySegment handle;
     final boolean owned;

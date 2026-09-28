@@ -78,7 +78,10 @@ public final class ShoulderJoint implements AutoCloseable {
         }
         MemorySegment.copy(value.handle, 0L, handle, 48L, 48L);
     }
-    /** @return the lowerTwistAngle field of this M2ShoulderJoint. */
+    /**
+     * Degrees, like the cone; the client converts both to radians and enables the twist limit when `upper > lower`.
+     * @return the lowerTwistAngle field of this M2ShoulderJoint.
+     */
     public float getLowerTwistAngle() {
         return handle.get(ValueLayout.JAVA_FLOAT, 96L);
     }
@@ -93,7 +96,7 @@ public final class ShoulderJoint implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 100L, value);
     }
     /**
-     * Degrees: the corpus holds 20, 35, 45 and 60, while `dmShoulderJoint` clamps its own cone to [10°, 170°] expressed in radians — so the loader converts on the way in.
+     * Degrees: the corpus holds 20, 35, 45 and 60. Stored as authored, so the conversion is the consumer's.
      * @return the coneAngle field of this M2ShoulderJoint.
      */
     public float getConeAngle() {
@@ -102,10 +105,7 @@ public final class ShoulderJoint implements AutoCloseable {
     public void setConeAngle(float value) {
         handle.set(ValueLayout.JAVA_FLOAT, 104L, value);
     }
-    /**
-     * version 2+
-     * @return the maxMotorTorque field of this M2ShoulderJoint.
-     */
+    /** @return the maxMotorTorque field of this M2ShoulderJoint. */
     public float getMaxMotorTorque() {
         return handle.get(ValueLayout.JAVA_FLOAT, 108L);
     }
@@ -113,7 +113,7 @@ public final class ShoulderJoint implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 108L, value);
     }
     /**
-     * version 2+
+     * low byte: 0 off, 1 position, 2 velocity
      * @return the motorMode field of this M2ShoulderJoint.
      */
     public int getMotorMode() {

@@ -71,14 +71,21 @@ public final class PhysicsShape implements AutoCloseable {
         handle.set(ValueLayout.JAVA_SHORT, 2L, value);
     }
     /**
-     * Zero in every corpus shape.
-     * @return the padding04 field of this M2PhysicsShape.
+     * `dmFixtureDef.gameFlags`. Zero in every corpus shape.
+     * @return the gameFlags field of this M2PhysicsShape.
      */
-    public int getPadding04() {
-        return handle.get(ValueLayout.JAVA_INT, 4L);
+    public short getGameFlags() {
+        return handle.get(ValueLayout.JAVA_SHORT, 4L);
     }
-    public void setPadding04(int value) {
-        handle.set(ValueLayout.JAVA_INT, 4L, value);
+    public void setGameFlags(short value) {
+        handle.set(ValueLayout.JAVA_SHORT, 4L, value);
+    }
+    /** @return the padding06 field of this M2PhysicsShape. */
+    public short getPadding06() {
+        return handle.get(ValueLayout.JAVA_SHORT, 6L);
+    }
+    public void setPadding06(short value) {
+        handle.set(ValueLayout.JAVA_SHORT, 6L, value);
     }
     /** @return the friction field of this M2PhysicsShape. */
     public float getFriction() {
@@ -94,7 +101,10 @@ public final class PhysicsShape implements AutoCloseable {
     public void setRestitution(float value) {
         handle.set(ValueLayout.JAVA_FLOAT, 12L, value);
     }
-    /** @return the density field of this M2PhysicsShape. */
+    /**
+     * Rescaled by the client for capsules in files of version 4 and below (`PHYS_FORMAT.md` §4.2).
+     * @return the density field of this M2PhysicsShape.
+     */
     public float getDensity() {
         return handle.get(ValueLayout.JAVA_FLOAT, 16L);
     }
@@ -102,33 +112,30 @@ public final class PhysicsShape implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 16L, value);
     }
     /**
-     * SHP2+. Unidentified, but a float: only 0, 0.01, 0.8 and 1.0 occur. The one `dmFixtureDef` float the rest of this struct does not account for is `m_rollingResistance`.
-     * @return the unknown14 field of this M2PhysicsShape.
+     * @name SHP2+, parsed and never read The client copies these onto its shape def and no `CreateInstance` reads them (`PHYS_FORMAT.md` §4.5). SHAP's upgrade gives 0, 1.0 and 0. @{
+     * @return the unused14 field of this M2PhysicsShape.
      */
-    public float getUnknown14() {
+    public float getUnused14() {
         return handle.get(ValueLayout.JAVA_FLOAT, 20L);
     }
-    public void setUnknown14(float value) {
+    public void setUnused14(float value) {
         handle.set(ValueLayout.JAVA_FLOAT, 20L, value);
     }
     /**
-     * SHP2+. 1.0 in 3229 of 3230 shapes, matching the `m_scaleOrRadius` the client hands every fixture.
-     * @return the scale field of this M2PhysicsShape.
+     * 1.0 in 3229 of 3230 shapes, and still not the fixture scale.
+     * @return the unused18 field of this M2PhysicsShape.
      */
-    public float getScale() {
+    public float getUnused18() {
         return handle.get(ValueLayout.JAVA_FLOAT, 24L);
     }
-    public void setScale(float value) {
+    public void setUnused18(float value) {
         handle.set(ValueLayout.JAVA_FLOAT, 24L, value);
     }
-    /**
-     * SHP2+. Zero in every corpus shape.
-     * @return the unknown1c field of this M2PhysicsShape.
-     */
-    public short getUnknown1c() {
+    /** @return the unused1c field of this M2PhysicsShape. */
+    public short getUnused1c() {
         return handle.get(ValueLayout.JAVA_SHORT, 28L);
     }
-    public void setUnknown1c(short value) {
+    public void setUnused1c(short value) {
         handle.set(ValueLayout.JAVA_SHORT, 28L, value);
     }
     /**
@@ -142,7 +149,7 @@ public final class PhysicsShape implements AutoCloseable {
         handle.set(ValueLayout.JAVA_SHORT, 30L, value);
     }
     @Override public String toString() {
-        return "PhysicsShape(" + "shapeType=" + getShapeType() + ", " + "shapeIndex=" + getShapeIndex() + ", " + "padding04=" + getPadding04() + ", " + "friction=" + getFriction() + ", " + "restitution=" + getRestitution() + ", " + "density=" + getDensity() + ", " + "unknown14=" + getUnknown14() + ", " + "scale=" + getScale() + ", " + "unknown1c=" + getUnknown1c() + ", " + "padding1e=" + getPadding1e() + ")";
+        return "PhysicsShape(" + "shapeType=" + getShapeType() + ", " + "shapeIndex=" + getShapeIndex() + ", " + "gameFlags=" + getGameFlags() + ", " + "padding06=" + getPadding06() + ", " + "friction=" + getFriction() + ", " + "restitution=" + getRestitution() + ", " + "density=" + getDensity() + ", " + "unused14=" + getUnused14() + ", " + "unused18=" + getUnused18() + ", " + "unused1c=" + getUnused1c() + ", " + "padding1e=" + getPadding1e() + ")";
     }
 
 }

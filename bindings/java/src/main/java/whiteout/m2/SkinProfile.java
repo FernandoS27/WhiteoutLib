@@ -134,7 +134,10 @@ public final class SkinProfile implements AutoCloseable {
             @Override public Batch get(int index) { return getBatchesAt(index); }
         };
     }
-    /** @return the lodVertexBase field of this M2SkinProfile. */
+    /**
+     * Where this profile's vertex indices start in the model's vertex array. The client applies it only when GlobalFlag::PerSkinVertexBlocks is set.
+     * @return the lodVertexBase field of this M2SkinProfile.
+     */
     public int getLodVertexBase() {
         return handle.get(ValueLayout.JAVA_INT, 120L);
     }

@@ -2846,28 +2846,28 @@ void whiteout_m2_M2PhysicsBody_set_angularDamping(whiteout_M2PhysicsBody* self, 
     reinterpret_cast<whiteout::m2::PhysicsBody*>(self)->angularDamping = value;
 }
 
-float whiteout_m2_M2PhysicsBody_get_unknown28(const whiteout_M2PhysicsBody* self) {
-    return reinterpret_cast<const whiteout::m2::PhysicsBody*>(self)->unknown28;
+float whiteout_m2_M2PhysicsBody_get_followFactor(const whiteout_M2PhysicsBody* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsBody*>(self)->followFactor;
 }
 
-void whiteout_m2_M2PhysicsBody_set_unknown28(whiteout_M2PhysicsBody* self, float value) {
-    reinterpret_cast<whiteout::m2::PhysicsBody*>(self)->unknown28 = value;
+void whiteout_m2_M2PhysicsBody_set_followFactor(whiteout_M2PhysicsBody* self, float value) {
+    reinterpret_cast<whiteout::m2::PhysicsBody*>(self)->followFactor = value;
 }
 
-uint16_t whiteout_m2_M2PhysicsBody_get_unknown2c(const whiteout_M2PhysicsBody* self) {
-    return reinterpret_cast<const whiteout::m2::PhysicsBody*>(self)->unknown2c;
+uint16_t whiteout_m2_M2PhysicsBody_get_attachment(const whiteout_M2PhysicsBody* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsBody*>(self)->attachment;
 }
 
-void whiteout_m2_M2PhysicsBody_set_unknown2c(whiteout_M2PhysicsBody* self, uint16_t value) {
-    reinterpret_cast<whiteout::m2::PhysicsBody*>(self)->unknown2c = value;
+void whiteout_m2_M2PhysicsBody_set_attachment(whiteout_M2PhysicsBody* self, uint16_t value) {
+    reinterpret_cast<whiteout::m2::PhysicsBody*>(self)->attachment = value;
 }
 
-uint16_t whiteout_m2_M2PhysicsBody_get_padding2e(const whiteout_M2PhysicsBody* self) {
-    return reinterpret_cast<const whiteout::m2::PhysicsBody*>(self)->padding2e;
+uint16_t whiteout_m2_M2PhysicsBody_get_padding(const whiteout_M2PhysicsBody* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsBody*>(self)->padding;
 }
 
-void whiteout_m2_M2PhysicsBody_set_padding2e(whiteout_M2PhysicsBody* self, uint16_t value) {
-    reinterpret_cast<whiteout::m2::PhysicsBody*>(self)->padding2e = value;
+void whiteout_m2_M2PhysicsBody_set_padding(whiteout_M2PhysicsBody* self, uint16_t value) {
+    reinterpret_cast<whiteout::m2::PhysicsBody*>(self)->padding = value;
 }
 
 } // extern "C"
@@ -2900,12 +2900,20 @@ void whiteout_m2_M2PhysicsShape_set_shapeIndex(whiteout_M2PhysicsShape* self, in
     reinterpret_cast<whiteout::m2::PhysicsShape*>(self)->shapeIndex = value;
 }
 
-uint32_t whiteout_m2_M2PhysicsShape_get_padding04(const whiteout_M2PhysicsShape* self) {
-    return reinterpret_cast<const whiteout::m2::PhysicsShape*>(self)->padding04;
+uint16_t whiteout_m2_M2PhysicsShape_get_gameFlags(const whiteout_M2PhysicsShape* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsShape*>(self)->gameFlags;
 }
 
-void whiteout_m2_M2PhysicsShape_set_padding04(whiteout_M2PhysicsShape* self, uint32_t value) {
-    reinterpret_cast<whiteout::m2::PhysicsShape*>(self)->padding04 = value;
+void whiteout_m2_M2PhysicsShape_set_gameFlags(whiteout_M2PhysicsShape* self, uint16_t value) {
+    reinterpret_cast<whiteout::m2::PhysicsShape*>(self)->gameFlags = value;
+}
+
+uint16_t whiteout_m2_M2PhysicsShape_get_padding06(const whiteout_M2PhysicsShape* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsShape*>(self)->padding06;
+}
+
+void whiteout_m2_M2PhysicsShape_set_padding06(whiteout_M2PhysicsShape* self, uint16_t value) {
+    reinterpret_cast<whiteout::m2::PhysicsShape*>(self)->padding06 = value;
 }
 
 float whiteout_m2_M2PhysicsShape_get_friction(const whiteout_M2PhysicsShape* self) {
@@ -2932,28 +2940,28 @@ void whiteout_m2_M2PhysicsShape_set_density(whiteout_M2PhysicsShape* self, float
     reinterpret_cast<whiteout::m2::PhysicsShape*>(self)->density = value;
 }
 
-float whiteout_m2_M2PhysicsShape_get_unknown14(const whiteout_M2PhysicsShape* self) {
-    return reinterpret_cast<const whiteout::m2::PhysicsShape*>(self)->unknown14;
+float whiteout_m2_M2PhysicsShape_get_unused14(const whiteout_M2PhysicsShape* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsShape*>(self)->unused14;
 }
 
-void whiteout_m2_M2PhysicsShape_set_unknown14(whiteout_M2PhysicsShape* self, float value) {
-    reinterpret_cast<whiteout::m2::PhysicsShape*>(self)->unknown14 = value;
+void whiteout_m2_M2PhysicsShape_set_unused14(whiteout_M2PhysicsShape* self, float value) {
+    reinterpret_cast<whiteout::m2::PhysicsShape*>(self)->unused14 = value;
 }
 
-float whiteout_m2_M2PhysicsShape_get_scale(const whiteout_M2PhysicsShape* self) {
-    return reinterpret_cast<const whiteout::m2::PhysicsShape*>(self)->scale;
+float whiteout_m2_M2PhysicsShape_get_unused18(const whiteout_M2PhysicsShape* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsShape*>(self)->unused18;
 }
 
-void whiteout_m2_M2PhysicsShape_set_scale(whiteout_M2PhysicsShape* self, float value) {
-    reinterpret_cast<whiteout::m2::PhysicsShape*>(self)->scale = value;
+void whiteout_m2_M2PhysicsShape_set_unused18(whiteout_M2PhysicsShape* self, float value) {
+    reinterpret_cast<whiteout::m2::PhysicsShape*>(self)->unused18 = value;
 }
 
-uint16_t whiteout_m2_M2PhysicsShape_get_unknown1c(const whiteout_M2PhysicsShape* self) {
-    return reinterpret_cast<const whiteout::m2::PhysicsShape*>(self)->unknown1c;
+uint16_t whiteout_m2_M2PhysicsShape_get_unused1c(const whiteout_M2PhysicsShape* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsShape*>(self)->unused1c;
 }
 
-void whiteout_m2_M2PhysicsShape_set_unknown1c(whiteout_M2PhysicsShape* self, uint16_t value) {
-    reinterpret_cast<whiteout::m2::PhysicsShape*>(self)->unknown1c = value;
+void whiteout_m2_M2PhysicsShape_set_unused1c(whiteout_M2PhysicsShape* self, uint16_t value) {
+    reinterpret_cast<whiteout::m2::PhysicsShape*>(self)->unused1c = value;
 }
 
 uint16_t whiteout_m2_M2PhysicsShape_get_padding1e(const whiteout_M2PhysicsShape* self) {
@@ -3363,12 +3371,12 @@ void whiteout_m2_M2WeldJoint_set_linearDampingRatio(whiteout_M2WeldJoint* self, 
     reinterpret_cast<whiteout::m2::WeldJoint*>(self)->linearDampingRatio = value;
 }
 
-float whiteout_m2_M2WeldJoint_get_unknown70(const whiteout_M2WeldJoint* self) {
-    return reinterpret_cast<const whiteout::m2::WeldJoint*>(self)->unknown70;
+float whiteout_m2_M2WeldJoint_get_unused70(const whiteout_M2WeldJoint* self) {
+    return reinterpret_cast<const whiteout::m2::WeldJoint*>(self)->unused70;
 }
 
-void whiteout_m2_M2WeldJoint_set_unknown70(whiteout_M2WeldJoint* self, float value) {
-    reinterpret_cast<whiteout::m2::WeldJoint*>(self)->unknown70 = value;
+void whiteout_m2_M2WeldJoint_set_unused70(whiteout_M2WeldJoint* self, float value) {
+    reinterpret_cast<whiteout::m2::WeldJoint*>(self)->unused70 = value;
 }
 
 } // extern "C"
@@ -3541,12 +3549,12 @@ void whiteout_m2_M2PrismaticJoint_set_upperLimit(whiteout_M2PrismaticJoint* self
     reinterpret_cast<whiteout::m2::PrismaticJoint*>(self)->upperLimit = value;
 }
 
-float whiteout_m2_M2PrismaticJoint_get_unknown68(const whiteout_M2PrismaticJoint* self) {
-    return reinterpret_cast<const whiteout::m2::PrismaticJoint*>(self)->unknown68;
+float whiteout_m2_M2PrismaticJoint_get_referenceTranslation(const whiteout_M2PrismaticJoint* self) {
+    return reinterpret_cast<const whiteout::m2::PrismaticJoint*>(self)->referenceTranslation;
 }
 
-void whiteout_m2_M2PrismaticJoint_set_unknown68(whiteout_M2PrismaticJoint* self, float value) {
-    reinterpret_cast<whiteout::m2::PrismaticJoint*>(self)->unknown68 = value;
+void whiteout_m2_M2PrismaticJoint_set_referenceTranslation(whiteout_M2PrismaticJoint* self, float value) {
+    reinterpret_cast<whiteout::m2::PrismaticJoint*>(self)->referenceTranslation = value;
 }
 
 float whiteout_m2_M2PrismaticJoint_get_maxMotorForce(const whiteout_M2PrismaticJoint* self) {
@@ -3557,12 +3565,12 @@ void whiteout_m2_M2PrismaticJoint_set_maxMotorForce(whiteout_M2PrismaticJoint* s
     reinterpret_cast<whiteout::m2::PrismaticJoint*>(self)->maxMotorForce = value;
 }
 
-float whiteout_m2_M2PrismaticJoint_get_unknown70(const whiteout_M2PrismaticJoint* self) {
-    return reinterpret_cast<const whiteout::m2::PrismaticJoint*>(self)->unknown70;
+float whiteout_m2_M2PrismaticJoint_get_motorSpeed(const whiteout_M2PrismaticJoint* self) {
+    return reinterpret_cast<const whiteout::m2::PrismaticJoint*>(self)->motorSpeed;
 }
 
-void whiteout_m2_M2PrismaticJoint_set_unknown70(whiteout_M2PrismaticJoint* self, float value) {
-    reinterpret_cast<whiteout::m2::PrismaticJoint*>(self)->unknown70 = value;
+void whiteout_m2_M2PrismaticJoint_set_motorSpeed(whiteout_M2PrismaticJoint* self, float value) {
+    reinterpret_cast<whiteout::m2::PrismaticJoint*>(self)->motorSpeed = value;
 }
 
 uint32_t whiteout_m2_M2PrismaticJoint_get_motorMode(const whiteout_M2PrismaticJoint* self) {
@@ -3719,16 +3727,93 @@ void whiteout_m2_M2PhysicsTuning_delete(whiteout_M2PhysicsTuning* self) {
     delete reinterpret_cast<whiteout::m2::PhysicsTuning*>(self);
 }
 
-size_t whiteout_m2_M2PhysicsTuning_values_size(void) {
-    return 6;
+float whiteout_m2_M2PhysicsTuning_get_posMaxPush(const whiteout_M2PhysicsTuning* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsTuning*>(self)->posMaxPush;
 }
 
-float whiteout_m2_M2PhysicsTuning_get_values_at(const whiteout_M2PhysicsTuning* self, size_t index) {
-    return reinterpret_cast<const whiteout::m2::PhysicsTuning*>(self)->values[index];
+void whiteout_m2_M2PhysicsTuning_set_posMaxPush(whiteout_M2PhysicsTuning* self, float value) {
+    reinterpret_cast<whiteout::m2::PhysicsTuning*>(self)->posMaxPush = value;
 }
 
-void whiteout_m2_M2PhysicsTuning_set_values_at(whiteout_M2PhysicsTuning* self, size_t index, float value) {
-    reinterpret_cast<whiteout::m2::PhysicsTuning*>(self)->values[index] = value;
+float whiteout_m2_M2PhysicsTuning_get_posPushAmt(const whiteout_M2PhysicsTuning* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsTuning*>(self)->posPushAmt;
+}
+
+void whiteout_m2_M2PhysicsTuning_set_posPushAmt(whiteout_M2PhysicsTuning* self, float value) {
+    reinterpret_cast<whiteout::m2::PhysicsTuning*>(self)->posPushAmt = value;
+}
+
+float whiteout_m2_M2PhysicsTuning_get_posRelaxSpeed(const whiteout_M2PhysicsTuning* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsTuning*>(self)->posRelaxSpeed;
+}
+
+void whiteout_m2_M2PhysicsTuning_set_posRelaxSpeed(whiteout_M2PhysicsTuning* self, float value) {
+    reinterpret_cast<whiteout::m2::PhysicsTuning*>(self)->posRelaxSpeed = value;
+}
+
+float whiteout_m2_M2PhysicsTuning_get_velMaxPush(const whiteout_M2PhysicsTuning* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsTuning*>(self)->velMaxPush;
+}
+
+void whiteout_m2_M2PhysicsTuning_set_velMaxPush(whiteout_M2PhysicsTuning* self, float value) {
+    reinterpret_cast<whiteout::m2::PhysicsTuning*>(self)->velMaxPush = value;
+}
+
+float whiteout_m2_M2PhysicsTuning_get_velSpeed(const whiteout_M2PhysicsTuning* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsTuning*>(self)->velSpeed;
+}
+
+void whiteout_m2_M2PhysicsTuning_set_velSpeed(whiteout_M2PhysicsTuning* self, float value) {
+    reinterpret_cast<whiteout::m2::PhysicsTuning*>(self)->velSpeed = value;
+}
+
+float whiteout_m2_M2PhysicsTuning_get_minPushDist(const whiteout_M2PhysicsTuning* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsTuning*>(self)->minPushDist;
+}
+
+void whiteout_m2_M2PhysicsTuning_set_minPushDist(whiteout_M2PhysicsTuning* self, float value) {
+    reinterpret_cast<whiteout::m2::PhysicsTuning*>(self)->minPushDist = value;
+}
+
+} // extern "C"
+
+// ── M2PhysicsAllowList ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M2PhysicsAllowList* whiteout_m2_M2PhysicsAllowList_new(void) {
+    return reinterpret_cast<whiteout_M2PhysicsAllowList*>(new whiteout::m2::PhysicsAllowList());
+}
+
+void whiteout_m2_M2PhysicsAllowList_delete(whiteout_M2PhysicsAllowList* self) {
+    delete reinterpret_cast<whiteout::m2::PhysicsAllowList*>(self);
+}
+
+uint32_t whiteout_m2_M2PhysicsAllowList_get_header(const whiteout_M2PhysicsAllowList* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsAllowList*>(self)->header;
+}
+
+void whiteout_m2_M2PhysicsAllowList_set_header(whiteout_M2PhysicsAllowList* self, uint32_t value) {
+    reinterpret_cast<whiteout::m2::PhysicsAllowList*>(self)->header = value;
+}
+
+size_t whiteout_m2_M2PhysicsAllowList_get_keys_count(const whiteout_M2PhysicsAllowList* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsAllowList*>(self)->keys.size();
+}
+
+void whiteout_m2_M2PhysicsAllowList_resize_keys(whiteout_M2PhysicsAllowList* self, size_t count) {
+    reinterpret_cast<whiteout::m2::PhysicsAllowList*>(self)->keys.resize(count);
+}
+
+const uint32_t* whiteout_m2_M2PhysicsAllowList_get_keys_data(const whiteout_M2PhysicsAllowList* self) {
+    const auto& __v = reinterpret_cast<const whiteout::m2::PhysicsAllowList*>(self)->keys;
+    return __v.empty() ? nullptr : reinterpret_cast<const uint32_t*>(__v.data());
+}
+
+void whiteout_m2_M2PhysicsAllowList_assign_keys(whiteout_M2PhysicsAllowList* self, const uint32_t* data, size_t count) {
+    auto& __v = reinterpret_cast<whiteout::m2::PhysicsAllowList*>(self)->keys;
+    __v.resize(count);
+    if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::u32));
 }
 
 } // extern "C"

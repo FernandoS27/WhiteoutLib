@@ -113,17 +113,17 @@ public final class WeldJoint implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 108L, value);
     }
     /**
-     * WLJ3+. Zero in 265 of 274 weld joints.
-     * @return the unknown70 field of this M2WeldJoint.
+     * WLJ3+. Copied onto the weld def and never sent to Domino. Zero in 265 of 274 weld joints.
+     * @return the unused70 field of this M2WeldJoint.
      */
-    public float getUnknown70() {
+    public float getUnused70() {
         return handle.get(ValueLayout.JAVA_FLOAT, 112L);
     }
-    public void setUnknown70(float value) {
+    public void setUnused70(float value) {
         handle.set(ValueLayout.JAVA_FLOAT, 112L, value);
     }
     @Override public String toString() {
-        return "WeldJoint(" + "angularFrequencyHz=" + getAngularFrequencyHz() + ", " + "angularDampingRatio=" + getAngularDampingRatio() + ", " + "linearFrequencyHz=" + getLinearFrequencyHz() + ", " + "linearDampingRatio=" + getLinearDampingRatio() + ", " + "unknown70=" + getUnknown70() + ")";
+        return "WeldJoint(" + "angularFrequencyHz=" + getAngularFrequencyHz() + ", " + "angularDampingRatio=" + getAngularDampingRatio() + ", " + "linearFrequencyHz=" + getLinearFrequencyHz() + ", " + "linearDampingRatio=" + getLinearDampingRatio() + ", " + "unused70=" + getUnused70() + ")";
     }
 
 }

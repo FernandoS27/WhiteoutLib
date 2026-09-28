@@ -8,7 +8,7 @@ using Whiteout.M2.Internal;
 
 namespace Whiteout.M2;
 
-/// <summary>PHYV — six floats that overwrite the head of a tuning block the client otherwise fills with constants. Version 1+.</summary>
+/// <summary>PHYV — the per-model vegetation push: the six `physVeg*` console variables in registration order (`PHYS_FORMAT.md` §3.9).</summary>
 public sealed class PhysicsTuning : WhiteoutHandle
 {
     public PhysicsTuning() : base(NativeMethods.whiteout_m2_M2PhysicsTuning_new()) { }
@@ -20,4 +20,52 @@ public sealed class PhysicsTuning : WhiteoutHandle
         NativeMethods.whiteout_m2_M2PhysicsTuning_delete(handle);
         return true;
     }
+
+    /// <summary>Yards a bone may be pushed from its base before it is clamped.</summary>
+    public float PosMaxPush
+    {
+        get => NativeMethods.whiteout_m2_M2PhysicsTuning_get_posMaxPush(DangerousGet());
+        set => NativeMethods.whiteout_m2_M2PhysicsTuning_set_posMaxPush(DangerousGet(), value);
+    }
+
+
+    /// <summary>Yards per frame a bone is pushed while a unit moves along it, times dt.</summary>
+    public float PosPushAmt
+    {
+        get => NativeMethods.whiteout_m2_M2PhysicsTuning_get_posPushAmt(DangerousGet());
+        set => NativeMethods.whiteout_m2_M2PhysicsTuning_set_posPushAmt(DangerousGet(), value);
+    }
+
+
+    /// <summary>How fast the bone returns to rest once the unit leaves.</summary>
+    public float PosRelaxSpeed
+    {
+        get => NativeMethods.whiteout_m2_M2PhysicsTuning_get_posRelaxSpeed(DangerousGet());
+        set => NativeMethods.whiteout_m2_M2PhysicsTuning_set_posRelaxSpeed(DangerousGet(), value);
+    }
+
+
+    /// <summary>Extra push along a moving unit's velocity.</summary>
+    public float VelMaxPush
+    {
+        get => NativeMethods.whiteout_m2_M2PhysicsTuning_get_velMaxPush(DangerousGet());
+        set => NativeMethods.whiteout_m2_M2PhysicsTuning_set_velMaxPush(DangerousGet(), value);
+    }
+
+
+    /// <summary>How fast the bone sways along that velocity.</summary>
+    public float VelSpeed
+    {
+        get => NativeMethods.whiteout_m2_M2PhysicsTuning_get_velSpeed(DangerousGet());
+        set => NativeMethods.whiteout_m2_M2PhysicsTuning_set_velSpeed(DangerousGet(), value);
+    }
+
+
+    /// <summary>**Squared** distance inside which a unit starts pushing. The client uses 8.0 for a model with no PHYV.</summary>
+    public float MinPushDist
+    {
+        get => NativeMethods.whiteout_m2_M2PhysicsTuning_get_minPushDist(DangerousGet());
+        set => NativeMethods.whiteout_m2_M2PhysicsTuning_set_minPushDist(DangerousGet(), value);
+    }
+
 }

@@ -169,6 +169,19 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 1 of bind_m2(), which calls the parts in order.
 void bind_m2_1(py::module_& m) {
+    py::class_<whiteout::m2::BoneOverride>(m, "BoneOverride", R"doc(One bone's replacement transform, from a `.bone` file.)doc")
+        .def(py::init<>())
+        .def_readwrite("bone_index", &whiteout::m2::BoneOverride::boneIndex, R"doc(Indexes Model::bones. Every id in the WoW corpus is below its model's bone count, and the ids within a file are strictly ascending.)doc")
+    ;
+
+    py::class_<whiteout::m2::BoneOverrideSet>(m, "BoneOverrideSet", R"doc(A whole `.bone` file: the skeleton edits one customization choice needs.
+
+On disk this is two parallel chunks — `BIDA` holds the bone ids and `BOMT` the matrices — but their lengths match in every corpus file, so they are paired here and split again on write.)doc")
+        .def(py::init<>())
+        .def_readwrite("version", &whiteout::m2::BoneOverrideSet::version, R"doc(1 in every known file.)doc")
+        .def_readwrite("overrides", &whiteout::m2::BoneOverrideSet::overrides, R"doc(Ascending by @ref BoneOverride::boneIndex, which is the order the files store and what lets the client binary-search a bone.)doc")
+    ;
+
     py::class_<whiteout::m2::Model>(m, "Model")
         .def(py::init<>())
         .def_readwrite("model_name", &whiteout::m2::Model::modelName)

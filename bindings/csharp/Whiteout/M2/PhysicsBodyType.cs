@@ -11,4 +11,6 @@ public enum PhysicsBodyType : int
     Kinematic = 0,
     /// <summary>Simulated. Becomes `dmBodyType` 0 and gets its bone transform written back every frame. These are the cloth/tassel segments.</summary>
     Dynamic = 1,
+    /// <summary>Any value from 2 up: `dmBodyType` 2. No shipped body uses it.</summary>
+    Static = 2,
 }

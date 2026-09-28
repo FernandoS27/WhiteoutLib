@@ -4,21 +4,60 @@
 
 namespace Whiteout.M2;
 
+/// <summary>The MD20 header's `globalFlags`, named for what WoW 12.1 does with each bit (`WOW_M2_FLAGS.md`, corrected where noted).</summary>
 public enum GlobalFlag : int
 {
     None = 0,
+    /// <summary>The model leans to follow the ground normal, about X and about Y.</summary>
     TiltX = 1,
+    /// <summary>The model leans to follow the ground normal, about X and about Y.</summary>
     TiltY = 2,
-    AddBackReferences = 4,
+    /// <summary>The world transform is taken as is: no attachment parent's scale or translation is composed in, and emitters do not inherit it.</summary>
+    WorldAbsoluteTransform = 4,
+    /// <summary>The header carries `textureCombinerCombos` after its fixed part. Read by the parser; the 12.1 client never tests it.</summary>
     UseTextureCombinerCombos = 8,
-    IsCamera = 16,
+    /// <summary>Batch bounds and sort distance come from the bone-transformed geometry.</summary>
+    AnimatedBounds = 16,
+    /// <summary>Load physics when the model attaches to a scene. CM2Shared::FinishLoadingM2Data tests it before LegacyLoadPhysData.</summary>
     LoadPhysicsData = 32,
-    Unk0x80 = 128,
-    Unk0x100 = 256,
+    /// <summary>Enters the visible-geometry optimiser and the shadow-map gather.</summary>
+    VisibleGeometryOptimise = 128,
+    /// <summary>Emitters of record type 4 are relinked when the model attaches to a parent.</summary>
+    ParentLinkedParticles = 256,
+    /// <summary>Files of version 271 and below: the particle record carries the 16-byte multi-texture scroll tail. 12.1 reads the bit on helmets instead, as "has per-race rows in HelmetAnimScaling" (bone flag HelmetAnimScaled).</summary>
     NewParticleRecord = 512,
+    /// <summary>Files of version 271 and below: the particle record carries the 16-byte multi-texture scroll tail. 12.1 reads the bit on helmets instead, as "has per-race rows in HelmetAnimScaling" (bone flag HelmetAnimScaled).</summary>
     Unk0x400 = 1024,
+    /// <summary>Texture transforms are driven by bone sequences through textureTransformBoneMap.</summary>
     TextureTransformsUsesBoneSequences = 2048,
+    /// <summary>Texture transforms are driven by bone sequences through textureTransformBoneMap.</summary>
     Unk0x1000 = 4096,
-    ChunkedAnimFiles = 8192,
-    UpgradedFormat = 2097152,
+    /// <summary>Each skin profile owns a slice of the vertex array starting at its SkinProfile::lodVertexBase; clear, every profile indexes from 0.</summary>
+    PerSkinVertexBlocks = 8192,
+    /// <summary>A skinned attachment posed by its parent model: the client rebinds its bones to the parent skeleton by Bone::boneNameCRC.</summary>
+    ParentSkeletonBound = 16384,
+    /// <summary>Point lights take their attenuation start and end from their tracks; clear, the client uses 1.6666 and 5.2666 times the model scale. (WOW_M2_FLAGS.md reads this as a ribbon bit: the 156-byte record it describes is the light.)</summary>
+    LightAttenuationTracks = 32768,
+    /// <summary>Ribbons resolve their textureTransformIndex through textureTransformCombos; clear, the index is ignored. (WOW_M2_FLAGS.md reads this as a particle bit: the 176-byte record is the ribbon.)</summary>
+    RibbonTextureTransforms = 131072,
+    /// <summary>In the bone-wind system: the palette entries of every bone but the root carry wind amplitude and phase for a wind vertex-shader permutation.</summary>
+    BoneWind = 262144,
+    /// <summary>Sequences and bones come from the SKID `.skel`, not the header.</summary>
+    ExternalSkeleton = 1048576,
+    /// <summary>External `.anim` files are a chunk stream whose AFM2 chunk holds the sequence data; clear, the whole file is sequence data.</summary>
+    ChunkedAnimAfm2 = 2097152,
+    /// <summary>Sets a texture-creation flag nothing in the 12.1 client reads.</summary>
+    NamedTextureRequestInert = 8388608,
+    /// <summary>Ignore the PFID physics file, whatever the model carries.</summary>
+    SuppressPhysicsFile = 16777216,
+    /// <summary>Skip the HiZ occlusion test.</summary>
+    SkipOcclusionQuery = 33554432,
+    /// <summary>Treat the model as visible without querying occlusion.</summary>
+    ForceUnoccluded = 67108864,
+    /// <summary>Patches two bytes of the M2 render-state word; the bytes' meaning is not resolved.</summary>
+    PipelineStateOverride = 134217728,
+    /// <summary>Past a LOD threshold the model swaps its link record and releases its textures.</summary>
+    FarLodLinkSubstitute = 268435456,
+    /// <summary>Picks which of two render-state words a secondary pass draws the model with.</summary>
+    SecondaryPassRenderState = 536870912,
 }

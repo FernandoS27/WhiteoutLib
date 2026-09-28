@@ -109,6 +109,15 @@ std::vector<u8> writePhysics(const PhysicsData& physics) {
 
     array(JOIN_TAG, physics.joints);
     array(PHYV_TAG, physics.tuning);
+    // No shipped file has one, so its place in the order is a guess.
+    if (physics.allowList) {
+        chunk(PHAO_TAG, [&]() {
+            writer.write(physics.allowList->header);
+            for (const u32 key : physics.allowList->keys) {
+                writer.write(key);
+            }
+        });
+    }
 
     for (const auto& unknown : physics.unknownChunks) {
         u32 tag = 0;

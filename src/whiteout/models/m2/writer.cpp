@@ -44,11 +44,11 @@ public:
     /// buffers, in the order the visitor creates those buffers.
     static std::vector<std::pair<u16, u16>> externalSequences(const std::vector<Sequence>& seqs);
 
-    /// A retail model (GlobalFlag::UpgradedFormat) stores each `.anim` sibling
+    /// A retail model (GlobalFlag::ChunkedAnimAfm2) stores each `.anim` sibling
     /// as a chunked file — loadSequence unwraps its AFM2 chunk before reading
     /// keys — so the raw key buffers gain that header on the way out.
     static void wrapAnimBuffers(const Model& model, AnimDataBuffers& buffers) {
-        if (!hasFlag(model.globalFlags.value, GlobalFlag::UpgradedFormat)) {
+        if (!hasFlag(model.globalFlags.value, GlobalFlag::ChunkedAnimAfm2)) {
             return;
         }
         for (auto& buffer : buffers) {

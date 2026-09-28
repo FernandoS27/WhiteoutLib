@@ -78,7 +78,10 @@ public final class PrismaticJoint implements AutoCloseable {
         }
         MemorySegment.copy(value.handle, 0L, handle, 48L, 48L);
     }
-    /** @return the lowerLimit field of this M2PrismaticJoint. */
+    /**
+     * Distances, not angles; the limit is enabled when `upper > lower`.
+     * @return the lowerLimit field of this M2PrismaticJoint.
+     */
     public float getLowerLimit() {
         return handle.get(ValueLayout.JAVA_FLOAT, 96L);
     }
@@ -93,13 +96,13 @@ public final class PrismaticJoint implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 100L, value);
     }
     /**
-     * Unidentified; zero in all twelve corpus prismatic joints. Domino's prismatic def carries an enable-limit flag next to the limit pair.
-     * @return the unknown68 field of this M2PrismaticJoint.
+     * The zero point the limit is measured from. No `dmJointDef` slot: the client writes it into the live joint after creation. Zero in all twelve corpus prismatics.
+     * @return the referenceTranslation field of this M2PrismaticJoint.
      */
-    public float getUnknown68() {
+    public float getReferenceTranslation() {
         return handle.get(ValueLayout.JAVA_FLOAT, 104L);
     }
-    public void setUnknown68(float value) {
+    public void setReferenceTranslation(float value) {
         handle.set(ValueLayout.JAVA_FLOAT, 104L, value);
     }
     /** @return the maxMotorForce field of this M2PrismaticJoint. */
@@ -110,13 +113,13 @@ public final class PrismaticJoint implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 108L, value);
     }
     /**
-     * Unidentified; zero in all twelve.
-     * @return the unknown70 field of this M2PrismaticJoint.
+     * Target velocity, written into the live joint like @ref referenceTranslation.
+     * @return the motorSpeed field of this M2PrismaticJoint.
      */
-    public float getUnknown70() {
+    public float getMotorSpeed() {
         return handle.get(ValueLayout.JAVA_FLOAT, 112L);
     }
-    public void setUnknown70(float value) {
+    public void setMotorSpeed(float value) {
         handle.set(ValueLayout.JAVA_FLOAT, 112L, value);
     }
     /** @return the motorMode field of this M2PrismaticJoint. */
@@ -147,7 +150,7 @@ public final class PrismaticJoint implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 124L, value);
     }
     @Override public String toString() {
-        return "PrismaticJoint(" + "lowerLimit=" + getLowerLimit() + ", " + "upperLimit=" + getUpperLimit() + ", " + "unknown68=" + getUnknown68() + ", " + "maxMotorForce=" + getMaxMotorForce() + ", " + "unknown70=" + getUnknown70() + ", " + "motorMode=" + getMotorMode() + ", " + "motorFrequencyHz=" + getMotorFrequencyHz() + ", " + "motorDampingRatio=" + getMotorDampingRatio() + ")";
+        return "PrismaticJoint(" + "lowerLimit=" + getLowerLimit() + ", " + "upperLimit=" + getUpperLimit() + ", " + "referenceTranslation=" + getReferenceTranslation() + ", " + "maxMotorForce=" + getMaxMotorForce() + ", " + "motorSpeed=" + getMotorSpeed() + ", " + "motorMode=" + getMotorMode() + ", " + "motorFrequencyHz=" + getMotorFrequencyHz() + ", " + "motorDampingRatio=" + getMotorDampingRatio() + ")";
     }
 
 }

@@ -162,9 +162,10 @@ TEST_CASE("PHYS layouts absent from the corpus are read as written", "[m2][phys]
         shape.friction = f;
         shape.restitution = f * 2;
         shape.density = f * 3;
-        shape.unknown14 = f * 4;
-        shape.scale = f;
-        shape.unknown1c = static_cast<u16>(i);
+        shape.gameFlags = static_cast<u16>(i + 1);
+        shape.unused14 = f * 4;
+        shape.unused18 = f;
+        shape.unused1c = static_cast<u16>(i);
         shape.padding1e = static_cast<u16>(i * 7);
         source.shapes.push_back(shape);
 
@@ -178,8 +179,8 @@ TEST_CASE("PHYS layouts absent from the corpus are read as written", "[m2][phys]
         body.inertiaScale = f * 2;
         body.linearDamping = f * 3;
         body.angularDamping = f * 4;
-        body.unknown28 = f * 5;
-        body.unknown2c = static_cast<u16>(0x8000 | i);
+        body.followFactor = f * 5;
+        body.attachment = static_cast<u16>(0x8000 | i);
         source.bodies.push_back(body);
 
         m2::SphericalJoint spherical;
@@ -199,9 +200,9 @@ TEST_CASE("PHYS layouts absent from the corpus are read as written", "[m2][phys]
         prismatic.frameB = frame;
         prismatic.lowerLimit = -f;
         prismatic.upperLimit = f;
-        prismatic.unknown68 = f * 2;
+        prismatic.referenceTranslation = f * 2;
         prismatic.maxMotorForce = f * 3;
-        prismatic.unknown70 = f * 4;
+        prismatic.motorSpeed = f * 4;
         prismatic.motorMode = i;
         prismatic.motorFrequencyHz = f * 5;
         prismatic.motorDampingRatio = f * 6;
@@ -262,6 +263,13 @@ TEST_CASE("PHYS layouts absent from the corpus are read as written", "[m2][phys]
 
         CHECK(parsed->shapes[i].shapeType == source.shapes[i].shapeType);
         CHECK(parsed->shapes[i].density == source.shapes[i].density);
+        CHECK(parsed->shapes[i].gameFlags == source.shapes[i].gameFlags);
+        if (version >= 3) {
+            CHECK(parsed->bodies[i].attachment == source.bodies[i].attachment);
+        }
+        if (version >= 2) {
+            CHECK(parsed->bodies[i].gravityScale == source.bodies[i].gravityScale);
+        }
 
         CHECK(parsed->sphericalJoints[i].frictionTorque ==
               source.sphericalJoints[i].frictionTorque);
@@ -271,6 +279,129 @@ TEST_CASE("PHYS layouts absent from the corpus are read as written", "[m2][phys]
     }
 
     // Writing what was read reproduces the buffer, whatever the layout dropped.
+    CHECK(m2::writePhysics(*parsed) == bytes);
+}
+
+// The legacy body layouts, byte by byte as `PhysUpgradeLegacyChunks` reads them
+// (`PHYS_FORMAT.md` §3.2): BODY and BDY2 keep the bone as a u32 at +16 with the
+// shape range after it and BDY2's extra float is the gravity scale; BDY3 has four
+// floats and the attachment word at +40, where BDY4 put its follow factor.
+TEST_CASE("PHYS legacy bodies are read where the client reads them", "[m2][phys]") {
+    const auto chunk = [](std::vector<u8>& out, const char* tag, const std::vector<u8>& body) {
+        for (int i = 3; i >= 0; --i) {
+            out.push_back(static_cast<u8>(tag[i]));
+        }
+        const u32 size = static_cast<u32>(body.size());
+        for (int i = 0; i < 4; ++i) {
+            out.push_back(static_cast<u8>(size >> (8 * i)));
+        }
+        out.insert(out.end(), body.begin(), body.end());
+    };
+    const auto put = [](std::vector<u8>& out, size_t at, const auto value) {
+        std::memcpy(out.data() + at, &value, sizeof(value));
+    };
+
+    std::vector<u8> body(28, 0);
+    put(body, 0, u16{1});
+    put(body, 16, u32{5});
+    put(body, 20, i32{7});
+    put(body, 24, i32{2});
+    std::vector<u8> body2(32, 0);
+    put(body2, 0, u16{0});
+    put(body2, 16, u32{9});
+    put(body2, 20, i32{3});
+    put(body2, 24, i32{1});
+    put(body2, 28, 0.75f);
+    std::vector<u8> body3(44, 0);
+    put(body3, 2, u16{11});
+    put(body3, 16, i32{70000});
+    put(body3, 20, i32{4});
+    put(body3, 24, 0.5f);
+    put(body3, 28, 2.0f);
+    put(body3, 32, 3.0f);
+    put(body3, 36, 5.0f);
+    put(body3, 40, u16{0xC000});
+
+    for (const auto& [tag, bytes] : {std::pair<const char*, std::vector<u8>>{"BODY", body},
+                                     {"BDY2", body2},
+                                     {"BDY3", body3}}) {
+        std::vector<u8> file;
+        chunk(file, "PHYS", {3, 0});
+        chunk(file, tag, bytes);
+        std::vector<std::string> issues;
+        const auto physics = m2::parsePhysics(file, &issues);
+        INFO(tag);
+        CAPTURE(issues);
+        REQUIRE(physics);
+        REQUIRE(physics->bodies.size() == 1);
+        const auto& b = physics->bodies[0];
+        // Every legacy body gets the upgrader's follow factor.
+        CHECK(b.followFactor == 0.9f);
+        if (std::string(tag) == "BODY") {
+            CHECK(b.type == m2::PhysicsBodyType::Dynamic);
+            CHECK(b.boneIndex == 5);
+            CHECK(b.shapeIndex == 7);
+            CHECK(b.shapeCount == 2);
+        } else if (std::string(tag) == "BDY2") {
+            CHECK(b.boneIndex == 9);
+            CHECK(b.shapeIndex == 3);
+            CHECK(b.gravityScale == 0.75f);
+            CHECK(b.inertiaScale == 1.0f);
+        } else {
+            CHECK(b.boneIndex == 11);
+            CHECK(b.shapeIndex == 70000);
+            CHECK(b.shapeCount == 4);
+            CHECK(b.gravityScale == 0.5f);
+            CHECK(b.inertiaScale == 2.0f);
+            CHECK(b.linearDamping == 3.0f);
+            CHECK(b.angularDamping == 5.0f);
+            CHECK(b.attachment == 0xC000);
+        }
+    }
+}
+
+// SHOJ is 116 bytes whatever the version: retail has no shorter reading, and a
+// version-0 file written with one would misparse there.
+TEST_CASE("PHYS SHOJ keeps its motor fields in every version", "[m2][phys]") {
+    const u16 version = GENERATE(u16{0}, u16{1}, u16{5});
+    m2::PhysicsData source;
+    source.version = version;
+    m2::ShoulderJoint joint;
+    joint.coneAngle = 45.0f;
+    joint.maxMotorTorque = 0.01f;
+    joint.motorMode = 1;
+    source.shoulderJoints = {joint, joint};
+
+    const auto bytes = m2::writePhysics(source);
+    // PHYS (8 + 2), then SHOJ's header and two records.
+    REQUIRE(bytes.size() == 10 + 8 + 2 * 116);
+    const auto parsed = m2::parsePhysics(bytes);
+    REQUIRE(parsed);
+    REQUIRE(parsed->shoulderJoints.size() == 2);
+    CHECK(parsed->shoulderJoints[1].maxMotorTorque == 0.01f);
+    CHECK(parsed->shoulderJoints[1].motorMode == 1u);
+}
+
+// PHAO: a leading word the client keeps a byte of, then the keys.
+TEST_CASE("PHYS PHAO is modelled and round-trips", "[m2][phys]") {
+    m2::PhysicsData source;
+    source.version = 6;
+    source.phyt = static_cast<u32>(m2::PhysicsObjectKind::PrivateWorldRagdoll);
+    m2::PhysicsAllowList list;
+    list.header = 0x1234;
+    list.keys = {0xDEADBEEF, 0x01020304};
+    source.allowList = list;
+
+    const auto bytes = m2::writePhysics(source);
+    std::vector<std::string> issues;
+    const auto parsed = m2::parsePhysics(bytes, &issues);
+    CAPTURE(issues);
+    CHECK(issues.empty());
+    REQUIRE(parsed);
+    REQUIRE(parsed->allowList);
+    CHECK(parsed->allowList->header == 0x1234u);
+    CHECK(parsed->allowList->keys == list.keys);
+    CHECK(parsed->unknownChunks.empty());
     CHECK(m2::writePhysics(*parsed) == bytes);
 }
 
@@ -327,6 +458,26 @@ TEST_CASE("PHYS structure is coherent", "[m2][phys][corpus]") {
         auto physics = m2::parsePhysics(readFile(entry.path()));
         REQUIRE(physics);
         const std::string name = entry.path().filename().string();
+
+        // The attachment word names a body of the same file, or carries one of
+        // its two flags; and a PHYV is the six live physVeg* values.
+        for (const auto& body : physics->bodies) {
+            INFO(name << ": body attachment");
+            const u16 flags = body.attachment & static_cast<u16>(~m2::kPhysicsAttachmentParentMask);
+            if (flags == 0) {
+                REQUIRE(body.attachment < physics->bodies.size());
+            }
+            REQUIRE(body.followFactor > 0.0f);
+            REQUIRE(body.followFactor < 1.0f);
+        }
+        for (const auto& tuning : physics->tuning) {
+            INFO(name << ": vegetation tuning");
+            CHECK(tuning.posMaxPush == 0.1f);
+            CHECK(tuning.posRelaxSpeed == 8.0f);
+            CHECK(tuning.velSpeed == 20.0f);
+            CHECK(tuning.minPushDist > 0.0f);
+            CHECK(physics->phyt == static_cast<u32>(m2::PhysicsObjectKind::VegetationPhantom));
+        }
 
         for (const auto& body : physics->bodies) {
             INFO(name << ": body shape range");

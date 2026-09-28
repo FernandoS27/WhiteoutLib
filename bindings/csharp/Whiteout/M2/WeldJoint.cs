@@ -51,11 +51,11 @@ public sealed class WeldJoint : WhiteoutHandle
     }
 
 
-    /// <summary>WLJ3+. Zero in 265 of 274 weld joints.</summary>
-    public float Unknown70
+    /// <summary>WLJ3+. Copied onto the weld def and never sent to Domino. Zero in 265 of 274 weld joints.</summary>
+    public float Unused70
     {
-        get => NativeMethods.whiteout_m2_M2WeldJoint_get_unknown70(DangerousGet());
-        set => NativeMethods.whiteout_m2_M2WeldJoint_set_unknown70(DangerousGet(), value);
+        get => NativeMethods.whiteout_m2_M2WeldJoint_get_unused70(DangerousGet());
+        set => NativeMethods.whiteout_m2_M2WeldJoint_set_unused70(DangerousGet(), value);
     }
 
 }

@@ -808,12 +808,12 @@ public final class Native {
     public static final MethodHandle whiteout_m2_M2PhysicsBody_set_linearDamping = find("whiteout_m2_M2PhysicsBody_set_linearDamping", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
     public static final MethodHandle whiteout_m2_M2PhysicsBody_get_angularDamping = find("whiteout_m2_M2PhysicsBody_get_angularDamping", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2PhysicsBody_set_angularDamping = find("whiteout_m2_M2PhysicsBody_set_angularDamping", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
-    public static final MethodHandle whiteout_m2_M2PhysicsBody_get_unknown28 = find("whiteout_m2_M2PhysicsBody_get_unknown28", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m2_M2PhysicsBody_set_unknown28 = find("whiteout_m2_M2PhysicsBody_set_unknown28", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
-    public static final MethodHandle whiteout_m2_M2PhysicsBody_get_unknown2c = find("whiteout_m2_M2PhysicsBody_get_unknown2c", FunctionDescriptor.of(ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m2_M2PhysicsBody_set_unknown2c = find("whiteout_m2_M2PhysicsBody_set_unknown2c", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT));
-    public static final MethodHandle whiteout_m2_M2PhysicsBody_get_padding2e = find("whiteout_m2_M2PhysicsBody_get_padding2e", FunctionDescriptor.of(ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m2_M2PhysicsBody_set_padding2e = find("whiteout_m2_M2PhysicsBody_set_padding2e", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT));
+    public static final MethodHandle whiteout_m2_M2PhysicsBody_get_followFactor = find("whiteout_m2_M2PhysicsBody_get_followFactor", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2PhysicsBody_set_followFactor = find("whiteout_m2_M2PhysicsBody_set_followFactor", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
+    public static final MethodHandle whiteout_m2_M2PhysicsBody_get_attachment = find("whiteout_m2_M2PhysicsBody_get_attachment", FunctionDescriptor.of(ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2PhysicsBody_set_attachment = find("whiteout_m2_M2PhysicsBody_set_attachment", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT));
+    public static final MethodHandle whiteout_m2_M2PhysicsBody_get_padding = find("whiteout_m2_M2PhysicsBody_get_padding", FunctionDescriptor.of(ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2PhysicsBody_set_padding = find("whiteout_m2_M2PhysicsBody_set_padding", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT));
 
     // -- M2PhysicsShape --
     public static final MethodHandle whiteout_m2_M2PhysicsShape_new = find(
@@ -824,20 +824,22 @@ public final class Native {
     public static final MethodHandle whiteout_m2_M2PhysicsShape_set_shapeType = find("whiteout_m2_M2PhysicsShape_set_shapeType", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
     public static final MethodHandle whiteout_m2_M2PhysicsShape_get_shapeIndex = find("whiteout_m2_M2PhysicsShape_get_shapeIndex", FunctionDescriptor.of(ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2PhysicsShape_set_shapeIndex = find("whiteout_m2_M2PhysicsShape_set_shapeIndex", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT));
-    public static final MethodHandle whiteout_m2_M2PhysicsShape_get_padding04 = find("whiteout_m2_M2PhysicsShape_get_padding04", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m2_M2PhysicsShape_set_padding04 = find("whiteout_m2_M2PhysicsShape_set_padding04", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_m2_M2PhysicsShape_get_gameFlags = find("whiteout_m2_M2PhysicsShape_get_gameFlags", FunctionDescriptor.of(ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2PhysicsShape_set_gameFlags = find("whiteout_m2_M2PhysicsShape_set_gameFlags", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT));
+    public static final MethodHandle whiteout_m2_M2PhysicsShape_get_padding06 = find("whiteout_m2_M2PhysicsShape_get_padding06", FunctionDescriptor.of(ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2PhysicsShape_set_padding06 = find("whiteout_m2_M2PhysicsShape_set_padding06", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT));
     public static final MethodHandle whiteout_m2_M2PhysicsShape_get_friction = find("whiteout_m2_M2PhysicsShape_get_friction", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2PhysicsShape_set_friction = find("whiteout_m2_M2PhysicsShape_set_friction", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
     public static final MethodHandle whiteout_m2_M2PhysicsShape_get_restitution = find("whiteout_m2_M2PhysicsShape_get_restitution", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2PhysicsShape_set_restitution = find("whiteout_m2_M2PhysicsShape_set_restitution", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
     public static final MethodHandle whiteout_m2_M2PhysicsShape_get_density = find("whiteout_m2_M2PhysicsShape_get_density", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2PhysicsShape_set_density = find("whiteout_m2_M2PhysicsShape_set_density", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
-    public static final MethodHandle whiteout_m2_M2PhysicsShape_get_unknown14 = find("whiteout_m2_M2PhysicsShape_get_unknown14", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m2_M2PhysicsShape_set_unknown14 = find("whiteout_m2_M2PhysicsShape_set_unknown14", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
-    public static final MethodHandle whiteout_m2_M2PhysicsShape_get_scale = find("whiteout_m2_M2PhysicsShape_get_scale", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m2_M2PhysicsShape_set_scale = find("whiteout_m2_M2PhysicsShape_set_scale", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
-    public static final MethodHandle whiteout_m2_M2PhysicsShape_get_unknown1c = find("whiteout_m2_M2PhysicsShape_get_unknown1c", FunctionDescriptor.of(ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m2_M2PhysicsShape_set_unknown1c = find("whiteout_m2_M2PhysicsShape_set_unknown1c", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT));
+    public static final MethodHandle whiteout_m2_M2PhysicsShape_get_unused14 = find("whiteout_m2_M2PhysicsShape_get_unused14", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2PhysicsShape_set_unused14 = find("whiteout_m2_M2PhysicsShape_set_unused14", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
+    public static final MethodHandle whiteout_m2_M2PhysicsShape_get_unused18 = find("whiteout_m2_M2PhysicsShape_get_unused18", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2PhysicsShape_set_unused18 = find("whiteout_m2_M2PhysicsShape_set_unused18", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
+    public static final MethodHandle whiteout_m2_M2PhysicsShape_get_unused1c = find("whiteout_m2_M2PhysicsShape_get_unused1c", FunctionDescriptor.of(ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2PhysicsShape_set_unused1c = find("whiteout_m2_M2PhysicsShape_set_unused1c", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT));
     public static final MethodHandle whiteout_m2_M2PhysicsShape_get_padding1e = find("whiteout_m2_M2PhysicsShape_get_padding1e", FunctionDescriptor.of(ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2PhysicsShape_set_padding1e = find("whiteout_m2_M2PhysicsShape_set_padding1e", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT));
 
@@ -955,8 +957,8 @@ public final class Native {
     public static final MethodHandle whiteout_m2_M2WeldJoint_set_linearFrequencyHz = find("whiteout_m2_M2WeldJoint_set_linearFrequencyHz", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
     public static final MethodHandle whiteout_m2_M2WeldJoint_get_linearDampingRatio = find("whiteout_m2_M2WeldJoint_get_linearDampingRatio", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2WeldJoint_set_linearDampingRatio = find("whiteout_m2_M2WeldJoint_set_linearDampingRatio", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
-    public static final MethodHandle whiteout_m2_M2WeldJoint_get_unknown70 = find("whiteout_m2_M2WeldJoint_get_unknown70", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m2_M2WeldJoint_set_unknown70 = find("whiteout_m2_M2WeldJoint_set_unknown70", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
+    public static final MethodHandle whiteout_m2_M2WeldJoint_get_unused70 = find("whiteout_m2_M2WeldJoint_get_unused70", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2WeldJoint_set_unused70 = find("whiteout_m2_M2WeldJoint_set_unused70", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
 
     // -- M2SphericalJoint --
     public static final MethodHandle whiteout_m2_M2SphericalJoint_new = find(
@@ -1007,12 +1009,12 @@ public final class Native {
     public static final MethodHandle whiteout_m2_M2PrismaticJoint_set_lowerLimit = find("whiteout_m2_M2PrismaticJoint_set_lowerLimit", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
     public static final MethodHandle whiteout_m2_M2PrismaticJoint_get_upperLimit = find("whiteout_m2_M2PrismaticJoint_get_upperLimit", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2PrismaticJoint_set_upperLimit = find("whiteout_m2_M2PrismaticJoint_set_upperLimit", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
-    public static final MethodHandle whiteout_m2_M2PrismaticJoint_get_unknown68 = find("whiteout_m2_M2PrismaticJoint_get_unknown68", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m2_M2PrismaticJoint_set_unknown68 = find("whiteout_m2_M2PrismaticJoint_set_unknown68", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
+    public static final MethodHandle whiteout_m2_M2PrismaticJoint_get_referenceTranslation = find("whiteout_m2_M2PrismaticJoint_get_referenceTranslation", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2PrismaticJoint_set_referenceTranslation = find("whiteout_m2_M2PrismaticJoint_set_referenceTranslation", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
     public static final MethodHandle whiteout_m2_M2PrismaticJoint_get_maxMotorForce = find("whiteout_m2_M2PrismaticJoint_get_maxMotorForce", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2PrismaticJoint_set_maxMotorForce = find("whiteout_m2_M2PrismaticJoint_set_maxMotorForce", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
-    public static final MethodHandle whiteout_m2_M2PrismaticJoint_get_unknown70 = find("whiteout_m2_M2PrismaticJoint_get_unknown70", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m2_M2PrismaticJoint_set_unknown70 = find("whiteout_m2_M2PrismaticJoint_set_unknown70", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
+    public static final MethodHandle whiteout_m2_M2PrismaticJoint_get_motorSpeed = find("whiteout_m2_M2PrismaticJoint_get_motorSpeed", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2PrismaticJoint_set_motorSpeed = find("whiteout_m2_M2PrismaticJoint_set_motorSpeed", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
     public static final MethodHandle whiteout_m2_M2PrismaticJoint_get_motorMode = find("whiteout_m2_M2PrismaticJoint_get_motorMode", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2PrismaticJoint_set_motorMode = find("whiteout_m2_M2PrismaticJoint_set_motorMode", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
     public static final MethodHandle whiteout_m2_M2PrismaticJoint_get_motorFrequencyHz = find("whiteout_m2_M2PrismaticJoint_get_motorFrequencyHz", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
@@ -1059,9 +1061,30 @@ public final class Native {
         "whiteout_m2_M2PhysicsTuning_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2PhysicsTuning_delete = find(
         "whiteout_m2_M2PhysicsTuning_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m2_M2PhysicsTuning_values_size = find("whiteout_m2_M2PhysicsTuning_values_size", FunctionDescriptor.of(ValueLayout.JAVA_LONG));
-    public static final MethodHandle whiteout_m2_M2PhysicsTuning_get_values_at = find("whiteout_m2_M2PhysicsTuning_get_values_at", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
-    public static final MethodHandle whiteout_m2_M2PhysicsTuning_set_values_at = find("whiteout_m2_M2PhysicsTuning_set_values_at", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_FLOAT));
+    public static final MethodHandle whiteout_m2_M2PhysicsTuning_get_posMaxPush = find("whiteout_m2_M2PhysicsTuning_get_posMaxPush", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2PhysicsTuning_set_posMaxPush = find("whiteout_m2_M2PhysicsTuning_set_posMaxPush", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
+    public static final MethodHandle whiteout_m2_M2PhysicsTuning_get_posPushAmt = find("whiteout_m2_M2PhysicsTuning_get_posPushAmt", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2PhysicsTuning_set_posPushAmt = find("whiteout_m2_M2PhysicsTuning_set_posPushAmt", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
+    public static final MethodHandle whiteout_m2_M2PhysicsTuning_get_posRelaxSpeed = find("whiteout_m2_M2PhysicsTuning_get_posRelaxSpeed", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2PhysicsTuning_set_posRelaxSpeed = find("whiteout_m2_M2PhysicsTuning_set_posRelaxSpeed", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
+    public static final MethodHandle whiteout_m2_M2PhysicsTuning_get_velMaxPush = find("whiteout_m2_M2PhysicsTuning_get_velMaxPush", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2PhysicsTuning_set_velMaxPush = find("whiteout_m2_M2PhysicsTuning_set_velMaxPush", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
+    public static final MethodHandle whiteout_m2_M2PhysicsTuning_get_velSpeed = find("whiteout_m2_M2PhysicsTuning_get_velSpeed", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2PhysicsTuning_set_velSpeed = find("whiteout_m2_M2PhysicsTuning_set_velSpeed", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
+    public static final MethodHandle whiteout_m2_M2PhysicsTuning_get_minPushDist = find("whiteout_m2_M2PhysicsTuning_get_minPushDist", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2PhysicsTuning_set_minPushDist = find("whiteout_m2_M2PhysicsTuning_set_minPushDist", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
+
+    // -- M2PhysicsAllowList --
+    public static final MethodHandle whiteout_m2_M2PhysicsAllowList_new = find(
+        "whiteout_m2_M2PhysicsAllowList_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2PhysicsAllowList_delete = find(
+        "whiteout_m2_M2PhysicsAllowList_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2PhysicsAllowList_get_header = find("whiteout_m2_M2PhysicsAllowList_get_header", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2PhysicsAllowList_set_header = find("whiteout_m2_M2PhysicsAllowList_set_header", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_m2_M2PhysicsAllowList_get_keys_count = find("whiteout_m2_M2PhysicsAllowList_get_keys_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2PhysicsAllowList_resize_keys = find("whiteout_m2_M2PhysicsAllowList_resize_keys", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m2_M2PhysicsAllowList_get_keys_data = find("whiteout_m2_M2PhysicsAllowList_get_keys_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2PhysicsAllowList_assign_keys = find("whiteout_m2_M2PhysicsAllowList_assign_keys", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
 
     // -- M2PhysicsUnknownChunk --
     public static final MethodHandle whiteout_m2_M2PhysicsUnknownChunk_new = find(

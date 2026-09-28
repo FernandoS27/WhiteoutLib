@@ -20,43 +20,42 @@ void BinaryWriterVisitor::visit(const PhysicsBody& body, PhysBodyLayout layout) 
     if (legacy) {
         writer.writePadding(2);
         writer.write(body.position);
-        writer.write(body.boneIndex);
-        writer.writePadding(2);
+        writer.write(static_cast<u32>(body.boneIndex));
         writer.write(body.shapeIndex);
         writer.write(body.shapeCount);
         if (layout == PhysBodyLayout::Body2) {
-            writer.write(body.inertiaScale);
+            writer.write(body.gravityScale);
         }
         return;
     }
 
     writer.write(body.boneIndex);
     writer.write(body.position);
-    writer.write(static_cast<u16>(body.shapeIndex));
-    writer.writePadding(2);
+    writer.write(body.shapeIndex);
     writer.write(body.shapeCount);
     writer.write(body.gravityScale);
     writer.write(body.inertiaScale);
     writer.write(body.linearDamping);
     writer.write(body.angularDamping);
-    writer.write(body.unknown28);
     if (layout == PhysBodyLayout::Body4) {
-        writer.write(body.unknown2c);
-        writer.write(body.padding2e);
+        writer.write(body.followFactor);
     }
+    writer.write(body.attachment);
+    writer.write(body.padding);
 }
 
 void BinaryWriterVisitor::visit(const PhysicsShape& shape, PhysShapeLayout layout) {
     writer.write(static_cast<u16>(shape.shapeType));
     writer.write(shape.shapeIndex);
-    writer.write(shape.padding04);
+    writer.write(shape.gameFlags);
+    writer.write(shape.padding06);
     writer.write(shape.friction);
     writer.write(shape.restitution);
     writer.write(shape.density);
     if (layout == PhysShapeLayout::Shape2) {
-        writer.write(shape.unknown14);
-        writer.write(shape.scale);
-        writer.write(shape.unknown1c);
+        writer.write(shape.unused14);
+        writer.write(shape.unused18);
+        writer.write(shape.unused1c);
         writer.write(shape.padding1e);
     }
 }
@@ -96,7 +95,7 @@ void BinaryWriterVisitor::visit(const WeldJoint& joint, PhysWeldLayout layout) {
     writer.write(joint.linearFrequencyHz);
     writer.write(joint.linearDampingRatio);
     if (layout == PhysWeldLayout::Weld3) {
-        writer.write(joint.unknown70);
+        writer.write(joint.unused70);
     }
 }
 
@@ -112,9 +111,6 @@ void BinaryWriterVisitor::visit(const ShoulderJoint& joint, PhysShoulderLayout l
     writer.write(joint.lowerTwistAngle);
     writer.write(joint.upperTwistAngle);
     writer.write(joint.coneAngle);
-    if (layout == PhysShoulderLayout::Shoulder) {
-        return;
-    }
     writer.write(joint.maxMotorTorque);
     writer.write(joint.motorMode);
     if (layout == PhysShoulderLayout::Shoulder2) {
@@ -128,9 +124,9 @@ void BinaryWriterVisitor::visit(const PrismaticJoint& joint, PhysMotorLayout lay
     visit(joint.frameB);
     writer.write(joint.lowerLimit);
     writer.write(joint.upperLimit);
-    writer.write(joint.unknown68);
+    writer.write(joint.referenceTranslation);
     writer.write(joint.maxMotorForce);
-    writer.write(joint.unknown70);
+    writer.write(joint.motorSpeed);
     writer.write(joint.motorMode);
     if (layout == PhysMotorLayout::Sprung) {
         writer.write(joint.motorFrequencyHz);
@@ -158,7 +154,12 @@ void BinaryWriterVisitor::visit(const DistanceJoint& joint) {
 }
 
 void BinaryWriterVisitor::visit(const PhysicsTuning& tuning) {
-    writer.write(tuning.values);
+    writer.write(tuning.posMaxPush);
+    writer.write(tuning.posPushAmt);
+    writer.write(tuning.posRelaxSpeed);
+    writer.write(tuning.velMaxPush);
+    writer.write(tuning.velSpeed);
+    writer.write(tuning.minPushDist);
 }
 
 // Counts come back from the vectors, and the four pointer fields go out zero —

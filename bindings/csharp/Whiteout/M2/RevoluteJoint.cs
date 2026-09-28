@@ -21,6 +21,7 @@ public sealed class RevoluteJoint : WhiteoutHandle
         return true;
     }
 
+    /// <summary>Degrees; the limit is enabled when `upper &gt; lower`.</summary>
     public float LowerAngle
     {
         get => NativeMethods.whiteout_m2_M2RevoluteJoint_get_lowerAngle(DangerousGet());

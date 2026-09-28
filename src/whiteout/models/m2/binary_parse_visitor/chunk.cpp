@@ -222,7 +222,6 @@ void BinaryParseVisitor::visit(SKB1Chunk& chunk) {
 }
 
 void BinaryParseVisitor::visit(SKS1Chunk& chunk) {
-    globalFlags = GlobalFlag::ChunkedAnimFiles;
     visit(chunk.globalLoops);
     visit(chunk.sequences);
     visit(chunk.sequenceLookups);

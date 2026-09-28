@@ -25,18 +25,30 @@ typedef enum {
     whiteout_m2_GlobalFlag_None,
     whiteout_m2_GlobalFlag_TiltX,
     whiteout_m2_GlobalFlag_TiltY,
-    whiteout_m2_GlobalFlag_AddBackReferences,
+    whiteout_m2_GlobalFlag_WorldAbsoluteTransform,
     whiteout_m2_GlobalFlag_UseTextureCombinerCombos,
-    whiteout_m2_GlobalFlag_IsCamera,
+    whiteout_m2_GlobalFlag_AnimatedBounds,
     whiteout_m2_GlobalFlag_LoadPhysicsData,
-    whiteout_m2_GlobalFlag_Unk_0x80,
-    whiteout_m2_GlobalFlag_Unk_0x100,
+    whiteout_m2_GlobalFlag_VisibleGeometryOptimise,
+    whiteout_m2_GlobalFlag_ParentLinkedParticles,
     whiteout_m2_GlobalFlag_NewParticleRecord,
     whiteout_m2_GlobalFlag_Unk_0x400,
     whiteout_m2_GlobalFlag_TextureTransformsUsesBoneSequences,
     whiteout_m2_GlobalFlag_Unk_0x1000,
-    whiteout_m2_GlobalFlag_ChunkedAnimFiles,
-    whiteout_m2_GlobalFlag_UpgradedFormat,
+    whiteout_m2_GlobalFlag_PerSkinVertexBlocks,
+    whiteout_m2_GlobalFlag_ParentSkeletonBound,
+    whiteout_m2_GlobalFlag_LightAttenuationTracks,
+    whiteout_m2_GlobalFlag_RibbonTextureTransforms,
+    whiteout_m2_GlobalFlag_BoneWind,
+    whiteout_m2_GlobalFlag_ExternalSkeleton,
+    whiteout_m2_GlobalFlag_ChunkedAnimAfm2,
+    whiteout_m2_GlobalFlag_NamedTextureRequestInert,
+    whiteout_m2_GlobalFlag_SuppressPhysicsFile,
+    whiteout_m2_GlobalFlag_SkipOcclusionQuery,
+    whiteout_m2_GlobalFlag_ForceUnoccluded,
+    whiteout_m2_GlobalFlag_PipelineStateOverride,
+    whiteout_m2_GlobalFlag_FarLodLinkSubstitute,
+    whiteout_m2_GlobalFlag_SecondaryPassRenderState,
 } whiteout_m2_GlobalFlag;
 
 typedef enum {
@@ -60,9 +72,17 @@ typedef enum {
     whiteout_m2_BoneFlag_CylindricalBillboardX,
     whiteout_m2_BoneFlag_CylindricalBillboardY,
     whiteout_m2_BoneFlag_CylindricalBillboardZ,
+    whiteout_m2_BoneFlag_BillboardAimAtCamera,
+    whiteout_m2_BoneFlag_ProceduralTransform,
     whiteout_m2_BoneFlag_Transformed,
     whiteout_m2_BoneFlag_Kinematic,
     whiteout_m2_BoneFlag_HelmetAnimScaled,
+    whiteout_m2_BoneFlag_PrimarySequenceAttached,
+    whiteout_m2_BoneFlag_SecondarySequenceAttached,
+    whiteout_m2_BoneFlag_PhysicsInteractionOffset,
+    whiteout_m2_BoneFlag_PhysicsDriven,
+    whiteout_m2_BoneFlag_SkipSequenceBlendWeight,
+    whiteout_m2_BoneFlag_ProceduralInWorldSpace,
 } whiteout_m2_BoneFlag;
 
 typedef enum {
@@ -129,6 +149,7 @@ typedef enum {
 typedef enum {
     whiteout_m2_PhysicsBodyType_Kinematic,
     whiteout_m2_PhysicsBodyType_Dynamic,
+    whiteout_m2_PhysicsBodyType_Static,
 } whiteout_m2_PhysicsBodyType;
 
 typedef enum {
@@ -146,6 +167,14 @@ typedef enum {
     whiteout_m2_PhysicsJointType_Prismatic,
     whiteout_m2_PhysicsJointType_Distance,
 } whiteout_m2_PhysicsJointType;
+
+typedef enum {
+    whiteout_m2_PhysicsObjectKind_AttachedRagdoll,
+    whiteout_m2_PhysicsObjectKind_AttachedRagdollAlt,
+    whiteout_m2_PhysicsObjectKind_VegetationPhantom,
+    whiteout_m2_PhysicsObjectKind_Ragdoll,
+    whiteout_m2_PhysicsObjectKind_PrivateWorldRagdoll,
+} whiteout_m2_PhysicsObjectKind;
 
 /* ── Opaque handles ───────────────────────────────────────── */
 
@@ -203,6 +232,7 @@ typedef struct whiteout_M2PrismaticJoint whiteout_M2PrismaticJoint;
 typedef struct whiteout_M2RevoluteJoint whiteout_M2RevoluteJoint;
 typedef struct whiteout_M2DistanceJoint whiteout_M2DistanceJoint;
 typedef struct whiteout_M2PhysicsTuning whiteout_M2PhysicsTuning;
+typedef struct whiteout_M2PhysicsAllowList whiteout_M2PhysicsAllowList;
 typedef struct whiteout_M2PhysicsUnknownChunk whiteout_M2PhysicsUnknownChunk;
 typedef struct whiteout_M2PhysicsData whiteout_M2PhysicsData;
 typedef struct whiteout_M2BoneOverride whiteout_M2BoneOverride;
@@ -578,6 +608,7 @@ whiteout_M2SkinSection* whiteout_m2_M2SkinProfile_get_submeshes_at(whiteout_M2Sk
 size_t whiteout_m2_M2SkinProfile_get_batches_count(const whiteout_M2SkinProfile* self);
 void whiteout_m2_M2SkinProfile_resize_batches(whiteout_M2SkinProfile* self, size_t count);
 whiteout_M2Batch* whiteout_m2_M2SkinProfile_get_batches_at(whiteout_M2SkinProfile* self, size_t index);
+/* Where this profile's vertex indices start in the model's vertex array. The client applies it only when GlobalFlag::PerSkinVertexBlocks is set. */
 uint32_t whiteout_m2_M2SkinProfile_get_lodVertexBase(const whiteout_M2SkinProfile* self);
 void whiteout_m2_M2SkinProfile_set_lodVertexBase(whiteout_M2SkinProfile* self, uint32_t value);
 size_t whiteout_m2_M2SkinProfile_get_shadowBatches_count(const whiteout_M2SkinProfile* self);
@@ -1007,43 +1038,44 @@ void whiteout_m2_M2PhysicsFrame_set_origin(whiteout_M2PhysicsFrame* self, const 
 
 /* One rigid body, bound to a single model bone — BODY/BDY2/BDY3/BDY4. */
 /*  */
-/* The four on-disk layouts are the same fields accreting over time, so they share one struct; PhysicsData::version decides which of them is written back, and fields the older layouts lack keep their defaults. */
+/* The four on-disk layouts are the same fields accreting over time, so they share one struct; PhysicsData::version decides which of them is written back, and fields the older layouts lack keep the values the client's upgrader gives them (`PHYS_FORMAT.md` §5). */
 whiteout_M2PhysicsBody* whiteout_m2_M2PhysicsBody_new(void);
 void whiteout_m2_M2PhysicsBody_delete(whiteout_M2PhysicsBody* self);
 
 int32_t whiteout_m2_M2PhysicsBody_get_type(const whiteout_M2PhysicsBody* self);
 void whiteout_m2_M2PhysicsBody_set_type(whiteout_M2PhysicsBody* self, int32_t value);
+/* BODY/BDY2 store it as a u32 at +16 and the client keeps the low 16 bits; BDY3 moved it into the u16 at +2. */
 uint16_t whiteout_m2_M2PhysicsBody_get_boneIndex(const whiteout_M2PhysicsBody* self);
 void whiteout_m2_M2PhysicsBody_set_boneIndex(whiteout_M2PhysicsBody* self, uint16_t value);
-/* Offset from the bone's animated position, not an absolute position: the client spawns the body at `bonePosition + position`. */
+/* The body's model-space origin, where the client creates it; the first step moves it onto its bone's animated pivot. */
 whiteout_Vector3f* whiteout_m2_M2PhysicsBody_get_position(whiteout_M2PhysicsBody* self);
 void whiteout_m2_M2PhysicsBody_set_position(whiteout_M2PhysicsBody* self, const whiteout_Vector3f* value);
-/* First entry in PhysicsData::shapes belonging to this body. 32 bits wide in BODY/BDY2, 16 from BDY3 on — writing a larger index back into one of those truncates it. */
+/* First entry in PhysicsData::shapes belonging to this body. 32 bits wide in every layout. */
 int32_t whiteout_m2_M2PhysicsBody_get_shapeIndex(const whiteout_M2PhysicsBody* self);
 void whiteout_m2_M2PhysicsBody_set_shapeIndex(whiteout_M2PhysicsBody* self, int32_t value);
 int32_t whiteout_m2_M2PhysicsBody_get_shapeCount(const whiteout_M2PhysicsBody* self);
 void whiteout_m2_M2PhysicsBody_set_shapeCount(whiteout_M2PhysicsBody* self, int32_t value);
-/* BDY3+. 1.0 on all but 45 of 1213 kinematic bodies but tuned freely on dynamic ones, negatives included — the shape of `dmBodyDef::m_gravityScale`. */
+/* BDY2+. 1.0 on all but 45 of 1213 kinematic bodies but tuned freely on dynamic ones, negatives included — `dmBodyDef+0x30`. */
 float whiteout_m2_M2PhysicsBody_get_gravityScale(const whiteout_M2PhysicsBody* self);
 void whiteout_m2_M2PhysicsBody_set_gravityScale(whiteout_M2PhysicsBody* self, float value);
-/* BDY2+. 1.0 in 3457 of 3526 bodies, otherwise 1.1-10 — `dmBodyDef::m_inertiaScale`. */
+/* BDY3+. 1.0 in 3457 of 3526 bodies, otherwise 1.1-10 — `dmBodyDef+0x2C`. */
 float whiteout_m2_M2PhysicsBody_get_inertiaScale(const whiteout_M2PhysicsBody* self);
 void whiteout_m2_M2PhysicsBody_set_inertiaScale(whiteout_M2PhysicsBody* self, float value);
-/* BDY3+. Zero on 1196 of 1213 kinematic bodies and 0-10 on dynamic ones — `dmBodyDef::m_linearDamping`. */
+/* BDY3+. Zero on 1196 of 1213 kinematic bodies and 0-10 on dynamic ones — `dmBodyDef+0x24`. */
 float whiteout_m2_M2PhysicsBody_get_linearDamping(const whiteout_M2PhysicsBody* self);
 void whiteout_m2_M2PhysicsBody_set_linearDamping(whiteout_M2PhysicsBody* self, float value);
-/* BDY3+. Same kinematic/dynamic split as @ref linearDamping — `dmBodyDef::m_angularDamping`. */
+/* BDY3+. Same kinematic/dynamic split as @ref linearDamping — `dmBodyDef+0x28`. */
 float whiteout_m2_M2PhysicsBody_get_angularDamping(const whiteout_M2PhysicsBody* self);
 void whiteout_m2_M2PhysicsBody_set_angularDamping(whiteout_M2PhysicsBody* self, float value);
-/* BDY3+. Unidentified. Unlike the four above it is set on kinematic and dynamic bodies alike, so it is not a rigid-body integration parameter; values cluster on 0.5, 0.01, 0.9 and 0.1. */
-float whiteout_m2_M2PhysicsBody_get_unknown28(const whiteout_M2PhysicsBody* self);
-void whiteout_m2_M2PhysicsBody_set_unknown28(whiteout_M2PhysicsBody* self, float value);
-/* BDY4+. Unidentified; 0 in half the corpus, otherwise small values or 0x8000 alone, which reads like a bit field. */
-uint16_t whiteout_m2_M2PhysicsBody_get_unknown2c(const whiteout_M2PhysicsBody* self);
-void whiteout_m2_M2PhysicsBody_set_unknown2c(whiteout_M2PhysicsBody* self, uint16_t value);
-/* BDY4+. Zero in every corpus body. */
-uint16_t whiteout_m2_M2PhysicsBody_get_padding2e(const whiteout_M2PhysicsBody* self);
-void whiteout_m2_M2PhysicsBody_set_padding2e(whiteout_M2PhysicsBody* self, uint16_t value);
+/* BDY4. The fraction of the way a kinematic body is snapped to its animated pose each step, ramping to a full teleport when the motion is fast. Not a Domino parameter. Older layouts get the upgrader's 0.9. */
+float whiteout_m2_M2PhysicsBody_get_followFactor(const whiteout_M2PhysicsBody* self);
+void whiteout_m2_M2PhysicsBody_set_followFactor(whiteout_M2PhysicsBody* self, float value);
+/* BDY3+ (+40 in BDY3, +44 in BDY4): see the `kPhysicsAttachment*` constants. */
+uint16_t whiteout_m2_M2PhysicsBody_get_attachment(const whiteout_M2PhysicsBody* self);
+void whiteout_m2_M2PhysicsBody_set_attachment(whiteout_M2PhysicsBody* self, uint16_t value);
+/* BDY3+. Zero in every corpus body. */
+uint16_t whiteout_m2_M2PhysicsBody_get_padding(const whiteout_M2PhysicsBody* self);
+void whiteout_m2_M2PhysicsBody_set_padding(whiteout_M2PhysicsBody* self, uint16_t value);
 
 /* ── M2PhysicsShape ─────────────────────────────────────────────── */
 
@@ -1055,24 +1087,26 @@ int32_t whiteout_m2_M2PhysicsShape_get_shapeType(const whiteout_M2PhysicsShape* 
 void whiteout_m2_M2PhysicsShape_set_shapeType(whiteout_M2PhysicsShape* self, int32_t value);
 int16_t whiteout_m2_M2PhysicsShape_get_shapeIndex(const whiteout_M2PhysicsShape* self);
 void whiteout_m2_M2PhysicsShape_set_shapeIndex(whiteout_M2PhysicsShape* self, int16_t value);
-/* Zero in every corpus shape. */
-uint32_t whiteout_m2_M2PhysicsShape_get_padding04(const whiteout_M2PhysicsShape* self);
-void whiteout_m2_M2PhysicsShape_set_padding04(whiteout_M2PhysicsShape* self, uint32_t value);
+/* `dmFixtureDef.gameFlags`. Zero in every corpus shape. */
+uint16_t whiteout_m2_M2PhysicsShape_get_gameFlags(const whiteout_M2PhysicsShape* self);
+void whiteout_m2_M2PhysicsShape_set_gameFlags(whiteout_M2PhysicsShape* self, uint16_t value);
+uint16_t whiteout_m2_M2PhysicsShape_get_padding06(const whiteout_M2PhysicsShape* self);
+void whiteout_m2_M2PhysicsShape_set_padding06(whiteout_M2PhysicsShape* self, uint16_t value);
 float whiteout_m2_M2PhysicsShape_get_friction(const whiteout_M2PhysicsShape* self);
 void whiteout_m2_M2PhysicsShape_set_friction(whiteout_M2PhysicsShape* self, float value);
 float whiteout_m2_M2PhysicsShape_get_restitution(const whiteout_M2PhysicsShape* self);
 void whiteout_m2_M2PhysicsShape_set_restitution(whiteout_M2PhysicsShape* self, float value);
+/* Rescaled by the client for capsules in files of version 4 and below (`PHYS_FORMAT.md` §4.2). */
 float whiteout_m2_M2PhysicsShape_get_density(const whiteout_M2PhysicsShape* self);
 void whiteout_m2_M2PhysicsShape_set_density(whiteout_M2PhysicsShape* self, float value);
-/* SHP2+. Unidentified, but a float: only 0, 0.01, 0.8 and 1.0 occur. The one `dmFixtureDef` float the rest of this struct does not account for is `m_rollingResistance`. */
-float whiteout_m2_M2PhysicsShape_get_unknown14(const whiteout_M2PhysicsShape* self);
-void whiteout_m2_M2PhysicsShape_set_unknown14(whiteout_M2PhysicsShape* self, float value);
-/* SHP2+. 1.0 in 3229 of 3230 shapes, matching the `m_scaleOrRadius` the client hands every fixture. */
-float whiteout_m2_M2PhysicsShape_get_scale(const whiteout_M2PhysicsShape* self);
-void whiteout_m2_M2PhysicsShape_set_scale(whiteout_M2PhysicsShape* self, float value);
-/* SHP2+. Zero in every corpus shape. */
-uint16_t whiteout_m2_M2PhysicsShape_get_unknown1c(const whiteout_M2PhysicsShape* self);
-void whiteout_m2_M2PhysicsShape_set_unknown1c(whiteout_M2PhysicsShape* self, uint16_t value);
+/* @name SHP2+, parsed and never read The client copies these onto its shape def and no `CreateInstance` reads them (`PHYS_FORMAT.md` §4.5). SHAP's upgrade gives 0, 1.0 and 0. @{ */
+float whiteout_m2_M2PhysicsShape_get_unused14(const whiteout_M2PhysicsShape* self);
+void whiteout_m2_M2PhysicsShape_set_unused14(whiteout_M2PhysicsShape* self, float value);
+/* 1.0 in 3229 of 3230 shapes, and still not the fixture scale. */
+float whiteout_m2_M2PhysicsShape_get_unused18(const whiteout_M2PhysicsShape* self);
+void whiteout_m2_M2PhysicsShape_set_unused18(whiteout_M2PhysicsShape* self, float value);
+uint16_t whiteout_m2_M2PhysicsShape_get_unused1c(const whiteout_M2PhysicsShape* self);
+void whiteout_m2_M2PhysicsShape_set_unused1c(whiteout_M2PhysicsShape* self, uint16_t value);
 /* SHP2+. Uninitialised on disk; kept so writes match. */
 uint16_t whiteout_m2_M2PhysicsShape_get_padding1e(const whiteout_M2PhysicsShape* self);
 void whiteout_m2_M2PhysicsShape_set_padding1e(whiteout_M2PhysicsShape* self, uint16_t value);
@@ -1217,9 +1251,9 @@ void whiteout_m2_M2WeldJoint_set_linearFrequencyHz(whiteout_M2WeldJoint* self, f
 /* WLJ2+ */
 float whiteout_m2_M2WeldJoint_get_linearDampingRatio(const whiteout_M2WeldJoint* self);
 void whiteout_m2_M2WeldJoint_set_linearDampingRatio(whiteout_M2WeldJoint* self, float value);
-/* WLJ3+. Zero in 265 of 274 weld joints. */
-float whiteout_m2_M2WeldJoint_get_unknown70(const whiteout_M2WeldJoint* self);
-void whiteout_m2_M2WeldJoint_set_unknown70(whiteout_M2WeldJoint* self, float value);
+/* WLJ3+. Copied onto the weld def and never sent to Domino. Zero in 265 of 274 weld joints. */
+float whiteout_m2_M2WeldJoint_get_unused70(const whiteout_M2WeldJoint* self);
+void whiteout_m2_M2WeldJoint_set_unused70(whiteout_M2WeldJoint* self, float value);
 
 /* ── M2SphericalJoint ─────────────────────────────────────────────── */
 
@@ -1244,17 +1278,17 @@ whiteout_M2PhysicsFrame* whiteout_m2_M2ShoulderJoint_get_frameA(whiteout_M2Shoul
 void whiteout_m2_M2ShoulderJoint_set_frameA(whiteout_M2ShoulderJoint* self, const whiteout_M2PhysicsFrame* value);
 whiteout_M2PhysicsFrame* whiteout_m2_M2ShoulderJoint_get_frameB(whiteout_M2ShoulderJoint* self);
 void whiteout_m2_M2ShoulderJoint_set_frameB(whiteout_M2ShoulderJoint* self, const whiteout_M2PhysicsFrame* value);
+/* Degrees, like the cone; the client converts both to radians and enables the twist limit when `upper > lower`. */
 float whiteout_m2_M2ShoulderJoint_get_lowerTwistAngle(const whiteout_M2ShoulderJoint* self);
 void whiteout_m2_M2ShoulderJoint_set_lowerTwistAngle(whiteout_M2ShoulderJoint* self, float value);
 float whiteout_m2_M2ShoulderJoint_get_upperTwistAngle(const whiteout_M2ShoulderJoint* self);
 void whiteout_m2_M2ShoulderJoint_set_upperTwistAngle(whiteout_M2ShoulderJoint* self, float value);
-/* Degrees: the corpus holds 20, 35, 45 and 60, while `dmShoulderJoint` clamps its own cone to [10°, 170°] expressed in radians — so the loader converts on the way in. */
+/* Degrees: the corpus holds 20, 35, 45 and 60. Stored as authored, so the conversion is the consumer's. */
 float whiteout_m2_M2ShoulderJoint_get_coneAngle(const whiteout_M2ShoulderJoint* self);
 void whiteout_m2_M2ShoulderJoint_set_coneAngle(whiteout_M2ShoulderJoint* self, float value);
-/* version 2+ */
 float whiteout_m2_M2ShoulderJoint_get_maxMotorTorque(const whiteout_M2ShoulderJoint* self);
 void whiteout_m2_M2ShoulderJoint_set_maxMotorTorque(whiteout_M2ShoulderJoint* self, float value);
-/* version 2+ */
+/* low byte: 0 off, 1 position, 2 velocity */
 uint32_t whiteout_m2_M2ShoulderJoint_get_motorMode(const whiteout_M2ShoulderJoint* self);
 void whiteout_m2_M2ShoulderJoint_set_motorMode(whiteout_M2ShoulderJoint* self, uint32_t value);
 /* SHJ2 */
@@ -1274,18 +1308,19 @@ whiteout_M2PhysicsFrame* whiteout_m2_M2PrismaticJoint_get_frameA(whiteout_M2Pris
 void whiteout_m2_M2PrismaticJoint_set_frameA(whiteout_M2PrismaticJoint* self, const whiteout_M2PhysicsFrame* value);
 whiteout_M2PhysicsFrame* whiteout_m2_M2PrismaticJoint_get_frameB(whiteout_M2PrismaticJoint* self);
 void whiteout_m2_M2PrismaticJoint_set_frameB(whiteout_M2PrismaticJoint* self, const whiteout_M2PhysicsFrame* value);
+/* Distances, not angles; the limit is enabled when `upper > lower`. */
 float whiteout_m2_M2PrismaticJoint_get_lowerLimit(const whiteout_M2PrismaticJoint* self);
 void whiteout_m2_M2PrismaticJoint_set_lowerLimit(whiteout_M2PrismaticJoint* self, float value);
 float whiteout_m2_M2PrismaticJoint_get_upperLimit(const whiteout_M2PrismaticJoint* self);
 void whiteout_m2_M2PrismaticJoint_set_upperLimit(whiteout_M2PrismaticJoint* self, float value);
-/* Unidentified; zero in all twelve corpus prismatic joints. Domino's prismatic def carries an enable-limit flag next to the limit pair. */
-float whiteout_m2_M2PrismaticJoint_get_unknown68(const whiteout_M2PrismaticJoint* self);
-void whiteout_m2_M2PrismaticJoint_set_unknown68(whiteout_M2PrismaticJoint* self, float value);
+/* The zero point the limit is measured from. No `dmJointDef` slot: the client writes it into the live joint after creation. Zero in all twelve corpus prismatics. */
+float whiteout_m2_M2PrismaticJoint_get_referenceTranslation(const whiteout_M2PrismaticJoint* self);
+void whiteout_m2_M2PrismaticJoint_set_referenceTranslation(whiteout_M2PrismaticJoint* self, float value);
 float whiteout_m2_M2PrismaticJoint_get_maxMotorForce(const whiteout_M2PrismaticJoint* self);
 void whiteout_m2_M2PrismaticJoint_set_maxMotorForce(whiteout_M2PrismaticJoint* self, float value);
-/* Unidentified; zero in all twelve. */
-float whiteout_m2_M2PrismaticJoint_get_unknown70(const whiteout_M2PrismaticJoint* self);
-void whiteout_m2_M2PrismaticJoint_set_unknown70(whiteout_M2PrismaticJoint* self, float value);
+/* Target velocity, written into the live joint like @ref referenceTranslation. */
+float whiteout_m2_M2PrismaticJoint_get_motorSpeed(const whiteout_M2PrismaticJoint* self);
+void whiteout_m2_M2PrismaticJoint_set_motorSpeed(whiteout_M2PrismaticJoint* self, float value);
 uint32_t whiteout_m2_M2PrismaticJoint_get_motorMode(const whiteout_M2PrismaticJoint* self);
 void whiteout_m2_M2PrismaticJoint_set_motorMode(whiteout_M2PrismaticJoint* self, uint32_t value);
 /* PRS2 */
@@ -1305,6 +1340,7 @@ whiteout_M2PhysicsFrame* whiteout_m2_M2RevoluteJoint_get_frameA(whiteout_M2Revol
 void whiteout_m2_M2RevoluteJoint_set_frameA(whiteout_M2RevoluteJoint* self, const whiteout_M2PhysicsFrame* value);
 whiteout_M2PhysicsFrame* whiteout_m2_M2RevoluteJoint_get_frameB(whiteout_M2RevoluteJoint* self);
 void whiteout_m2_M2RevoluteJoint_set_frameB(whiteout_M2RevoluteJoint* self, const whiteout_M2PhysicsFrame* value);
+/* Degrees; the limit is enabled when `upper > lower`. */
 float whiteout_m2_M2RevoluteJoint_get_lowerAngle(const whiteout_M2RevoluteJoint* self);
 void whiteout_m2_M2RevoluteJoint_set_lowerAngle(whiteout_M2RevoluteJoint* self, float value);
 float whiteout_m2_M2RevoluteJoint_get_upperAngle(const whiteout_M2RevoluteJoint* self);
@@ -1336,13 +1372,46 @@ void whiteout_m2_M2DistanceJoint_set_distance(whiteout_M2DistanceJoint* self, fl
 
 /* ── M2PhysicsTuning ─────────────────────────────────────────────── */
 
-/* PHYV — six floats that overwrite the head of a tuning block the client otherwise fills with constants. Version 1+. */
+/* PHYV — the per-model vegetation push: the six `physVeg*` console variables in registration order (`PHYS_FORMAT.md` §3.9). */
+/*  */
+/* Read only for a `PHYT` 2 model, which becomes a phantom pushed by units walking through it rather than a ragdoll. */
 whiteout_M2PhysicsTuning* whiteout_m2_M2PhysicsTuning_new(void);
 void whiteout_m2_M2PhysicsTuning_delete(whiteout_M2PhysicsTuning* self);
 
-size_t whiteout_m2_M2PhysicsTuning_values_size(void);
-float whiteout_m2_M2PhysicsTuning_get_values_at(const whiteout_M2PhysicsTuning* self, size_t index);
-void whiteout_m2_M2PhysicsTuning_set_values_at(whiteout_M2PhysicsTuning* self, size_t index, float value);
+/* Yards a bone may be pushed from its base before it is clamped. */
+float whiteout_m2_M2PhysicsTuning_get_posMaxPush(const whiteout_M2PhysicsTuning* self);
+void whiteout_m2_M2PhysicsTuning_set_posMaxPush(whiteout_M2PhysicsTuning* self, float value);
+/* Yards per frame a bone is pushed while a unit moves along it, times dt. */
+float whiteout_m2_M2PhysicsTuning_get_posPushAmt(const whiteout_M2PhysicsTuning* self);
+void whiteout_m2_M2PhysicsTuning_set_posPushAmt(whiteout_M2PhysicsTuning* self, float value);
+/* How fast the bone returns to rest once the unit leaves. */
+float whiteout_m2_M2PhysicsTuning_get_posRelaxSpeed(const whiteout_M2PhysicsTuning* self);
+void whiteout_m2_M2PhysicsTuning_set_posRelaxSpeed(whiteout_M2PhysicsTuning* self, float value);
+/* Extra push along a moving unit's velocity. */
+float whiteout_m2_M2PhysicsTuning_get_velMaxPush(const whiteout_M2PhysicsTuning* self);
+void whiteout_m2_M2PhysicsTuning_set_velMaxPush(whiteout_M2PhysicsTuning* self, float value);
+/* How fast the bone sways along that velocity. */
+float whiteout_m2_M2PhysicsTuning_get_velSpeed(const whiteout_M2PhysicsTuning* self);
+void whiteout_m2_M2PhysicsTuning_set_velSpeed(whiteout_M2PhysicsTuning* self, float value);
+/* **Squared** distance inside which a unit starts pushing. The client uses 8.0 for a model with no PHYV. */
+float whiteout_m2_M2PhysicsTuning_get_minPushDist(const whiteout_M2PhysicsTuning* self);
+void whiteout_m2_M2PhysicsTuning_set_minPushDist(whiteout_M2PhysicsTuning* self, float value);
+
+/* ── M2PhysicsAllowList ─────────────────────────────────────────────── */
+
+/* PHAO — the host skeletons this file's follow factors were tuned on. */
+/*  */
+/* On a host whose key-bone-4 name CRC is not listed, the client discards every body's @ref PhysicsBody::followFactor for a flat 0.7. No shipped file has one. */
+whiteout_M2PhysicsAllowList* whiteout_m2_M2PhysicsAllowList_new(void);
+void whiteout_m2_M2PhysicsAllowList_delete(whiteout_M2PhysicsAllowList* self);
+
+/* The chunk's leading u32. The client keeps its low byte and never reads it. */
+uint32_t whiteout_m2_M2PhysicsAllowList_get_header(const whiteout_M2PhysicsAllowList* self);
+void whiteout_m2_M2PhysicsAllowList_set_header(whiteout_M2PhysicsAllowList* self, uint32_t value);
+size_t whiteout_m2_M2PhysicsAllowList_get_keys_count(const whiteout_M2PhysicsAllowList* self);
+void whiteout_m2_M2PhysicsAllowList_resize_keys(whiteout_M2PhysicsAllowList* self, size_t count);
+const uint32_t* whiteout_m2_M2PhysicsAllowList_get_keys_data(const whiteout_M2PhysicsAllowList* self);
+void whiteout_m2_M2PhysicsAllowList_assign_keys(whiteout_M2PhysicsAllowList* self, const uint32_t* data, size_t count);
 
 /* ── M2PhysicsUnknownChunk ─────────────────────────────────────────────── */
 

@@ -21,6 +21,7 @@ public sealed class PrismaticJoint : WhiteoutHandle
         return true;
     }
 
+    /// <summary>Distances, not angles; the limit is enabled when `upper &gt; lower`.</summary>
     public float LowerLimit
     {
         get => NativeMethods.whiteout_m2_M2PrismaticJoint_get_lowerLimit(DangerousGet());
@@ -35,11 +36,11 @@ public sealed class PrismaticJoint : WhiteoutHandle
     }
 
 
-    /// <summary>Unidentified; zero in all twelve corpus prismatic joints. Domino's prismatic def carries an enable-limit flag next to the limit pair.</summary>
-    public float Unknown68
+    /// <summary>The zero point the limit is measured from. No `dmJointDef` slot: the client writes it into the live joint after creation. Zero in all twelve corpus prismatics.</summary>
+    public float ReferenceTranslation
     {
-        get => NativeMethods.whiteout_m2_M2PrismaticJoint_get_unknown68(DangerousGet());
-        set => NativeMethods.whiteout_m2_M2PrismaticJoint_set_unknown68(DangerousGet(), value);
+        get => NativeMethods.whiteout_m2_M2PrismaticJoint_get_referenceTranslation(DangerousGet());
+        set => NativeMethods.whiteout_m2_M2PrismaticJoint_set_referenceTranslation(DangerousGet(), value);
     }
 
 
@@ -50,11 +51,11 @@ public sealed class PrismaticJoint : WhiteoutHandle
     }
 
 
-    /// <summary>Unidentified; zero in all twelve.</summary>
-    public float Unknown70
+    /// <summary>Target velocity, written into the live joint like @ref referenceTranslation.</summary>
+    public float MotorSpeed
     {
-        get => NativeMethods.whiteout_m2_M2PrismaticJoint_get_unknown70(DangerousGet());
-        set => NativeMethods.whiteout_m2_M2PrismaticJoint_set_unknown70(DangerousGet(), value);
+        get => NativeMethods.whiteout_m2_M2PrismaticJoint_get_motorSpeed(DangerousGet());
+        set => NativeMethods.whiteout_m2_M2PrismaticJoint_set_motorSpeed(DangerousGet(), value);
     }
 
 

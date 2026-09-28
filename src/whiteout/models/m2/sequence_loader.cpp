@@ -147,7 +147,7 @@ bool loadSequence(Model& model, u32 sequenceIndex) {
     const Sequence& source = model.sequences[ResolveAliasSource(model, sequenceIndex)];
     WoWFileSystem::AnimBuffer anim;
     if (!loader.fs().readAnim(anim, source.id, source.variationIndex,
-                              hasFlag(model.globalFlags.value, GlobalFlag::UpgradedFormat))) {
+                              hasFlag(model.globalFlags.value, GlobalFlag::ChunkedAnimAfm2))) {
         // The sibling is not there. Recording that stops a per-frame caller
         // from asking the content provider for it again on every frame; the
         // sampler already treats a keyless sequence as the animref default.

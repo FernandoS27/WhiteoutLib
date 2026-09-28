@@ -565,32 +565,42 @@ struct MD20Header {
 
 ### 6.2 Global Flags
 
-Stored as `u32` at offset `0x010` in the header. WhiteoutLib exposes these as `GlobalFlag`:
+Stored as `u32` at offset `0x010` in the header. WhiteoutLib exposes these as `GlobalFlag`. The meanings are
+what the WoW 12.1.0 client does with each bit, traced through its code (the census in BlizzPartRE's
+`WOW_M2_FLAGS.md`, corrected for bits 15 and 17); the frequencies are this corpus's.
 
-| Flag | Bit | Description | Corpus Freq |
+| Flag | Bit | What 12.1 does with it | Corpus Freq |
 |---|---|---|---|
-| `TiltX` | `0x001` | Model tilts along X axis | 402 / 9059 |
-| `TiltY` | `0x002` | Model tilts along Y axis | 118 / 9059 |
-| `Unk_0x04` | `0x004` | Unknown | 60 / 9059 |
-| `UseTextureCombinerCombos` | `0x008` | Appends `textureCombinerCombos` array at header end; multitexturing uses second material from this array | — |
-| `Unk_0x10` | `0x010` | Unknown; extremely common in modern exports, purpose unclear | 5664 / 9059 |
-| `LoadPhysicsData` | `0x020` | Model has associated physics data (`.phys` or `PFDC` chunk) | 56 / 9059 |
-| `Unk_0x80` | `0x080` | Universal in modern (10.x/11.x/12.x) files; originally described as "DH tattoo glow" but set on every model in the corpus regardless of model type | 9059 / 9059 |
-| `CameraRelated` | `0x100` | Camera-related flag; referenced by wowdev.wiki as "every model since Cata has this set", but corpus shows only 3 of 9059 files have it — likely only present on models with actual camera definitions | 3 / 9059 |
-| `NewParticleRecord` | `0x200` | Extended 492-byte particle record (instead of 476 bytes) | 7 / 9059 |
-| `Unk_0x400` | `0x400` | Unknown | — |
-| `TextureTransformsUsesBoneSequences` | `0x800` | Texture transforms use the sequence played on a bone (looked up via `textureCoordCombos`) instead of the model's first bone | — |
-| `Unk_0x1000` | `0x1000` | Unknown | 2617 / 9059 |
-| `ChunkedAnimFiles` | `0x2000` | `.anim` files use chunked `AFM2`/`AFSA`/`AFSB` format | 5867 / 9059 |
-| `Unk_0x8000` | `0x8000` | Unknown | 512 / 9059 |
-| `Unk_0x20000` | `0x20000` | Unknown; may relate to ribbon emitter `textureTransformLookupIndex` usage (see ribbon emitter field documentation) | 560 / 9059 |
-| `Unk_0x100000` | `0x100000` | Unknown | 61 / 9059 |
-| `Unk_0x200000` | `0x200000` | Unknown; very common in modern files | 4274 / 9059 |
-| `Unk_0x1000000` | `0x1000000` | Unknown | 21 / 9059 |
-| `Unk_0x20000000` | `0x20000000` | Unknown | 53 / 9059 |
-| `Unk_0x40000000` | `0x40000000` | Unknown | 14 / 9059 |
+| `TiltX` | `0x001` | The model leans about X to follow the ground normal | 402 / 9059 |
+| `TiltY` | `0x002` | The same about Y; the pair is read as a 2-bit value | 118 / 9059 |
+| `WorldAbsoluteTransform` | `0x004` | No attachment parent's scale or translation is composed in, and emitters do not inherit it | 60 / 9059 |
+| `UseTextureCombinerCombos` | `0x008` | Appends `textureCombinerCombos` at the header end; read by the parser, never tested by the 12.1 client | — |
+| `AnimatedBounds` | `0x010` | Batch bounds and sort distance come from bone-transformed geometry | 5664 / 9059 |
+| `LoadPhysicsData` | `0x020` | Physics is loaded when the model attaches to a scene | 56 / 9059 |
+| `VisibleGeometryOptimise` | `0x080` | Enters the visible-geometry optimiser and the shadow-map gather | 9059 / 9059 |
+| `ParentLinkedParticles` | `0x100` | Emitters of record type 4 are relinked when the model attaches to a parent | 3 / 9059 |
+| `NewParticleRecord` | `0x200` | Version 271 and below: the 492-byte particle record. 12.1 reads it on helmets as "has per-race `HelmetAnimScaling` rows" | 7 / 9059 |
+| `Unk_0x400` | `0x400` | Not read | — |
+| `TextureTransformsUsesBoneSequences` | `0x800` | Texture transforms are driven by bone sequences through `textureTransformBoneMap` | — |
+| `Unk_0x1000` | `0x1000` | Not read | 2617 / 9059 |
+| `PerSkinVertexBlocks` | `0x2000` | Each skin profile's indices start at its `lodVertexBase` in the vertex array; clear, every profile starts at 0 | 5867 / 9059 |
+| `ParentSkeletonBound` | `0x4000` | A skinned attachment rebound to its parent's skeleton by bone name CRC | — |
+| `LightAttenuationTracks` | `0x8000` | Point lights take attenuation start/end from their tracks; clear, 1.6666 and 5.2666 times the model scale | 512 / 9059 |
+| `RibbonTextureTransforms` | `0x20000` | Ribbons resolve `textureTransformIndex` through `textureTransformCombos`; clear, it is ignored | 560 / 9059 |
+| `BoneWind` | `0x40000` | Bone wind: every palette entry but the root's carries wind amplitude and phase for a wind vertex shader | — |
+| `ExternalSkeleton` | `0x100000` | Sequences and bones come from the `.skel`, not the header | 61 / 9059 |
+| `ChunkedAnimAfm2` | `0x200000` | External `.anim` files are chunk streams whose `AFM2` chunk holds the sequence data | 4274 / 9059 |
+| `NamedTextureRequestInert` | `0x800000` | Sets a texture-creation flag nothing reads | — |
+| `SuppressPhysicsFile` | `0x1000000` | Ignore the `PFID` physics file | 21 / 9059 |
+| `SkipOcclusionQuery` | `0x2000000` | Skip the HiZ occlusion test | — |
+| `ForceUnoccluded` | `0x4000000` | Treat the model as visible without querying | — |
+| `PipelineStateOverride` | `0x8000000` | Patches two bytes of the M2 render-state word (bytes not decoded) | — |
+| `FarLodLinkSubstitute` | `0x10000000` | Past a LOD threshold the link record is swapped and textures released | — |
+| `SecondaryPassRenderState` | `0x20000000` | Picks one of two render-state words for a secondary pass | 53 / 9059 |
 
-Bits not listed above (0x4000, 0x10000, 0x40000, 0x80000, etc.) were not observed in the 9059-file corpus but are preserved as raw flags by WhiteoutLib.
+`0x40000000` (14 files) and the bits not listed are read by nothing in 12.1 and are kept raw by WhiteoutLib.
+The bone flags (`BoneFlag`) are documented beside `Bone`; their billboard bits are one switch over
+`flags & 0x4000078`, and a bone with two or more of them set does not billboard at all.
 
 ---
 
@@ -1318,6 +1328,10 @@ All skin files use **u16** vertex indices and **u16** triangle indices — there
 
 **Corpus** (14,443 skin files): 6,779 non-LOD skins all have `lodVertexBase = 0`; all 4,867 LOD skins have `lodVertexBase > 0` matching the cumulative vertex chain.
 
+The 12.1 client applies the base only when the model sets `PerSkinVertexBlocks` (global flag `0x2000`):
+eight sites compute `vertices + 48 × lodVertexBase` behind that test, and with it clear every skin indexes
+from vertex 0.
+
 ### 12.2 Skin Sections (Submeshes)
 
 ```cpp
@@ -1941,7 +1955,8 @@ A file is loaded if `(sequence.flags & 0x130) == 0`. Blizzard's exporter aligns 
 
 ### Legion+ (chunked)
 
-If the M2's `ChunkedAnimFiles` flag (0x2000) is set, or the model has a `.skel` file, `.anim` files use chunked framing:
+If the M2's `ChunkedAnimAfm2` flag (0x200000) is set, `.anim` files use chunked framing and the `AFM2`
+chunk carries the sequence data; otherwise the whole file is sequence data:
 
 ```cpp
 struct AnimProfile {
@@ -2048,15 +2063,24 @@ struct PHYSHeader {
 
 Chunk size is always 2 bytes.
 
-### 17.4 PHYT — Physics Type
+### 17.4 PHYT — Physics Object Kind
 
 ```c
 struct PHYTEntry {
-    u32 phyt;   // default 0
+    u32 phyt;   // PhysicsObjectKind; a file without PHYT reads as 0
 };
 ```
 
-Chunk size is always 4 bytes. Observed values by version:
+`CM2Model_CreatePhysicsObject` (12.1) is the value's one reader, and it decides what the model becomes:
+
+| `phyt` | Object | Notes |
+|---|---|---|
+| 0, 1 | ragdoll | Kinematic bodies follow the **model's** transform, not their bones: items worn on a character. Collision category 32 (64 when attached to a parent) |
+| 2 | vegetation phantom | Built from the model bounds, pushed by passing units; needs `PHYV`, builds no bodies |
+| 3 | ragdoll | Shared physics world, category 16 |
+| 4 | ragdoll | A physics world of its own, solved with 8 velocity and **12** position iterations (the shared world runs 2) |
+
+Observed values by version:
 
 | Version | Values |
 |---------|--------|
@@ -2066,62 +2090,69 @@ Chunk size is always 4 bytes. Observed values by version:
 | 5 | 4 (36×), 3 (21×), 0 (4×), 1 |
 | 6 | 4 (181×), 3 (34×), 0 (4×) |
 
-Likely meaning: ragdoll complexity or physics simulation type (0=none/simple, 3=standard, 4=enhanced).
+The two `phyt == 2` files are exactly the two that carry a `PHYV`.
 
 ### 17.5 Body Structures
 
-BODY/BDY2 keep the bone index at `+0x10` and address shapes with a 32-bit base; BDY3 moved the bone index
-up into the padding at `+0x02`, shrank the shape base to 16 bits, and appended the tuning floats.
+BODY/BDY2 keep the bone index as a `u32` at `+0x10` (the client uses its low 16 bits) with the shape range
+after it; BDY3 moved the bone index into the `u16` at `+0x02` and appended the tuning floats. The shape base
+is 32 bits in every layout.
 
 ```c
 struct BODYEntry {   // 28 bytes — versions 0–1
     u16 type;           // PhysicsBodyType, see below
     u16 padding_02;
-    Vector3f position;  // offset from the animated bone position
-    u16 boneIndex;
-    u16 padding_12;
+    Vector3f position;  // model-space origin the body is created at
+    u32 boneIndex;
     i32 shapeIndex;     // first entry in SHAP/SHP2 belonging to this body
     i32 shapeCount;
 };
 
 struct BDY2Entry {   // 32 bytes — version 2
     // ... BODYEntry ...
-    f32 inertiaScale;   // dmBodyDef::m_inertiaScale
+    f32 gravityScale;   // dmBodyDef+0x30
 };
 
 struct BDY3Entry {   // 44 bytes — version 3
     u16 type;
     u16 boneIndex;
     Vector3f position;
-    u16 shapeIndex;
-    u16 padding_12;
+    i32 shapeIndex;
     i32 shapeCount;
-    f32 gravityScale;   // dmBodyDef::m_gravityScale
-    f32 inertiaScale;   // dmBodyDef::m_inertiaScale
-    f32 linearDamping;  // dmBodyDef::m_linearDamping
-    f32 angularDamping; // dmBodyDef::m_angularDamping
-    f32 unk_28;         // unidentified
+    f32 gravityScale;   // dmBodyDef+0x30
+    f32 inertiaScale;   // dmBodyDef+0x2C
+    f32 linearDamping;  // dmBodyDef+0x24
+    f32 angularDamping; // dmBodyDef+0x28
+    u16 attachment;     // see below
+    u16 padding_2a;
 };
 
 struct BDY4Entry {   // 48 bytes — versions 4–6
-    // ... BDY3Entry ...
-    u16 unk_2c;         // unidentified; reads like a bit field
+    // ... BDY3Entry up to angularDamping ...
+    f32 followFactor;   // kinematic follow; not a Domino parameter
+    u16 attachment;
     u16 padding_2e;     // 0 in every corpus body
 };
 ```
 
-**`type` is inverted relative to Domino.** `Physics::LegacyLoadPhysData` maps file `1 → dmBody_SetType(0)`
-and file `0 → dmBody_SetType(1)`, and fatals with `"Unknown legacy body type: %d"` on anything else.
-`dmBody::Create` gives `dmBodyType` 0 unit mass, and `CPhysicsBodyDef::IsKinematicBody()` is
-`m_type == 1`. So:
+Older layouts get the client upgrader's values for the fields they lack: `followFactor` 0.9, `attachment` 0.
+
+**`type` is inverted relative to Domino**: file 0 → `dmBodyType` 1 (kinematic), 1 → 0 (dynamic), anything
+else → 2 (static). A body with no shapes is made kinematic whatever its type says.
 
 | file `type` | `dmBodyType` | Role |
 |---|---|---|
-| 0 | 1 (kinematic) | Animation-driven collider. Glued to its bone; the solver only reads it. |
-| 1 | 0 (dynamic) | Simulated. Its bone transform is written back every frame — this is the cloth. |
+| 0 | 1 (kinematic) | Animation-driven collider, snapped toward its bone every step |
+| 1 | 0 (dynamic) | Simulated; its bone is replaced by the body's pose every frame — this is the cloth |
 
-`position` is an **offset**, not an absolute placement: `CPhysicsBodyDef::CreateInstance` spawns the body at
-`modelPos + m_position`, where `modelPos` is the animated bone position.
+**`followFactor`** is the fraction of the way the client snaps a kinematic body to its animated pose each
+step. The rest of the motion becomes the body's velocity, and the snap ramps to a full teleport when the
+motion is fast (`PhysicsRagdoll_SyncKinematicBones`). Corpus values: 0.5, 0.9, 0.01, 0.1, 0.25, 0.2, …
+
+**`attachment`**: `0x8000` marks a body others hang off; `0x4000` marks the ragdoll's root; otherwise the low
+bits are the index of the body this one hangs off. When the client snaps a kinematic body it carries the
+dynamic bodies hanging off it rigidly by the same motion. Corpus: `0x0000` (696), `0x8000` (106), `0xC000`
+(22), and small indices.
 
 **Field value distributions** (3526 bodies: 1213 kinematic, 2313 dynamic):
 
@@ -2131,17 +2162,7 @@ and file `0 → dmBody_SetType(1)`, and fatals with `"Unknown legacy body type: 
 | `inertiaScale` | 1.0 (1193×), 1.5/2/5 (6× each) | 1.0 (2264×), 10.0 (34×), 2.0 (6×), 1.1 (5×) |
 | `linearDamping` | 0.0 (1196×), 1.0 (15×) | 3.0 (865×), 1.0 (693×), 0.0 (278×), 5.0 (173×), 4.0 (118×) |
 | `angularDamping` | 0.0 (1173×), 5.0 (21×), 10.0 (19×) | 5.0 (1076×), 10.0 (821×), 0.0 (119×), 6.0 (61×) |
-| `unk_28` | 0.5 (853×), 0.9 (152×), 0.01 (123×), 0.25 (41×) | 0.5 (1133×), 0.01 (672×), 0.9 (216×), 0.1 (185×) |
-
-The first four names come from `dmBodyDef`, whose only float members are exactly
-`m_linearDamping`, `m_angularDamping`, `m_gravityScale` and `m_inertiaScale`. The kinematic/dynamic split
-is what assigns them: a kinematic body is not integrated, so its damping is left at 0 (1196 and 1173 of
-1213) while its `gravityScale`/`inertiaScale` sit at the `dmBodyDef` default of 1.0. `unk_28` is set on
-both kinds with the same distribution, so it is *not* a rigid-body integration parameter and stays unnamed.
-
-**`unk_2c`** (BDY4+) is a `u16` followed by a `u16` that is zero in all 3526 bodies. The low half is 0 in
-1823, `0x8000` alone in 494, and otherwise a small value (1, 2, 3, 6, 7, 8, 15, …) — bit-field shaped, but
-unidentified.
+| `followFactor` | 0.5 (853×), 0.9 (152×), 0.01 (123×), 0.25 (41×) | 0.5 (1133×), 0.01 (672×), 0.9 (216×), 0.1 (185×) |
 
 ### 17.6 Shape Structures
 
@@ -2156,27 +2177,30 @@ enum ShapeType : u16 {
 struct SHAPEntry {   // 20 bytes — versions 0–1
     u16 shapeType;
     i16 shapeIndex;     // index into the shape-data chunk shapeType names
-    u32 padding_04;     // 0 in all 3230 corpus shapes
-    f32 friction;       // CPhysicsShapeDef::SetFriction  → dmFixtureDef::m_friction
-    f32 restitution;    // CPhysicsShapeDef::SetRestitution
-    f32 density;        // CPhysicsShapeDef::SetDensity
+    u16 gameFlags;      // dmFixtureDef.gameFlags; 0 in all corpus shapes
+    u16 padding_06;
+    f32 friction;       // dmFixtureDef.friction
+    f32 restitution;    // dmFixtureDef.restitution
+    f32 density;        // dmFixtureDef.density
 };
 
 struct SHP2Entry {   // 32 bytes — versions 2+
     // ... SHAPEntry ...
-    f32 unk_14;         // unidentified float: only 0, 0.01, 0.8 and 1.0 occur
-    f32 scale;          // 1.0 in 3229 of 3230 — dmFixtureDef::m_scaleOrRadius
-    u16 unk_1c;         // 0 in all 3230
+    f32 unused_14;      // parsed onto the shape def and never read
+    f32 unused_18;      // 1.0 in 3229 of 3230; also never read (not the fixture scale)
+    u16 unused_1c;      // 0 in all 3230; never read
     u16 padding_1e;     // uninitialized on disk; preserved verbatim
 };
 ```
 
-`CPhysicsShapeDef::InitDMFixtureDef` copies exactly `friction`, `restitution` and `density` into the
-`dmFixtureDef`, then overrides `m_filter.m_includeMask = 0` and sets `m_filter.m_groupIndex` to a
-per-model-instance counter — that group index is what keeps two players' capes from colliding with each
-other. `m_scaleOrRadius` is initialised to 1.0 for every shape kind the client creates, which is what
-`scale` matches; `m_rollingResistance` is the one `dmFixtureDef` float that nothing else in the record
-accounts for, making it the candidate for `unk_14`, but with only 12 non-zero samples that stays a guess.
+The three `unused_*` fields land on the client's shape def, whose only readers (the four `CreateInstance`
+bodies) read friction, restitution, density and `gameFlags` alone. SHAP's upgrade fills them with 0, 1.0 and 0.
+
+Every fixture built from a `.phys` is continuous (`useContinuous`), has lift factor 1.0, category `0x20`
+with include mask `0x00A2` and a positive group index unique to the model instance — which is what keeps two
+players' capes from colliding while a cape's own pieces always do. `PHYT` then re-stamps the category.
+Files of version 4 and below have their **capsule** density rescaled on load by
+`(4/3·r³ + V) / (4π/3·r³ + V)` with `V` the cylinder's volume, undoing an older exporter's missing π.
 
 **Shape kind distribution**, over the 3038 shapes reachable from a body in the 289 corpus models that
 carry physics: Capsule = 2190, Polytope = 844, Sphere = 4, Box = 0. No corpus file uses `BOXS`.
@@ -2357,9 +2381,12 @@ struct SHOJEntry {
 ```
 
 `CPhysicsShoulderJointDef` names the first three: `SetLowerTwistAngle`, `SetUpperTwistAngle`,
-`SetConeAngle`. The angles are stored in **degrees** — `dmShoulderJoint::Create` clamps its own cone to
-`[0.17453294, 2.9670596]`, i.e. [10°, 170°] in radians, so the loader converts on the way in. The default
-`dmJointDef` cone before the loader touches it is π/4.
+`SetConeAngle`. The angles are stored in **degrees**, and the client converts them to radians on the way
+into Domino — `dmShoulderJoint::Create` clamps its own cone to [10°, 170°] in radians. WhiteoutLib keeps the
+authored degrees. The twist limit is enabled when `upper > lower`; there is no enable bit.
+
+The 12.1 client reads `SHOJ` as 116 bytes in every file version. The 108-byte record the 6.0.1 client's
+`PhysData::Load` expected for version 0 matches no shipped file and is not supported.
 
 #### SHJ2 (Shoulder Joint v2) — 124 bytes
 
@@ -2393,7 +2420,7 @@ solved rigidly, which is why every corpus weld leaves the linear pair at 0.
 
 Extends WLJ2 with:
 ```c
-    f32 unk70;                 // 0.0 (265×), 0.005 (7×), 10.0, 5.0 — unidentified
+    f32 unused70;              // 0.0 (265×), 0.005 (7×), 10.0, 5.0 — parsed, never sent to Domino
 ```
 
 #### REVJ (Revolute Joint) — 112 bytes
@@ -2448,9 +2475,9 @@ struct PRSJEntry {
     PhysicsFrame frameB;
     f32 lowerLimit;
     f32 upperLimit;
-    f32 unk_68;                // 0 in all twelve corpus prismatic joints
+    f32 referenceTranslation;  // zero point of the limit; 0 in all twelve corpus joints
     f32 maxMotorForce;
-    f32 unk_70;                // 0 in all twelve
+    f32 motorSpeed;            // target velocity; 0 in all twelve
     u32 motorMode;
     // PRS2 only:
     f32 motorFrequencyHz;
@@ -2458,9 +2485,34 @@ struct PRSJEntry {
 };
 ```
 
-`dmPrismaticJoint::Create` takes the limit pair, then a bool, then the motor force and speed, so the two
-unknowns are most likely the enable-limit / enable-motor flags — but every corpus value is 0, so nothing
-distinguishes them from padding.
+Neither `referenceTranslation` nor `motorSpeed` has a `dmJointDef` slot: the 12.1 client writes both into
+the live joint after creating it. The limits are distances, not converted, and enabled when `upper > lower`.
+
+#### PHYV (Vegetation Tuning) — 24 bytes
+
+```c
+struct PHYVEntry {           // the six physVeg* console variables, in registration order
+    f32 posMaxPush;          // yards a bone may be pushed before clamping
+    f32 posPushAmt;          // yards per frame pushed while a unit moves along it, times dt
+    f32 posRelaxSpeed;       // how fast the bone returns to rest
+    f32 velMaxPush;          // extra push along a moving unit's velocity
+    f32 velSpeed;            // how fast the bone sways along it
+    f32 minPushDist;         // SQUARED distance inside which pushing starts
+};
+```
+
+Read only for a `phyt == 2` model. Without a `PHYV` the client uses (1.25, 0.25, 8.0, 0.1, 20.0, 8.0).
+
+#### PHAO (Host-Skeleton Allow-List)
+
+```c
+u32 header;                  // the client keeps the low byte and never reads it
+u32 keys[(size / 4) - 1];    // host skeletons' key-bone-4 name CRCs
+```
+
+When present, the client honours the bodies' `followFactor` only on a host skeleton whose key bone 4 is
+listed, and uses a flat 0.7 on any other. No shipped file has one; WhiteoutLib models it as
+`PhysicsData::allowList`.
 
 Neither `SPHJ`, `DSTJ` nor `BOXS` occurs anywhere in the corpus; those three layouts are covered only by
 the synthetic write-then-read case in `m2_phys_test`.

@@ -11,7 +11,9 @@ import whiteout.common.internal.NativeCommon;
 import whiteout.m2.internal.Native;
 
 /**
- * PHYV — six floats that overwrite the head of a tuning block the client otherwise fills with constants. Version 1+.
+ * PHYV — the per-model vegetation push: the six `physVeg*` console variables in registration order (`PHYS_FORMAT.md` §3.9).
+ * 
+ * Read only for a `PHYT` 2 model, which becomes a phantom pushed by units walking through it rather than a ragdoll.
  *
  * <p><b>Lifecycle.</b> Instances hold a handle to a native
  * PhysicsTuning allocation. Always release them with
@@ -56,18 +58,68 @@ public final class PhysicsTuning implements AutoCloseable {
         }
     }
 
-    /** @return the values field of this M2PhysicsTuning. */
-    public int getValuesCount() {
-        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2PhysicsTuning_values_size);
+    /**
+     * Yards a bone may be pushed from its base before it is clamped.
+     * @return the posMaxPush field of this M2PhysicsTuning.
+     */
+    public float getPosMaxPush() {
+        return handle.get(ValueLayout.JAVA_FLOAT, 0L);
     }
-    public float getValuesAt(int index) {
-        return (float) NativeCommon.invokeNative(Native.whiteout_m2_M2PhysicsTuning_get_values_at, handle, (long) index);
+    public void setPosMaxPush(float value) {
+        handle.set(ValueLayout.JAVA_FLOAT, 0L, value);
     }
-    public void setValuesAt(int index, float value) {
-        NativeCommon.invokeNative(Native.whiteout_m2_M2PhysicsTuning_set_values_at, handle, (long) index, value);
+    /**
+     * Yards per frame a bone is pushed while a unit moves along it, times dt.
+     * @return the posPushAmt field of this M2PhysicsTuning.
+     */
+    public float getPosPushAmt() {
+        return handle.get(ValueLayout.JAVA_FLOAT, 4L);
+    }
+    public void setPosPushAmt(float value) {
+        handle.set(ValueLayout.JAVA_FLOAT, 4L, value);
+    }
+    /**
+     * How fast the bone returns to rest once the unit leaves.
+     * @return the posRelaxSpeed field of this M2PhysicsTuning.
+     */
+    public float getPosRelaxSpeed() {
+        return handle.get(ValueLayout.JAVA_FLOAT, 8L);
+    }
+    public void setPosRelaxSpeed(float value) {
+        handle.set(ValueLayout.JAVA_FLOAT, 8L, value);
+    }
+    /**
+     * Extra push along a moving unit's velocity.
+     * @return the velMaxPush field of this M2PhysicsTuning.
+     */
+    public float getVelMaxPush() {
+        return handle.get(ValueLayout.JAVA_FLOAT, 12L);
+    }
+    public void setVelMaxPush(float value) {
+        handle.set(ValueLayout.JAVA_FLOAT, 12L, value);
+    }
+    /**
+     * How fast the bone sways along that velocity.
+     * @return the velSpeed field of this M2PhysicsTuning.
+     */
+    public float getVelSpeed() {
+        return handle.get(ValueLayout.JAVA_FLOAT, 16L);
+    }
+    public void setVelSpeed(float value) {
+        handle.set(ValueLayout.JAVA_FLOAT, 16L, value);
+    }
+    /**
+     * **Squared** distance inside which a unit starts pushing. The client uses 8.0 for a model with no PHYV.
+     * @return the minPushDist field of this M2PhysicsTuning.
+     */
+    public float getMinPushDist() {
+        return handle.get(ValueLayout.JAVA_FLOAT, 20L);
+    }
+    public void setMinPushDist(float value) {
+        handle.set(ValueLayout.JAVA_FLOAT, 20L, value);
     }
     @Override public String toString() {
-        return "PhysicsTuning@" + Long.toHexString(handle == null ? 0 : handle.address());
+        return "PhysicsTuning(" + "posMaxPush=" + getPosMaxPush() + ", " + "posPushAmt=" + getPosPushAmt() + ", " + "posRelaxSpeed=" + getPosRelaxSpeed() + ", " + "velMaxPush=" + getVelMaxPush() + ", " + "velSpeed=" + getVelSpeed() + ", " + "minPushDist=" + getMinPushDist() + ")";
     }
 
 }

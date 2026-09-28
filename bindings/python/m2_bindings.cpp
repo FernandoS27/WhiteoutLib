@@ -179,22 +179,34 @@ void bind_m2(py::module_& m) {
         .value("HERMITE", whiteout::m2::InterpolationType::Hermite)
     ;
 
-    py::enum_<whiteout::m2::GlobalFlag>(m, "GlobalFlag")
+    py::enum_<whiteout::m2::GlobalFlag>(m, "GlobalFlag", R"doc(The MD20 header's `globalFlags`, named for what WoW 12.1 does with each bit (`WOW_M2_FLAGS.md`, corrected where noted).)doc")
         .value("NONE", whiteout::m2::GlobalFlag::None)
-        .value("TILT_X", whiteout::m2::GlobalFlag::TiltX)
-        .value("TILT_Y", whiteout::m2::GlobalFlag::TiltY)
-        .value("ADD_BACK_REFERENCES", whiteout::m2::GlobalFlag::AddBackReferences)
-        .value("USE_TEXTURE_COMBINER_COMBOS", whiteout::m2::GlobalFlag::UseTextureCombinerCombos)
-        .value("IS_CAMERA", whiteout::m2::GlobalFlag::IsCamera)
-        .value("LOAD_PHYSICS_DATA", whiteout::m2::GlobalFlag::LoadPhysicsData)
-        .value("UNK_0X80", whiteout::m2::GlobalFlag::Unk_0x80)
-        .value("UNK_0X100", whiteout::m2::GlobalFlag::Unk_0x100)
-        .value("NEW_PARTICLE_RECORD", whiteout::m2::GlobalFlag::NewParticleRecord)
-        .value("UNK_0X400", whiteout::m2::GlobalFlag::Unk_0x400)
-        .value("TEXTURE_TRANSFORMS_USES_BONE_SEQUENCES", whiteout::m2::GlobalFlag::TextureTransformsUsesBoneSequences)
-        .value("UNK_0X1000", whiteout::m2::GlobalFlag::Unk_0x1000)
-        .value("CHUNKED_ANIM_FILES", whiteout::m2::GlobalFlag::ChunkedAnimFiles)
-        .value("UPGRADED_FORMAT", whiteout::m2::GlobalFlag::UpgradedFormat)
+        .value("TILT_X", whiteout::m2::GlobalFlag::TiltX, R"doc(The model leans to follow the ground normal, about X and about Y.)doc")
+        .value("TILT_Y", whiteout::m2::GlobalFlag::TiltY, R"doc(The model leans to follow the ground normal, about X and about Y.)doc")
+        .value("WORLD_ABSOLUTE_TRANSFORM", whiteout::m2::GlobalFlag::WorldAbsoluteTransform, R"doc(The world transform is taken as is: no attachment parent's scale or translation is composed in, and emitters do not inherit it.)doc")
+        .value("USE_TEXTURE_COMBINER_COMBOS", whiteout::m2::GlobalFlag::UseTextureCombinerCombos, R"doc(The header carries `textureCombinerCombos` after its fixed part. Read by the parser; the 12.1 client never tests it.)doc")
+        .value("ANIMATED_BOUNDS", whiteout::m2::GlobalFlag::AnimatedBounds, R"doc(Batch bounds and sort distance come from the bone-transformed geometry.)doc")
+        .value("LOAD_PHYSICS_DATA", whiteout::m2::GlobalFlag::LoadPhysicsData, R"doc(Load physics when the model attaches to a scene. CM2Shared::FinishLoadingM2Data tests it before LegacyLoadPhysData.)doc")
+        .value("VISIBLE_GEOMETRY_OPTIMISE", whiteout::m2::GlobalFlag::VisibleGeometryOptimise, R"doc(Enters the visible-geometry optimiser and the shadow-map gather.)doc")
+        .value("PARENT_LINKED_PARTICLES", whiteout::m2::GlobalFlag::ParentLinkedParticles, R"doc(Emitters of record type 4 are relinked when the model attaches to a parent.)doc")
+        .value("NEW_PARTICLE_RECORD", whiteout::m2::GlobalFlag::NewParticleRecord, R"doc(Files of version 271 and below: the particle record carries the 16-byte multi-texture scroll tail. 12.1 reads the bit on helmets instead, as "has per-race rows in HelmetAnimScaling" (bone flag HelmetAnimScaled).)doc")
+        .value("UNK_0X400", whiteout::m2::GlobalFlag::Unk_0x400, R"doc(Files of version 271 and below: the particle record carries the 16-byte multi-texture scroll tail. 12.1 reads the bit on helmets instead, as "has per-race rows in HelmetAnimScaling" (bone flag HelmetAnimScaled).)doc")
+        .value("TEXTURE_TRANSFORMS_USES_BONE_SEQUENCES", whiteout::m2::GlobalFlag::TextureTransformsUsesBoneSequences, R"doc(Texture transforms are driven by bone sequences through textureTransformBoneMap.)doc")
+        .value("UNK_0X1000", whiteout::m2::GlobalFlag::Unk_0x1000, R"doc(Texture transforms are driven by bone sequences through textureTransformBoneMap.)doc")
+        .value("PER_SKIN_VERTEX_BLOCKS", whiteout::m2::GlobalFlag::PerSkinVertexBlocks, R"doc(Each skin profile owns a slice of the vertex array starting at its SkinProfile::lodVertexBase; clear, every profile indexes from 0.)doc")
+        .value("PARENT_SKELETON_BOUND", whiteout::m2::GlobalFlag::ParentSkeletonBound, R"doc(A skinned attachment posed by its parent model: the client rebinds its bones to the parent skeleton by Bone::boneNameCRC.)doc")
+        .value("LIGHT_ATTENUATION_TRACKS", whiteout::m2::GlobalFlag::LightAttenuationTracks, R"doc(Point lights take their attenuation start and end from their tracks; clear, the client uses 1.6666 and 5.2666 times the model scale. (WOW_M2_FLAGS.md reads this as a ribbon bit: the 156-byte record it describes is the light.))doc")
+        .value("RIBBON_TEXTURE_TRANSFORMS", whiteout::m2::GlobalFlag::RibbonTextureTransforms, R"doc(Ribbons resolve their textureTransformIndex through textureTransformCombos; clear, the index is ignored. (WOW_M2_FLAGS.md reads this as a particle bit: the 176-byte record is the ribbon.))doc")
+        .value("BONE_WIND", whiteout::m2::GlobalFlag::BoneWind, R"doc(In the bone-wind system: the palette entries of every bone but the root carry wind amplitude and phase for a wind vertex-shader permutation.)doc")
+        .value("EXTERNAL_SKELETON", whiteout::m2::GlobalFlag::ExternalSkeleton, R"doc(Sequences and bones come from the SKID `.skel`, not the header.)doc")
+        .value("CHUNKED_ANIM_AFM2", whiteout::m2::GlobalFlag::ChunkedAnimAfm2, R"doc(External `.anim` files are a chunk stream whose AFM2 chunk holds the sequence data; clear, the whole file is sequence data.)doc")
+        .value("NAMED_TEXTURE_REQUEST_INERT", whiteout::m2::GlobalFlag::NamedTextureRequestInert, R"doc(Sets a texture-creation flag nothing in the 12.1 client reads.)doc")
+        .value("SUPPRESS_PHYSICS_FILE", whiteout::m2::GlobalFlag::SuppressPhysicsFile, R"doc(Ignore the PFID physics file, whatever the model carries.)doc")
+        .value("SKIP_OCCLUSION_QUERY", whiteout::m2::GlobalFlag::SkipOcclusionQuery, R"doc(Skip the HiZ occlusion test.)doc")
+        .value("FORCE_UNOCCLUDED", whiteout::m2::GlobalFlag::ForceUnoccluded, R"doc(Treat the model as visible without querying occlusion.)doc")
+        .value("PIPELINE_STATE_OVERRIDE", whiteout::m2::GlobalFlag::PipelineStateOverride, R"doc(Patches two bytes of the M2 render-state word; the bytes' meaning is not resolved.)doc")
+        .value("FAR_LOD_LINK_SUBSTITUTE", whiteout::m2::GlobalFlag::FarLodLinkSubstitute, R"doc(Past a LOD threshold the model swaps its link record and releases its textures.)doc")
+        .value("SECONDARY_PASS_RENDER_STATE", whiteout::m2::GlobalFlag::SecondaryPassRenderState, R"doc(Picks which of two render-state words a secondary pass draws the model with.)doc")
     ;
 
     py::enum_<whiteout::m2::SequenceFlag>(m, "SequenceFlag")
@@ -209,18 +221,28 @@ void bind_m2(py::module_& m) {
         .value("ENABLE_COMPOSITE", whiteout::m2::SequenceFlag::EnableComposite)
     ;
 
-    py::enum_<whiteout::m2::BoneFlag>(m, "BoneFlag")
+    py::enum_<whiteout::m2::BoneFlag>(m, "BoneFlag", R"doc(`M2CompBone.flags`, as WoW 12.1 reads it (`WOW_M2_FLAGS.md` §7).
+
+The client ORs the file word with a runtime word, so the bits marked runtime below are never meant to come from a file.)doc")
         .value("NONE", whiteout::m2::BoneFlag::None)
         .value("IGNORE_PARENT_TRANSLATE", whiteout::m2::BoneFlag::IgnoreParentTranslate)
         .value("IGNORE_PARENT_SCALE", whiteout::m2::BoneFlag::IgnoreParentScale)
         .value("IGNORE_PARENT_ROTATION", whiteout::m2::BoneFlag::IgnoreParentRotation)
-        .value("SPHERICAL_BILLBOARD", whiteout::m2::BoneFlag::SphericalBillboard)
-        .value("CYLINDRICAL_BILLBOARD_X", whiteout::m2::BoneFlag::CylindricalBillboardX)
-        .value("CYLINDRICAL_BILLBOARD_Y", whiteout::m2::BoneFlag::CylindricalBillboardY)
-        .value("CYLINDRICAL_BILLBOARD_Z", whiteout::m2::BoneFlag::CylindricalBillboardZ)
-        .value("TRANSFORMED", whiteout::m2::BoneFlag::Transformed)
-        .value("KINEMATIC", whiteout::m2::BoneFlag::Kinematic)
-        .value("HELMET_ANIM_SCALED", whiteout::m2::BoneFlag::HelmetAnimScaled)
+        .value("SPHERICAL_BILLBOARD", whiteout::m2::BoneFlag::SphericalBillboard, R"doc(@name Billboards One switch over `flags & BillboardMask`: exactly one of these, or none. Two or more set give no billboard at all. @{)doc")
+        .value("CYLINDRICAL_BILLBOARD_X", whiteout::m2::BoneFlag::CylindricalBillboardX, R"doc(@name Billboards One switch over `flags & BillboardMask`: exactly one of these, or none. Two or more set give no billboard at all. @{)doc")
+        .value("CYLINDRICAL_BILLBOARD_Y", whiteout::m2::BoneFlag::CylindricalBillboardY, R"doc(@name Billboards One switch over `flags & BillboardMask`: exactly one of these, or none. Two or more set give no billboard at all. @{)doc")
+        .value("CYLINDRICAL_BILLBOARD_Z", whiteout::m2::BoneFlag::CylindricalBillboardZ, R"doc(@name Billboards One switch over `flags & BillboardMask`: exactly one of these, or none. Two or more set give no billboard at all. @{)doc")
+        .value("BILLBOARD_AIM_AT_CAMERA", whiteout::m2::BoneFlag::BillboardAimAtCamera, R"doc(Faces the camera position rather than lying flat against the view.)doc")
+        .value("PROCEDURAL_TRANSFORM", whiteout::m2::BoneFlag::ProceduralTransform, R"doc(@} A procedural matrix is multiplied into the local transform.)doc")
+        .value("TRANSFORMED", whiteout::m2::BoneFlag::Transformed, R"doc(Has animation; with ProceduralTransform clear too, the bone skips animation.)doc")
+        .value("KINEMATIC", whiteout::m2::BoneFlag::Kinematic, R"doc(Eligible for physics: a live dynamic body on the bone replaces its animation.)doc")
+        .value("HELMET_ANIM_SCALED", whiteout::m2::BoneFlag::HelmetAnimScaled, R"doc(The helmet-scaling pass writes its per-race scale into this bone.)doc")
+        .value("PRIMARY_SEQUENCE_ATTACHED", whiteout::m2::BoneFlag::PrimarySequenceAttached, R"doc(runtime)doc")
+        .value("SECONDARY_SEQUENCE_ATTACHED", whiteout::m2::BoneFlag::SecondarySequenceAttached, R"doc(runtime)doc")
+        .value("PHYSICS_INTERACTION_OFFSET", whiteout::m2::BoneFlag::PhysicsInteractionOffset, R"doc(runtime)doc")
+        .value("PHYSICS_DRIVEN", whiteout::m2::BoneFlag::PhysicsDriven, R"doc(runtime: a dynamic body owns the bone)doc")
+        .value("SKIP_SEQUENCE_BLEND_WEIGHT", whiteout::m2::BoneFlag::SkipSequenceBlendWeight, R"doc(With PrimarySequenceAttached, skip the per-sequence blend weight.)doc")
+        .value("PROCEDURAL_IN_WORLD_SPACE", whiteout::m2::BoneFlag::ProceduralInWorldSpace, R"doc(With ProceduralTransform, apply the matrix after parenting, in world space.)doc")
     ;
 
     py::enum_<whiteout::m2::MaterialFlag>(m, "MaterialFlag")
@@ -287,6 +309,7 @@ void bind_m2(py::module_& m) {
     py::enum_<whiteout::m2::PhysicsBodyType>(m, "PhysicsBodyType", R"doc(How the client drives a body — the value stored in BODY is inverted relative to Domino's own `dmBodyType`.)doc")
         .value("KINEMATIC", whiteout::m2::PhysicsBodyType::Kinematic, R"doc(Animation-driven collider. Becomes `dmBodyType` 1; the client keeps it glued to its bone and the simulation only reads it.)doc")
         .value("DYNAMIC", whiteout::m2::PhysicsBodyType::Dynamic, R"doc(Simulated. Becomes `dmBodyType` 0 and gets its bone transform written back every frame. These are the cloth/tassel segments.)doc")
+        .value("STATIC", whiteout::m2::PhysicsBodyType::Static, R"doc(Any value from 2 up: `dmBodyType` 2. No shipped body uses it.)doc")
     ;
 
     py::enum_<whiteout::m2::PhysicsShapeType>(m, "PhysicsShapeType", R"doc(Which shape chunk a PhysicsShape indexes into.)doc")
@@ -303,6 +326,16 @@ void bind_m2(py::module_& m) {
         .value("REVOLUTE", whiteout::m2::PhysicsJointType::Revolute, R"doc(REVJ / REV2, version 2+)doc")
         .value("PRISMATIC", whiteout::m2::PhysicsJointType::Prismatic, R"doc(PRSJ / PRS2, version 2+)doc")
         .value("DISTANCE", whiteout::m2::PhysicsJointType::Distance, R"doc(DSTJ, version 2+)doc")
+    ;
+
+    py::enum_<whiteout::m2::PhysicsObjectKind>(m, "PhysicsObjectKind", R"doc(What a model's `PHYT` makes of it (`PHYS_FORMAT.md` §3.10).
+
+A file with no PHYT reads as 0.)doc")
+        .value("ATTACHED_RAGDOLL", whiteout::m2::PhysicsObjectKind::AttachedRagdoll, R"doc(Ragdoll whose kinematic bodies follow the model, not their bones: items worn on a character. 0 and 1 take the same branch in the client.)doc")
+        .value("ATTACHED_RAGDOLL_ALT", whiteout::m2::PhysicsObjectKind::AttachedRagdollAlt, R"doc(Ragdoll whose kinematic bodies follow the model, not their bones: items worn on a character. 0 and 1 take the same branch in the client.)doc")
+        .value("VEGETATION_PHANTOM", whiteout::m2::PhysicsObjectKind::VegetationPhantom, R"doc(Vegetation phantom built from the model's bounds and pushed by units. Needs a PHYV, and builds no bodies.)doc")
+        .value("RAGDOLL", whiteout::m2::PhysicsObjectKind::Ragdoll, R"doc(Ragdoll in the shared physics world.)doc")
+        .value("PRIVATE_WORLD_RAGDOLL", whiteout::m2::PhysicsObjectKind::PrivateWorldRagdoll, R"doc(Ragdoll in a physics world of its own, solved with twelve position iterations rather than two.)doc")
     ;
 
     py::class_<whiteout::m2::Extent>(m, "Extent")
@@ -548,7 +581,7 @@ The client keeps the payload pointer and a record count of `chunkSize / 32`, so 
         .def_readwrite("indices", &whiteout::m2::SkinProfile::indices)
         .def_readwrite("submeshes", &whiteout::m2::SkinProfile::submeshes)
         .def_readwrite("batches", &whiteout::m2::SkinProfile::batches)
-        .def_readwrite("lod_vertex_base", &whiteout::m2::SkinProfile::lodVertexBase)
+        .def_readwrite("lod_vertex_base", &whiteout::m2::SkinProfile::lodVertexBase, R"doc(Where this profile's vertex indices start in the model's vertex array. The client applies it only when GlobalFlag::PerSkinVertexBlocks is set.)doc")
         .def_readwrite("shadow_batches", &whiteout::m2::SkinProfile::shadowBatches)
     ;
 
@@ -833,33 +866,34 @@ The client keeps the payload pointer and a record count of `chunkSize / 32`, so 
 
     py::class_<whiteout::m2::PhysicsBody>(m, "PhysicsBody", R"doc(One rigid body, bound to a single model bone — BODY/BDY2/BDY3/BDY4.
 
-The four on-disk layouts are the same fields accreting over time, so they share one struct; PhysicsData::version decides which of them is written back, and fields the older layouts lack keep their defaults.)doc")
+The four on-disk layouts are the same fields accreting over time, so they share one struct; PhysicsData::version decides which of them is written back, and fields the older layouts lack keep the values the client's upgrader gives them (`PHYS_FORMAT.md` §5).)doc")
         .def(py::init<>())
         .def_readwrite("type", &whiteout::m2::PhysicsBody::type)
-        .def_readwrite("bone_index", &whiteout::m2::PhysicsBody::boneIndex)
-        .def_readwrite("position", &whiteout::m2::PhysicsBody::position, R"doc(Offset from the bone's animated position, not an absolute position: the client spawns the body at `bonePosition + position`.)doc")
-        .def_readwrite("shape_index", &whiteout::m2::PhysicsBody::shapeIndex, R"doc(First entry in PhysicsData::shapes belonging to this body. 32 bits wide in BODY/BDY2, 16 from BDY3 on — writing a larger index back into one of those truncates it.)doc")
+        .def_readwrite("bone_index", &whiteout::m2::PhysicsBody::boneIndex, R"doc(BODY/BDY2 store it as a u32 at +16 and the client keeps the low 16 bits; BDY3 moved it into the u16 at +2.)doc")
+        .def_readwrite("position", &whiteout::m2::PhysicsBody::position, R"doc(The body's model-space origin, where the client creates it; the first step moves it onto its bone's animated pivot.)doc")
+        .def_readwrite("shape_index", &whiteout::m2::PhysicsBody::shapeIndex, R"doc(First entry in PhysicsData::shapes belonging to this body. 32 bits wide in every layout.)doc")
         .def_readwrite("shape_count", &whiteout::m2::PhysicsBody::shapeCount)
-        .def_readwrite("gravity_scale", &whiteout::m2::PhysicsBody::gravityScale, R"doc(BDY3+. 1.0 on all but 45 of 1213 kinematic bodies but tuned freely on dynamic ones, negatives included — the shape of `dmBodyDef::m_gravityScale`.)doc")
-        .def_readwrite("inertia_scale", &whiteout::m2::PhysicsBody::inertiaScale, R"doc(BDY2+. 1.0 in 3457 of 3526 bodies, otherwise 1.1-10 — `dmBodyDef::m_inertiaScale`.)doc")
-        .def_readwrite("linear_damping", &whiteout::m2::PhysicsBody::linearDamping, R"doc(BDY3+. Zero on 1196 of 1213 kinematic bodies and 0-10 on dynamic ones — `dmBodyDef::m_linearDamping`.)doc")
-        .def_readwrite("angular_damping", &whiteout::m2::PhysicsBody::angularDamping, R"doc(BDY3+. Same kinematic/dynamic split as @ref linearDamping — `dmBodyDef::m_angularDamping`.)doc")
-        .def_readwrite("unknown28", &whiteout::m2::PhysicsBody::unknown28, R"doc(BDY3+. Unidentified. Unlike the four above it is set on kinematic and dynamic bodies alike, so it is not a rigid-body integration parameter; values cluster on 0.5, 0.01, 0.9 and 0.1.)doc")
-        .def_readwrite("unknown2c", &whiteout::m2::PhysicsBody::unknown2c, R"doc(BDY4+. Unidentified; 0 in half the corpus, otherwise small values or 0x8000 alone, which reads like a bit field.)doc")
-        .def_readwrite("padding2e", &whiteout::m2::PhysicsBody::padding2e, R"doc(BDY4+. Zero in every corpus body.)doc")
+        .def_readwrite("gravity_scale", &whiteout::m2::PhysicsBody::gravityScale, R"doc(BDY2+. 1.0 on all but 45 of 1213 kinematic bodies but tuned freely on dynamic ones, negatives included — `dmBodyDef+0x30`.)doc")
+        .def_readwrite("inertia_scale", &whiteout::m2::PhysicsBody::inertiaScale, R"doc(BDY3+. 1.0 in 3457 of 3526 bodies, otherwise 1.1-10 — `dmBodyDef+0x2C`.)doc")
+        .def_readwrite("linear_damping", &whiteout::m2::PhysicsBody::linearDamping, R"doc(BDY3+. Zero on 1196 of 1213 kinematic bodies and 0-10 on dynamic ones — `dmBodyDef+0x24`.)doc")
+        .def_readwrite("angular_damping", &whiteout::m2::PhysicsBody::angularDamping, R"doc(BDY3+. Same kinematic/dynamic split as @ref linearDamping — `dmBodyDef+0x28`.)doc")
+        .def_readwrite("follow_factor", &whiteout::m2::PhysicsBody::followFactor, R"doc(BDY4. The fraction of the way a kinematic body is snapped to its animated pose each step, ramping to a full teleport when the motion is fast. Not a Domino parameter. Older layouts get the upgrader's 0.9.)doc")
+        .def_readwrite("attachment", &whiteout::m2::PhysicsBody::attachment, R"doc(BDY3+ (+40 in BDY3, +44 in BDY4): see the `kPhysicsAttachment*` constants.)doc")
+        .def_readwrite("padding", &whiteout::m2::PhysicsBody::padding, R"doc(BDY3+. Zero in every corpus body.)doc")
     ;
 
     py::class_<whiteout::m2::PhysicsShape>(m, "PhysicsShape", R"doc(One collision shape reference — SHAP/SHP2. Points at an entry of the box/capsule/sphere/polytope array named by @ref shapeType.)doc")
         .def(py::init<>())
         .def_readwrite("shape_type", &whiteout::m2::PhysicsShape::shapeType)
         .def_readwrite("shape_index", &whiteout::m2::PhysicsShape::shapeIndex)
-        .def_readwrite("padding04", &whiteout::m2::PhysicsShape::padding04, R"doc(Zero in every corpus shape.)doc")
+        .def_readwrite("game_flags", &whiteout::m2::PhysicsShape::gameFlags, R"doc(`dmFixtureDef.gameFlags`. Zero in every corpus shape.)doc")
+        .def_readwrite("padding06", &whiteout::m2::PhysicsShape::padding06)
         .def_readwrite("friction", &whiteout::m2::PhysicsShape::friction)
         .def_readwrite("restitution", &whiteout::m2::PhysicsShape::restitution)
-        .def_readwrite("density", &whiteout::m2::PhysicsShape::density)
-        .def_readwrite("unknown14", &whiteout::m2::PhysicsShape::unknown14, R"doc(SHP2+. Unidentified, but a float: only 0, 0.01, 0.8 and 1.0 occur. The one `dmFixtureDef` float the rest of this struct does not account for is `m_rollingResistance`.)doc")
-        .def_readwrite("scale", &whiteout::m2::PhysicsShape::scale, R"doc(SHP2+. 1.0 in 3229 of 3230 shapes, matching the `m_scaleOrRadius` the client hands every fixture.)doc")
-        .def_readwrite("unknown1c", &whiteout::m2::PhysicsShape::unknown1c, R"doc(SHP2+. Zero in every corpus shape.)doc")
+        .def_readwrite("density", &whiteout::m2::PhysicsShape::density, R"doc(Rescaled by the client for capsules in files of version 4 and below (`PHYS_FORMAT.md` §4.2).)doc")
+        .def_readwrite("unused14", &whiteout::m2::PhysicsShape::unused14, R"doc(@name SHP2+, parsed and never read The client copies these onto its shape def and no `CreateInstance` reads them (`PHYS_FORMAT.md` §4.5). SHAP's upgrade gives 0, 1.0 and 0. @{)doc")
+        .def_readwrite("unused18", &whiteout::m2::PhysicsShape::unused18, R"doc(1.0 in 3229 of 3230 shapes, and still not the fixture scale.)doc")
+        .def_readwrite("unused1c", &whiteout::m2::PhysicsShape::unused1c)
         .def_readwrite("padding1e", &whiteout::m2::PhysicsShape::padding1e, R"doc(SHP2+. Uninitialised on disk; kept so writes match.)doc")
     ;
 
@@ -926,7 +960,7 @@ The chunk stores fixed-size headers and variable-size payloads in two blocks; bo
         .def_readwrite("angular_damping_ratio", &whiteout::m2::WeldJoint::angularDampingRatio)
         .def_readwrite("linear_frequency_hz", &whiteout::m2::WeldJoint::linearFrequencyHz, R"doc(WLJ2+)doc")
         .def_readwrite("linear_damping_ratio", &whiteout::m2::WeldJoint::linearDampingRatio, R"doc(WLJ2+)doc")
-        .def_readwrite("unknown70", &whiteout::m2::WeldJoint::unknown70, R"doc(WLJ3+. Zero in 265 of 274 weld joints.)doc")
+        .def_readwrite("unused70", &whiteout::m2::WeldJoint::unused70, R"doc(WLJ3+. Copied onto the weld def and never sent to Domino. Zero in 265 of 274 weld joints.)doc")
     ;
 
     py::class_<whiteout::m2::SphericalJoint>(m, "SphericalJoint", R"doc(SPHJ — a ball joint between two anchor points.)doc")
@@ -940,11 +974,11 @@ The chunk stores fixed-size headers and variable-size payloads in two blocks; bo
         .def(py::init<>())
         .def_readwrite("frame_a", &whiteout::m2::ShoulderJoint::frameA)
         .def_readwrite("frame_b", &whiteout::m2::ShoulderJoint::frameB)
-        .def_readwrite("lower_twist_angle", &whiteout::m2::ShoulderJoint::lowerTwistAngle)
+        .def_readwrite("lower_twist_angle", &whiteout::m2::ShoulderJoint::lowerTwistAngle, R"doc(Degrees, like the cone; the client converts both to radians and enables the twist limit when `upper > lower`.)doc")
         .def_readwrite("upper_twist_angle", &whiteout::m2::ShoulderJoint::upperTwistAngle)
-        .def_readwrite("cone_angle", &whiteout::m2::ShoulderJoint::coneAngle, R"doc(Degrees: the corpus holds 20, 35, 45 and 60, while `dmShoulderJoint` clamps its own cone to [10°, 170°] expressed in radians — so the loader converts on the way in.)doc")
-        .def_readwrite("max_motor_torque", &whiteout::m2::ShoulderJoint::maxMotorTorque, R"doc(version 2+)doc")
-        .def_readwrite("motor_mode", &whiteout::m2::ShoulderJoint::motorMode, R"doc(version 2+)doc")
+        .def_readwrite("cone_angle", &whiteout::m2::ShoulderJoint::coneAngle, R"doc(Degrees: the corpus holds 20, 35, 45 and 60. Stored as authored, so the conversion is the consumer's.)doc")
+        .def_readwrite("max_motor_torque", &whiteout::m2::ShoulderJoint::maxMotorTorque)
+        .def_readwrite("motor_mode", &whiteout::m2::ShoulderJoint::motorMode, R"doc(low byte: 0 off, 1 position, 2 velocity)doc")
         .def_readwrite("motor_frequency_hz", &whiteout::m2::ShoulderJoint::motorFrequencyHz, R"doc(SHJ2)doc")
         .def_readwrite("motor_damping_ratio", &whiteout::m2::ShoulderJoint::motorDampingRatio, R"doc(SHJ2)doc")
     ;
@@ -953,11 +987,11 @@ The chunk stores fixed-size headers and variable-size payloads in two blocks; bo
         .def(py::init<>())
         .def_readwrite("frame_a", &whiteout::m2::PrismaticJoint::frameA)
         .def_readwrite("frame_b", &whiteout::m2::PrismaticJoint::frameB)
-        .def_readwrite("lower_limit", &whiteout::m2::PrismaticJoint::lowerLimit)
+        .def_readwrite("lower_limit", &whiteout::m2::PrismaticJoint::lowerLimit, R"doc(Distances, not angles; the limit is enabled when `upper > lower`.)doc")
         .def_readwrite("upper_limit", &whiteout::m2::PrismaticJoint::upperLimit)
-        .def_readwrite("unknown68", &whiteout::m2::PrismaticJoint::unknown68, R"doc(Unidentified; zero in all twelve corpus prismatic joints. Domino's prismatic def carries an enable-limit flag next to the limit pair.)doc")
+        .def_readwrite("reference_translation", &whiteout::m2::PrismaticJoint::referenceTranslation, R"doc(The zero point the limit is measured from. No `dmJointDef` slot: the client writes it into the live joint after creation. Zero in all twelve corpus prismatics.)doc")
         .def_readwrite("max_motor_force", &whiteout::m2::PrismaticJoint::maxMotorForce)
-        .def_readwrite("unknown70", &whiteout::m2::PrismaticJoint::unknown70, R"doc(Unidentified; zero in all twelve.)doc")
+        .def_readwrite("motor_speed", &whiteout::m2::PrismaticJoint::motorSpeed, R"doc(Target velocity, written into the live joint like @ref referenceTranslation.)doc")
         .def_readwrite("motor_mode", &whiteout::m2::PrismaticJoint::motorMode)
         .def_readwrite("motor_frequency_hz", &whiteout::m2::PrismaticJoint::motorFrequencyHz, R"doc(PRS2)doc")
         .def_readwrite("motor_damping_ratio", &whiteout::m2::PrismaticJoint::motorDampingRatio, R"doc(PRS2)doc")
@@ -967,7 +1001,7 @@ The chunk stores fixed-size headers and variable-size payloads in two blocks; bo
         .def(py::init<>())
         .def_readwrite("frame_a", &whiteout::m2::RevoluteJoint::frameA)
         .def_readwrite("frame_b", &whiteout::m2::RevoluteJoint::frameB)
-        .def_readwrite("lower_angle", &whiteout::m2::RevoluteJoint::lowerAngle)
+        .def_readwrite("lower_angle", &whiteout::m2::RevoluteJoint::lowerAngle, R"doc(Degrees; the limit is enabled when `upper > lower`.)doc")
         .def_readwrite("upper_angle", &whiteout::m2::RevoluteJoint::upperAngle)
         .def_readwrite("max_motor_torque", &whiteout::m2::RevoluteJoint::maxMotorTorque)
         .def_readwrite("motor_mode", &whiteout::m2::RevoluteJoint::motorMode, R"doc(1: position mode (frequency > 0), 2: velocity mode.)doc")
@@ -982,19 +1016,24 @@ The chunk stores fixed-size headers and variable-size payloads in two blocks; bo
         .def_readwrite("distance", &whiteout::m2::DistanceJoint::distance)
     ;
 
-    py::class_<whiteout::m2::PhysicsTuning>(m, "PhysicsTuning", R"doc(PHYV — six floats that overwrite the head of a tuning block the client otherwise fills with constants. Version 1+.)doc")
+    py::class_<whiteout::m2::PhysicsTuning>(m, "PhysicsTuning", R"doc(PHYV — the per-model vegetation push: the six `physVeg*` console variables in registration order (`PHYS_FORMAT.md` §3.9).
+
+Read only for a `PHYT` 2 model, which becomes a phantom pushed by units walking through it rather than a ragdoll.)doc")
         .def(py::init<>())
-        .def("get_values",
-            [](const whiteout::m2::PhysicsTuning& self) {
-                return std::vector<whiteout::f32>(self.values.begin(), self.values.end());
-            })
-        .def("set_values",
-            [](whiteout::m2::PhysicsTuning& self, const std::vector<whiteout::f32>& v) {
-                if (v.size() != self.values.size())
-                    throw std::runtime_error("setter expected exactly "
-                        + std::to_string(self.values.size()) + " elements");
-                for (std::size_t i = 0; i < v.size(); ++i) self.values[i] = v[i];
-            })
+        .def_readwrite("pos_max_push", &whiteout::m2::PhysicsTuning::posMaxPush, R"doc(Yards a bone may be pushed from its base before it is clamped.)doc")
+        .def_readwrite("pos_push_amt", &whiteout::m2::PhysicsTuning::posPushAmt, R"doc(Yards per frame a bone is pushed while a unit moves along it, times dt.)doc")
+        .def_readwrite("pos_relax_speed", &whiteout::m2::PhysicsTuning::posRelaxSpeed, R"doc(How fast the bone returns to rest once the unit leaves.)doc")
+        .def_readwrite("vel_max_push", &whiteout::m2::PhysicsTuning::velMaxPush, R"doc(Extra push along a moving unit's velocity.)doc")
+        .def_readwrite("vel_speed", &whiteout::m2::PhysicsTuning::velSpeed, R"doc(How fast the bone sways along that velocity.)doc")
+        .def_readwrite("min_push_dist", &whiteout::m2::PhysicsTuning::minPushDist, R"doc(**Squared** distance inside which a unit starts pushing. The client uses 8.0 for a model with no PHYV.)doc")
+    ;
+
+    py::class_<whiteout::m2::PhysicsAllowList>(m, "PhysicsAllowList", R"doc(PHAO — the host skeletons this file's follow factors were tuned on.
+
+On a host whose key-bone-4 name CRC is not listed, the client discards every body's @ref PhysicsBody::followFactor for a flat 0.7. No shipped file has one.)doc")
+        .def(py::init<>())
+        .def_readwrite("header", &whiteout::m2::PhysicsAllowList::header, R"doc(The chunk's leading u32. The client keeps its low byte and never reads it.)doc")
+        .def_readwrite("keys", &whiteout::m2::PhysicsAllowList::keys)
     ;
 
     py::class_<whiteout::m2::PhysicsUnknownChunk>(m, "PhysicsUnknownChunk", R"doc(A `.phys` chunk this library does not know, kept verbatim so a parse/write cycle does not drop it.)doc")
@@ -1018,7 +1057,8 @@ The chunk stores fixed-size headers and variable-size payloads in two blocks; bo
 Bodies attach to bones and are linked by joints; each body owns a run of @ref shapes, and each shape indexes the array its type names.)doc")
         .def(py::init<>())
         .def_readwrite("version", &whiteout::m2::PhysicsData::version, R"doc(0 (MoP) through 6. Decides which layout each chunk is written in — see the per-field version notes on the structs above.)doc")
-        .def_readwrite("phyt", &whiteout::m2::PhysicsData::phyt, R"doc(PHYT, version 1+. A small enum, 0 through 4; meaning unknown.)doc")
+        .def_readwrite("phyt", &whiteout::m2::PhysicsData::phyt, R"doc(PHYT, version 1+: a PhysicsObjectKind, kept raw so any value round-trips.)doc")
+        .def_readwrite("allow_list", &whiteout::m2::PhysicsData::allowList, R"doc(PHAO. Absent in every shipped file.)doc")
         .def_readwrite("bodies", &whiteout::m2::PhysicsData::bodies)
         .def_readwrite("shapes", &whiteout::m2::PhysicsData::shapes)
         .def_readwrite("box_shapes", &whiteout::m2::PhysicsData::boxShapes)
@@ -1033,19 +1073,6 @@ Bodies attach to bones and are linked by joints; each body owns a run of @ref sh
         .def_readwrite("revolute_joints", &whiteout::m2::PhysicsData::revoluteJoints)
         .def_readwrite("distance_joints", &whiteout::m2::PhysicsData::distanceJoints)
         .def_readwrite("tuning", &whiteout::m2::PhysicsData::tuning, R"doc(PHYV. A file that has one carries nothing else.)doc")
-    ;
-
-    py::class_<whiteout::m2::BoneOverride>(m, "BoneOverride", R"doc(One bone's replacement transform, from a `.bone` file.)doc")
-        .def(py::init<>())
-        .def_readwrite("bone_index", &whiteout::m2::BoneOverride::boneIndex, R"doc(Indexes Model::bones. Every id in the WoW corpus is below its model's bone count, and the ids within a file are strictly ascending.)doc")
-    ;
-
-    py::class_<whiteout::m2::BoneOverrideSet>(m, "BoneOverrideSet", R"doc(A whole `.bone` file: the skeleton edits one customization choice needs.
-
-On disk this is two parallel chunks — `BIDA` holds the bone ids and `BOMT` the matrices — but their lengths match in every corpus file, so they are paired here and split again on write.)doc")
-        .def(py::init<>())
-        .def_readwrite("version", &whiteout::m2::BoneOverrideSet::version, R"doc(1 in every known file.)doc")
-        .def_readwrite("overrides", &whiteout::m2::BoneOverrideSet::overrides, R"doc(Ascending by @ref BoneOverride::boneIndex, which is the order the files store and what lets the client binary-search a bone.)doc")
     ;
 
     bind_m2_1(m);

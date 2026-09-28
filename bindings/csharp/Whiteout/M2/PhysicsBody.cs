@@ -28,6 +28,7 @@ public sealed class PhysicsBody : WhiteoutHandle
     }
 
 
+    /// <summary>BODY/BDY2 store it as a u32 at +16 and the client keeps the low 16 bits; BDY3 moved it into the u16 at +2.</summary>
     public ushort BoneIndex
     {
         get => NativeMethods.whiteout_m2_M2PhysicsBody_get_boneIndex(DangerousGet());
@@ -35,7 +36,7 @@ public sealed class PhysicsBody : WhiteoutHandle
     }
 
 
-    /// <summary>Offset from the bone's animated position, not an absolute position: the client spawns the body at `bonePosition + position`.</summary>
+    /// <summary>The body's model-space origin, where the client creates it; the first step moves it onto its bone's animated pivot.</summary>
     public unsafe Vector3f Position
     {
         get
@@ -59,7 +60,7 @@ public sealed class PhysicsBody : WhiteoutHandle
     }
 
 
-    /// <summary>First entry in PhysicsData::shapes belonging to this body. 32 bits wide in BODY/BDY2, 16 from BDY3 on — writing a larger index back into one of those truncates it.</summary>
+    /// <summary>First entry in PhysicsData::shapes belonging to this body. 32 bits wide in every layout.</summary>
     public int ShapeIndex
     {
         get => NativeMethods.whiteout_m2_M2PhysicsBody_get_shapeIndex(DangerousGet());
@@ -74,7 +75,7 @@ public sealed class PhysicsBody : WhiteoutHandle
     }
 
 
-    /// <summary>BDY3+. 1.0 on all but 45 of 1213 kinematic bodies but tuned freely on dynamic ones, negatives included — the shape of `dmBodyDef::m_gravityScale`.</summary>
+    /// <summary>BDY2+. 1.0 on all but 45 of 1213 kinematic bodies but tuned freely on dynamic ones, negatives included — `dmBodyDef+0x30`.</summary>
     public float GravityScale
     {
         get => NativeMethods.whiteout_m2_M2PhysicsBody_get_gravityScale(DangerousGet());
@@ -82,7 +83,7 @@ public sealed class PhysicsBody : WhiteoutHandle
     }
 
 
-    /// <summary>BDY2+. 1.0 in 3457 of 3526 bodies, otherwise 1.1-10 — `dmBodyDef::m_inertiaScale`.</summary>
+    /// <summary>BDY3+. 1.0 in 3457 of 3526 bodies, otherwise 1.1-10 — `dmBodyDef+0x2C`.</summary>
     public float InertiaScale
     {
         get => NativeMethods.whiteout_m2_M2PhysicsBody_get_inertiaScale(DangerousGet());
@@ -90,7 +91,7 @@ public sealed class PhysicsBody : WhiteoutHandle
     }
 
 
-    /// <summary>BDY3+. Zero on 1196 of 1213 kinematic bodies and 0-10 on dynamic ones — `dmBodyDef::m_linearDamping`.</summary>
+    /// <summary>BDY3+. Zero on 1196 of 1213 kinematic bodies and 0-10 on dynamic ones — `dmBodyDef+0x24`.</summary>
     public float LinearDamping
     {
         get => NativeMethods.whiteout_m2_M2PhysicsBody_get_linearDamping(DangerousGet());
@@ -98,7 +99,7 @@ public sealed class PhysicsBody : WhiteoutHandle
     }
 
 
-    /// <summary>BDY3+. Same kinematic/dynamic split as @ref linearDamping — `dmBodyDef::m_angularDamping`.</summary>
+    /// <summary>BDY3+. Same kinematic/dynamic split as @ref linearDamping — `dmBodyDef+0x28`.</summary>
     public float AngularDamping
     {
         get => NativeMethods.whiteout_m2_M2PhysicsBody_get_angularDamping(DangerousGet());
@@ -106,27 +107,27 @@ public sealed class PhysicsBody : WhiteoutHandle
     }
 
 
-    /// <summary>BDY3+. Unidentified. Unlike the four above it is set on kinematic and dynamic bodies alike, so it is not a rigid-body integration parameter; values cluster on 0.5, 0.01, 0.9 and 0.1.</summary>
-    public float Unknown28
+    /// <summary>BDY4. The fraction of the way a kinematic body is snapped to its animated pose each step, ramping to a full teleport when the motion is fast. Not a Domino parameter. Older layouts get the upgrader's 0.9.</summary>
+    public float FollowFactor
     {
-        get => NativeMethods.whiteout_m2_M2PhysicsBody_get_unknown28(DangerousGet());
-        set => NativeMethods.whiteout_m2_M2PhysicsBody_set_unknown28(DangerousGet(), value);
+        get => NativeMethods.whiteout_m2_M2PhysicsBody_get_followFactor(DangerousGet());
+        set => NativeMethods.whiteout_m2_M2PhysicsBody_set_followFactor(DangerousGet(), value);
     }
 
 
-    /// <summary>BDY4+. Unidentified; 0 in half the corpus, otherwise small values or 0x8000 alone, which reads like a bit field.</summary>
-    public ushort Unknown2c
+    /// <summary>BDY3+ (+40 in BDY3, +44 in BDY4): see the `kPhysicsAttachment*` constants.</summary>
+    public ushort Attachment
     {
-        get => NativeMethods.whiteout_m2_M2PhysicsBody_get_unknown2c(DangerousGet());
-        set => NativeMethods.whiteout_m2_M2PhysicsBody_set_unknown2c(DangerousGet(), value);
+        get => NativeMethods.whiteout_m2_M2PhysicsBody_get_attachment(DangerousGet());
+        set => NativeMethods.whiteout_m2_M2PhysicsBody_set_attachment(DangerousGet(), value);
     }
 
 
-    /// <summary>BDY4+. Zero in every corpus body.</summary>
-    public ushort Padding2e
+    /// <summary>BDY3+. Zero in every corpus body.</summary>
+    public ushort Padding
     {
-        get => NativeMethods.whiteout_m2_M2PhysicsBody_get_padding2e(DangerousGet());
-        set => NativeMethods.whiteout_m2_M2PhysicsBody_set_padding2e(DangerousGet(), value);
+        get => NativeMethods.whiteout_m2_M2PhysicsBody_get_padding(DangerousGet());
+        set => NativeMethods.whiteout_m2_M2PhysicsBody_set_padding(DangerousGet(), value);
     }
 
 }

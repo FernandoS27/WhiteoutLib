@@ -13,7 +13,7 @@ import whiteout.m2.internal.Native;
 /**
  * One rigid body, bound to a single model bone — BODY/BDY2/BDY3/BDY4.
  * 
- * The four on-disk layouts are the same fields accreting over time, so they share one struct; PhysicsData::version decides which of them is written back, and fields the older layouts lack keep their defaults.
+ * The four on-disk layouts are the same fields accreting over time, so they share one struct; PhysicsData::version decides which of them is written back, and fields the older layouts lack keep the values the client's upgrader gives them (`PHYS_FORMAT.md` §5).
  *
  * <p><b>Lifecycle.</b> Instances hold a handle to a native
  * PhysicsBody allocation. Always release them with
@@ -65,7 +65,10 @@ public final class PhysicsBody implements AutoCloseable {
     public void setType(PhysicsBodyType value) {
         handle.set(ValueLayout.JAVA_INT, 0L, value.value);
     }
-    /** @return the boneIndex field of this M2PhysicsBody. */
+    /**
+     * BODY/BDY2 store it as a u32 at +16 and the client keeps the low 16 bits; BDY3 moved it into the u16 at +2.
+     * @return the boneIndex field of this M2PhysicsBody.
+     */
     public short getBoneIndex() {
         return handle.get(ValueLayout.JAVA_SHORT, 2L);
     }
@@ -73,7 +76,7 @@ public final class PhysicsBody implements AutoCloseable {
         handle.set(ValueLayout.JAVA_SHORT, 2L, value);
     }
     /**
-     * Offset from the bone's animated position, not an absolute position: the client spawns the body at `bonePosition + position`.
+     * The body's model-space origin, where the client creates it; the first step moves it onto its bone's animated pivot.
      * @return the position field of this M2PhysicsBody.
      */
     public Vector3f getPosition() {
@@ -87,7 +90,7 @@ public final class PhysicsBody implements AutoCloseable {
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 4L, 12L);
     }
     /**
-     * First entry in PhysicsData::shapes belonging to this body. 32 bits wide in BODY/BDY2, 16 from BDY3 on — writing a larger index back into one of those truncates it.
+     * First entry in PhysicsData::shapes belonging to this body. 32 bits wide in every layout.
      * @return the shapeIndex field of this M2PhysicsBody.
      */
     public int getShapeIndex() {
@@ -104,7 +107,7 @@ public final class PhysicsBody implements AutoCloseable {
         handle.set(ValueLayout.JAVA_INT, 20L, value);
     }
     /**
-     * BDY3+. 1.0 on all but 45 of 1213 kinematic bodies but tuned freely on dynamic ones, negatives included — the shape of `dmBodyDef::m_gravityScale`.
+     * BDY2+. 1.0 on all but 45 of 1213 kinematic bodies but tuned freely on dynamic ones, negatives included — `dmBodyDef+0x30`.
      * @return the gravityScale field of this M2PhysicsBody.
      */
     public float getGravityScale() {
@@ -114,7 +117,7 @@ public final class PhysicsBody implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 24L, value);
     }
     /**
-     * BDY2+. 1.0 in 3457 of 3526 bodies, otherwise 1.1-10 — `dmBodyDef::m_inertiaScale`.
+     * BDY3+. 1.0 in 3457 of 3526 bodies, otherwise 1.1-10 — `dmBodyDef+0x2C`.
      * @return the inertiaScale field of this M2PhysicsBody.
      */
     public float getInertiaScale() {
@@ -124,7 +127,7 @@ public final class PhysicsBody implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 28L, value);
     }
     /**
-     * BDY3+. Zero on 1196 of 1213 kinematic bodies and 0-10 on dynamic ones — `dmBodyDef::m_linearDamping`.
+     * BDY3+. Zero on 1196 of 1213 kinematic bodies and 0-10 on dynamic ones — `dmBodyDef+0x24`.
      * @return the linearDamping field of this M2PhysicsBody.
      */
     public float getLinearDamping() {
@@ -134,7 +137,7 @@ public final class PhysicsBody implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 32L, value);
     }
     /**
-     * BDY3+. Same kinematic/dynamic split as @ref linearDamping — `dmBodyDef::m_angularDamping`.
+     * BDY3+. Same kinematic/dynamic split as @ref linearDamping — `dmBodyDef+0x28`.
      * @return the angularDamping field of this M2PhysicsBody.
      */
     public float getAngularDamping() {
@@ -144,37 +147,37 @@ public final class PhysicsBody implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 36L, value);
     }
     /**
-     * BDY3+. Unidentified. Unlike the four above it is set on kinematic and dynamic bodies alike, so it is not a rigid-body integration parameter; values cluster on 0.5, 0.01, 0.9 and 0.1.
-     * @return the unknown28 field of this M2PhysicsBody.
+     * BDY4. The fraction of the way a kinematic body is snapped to its animated pose each step, ramping to a full teleport when the motion is fast. Not a Domino parameter. Older layouts get the upgrader's 0.9.
+     * @return the followFactor field of this M2PhysicsBody.
      */
-    public float getUnknown28() {
+    public float getFollowFactor() {
         return handle.get(ValueLayout.JAVA_FLOAT, 40L);
     }
-    public void setUnknown28(float value) {
+    public void setFollowFactor(float value) {
         handle.set(ValueLayout.JAVA_FLOAT, 40L, value);
     }
     /**
-     * BDY4+. Unidentified; 0 in half the corpus, otherwise small values or 0x8000 alone, which reads like a bit field.
-     * @return the unknown2c field of this M2PhysicsBody.
+     * BDY3+ (+40 in BDY3, +44 in BDY4): see the `kPhysicsAttachment*` constants.
+     * @return the attachment field of this M2PhysicsBody.
      */
-    public short getUnknown2c() {
+    public short getAttachment() {
         return handle.get(ValueLayout.JAVA_SHORT, 44L);
     }
-    public void setUnknown2c(short value) {
+    public void setAttachment(short value) {
         handle.set(ValueLayout.JAVA_SHORT, 44L, value);
     }
     /**
-     * BDY4+. Zero in every corpus body.
-     * @return the padding2e field of this M2PhysicsBody.
+     * BDY3+. Zero in every corpus body.
+     * @return the padding field of this M2PhysicsBody.
      */
-    public short getPadding2e() {
+    public short getPadding() {
         return handle.get(ValueLayout.JAVA_SHORT, 46L);
     }
-    public void setPadding2e(short value) {
+    public void setPadding(short value) {
         handle.set(ValueLayout.JAVA_SHORT, 46L, value);
     }
     @Override public String toString() {
-        return "PhysicsBody(" + "type=" + getType() + ", " + "boneIndex=" + getBoneIndex() + ", " + "shapeIndex=" + getShapeIndex() + ", " + "shapeCount=" + getShapeCount() + ", " + "gravityScale=" + getGravityScale() + ", " + "inertiaScale=" + getInertiaScale() + ", " + "linearDamping=" + getLinearDamping() + ", " + "angularDamping=" + getAngularDamping() + ", " + "unknown28=" + getUnknown28() + ", " + "unknown2c=" + getUnknown2c() + ", " + "padding2e=" + getPadding2e() + ")";
+        return "PhysicsBody(" + "type=" + getType() + ", " + "boneIndex=" + getBoneIndex() + ", " + "shapeIndex=" + getShapeIndex() + ", " + "shapeCount=" + getShapeCount() + ", " + "gravityScale=" + getGravityScale() + ", " + "inertiaScale=" + getInertiaScale() + ", " + "linearDamping=" + getLinearDamping() + ", " + "angularDamping=" + getAngularDamping() + ", " + "followFactor=" + getFollowFactor() + ", " + "attachment=" + getAttachment() + ", " + "padding=" + getPadding() + ")";
     }
 
 }

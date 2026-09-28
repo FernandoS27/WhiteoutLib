@@ -9,23 +9,74 @@
 namespace whiteout {
 namespace m2 {
 
+/// @brief The MD20 header's `globalFlags`, named for what WoW 12.1 does with
+///        each bit (`WOW_M2_FLAGS.md`, corrected where noted).
 enum class GlobalFlag : u32 {
     None = 0,
+    /// The model leans to follow the ground normal, about X and about Y.
     TiltX = 0x00000001,
     TiltY = 0x00000002,
-    AddBackReferences = 0x00000004,
+    /// The world transform is taken as is: no attachment parent's scale or
+    /// translation is composed in, and emitters do not inherit it.
+    WorldAbsoluteTransform = 0x00000004,
+    /// The header carries `textureCombinerCombos` after its fixed part. Read by
+    /// the parser; the 12.1 client never tests it.
     UseTextureCombinerCombos = 0x00000008,
-    IsCamera = 0x00000010,
-    // CM2Shared::FinishLoadingM2Data tests bit 0x20 before LegacyLoadPhysData.
+    /// Batch bounds and sort distance come from the bone-transformed geometry.
+    AnimatedBounds = 0x00000010,
+    /// Load physics when the model attaches to a scene. CM2Shared::FinishLoadingM2Data
+    /// tests it before LegacyLoadPhysData.
     LoadPhysicsData = 0x00000020,
-    Unk_0x80 = 0x00000080,
-    Unk_0x100 = 0x00000100,
+    /// Enters the visible-geometry optimiser and the shadow-map gather.
+    VisibleGeometryOptimise = 0x00000080,
+    /// Emitters of record type 4 are relinked when the model attaches to a parent.
+    ParentLinkedParticles = 0x00000100,
+    /// Files of version 271 and below: the particle record carries the 16-byte
+    /// multi-texture scroll tail. 12.1 reads the bit on helmets instead, as
+    /// "has per-race rows in HelmetAnimScaling" (bone flag HelmetAnimScaled).
     NewParticleRecord = 0x00000200,
     Unk_0x400 = 0x00000400,
+    /// Texture transforms are driven by bone sequences through textureTransformBoneMap.
     TextureTransformsUsesBoneSequences = 0x00000800,
     Unk_0x1000 = 0x00001000,
-    ChunkedAnimFiles = 0x00002000,
-    UpgradedFormat = 0x00200000,
+    /// Each skin profile owns a slice of the vertex array starting at its
+    /// SkinProfile::lodVertexBase; clear, every profile indexes from 0.
+    PerSkinVertexBlocks = 0x00002000,
+    /// A skinned attachment posed by its parent model: the client rebinds its
+    /// bones to the parent skeleton by Bone::boneNameCRC.
+    ParentSkeletonBound = 0x00004000,
+    /// Point lights take their attenuation start and end from their tracks;
+    /// clear, the client uses 1.6666 and 5.2666 times the model scale.
+    /// (WOW_M2_FLAGS.md reads this as a ribbon bit: the 156-byte record it
+    /// describes is the light.)
+    LightAttenuationTracks = 0x00008000,
+    /// Ribbons resolve their textureTransformIndex through
+    /// textureTransformCombos; clear, the index is ignored. (WOW_M2_FLAGS.md
+    /// reads this as a particle bit: the 176-byte record is the ribbon.)
+    RibbonTextureTransforms = 0x00020000,
+    /// In the bone-wind system: the palette entries of every bone but the root
+    /// carry wind amplitude and phase for a wind vertex-shader permutation.
+    BoneWind = 0x00040000,
+    /// Sequences and bones come from the SKID `.skel`, not the header.
+    ExternalSkeleton = 0x00100000,
+    /// External `.anim` files are a chunk stream whose AFM2 chunk holds the
+    /// sequence data; clear, the whole file is sequence data.
+    ChunkedAnimAfm2 = 0x00200000,
+    /// Sets a texture-creation flag nothing in the 12.1 client reads.
+    NamedTextureRequestInert = 0x00800000,
+    /// Ignore the PFID physics file, whatever the model carries.
+    SuppressPhysicsFile = 0x01000000,
+    /// Skip the HiZ occlusion test.
+    SkipOcclusionQuery = 0x02000000,
+    /// Treat the model as visible without querying occlusion.
+    ForceUnoccluded = 0x04000000,
+    /// Patches two bytes of the M2 render-state word; the bytes' meaning is
+    /// not resolved.
+    PipelineStateOverride = 0x08000000,
+    /// Past a LOD threshold the model swaps its link record and releases its textures.
+    FarLodLinkSubstitute = 0x10000000,
+    /// Picks which of two render-state words a secondary pass draws the model with.
+    SecondaryPassRenderState = 0x20000000,
 };
 
 inline GlobalFlag operator|(GlobalFlag lhs, GlobalFlag rhs) {
@@ -143,19 +194,46 @@ struct Bone {
     Vector3f pivot;
 };
 
+/// @brief `M2CompBone.flags`, as WoW 12.1 reads it (`WOW_M2_FLAGS.md` §7).
+///
+/// The client ORs the file word with a runtime word, so the bits marked
+/// runtime below are never meant to come from a file.
 enum class BoneFlag : u32 {
     None = 0,
     IgnoreParentTranslate = 0x001,
     IgnoreParentScale = 0x002,
     IgnoreParentRotation = 0x004,
+    /// @name Billboards
+    /// One switch over `flags & BillboardMask`: exactly one of these, or none.
+    /// Two or more set give no billboard at all.
+    /// @{
     SphericalBillboard = 0x008,
     CylindricalBillboardX = 0x010,
     CylindricalBillboardY = 0x020,
     CylindricalBillboardZ = 0x040,
+    /// Faces the camera position rather than lying flat against the view.
+    BillboardAimAtCamera = 0x4000000,
+    /// @}
+    /// A procedural matrix is multiplied into the local transform.
+    ProceduralTransform = 0x080,
+    /// Has animation; with ProceduralTransform clear too, the bone skips animation.
     Transformed = 0x200,
+    /// Eligible for physics: a live dynamic body on the bone replaces its animation.
     Kinematic = 0x400,
+    /// The helmet-scaling pass writes its per-race scale into this bone.
     HelmetAnimScaled = 0x1000,
+    PrimarySequenceAttached = 0x2000,   ///< runtime
+    SecondarySequenceAttached = 0x4000, ///< runtime
+    PhysicsInteractionOffset = 0x200000, ///< runtime
+    PhysicsDriven = 0x400000,            ///< runtime: a dynamic body owns the bone
+    /// With PrimarySequenceAttached, skip the per-sequence blend weight.
+    SkipSequenceBlendWeight = 0x800000,
+    /// With ProceduralTransform, apply the matrix after parenting, in world space.
+    ProceduralInWorldSpace = 0x1000000,
 };
+
+/// @brief The bits the client's billboard switch reads (12.1 widened 6.0.1's 0x78).
+constexpr u32 kBoneBillboardMask = 0x4000078;
 
 inline BoneFlag operator|(BoneFlag lhs, BoneFlag rhs) {
     return static_cast<BoneFlag>(static_cast<u32>(lhs) | static_cast<u32>(rhs));

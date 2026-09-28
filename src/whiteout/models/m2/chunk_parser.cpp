@@ -104,11 +104,6 @@ void ChunkParser::parsePhysics(BinaryReader& reader, PhysicsData& physics) {
         break;
     }
 
-    // Only the shoulder joint needs this: it is the one record that grew
-    // without its chunk being renamed. Every other layout is implied by the
-    // chunk name alone.
-    const auto shoulderLayout = physShoulderLayoutFor(physics.version);
-
     for (const auto& chunk : chunks) {
         reader.setPosition(chunk.dataOffset);
         BinaryParseVisitor parser(reader, nullptr, chunk.size);
@@ -192,12 +187,12 @@ void ChunkParser::parsePhysics(BinaryReader& reader, PhysicsData& physics) {
             readArray(physics.sphericalJoints, PHYS_SPHERICAL_STRIDE,
                       [&](SphericalJoint& joint) { parser.read(joint); });
             break;
-        // SHOJ never got a version-2 name — the client just started assuming
-        // the longer record — so this one really does need the file version.
+        // The tag decides, as for every other record: the client reads SHOJ at
+        // 116 bytes whatever the file version says.
         case SHOJ_TAG:
         case SHJ2_TAG: {
-            const auto layout =
-                chunk.tag == SHJ2_TAG ? PhysShoulderLayout::Shoulder2 : shoulderLayout;
+            const auto layout = chunk.tag == SHJ2_TAG ? PhysShoulderLayout::Shoulder2
+                                                      : PhysShoulderLayout::ShoulderMotor;
             readArray(physics.shoulderJoints, physShoulderStride(layout),
                       [&](ShoulderJoint& joint) { parser.read(joint, layout); });
             break;
@@ -226,6 +221,19 @@ void ChunkParser::parsePhysics(BinaryReader& reader, PhysicsData& physics) {
             readArray(physics.tuning, PHYS_TUNING_STRIDE,
                       [&](PhysicsTuning& tuning) { parser.read(tuning); });
             break;
+        // A leading u32, then one key per remaining word.
+        case PHAO_TAG: {
+            PhysicsAllowList list;
+            if (chunk.size >= 4) {
+                list.header = reader.read<u32>();
+                list.keys.resize((chunk.size - 4) / 4);
+                for (auto& key : list.keys) {
+                    key = reader.read<u32>();
+                }
+            }
+            physics.allowList = std::move(list);
+            break;
+        }
 
         default: {
             reportIssue("Unknown PHYS chunk: " + tagName(chunk.tag) +

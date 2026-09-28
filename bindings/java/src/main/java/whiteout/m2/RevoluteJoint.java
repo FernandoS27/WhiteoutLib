@@ -78,7 +78,10 @@ public final class RevoluteJoint implements AutoCloseable {
         }
         MemorySegment.copy(value.handle, 0L, handle, 48L, 48L);
     }
-    /** @return the lowerAngle field of this M2RevoluteJoint. */
+    /**
+     * Degrees; the limit is enabled when `upper > lower`.
+     * @return the lowerAngle field of this M2RevoluteJoint.
+     */
     public float getLowerAngle() {
         return handle.get(ValueLayout.JAVA_FLOAT, 96L);
     }

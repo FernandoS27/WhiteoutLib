@@ -35,11 +35,18 @@ public sealed class PhysicsShape : WhiteoutHandle
     }
 
 
-    /// <summary>Zero in every corpus shape.</summary>
-    public uint Padding04
+    /// <summary>`dmFixtureDef.gameFlags`. Zero in every corpus shape.</summary>
+    public ushort GameFlags
     {
-        get => NativeMethods.whiteout_m2_M2PhysicsShape_get_padding04(DangerousGet());
-        set => NativeMethods.whiteout_m2_M2PhysicsShape_set_padding04(DangerousGet(), value);
+        get => NativeMethods.whiteout_m2_M2PhysicsShape_get_gameFlags(DangerousGet());
+        set => NativeMethods.whiteout_m2_M2PhysicsShape_set_gameFlags(DangerousGet(), value);
+    }
+
+
+    public ushort Padding06
+    {
+        get => NativeMethods.whiteout_m2_M2PhysicsShape_get_padding06(DangerousGet());
+        set => NativeMethods.whiteout_m2_M2PhysicsShape_set_padding06(DangerousGet(), value);
     }
 
 
@@ -57,6 +64,7 @@ public sealed class PhysicsShape : WhiteoutHandle
     }
 
 
+    /// <summary>Rescaled by the client for capsules in files of version 4 and below (`PHYS_FORMAT.md` §4.2).</summary>
     public float Density
     {
         get => NativeMethods.whiteout_m2_M2PhysicsShape_get_density(DangerousGet());
@@ -64,27 +72,26 @@ public sealed class PhysicsShape : WhiteoutHandle
     }
 
 
-    /// <summary>SHP2+. Unidentified, but a float: only 0, 0.01, 0.8 and 1.0 occur. The one `dmFixtureDef` float the rest of this struct does not account for is `m_rollingResistance`.</summary>
-    public float Unknown14
+    /// <summary>@name SHP2+, parsed and never read The client copies these onto its shape def and no `CreateInstance` reads them (`PHYS_FORMAT.md` §4.5). SHAP's upgrade gives 0, 1.0 and 0. @{</summary>
+    public float Unused14
     {
-        get => NativeMethods.whiteout_m2_M2PhysicsShape_get_unknown14(DangerousGet());
-        set => NativeMethods.whiteout_m2_M2PhysicsShape_set_unknown14(DangerousGet(), value);
+        get => NativeMethods.whiteout_m2_M2PhysicsShape_get_unused14(DangerousGet());
+        set => NativeMethods.whiteout_m2_M2PhysicsShape_set_unused14(DangerousGet(), value);
     }
 
 
-    /// <summary>SHP2+. 1.0 in 3229 of 3230 shapes, matching the `m_scaleOrRadius` the client hands every fixture.</summary>
-    public float Scale
+    /// <summary>1.0 in 3229 of 3230 shapes, and still not the fixture scale.</summary>
+    public float Unused18
     {
-        get => NativeMethods.whiteout_m2_M2PhysicsShape_get_scale(DangerousGet());
-        set => NativeMethods.whiteout_m2_M2PhysicsShape_set_scale(DangerousGet(), value);
+        get => NativeMethods.whiteout_m2_M2PhysicsShape_get_unused18(DangerousGet());
+        set => NativeMethods.whiteout_m2_M2PhysicsShape_set_unused18(DangerousGet(), value);
     }
 
 
-    /// <summary>SHP2+. Zero in every corpus shape.</summary>
-    public ushort Unknown1c
+    public ushort Unused1c
     {
-        get => NativeMethods.whiteout_m2_M2PhysicsShape_get_unknown1c(DangerousGet());
-        set => NativeMethods.whiteout_m2_M2PhysicsShape_set_unknown1c(DangerousGet(), value);
+        get => NativeMethods.whiteout_m2_M2PhysicsShape_get_unused1c(DangerousGet());
+        set => NativeMethods.whiteout_m2_M2PhysicsShape_set_unused1c(DangerousGet(), value);
     }
 
 

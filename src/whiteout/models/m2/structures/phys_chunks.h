@@ -43,6 +43,7 @@ constexpr u32 REVJ_TAG = makePhysTag("REVJ");
 constexpr u32 REV2_TAG = makePhysTag("REV2");
 constexpr u32 DSTJ_TAG = makePhysTag("DSTJ");
 constexpr u32 PHYV_TAG = makePhysTag("PHYV");
+constexpr u32 PHAO_TAG = makePhysTag("PHAO");
 
 /// Which on-disk record layout a chunk holds. Up to version 2 the layout
 /// followed the file version under a fixed chunk name; from 2 on each layout
@@ -50,7 +51,9 @@ constexpr u32 PHYV_TAG = makePhysTag("PHYV");
 enum class PhysBodyLayout : u8 { Body, Body2, Body3, Body4 };
 enum class PhysShapeLayout : u8 { Shape, Shape2 };
 enum class PhysWeldLayout : u8 { Weld, Weld2, Weld3 };
-enum class PhysShoulderLayout : u8 { Shoulder, ShoulderMotor, Shoulder2 };
+/// SHOJ is 116 bytes in every version the client reads; an earlier 108-byte
+/// reading for versions below 2 matched no file and would misparse in retail.
+enum class PhysShoulderLayout : u8 { ShoulderMotor, Shoulder2 };
 /// REVJ/PRSJ against REV2/PRS2: the same record plus a motor spring.
 enum class PhysMotorLayout : u8 { Base, Sprung };
 
@@ -85,15 +88,7 @@ constexpr u32 physWeldStride(PhysWeldLayout layout) {
 }
 
 constexpr u32 physShoulderStride(PhysShoulderLayout layout) {
-    switch (layout) {
-    case PhysShoulderLayout::Shoulder:
-        return 0x6C;
-    case PhysShoulderLayout::ShoulderMotor:
-        return 0x74;
-    case PhysShoulderLayout::Shoulder2:
-        return 0x7C;
-    }
-    return 0x7C;
+    return layout == PhysShoulderLayout::ShoulderMotor ? 0x74 : 0x7C;
 }
 
 constexpr u32 physRevoluteStride(PhysMotorLayout layout) {
@@ -138,8 +133,6 @@ constexpr PhysWeldLayout physWeldLayoutFor(u16 version) {
 }
 
 constexpr PhysShoulderLayout physShoulderLayoutFor(u16 version) {
-    if (version < 2)
-        return PhysShoulderLayout::Shoulder;
     return version < 6 ? PhysShoulderLayout::ShoulderMotor : PhysShoulderLayout::Shoulder2;
 }
 

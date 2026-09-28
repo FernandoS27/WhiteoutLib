@@ -55,6 +55,8 @@ struct SkinProfile {
     std::vector<SkinSection> submeshes;
     std::vector<Batch> batches;
 
+    /// Where this profile's vertex indices start in the model's vertex array.
+    /// The client applies it only when GlobalFlag::PerSkinVertexBlocks is set.
     u32 lodVertexBase = 0;
 
     std::vector<ShadowBatch> shadowBatches;

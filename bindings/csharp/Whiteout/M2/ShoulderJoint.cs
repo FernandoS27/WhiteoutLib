@@ -21,6 +21,7 @@ public sealed class ShoulderJoint : WhiteoutHandle
         return true;
     }
 
+    /// <summary>Degrees, like the cone; the client converts both to radians and enables the twist limit when `upper &gt; lower`.</summary>
     public float LowerTwistAngle
     {
         get => NativeMethods.whiteout_m2_M2ShoulderJoint_get_lowerTwistAngle(DangerousGet());
@@ -35,7 +36,7 @@ public sealed class ShoulderJoint : WhiteoutHandle
     }
 
 
-    /// <summary>Degrees: the corpus holds 20, 35, 45 and 60, while `dmShoulderJoint` clamps its own cone to [10°, 170°] expressed in radians — so the loader converts on the way in.</summary>
+    /// <summary>Degrees: the corpus holds 20, 35, 45 and 60. Stored as authored, so the conversion is the consumer's.</summary>
     public float ConeAngle
     {
         get => NativeMethods.whiteout_m2_M2ShoulderJoint_get_coneAngle(DangerousGet());
@@ -43,7 +44,6 @@ public sealed class ShoulderJoint : WhiteoutHandle
     }
 
 
-    /// <summary>version 2+</summary>
     public float MaxMotorTorque
     {
         get => NativeMethods.whiteout_m2_M2ShoulderJoint_get_maxMotorTorque(DangerousGet());
@@ -51,7 +51,7 @@ public sealed class ShoulderJoint : WhiteoutHandle
     }
 
 
-    /// <summary>version 2+</summary>
+    /// <summary>low byte: 0 off, 1 position, 2 velocity</summary>
     public uint MotorMode
     {
         get => NativeMethods.whiteout_m2_M2ShoulderJoint_get_motorMode(DangerousGet());
