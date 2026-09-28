@@ -3,6 +3,7 @@
 
 #include "m3_anim.h"
 #include "m3_emitters.h"
+#include "m3_physics.h"
 
 #include <algorithm>
 #include <array>
@@ -310,6 +311,7 @@ public:
         declareLightChannels();
         declareMaterialChannels();
         declareEmitterChannels();
+        declarePhysicsChannels();
         buildClips();
         for (Clip& clip : clips_) {
             document_.clips.push_back(std::move(clip));
@@ -465,6 +467,53 @@ private:
                 m3_emitters::ForEachRibbonRef(source_.ribbonEmitters[r],
                                               declareOn(node, NodeKind::Sc2RibbonEmitter));
             }
+        }
+        for (std::size_t f = 0; f < source_.forces.size(); ++f) {
+            const u32 node = context_.bases.force + static_cast<u32>(f);
+            if (node < model_.nodes.size()) {
+                m3_physics::ForEachForceRef(source_.forces[f], declareOn(node, NodeKind::ForceField));
+            }
+        }
+        for (std::size_t w = 0; w < source_.warps.size(); ++w) {
+            const u32 node = context_.bases.warp + static_cast<u32>(w);
+            if (node < model_.nodes.size()) {
+                m3_physics::ForEachWarpRef(source_.warps[w], declareOn(node, NodeKind::VertexWarp));
+            }
+        }
+    }
+
+    /// A body's `dynamicState` and a cloth's `active` (WEM_PHYSICS_DESIGN.md
+    /// §3.6). The client samples one only when its flag bit 1 is set, and the
+    /// channel exists exactly then -- keyed here or not, so an attached `.m3a`
+    /// still joins it by id.
+    void declarePhysicsChannels() {
+        const auto declareSwitch = [this](const m3::AnimRef<u32>& ref, u32 record, Channel channel) {
+            if (record == 0 || (ref.flags & 0x2u) == 0 || model_.animChannels.find(ref.animId) != nullptr) {
+                return;
+            }
+            TrackTarget target;
+            target.kind = TrackTarget::Kind::Physics;
+            target.sub = record;
+            target.channel = channel;
+            AnimChannel declared;
+            declared.id = ref.animId;
+            declared.target = target;
+            declared.valueType = geom::AttrType::F32;
+            declared.initValue = restValue(ref.initValue, geom::AttrType::F32, false, false);
+            model_.animChannels.add(declared);
+
+            Declared decode;
+            decode.animId = ref.animId;
+            decode.type = geom::AttrType::F32;
+            decode.interp = Interpolation::Step;
+            declared_.push_back(decode);
+        };
+        for (std::size_t b = 0; b < source_.rigidBodies.size() && b < context_.bodyIds.size(); ++b) {
+            declareSwitch(source_.rigidBodies[b].dynamicState, context_.bodyIds[b],
+                          Channel::PhysicsDynamic);
+        }
+        for (std::size_t c = 0; c < source_.clothPhysics.size() && c < context_.clothIds.size(); ++c) {
+            declareSwitch(source_.clothPhysics[c].active, context_.clothIds[c], Channel::ClothActive);
         }
     }
 
@@ -689,6 +738,8 @@ NodeBases NodeBases::Of(const m3::Model& source) {
         }
     }
     bases.ribbon = bases.particleCopy + copies;
+    bases.force = bases.ribbon + static_cast<u32>(source.ribbonEmitters.size());
+    bases.warp = bases.force + static_cast<u32>(source.forces.size());
     return bases;
 }
 
@@ -978,6 +1029,10 @@ private:
     /// to SDR3. Which it is, is a property of the channel — `Visibility` is the
     /// only F32 the import read out of SDFG.
     Stream StreamFor(const AnimChannel& channel) const {
+        // The physics switches are flags, as the client keys them.
+        if (channel.target.kind == TrackTarget::Kind::Physics) {
+            return Stream::Sdfg;
+        }
         // Two emitter properties are not the stream their type suggests: a
         // ribbon's `active` is a flag in SDFG (248 of 248 shipped keys), and a
         // particle's squirt a count in SDS6 (7,281 of 7,281).
@@ -1555,6 +1610,11 @@ private:
         case TrackTarget::Kind::Node:
             wireNode(channel, track);
             return;
+        case TrackTarget::Kind::Physics:
+            withPhysicsRef(channel, [&](m3::AnimRef<u32>& ref) {
+                Wire(ref, exportId(channel.id), track.interp);
+            });
+            return;
         case TrackTarget::Kind::MaterialLayer:
         case TrackTarget::Kind::MaterialFeature:
             wireMaterial(channel, track);
@@ -1646,8 +1706,39 @@ private:
                 m3_emitters::ForEachRibbonRef(out_.ribbonEmitters[slot.index], match);
             }
             return;
+        case ExportContext::Slot::Force:
+            if (slot.index < out_.forces.size()) {
+                m3_physics::ForEachForceRef(out_.forces[slot.index], match);
+            }
+            return;
+        case ExportContext::Slot::Warp:
+            if (slot.index < out_.warps.size()) {
+                m3_physics::ForEachWarpRef(out_.warps[slot.index], match);
+            }
+            return;
         default:
             return;
+        }
+    }
+
+    /// The switch a `Kind::Physics` channel names -- its body's `dynamicState`
+    /// or its cloth's `active` -- handed to @p f; nothing when the record was
+    /// not written.
+    template <class F>
+    void withPhysicsRef(const AnimChannel& channel, F&& f) {
+        if (channel.target.kind != TrackTarget::Kind::Physics) {
+            return;
+        }
+        if (channel.target.channel == Channel::PhysicsDynamic) {
+            const auto it = context_.bodyRecord.find(channel.target.sub);
+            if (it != context_.bodyRecord.end() && it->second < out_.rigidBodies.size()) {
+                f(out_.rigidBodies[it->second].dynamicState);
+            }
+        } else if (channel.target.channel == Channel::ClothActive) {
+            const auto it = context_.clothRecord.find(channel.target.sub);
+            if (it != context_.clothRecord.end() && it->second < out_.clothPhysics.size()) {
+                f(out_.clothPhysics[it->second].active);
+            }
         }
     }
 
@@ -1658,6 +1749,14 @@ private:
     void nameEmitterRefs() {
         for (const AnimChannel& channel : model_.animChannels.channels) {
             withEmitterRef(channel, [&](auto& ref) { ref.animId = exportId(channel.id); });
+            // A physics switch channel exists exactly when the client samples
+            // it (WEM_PHYSICS_DESIGN.md §3.6): sampled, with keys it finds in an
+            // attached `.m3a` unless a clip here writes them (`Wire`).
+            withPhysicsRef(channel, [&](m3::AnimRef<u32>& ref) {
+                ref.animId = exportId(channel.id);
+                ref.flags = 0x2u;
+                ref.interpType = 0;
+            });
         }
     }
 

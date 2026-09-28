@@ -8,7 +8,7 @@ using Whiteout.M3.Internal;
 
 namespace Whiteout.M3;
 
-/// <summary>DMMT — Physics mesh triangle (v0, 28 bytes)</summary>
+/// <summary>DMMT — Havok-era mesh triangle (v0, 28 bytes)</summary>
 public sealed class PhysicsMeshTriangle : WhiteoutHandle
 {
     public PhysicsMeshTriangle() : base(NativeMethods.whiteout_m3_M3PhysicsMeshTriangle_new()) { }

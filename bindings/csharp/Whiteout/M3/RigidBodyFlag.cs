@@ -16,14 +16,16 @@ public enum RigidBodyFlag : int
     Stackable = 4,
     /// <summary>Simulate collisions</summary>
     SimulateCollision = 8,
-    /// <summary>Ignore local bodies</summary>
+    /// <summary>Name unverified: the 5.0 client has no reader</summary>
     IgnoreLocalBodies = 16,
-    /// <summary>Always present</summary>
+    /// <summary>Name unverified: the 5.0 client has no reader</summary>
     AlwaysExists = 32,
-    /// <summary>Unknown</summary>
-    Unknown6 = 64,
-    /// <summary>Disable simulation</summary>
-    NoSimulation = 128,
-    /// <summary>Unknown</summary>
+    /// <summary>Takes the nearest bodied ancestor's dynamic state</summary>
+    InheritDynamic = 64,
+    /// <summary>Setup and deactivation leave the bone's physics bit alone</summary>
+    KeepBoneDriven = 128,
+    /// <summary>Stays kinematic when the model ragdolls (Heroes)</summary>
+    ExemptFromRagdoll = 256,
+    /// <summary>The 5.0 client has no reader</summary>
     Unknown9 = 512,
 }

@@ -21,35 +21,35 @@ public sealed class ConvexHullHalfEdge : WhiteoutHandle
         return true;
     }
 
-    /// <summary>0x01 = forward, 0xFF = reverse (twin)</summary>
-    public byte Type
+    /// <summary>+1 on the even entry of a pair, -1 on the odd one</summary>
+    public sbyte TwinOffset
     {
-        get => NativeMethods.whiteout_m3_M3ConvexHullHalfEdge_get_type(DangerousGet());
-        set => NativeMethods.whiteout_m3_M3ConvexHullHalfEdge_set_type(DangerousGet(), value);
+        get => NativeMethods.whiteout_m3_M3ConvexHullHalfEdge_get_twinOffset(DangerousGet());
+        set => NativeMethods.whiteout_m3_M3ConvexHullHalfEdge_set_twinOffset(DangerousGet(), value);
     }
 
 
-    /// <summary>Face this half-edge borders</summary>
-    public byte FaceIndex
+    /// <summary>Vertex the half-edge leaves</summary>
+    public byte OriginVertex
     {
-        get => NativeMethods.whiteout_m3_M3ConvexHullHalfEdge_get_faceIndex(DangerousGet());
-        set => NativeMethods.whiteout_m3_M3ConvexHullHalfEdge_set_faceIndex(DangerousGet(), value);
+        get => NativeMethods.whiteout_m3_M3ConvexHullHalfEdge_get_originVertex(DangerousGet());
+        set => NativeMethods.whiteout_m3_M3ConvexHullHalfEdge_set_originVertex(DangerousGet(), value);
     }
 
 
-    /// <summary>Target vertex of this half-edge</summary>
-    public byte VertexIndex
+    /// <summary>Face the half-edge borders</summary>
+    public byte Face
     {
-        get => NativeMethods.whiteout_m3_M3ConvexHullHalfEdge_get_vertexIndex(DangerousGet());
-        set => NativeMethods.whiteout_m3_M3ConvexHullHalfEdge_set_vertexIndex(DangerousGet(), value);
+        get => NativeMethods.whiteout_m3_M3ConvexHullHalfEdge_get_face(DangerousGet());
+        set => NativeMethods.whiteout_m3_M3ConvexHullHalfEdge_set_face(DangerousGet(), value);
     }
 
 
-    /// <summary>Next half-edge around the same vertex</summary>
-    public byte NextAroundVertex
+    /// <summary>Next half-edge around the same face</summary>
+    public byte NextInFace
     {
-        get => NativeMethods.whiteout_m3_M3ConvexHullHalfEdge_get_nextAroundVertex(DangerousGet());
-        set => NativeMethods.whiteout_m3_M3ConvexHullHalfEdge_set_nextAroundVertex(DangerousGet(), value);
+        get => NativeMethods.whiteout_m3_M3ConvexHullHalfEdge_get_nextInFace(DangerousGet());
+        set => NativeMethods.whiteout_m3_M3ConvexHullHalfEdge_set_nextInFace(DangerousGet(), value);
     }
 
 }

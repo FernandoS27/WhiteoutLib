@@ -35,6 +35,10 @@ constexpr ReservedRow kReserved[] = {
     {names::kClassicBones, Domain::Vertex, AttrType::U16},
     // The modelling levels' (EDIT_MODE_MODELLING_DESIGN.md §2.2).
     {names::kModelled, Domain::Mesh, AttrType::Bool},
+    // Cloth (WEM_PHYSICS_DESIGN.md §3.7).
+    {names::kClothMovable, Domain::Vertex, AttrType::Bool},
+    {names::kClothBindVertex, Domain::Vertex, AttrType::U32x4},
+    {names::kClothBindWeight, Domain::Vertex, AttrType::F32x4},
 };
 
 /// True when @p name is @p prefix followed by one or more decimal digits.
@@ -113,6 +117,8 @@ const char* ToString(AttrType type) {
         return "quat";
     case AttrType::Bool:
         return "bool";
+    case AttrType::U32x4:
+        return "u32x4";
     case AttrType::Count:
         break;
     }
@@ -141,6 +147,8 @@ u32 AttrTypeSize(AttrType type) {
         return 16;
     case AttrType::Bool:
         return 1;
+    case AttrType::U32x4:
+        return 16;
     case AttrType::Count:
         break;
     }
@@ -162,6 +170,7 @@ u32 AttrTypeComponents(AttrType type) {
     case AttrType::F32x4:
     case AttrType::U8x4:
     case AttrType::Quat:
+    case AttrType::U32x4:
         return 4;
     case AttrType::Count:
         break;
@@ -355,7 +364,27 @@ void AttributeSet::remapDomain(Domain domain, std::span<const u32> remap, u32 ne
         }
         layer.data = std::move(rebuilt);
     }
+    if (domain == Domain::Vertex) {
+        // The values of a reference layer name vertices, so they move with them.
+        for (AttrLayer& layer : layers_) {
+            if (!IsVertexReferenceLayer(layer)) {
+                continue;
+            }
+            const std::size_t lanes = layer.data.size() / sizeof(u32);
+            for (std::size_t i = 0; i < lanes; ++i) {
+                u32 value = 0;
+                std::memcpy(&value, layer.data.data() + i * sizeof(u32), sizeof(u32));
+                value = value < remap.size() ? remap[value] : kInvalidId;
+                std::memcpy(layer.data.data() + i * sizeof(u32), &value, sizeof(u32));
+            }
+        }
+    }
     domainCounts_[static_cast<std::size_t>(domain)] = newCount;
+}
+
+bool IsVertexReferenceLayer(const AttrLayer& layer) {
+    return layer.domain == Domain::Vertex && layer.type == AttrType::U32x4 &&
+           layer.name == names::kClothBindVertex;
 }
 
 void AttributeSet::clear() {

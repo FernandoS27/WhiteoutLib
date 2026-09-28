@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 #include <whiteout/models/wem/nodes/remove.h>
+#include <whiteout/models/wem/physics/references.h>
 
 #include <algorithm>
 
@@ -411,6 +412,20 @@ void RemapNodeReferencers(NodeTree& tree, std::span<const u32> remap, NodeRefere
                      number(static_cast<u32>(gone.size())) +
                          " pose stages named a node that no longer exists, and went with it",
                      ElementRef());
+        }
+    }
+
+    // PhysicsBody::node and ClothCollider::node (WEM_PHYSICS_DESIGN.md §3.10).
+    if (referencers.physics != nullptr) {
+        const std::vector<u32> gone = RemapPhysicsNodes(*referencers.physics, remap);
+        if (!gone.empty()) {
+            out.warn(DiagCode::DanglingNodeReference,
+                     number(static_cast<u32>(gone.size())) +
+                         " physics records rode a node that no longer exists, and went with it",
+                     ElementRef());
+            if (referencers.channels != nullptr) {
+                InvalidatePhysicsChannels(*referencers.channels, gone, out);
+            }
         }
     }
 

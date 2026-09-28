@@ -8,7 +8,7 @@ using Whiteout.M3.Internal;
 
 namespace Whiteout.M3;
 
-/// <summary>DMME — Physics mesh edge (v0, 20 bytes)</summary>
+/// <summary>DMME — Havok-era mesh edge (v0, 20 bytes)</summary>
 public sealed class PhysicsMeshEdge : WhiteoutHandle
 {
     public PhysicsMeshEdge() : base(NativeMethods.whiteout_m3_M3PhysicsMeshEdge_new()) { }

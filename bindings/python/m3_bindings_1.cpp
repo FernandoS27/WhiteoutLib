@@ -80,7 +80,6 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::MeshSection>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::OneBoneSolver>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::ParticleEmitter>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::ParticleEmitterCopy>);
-PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::PhysicsConstraint>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::PhysicsJoint>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::PhysicsMeshBvhNode>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::PhysicsShape>);
@@ -172,6 +171,52 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 1 of bind_m3(), which calls the parts in order.
 void bind_m3_1(py::module_& m) {
+    py::class_<whiteout::m3::StandardMaterial>(m, "StandardMaterial", R"doc(MAT_ — Standard material (v0–v20, 268–352 bytes)
+
+The primary material type with up to 18 texture layers (diffuse, specular, emissive, normal, height, etc.), blend mode, HDR multipliers, and per-version extensions for normal-blend and gloss layers.)doc")
+        .def(py::init<>())
+        .def_readwrite("name", &whiteout::m3::StandardMaterial::name, R"doc(Material name (Ref<CHAR>))doc")
+        .def_readwrite("additional_flags", &whiteout::m3::StandardMaterial::additionalFlags, R"doc(Additional flags)doc")
+        .def_readwrite("flags", &whiteout::m3::StandardMaterial::flags, R"doc(Material rendering flags)doc")
+        .def_readwrite("blend_mode", &whiteout::m3::StandardMaterial::blendMode, R"doc(Alpha blend mode)doc")
+        .def_readwrite("priority", &whiteout::m3::StandardMaterial::priority, R"doc(Render priority (lower = earlier))doc")
+        .def_readwrite("rtt_channels", &whiteout::m3::StandardMaterial::rttChannels, R"doc(RTT channel mask)doc")
+        .def_readwrite("specular_exponent", &whiteout::m3::StandardMaterial::specularExponent, R"doc(Specular highlight exponent)doc")
+        .def_readwrite("depth_blend_falloff", &whiteout::m3::StandardMaterial::depthBlendFalloff, R"doc(Depth blend falloff distance)doc")
+        .def_readwrite("alpha_test_threshold", &whiteout::m3::StandardMaterial::alphaTestThreshold, R"doc(Alpha test cut-off value)doc")
+        .def_readwrite("hdr_specular_multiplier", &whiteout::m3::StandardMaterial::hdrSpecularMultiplier, R"doc(HDR specular multiplier)doc")
+        .def_readwrite("hdr_emissive_multiplier", &whiteout::m3::StandardMaterial::hdrEmissiveMultiplier, R"doc(HDR emissive multiplier)doc")
+        .def_readwrite("hdr_environment_constant", &whiteout::m3::StandardMaterial::hdrEnvironmentConstant, R"doc(HDR environment constant (v20))doc")
+        .def_readwrite("hdr_environment_diffuse", &whiteout::m3::StandardMaterial::hdrEnvironmentDiffuse, R"doc(HDR environment diffuse (v20))doc")
+        .def_readwrite("hdr_environment_specular", &whiteout::m3::StandardMaterial::hdrEnvironmentSpecular, R"doc(HDR environment specular (v20))doc")
+        .def_readwrite("diffuse_layer", &whiteout::m3::StandardMaterial::diffuseLayer, R"doc(Diffuse / albedo texture)doc")
+        .def_readwrite("decal_layer", &whiteout::m3::StandardMaterial::decalLayer, R"doc(Decal overlay texture)doc")
+        .def_readwrite("specular_layer", &whiteout::m3::StandardMaterial::specularLayer, R"doc(Specular map texture)doc")
+        .def_readwrite("gloss_layer", &whiteout::m3::StandardMaterial::glossLayer, R"doc(Gloss map texture (v16+))doc")
+        .def_readwrite("emissive_layer1", &whiteout::m3::StandardMaterial::emissiveLayer1, R"doc(Emissive layer 1)doc")
+        .def_readwrite("emissive_layer2", &whiteout::m3::StandardMaterial::emissiveLayer2, R"doc(Emissive layer 2)doc")
+        .def_readwrite("environment_layer", &whiteout::m3::StandardMaterial::environmentLayer, R"doc(Environment reflection map)doc")
+        .def_readwrite("environment_mask_layer", &whiteout::m3::StandardMaterial::environmentMaskLayer, R"doc(Environment mask)doc")
+        .def_readwrite("alpha_layer1", &whiteout::m3::StandardMaterial::alphaLayer1, R"doc(Alpha mask layer 1)doc")
+        .def_readwrite("alpha_layer2", &whiteout::m3::StandardMaterial::alphaLayer2, R"doc(Alpha mask layer 2)doc")
+        .def_readwrite("normal_layer", &whiteout::m3::StandardMaterial::normalLayer, R"doc(Normal / bump map)doc")
+        .def_readwrite("height_layer", &whiteout::m3::StandardMaterial::heightLayer, R"doc(Height / parallax map)doc")
+        .def_readwrite("light_map_layer", &whiteout::m3::StandardMaterial::lightMapLayer, R"doc(Light map)doc")
+        .def_readwrite("ambient_occlusion_layer", &whiteout::m3::StandardMaterial::ambientOcclusionLayer, R"doc(Ambient occlusion map)doc")
+        .def_readwrite("normal_blend1_mask_layer", &whiteout::m3::StandardMaterial::normalBlend1MaskLayer, R"doc(Normal blend 1 mask (v19+))doc")
+        .def_readwrite("normal_blend2_mask_layer", &whiteout::m3::StandardMaterial::normalBlend2MaskLayer, R"doc(Normal blend 2 mask (v19+))doc")
+        .def_readwrite("normal_blend1_layer", &whiteout::m3::StandardMaterial::normalBlend1Layer, R"doc(Normal blend 1 map (v19+))doc")
+        .def_readwrite("normal_blend2_layer", &whiteout::m3::StandardMaterial::normalBlend2Layer, R"doc(Normal blend 2 map (v19+))doc")
+        .def_readwrite("material_class", &whiteout::m3::StandardMaterial::materialClass, R"doc(Material class (unit, building, etc.))doc")
+        .def_readwrite("layer_blend_mode", &whiteout::m3::StandardMaterial::layerBlendMode, R"doc(Layer blend operation)doc")
+        .def_readwrite("emissive_blend_mode1", &whiteout::m3::StandardMaterial::emissiveBlendMode1, R"doc(Emissive layer 1 blend mode)doc")
+        .def_readwrite("emissive_blend_mode2", &whiteout::m3::StandardMaterial::emissiveBlendMode2, R"doc(Emissive layer 2 blend mode)doc")
+        .def_readwrite("specular_mode", &whiteout::m3::StandardMaterial::specularMode, R"doc(Specular computation mode)doc")
+        .def_readwrite("parallax_height", &whiteout::m3::StandardMaterial::parallaxHeight, R"doc(Animated parallax height)doc")
+        .def_readwrite("motion_blur_amount", &whiteout::m3::StandardMaterial::motionBlurAmount, R"doc(Animated motion blur amount)doc")
+        .def_readwrite("normal_blend_factors", &whiteout::m3::StandardMaterial::normalBlendFactors, R"doc(Normal blend factors (v19+))doc")
+    ;
+
     py::class_<whiteout::m3::DisplacementMaterial>(m, "DisplacementMaterial", R"doc(DIS_ — Displacement material (v0–v4, 68 bytes)
 
 Applies vertex displacement via a normal map and animated strength.)doc")
@@ -656,23 +701,23 @@ Legacy trailing model data. Observed in older files but no longer actively used 
 
     py::class_<whiteout::m3::Force>(m, "Force", R"doc(FOR_ — Force field (v0–v2, 104 bytes)
 
-Applies radial, wind, or explosion forces to particles and ribbons within an influence volume shape (sphere, cylinder, box, hemisphere).)doc")
+Pushes particles and ribbons (flag 0x8) and rigid bodies (flag 0x10) inside an influence volume. A body is affected when its `localForces | worldForces << 16` mask shares a bit with `localChannels`.)doc")
         .def(py::init<>())
-        .def_readwrite("force_type", &whiteout::m3::Force::forceType, R"doc(Force influence type (radial/wind/explosion))doc")
+        .def_readwrite("force_type", &whiteout::m3::Force::forceType, R"doc(Force kind)doc")
         .def_readwrite("force_shape", &whiteout::m3::Force::forceShape, R"doc(Influence volume shape)doc")
-        .def_readwrite("unknown", &whiteout::m3::Force::unknown, R"doc(Unknown field)doc")
+        .def_readwrite("unknown", &whiteout::m3::Force::unknown, R"doc(Read as local/world scope; no reader traced yet)doc")
         .def_readwrite("bone_index", &whiteout::m3::Force::boneIndex, R"doc(Index into BONE array)doc")
-        .def_readwrite("flags", &whiteout::m3::Force::flags, R"doc(Force flags (falloff, height gradient, unbounded))doc")
-        .def_readwrite("local_channels", &whiteout::m3::Force::localChannels, R"doc(Local channel bitmask)doc")
+        .def_readwrite("flags", &whiteout::m3::Force::flags, R"doc(Falloff, height gradient, unbounded, targets)doc")
+        .def_readwrite("local_channels", &whiteout::m3::Force::localChannels, R"doc(Channel mask matched against body and emitter masks)doc")
         .def_readwrite("strength", &whiteout::m3::Force::strength, R"doc(Animated force strength)doc")
         .def_readwrite("width", &whiteout::m3::Force::width, R"doc(Animated influence width)doc")
         .def_readwrite("height", &whiteout::m3::Force::height, R"doc(Animated influence height)doc")
         .def_readwrite("length", &whiteout::m3::Force::length, R"doc(Animated influence length)doc")
     ;
 
-    py::class_<whiteout::m3::Warp>(m, "Warp", R"doc(WRP_ — Warp field (v0–v1, 132 bytes)
+    py::class_<whiteout::m3::Warp>(m, "Warp", R"doc(WRP_ — Vertex warp (v1, 132 bytes)
 
-Warps particle/ribbon trajectories with animated radius, height, and angular/axial/radial strength components.)doc")
+A vertex-shader deformation particles and ribbons opt into. The client refuses a v0 record, so the parser drops one.)doc")
         .def(py::init<>())
         .def_readwrite("warp_type", &whiteout::m3::Warp::warpType, R"doc(Warp type)doc")
         .def_readwrite("bone_index", &whiteout::m3::Warp::boneIndex, R"doc(Index into BONE array)doc")
@@ -687,33 +732,27 @@ Warps particle/ribbon trajectories with animated radius, height, and angular/axi
 
     py::class_<whiteout::m3::ConvexHullHalfEdge>(m, "ConvexHullHalfEdge", R"doc(DMSE — Convex hull half-edge (v0, 4 bytes)
 
-Half-edge connectivity for PHSH convex hull shapes (shapeType = 4). Entries are stored in consecutive twin pairs (forward 0x01 / reverse 0xFF). The nextAroundVertex field chains half-edges into closed per-vertex rings.)doc")
+Entries come in consecutive twin pairs: an even entry's twin is the next one (`twinOffset` +1), an odd entry's the previous (-1).)doc")
         .def(py::init<>())
-        .def_readwrite("type", &whiteout::m3::ConvexHullHalfEdge::type, R"doc(0x01 = forward, 0xFF = reverse (twin))doc")
-        .def_readwrite("face_index", &whiteout::m3::ConvexHullHalfEdge::faceIndex, R"doc(Face this half-edge borders)doc")
-        .def_readwrite("vertex_index", &whiteout::m3::ConvexHullHalfEdge::vertexIndex, R"doc(Target vertex of this half-edge)doc")
-        .def_readwrite("next_around_vertex", &whiteout::m3::ConvexHullHalfEdge::nextAroundVertex, R"doc(Next half-edge around the same vertex)doc")
+        .def_readwrite("twin_offset", &whiteout::m3::ConvexHullHalfEdge::twinOffset, R"doc(+1 on the even entry of a pair, -1 on the odd one)doc")
+        .def_readwrite("origin_vertex", &whiteout::m3::ConvexHullHalfEdge::originVertex, R"doc(Vertex the half-edge leaves)doc")
+        .def_readwrite("face", &whiteout::m3::ConvexHullHalfEdge::face, R"doc(Face the half-edge borders)doc")
+        .def_readwrite("next_in_face", &whiteout::m3::ConvexHullHalfEdge::nextInFace, R"doc(Next half-edge around the same face)doc")
     ;
 
     py::class_<whiteout::m3::PhysicsMeshBvhNode>(m, "PhysicsMeshBvhNode", R"doc(DMMN — Physics mesh BVH node (v0: 12 bytes, v1: 8 bytes)
 
-DMMN entries form a linearized k-DOP Bounding Volume Hierarchy (BVH) tree for concave mesh collision. The entry count is always odd: n = 2*n_leaves - 1.
+The SC2 5.0 client never reads DMMN: it rebuilds each mesh's tree at load and then takes the tree's centre, extent, tolerance and height from the PHSH. The cooker (physics_cook.h) writes none. Kept so a shipped v3 mesh reads and writes back whole.
 
-**Tree structure** — right-skewed binary tree stored in DFS preorder: - Array layout: (INT_0, LEAF_1), (INT_2, LEAF_3), ..., LEAF_{n-1} - Even indices 0..n-3: internal nodes - Odd indices 1..n-2: leaf nodes - Last index n-1: leaf node - Each internal node 2k: left child = leaf 2k+1, right child = node 2k+2
+**v1** (8 bytes per node) — octahedral-encoded normal + quantized slab bounds: - i16 octX, octY: octahedral-mapped slab normal (snorm16 pair) - u16 slabMin, slabMax: quantized bounding-slab distances along the normal
 
-**v0** (Havok-era, 12 bytes per node) — stores only the slab normal direction as a plain Vector3f. No quantized slab bounds are present; the tree topology and bounding-slab directions are identical to v1, but distance culling relies on the runtime computing slab projections against meshBoundsCenter/Extent. Only 3 files in the corpus use v0 (all with PHSH v2).
-
-**v1** (Domino physics, 8 bytes per node) — octahedral-encoded normal + quantized slab bounds: - i16 octX, octY: octahedral-mapped slab normal (snorm16 pair) - u16 slabMin, slabMax: quantized bounding-slab distances along the normal - Internal nodes: slabMax != 0; leaf sentinel: slabMax == 0 (except the last node, which may have slabMax != 0 despite being a leaf)
-
-**Quantization** (v1, universally confirmed across 468 corpus files): - Per-axis step: tol_i = extent_i / 32767 - Projected step: tol_proj = dot(tolerance, |normal|) - Slab values quantized as: q = round(projection / tol_proj) - Root node slab range approaches [-32767, +32767] (full AABB)
-
-Internal nodes use one slab direction; their paired leaf uses a DIFFERENT slab direction, forming a 2-DOP bound per primitive group. Most trees (391/468) use multiple slab normals across internal levels for tighter culling.
-
-PHSH meshTreeDepth gives the tree height (longest root-to-leaf path in nodes).)doc")
+**v0** (Havok era, 12 bytes per node) is a plain normal; only v2 meshes carry it, and those are rebuilt by the upgrade.)doc")
         .def(py::init<>())
     ;
 
-    py::class_<whiteout::m3::PhysicsMeshTriangle>(m, "PhysicsMeshTriangle", R"doc(DMMT — Physics mesh triangle (v0, 28 bytes))doc")
+    py::class_<whiteout::m3::PhysicsMeshTriangle>(m, "PhysicsMeshTriangle", R"doc(DMMT — Havok-era mesh triangle (v0, 28 bytes)
+
+Only a v2 PHSH references it; the upgrade keeps the three vertex indices.)doc")
         .def(py::init<>())
         .def_readwrite("vertex_index0", &whiteout::m3::PhysicsMeshTriangle::vertexIndex0, R"doc(First vertex index)doc")
         .def_readwrite("vertex_index1", &whiteout::m3::PhysicsMeshTriangle::vertexIndex1, R"doc(Second vertex index)doc")
@@ -725,7 +764,9 @@ PHSH meshTreeDepth gives the tree height (longest root-to-leaf path in nodes).)d
         .def_readwrite("flags", &whiteout::m3::PhysicsMeshTriangle::flags, R"doc(Triangle flags)doc")
     ;
 
-    py::class_<whiteout::m3::PhysicsMeshEdge>(m, "PhysicsMeshEdge", R"doc(DMME — Physics mesh edge (v0, 20 bytes))doc")
+    py::class_<whiteout::m3::PhysicsMeshEdge>(m, "PhysicsMeshEdge", R"doc(DMME — Havok-era mesh edge (v0, 20 bytes)
+
+Only a v2 PHSH references it, and the upgrade discards it.)doc")
         .def(py::init<>())
         .def_readwrite("edge_type", &whiteout::m3::PhysicsMeshEdge::edgeType, R"doc(Edge type)doc")
         .def_readwrite("vertex_a", &whiteout::m3::PhysicsMeshEdge::vertexA, R"doc(First vertex index)doc")
@@ -734,121 +775,115 @@ PHSH meshTreeDepth gives the tree height (longest root-to-leaf path in nodes).)d
         .def_readwrite("face_b", &whiteout::m3::PhysicsMeshEdge::faceB, R"doc(Second adjacent face)doc")
     ;
 
-    py::class_<whiteout::m3::PhysicsShape>(m, "PhysicsShape", R"doc(PHSH — Physics shape (v0–v3, 132/292/300 bytes)
+    py::class_<whiteout::m3::PhysicsShape>(m, "PhysicsShape", R"doc(PHSH — Physics shape (v3, 300 bytes; v0 96, v1 132 and v2 292 read)
 
-The 300-byte v3 layout is a three-part union. Bytes 0–79 are the common header. Bytes 80–103 hold shape dimensions for simple shapes (0–3) or are zero for complex shapes. Bytes 80–183 form the convex hull section (shapeType 4); bytes 184–299 form the mesh section (shapeType 5).
+Bytes 0–103 are common: the matrix, the kind, the two source Refs and the dimensions. Bytes 104–183 are the cooked convex hull (kind 4) and 184–299 the cooked mesh (kind 5).
 
-v2 shares the v3 layout through the hull section but has a shorter mesh section (292 bytes total): bounds/tolerance, four legacy geometry refs, then a 6-dword tail (unknown, vertexCount, faceCount, 2× unknown, treeDepth) — verified against the SC2 client's version-upgrade copier.)doc")
+**Source vs cooked.** `sourcePoints`/`sourceTriangles` (+68/+80) are raw input the client cooks at load, with the matrix baked in: a hull from the points, a mesh from both. Only the upgrade of a v0/v1 shape fills them, and `UpgradePhysics` cooks them the same way, so a parsed shape carries the cooked tables and empty sources.
+
+**Hull tables** are used directly as a Domino polytope: the counts at +164/+168/+172 rather than the Ref counts, the volume and surface area as cached mass data (buoyancy; mass under a physics-material override).
+
+**Mesh tables.** The client rebuilds the tree from the vertices and the three indices of each triangle (plus the low byte of its seventh value), then overwrites the tree's centre, extent, tolerance and height with this record's, so those four must be what its builder computes (`CookMesh`). DMMN and the adjacency are never read.)doc")
         .def(py::init<>())
-        .def_readwrite("collision_margin", &whiteout::m3::PhysicsShape::collisionMargin, R"doc(Havok convex radius (v1 only, ≈ 0.019685))doc")
         .def_readwrite("shape_type", &whiteout::m3::PhysicsShape::shapeType, R"doc(Shape type (box/sphere/capsule/cylinder/hull/mesh))doc")
-        .def_readwrite("old_sizes", &whiteout::m3::PhysicsShape::oldSizes, R"doc(Legacy sizes (v1 only, zero for shapeType 4–5))doc")
-        .def_readwrite("shape_dimensions", &whiteout::m3::PhysicsShape::shapeDimensions, R"doc(Shape dimensions (v2+, zero for complex shapes))doc")
-        .def_readwrite("hull_face_normals", &whiteout::m3::PhysicsShape::hullFaceNormals, R"doc(Per-face unit normals (VEC3))doc")
-        .def_readwrite("hull_vertex_positions", &whiteout::m3::PhysicsShape::hullVertexPositions, R"doc(Vertex positions, w=0 (VEC4))doc")
-        .def_readwrite("hull_half_edges", &whiteout::m3::PhysicsShape::hullHalfEdges, R"doc(Half-edge table (DMSE))doc")
-        .def_readwrite("hull_vertex_face_indices", &whiteout::m3::PhysicsShape::hullVertexFaceIndices, R"doc(One face index per vertex (U8__))doc")
-        .def_readwrite("hull_center", &whiteout::m3::PhysicsShape::hullCenter, R"doc(Hull centroid)doc")
-        .def_readwrite("hull_face_normal_count", &whiteout::m3::PhysicsShape::hullFaceNormalCount, R"doc(Number of face normals)doc")
-        .def_readwrite("hull_vertex_count", &whiteout::m3::PhysicsShape::hullVertexCount, R"doc(Number of vertices)doc")
-        .def_readwrite("hull_half_edge_count", &whiteout::m3::PhysicsShape::hullHalfEdgeCount, R"doc(Number of half-edges)doc")
-        .def_readwrite("hull_unknown0", &whiteout::m3::PhysicsShape::hullUnknown0, R"doc(Unknown hull parameter 0)doc")
-        .def_readwrite("hull_unknown1", &whiteout::m3::PhysicsShape::hullUnknown1, R"doc(Unknown hull parameter 1)doc")
-        .def_readwrite("mesh_bvh_nodes", &whiteout::m3::PhysicsShape::meshBvhNodes, R"doc(BVH tree nodes (DMMN))doc")
+        .def_readwrite("source_points", &whiteout::m3::PhysicsShape::sourcePoints, R"doc(Uncooked points (VEC3, +68), matrix not yet applied)doc")
+        .def_readwrite("source_triangles", &whiteout::m3::PhysicsShape::sourceTriangles, R"doc(Uncooked triangle list (U16_, +80), three per face)doc")
+        .def_readwrite("shape_dimensions", &whiteout::m3::PhysicsShape::shapeDimensions, R"doc(Box half-extents; sphere radius; capsule/cylinder radius, length)doc")
+        .def_readwrite("hull_vertices", &whiteout::m3::PhysicsShape::hullVertices, R"doc(Vertex positions (VEC3))doc")
+        .def_readwrite("hull_planes", &whiteout::m3::PhysicsShape::hullPlanes, R"doc(Face planes (n, d), n unit length (VEC4))doc")
+        .def_readwrite("hull_half_edges", &whiteout::m3::PhysicsShape::hullHalfEdges, R"doc(Half-edge table (DMSE), twin pairs)doc")
+        .def_readwrite("hull_face_first_edges", &whiteout::m3::PhysicsShape::hullFaceFirstEdges, R"doc(Each face's first half-edge (U8__))doc")
+        .def_readwrite("hull_centroid", &whiteout::m3::PhysicsShape::hullCentroid, R"doc(Volume centroid)doc")
+        .def_readwrite("hull_vertex_count", &whiteout::m3::PhysicsShape::hullVertexCount, R"doc(Vertices the client reads)doc")
+        .def_readwrite("hull_face_count", &whiteout::m3::PhysicsShape::hullFaceCount, R"doc(Faces the client reads)doc")
+        .def_readwrite("hull_half_edge_count", &whiteout::m3::PhysicsShape::hullHalfEdgeCount, R"doc(Half-edges the client reads)doc")
+        .def_readwrite("hull_volume", &whiteout::m3::PhysicsShape::hullVolume, R"doc(Enclosed volume)doc")
+        .def_readwrite("hull_surface_area", &whiteout::m3::PhysicsShape::hullSurfaceArea, R"doc(Surface area)doc")
+        .def_readwrite("mesh_bvh_nodes", &whiteout::m3::PhysicsShape::meshBvhNodes, R"doc(BVH tree nodes (DMMN), never read)doc")
         .def_readwrite("mesh_vertex_positions", &whiteout::m3::PhysicsShape::meshVertexPositions, R"doc(Vertex positions, w=0 (VEC4))doc")
-        .def_readwrite("mesh_bounds_center", &whiteout::m3::PhysicsShape::meshBoundsCenter, R"doc(AABB center in model space (quantization grid origin))doc")
-        .def_readwrite("mesh_bounds_extent", &whiteout::m3::PhysicsShape::meshBoundsExtent, R"doc(AABB half-extents (quantization range: tolerance = extent / 32767))doc")
+        .def_readwrite("mesh_bounds_center", &whiteout::m3::PhysicsShape::meshBoundsCenter, R"doc(Tree centre, as the client's builder computes it)doc")
+        .def_readwrite("mesh_bounds_extent", &whiteout::m3::PhysicsShape::meshBoundsExtent, R"doc(Tree half-extent, likewise)doc")
         .def_readwrite("mesh_tolerance", &whiteout::m3::PhysicsShape::meshTolerance, R"doc(Per-axis quantization step (= extent / 32767))doc")
-        .def_readwrite("mesh_normal_count", &whiteout::m3::PhysicsShape::meshNormalCount, R"doc(Number of mesh normals)doc")
+        .def_readwrite("mesh_normal_count", &whiteout::m3::PhysicsShape::meshNormalCount, R"doc(DMMN count)doc")
         .def_readwrite("mesh_vertex_count", &whiteout::m3::PhysicsShape::meshVertexCount, R"doc(Number of mesh vertices)doc")
-        .def_readwrite("mesh_face_index16_count", &whiteout::m3::PhysicsShape::meshFaceIndex16Count, R"doc(MT16 face count (0 when MT32))doc")
+        .def_readwrite("mesh_face_index16_count", &whiteout::m3::PhysicsShape::meshFaceIndex16Count, R"doc(MT16 face count (0 when MT32); the client reads this, not the Ref)doc")
         .def_readwrite("mesh_face_index32_count", &whiteout::m3::PhysicsShape::meshFaceIndex32Count, R"doc(MT32 face count (0 when MT16))doc")
-        .def_readwrite("mesh_unknown1", &whiteout::m3::PhysicsShape::meshUnknown1, R"doc(Unknown mesh parameter)doc")
-        .def_readwrite("mesh_reserved", &whiteout::m3::PhysicsShape::meshReserved, R"doc(Reserved (always 0))doc")
-        .def_readwrite("mesh_tree_depth", &whiteout::m3::PhysicsShape::meshTreeDepth, R"doc(BVH tree height (root-to-leaf path length, 1–12))doc")
-        .def_readwrite("mesh_collision_margin", &whiteout::m3::PhysicsShape::meshCollisionMargin, R"doc(Collision margin (MT16: small float; MT32: 0.0))doc")
+        .def_readwrite("mesh_unknown1", &whiteout::m3::PhysicsShape::meshUnknown1, R"doc(Never read)doc")
+        .def_readwrite("mesh_reserved", &whiteout::m3::PhysicsShape::meshReserved, R"doc(Never read)doc")
+        .def_readwrite("mesh_tree_depth", &whiteout::m3::PhysicsShape::meshTreeDepth, R"doc(Tree height, as the client's builder computes it)doc")
+        .def_readwrite("mesh_collision_margin", &whiteout::m3::PhysicsShape::meshCollisionMargin, R"doc(Never read)doc")
     ;
 
-    py::class_<whiteout::m3::RigidBody>(m, "RigidBody", R"doc(PHRB — Rigid body (v2–v4, 56–104 bytes)
+    py::class_<whiteout::m3::RigidBody>(m, "RigidBody", R"doc(PHRB — Rigid body (v4, 80 bytes; v0 72, v1 96, v2 104 and v3 56 read)
 
-Havok rigid body with density, friction, restitution, damping, gravity scale, and collision shape references.)doc")
+A Domino body on `parentBoneIndex`, with its shapes. `simulationType` is how the body is created; `dynamicState` whether it simulates at a moment.)doc")
         .def(py::init<>())
-        .def_readwrite("simulation_type", &whiteout::m3::RigidBody::simulationType, R"doc(Simulation mode (v3+))doc")
+        .def_readwrite("simulation_type", &whiteout::m3::RigidBody::simulationType, R"doc(Creation type: 0 dynamic, 1 kinematic, 2 static)doc")
         .def_readwrite("parent_bone_index", &whiteout::m3::RigidBody::parentBoneIndex, R"doc(Parent bone index)doc")
-        .def_readwrite("physics_type", &whiteout::m3::RigidBody::physicsType, R"doc(Engine-specific body type (v3+))doc")
+        .def_readwrite("physics_type", &whiteout::m3::RigidBody::physicsType, R"doc(Physics-material id game data may override)doc")
         .def_readwrite("density", &whiteout::m3::RigidBody::density, R"doc(Body density)doc")
         .def_readwrite("friction", &whiteout::m3::RigidBody::friction, R"doc(Surface friction)doc")
         .def_readwrite("restitution", &whiteout::m3::RigidBody::restitution, R"doc(Elasticity / bounciness)doc")
         .def_readwrite("linear_damping", &whiteout::m3::RigidBody::linearDamping, R"doc(Linear velocity damping)doc")
         .def_readwrite("angular_damping", &whiteout::m3::RigidBody::angularDamping, R"doc(Angular velocity damping)doc")
-        .def_readwrite("gravity_scale", &whiteout::m3::RigidBody::gravityScale, R"doc(Gravity influence scale)doc")
-        .def_readwrite("dynamic_state", &whiteout::m3::RigidBody::dynamicState, R"doc(Animated dynamic state (v4+))doc")
-        .def_readwrite("dynamic_blend_out", &whiteout::m3::RigidBody::dynamicBlendOut, R"doc(Dynamic blend-out duration (v4+))doc")
+        .def_readwrite("inertia_scale", &whiteout::m3::RigidBody::inertiaScale, R"doc(Domino inertia scale (gravity scale is fixed at 1))doc")
+        .def_readwrite("dynamic_state", &whiteout::m3::RigidBody::dynamicState, R"doc(Simulates now; sampled only when flag bit 1 is set)doc")
+        .def_readwrite("dynamic_blend_out", &whiteout::m3::RigidBody::dynamicBlendOut, R"doc(Never read)doc")
         .def_readwrite("rigid_body_shape", &whiteout::m3::RigidBody::rigidBodyShape, R"doc(Collision shapes (PHSH))doc")
         .def_readwrite("flags", &whiteout::m3::RigidBody::flags, R"doc(Rigid body flags)doc")
         .def_readwrite("local_forces", &whiteout::m3::RigidBody::localForces, R"doc(Local force channel bitmask)doc")
         .def_readwrite("world_forces", &whiteout::m3::RigidBody::worldForces, R"doc(World force channel bitmask)doc")
-        .def_readwrite("priority", &whiteout::m3::RigidBody::priority, R"doc(Simulation priority)doc")
+        .def_readwrite("priority", &whiteout::m3::RigidBody::priority, R"doc(Never read)doc")
     ;
 
     py::class_<whiteout::m3::PhysicsJoint>(m, "PhysicsJoint", R"doc(PHYJ — Physics joint (v0, 180 bytes)
 
-Connects two rigid bodies with limit, friction, and break-threshold parameters.)doc")
+Joins the first body on each of two bones. Angles are radians. `enableLimits` and `enableFriction` are bytes to the client; the upper three bytes are never read.)doc")
         .def(py::init<>())
-        .def_readwrite("joint_type", &whiteout::m3::PhysicsJoint::jointType, R"doc(Joint type)doc")
+        .def_readwrite("joint_type", &whiteout::m3::PhysicsJoint::jointType, R"doc(0 spherical, 1 revolute, 2 cone-twist, 3 weld)doc")
         .def_readwrite("bone_index1", &whiteout::m3::PhysicsJoint::boneIndex1, R"doc(First bone index)doc")
         .def_readwrite("bone_index2", &whiteout::m3::PhysicsJoint::boneIndex2, R"doc(Second bone index)doc")
-        .def_readwrite("enable_limits", &whiteout::m3::PhysicsJoint::enableLimits, R"doc(Enable angular limits)doc")
+        .def_readwrite("enable_limits", &whiteout::m3::PhysicsJoint::enableLimits, R"doc(Enable angular limits (low byte))doc")
         .def_readwrite("limit_min", &whiteout::m3::PhysicsJoint::limitMin, R"doc(Minimum limit angle)doc")
         .def_readwrite("limit_max", &whiteout::m3::PhysicsJoint::limitMax, R"doc(Maximum limit angle)doc")
         .def_readwrite("cone_angle", &whiteout::m3::PhysicsJoint::coneAngle, R"doc(Cone constraint angle)doc")
-        .def_readwrite("enable_friction", &whiteout::m3::PhysicsJoint::enableFriction, R"doc(Enable joint friction)doc")
-        .def_readwrite("friction", &whiteout::m3::PhysicsJoint::friction, R"doc(Friction coefficient)doc")
-        .def_readwrite("damping_ratio", &whiteout::m3::PhysicsJoint::dampingRatio, R"doc(Damping ratio)doc")
-        .def_readwrite("angular_frequency", &whiteout::m3::PhysicsJoint::angularFrequency, R"doc(Angular frequency)doc")
-        .def_readwrite("break_threshold", &whiteout::m3::PhysicsJoint::breakThreshold, R"doc(Force threshold to break joint)doc")
-        .def_readwrite("enable_shape", &whiteout::m3::PhysicsJoint::enableShape, R"doc(Enable shape constraint)doc")
-    ;
-
-    py::class_<whiteout::m3::PhysicsConstraint>(m, "PhysicsConstraint", R"doc(PHCT — Physics constraint (v0, 24 bytes)
-
-Constrains two rigid bodies with break-force threshold.)doc")
-        .def(py::init<>())
-        .def_readwrite("dependents", &whiteout::m3::PhysicsConstraint::dependents, R"doc(Dependent bone indices (U16_))doc")
-        .def_readwrite("rigid_body1", &whiteout::m3::PhysicsConstraint::rigidBody1, R"doc(First rigid body index)doc")
-        .def_readwrite("rigid_body2", &whiteout::m3::PhysicsConstraint::rigidBody2, R"doc(Second rigid body index)doc")
-        .def_readwrite("break_force", &whiteout::m3::PhysicsConstraint::breakForce, R"doc(Force required to break constraint)doc")
+        .def_readwrite("enable_friction", &whiteout::m3::PhysicsJoint::enableFriction, R"doc(Enable joint friction (low byte))doc")
+        .def_readwrite("friction", &whiteout::m3::PhysicsJoint::friction, R"doc(Multiplier on an estimated gravity-holding torque)doc")
+        .def_readwrite("damping_ratio", &whiteout::m3::PhysicsJoint::dampingRatio, R"doc(Weld spring damping ratio)doc")
+        .def_readwrite("angular_frequency", &whiteout::m3::PhysicsJoint::angularFrequency, R"doc(Weld spring frequency)doc")
+        .def_readwrite("break_threshold", &whiteout::m3::PhysicsJoint::breakThreshold, R"doc(Never read)doc")
+        .def_readwrite("enable_shape", &whiteout::m3::PhysicsJoint::enableShape, R"doc(Collide connected)doc")
     ;
 
     py::class_<whiteout::m3::ClothCollider>(m, "ClothCollider", R"doc(PHCC — Cloth collider (v0, 76 bytes)
 
-Capsule-shaped collider used by cloth simulation.)doc")
+A capsule along its own +Z, centred, on `bone`.)doc")
         .def(py::init<>())
         .def_readwrite("radius", &whiteout::m3::ClothCollider::radius, R"doc(Capsule radius)doc")
-        .def_readwrite("height", &whiteout::m3::ClothCollider::height, R"doc(Capsule height)doc")
-        .def_readwrite("padding", &whiteout::m3::ClothCollider::padding, R"doc(Alignment padding)doc")
+        .def_readwrite("height", &whiteout::m3::ClothCollider::height, R"doc(Capsule full length)doc")
+        .def_readwrite("bone", &whiteout::m3::ClothCollider::bone, R"doc(Bone index; 0xFFFF is the model root)doc")
     ;
 
     py::class_<whiteout::m3::ClothProxy>(m, "ClothProxy", R"doc(PHAC — Cloth proxy (v0, 32 bytes)
 
-Maps cloth vertices to proxy geometry for collision.)doc")
+Binds one cloth-influenced region to its cage: per vertex of `clothIndex`, four cage-local `u16` lanes packed in a `u64` and four byte weights (/255) packed in a `u32`.)doc")
         .def(py::init<>())
-        .def_readwrite("proxy_index", &whiteout::m3::ClothProxy::proxyIndex, R"doc(Proxy mesh index)doc")
-        .def_readwrite("cloth_index", &whiteout::m3::ClothProxy::clothIndex, R"doc(Cloth mesh index)doc")
-        .def_readwrite("proxy_vertices", &whiteout::m3::ClothProxy::proxyVertices, R"doc(Proxy vertex data (U64_))doc")
-        .def_readwrite("proxy_weights", &whiteout::m3::ClothProxy::proxyWeights, R"doc(Proxy blend weights (U32_))doc")
+        .def_readwrite("proxy_index", &whiteout::m3::ClothProxy::proxyIndex, R"doc(The cage's region (REGN index))doc")
+        .def_readwrite("cloth_index", &whiteout::m3::ClothProxy::clothIndex, R"doc(The bound region (REGN index))doc")
+        .def_readwrite("proxy_vertices", &whiteout::m3::ClothProxy::proxyVertices, R"doc(Four cage vertices per bound vertex (U64_))doc")
+        .def_readwrite("proxy_weights", &whiteout::m3::ClothProxy::proxyWeights, R"doc(Four byte weights per bound vertex (U32_))doc")
     ;
 
-    py::class_<whiteout::m3::ClothPhysics>(m, "ClothPhysics", R"doc(PHCL — Cloth physics (v0–v4, 192 bytes)
+    py::class_<whiteout::m3::ClothPhysics>(m, "ClothPhysics", R"doc(PHCL — Cloth physics (v4, 192 bytes; v0 140, v1 116, v2 128 and v3 192 read)
 
-Full cloth simulation configuration: skin bone binding, stiffness parameters, damping, wind/explosion/gravity scales, colliders, and proxies. Added in MODL v28.)doc")
+One cloth: the cage region its particles are, per-particle anchors and movability, colliders, the regions it drives (PHAC) and the solver parameters. A record with colliders and no cage exports them to other models. Added in MODL v28.)doc")
         .def(py::init<>())
-        .def_readwrite("cloth_mesh_count", &whiteout::m3::ClothPhysics::clothMeshCount, R"doc(Number of cloth mesh sections)doc")
-        .def_readwrite("skin_bone_count", &whiteout::m3::ClothPhysics::skinBoneCount, R"doc(Number of skin bones)doc")
-        .def_readwrite("skin_bones", &whiteout::m3::ClothPhysics::skinBones, R"doc(Skin bone indices (U16_))doc")
-        .def_readwrite("sim_enabled", &whiteout::m3::ClothPhysics::simEnabled, R"doc(Per-vertex simulation enable flags (U8__))doc")
-        .def_readwrite("vertex_bones", &whiteout::m3::ClothPhysics::vertexBones, R"doc(Per-vertex bone indices (U32_))doc")
-        .def_readwrite("vertex_weights", &whiteout::m3::ClothPhysics::vertexWeights, R"doc(Per-vertex bone weights (U32_))doc")
+        .def_readwrite("cage_region", &whiteout::m3::ClothPhysics::cageRegion, R"doc(The cage's REGN index)doc")
+        .def_readwrite("skin_bone_count", &whiteout::m3::ClothPhysics::skinBoneCount, R"doc(Never read)doc")
+        .def_readwrite("skin_bones", &whiteout::m3::ClothPhysics::skinBones, R"doc(Bones the anchors and colliders use (U16_))doc")
+        .def_readwrite("sim_enabled", &whiteout::m3::ClothPhysics::simEnabled, R"doc(Per-particle flags, bit 0 movable (U8__))doc")
+        .def_readwrite("vertex_bones", &whiteout::m3::ClothPhysics::vertexBones, R"doc(Per-particle anchor bones, four bytes (U32_))doc")
+        .def_readwrite("vertex_weights", &whiteout::m3::ClothPhysics::vertexWeights, R"doc(Per-particle anchor weights, four bytes (U32_))doc")
         .def_readwrite("colliders", &whiteout::m3::ClothPhysics::colliders, R"doc(Cloth colliders (PHCC))doc")
         .def_readwrite("proxies", &whiteout::m3::ClothPhysics::proxies, R"doc(Cloth proxies (PHAC))doc")
         .def_readwrite("density", &whiteout::m3::ClothPhysics::density, R"doc(Cloth density)doc")
@@ -863,15 +898,15 @@ Full cloth simulation configuration: skin bone binding, stiffness parameters, da
         .def_readwrite("wind_scale", &whiteout::m3::ClothPhysics::windScale, R"doc(Wind force scale)doc")
         .def_readwrite("shear_stiffness", &whiteout::m3::ClothPhysics::shearStiffness, R"doc(Shear stiffness)doc")
         .def_readwrite("drag_factor", &whiteout::m3::ClothPhysics::dragFactor, R"doc(Drag factor)doc")
-        .def_readwrite("lift_factor", &whiteout::m3::ClothPhysics::liftFactor, R"doc(Lift factor (v4+))doc")
-        .def_readwrite("sphere_stiffness", &whiteout::m3::ClothPhysics::sphereStiffness, R"doc(Sphere collider stiffness (v4+))doc")
-        .def_readwrite("flatten", &whiteout::m3::ClothPhysics::flatten, R"doc(Flatten mode (v4+))doc")
-        .def_readwrite("active", &whiteout::m3::ClothPhysics::active, R"doc(Animated active state)doc")
+        .def_readwrite("lift_factor", &whiteout::m3::ClothPhysics::liftFactor, R"doc(Lift factor)doc")
+        .def_readwrite("sphere_stiffness", &whiteout::m3::ClothPhysics::sphereStiffness, R"doc(Sphere collider stiffness)doc")
+        .def_readwrite("flatten", &whiteout::m3::ClothPhysics::flatten, R"doc(Flatten mode)doc")
+        .def_readwrite("active", &whiteout::m3::ClothPhysics::active, R"doc(Animated active state; sampled only when flag bit 1 is set)doc")
         .def_readwrite("use_skin_collision", &whiteout::m3::ClothPhysics::useSkinCollision, R"doc(Use skin mesh for collision)doc")
         .def_readwrite("skin_offset", &whiteout::m3::ClothPhysics::skinOffset, R"doc(Skin collision offset)doc")
         .def_readwrite("skin_exponent", &whiteout::m3::ClothPhysics::skinExponent, R"doc(Skin collision exponent)doc")
         .def_readwrite("skin_stiffness", &whiteout::m3::ClothPhysics::skinStiffness, R"doc(Skin collision stiffness)doc")
-        .def_readwrite("local_channels", &whiteout::m3::ClothPhysics::localChannels, R"doc(Local force channel bitmask)doc")
+        .def_readwrite("local_channels", &whiteout::m3::ClothPhysics::localChannels, R"doc(Never read)doc")
         .def_readwrite("local_wind", &whiteout::m3::ClothPhysics::localWind, R"doc(Local wind direction and magnitude)doc")
     ;
 
@@ -967,7 +1002,6 @@ Version history: - v23 (784 bytes): Base release layout - v24 (+ikCCD): 796 byte
         .def_readwrite("warps", &whiteout::m3::Model::warps, R"doc(Warps (WRP_))doc")
         .def_readwrite("view_volumes", &whiteout::m3::Model::viewVolumes, R"doc(View volumes (VVOL))doc")
         .def_readwrite("rigid_bodies", &whiteout::m3::Model::rigidBodies, R"doc(Rigid bodies (PHRB))doc")
-        .def_readwrite("physics_constraints", &whiteout::m3::Model::physicsConstraints, R"doc(Physics constraints (PHCT))doc")
         .def_readwrite("physics_joints", &whiteout::m3::Model::physicsJoints, R"doc(Physics joints (PHYJ))doc")
         .def_readwrite("cloth_physics", &whiteout::m3::Model::clothPhysics, R"doc(Cloth physics (PHCL, v28+))doc")
         .def_readwrite("ik_two_joints", &whiteout::m3::Model::ikTwoJoints, R"doc(Two-joint IK solvers (IK2J))doc")
@@ -1003,47 +1037,6 @@ Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
             }, py::arg("buffer"), R"doc(Parse an M3 file from memory buffer @param buffer Memory buffer containing M3 data @return Parsed M3 model data @throws std::runtime_error If parsing fails in strict mode)doc")
         .def("has_issues", &whiteout::m3::Parser::hasIssues, R"doc(Check if parsing encountered any issues @return True if there were warnings or recoverable errors)doc")
         .def("get_issues", &whiteout::m3::Parser::getIssues, R"doc(Get list of issues encountered during parsing @return Vector of issue description strings)doc")
-    ;
-
-    py::class_<whiteout::m3::Writer>(m, "Writer", R"doc(Writer for M3 model files
-
-Writes Model structures to disk in binary M3 format. Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.)doc")
-        .def(py::init<>())
-        .def("write", py::overload_cast<const std::string&, const whiteout::m3::Model&>(&whiteout::m3::Writer::write), py::arg("filePath"), py::arg("model"), R"doc(Write an M3 model to a file on disk @param filePath Output file path @param model Model data to serialize @throws std::runtime_error If file cannot be created or writing fails)doc")
-        .def("write",
-            [](whiteout::m3::Writer& self, const whiteout::m3::Model& model) {
-                auto __v = self.write(model);
-                return py::bytes(
-                    reinterpret_cast<const char*>(__v.data()), __v.size());
-            }, py::arg("model"), R"doc(Write an M3 model to a byte buffer @param model Model data to serialize @return Byte buffer containing the M3 file data)doc")
-    ;
-
-    py::class_<whiteout::m3::AnimRef<whiteout::f32>>(m, "AnimRefF32", R"doc(Animatable reference holding a default value and animation link
-
-Holds both a constant default value and a link to keyframed animation data. If animId == 0, the property is not animated — use initValue as a constant. Otherwise, resolve through STC_.animIds to locate keyframe data. Total size depends on sizeof(T): 12 + 2*sizeof(T) + 4 bytes.
-
-@tparam T The value type (f32, Vector3f, Quaternion, ColorBGRA, Extent, etc.))doc")
-        .def(py::init<>())
-        .def_readwrite("interp_type", &whiteout::m3::AnimRef<whiteout::f32>::interpType, R"doc(Interpolation: 0=none/step, 1=linear, 2=hermite, 3=bezier)doc")
-        .def_readwrite("flags", &whiteout::m3::AnimRef<whiteout::f32>::flags, R"doc(Animation flags)doc")
-        .def_readwrite("anim_id", &whiteout::m3::AnimRef<whiteout::f32>::animId, R"doc(Animation identifier (links to STC animation data; 0=not animated))doc")
-        .def_readwrite("init_value", &whiteout::m3::AnimRef<whiteout::f32>::initValue, R"doc(Initial/default value (used when not animated))doc")
-        .def_readwrite("null_value", &whiteout::m3::AnimRef<whiteout::f32>::nullValue, R"doc(Null/reset value)doc")
-        .def_readwrite("unused", &whiteout::m3::AnimRef<whiteout::f32>::unused, R"doc(Typically -1)doc")
-    ;
-
-    py::class_<whiteout::m3::AnimRef<whiteout::Vector3f>>(m, "AnimRefVector3f", R"doc(Animatable reference holding a default value and animation link
-
-Holds both a constant default value and a link to keyframed animation data. If animId == 0, the property is not animated — use initValue as a constant. Otherwise, resolve through STC_.animIds to locate keyframe data. Total size depends on sizeof(T): 12 + 2*sizeof(T) + 4 bytes.
-
-@tparam T The value type (f32, Vector3f, Quaternion, ColorBGRA, Extent, etc.))doc")
-        .def(py::init<>())
-        .def_readwrite("interp_type", &whiteout::m3::AnimRef<whiteout::Vector3f>::interpType, R"doc(Interpolation: 0=none/step, 1=linear, 2=hermite, 3=bezier)doc")
-        .def_readwrite("flags", &whiteout::m3::AnimRef<whiteout::Vector3f>::flags, R"doc(Animation flags)doc")
-        .def_readwrite("anim_id", &whiteout::m3::AnimRef<whiteout::Vector3f>::animId, R"doc(Animation identifier (links to STC animation data; 0=not animated))doc")
-        .def_readwrite("init_value", &whiteout::m3::AnimRef<whiteout::Vector3f>::initValue, R"doc(Initial/default value (used when not animated))doc")
-        .def_readwrite("null_value", &whiteout::m3::AnimRef<whiteout::Vector3f>::nullValue, R"doc(Null/reset value)doc")
-        .def_readwrite("unused", &whiteout::m3::AnimRef<whiteout::Vector3f>::unused, R"doc(Typically -1)doc")
     ;
 
 }

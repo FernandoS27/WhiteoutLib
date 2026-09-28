@@ -76,12 +76,30 @@ NodeKindMask nodeKindsOf(ProfileId id) {
         return kSharedNodeKinds | kWc3NodeKinds;
     case ProfileId::Sc2:
     case ProfileId::Heroes:
-        return kSharedNodeKinds | kSc2NodeKinds;
+        return kSharedNodeKinds | kSc2NodeKinds | kSc2FieldKinds;
     case ProfileId::Wow:
         return kSharedNodeKinds | kWowNodeKinds;
     default:
         return kSharedNodeKinds;
     }
+}
+
+/// §3.11: StarCraft II and Heroes read the one `.m3` physics set; every other
+/// profile's export bakes physics into keys.
+PhysicsCaps physicsOf(ProfileId id) {
+    PhysicsCaps caps;
+    if (id != ProfileId::Sc2 && id != ProfileId::Heroes) {
+        return caps;
+    }
+    caps.shapeKinds = 0x3Fu;      // Box through TriangleMesh
+    caps.jointKinds = 0x0Fu;      // Spherical, Revolute, ConeTwist, Weld
+    caps.cloth = true;
+    caps.maxClothParticles = 256; // a vertex's u8 bone index, a 256-matrix palette
+    caps.maxHullVertices = 255;   // the cooked tables' u8 indices
+    caps.maxHullFaces = 255;
+    caps.maxHullHalfEdges = 256;
+    caps.maxClothAnchorBone = 255; // `vertexBones` holds bytes
+    return caps;
 }
 
 // ---------------------------------------------------------------------------
@@ -124,6 +142,7 @@ ProfileDesc makeDesc(ProfileId id, const char* name, const char* displayName, co
     d.supportsLooks = looks;
     d.supportsActors = actors;
     d.nodeKinds = nodeKindsOf(id);
+    d.physics = physicsOf(id);
     return d;
 }
 

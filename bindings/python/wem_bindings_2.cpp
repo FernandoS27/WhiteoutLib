@@ -36,10 +36,12 @@
 #include <whiteout/models/wem/geometry/skin.h>
 #include <whiteout/models/wem/geometry/mesh.h>
 #include <whiteout/models/wem/nodes/emitters.h>
+#include <whiteout/models/wem/nodes/fields.h>
 #include <whiteout/models/wem/nodes/node.h>
 #include <whiteout/models/wem/nodes/tree.h>
 #include <whiteout/models/wem/anim/channel.h>
 #include <whiteout/models/wem/anim/clip.h>
+#include <whiteout/models/wem/physics/physics.h>
 #include <whiteout/models/wem/model.h>
 #include <whiteout/models/wem/document.h>
 #include <whiteout/models/wem/parser.h>
@@ -60,6 +62,9 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AssetKey>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Clip>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ClipEvent>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ClipTrackSet>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Cloth>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ClothBinding>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ClothCollider>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::CombinerStage>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::CompositeLayer>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Diagnostic>);
@@ -72,6 +77,10 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::MeshSection>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Model>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::NativeKind>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Node>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::PhysicsBody>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::PhysicsJoint>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::PhysicsRig>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::PhysicsShape>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::PoseSchema>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ProfileId>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ProfileMaterialSet>);
@@ -152,30 +161,321 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 2 of bind_wem(), which calls the parts in order.
 void bind_wem_2(py::module_& m) {
+    py::class_<whiteout::models::wem::JointSpring>(m, "JointSpring")
+        .def(py::init<>())
+        .def_readwrite("hz", &whiteout::models::wem::JointSpring::hz)
+        .def_readwrite("damping", &whiteout::models::wem::JointSpring::damping)
+    ;
+
+    py::class_<whiteout::models::wem::PhysicsJoint>(m, "PhysicsJoint")
+        .def(py::init<>())
+        .def_readwrite("id", &whiteout::models::wem::PhysicsJoint::id)
+        .def_readwrite("body_a", &whiteout::models::wem::PhysicsJoint::bodyA, R"doc(Body id, the parent side.)doc")
+        .def_readwrite("body_b", &whiteout::models::wem::PhysicsJoint::bodyB, R"doc(Body id.)doc")
+        .def_readwrite("kind", &whiteout::models::wem::PhysicsJoint::kind)
+        .def_readwrite("collide_connected", &whiteout::models::wem::PhysicsJoint::collideConnected)
+        .def_readwrite("limit_enabled", &whiteout::models::wem::PhysicsJoint::limitEnabled)
+        .def_readwrite("lower", &whiteout::models::wem::PhysicsJoint::lower, R"doc(Radians.)doc")
+        .def_readwrite("upper", &whiteout::models::wem::PhysicsJoint::upper, R"doc(Radians.)doc")
+        .def_readwrite("cone", &whiteout::models::wem::PhysicsJoint::cone, R"doc(Radians; a runtime clamps it to [10°, 170°] on use.)doc")
+        .def_readwrite("friction", &whiteout::models::wem::PhysicsJoint::friction)
+        .def_readwrite("friction_amount", &whiteout::models::wem::PhysicsJoint::frictionAmount)
+        .def_readwrite("angular_spring", &whiteout::models::wem::PhysicsJoint::angularSpring, R"doc(StarCraft II's weld spring; World of Warcraft's weld and motors.)doc")
+        .def_readwrite("linear_spring", &whiteout::models::wem::PhysicsJoint::linearSpring)
+        .def_readwrite("rest_length", &whiteout::models::wem::PhysicsJoint::restLength, R"doc(Distance joint.)doc")
+        .def_readwrite("break_force", &whiteout::models::wem::PhysicsJoint::breakForce, R"doc(0 = unbreakable.)doc")
+        .def_readwrite("break_torque", &whiteout::models::wem::PhysicsJoint::breakTorque, R"doc(0 = unbreakable.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::SectionRef>(m, "SectionRef", R"doc(A section of a mesh of the same model.)doc")
+        .def(py::init<>())
+        .def_readwrite("mesh", &whiteout::models::wem::SectionRef::mesh)
+        .def_readwrite("section", &whiteout::models::wem::SectionRef::section)
+    ;
+
+    py::class_<whiteout::models::wem::ClothCollider>(m, "ClothCollider", R"doc(A collider cloth drapes over. Model-wide: a cloth lists the ones it uses, and colliders no cloth uses are ones this model offers another's cloth.)doc")
+        .def(py::init<>())
+        .def_readwrite("id", &whiteout::models::wem::ClothCollider::id)
+        .def_readwrite("node", &whiteout::models::wem::ClothCollider::node, R"doc(`kInvalidNode` is the model root.)doc")
+        .def_readwrite("kind", &whiteout::models::wem::ClothCollider::kind)
+        .def_readwrite("radius", &whiteout::models::wem::ClothCollider::radius)
+        .def_readwrite("length", &whiteout::models::wem::ClothCollider::length, R"doc(Full length.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::ClothBinding>(m, "ClothBinding", R"doc(A section the cloth drives. Which cage vertices move each of its vertices, and how much, are the `cloth.bind.*` layers of the mesh.)doc")
+        .def(py::init<>())
+        .def_readwrite("section", &whiteout::models::wem::ClothBinding::section)
+    ;
+
+    py::class_<whiteout::models::wem::Sc2ClothParams>(m, "Sc2ClothParams", R"doc(Domino cloth as StarCraft II tunes it, 1:1 with `PHCL`.)doc")
+        .def(py::init<>())
+        .def_readwrite("tracking", &whiteout::models::wem::Sc2ClothParams::tracking)
+        .def_readwrite("horizontal_stiffness", &whiteout::models::wem::Sc2ClothParams::horizontalStiffness)
+        .def_readwrite("shear_stiffness", &whiteout::models::wem::Sc2ClothParams::shearStiffness)
+        .def_readwrite("explosion_scale", &whiteout::models::wem::Sc2ClothParams::explosionScale)
+        .def_readwrite("wind_scale", &whiteout::models::wem::Sc2ClothParams::windScale)
+        .def_readwrite("drag_factor", &whiteout::models::wem::Sc2ClothParams::dragFactor)
+        .def_readwrite("lift_factor", &whiteout::models::wem::Sc2ClothParams::liftFactor)
+        .def_readwrite("sphere_stiffness", &whiteout::models::wem::Sc2ClothParams::sphereStiffness)
+        .def_readwrite("flatten", &whiteout::models::wem::Sc2ClothParams::flatten)
+        .def_readwrite("use_skin_collision", &whiteout::models::wem::Sc2ClothParams::useSkinCollision)
+        .def_readwrite("skin_offset", &whiteout::models::wem::Sc2ClothParams::skinOffset)
+        .def_readwrite("skin_exponent", &whiteout::models::wem::Sc2ClothParams::skinExponent)
+        .def_readwrite("skin_stiffness", &whiteout::models::wem::Sc2ClothParams::skinStiffness)
+    ;
+
+    py::class_<whiteout::models::wem::Cloth>(m, "Cloth", R"doc(One cloth: its cage, what it drives, what it collides with.
+
+**Topology is mesh data.** The cage is a section flagged `ClothSimulated` and each particle is one of its vertices; the cage's own skin is the particles' anchors, and `geom::names::kClothMovable` says which may move. A bound section is flagged `ClothInfluenced` and lives in the cage's mesh.)doc")
+        .def(py::init<>())
+        .def_readwrite("id", &whiteout::models::wem::Cloth::id)
+        .def_readwrite("cage", &whiteout::models::wem::Cloth::cage)
+        .def_readwrite("bindings", &whiteout::models::wem::Cloth::bindings)
+        .def_readwrite("colliders", &whiteout::models::wem::Cloth::colliders, R"doc(`ClothCollider::id`s.)doc")
+        .def_readwrite("active", &whiteout::models::wem::Cloth::active, R"doc(The rest value of `Channel::ClothActive`. It gates the write-back, not the step.)doc")
+        .def_readwrite("density", &whiteout::models::wem::Cloth::density)
+        .def_readwrite("damping", &whiteout::models::wem::Cloth::damping)
+        .def_readwrite("friction", &whiteout::models::wem::Cloth::friction)
+        .def_readwrite("stretch_stiffness", &whiteout::models::wem::Cloth::stretchStiffness)
+        .def_readwrite("bend_stiffness", &whiteout::models::wem::Cloth::bendStiffness)
+        .def_readwrite("gravity_scale", &whiteout::models::wem::Cloth::gravityScale, R"doc(On the host's gravity.)doc")
+        .def_readwrite("wind", &whiteout::models::wem::Cloth::wind, R"doc(Model space.)doc")
+        .def_readwrite("sc2", &whiteout::models::wem::Cloth::sc2)
+    ;
+
+    py::class_<whiteout::models::wem::PhysicsRig>(m, "PhysicsRig", R"doc(A named subset of bodies a game switches on at once (World of Warcraft, Diablo III). StarCraft II has none: its import makes none and its export ignores them.)doc")
+        .def(py::init<>())
+        .def_readwrite("id", &whiteout::models::wem::PhysicsRig::id)
+        .def_readwrite("name", &whiteout::models::wem::PhysicsRig::name)
+        .def_readwrite("start", &whiteout::models::wem::PhysicsRig::start)
+        .def_readwrite("bodies", &whiteout::models::wem::PhysicsRig::bodies, R"doc(Body ids.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::PhysicsSet>(m, "PhysicsSet")
+        .def(py::init<>())
+        .def_readwrite("bodies", &whiteout::models::wem::PhysicsSet::bodies)
+        .def_readwrite("joints", &whiteout::models::wem::PhysicsSet::joints)
+        .def_readwrite("colliders", &whiteout::models::wem::PhysicsSet::colliders)
+        .def_readwrite("cloths", &whiteout::models::wem::PhysicsSet::cloths)
+        .def_readwrite("rigs", &whiteout::models::wem::PhysicsSet::rigs)
+        .def_readwrite("next_id", &whiteout::models::wem::PhysicsSet::nextId, R"doc(The next id to hand out. Ids are never reused, so a channel naming a removed record never names a new one.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::PhysicsHost>(m, "PhysicsHost", R"doc(What a game's host decides, never a document: gravity, the step, the solver iterations and the kinematic drive caps (WEM_PHYSICS_DESIGN.md §3.9).)doc")
+        .def(py::init<>())
+        .def_readwrite("gravity", &whiteout::models::wem::PhysicsHost::gravity)
+        .def_readwrite("step", &whiteout::models::wem::PhysicsHost::step)
+        .def_readwrite("max_substeps", &whiteout::models::wem::PhysicsHost::maxSubsteps)
+        .def_readwrite("velocity_iterations", &whiteout::models::wem::PhysicsHost::velocityIterations)
+        .def_readwrite("position_iterations", &whiteout::models::wem::PhysicsHost::positionIterations)
+        .def_readwrite("snap_linear", &whiteout::models::wem::PhysicsHost::snapLinear)
+        .def_readwrite("snap_angular", &whiteout::models::wem::PhysicsHost::snapAngular)
+        .def_readwrite("release_linear", &whiteout::models::wem::PhysicsHost::releaseLinear)
+        .def_readwrite("release_angular", &whiteout::models::wem::PhysicsHost::releaseAngular)
+    ;
+
+    py::class_<whiteout::models::wem::SlotBinding>(m, "SlotBinding", R"doc(Which material each look picks, for one slot.
+
+Sized to the set's `LookTable`. An entry of `kInvalidIndex` is a hole the coverage rule reports — §7.5's removal operations leave one rather than silently repointing at a neighbour, because "which material did you mean" is not a question this layer can answer.)doc")
+        .def(py::init<>())
+        .def_readwrite("by_look", &whiteout::models::wem::SlotBinding::byLook)
+    ;
+
+    py::class_<whiteout::models::wem::ProfileMaterialSet>(m, "ProfileMaterialSet")
+        .def(py::init<>())
+        .def_readwrite("profile", &whiteout::models::wem::ProfileMaterialSet::profile)
+        .def_readwrite("looks", &whiteout::models::wem::ProfileMaterialSet::looks, R"doc(Sized 1 for profiles without looks (§8).)doc")
+        .def_readwrite("default_look", &whiteout::models::wem::ProfileMaterialSet::defaultLook, R"doc(Which look this set draws when nobody says otherwise.
+
+On the set rather than the `Model` because the look axis is per set: D3's looks and WoW's texture variations are different vocabularies and share no index space. An importer that was *told* which look to build records it here, so the document says what it is rather than leaving the answer in the caller's arguments.)doc")
+        .def_readwrite("materials", &whiteout::models::wem::ProfileMaterialSet::materials, R"doc(Set-local array.)doc")
+        .def_readwrite("slot_bindings", &whiteout::models::wem::ProfileMaterialSet::slotBindings, R"doc(Parallel to `Model::materialSlots`.)doc")
+        .def_readwrite("native", &whiteout::models::wem::ProfileMaterialSet::native)
+    ;
+
+    py::class_<whiteout::models::wem::LodExport>(m, "LodExport", R"doc(How the `.mdx` export makes levels of detail (EDIT_MODE_MODELLING_DESIGN.md §8.2).
+
+A document holds LOD 0 only: import drops the rest (`DropLevelsOfDetail`), and the export generates LOD 1-3 from LOD 0 when this says so. Authoring state, saved in the `.wem` and written to no game's file.)doc")
+        .def(py::init<>())
+        .def_readwrite("generate", &whiteout::models::wem::LodExport::generate, R"doc(Generate LOD 1-3 at export. Off until the user turns it on (U7).)doc")
+        .def_readwrite("lock_borders", &whiteout::models::wem::LodExport::lockBorders, R"doc(`meshopt_SimplifyLockBorder`: off, since it stalls the open shells Warcraft III models are full of.)doc")
+        .def_readwrite("source_had_levels", &whiteout::models::wem::LodExport::sourceHadLevels, R"doc(The import dropped a ladder, so an export without one loses it.)doc")
+        .def("get_ratios",
+            [](const whiteout::models::wem::LodExport& self) {
+                return std::vector<whiteout::f32>(self.ratios.begin(), self.ratios.end());
+            })
+        .def("set_ratios",
+            [](whiteout::models::wem::LodExport& self, const std::vector<whiteout::f32>& v) {
+                if (v.size() != self.ratios.size())
+                    throw std::runtime_error("setter expected exactly "
+                        + std::to_string(self.ratios.size()) + " elements");
+                for (std::size_t i = 0; i < v.size(); ++i) self.ratios[i] = v[i];
+            })
+    ;
+
+    py::class_<whiteout::models::wem::Model>(m, "Model")
+        .def(py::init<>())
+        .def_readwrite("name", &whiteout::models::wem::Model::name)
+        .def_readwrite("meshes", &whiteout::models::wem::Model::meshes, R"doc(Shared across profiles.)doc")
+        .def_readwrite("nodes", &whiteout::models::wem::Model::nodes, R"doc(Shared: bones, lights, attachments, emitters.)doc")
+        .def_readwrite("material_slots", &whiteout::models::wem::Model::materialSlots, R"doc(Shared: the join key.)doc")
+        .def_readwrite("anim_channels", &whiteout::models::wem::Model::animChannels, R"doc(Shared: the animatable properties (§10.8).)doc")
+        .def_readwrite("anim_set", &whiteout::models::wem::Model::animSet, R"doc(The `Document::animSets[]` a host plays this model through by default, or `kInvalidIndex`.
+
+On the `Model` because that is what a D3 actor's `snoAnimSet` names once the actor has become one (§9.1) — there is no `Actor` to hang it on, and a document-level pairing would be a side table with the model index in it, which is the shape §10.2 exists to avoid. Two actors sharing an appearance but not an animset are therefore two models, the same way two that equip differently are.)doc")
+        .def_readwrite("profile_sets", &whiteout::models::wem::Model::profileSets)
+        .def_readwrite("bounds", &whiteout::models::wem::Model::bounds)
+        .def_readwrite("t_pose", &whiteout::models::wem::Model::tPose, R"doc(Which of them is the recovered T-pose (EDIT_MODE_TPOSE_DESIGN.md §7), or `kInvalidIndex` for none. An index rather than a name because the list is already indexed by every node's `poseDeltas`, and a rename must not lose it. No exporter reads it.)doc")
+        .def_readwrite("lod_export", &whiteout::models::wem::Model::lodExport, R"doc(How the `.mdx` export makes levels of detail (`LodExport`).)doc")
+        .def_readwrite("track_sets", &whiteout::models::wem::Model::trackSets, R"doc(The named channel groups clips play on layers of their own (`Clip::trackSets`).)doc")
+        .def_readwrite("physics", &whiteout::models::wem::Model::physics, R"doc(Rigid bodies, joints, cloth and their colliders (WEM_PHYSICS_DESIGN.md §3). A target that carries physics exports it natively; one that does not bakes it.)doc")
+        .def("slot_index", &whiteout::models::wem::Model::slotIndex, py::arg("name"), R"doc(The index of the slot named @p name, or `kInvalidIndex`.)doc")
+        .def("add_slot", &whiteout::models::wem::Model::addSlot, py::arg("name"), R"doc(Appends a slot if it is not already there and returns its index.)doc")
+        .def("drawn_profiles", &whiteout::models::wem::Model::drawnProfiles, R"doc(The mask of profiles at least one section draws in. Cheap, and what a UI wants when it asks "what is actually in this file".)doc")
+    ;
+
+    py::class_<whiteout::models::wem::UnknownChunk>(m, "UnknownChunk", R"doc(A chunk this build did not recognise, carried through unchanged (§11.4).
+
+Forward compatibility is the point: a newer writer's chunk survives a round-trip through an older reader instead of being silently dropped.)doc")
+        .def(py::init<>())
+        .def_readwrite("tag", &whiteout::models::wem::UnknownChunk::tag)
+        .def_readwrite("version", &whiteout::models::wem::UnknownChunk::version)
+        .def_readwrite("count", &whiteout::models::wem::UnknownChunk::count, R"doc(The element count from the source index entry. The reader cannot derive it -- it does not know the element type -- and a reader that *does* know the type needs it, so it is carried rather than recomputed.)doc")
+        .def_readwrite("index", &whiteout::models::wem::UnknownChunk::index, R"doc(The index-table slot the chunk occupied. **Load-bearing.** A preserved chunk's bytes contain `Reference`s of their own, and a `Reference` names an index-table *slot*; renumbering the table would silently break every one of them. The writer holds these slots open so the numbering survives.)doc")
+        .def_readwrite("data", &whiteout::models::wem::UnknownChunk::data)
+    ;
+
+    py::class_<whiteout::models::wem::Document>(m, "Document")
+        .def(py::init<>())
+        .def_readwrite("profiles", &whiteout::models::wem::Document::profiles, R"doc(The declared set. A `ProfileMaterialSet` for an undeclared profile is a structural error, as is a `defaultProfile` outside this list.)doc")
+        .def_readwrite("default_profile", &whiteout::models::wem::Document::defaultProfile)
+        .def_readwrite("space", &whiteout::models::wem::Document::space, R"doc(Canonical, always (§6.4). The per-profile source space lives in the registry, so an exporter knows how to rebase back.)doc")
+        .def_readwrite("unit_scale", &whiteout::models::wem::Document::unitScale, R"doc(What one WEM unit is, if the caller knows. Scale is **not** normalised — geometry stays in the units it was authored in.)doc")
+        .def_readwrite("name", &whiteout::models::wem::Document::name)
+        .def_readwrite("bounds", &whiteout::models::wem::Document::bounds)
+        .def_readwrite("models", &whiteout::models::wem::Document::models, R"doc(One per drawable. A D3 actor converts to `models[0]` and everything its attach points reach follows it (§9.1); every other importer produces one.)doc")
+        .def_readwrite("textures", &whiteout::models::wem::Document::textures)
+        .def_readwrite("clips", &whiteout::models::wem::Document::clips, R"doc(Every clip in the document, each naming the model it drives (§10.8).
+
+Document-level rather than per model because an `.m3a` merge and a D3 anim set both address clips across models, and because a clip index in an `AnimSet` would otherwise have to carry a model index beside it.)doc")
+        .def_readwrite("anim_sets", &whiteout::models::wem::Document::animSets, R"doc(The named (tag -> clip) maps. D3 is the only importer that fills this today; `Model::animSet` is how a model says which one is its default.)doc")
+        .def_readwrite("unknown_chunks", &whiteout::models::wem::Document::unknownChunks, R"doc(Chunks this build did not understand, carried through unchanged (§11.4).
+
+The parser fills it and the writer reads it, so a read-edit-write round trip preserves them by doing nothing. Clearing it is how a caller drops them -- an act, not an omission.)doc")
+        .def("carries", &whiteout::models::wem::Document::carries, py::arg("profile"))
+        .def("declare", &whiteout::models::wem::Document::declare, py::arg("profile"), R"doc(Declares @p profile if it is not already declared. Does not create material sets — that is `AddProfileFromImport` or `DeriveProfile` (§6.6).)doc")
+        .def("declared_mask", &whiteout::models::wem::Document::declaredMask, R"doc(Every declared profile as a mask.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::ReadOptions>(m, "ReadOptions", R"doc(Which formats this reader is willing to parse the native block of.
+
+§11.3's wasm-build-without-D3 property, as a runtime option rather than a build one: a skipped block's chunk is preserved whole and its reference is re-emitted, so a document read this way can be edited and written back with the skipped sets intact. Empty means parse everything.)doc")
+        .def(py::init<>())
+        .def_readwrite("skip_native_kinds", &whiteout::models::wem::ReadOptions::skipNativeKinds)
+    ;
+
+    py::class_<whiteout::models::wem::Parser>(m, "Parser")
+        .def(py::init<>())
+        .def("parse",
+            [](whiteout::models::wem::Parser& self, const std::string& filePath, const whiteout::models::wem::ReadOptions& options) {
+                return self.parse(filePath, options);
+            }, py::arg("filePath"), py::arg("options") = whiteout::models::wem::ReadOptions{})
+        .def("parse",
+            [](whiteout::models::wem::Parser& self, py::bytes __py_bytes_0, const whiteout::models::wem::ReadOptions& options) {
+                std::string __s_0 = __py_bytes_0;
+                std::span<const whiteout::u8> bytes(reinterpret_cast<const whiteout::u8*>(__s_0.data()), __s_0.size());
+                return self.parse(bytes, options);
+            }, py::arg("bytes"), py::arg("options") = whiteout::models::wem::ReadOptions{})
+        .def("unknown_chunks", &whiteout::models::wem::Parser::unknownChunks, R"doc(Chunks the read preserved rather than parsed — unknown tags, and the native blocks `ReadOptions` asked to skip. Hand these back to `Writer` or they are dropped on the next write.)doc")
+        .def("diagnostics", &whiteout::models::wem::Parser::diagnostics)
+    ;
+
+    py::class_<whiteout::models::wem::Writer>(m, "Writer")
+        .def(py::init<>())
+        .def("write", py::overload_cast<const std::string&, const whiteout::models::wem::Document&>(&whiteout::models::wem::Writer::write), py::arg("filePath"), py::arg("document"))
+        .def("write",
+            [](whiteout::models::wem::Writer& self, const whiteout::models::wem::Document& document) {
+                auto __v = self.write(document);
+                return py::bytes(
+                    reinterpret_cast<const char*>(__v.data()), __v.size());
+            }, py::arg("document"))
+        .def("diagnostics", &whiteout::models::wem::Writer::diagnostics)
+    ;
+
+    py::class_<whiteout::models::wem::Sc2Property<whiteout::f32>>(m, "Sc2PropertyF32", R"doc(One animatable property of a StarCraft II emitter, at rest.
+
+An M3 AnimRef without its link. `initValue` is what plays while no clip keys the property; the link — the animId and the keys — is the node's `Channel::EmitterProperty` channel, whose id is the AnimRef's own (§10.8.1).
+
+`nullValue` is live, not padding: the engine retires an unkeyed `PAR_` whose rate and squirt, or a `RIB_` whose `active`, sit at their nulls before it emits anything. Shipped emitters rest every null at zero.
+
+Colours are RGBA in 0..1, the channel convention; a `u16` squirt count widens to `u32`.)doc")
+        .def(py::init<>())
+        .def_readwrite("init_value", &whiteout::models::wem::Sc2Property<whiteout::f32>::initValue)
+        .def_readwrite("null_value", &whiteout::models::wem::Sc2Property<whiteout::f32>::nullValue)
+    ;
+
+    py::class_<whiteout::models::wem::Sc2Property<whiteout::Vector3f>>(m, "Sc2PropertyVector3f", R"doc(One animatable property of a StarCraft II emitter, at rest.
+
+An M3 AnimRef without its link. `initValue` is what plays while no clip keys the property; the link — the animId and the keys — is the node's `Channel::EmitterProperty` channel, whose id is the AnimRef's own (§10.8.1).
+
+`nullValue` is live, not padding: the engine retires an unkeyed `PAR_` whose rate and squirt, or a `RIB_` whose `active`, sit at their nulls before it emits anything. Shipped emitters rest every null at zero.
+
+Colours are RGBA in 0..1, the channel convention; a `u16` squirt count widens to `u32`.)doc")
+        .def(py::init<>())
+        .def_readwrite("init_value", &whiteout::models::wem::Sc2Property<whiteout::Vector3f>::initValue)
+        .def_readwrite("null_value", &whiteout::models::wem::Sc2Property<whiteout::Vector3f>::nullValue)
+    ;
+
+    py::class_<whiteout::models::wem::Sc2Property<whiteout::Vector4f>>(m, "Sc2PropertyVector4f", R"doc(One animatable property of a StarCraft II emitter, at rest.
+
+An M3 AnimRef without its link. `initValue` is what plays while no clip keys the property; the link — the animId and the keys — is the node's `Channel::EmitterProperty` channel, whose id is the AnimRef's own (§10.8.1).
+
+`nullValue` is live, not padding: the engine retires an unkeyed `PAR_` whose rate and squirt, or a `RIB_` whose `active`, sit at their nulls before it emits anything. Shipped emitters rest every null at zero.
+
+Colours are RGBA in 0..1, the channel convention; a `u16` squirt count widens to `u32`.)doc")
+        .def(py::init<>())
+        .def_readwrite("init_value", &whiteout::models::wem::Sc2Property<whiteout::Vector4f>::initValue)
+        .def_readwrite("null_value", &whiteout::models::wem::Sc2Property<whiteout::Vector4f>::nullValue)
+    ;
+
+    py::class_<whiteout::models::wem::Sc2Property<whiteout::u32>>(m, "Sc2PropertyU32", R"doc(One animatable property of a StarCraft II emitter, at rest.
+
+An M3 AnimRef without its link. `initValue` is what plays while no clip keys the property; the link — the animId and the keys — is the node's `Channel::EmitterProperty` channel, whose id is the AnimRef's own (§10.8.1).
+
+`nullValue` is live, not padding: the engine retires an unkeyed `PAR_` whose rate and squirt, or a `RIB_` whose `active`, sit at their nulls before it emits anything. Shipped emitters rest every null at zero.
+
+Colours are RGBA in 0..1, the channel convention; a `u16` squirt count widens to `u32`.)doc")
+        .def(py::init<>())
+        .def_readwrite("init_value", &whiteout::models::wem::Sc2Property<whiteout::u32>::initValue)
+        .def_readwrite("null_value", &whiteout::models::wem::Sc2Property<whiteout::u32>::nullValue)
+    ;
+
+    py::class_<whiteout::models::wem::Sc2Property<whiteout::Vector2f>>(m, "Sc2PropertyVector2f", R"doc(One animatable property of a StarCraft II emitter, at rest.
+
+An M3 AnimRef without its link. `initValue` is what plays while no clip keys the property; the link — the animId and the keys — is the node's `Channel::EmitterProperty` channel, whose id is the AnimRef's own (§10.8.1).
+
+`nullValue` is live, not padding: the engine retires an unkeyed `PAR_` whose rate and squirt, or a `RIB_` whose `active`, sit at their nulls before it emits anything. Shipped emitters rest every null at zero.
+
+Colours are RGBA in 0..1, the channel convention; a `u16` squirt count widens to `u32`.)doc")
+        .def(py::init<>())
+        .def_readwrite("init_value", &whiteout::models::wem::Sc2Property<whiteout::Vector2f>::initValue)
+        .def_readwrite("null_value", &whiteout::models::wem::Sc2Property<whiteout::Vector2f>::nullValue)
+    ;
+
+    py::bind_vector<std::vector<whiteout::models::wem::AnimChannel>>(m, "VectorWemAnimChannel");
+    py::bind_vector<std::vector<whiteout::models::wem::AnimSet>>(m, "VectorWemAnimSet");
+    py::bind_vector<std::vector<whiteout::models::wem::AnimTag>>(m, "VectorWemAnimTag");
+    py::bind_vector<std::vector<whiteout::models::wem::AssetKey>>(m, "VectorWemAssetKey");
+    py::bind_vector<std::vector<whiteout::models::wem::Clip>>(m, "VectorWemClip");
+    py::bind_vector<std::vector<whiteout::models::wem::ClipEvent>>(m, "VectorWemClipEvent");
     py::bind_vector<std::vector<whiteout::models::wem::ClipTrackSet>>(m, "VectorWemClipTrackSet");
+    py::bind_vector<std::vector<whiteout::models::wem::Cloth>>(m, "VectorWemCloth");
+    py::bind_vector<std::vector<whiteout::models::wem::ClothBinding>>(m, "VectorWemClothBinding");
+    py::bind_vector<std::vector<whiteout::models::wem::ClothCollider>>(m, "VectorWemClothCollider");
     py::bind_vector<std::vector<whiteout::models::wem::CombinerStage>>(m, "VectorWemCombinerStage");
     py::bind_vector<std::vector<whiteout::models::wem::CompositeLayer>>(m, "VectorWemCompositeLayer");
     py::bind_vector<std::vector<whiteout::models::wem::Diagnostic>>(m, "VectorWemDiagnostic");
     py::bind_vector<std::vector<whiteout::models::wem::Diagnostics::CodeCount>>(m, "VectorDiagnosticsCodeCount");
     py::bind_vector<std::vector<whiteout::models::wem::Look>>(m, "VectorWemLook");
     py::bind_vector<std::vector<whiteout::models::wem::Material>>(m, "VectorWemMaterial");
-    py::bind_vector<std::vector<whiteout::models::wem::MaterialFeature>>(m, "VectorWemMaterialFeature");
-    py::bind_vector<std::vector<whiteout::models::wem::Mesh>>(m, "VectorWemMesh");
-    py::bind_vector<std::vector<whiteout::models::wem::MeshSection>>(m, "VectorWemMeshSection");
-    py::bind_vector<std::vector<whiteout::models::wem::Model>>(m, "VectorWemModel");
-    py::bind_vector<std::vector<whiteout::models::wem::NativeKind>>(m, "VectorWemNativeKind");
-    py::bind_vector<std::vector<whiteout::models::wem::Node>>(m, "VectorWemNode");
-    py::bind_vector<std::vector<whiteout::models::wem::PoseSchema>>(m, "VectorWemPoseSchema");
-    py::bind_vector<std::vector<whiteout::models::wem::ProfileId>>(m, "VectorWemProfileId");
-    py::bind_vector<std::vector<whiteout::models::wem::ProfileMaterialSet>>(m, "VectorWemProfileMaterialSet");
-    py::bind_vector<std::vector<whiteout::models::wem::Sc2Property<whiteout::Vector3f>>>(m, "VectorWemSc2PropertyVector3f");
-    py::bind_vector<std::vector<whiteout::models::wem::Sc2RibbonSplinePoint>>(m, "VectorWemSc2RibbonSplinePoint");
-    py::bind_vector<std::vector<whiteout::models::wem::SlotBinding>>(m, "VectorWemSlotBinding");
-    py::bind_vector<std::vector<whiteout::models::wem::SubTrack>>(m, "VectorWemSubTrack");
-    py::bind_vector<std::vector<whiteout::models::wem::SubTrackContainer>>(m, "VectorWemSubTrackContainer");
-    py::bind_vector<std::vector<whiteout::models::wem::TextureRef>>(m, "VectorWemTextureRef");
-    py::bind_vector<std::vector<whiteout::models::wem::TrackSet>>(m, "VectorWemTrackSet");
-    py::bind_vector<std::vector<whiteout::models::wem::Transform>>(m, "VectorWemTransform");
-    py::bind_vector<std::vector<whiteout::models::wem::UnknownChunk>>(m, "VectorWemUnknownChunk");
-
 }

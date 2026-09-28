@@ -1276,6 +1276,7 @@ private:
         case TrackTarget::Kind::Section:
             emitSectionChannel(channel, merged);
             break;
+        case TrackTarget::Kind::Physics: // the export bakes physics (WEM_PHYSICS_DESIGN.md §7)
         case TrackTarget::Kind::Count:
             break;
         }

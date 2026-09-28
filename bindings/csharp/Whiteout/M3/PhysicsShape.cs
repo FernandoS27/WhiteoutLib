@@ -8,7 +8,7 @@ using Whiteout.M3.Internal;
 
 namespace Whiteout.M3;
 
-/// <summary>PHSH — Physics shape (v0–v3, 132/292/300 bytes)</summary>
+/// <summary>PHSH — Physics shape (v3, 300 bytes; v0 96, v1 132 and v2 292 read)</summary>
 public sealed class PhysicsShape : WhiteoutHandle
 {
     public PhysicsShape() : base(NativeMethods.whiteout_m3_M3PhysicsShape_new()) { }
@@ -21,14 +21,6 @@ public sealed class PhysicsShape : WhiteoutHandle
         return true;
     }
 
-    /// <summary>Havok convex radius (v1 only, ≈ 0.019685)</summary>
-    public float CollisionMargin
-    {
-        get => NativeMethods.whiteout_m3_M3PhysicsShape_get_collisionMargin(DangerousGet());
-        set => NativeMethods.whiteout_m3_M3PhysicsShape_set_collisionMargin(DangerousGet(), value);
-    }
-
-
     /// <summary>Shape type (box/sphere/capsule/cylinder/hull/mesh)</summary>
     public PhysicsShapeType ShapeType
     {
@@ -37,31 +29,19 @@ public sealed class PhysicsShape : WhiteoutHandle
     }
 
 
-    /// <summary>Legacy sizes (v1 only, zero for shapeType 4–5)</summary>
-    public unsafe Vector3f OldSizes
+    /// <summary>Uncooked points (VEC3, +68), matrix not yet applied</summary>
+    public unsafe ReadOnlySpan<Vector3f> SourcePoints
     {
         get
         {
-            var __ptr = NativeMethods.whiteout_m3_M3PhysicsShape_get_oldSizes(DangerousGet());
-            return System.Runtime.CompilerServices.Unsafe.Read<Vector3f>((void*)__ptr);
-        }
-        set
-        {
-            var __ptr = Whiteout.Common.NativeMath.whiteout_Vector3f_new();
-            try
-            {
-                System.Runtime.CompilerServices.Unsafe.Write((void*)__ptr, value);
-                NativeMethods.whiteout_m3_M3PhysicsShape_set_oldSizes(DangerousGet(), __ptr);
-            }
-            finally
-            {
-                Whiteout.Common.NativeMath.whiteout_Vector3f_delete(__ptr);
-            }
+            var __count = checked((int)NativeMethods.whiteout_m3_M3PhysicsShape_get_sourcePoints_count(DangerousGet()));
+            var __ptr = NativeMethods.whiteout_m3_M3PhysicsShape_get_sourcePoints_data(DangerousGet());
+            return new ReadOnlySpan<Vector3f>((void*)__ptr, __count);
         }
     }
 
 
-    /// <summary>Shape dimensions (v2+, zero for complex shapes)</summary>
+    /// <summary>Box half-extents; sphere radius; capsule/cylinder radius, length</summary>
     public unsafe Vector3f ShapeDimensions
     {
         get
@@ -85,31 +65,31 @@ public sealed class PhysicsShape : WhiteoutHandle
     }
 
 
-    /// <summary>Per-face unit normals (VEC3)</summary>
-    public unsafe ReadOnlySpan<Vector3f> HullFaceNormals
+    /// <summary>Vertex positions (VEC3)</summary>
+    public unsafe ReadOnlySpan<Vector3f> HullVertices
     {
         get
         {
-            var __count = checked((int)NativeMethods.whiteout_m3_M3PhysicsShape_get_hullFaceNormals_count(DangerousGet()));
-            var __ptr = NativeMethods.whiteout_m3_M3PhysicsShape_get_hullFaceNormals_data(DangerousGet());
+            var __count = checked((int)NativeMethods.whiteout_m3_M3PhysicsShape_get_hullVertices_count(DangerousGet()));
+            var __ptr = NativeMethods.whiteout_m3_M3PhysicsShape_get_hullVertices_data(DangerousGet());
             return new ReadOnlySpan<Vector3f>((void*)__ptr, __count);
         }
     }
 
 
-    /// <summary>Vertex positions, w=0 (VEC4)</summary>
-    public unsafe ReadOnlySpan<Vector4f> HullVertexPositions
+    /// <summary>Face planes (n, d), n unit length (VEC4)</summary>
+    public unsafe ReadOnlySpan<Vector4f> HullPlanes
     {
         get
         {
-            var __count = checked((int)NativeMethods.whiteout_m3_M3PhysicsShape_get_hullVertexPositions_count(DangerousGet()));
-            var __ptr = NativeMethods.whiteout_m3_M3PhysicsShape_get_hullVertexPositions_data(DangerousGet());
+            var __count = checked((int)NativeMethods.whiteout_m3_M3PhysicsShape_get_hullPlanes_count(DangerousGet()));
+            var __ptr = NativeMethods.whiteout_m3_M3PhysicsShape_get_hullPlanes_data(DangerousGet());
             return new ReadOnlySpan<Vector4f>((void*)__ptr, __count);
         }
     }
 
 
-    /// <summary>Half-edge table (DMSE)</summary>
+    /// <summary>Half-edge table (DMSE), twin pairs</summary>
     public IReadOnlyList<ConvexHullHalfEdge> HullHalfEdges =>
         new NativeListView<ConvexHullHalfEdge>(
             DangerousGet(),
@@ -117,12 +97,12 @@ public sealed class PhysicsShape : WhiteoutHandle
             (h, i) => new ConvexHullHalfEdge(NativeMethods.whiteout_m3_M3PhysicsShape_get_hullHalfEdges_at(h, i), owned: false));
 
 
-    /// <summary>Hull centroid</summary>
-    public unsafe Vector3f HullCenter
+    /// <summary>Volume centroid</summary>
+    public unsafe Vector3f HullCentroid
     {
         get
         {
-            var __ptr = NativeMethods.whiteout_m3_M3PhysicsShape_get_hullCenter(DangerousGet());
+            var __ptr = NativeMethods.whiteout_m3_M3PhysicsShape_get_hullCentroid(DangerousGet());
             return System.Runtime.CompilerServices.Unsafe.Read<Vector3f>((void*)__ptr);
         }
         set
@@ -131,7 +111,7 @@ public sealed class PhysicsShape : WhiteoutHandle
             try
             {
                 System.Runtime.CompilerServices.Unsafe.Write((void*)__ptr, value);
-                NativeMethods.whiteout_m3_M3PhysicsShape_set_hullCenter(DangerousGet(), __ptr);
+                NativeMethods.whiteout_m3_M3PhysicsShape_set_hullCentroid(DangerousGet(), __ptr);
             }
             finally
             {
@@ -141,15 +121,7 @@ public sealed class PhysicsShape : WhiteoutHandle
     }
 
 
-    /// <summary>Number of face normals</summary>
-    public uint HullFaceNormalCount
-    {
-        get => NativeMethods.whiteout_m3_M3PhysicsShape_get_hullFaceNormalCount(DangerousGet());
-        set => NativeMethods.whiteout_m3_M3PhysicsShape_set_hullFaceNormalCount(DangerousGet(), value);
-    }
-
-
-    /// <summary>Number of vertices</summary>
+    /// <summary>Vertices the client reads</summary>
     public uint HullVertexCount
     {
         get => NativeMethods.whiteout_m3_M3PhysicsShape_get_hullVertexCount(DangerousGet());
@@ -157,7 +129,15 @@ public sealed class PhysicsShape : WhiteoutHandle
     }
 
 
-    /// <summary>Number of half-edges</summary>
+    /// <summary>Faces the client reads</summary>
+    public uint HullFaceCount
+    {
+        get => NativeMethods.whiteout_m3_M3PhysicsShape_get_hullFaceCount(DangerousGet());
+        set => NativeMethods.whiteout_m3_M3PhysicsShape_set_hullFaceCount(DangerousGet(), value);
+    }
+
+
+    /// <summary>Half-edges the client reads</summary>
     public uint HullHalfEdgeCount
     {
         get => NativeMethods.whiteout_m3_M3PhysicsShape_get_hullHalfEdgeCount(DangerousGet());
@@ -165,23 +145,23 @@ public sealed class PhysicsShape : WhiteoutHandle
     }
 
 
-    /// <summary>Unknown hull parameter 0</summary>
-    public float HullUnknown0
+    /// <summary>Enclosed volume</summary>
+    public float HullVolume
     {
-        get => NativeMethods.whiteout_m3_M3PhysicsShape_get_hullUnknown0(DangerousGet());
-        set => NativeMethods.whiteout_m3_M3PhysicsShape_set_hullUnknown0(DangerousGet(), value);
+        get => NativeMethods.whiteout_m3_M3PhysicsShape_get_hullVolume(DangerousGet());
+        set => NativeMethods.whiteout_m3_M3PhysicsShape_set_hullVolume(DangerousGet(), value);
     }
 
 
-    /// <summary>Unknown hull parameter 1</summary>
-    public float HullUnknown1
+    /// <summary>Surface area</summary>
+    public float HullSurfaceArea
     {
-        get => NativeMethods.whiteout_m3_M3PhysicsShape_get_hullUnknown1(DangerousGet());
-        set => NativeMethods.whiteout_m3_M3PhysicsShape_set_hullUnknown1(DangerousGet(), value);
+        get => NativeMethods.whiteout_m3_M3PhysicsShape_get_hullSurfaceArea(DangerousGet());
+        set => NativeMethods.whiteout_m3_M3PhysicsShape_set_hullSurfaceArea(DangerousGet(), value);
     }
 
 
-    /// <summary>BVH tree nodes (DMMN)</summary>
+    /// <summary>BVH tree nodes (DMMN), never read</summary>
     public IReadOnlyList<PhysicsMeshBvhNode> MeshBvhNodes =>
         new NativeListView<PhysicsMeshBvhNode>(
             DangerousGet(),
@@ -201,7 +181,7 @@ public sealed class PhysicsShape : WhiteoutHandle
     }
 
 
-    /// <summary>AABB center in model space (quantization grid origin)</summary>
+    /// <summary>Tree centre, as the client's builder computes it</summary>
     public unsafe Vector3f MeshBoundsCenter
     {
         get
@@ -225,7 +205,7 @@ public sealed class PhysicsShape : WhiteoutHandle
     }
 
 
-    /// <summary>AABB half-extents (quantization range: tolerance = extent / 32767)</summary>
+    /// <summary>Tree half-extent, likewise</summary>
     public unsafe Vector3f MeshBoundsExtent
     {
         get
@@ -273,7 +253,7 @@ public sealed class PhysicsShape : WhiteoutHandle
     }
 
 
-    /// <summary>Number of mesh normals</summary>
+    /// <summary>DMMN count</summary>
     public uint MeshNormalCount
     {
         get => NativeMethods.whiteout_m3_M3PhysicsShape_get_meshNormalCount(DangerousGet());
@@ -289,7 +269,7 @@ public sealed class PhysicsShape : WhiteoutHandle
     }
 
 
-    /// <summary>MT16 face count (0 when MT32)</summary>
+    /// <summary>MT16 face count (0 when MT32); the client reads this, not the Ref</summary>
     public uint MeshFaceIndex16Count
     {
         get => NativeMethods.whiteout_m3_M3PhysicsShape_get_meshFaceIndex16Count(DangerousGet());
@@ -305,7 +285,7 @@ public sealed class PhysicsShape : WhiteoutHandle
     }
 
 
-    /// <summary>Unknown mesh parameter</summary>
+    /// <summary>Never read</summary>
     public uint MeshUnknown1
     {
         get => NativeMethods.whiteout_m3_M3PhysicsShape_get_meshUnknown1(DangerousGet());
@@ -313,7 +293,7 @@ public sealed class PhysicsShape : WhiteoutHandle
     }
 
 
-    /// <summary>Reserved (always 0)</summary>
+    /// <summary>Never read</summary>
     public uint MeshReserved
     {
         get => NativeMethods.whiteout_m3_M3PhysicsShape_get_meshReserved(DangerousGet());
@@ -321,7 +301,7 @@ public sealed class PhysicsShape : WhiteoutHandle
     }
 
 
-    /// <summary>BVH tree height (root-to-leaf path length, 1–12)</summary>
+    /// <summary>Tree height, as the client's builder computes it</summary>
     public uint MeshTreeDepth
     {
         get => NativeMethods.whiteout_m3_M3PhysicsShape_get_meshTreeDepth(DangerousGet());
@@ -329,7 +309,7 @@ public sealed class PhysicsShape : WhiteoutHandle
     }
 
 
-    /// <summary>Collision margin (MT16: small float; MT32: 0.0)</summary>
+    /// <summary>Never read</summary>
     public float MeshCollisionMargin
     {
         get => NativeMethods.whiteout_m3_M3PhysicsShape_get_meshCollisionMargin(DangerousGet());

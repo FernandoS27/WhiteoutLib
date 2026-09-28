@@ -11,9 +11,9 @@ import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
- * PHRB — Rigid body (v2–v4, 56–104 bytes)
+ * PHRB — Rigid body (v4, 80 bytes; v0 72, v1 96, v2 104 and v3 56 read)
  * 
- * Havok rigid body with density, friction, restitution, damping, gravity scale, and collision shape references.
+ * A Domino body on `parentBoneIndex`, with its shapes. `simulationType` is how the body is created; `dynamicState` whether it simulates at a moment.
  *
  * <p><b>Lifecycle.</b> Instances hold a handle to a native
  * RigidBody allocation. Always release them with
@@ -31,7 +31,7 @@ import whiteout.m3.internal.Native;
  * external access if a handle is shared across threads.
  */
 public final class RigidBody implements AutoCloseable {
-    private static final long BYTES = 152L;
+    private static final long BYTES = 96L;
 
     final MemorySegment handle;
     final boolean owned;
@@ -59,7 +59,7 @@ public final class RigidBody implements AutoCloseable {
     }
 
     /**
-     * Simulation mode (v3+)
+     * Creation type: 0 dynamic, 1 kinematic, 2 static
      * @return the simulationType field of this M3RigidBody.
      */
     public short getSimulationType() {
@@ -79,7 +79,7 @@ public final class RigidBody implements AutoCloseable {
         handle.set(ValueLayout.JAVA_SHORT, 2L, value);
     }
     /**
-     * Engine-specific body type (v3+)
+     * Physics-material id game data may override
      * @return the physicsType field of this M3RigidBody.
      */
     public int getPhysicsType() {
@@ -139,17 +139,17 @@ public final class RigidBody implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 24L, value);
     }
     /**
-     * Gravity influence scale
-     * @return the gravityScale field of this M3RigidBody.
+     * Domino inertia scale (gravity scale is fixed at 1)
+     * @return the inertiaScale field of this M3RigidBody.
      */
-    public float getGravityScale() {
+    public float getInertiaScale() {
         return handle.get(ValueLayout.JAVA_FLOAT, 28L);
     }
-    public void setGravityScale(float value) {
+    public void setInertiaScale(float value) {
         handle.set(ValueLayout.JAVA_FLOAT, 28L, value);
     }
     /**
-     * Animated dynamic state (v4+)
+     * Simulates now; sampled only when flag bit 1 is set
      * @return the dynamicState field of this M3RigidBody.
      */
     public AnimRefU32 getDynamicState() {
@@ -160,7 +160,7 @@ public final class RigidBody implements AutoCloseable {
         NativeCommon.invokeNative(Native.whiteout_m3_M3RigidBody_set_dynamicState, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
-     * Dynamic blend-out duration (v4+)
+     * Never read
      * @return the dynamicBlendOut field of this M3RigidBody.
      */
     public float getDynamicBlendOut() {
@@ -220,7 +220,7 @@ public final class RigidBody implements AutoCloseable {
         handle.set(ValueLayout.JAVA_SHORT, 86L, value);
     }
     /**
-     * Simulation priority
+     * Never read
      * @return the priority field of this M3RigidBody.
      */
     public int getPriority() {
@@ -230,7 +230,7 @@ public final class RigidBody implements AutoCloseable {
         handle.set(ValueLayout.JAVA_INT, 88L, value);
     }
     @Override public String toString() {
-        return "RigidBody(" + "simulationType=" + getSimulationType() + ", " + "parentBoneIndex=" + getParentBoneIndex() + ", " + "physicsType=" + getPhysicsType() + ", " + "density=" + getDensity() + ", " + "friction=" + getFriction() + ", " + "restitution=" + getRestitution() + ", " + "linearDamping=" + getLinearDamping() + ", " + "angularDamping=" + getAngularDamping() + ", " + "gravityScale=" + getGravityScale() + ", " + "dynamicBlendOut=" + getDynamicBlendOut() + ", " + "flags=" + getFlags() + ", " + "localForces=" + getLocalForces() + ", " + "worldForces=" + getWorldForces() + ", " + "priority=" + getPriority() + ")";
+        return "RigidBody(" + "simulationType=" + getSimulationType() + ", " + "parentBoneIndex=" + getParentBoneIndex() + ", " + "physicsType=" + getPhysicsType() + ", " + "density=" + getDensity() + ", " + "friction=" + getFriction() + ", " + "restitution=" + getRestitution() + ", " + "linearDamping=" + getLinearDamping() + ", " + "angularDamping=" + getAngularDamping() + ", " + "inertiaScale=" + getInertiaScale() + ", " + "dynamicBlendOut=" + getDynamicBlendOut() + ", " + "flags=" + getFlags() + ", " + "localForces=" + getLocalForces() + ", " + "worldForces=" + getWorldForces() + ", " + "priority=" + getPriority() + ")";
     }
 
 }

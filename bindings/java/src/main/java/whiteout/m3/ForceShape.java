@@ -13,7 +13,9 @@ public enum ForceShape {
     /** Box influence volume */
     Box(2),
     /** Hemispherical influence volume */
-    Hemisphere(3);
+    Hemisphere(3),
+    /** Conical influence volume */
+    Cone(4);
 
     public final int value;
     ForceShape(int v) { this.value = v; }

@@ -11,7 +11,9 @@ import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
- * DMMT — Physics mesh triangle (v0, 28 bytes)
+ * DMMT — Havok-era mesh triangle (v0, 28 bytes)
+ * 
+ * Only a v2 PHSH references it; the upgrade keeps the three vertex indices.
  *
  * <p><b>Lifecycle.</b> Instances hold a handle to a native
  * PhysicsMeshTriangle allocation. Always release them with

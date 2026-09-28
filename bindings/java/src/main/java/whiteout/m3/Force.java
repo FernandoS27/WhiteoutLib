@@ -13,7 +13,7 @@ import whiteout.m3.internal.Native;
 /**
  * FOR_ — Force field (v0–v2, 104 bytes)
  * 
- * Applies radial, wind, or explosion forces to particles and ribbons within an influence volume shape (sphere, cylinder, box, hemisphere).
+ * Pushes particles and ribbons (flag 0x8) and rigid bodies (flag 0x10) inside an influence volume. A body is affected when its `localForces | worldForces << 16` mask shares a bit with `localChannels`.
  *
  * <p><b>Lifecycle.</b> Instances hold a handle to a native
  * Force allocation. Always release them with
@@ -59,7 +59,7 @@ public final class Force implements AutoCloseable {
     }
 
     /**
-     * Force influence type (radial/wind/explosion)
+     * Force kind
      * @return the forceType field of this M3Force.
      */
     public ForceType getForceType() {
@@ -79,7 +79,7 @@ public final class Force implements AutoCloseable {
         handle.set(ValueLayout.JAVA_INT, 4L, value.value);
     }
     /**
-     * Unknown field
+     * Read as local/world scope; no reader traced yet
      * @return the unknown field of this M3Force.
      */
     public int getUnknown() {
@@ -99,7 +99,7 @@ public final class Force implements AutoCloseable {
         handle.set(ValueLayout.JAVA_INT, 12L, value);
     }
     /**
-     * Force flags (falloff, height gradient, unbounded)
+     * Falloff, height gradient, unbounded, targets
      * @return the flags field of this M3Force.
      */
     public ForceFlag getFlags() {
@@ -109,7 +109,7 @@ public final class Force implements AutoCloseable {
         handle.set(ValueLayout.JAVA_INT, 16L, value.value);
     }
     /**
-     * Local channel bitmask
+     * Channel mask matched against body and emitter masks
      * @return the localChannels field of this M3Force.
      */
     public int getLocalChannels() {

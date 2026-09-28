@@ -129,15 +129,17 @@ EMSCRIPTEN_BINDINGS(m3) {
         .value("Trail", whiteout::m3::ParticleInstanceType::Trail);
 
     enum_<whiteout::m3::ForceType>("M3ForceType")
+        .value("Directional", whiteout::m3::ForceType::Directional)
         .value("Radial", whiteout::m3::ForceType::Radial)
-        .value("Wind", whiteout::m3::ForceType::Wind)
-        .value("Explosion", whiteout::m3::ForceType::Explosion);
+        .value("Drag", whiteout::m3::ForceType::Drag)
+        .value("Vortex", whiteout::m3::ForceType::Vortex);
 
     enum_<whiteout::m3::ForceShape>("M3ForceShape")
         .value("Sphere", whiteout::m3::ForceShape::Sphere)
         .value("Cylinder", whiteout::m3::ForceShape::Cylinder)
         .value("Box", whiteout::m3::ForceShape::Box)
-        .value("Hemisphere", whiteout::m3::ForceShape::Hemisphere);
+        .value("Hemisphere", whiteout::m3::ForceShape::Hemisphere)
+        .value("Cone", whiteout::m3::ForceShape::Cone);
 
     enum_<whiteout::m3::RibbonType>("M3RibbonType")
         .value("Billboard", whiteout::m3::RibbonType::Billboard)
@@ -449,7 +451,9 @@ EMSCRIPTEN_BINDINGS(m3) {
         .value("None", whiteout::m3::ForceFlag::None)
         .value("Falloff", whiteout::m3::ForceFlag::Falloff)
         .value("HeightGradient", whiteout::m3::ForceFlag::HeightGradient)
-        .value("Unbounded", whiteout::m3::ForceFlag::Unbounded);
+        .value("Unbounded", whiteout::m3::ForceFlag::Unbounded)
+        .value("AffectsParticles", whiteout::m3::ForceFlag::AffectsParticles)
+        .value("AffectsBodies", whiteout::m3::ForceFlag::AffectsBodies);
 
     enum_<whiteout::m3::RigidBodyFlag>("M3RigidBodyFlag")
         .value("None", whiteout::m3::RigidBodyFlag::None)
@@ -459,8 +463,9 @@ EMSCRIPTEN_BINDINGS(m3) {
         .value("SimulateCollision", whiteout::m3::RigidBodyFlag::SimulateCollision)
         .value("IgnoreLocalBodies", whiteout::m3::RigidBodyFlag::IgnoreLocalBodies)
         .value("AlwaysExists", whiteout::m3::RigidBodyFlag::AlwaysExists)
-        .value("Unknown6", whiteout::m3::RigidBodyFlag::Unknown6)
-        .value("NoSimulation", whiteout::m3::RigidBodyFlag::NoSimulation)
+        .value("InheritDynamic", whiteout::m3::RigidBodyFlag::InheritDynamic)
+        .value("KeepBoneDriven", whiteout::m3::RigidBodyFlag::KeepBoneDriven)
+        .value("ExemptFromRagdoll", whiteout::m3::RigidBodyFlag::ExemptFromRagdoll)
         .value("Unknown9", whiteout::m3::RigidBodyFlag::Unknown9);
 
     enum_<whiteout::m3::MaterialShaderType>("M3MaterialShaderType")
@@ -1361,10 +1366,10 @@ EMSCRIPTEN_BINDINGS(m3) {
 
     class_<whiteout::m3::ConvexHullHalfEdge>("M3ConvexHullHalfEdge")
         .constructor<>()
-        .property("type", &whiteout::m3::ConvexHullHalfEdge::type)
-        .property("faceIndex", &whiteout::m3::ConvexHullHalfEdge::faceIndex)
-        .property("vertexIndex", &whiteout::m3::ConvexHullHalfEdge::vertexIndex)
-        .property("nextAroundVertex", &whiteout::m3::ConvexHullHalfEdge::nextAroundVertex)
+        .property("twinOffset", &whiteout::m3::ConvexHullHalfEdge::twinOffset)
+        .property("originVertex", &whiteout::m3::ConvexHullHalfEdge::originVertex)
+        .property("face", &whiteout::m3::ConvexHullHalfEdge::face)
+        .property("nextInFace", &whiteout::m3::ConvexHullHalfEdge::nextInFace)
     ;
 
     class_<whiteout::m3::PhysicsMeshBvhNode>("M3PhysicsMeshBvhNode")
@@ -1394,20 +1399,20 @@ EMSCRIPTEN_BINDINGS(m3) {
 
     class_<whiteout::m3::PhysicsShape>("M3PhysicsShape")
         .constructor<>()
-        .property("collisionMargin", &whiteout::m3::PhysicsShape::collisionMargin)
         .property("shapeType", &whiteout::m3::PhysicsShape::shapeType)
-        .property("oldSizes", &whiteout::m3::PhysicsShape::oldSizes)
+        .property("sourcePoints", &whiteout::m3::PhysicsShape::sourcePoints)
+        .property("sourceTriangles", &whiteout::m3::PhysicsShape::sourceTriangles)
         .property("shapeDimensions", &whiteout::m3::PhysicsShape::shapeDimensions)
-        .property("hullFaceNormals", &whiteout::m3::PhysicsShape::hullFaceNormals)
-        .property("hullVertexPositions", &whiteout::m3::PhysicsShape::hullVertexPositions)
+        .property("hullVertices", &whiteout::m3::PhysicsShape::hullVertices)
+        .property("hullPlanes", &whiteout::m3::PhysicsShape::hullPlanes)
         .property("hullHalfEdges", &whiteout::m3::PhysicsShape::hullHalfEdges)
-        .property("hullVertexFaceIndices", &whiteout::m3::PhysicsShape::hullVertexFaceIndices)
-        .property("hullCenter", &whiteout::m3::PhysicsShape::hullCenter)
-        .property("hullFaceNormalCount", &whiteout::m3::PhysicsShape::hullFaceNormalCount)
+        .property("hullFaceFirstEdges", &whiteout::m3::PhysicsShape::hullFaceFirstEdges)
+        .property("hullCentroid", &whiteout::m3::PhysicsShape::hullCentroid)
         .property("hullVertexCount", &whiteout::m3::PhysicsShape::hullVertexCount)
+        .property("hullFaceCount", &whiteout::m3::PhysicsShape::hullFaceCount)
         .property("hullHalfEdgeCount", &whiteout::m3::PhysicsShape::hullHalfEdgeCount)
-        .property("hullUnknown0", &whiteout::m3::PhysicsShape::hullUnknown0)
-        .property("hullUnknown1", &whiteout::m3::PhysicsShape::hullUnknown1)
+        .property("hullVolume", &whiteout::m3::PhysicsShape::hullVolume)
+        .property("hullSurfaceArea", &whiteout::m3::PhysicsShape::hullSurfaceArea)
         .property("meshBvhNodes", &whiteout::m3::PhysicsShape::meshBvhNodes)
         .property("meshVertexPositions", &whiteout::m3::PhysicsShape::meshVertexPositions)
         .property("meshBoundsCenter", &whiteout::m3::PhysicsShape::meshBoundsCenter)
@@ -1433,7 +1438,7 @@ EMSCRIPTEN_BINDINGS(m3) {
         .property("restitution", &whiteout::m3::RigidBody::restitution)
         .property("linearDamping", &whiteout::m3::RigidBody::linearDamping)
         .property("angularDamping", &whiteout::m3::RigidBody::angularDamping)
-        .property("gravityScale", &whiteout::m3::RigidBody::gravityScale)
+        .property("inertiaScale", &whiteout::m3::RigidBody::inertiaScale)
         .property("dynamicState", &whiteout::m3::RigidBody::dynamicState)
         .property("dynamicBlendOut", &whiteout::m3::RigidBody::dynamicBlendOut)
         .property("rigidBodyShape", &whiteout::m3::RigidBody::rigidBodyShape)
@@ -1460,19 +1465,11 @@ EMSCRIPTEN_BINDINGS(m3) {
         .property("enableShape", &whiteout::m3::PhysicsJoint::enableShape)
     ;
 
-    class_<whiteout::m3::PhysicsConstraint>("M3PhysicsConstraint")
-        .constructor<>()
-        .property("dependents", &whiteout::m3::PhysicsConstraint::dependents)
-        .property("rigidBody1", &whiteout::m3::PhysicsConstraint::rigidBody1)
-        .property("rigidBody2", &whiteout::m3::PhysicsConstraint::rigidBody2)
-        .property("breakForce", &whiteout::m3::PhysicsConstraint::breakForce)
-    ;
-
     class_<whiteout::m3::ClothCollider>("M3ClothCollider")
         .constructor<>()
         .property("radius", &whiteout::m3::ClothCollider::radius)
         .property("height", &whiteout::m3::ClothCollider::height)
-        .property("padding", &whiteout::m3::ClothCollider::padding)
+        .property("bone", &whiteout::m3::ClothCollider::bone)
     ;
 
     class_<whiteout::m3::ClothProxy>("M3ClothProxy")
@@ -1485,7 +1482,7 @@ EMSCRIPTEN_BINDINGS(m3) {
 
     class_<whiteout::m3::ClothPhysics>("M3ClothPhysics")
         .constructor<>()
-        .property("clothMeshCount", &whiteout::m3::ClothPhysics::clothMeshCount)
+        .property("cageRegion", &whiteout::m3::ClothPhysics::cageRegion)
         .property("skinBoneCount", &whiteout::m3::ClothPhysics::skinBoneCount)
         .property("skinBones", &whiteout::m3::ClothPhysics::skinBones)
         .property("simEnabled", &whiteout::m3::ClothPhysics::simEnabled)
@@ -1601,7 +1598,6 @@ EMSCRIPTEN_BINDINGS(m3) {
         .property("warps", &whiteout::m3::Model::warps)
         .property("viewVolumes", &whiteout::m3::Model::viewVolumes)
         .property("rigidBodies", &whiteout::m3::Model::rigidBodies)
-        .property("physicsConstraints", &whiteout::m3::Model::physicsConstraints)
         .property("physicsJoints", &whiteout::m3::Model::physicsJoints)
         .property("clothPhysics", &whiteout::m3::Model::clothPhysics)
         .property("ikTwoJoints", &whiteout::m3::Model::ikTwoJoints)
@@ -1771,7 +1767,6 @@ EMSCRIPTEN_BINDINGS(m3) {
     register_vector<whiteout::m3::OneBoneSolver>("VectorM3OneBoneSolver");
     register_vector<whiteout::m3::ParticleEmitter>("VectorM3ParticleEmitter");
     register_vector<whiteout::m3::ParticleEmitterCopy>("VectorM3ParticleEmitterCopy");
-    register_vector<whiteout::m3::PhysicsConstraint>("VectorM3PhysicsConstraint");
     register_vector<whiteout::m3::PhysicsJoint>("VectorM3PhysicsJoint");
     register_vector<whiteout::m3::PhysicsMeshBvhNode>("VectorM3PhysicsMeshBvhNode");
     register_vector<whiteout::m3::PhysicsShape>("VectorM3PhysicsShape");

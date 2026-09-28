@@ -1641,14 +1641,14 @@ public final class Native {
         "whiteout_m3_M3ConvexHullHalfEdge_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3ConvexHullHalfEdge_delete = find(
         "whiteout_m3_M3ConvexHullHalfEdge_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3ConvexHullHalfEdge_get_type = find("whiteout_m3_M3ConvexHullHalfEdge_get_type", FunctionDescriptor.of(ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3ConvexHullHalfEdge_set_type = find("whiteout_m3_M3ConvexHullHalfEdge_set_type", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_BYTE));
-    public static final MethodHandle whiteout_m3_M3ConvexHullHalfEdge_get_faceIndex = find("whiteout_m3_M3ConvexHullHalfEdge_get_faceIndex", FunctionDescriptor.of(ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3ConvexHullHalfEdge_set_faceIndex = find("whiteout_m3_M3ConvexHullHalfEdge_set_faceIndex", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_BYTE));
-    public static final MethodHandle whiteout_m3_M3ConvexHullHalfEdge_get_vertexIndex = find("whiteout_m3_M3ConvexHullHalfEdge_get_vertexIndex", FunctionDescriptor.of(ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3ConvexHullHalfEdge_set_vertexIndex = find("whiteout_m3_M3ConvexHullHalfEdge_set_vertexIndex", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_BYTE));
-    public static final MethodHandle whiteout_m3_M3ConvexHullHalfEdge_get_nextAroundVertex = find("whiteout_m3_M3ConvexHullHalfEdge_get_nextAroundVertex", FunctionDescriptor.of(ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3ConvexHullHalfEdge_set_nextAroundVertex = find("whiteout_m3_M3ConvexHullHalfEdge_set_nextAroundVertex", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_BYTE));
+    public static final MethodHandle whiteout_m3_M3ConvexHullHalfEdge_get_twinOffset = find("whiteout_m3_M3ConvexHullHalfEdge_get_twinOffset", FunctionDescriptor.of(ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3ConvexHullHalfEdge_set_twinOffset = find("whiteout_m3_M3ConvexHullHalfEdge_set_twinOffset", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_BYTE));
+    public static final MethodHandle whiteout_m3_M3ConvexHullHalfEdge_get_originVertex = find("whiteout_m3_M3ConvexHullHalfEdge_get_originVertex", FunctionDescriptor.of(ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3ConvexHullHalfEdge_set_originVertex = find("whiteout_m3_M3ConvexHullHalfEdge_set_originVertex", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_BYTE));
+    public static final MethodHandle whiteout_m3_M3ConvexHullHalfEdge_get_face = find("whiteout_m3_M3ConvexHullHalfEdge_get_face", FunctionDescriptor.of(ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3ConvexHullHalfEdge_set_face = find("whiteout_m3_M3ConvexHullHalfEdge_set_face", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_BYTE));
+    public static final MethodHandle whiteout_m3_M3ConvexHullHalfEdge_get_nextInFace = find("whiteout_m3_M3ConvexHullHalfEdge_get_nextInFace", FunctionDescriptor.of(ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3ConvexHullHalfEdge_set_nextInFace = find("whiteout_m3_M3ConvexHullHalfEdge_set_nextInFace", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_BYTE));
 
     // -- M3PhysicsMeshBvhNode --
     public static final MethodHandle whiteout_m3_M3PhysicsMeshBvhNode_new = find(
@@ -1699,41 +1699,45 @@ public final class Native {
         "whiteout_m3_M3PhysicsShape_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3PhysicsShape_delete = find(
         "whiteout_m3_M3PhysicsShape_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3PhysicsShape_get_collisionMargin = find("whiteout_m3_M3PhysicsShape_get_collisionMargin", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3PhysicsShape_set_collisionMargin = find("whiteout_m3_M3PhysicsShape_set_collisionMargin", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
     public static final MethodHandle whiteout_m3_M3PhysicsShape_get_shapeType = find("whiteout_m3_M3PhysicsShape_get_shapeType", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3PhysicsShape_set_shapeType = find("whiteout_m3_M3PhysicsShape_set_shapeType", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
-    public static final MethodHandle whiteout_m3_M3PhysicsShape_get_oldSizes = find("whiteout_m3_M3PhysicsShape_get_oldSizes", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3PhysicsShape_set_oldSizes = find("whiteout_m3_M3PhysicsShape_set_oldSizes", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3PhysicsShape_get_sourcePoints_count = find("whiteout_m3_M3PhysicsShape_get_sourcePoints_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3PhysicsShape_resize_sourcePoints = find("whiteout_m3_M3PhysicsShape_resize_sourcePoints", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m3_M3PhysicsShape_get_sourcePoints_data = find("whiteout_m3_M3PhysicsShape_get_sourcePoints_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3PhysicsShape_assign_sourcePoints = find("whiteout_m3_M3PhysicsShape_assign_sourcePoints", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m3_M3PhysicsShape_get_sourceTriangles_count = find("whiteout_m3_M3PhysicsShape_get_sourceTriangles_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3PhysicsShape_resize_sourceTriangles = find("whiteout_m3_M3PhysicsShape_resize_sourceTriangles", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m3_M3PhysicsShape_get_sourceTriangles_data = find("whiteout_m3_M3PhysicsShape_get_sourceTriangles_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3PhysicsShape_assign_sourceTriangles = find("whiteout_m3_M3PhysicsShape_assign_sourceTriangles", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m3_M3PhysicsShape_get_shapeDimensions = find("whiteout_m3_M3PhysicsShape_get_shapeDimensions", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3PhysicsShape_set_shapeDimensions = find("whiteout_m3_M3PhysicsShape_set_shapeDimensions", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3PhysicsShape_get_hullFaceNormals_count = find("whiteout_m3_M3PhysicsShape_get_hullFaceNormals_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3PhysicsShape_resize_hullFaceNormals = find("whiteout_m3_M3PhysicsShape_resize_hullFaceNormals", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
-    public static final MethodHandle whiteout_m3_M3PhysicsShape_get_hullFaceNormals_data = find("whiteout_m3_M3PhysicsShape_get_hullFaceNormals_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3PhysicsShape_assign_hullFaceNormals = find("whiteout_m3_M3PhysicsShape_assign_hullFaceNormals", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
-    public static final MethodHandle whiteout_m3_M3PhysicsShape_get_hullVertexPositions_count = find("whiteout_m3_M3PhysicsShape_get_hullVertexPositions_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3PhysicsShape_resize_hullVertexPositions = find("whiteout_m3_M3PhysicsShape_resize_hullVertexPositions", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
-    public static final MethodHandle whiteout_m3_M3PhysicsShape_get_hullVertexPositions_data = find("whiteout_m3_M3PhysicsShape_get_hullVertexPositions_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3PhysicsShape_assign_hullVertexPositions = find("whiteout_m3_M3PhysicsShape_assign_hullVertexPositions", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m3_M3PhysicsShape_get_hullVertices_count = find("whiteout_m3_M3PhysicsShape_get_hullVertices_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3PhysicsShape_resize_hullVertices = find("whiteout_m3_M3PhysicsShape_resize_hullVertices", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m3_M3PhysicsShape_get_hullVertices_data = find("whiteout_m3_M3PhysicsShape_get_hullVertices_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3PhysicsShape_assign_hullVertices = find("whiteout_m3_M3PhysicsShape_assign_hullVertices", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m3_M3PhysicsShape_get_hullPlanes_count = find("whiteout_m3_M3PhysicsShape_get_hullPlanes_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3PhysicsShape_resize_hullPlanes = find("whiteout_m3_M3PhysicsShape_resize_hullPlanes", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m3_M3PhysicsShape_get_hullPlanes_data = find("whiteout_m3_M3PhysicsShape_get_hullPlanes_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3PhysicsShape_assign_hullPlanes = find("whiteout_m3_M3PhysicsShape_assign_hullPlanes", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m3_M3PhysicsShape_get_hullHalfEdges_count = find("whiteout_m3_M3PhysicsShape_get_hullHalfEdges_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3PhysicsShape_resize_hullHalfEdges = find("whiteout_m3_M3PhysicsShape_resize_hullHalfEdges", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m3_M3PhysicsShape_get_hullHalfEdges_at = find("whiteout_m3_M3PhysicsShape_get_hullHalfEdges_at", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
-    public static final MethodHandle whiteout_m3_M3PhysicsShape_get_hullVertexFaceIndices_count = find("whiteout_m3_M3PhysicsShape_get_hullVertexFaceIndices_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3PhysicsShape_resize_hullVertexFaceIndices = find("whiteout_m3_M3PhysicsShape_resize_hullVertexFaceIndices", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
-    public static final MethodHandle whiteout_m3_M3PhysicsShape_get_hullVertexFaceIndices_data = find("whiteout_m3_M3PhysicsShape_get_hullVertexFaceIndices_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3PhysicsShape_assign_hullVertexFaceIndices = find("whiteout_m3_M3PhysicsShape_assign_hullVertexFaceIndices", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
-    public static final MethodHandle whiteout_m3_M3PhysicsShape_get_hullCenter = find("whiteout_m3_M3PhysicsShape_get_hullCenter", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3PhysicsShape_set_hullCenter = find("whiteout_m3_M3PhysicsShape_set_hullCenter", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3PhysicsShape_get_hullFaceNormalCount = find("whiteout_m3_M3PhysicsShape_get_hullFaceNormalCount", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3PhysicsShape_set_hullFaceNormalCount = find("whiteout_m3_M3PhysicsShape_set_hullFaceNormalCount", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_m3_M3PhysicsShape_get_hullFaceFirstEdges_count = find("whiteout_m3_M3PhysicsShape_get_hullFaceFirstEdges_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3PhysicsShape_resize_hullFaceFirstEdges = find("whiteout_m3_M3PhysicsShape_resize_hullFaceFirstEdges", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m3_M3PhysicsShape_get_hullFaceFirstEdges_data = find("whiteout_m3_M3PhysicsShape_get_hullFaceFirstEdges_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3PhysicsShape_assign_hullFaceFirstEdges = find("whiteout_m3_M3PhysicsShape_assign_hullFaceFirstEdges", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m3_M3PhysicsShape_get_hullCentroid = find("whiteout_m3_M3PhysicsShape_get_hullCentroid", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3PhysicsShape_set_hullCentroid = find("whiteout_m3_M3PhysicsShape_set_hullCentroid", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3PhysicsShape_get_hullVertexCount = find("whiteout_m3_M3PhysicsShape_get_hullVertexCount", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3PhysicsShape_set_hullVertexCount = find("whiteout_m3_M3PhysicsShape_set_hullVertexCount", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_m3_M3PhysicsShape_get_hullFaceCount = find("whiteout_m3_M3PhysicsShape_get_hullFaceCount", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3PhysicsShape_set_hullFaceCount = find("whiteout_m3_M3PhysicsShape_set_hullFaceCount", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
     public static final MethodHandle whiteout_m3_M3PhysicsShape_get_hullHalfEdgeCount = find("whiteout_m3_M3PhysicsShape_get_hullHalfEdgeCount", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3PhysicsShape_set_hullHalfEdgeCount = find("whiteout_m3_M3PhysicsShape_set_hullHalfEdgeCount", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
-    public static final MethodHandle whiteout_m3_M3PhysicsShape_get_hullUnknown0 = find("whiteout_m3_M3PhysicsShape_get_hullUnknown0", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3PhysicsShape_set_hullUnknown0 = find("whiteout_m3_M3PhysicsShape_set_hullUnknown0", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
-    public static final MethodHandle whiteout_m3_M3PhysicsShape_get_hullUnknown1 = find("whiteout_m3_M3PhysicsShape_get_hullUnknown1", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3PhysicsShape_set_hullUnknown1 = find("whiteout_m3_M3PhysicsShape_set_hullUnknown1", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
+    public static final MethodHandle whiteout_m3_M3PhysicsShape_get_hullVolume = find("whiteout_m3_M3PhysicsShape_get_hullVolume", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3PhysicsShape_set_hullVolume = find("whiteout_m3_M3PhysicsShape_set_hullVolume", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
+    public static final MethodHandle whiteout_m3_M3PhysicsShape_get_hullSurfaceArea = find("whiteout_m3_M3PhysicsShape_get_hullSurfaceArea", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3PhysicsShape_set_hullSurfaceArea = find("whiteout_m3_M3PhysicsShape_set_hullSurfaceArea", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
     public static final MethodHandle whiteout_m3_M3PhysicsShape_get_meshBvhNodes_count = find("whiteout_m3_M3PhysicsShape_get_meshBvhNodes_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3PhysicsShape_resize_meshBvhNodes = find("whiteout_m3_M3PhysicsShape_resize_meshBvhNodes", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m3_M3PhysicsShape_get_meshBvhNodes_at = find("whiteout_m3_M3PhysicsShape_get_meshBvhNodes_at", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
@@ -1785,8 +1789,8 @@ public final class Native {
     public static final MethodHandle whiteout_m3_M3RigidBody_set_linearDamping = find("whiteout_m3_M3RigidBody_set_linearDamping", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
     public static final MethodHandle whiteout_m3_M3RigidBody_get_angularDamping = find("whiteout_m3_M3RigidBody_get_angularDamping", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3RigidBody_set_angularDamping = find("whiteout_m3_M3RigidBody_set_angularDamping", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
-    public static final MethodHandle whiteout_m3_M3RigidBody_get_gravityScale = find("whiteout_m3_M3RigidBody_get_gravityScale", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3RigidBody_set_gravityScale = find("whiteout_m3_M3RigidBody_set_gravityScale", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
+    public static final MethodHandle whiteout_m3_M3RigidBody_get_inertiaScale = find("whiteout_m3_M3RigidBody_get_inertiaScale", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3RigidBody_set_inertiaScale = find("whiteout_m3_M3RigidBody_set_inertiaScale", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
     public static final MethodHandle whiteout_m3_M3RigidBody_get_dynamicState = find("whiteout_m3_M3RigidBody_get_dynamicState", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3RigidBody_set_dynamicState = find("whiteout_m3_M3RigidBody_set_dynamicState", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3RigidBody_get_dynamicBlendOut = find("whiteout_m3_M3RigidBody_get_dynamicBlendOut", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
@@ -1835,22 +1839,6 @@ public final class Native {
     public static final MethodHandle whiteout_m3_M3PhysicsJoint_get_enableShape = find("whiteout_m3_M3PhysicsJoint_get_enableShape", FunctionDescriptor.of(ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3PhysicsJoint_set_enableShape = find("whiteout_m3_M3PhysicsJoint_set_enableShape", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_BYTE));
 
-    // -- M3PhysicsConstraint --
-    public static final MethodHandle whiteout_m3_M3PhysicsConstraint_new = find(
-        "whiteout_m3_M3PhysicsConstraint_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3PhysicsConstraint_delete = find(
-        "whiteout_m3_M3PhysicsConstraint_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3PhysicsConstraint_get_dependents_count = find("whiteout_m3_M3PhysicsConstraint_get_dependents_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3PhysicsConstraint_resize_dependents = find("whiteout_m3_M3PhysicsConstraint_resize_dependents", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
-    public static final MethodHandle whiteout_m3_M3PhysicsConstraint_get_dependents_data = find("whiteout_m3_M3PhysicsConstraint_get_dependents_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3PhysicsConstraint_assign_dependents = find("whiteout_m3_M3PhysicsConstraint_assign_dependents", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
-    public static final MethodHandle whiteout_m3_M3PhysicsConstraint_get_rigidBody1 = find("whiteout_m3_M3PhysicsConstraint_get_rigidBody1", FunctionDescriptor.of(ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3PhysicsConstraint_set_rigidBody1 = find("whiteout_m3_M3PhysicsConstraint_set_rigidBody1", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT));
-    public static final MethodHandle whiteout_m3_M3PhysicsConstraint_get_rigidBody2 = find("whiteout_m3_M3PhysicsConstraint_get_rigidBody2", FunctionDescriptor.of(ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3PhysicsConstraint_set_rigidBody2 = find("whiteout_m3_M3PhysicsConstraint_set_rigidBody2", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT));
-    public static final MethodHandle whiteout_m3_M3PhysicsConstraint_get_breakForce = find("whiteout_m3_M3PhysicsConstraint_get_breakForce", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3PhysicsConstraint_set_breakForce = find("whiteout_m3_M3PhysicsConstraint_set_breakForce", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
-
     // -- M3ClothCollider --
     public static final MethodHandle whiteout_m3_M3ClothCollider_new = find(
         "whiteout_m3_M3ClothCollider_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
@@ -1860,8 +1848,8 @@ public final class Native {
     public static final MethodHandle whiteout_m3_M3ClothCollider_set_radius = find("whiteout_m3_M3ClothCollider_set_radius", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
     public static final MethodHandle whiteout_m3_M3ClothCollider_get_height = find("whiteout_m3_M3ClothCollider_get_height", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3ClothCollider_set_height = find("whiteout_m3_M3ClothCollider_set_height", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
-    public static final MethodHandle whiteout_m3_M3ClothCollider_get_padding = find("whiteout_m3_M3ClothCollider_get_padding", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3ClothCollider_set_padding = find("whiteout_m3_M3ClothCollider_set_padding", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_m3_M3ClothCollider_get_bone = find("whiteout_m3_M3ClothCollider_get_bone", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3ClothCollider_set_bone = find("whiteout_m3_M3ClothCollider_set_bone", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
 
     // -- M3ClothProxy --
     public static final MethodHandle whiteout_m3_M3ClothProxy_new = find(
@@ -1886,8 +1874,8 @@ public final class Native {
         "whiteout_m3_M3ClothPhysics_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3ClothPhysics_delete = find(
         "whiteout_m3_M3ClothPhysics_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3ClothPhysics_get_clothMeshCount = find("whiteout_m3_M3ClothPhysics_get_clothMeshCount", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3ClothPhysics_set_clothMeshCount = find("whiteout_m3_M3ClothPhysics_set_clothMeshCount", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_m3_M3ClothPhysics_get_cageRegion = find("whiteout_m3_M3ClothPhysics_get_cageRegion", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3ClothPhysics_set_cageRegion = find("whiteout_m3_M3ClothPhysics_set_cageRegion", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
     public static final MethodHandle whiteout_m3_M3ClothPhysics_get_skinBoneCount = find("whiteout_m3_M3ClothPhysics_get_skinBoneCount", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3ClothPhysics_set_skinBoneCount = find("whiteout_m3_M3ClothPhysics_set_skinBoneCount", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
     public static final MethodHandle whiteout_m3_M3ClothPhysics_get_skinBones_count = find("whiteout_m3_M3ClothPhysics_get_skinBones_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
@@ -2166,9 +2154,6 @@ public final class Native {
     public static final MethodHandle whiteout_m3_M3Model_get_rigidBodies_count = find("whiteout_m3_M3Model_get_rigidBodies_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3Model_resize_rigidBodies = find("whiteout_m3_M3Model_resize_rigidBodies", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m3_M3Model_get_rigidBodies_at = find("whiteout_m3_M3Model_get_rigidBodies_at", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
-    public static final MethodHandle whiteout_m3_M3Model_get_physicsConstraints_count = find("whiteout_m3_M3Model_get_physicsConstraints_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3Model_resize_physicsConstraints = find("whiteout_m3_M3Model_resize_physicsConstraints", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
-    public static final MethodHandle whiteout_m3_M3Model_get_physicsConstraints_at = find("whiteout_m3_M3Model_get_physicsConstraints_at", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m3_M3Model_get_physicsJoints_count = find("whiteout_m3_M3Model_get_physicsJoints_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3Model_resize_physicsJoints = find("whiteout_m3_M3Model_resize_physicsJoints", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m3_M3Model_get_physicsJoints_at = find("whiteout_m3_M3Model_get_physicsJoints_at", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));

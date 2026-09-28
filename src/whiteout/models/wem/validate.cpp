@@ -14,6 +14,7 @@
 #include <whiteout/models/wem/materials/ops.h>
 #include <whiteout/models/wem/meshes/remove.h>
 #include <whiteout/models/wem/nodes/remove.h>
+#include <whiteout/models/wem/physics/references.h>
 
 namespace whiteout {
 namespace models {
@@ -984,17 +985,38 @@ void checkSkinSetup(const Document& document, Diagnostics& out) {
     }
 }
 
+/// WEM_PHYSICS_DESIGN.md §3.11's structural and warning rules.
+void checkPhysics(const Document& document, Diagnostics& out) {
+    for (const Model& model : document.models) {
+        CheckPhysics(model, out);
+    }
+}
+
+/// §3.11's profile rules, for each profile the document carries.
+void checkPhysicsLimits(const Document& document, Diagnostics& out) {
+    for (const Model& model : document.models) {
+        for (u32 p = 0; p < static_cast<u32>(ProfileId::Count); ++p) {
+            const ProfileId profile = static_cast<ProfileId>(p);
+            if (document.carries(profile)) {
+                CheckPhysicsForProfile(model, profile, out);
+            }
+        }
+    }
+}
+
 constexpr ValidationRule kStructuralRules[] = {
     checkMeshStructure,    checkProfileDeclarations, checkBindingShape,
     checkMaterialBodies,   checkNativeKinds,         checkMaterialReferencers,
     checkAttachments,      checkAnimation,           checkNodeKindProfiles,
     checkEmitters,         checkMeshReferencers,     checkSkinReferencers,
-    checkSkinValues,       checkSkinSetup,           nullptr,
+    checkSkinValues,       checkSkinSetup,           checkPhysics,
+    nullptr,
 };
 constexpr ValidationRule kManifoldRules[] = {checkMeshManifold, nullptr};
 constexpr ValidationRule kProfileRules[] = {
     checkCoverage,        checkMaterialLimits, checkGeometryLimits,
-    checkAnimReferencers, checkLayering,       nullptr,
+    checkAnimReferencers, checkLayering,       checkPhysicsLimits,
+    nullptr,
 };
 
 /// The tables above carry a `nullptr` terminator because a zero-sized array is

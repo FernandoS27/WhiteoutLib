@@ -4,13 +4,15 @@
 
 namespace Whiteout.M3;
 
-/// <summary>Force influence type (FOR_)</summary>
+/// <summary>Force-field kind (FOR_), as the SC2 5.0 client applies it</summary>
 public enum ForceType : int
 {
-    /// <summary>Radial force (outward from center)</summary>
-    Radial = 0,
-    /// <summary>Wind force (directional)</summary>
-    Wind = 1,
-    /// <summary>Explosion force (impulse)</summary>
-    Explosion = 2,
+    /// <summary>Pushes along the field's own axis</summary>
+    Directional = 0,
+    /// <summary>Pushes away from the centre (toward it when negative)</summary>
+    Radial = 1,
+    /// <summary>Slows what moves through it</summary>
+    Drag = 2,
+    /// <summary>Swirls around the field's axis</summary>
+    Vortex = 3,
 }

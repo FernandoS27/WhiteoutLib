@@ -176,6 +176,24 @@ enum class DiagCode : u16 {
     SkinInfluencesUnsorted,  ///< A vertex's influences are not heaviest first.
     SkinSetupInvalid,        ///< The saved skin setup disagrees with the document (§13.4).
 
+    // --- physics (WEM_PHYSICS_DESIGN.md §13) -----------------------------------
+    PhysicsConstraintDropped,    ///< A `PHCT` on import: none ships and the client never reads it.
+    PhysicsVersionRefused,       ///< A chunk version the client refuses (`WRP_` v0); dropped.
+    PhysicsMaterialMerged,       ///< A body's shapes disagree on material; the first shape's wins.
+    PhysicsGravityScaleDropped,  ///< A body's gravity scale is not 1, which StarCraft II cannot say.
+    PhysicsJointKindUnsupported, ///< A joint kind the target has no record for; not written.
+    PhysicsJointFieldDropped,    ///< A joint field the target cannot say (springs, breaking, rest).
+    PhysicsJointBodyAmbiguous,   ///< A joint body is not the first on its node, which the target binds.
+    PhysicsHullSimplified,       ///< A hull merged faces to fit the cooked tables' limits.
+    PhysicsReferenceInvalid,     ///< A record names a node, body, section or collider that is not there.
+    PhysicsJointSnaps,           ///< A joint's two frames disagree at rest; it snaps on the first step.
+    PhysicsShapeDegenerate,      ///< A hull with no volume, or a mesh with no triangle.
+    PhysicsUnsupported,          ///< A shape kind, joint kind or cloth the target profile does not carry.
+    ClothParticleLimit,          ///< A cage outside the target's particle range.
+    ClothAnchorBoneOutOfRange,   ///< A cloth anchor names a bone past the byte the target stores.
+    ClothSectionSplit,           ///< A cloth section needs more bones than one region's palette.
+    ClothTopologyInvalid,        ///< A cage not flagged, a binding in another mesh, a lane past the cage.
+
     Count
 };
 
@@ -208,6 +226,7 @@ enum class ElementKind : u8 {
     Channel,
     Track,
     Chunk,
+    PhysicsRecord, ///< A `PhysicsSet` record, by id.
 };
 
 const char* ToString(ElementKind kind);

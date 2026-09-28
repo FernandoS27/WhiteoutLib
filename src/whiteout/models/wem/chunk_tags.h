@@ -188,11 +188,11 @@ struct ChunkTagTraits<Document> {
 /// the Skin workspace's `testPoses` (EDIT_MODE_SKIN_DESIGN.md §13.4); v4 the
 /// `LodExport` setting (EDIT_MODE_MODELLING_DESIGN.md §8.2); v5 `tPose`, which
 /// of those poses is the recovered T (EDIT_MODE_TPOSE_DESIGN.md §7); v6 the
-/// track sets.
+/// track sets; v7 the pose stages; v8 the physics set (WEM_PHYSICS_DESIGN.md §3).
 template <>
 struct ChunkTagTraits<Model> {
     static constexpr u32 value = kTag("MODL");
-    static constexpr u32 max_version = 7;
+    static constexpr u32 max_version = 8;
     static constexpr bool is_trivial = false;
 };
 
@@ -279,7 +279,8 @@ struct ChunkTagTraits<Matrix44f> {
 /// rest of the World of Warcraft particle record (inherit and follow, tumble,
 /// the `EXPT` multipliers and the `EXP2` alpha cutoff); v12 `poseSources`,
 /// where each of a node's saved deltas came from (EDIT_MODE_TPOSE_DESIGN.md
-/// §7); v13 a camera's depth of field (MDX v1800's IDUF/ELAF/PTSF rests).
+/// §7); v13 a camera's depth of field (MDX v1800's IDUF/ELAF/PTSF rests); v14
+/// the `ForceField` and `VertexWarp` kinds (WEM_PHYSICS_DESIGN.md §3.8).
 /// An older chunk holds none of them, so it reads unchanged. A NEWER one does
 /// not: records sit back to back, and nothing checks a chunk's version against
 /// this, so a build older than a field misreads every node after the first
@@ -287,7 +288,7 @@ struct ChunkTagTraits<Matrix44f> {
 template <>
 struct ChunkTagTraits<Node> {
     static constexpr u32 value = kTag("NODE");
-    static constexpr u32 max_version = 13;
+    static constexpr u32 max_version = 14;
     static constexpr bool is_trivial = false;
 };
 
@@ -519,7 +520,7 @@ struct ChunkTagTraits<TrackSet> {
 template <>
 struct ChunkTagTraits<PoseStage> {
     static constexpr u32 value = kTag("PSTG");
-    static constexpr u32 max_version = 1;
+    static constexpr u32 max_version = 2;
     static constexpr bool is_trivial = false;
 };
 
@@ -527,6 +528,57 @@ struct ChunkTagTraits<PoseStage> {
 template <>
 struct ChunkTagTraits<StageSource> {
     static constexpr u32 value = kTag("PSRC");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+// --- Physics (WEM_PHYSICS_DESIGN.md §3) ---
+
+template <>
+struct ChunkTagTraits<PhysicsBody> {
+    static constexpr u32 value = kTag("PBDY");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<PhysicsShape> {
+    static constexpr u32 value = kTag("PSHP");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<PhysicsJoint> {
+    static constexpr u32 value = kTag("PJNT");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<ClothCollider> {
+    static constexpr u32 value = kTag("PCOL");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<Cloth> {
+    static constexpr u32 value = kTag("CLTH");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<ClothBinding> {
+    static constexpr u32 value = kTag("CBND");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<PhysicsRig> {
+    static constexpr u32 value = kTag("PRIG");
     static constexpr u32 max_version = 1;
     static constexpr bool is_trivial = false;
 };
@@ -634,6 +686,13 @@ inline constexpr u32 kKnownChunkTags[] = {
     ChunkTagTraits<PoseStage>::value,
     ChunkTagTraits<StageSource>::value,
     ChunkTagTraits<ClipTrackSet>::value,
+    ChunkTagTraits<PhysicsBody>::value,
+    ChunkTagTraits<PhysicsShape>::value,
+    ChunkTagTraits<PhysicsJoint>::value,
+    ChunkTagTraits<ClothCollider>::value,
+    ChunkTagTraits<Cloth>::value,
+    ChunkTagTraits<ClothBinding>::value,
+    ChunkTagTraits<PhysicsRig>::value,
     ChunkTagTraits<AnimTag>::value,
     ChunkTagTraits<AnimSet>::value,
     kWoemMagic, // slot 0 is the header's own entry, not a chunk

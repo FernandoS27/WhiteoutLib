@@ -53,10 +53,12 @@ CONFIG = ModuleConfig(
         'include/whiteout/models/wem/geometry/skin.h',
         'include/whiteout/models/wem/geometry/mesh.h',
         'include/whiteout/models/wem/nodes/emitters.h',
+        'include/whiteout/models/wem/nodes/fields.h',
         'include/whiteout/models/wem/nodes/node.h',
         'include/whiteout/models/wem/nodes/tree.h',
         'include/whiteout/models/wem/anim/channel.h',
         'include/whiteout/models/wem/anim/clip.h',
+        'include/whiteout/models/wem/physics/physics.h',
         'include/whiteout/models/wem/model.h',
         'include/whiteout/models/wem/document.h',
         'include/whiteout/models/wem/parser.h',
@@ -64,7 +66,7 @@ CONFIG = ModuleConfig(
         'include/whiteout/models/wem/validate.h',
     ],
     output_path='bindings/wasm/wem_bindings.cpp',
-    pybind_parts=3,
+    pybind_parts=4,
     include_dirs=['include'],
     # bindings.cpp registers these — don't double-register here.
     skip_vector_js_names=[

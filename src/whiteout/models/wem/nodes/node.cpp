@@ -132,6 +132,10 @@ const char* ToString(NodeKind kind) {
         return "wc3_corn_emitter";
     case NodeKind::M2ParticleEmitter:
         return "m2_particle_emitter";
+    case NodeKind::ForceField:
+        return "force_field";
+    case NodeKind::VertexWarp:
+        return "vertex_warp";
     case NodeKind::Count:
         break;
     }
@@ -225,6 +229,12 @@ void Node::resetPayloadForKind() {
         break;
     case NodeKind::M2ParticleEmitter:
         payload = M2ParticleEmitterPayload{};
+        break;
+    case NodeKind::ForceField:
+        payload = ForceFieldPayload{};
+        break;
+    case NodeKind::VertexWarp:
+        payload = VertexWarpPayload{};
         break;
     case NodeKind::Count:
         break;

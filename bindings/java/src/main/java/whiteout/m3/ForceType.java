@@ -3,15 +3,17 @@
 package whiteout.m3;
 
 /**
- * Force influence type (FOR_)
+ * Force-field kind (FOR_), as the SC2 5.0 client applies it
  */
 public enum ForceType {
-    /** Radial force (outward from center) */
-    Radial(0),
-    /** Wind force (directional) */
-    Wind(1),
-    /** Explosion force (impulse) */
-    Explosion(2);
+    /** Pushes along the field's own axis */
+    Directional(0),
+    /** Pushes away from the centre (toward it when negative) */
+    Radial(1),
+    /** Slows what moves through it */
+    Drag(2),
+    /** Swirls around the field's axis */
+    Vortex(3);
 
     public final int value;
     ForceType(int v) { this.value = v; }

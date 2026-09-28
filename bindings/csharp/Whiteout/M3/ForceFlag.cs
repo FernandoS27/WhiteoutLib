@@ -14,4 +14,8 @@ public enum ForceFlag : int
     HeightGradient = 2,
     /// <summary>Unbounded range</summary>
     Unbounded = 4,
+    /// <summary>Acts on particles and ribbons; v0/v1 fields get it on upgrade</summary>
+    AffectsParticles = 8,
+    /// <summary>Acts on rigid bodies whose force mask it matches; likewise</summary>
+    AffectsBodies = 16,
 }

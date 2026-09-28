@@ -2604,18 +2604,28 @@ struct PROJ {
 
 ## 13. Physics
 
+Every physics chunk is described below at its **current** version, the only one the library
+writes. Older versions are read and then upgraded exactly as the SC2 5.0 client upgrades them at
+load (`UpgradePhysics`, `physics_upgrade.h`; the client's `M3_UpgradePHRB/PHSH/PHCL`): what an
+old layout lacks gets the client's default, and what it has that the current one does not is
+dropped. A hull or mesh shape's cooked tables are the ones the client's own builders produce
+(`physics_cook.h`, §13.7), so a parsed model is what the game simulates.
+
+Fields marked *never read* have no reader in the 5.0 client; the writer puts back the value it
+read, or the retail default on a record it built.
+
 ### 13.1 FOR_ — Force
 
-**Tag**: `FOR_` | **Versions**: v1=104, v2=104 bytes
+**Tag**: `FOR_` | **Version**: v2 = 104 bytes (v0, v1 read)
 
 ```cpp
 struct FOR {
-    u32             forceType;
-    u32             forceShape;
-    u32             unknown;
+    u32             forceType;      // ForceType
+    u32             forceShape;     // ForceShape
+    u32             unknown;        // read as local/world scope; no reader traced
     u32             boneIndex;
-    Flag            flags;
-    u32             channels;
+    Flag            flags;          // ForceFlag
+    u32             localChannels;  // matched against body and emitter masks
     AnimRef<f32>    strength;
     AnimRef<f32>    width;
     AnimRef<f32>    height;
@@ -2623,13 +2633,24 @@ struct FOR {
 };
 ```
 
-**FOR_ Flags:**
+| forceType | Name | | forceShape | Name |
+|---|---|---|---|---|
+| 0 | Directional, along the field's axis | | 0 | Sphere |
+| 1 | Radial, from the centre (toward it when negative) | | 1 | Cylinder |
+| 2 | Drag | | 2 | Box |
+| 3 | Vortex, around the field's axis | | 3 | Hemisphere |
+| | | | 4 | Cone |
 
-| Mask | Name | Description |
+| Flag | Name | Description |
 |------|------|-------------|
 | 0x01 | falloff | Distance falloff |
 | 0x02 | heightGradient | Height gradient |
 | 0x04 | unbounded | Unbounded range |
+| 0x08 | affectsParticles | Acts on particles and ribbons |
+| 0x10 | affectsBodies | Acts on a rigid body whose `localForces \| worldForces << 16` shares a bit with `localChannels` |
+
+**Upgrade.** v0 and v1 get `flags |= 0x18`. On v0, shape 2 was a vortex cylinder and becomes
+`forceType = 3, forceShape = 1`; shapes 3 and up move down by one.
 
 ### 13.2 WRP_ — Warp
 
@@ -2649,70 +2670,62 @@ struct WRP {
 };
 ```
 
+A vertex-shader deformation particles and ribbons opt into. The client refuses a v0 record, so
+the parser drops one.
+
 ### 13.3 PHRB — Rigid Body
 
-**Tag**: `PHRB` | **Versions**: v2=104, v3=56, v4=80 bytes
+**Tag**: `PHRB` | **Version**: v4 = 80 bytes (v0 = 72, v1 = 96, v2 = 104, v3 = 56 read)
 
 ```cpp
 struct PHRB {
-    if (version <= 2) {
-        // Legacy Havok-era layout (80-byte base + post-ref fields)
-        f32             density;            // Mass density
-        f32             friction;           // Surface friction
-        f32             restitution;        // Bounce / elasticity
-        f32             linearDamping;      // Linear velocity damping
-        f32             angularDamping;     // Angular velocity damping
-        f32             gravityScale;       // Gravity multiplier
-        f32             inertiaTensor[3][3];// 3x3 symmetric inertia tensor (36 bytes)
-        u16             parentBoneIndex;    // Parent/anchor bone
-        u16             boneIndex;          // Legacy bone index (typically == parentBoneIndex)
-        u32             reserved[4];        // Always 0 (16 bytes)
-    }
-    if (version >= 3) {
-        u16             simulationType;     // Simulation mode
-        u16             parentBoneIndex;    // Parent/anchor bone
-        u32             physicsType;        // Engine-specific rigid body type
-        f32             density;            // Mass density
-        f32             friction;           // Surface friction
-        f32             restitution;        // Bounce / elasticity
-        f32             linearDamping;      // Linear velocity damping
-        f32             angularDamping;     // Angular velocity damping
-        f32             gravityScale;       // Gravity multiplier
-    }
-    if (version >= 4) {
-        AnimRef<u32>    dynamicState;       // Animated dynamic/static state
-        f32             dynamicBlendOut;    // Dynamic state blend-out factor
-    }
-    // Present in all versions
-    Ref<PHSH>           rigidBodyShape;     // Reference to physics shape
-    Flag                flags;              // RigidBodyFlag bitmask
-    u16                 localForces;        // Local force channel bitmask
-    u16                 worldForces;        // World force channel bitmask
-    u32                 priority;           // Solver/update priority
+    u16             simulationType;     // creation type: 0 dynamic, 1 kinematic, 2 static
+    u16             parentBoneIndex;
+    u32             physicsType;        // physics-material id game data may override
+    f32             density;
+    f32             friction;
+    f32             restitution;
+    f32             linearDamping;
+    f32             angularDamping;
+    f32             inertiaScale;       // Domino's inertia scale; gravity scale is fixed at 1
+    AnimRef<u32>    dynamicState;       // simulates now (see below)
+    f32             dynamicBlendOut;    // never read
+    Ref<PHSH>       shapes;
+    Flag            flags;              // RigidBodyFlag
+    u16             localForces;        // force channel masks (§13.1)
+    u16             worldForces;
+    u32             priority;           // never read
 };
 ```
 
-Parser behavior summary:
-- `version <= 2`: reads legacy Havok-era layout with 80-byte base (including inertia tensor) + 12-byte Ref<PHSH> + 12-byte post-ref fields = **104 bytes total**
-- `version == 3`: reads modern layout without `dynamicState`/`dynamicBlendOut` = **56 bytes**
-- `version >= 4`: reads full v4+ layout with animated dynamic state = **80 bytes**
-
-**PHRB Flags:**
+`simulationType` is how the body is **created**; whether it simulates at a moment is
+`dynamicState`, which the client samples only when its AnimRef flag bit 1 (0x2) is set and
+otherwise reads as `initValue`. It flips the body between kinematic and dynamic every frame, which
+is why nearly every shipped body is type 1 and a `*DeathRagdoll` still collapses. Type 2 never
+switches.
 
 | Mask   | Name | Description |
 |--------|------|-------------|
-| 0x0001 | collidable | Can collide |
-| 0x0002 | walkable | Walkable surface |
-| 0x0004 | stackable | Can be stacked |
-| 0x0008 | simulateCollision | Simulate collisions |
-| 0x0010 | ignoreLocalBodies | Ignore local bodies |
-| 0x0020 | alwaysExists | Always present |
-| 0x0040 | unknown6 | Unknown (16.2% of entries have this set) |
-| 0x0080 | noSimulation | Disable simulation |
-| 0x0200 | unknown9 | Unknown (5.3% of entries have this set) |
+| 0x0001 | collidable | } The collision filter: a kinematic or static body with |
+| 0x0002 | walkable | } neither 0x1 nor 0x2 collides with nothing |
+| 0x0004 | stackable | |
+| 0x0008 | simulateCollision | |
+| 0x0010 | — | No reader in the 5.0 client |
+| 0x0020 | — | No reader in the 5.0 client |
+| 0x0040 | inheritDynamic | Takes the nearest bodied ancestor's current state instead of its own `dynamicState` |
+| 0x0080 | keepBoneDriven | Setup and deactivation leave the bone's physics bit alone |
+| 0x0100 | exemptFromRagdoll | Stays kinematic when the game ragdolls the model (Heroes) |
+| 0x0200 | — | No reader in the 5.0 client |
 
-Most common flag combinations: 0x0021 (37.4%), 0x0025 (22.2%), 0x0061 (16.2%),
-0x0065 (8.0%), 0x0221 (5.3%).  37 distinct flag values observed in the corpus.
+**Upgrade.**
+- **v0–v2** (Havok era): a material of six floats, an inertia tensor on v1/v2, the bone twice and
+  four reserved words, then the shape Ref. The client keeps only the bone and the shapes: density
+  1000, friction 0.3, restitution and both dampings 0, inertia scale 1, `physicsType` 24,
+  `simulationType` 0.
+- **v0/v1** end in four bytes instead of the flags and masks: `localForces = 1 << b0` (0 when b0
+  is 0), `worldForces = b1 != 0`, and on v1 `flags = b2` (v0: collidable).
+- **v0–v3** get `dynamicState = {animId 0xFFFFFFFF, initValue 0, flags 0}` and `dynamicBlendOut
+  = 0`.
 
 **PHRB World Forces:**
 
@@ -2727,118 +2740,66 @@ Most common flag combinations: 0x0021 (37.4%), 0x0025 (22.2%), 0x0061 (16.2%),
 | 0x40 | brush |
 | 0x80 | trees |
 
-**Rigid Body Shape** (PHSH): v1=132, v2=292, v3=300 bytes
-
-Parser-aligned versioned layout (`visit(PhysicsShape&)`):
-- v1 and below use a legacy-only branch
-- v2+ use the modern layout with hull/mesh sections
-- v3+ mesh references are interleaved with the hull section
-- v2 mesh references follow `meshTolerance`, replacing the v3+ positions
+**Rigid Body Shape** (PHSH): v3 = 300 bytes (v0 = 96, v1 = 132, v2 = 292 read)
 
 ```cpp
 struct PHSH {
-    Matrix44f   transform;
+    Matrix44f   transform;          // shape frame -> the body's bone frame; rows may scale
+    u8          shapeType;          // 0 box, 1 sphere, 2 capsule, 3 cylinder, 4 convex hull, 5 mesh
+    u8          padding[3];
+    Ref<VEC3>   sourcePoints;       // +68: uncooked points (the upgrade's input)
+    Ref<U16_>   sourceTriangles;    // +80: uncooked triangle list
+    Vector3f    shapeDimensions;    // box half-extents; sphere radius; capsule/cylinder radius, length
 
-    if (version <= 1) {
-        // Legacy v1 layout
-        f32         collisionMargin;    // Havok convex radius
-        u8          shapeType;          // Shape type enum
-        u8          padding[3];
-        Ref<VEC3>   legacyVertices;
-        Ref<U8__>   unknown0;
-        Ref<U16_>   faceIndices;
-        Ref<VEC4>   planeEquations;
-        Vector3f    halfExtents;
-    }
+    // Cooked convex hull (kind 4), a Domino polytope used as is
+    Ref<VEC3>   hullVertices;
+    Ref<VEC4>   hullPlanes;         // face planes (n, d), n unit length
+    Ref<DMSE>   hullHalfEdges;      // twin pairs
+    Ref<U8__>   hullFaceFirstEdges; // each face's first half-edge
+    Vector3f    hullCentroid;       // volume centroid
+    u32         hullVertexCount;    // the counts the client reads, not the Refs'
+    u32         hullFaceCount;
+    u32         hullHalfEdgeCount;
+    f32         hullVolume;         // cached mass data
+    f32         hullSurfaceArea;
 
-    if (version >= 2) {
-        // Modern v2+ layout
-        u8          shapeType;          // 0=box, 1=sphere, 2=capsule, 3=cylinder, 4=convex_hull, 5=mesh
-        u8          padding[3];
-        Vector3f    oldSizes;           // v1 leftover, usually zero
-
-        // Convex/simple-shape section
-        Ref<?>      reserved0;          // Always empty
-        Vector3f    shapeDimensions;    // Shape dimensions for types 0–3, zero for 4–5
-        Ref<VEC3>   hullFaceNormals;    // Per-face normals (shapeType=4)
-        Ref<VEC4>   hullVertexPositions;// Vertex positions (w=0)
-        Ref<DMSE>   hullHalfEdges;      // Half-edge connectivity
-        Ref<U8__>   hullVertexFaceIndices;// One face index per vertex
-        Vector3f    hullCenter;         // Hull centroid
-        u32         hullFaceNormalCount;
-        u32         hullVertexCount;
-        u32         hullHalfEdgeCount;
-        f32         hullUnknown0;
-        f32         hullUnknown1;
-    }
-
-    if (version >= 3) {
-        // v3+ mesh section
-        Ref<DMMN>   meshBvhNodes;       // k-DOP BVH tree nodes (see §14.9b)
-        Ref<VEC4>   meshVertexPositions;// Vertex positions in mesh-local space (w=0)
-        Ref<MT16>   meshFaceIndices16;  // 16-bit triangle indices (or empty)
-        Ref<MT32>   meshFaceIndices32;  // 32-bit triangle indices (or empty)
-    }
-
-    if (version >= 2) {
-        // Mesh AABB / quantization grid
-        Vector3f    meshBoundsCenter;   // AABB center in model space (quantization grid origin)
-        Vector3f    meshBoundsExtent;   // AABB half-extents (defines quantization range)
-        Vector3f    meshTolerance;      // Per-axis quantization step (= extent / 32767)
-    }
-
-    if (version == 2) {
-        // v2 mesh section (entry ends at 292 bytes, not 300)
-        Ref<DMMN>   meshBvhNodes;
-        Ref<VEC3>   meshVertexPositions;// VEC3, not VEC4
-        Ref<DMMT>   unknown;            // Physics mesh triangles
-        Ref<DMME>   unknown2;           // Physics mesh edges
-        // 6-dword v2 tail, mapped per the SC2 client's version-upgrade
-        // copier (M3_ProcessChunks): the vertex/face counts land in the v3
-        // count slots (faces in the 32-bit slot), tree depth keeps its
-        // meaning, and the client never reads the three unknown dwords.
-        u32         tailUnknown0;
-        u32         meshVertexCount;
-        u32         meshFaceCount;      // → v3 meshFaceIndex32Count on upgrade
-        u32         tailUnknown1;
-        u32         tailUnknown2;
-        u32         meshTreeDepth;
-    }
-
-    if (version >= 3) {
-        // v3 mesh counters
-        u32         meshNormalCount;    // DMMN entry count (= 2 * n_leaves - 1, always odd)
-        u32         meshVertexCount;
-        u32         meshFaceIndex16Count;// MT16 face count (0 when MT32 used)
-        u32         meshFaceIndex32Count;// MT32 face count (0 when MT16 used)
-        u32         meshUnknown1;
-        u32         meshReserved;       // Always 0
-        u32         meshTreeDepth;      // BVH tree height (root-to-leaf path length, 1–12)
-        f32         meshCollisionMargin;// MT16: small float; MT32: 0.0
-    }
+    // Cooked triangle mesh (kind 5)
+    Ref<DMMN>   meshBvhNodes;       // never read (the client rebuilds its tree)
+    Ref<VEC4>   meshVertices;       // relative to meshBoundsCenter, w = 0
+    Ref<MT16>   meshFaces16;        // exactly one of the two is filled
+    Ref<MT32>   meshFaces32;
+    Vector3f    meshBoundsCenter;   // } overwrite the rebuilt tree's own:
+    Vector3f    meshBoundsExtent;   // } must be what the client's builder
+    Vector3f    meshTolerance;      // } computes (§13.7)
+    u32         meshNodeCount;
+    u32         meshVertexCount;
+    u32         meshFace16Count;    // the counts the client reads
+    u32         meshFace32Count;
+    u32         meshUnknown1;       // never read
+    u32         meshReserved;       // never read
+    u32         meshTreeHeight;     // likewise overwrites the tree's
+    f32         meshCollisionMargin;// never read
 };
 ```
 
-> **Mesh face indices**: exactly one of `meshFaceIndices16` (MT16) or `meshFaceIndices32`
-> (MT32) is populated — never both.  In the corpus, 536 of 558 mesh shapes use MT32 at
-> offset 220; the remaining 22 use MT16 at offset 208.  Each entry is one triangle stored
-> as 7 values (u32 for MT32, u16 for MT16): three vertex indices followed by three
-> adjacency / edge-welding values and one flags word (typically 0).
->
-> The scalar fields at offsets 276–296 differ systematically by index type:
-> - **MT32 meshes**: `meshFaceIndex16Count`=0, `meshFaceIndex32Count`=N,
->   `meshCollisionMargin`=0.0
-> - **MT16 meshes**: `meshFaceIndex16Count`=N, `meshFaceIndex32Count`=0,
->   `meshUnknown1`=N+3, `meshCollisionMargin`=small positive float
->
-> **Simple shape dimensions** (corpus-validated, 19,026 entries): the `unused0` field
-> at offset 68 is always (0,0,0) in v3.  Actual dimensions are stored at offset 92
-> as 3 floats overlapping the `shapeDimensions` `Ref<T>` slot.
->
-> **Shape type distribution** (23,931 PHRB → PHSH entries): capsule 61.8%,
-> convex_hull 18.2%, box 14.4%, mesh 2.3%, sphere 2.2%, cylinder 1.1%.
-> Dynamic (simType=2) rigid bodies are rare (1.3%) and most commonly use
-> convex_hull or box shapes.
+`DMSE` (4 bytes) is `{i8 twinOffset, u8 originVertex, u8 face, u8 nextInFace}`: entries come in
+twin pairs, +1 on the even entry and -1 on the odd one. An `MT16`/`MT32` entry is seven values:
+three vertex indices, the vertex opposite each edge in the neighbouring triangle, and a flags word
+whose low byte the client keeps.
+
+The client's hull limits are 255 vertices, 255 faces and 256 half-edges (its tables index with a
+byte).
+
+**Upgrade.**
+- **v0/v1**: Havok's convex radius, the kind, the source points, and on v1 a `U8` table, the
+  source triangles and a plane table. The client keeps the points, the triangles and the
+  dimensions, applies the matrix to the points and sets it to identity, and cooks the hull or
+  mesh at load (§13.7).
+- **v2**: the same hull section, then the mesh bounds, a Havok tree, `VEC3` vertices relative to
+  the centre, `DMMT` triangles, `DMME` edges and a six-dword tail (vertex count, face count and
+  tree height at its words 1, 2 and 5). The mesh is rebuilt from the vertices and each triangle's
+  three indices; the tree and the edges are dropped. 22 shipped v3 meshes come from an older
+  builder (tolerance = extent / 32766) and are kept as they are.
 
 ### 13.4 PHYJ — Physics Joint
 
@@ -2846,36 +2807,40 @@ struct PHSH {
 
 ```cpp
 struct PHYJ {
-    u32         jointType;
-    u32         boneIndex1;
+    u32         jointType;          // 0 spherical, 1 revolute, 2 cone-twist, 3 weld
+    u32         boneIndex1;         // joins the FIRST body on each bone
     u32         boneIndex2;
-    Matrix44f   matrixBody1;
-    Matrix44f   matrixBody2;
-    u32         enableLimits;
-    f32         limitMin;
+    Matrix44f   matrixBody1;        // joint frame in bone 1's frame
+    Matrix44f   matrixBody2;        // joint frame in bone 2's frame
+    u32         enableLimits;       // low byte read
+    f32         limitMin;           // radians
     f32         limitMax;
     f32         coneAngle;
-    u32         enableFriction;
-    f32         friction;
-    f32         dampingRatio;
-    f32         angularFrequency;
-    f32         breakThreshold;
-    u8          enableShape;
+    u32         enableFriction;     // low byte read
+    f32         friction;           // a multiplier on an estimated gravity-holding torque
+    f32         dampingRatio;       // weld spring
+    f32         angularFrequency;   // weld spring
+    f32         breakThreshold;     // never read
+    u8          collideConnected;
+    u8          padding[3];
 };
 ```
 
+A spherical joint discards both matrices' rotations. The anchors take the bones' per-axis world
+scale; the frames do not.
+
 ### 13.5 PHCL — Cloth Physics
 
-**Tag**: `PHCL` | **Versions**: v2=128, v4=192 bytes
+**Tag**: `PHCL` | **Version**: v4 = 192 bytes (v0 = 140, v1 = 116, v2 = 128, v3 = 192 read)
 
 ```cpp
 struct PHCL {
-    u32             clothMeshCount;
-    u32             skinBoneCount;
+    u32             cageRegion;         // the REGN the particles are
+    u32             skinBoneCount;      // never read
     Ref<U16_>       skinBones;
-    Ref<U8__>       simEnabled;
-    Ref<U32_>       vertexBones;
-    Ref<U32_>       vertexWeights;
+    Ref<U8__>       simEnabled;         // per particle, bit 0 movable
+    Ref<U32_>       vertexBones;        // per particle, four anchor bone bytes
+    Ref<U32_>       vertexWeights;      // per particle, four byte weights /255
     Ref<PHCC>       colliders;
     Ref<PHAC>       proxies;
     f32             density;
@@ -2890,40 +2855,48 @@ struct PHCL {
     f32             windScale;
     f32             shearStiffness;
     f32             dragFactor;
-    if (version >= 4) {
-        f32             liftFactor;
-        f32             sphereStiffness;
-        u32             flatten;
-        AnimRef<u32>    active;
-        u32             useSkinCollision;
-        f32             skinOffset;
-        f32             skinExponent;
-        f32             skinStiffness;
-        u32             localChannels;
-        Vector3f        localWind;
-    }
+    f32             liftFactor;
+    f32             sphereStiffness;
+    u32             flatten;
+    AnimRef<u32>    active;             // gates the write-back; sampled only with flag bit 1
+    u32             useSkinCollision;
+    f32             skinOffset;
+    f32             skinExponent;
+    f32             skinStiffness;
+    u32             localChannels;      // never read
+    Vector3f        localWind;
 };
 ```
 
-**Cloth Collider** (PHCC, v0=76 bytes):
+A `PHCL` with no per-particle data carries only colliders, for another model's cloth to drape over
+(a mount under a rider's cape).
+
+**Cloth Collider** (PHCC, v0 = 76 bytes): a capsule along its own +Z, centred.
 ```cpp
 struct PHCC {
     Matrix44f   transform;
     f32         radius;
-    f32         height;
-    u32         padding;
+    f32         height;             // full length
+    u32         bone;               // 0xFFFF is the model root
 };
 ```
 
-**Cloth Proxy** (PHAC, v0=32 bytes):
+**Cloth Proxy** (PHAC, v0 = 32 bytes): binds one cloth-influenced region to the cage.
 ```cpp
 struct PHAC {
-    u32         proxyIndex;
-    u32         clothIndex;
-    Ref<U64_>   proxyVertices;
-    Ref<U32_>   proxyWeights;
+    u32         boundRegion;        // the region the cage moves
+    u32         cageRegion;
+    Ref<U64_>   cageVertices;       // per bound vertex, four cage-local u16 lanes
+    Ref<U32_>   cageWeights;        // per bound vertex, four byte weights /255
 };
 ```
+
+**Upgrade.** v0 carries two extra Refs after `skinBones`; v0 and v1 have no `proxies`; v2 has an
+extra dword after `tracking` and after `gravity` and ends at `windScale`; v3 keeps the dword after
+`gravity`, and after `liftFactor` reads one skipped dword, `active`, 8 skipped bytes, then
+`sphereStiffness` through `localChannels`. v0–v2 get shear 0.1, drag 1, lift 0.5, sphere
+stiffness 0.1, skin stiffness 0.1, `localChannels` 1 and `active = {animId 0xFFFFFFFF,
+initValue 1}`.
 
 ### 13.6 Runtime Physics System (engine behaviour, informative)
 
@@ -3011,6 +2984,23 @@ triangle face normals. The mesh can also be queried (`dmCloth_SweptSphereQuery`)
 and kicked by explosions (`dmCloth_ApplyRadialImpulse`).
 
 ---
+
+### 13.7 The cooker (library behaviour, informative)
+
+`CookHull` and `CookMesh` (`physics_cook.h`) build a shape's tables as the client's builders do:
+
+- **Hull**, `dmPolytope_BuildFromHull`: an exact hull of the points, coplanar faces merged. The
+  `ClientLoad` mode reproduces the client's load-time cook of a v0/v1 shape instead: normalise,
+  hull, merge faces whose normals lie within 20°, rebuild the hull from the face planes, and
+  denormalise.
+- **Mesh**, `dmMeshBuilder_Build`: a triangle is dropped if a vertex is not finite, a bounding
+  extent passes 1e6, or it is degenerate; `extent = ((0.1 − min) + max) · 0.5`, `centre = (max +
+  min) · 0.5`; the tree splits by a 64-bin SAH on the widest centroid axis, by count when the
+  centroids span less than 0.005, and stops at four triangles. The vertices are stored relative
+  to the centre.
+
+Measured against the corpus: 4,448 hulls rebuild with the shipped topology but 7 near-degenerate
+ones, and all 588 client-built meshes reproduce exactly.
 
 ## 14. Miscellaneous Chunks
 
@@ -4490,6 +4480,9 @@ struct PAOB {
 ### E.5 PHCT — Physics Constraint
 
 **Tag**: `PHCT` | **Version**: v0 = 24 bytes
+
+Dead: the 5.0 client never reads it. The parser skips it with an issue, and the writer writes an
+empty Ref.
 
 ```cpp
 struct PHCT {

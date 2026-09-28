@@ -60,7 +60,6 @@ protected:
     void visit(const Warp& warp, u32 version);
     void visit(const ViewVolume& volume, u32 version);
     void visit(const RigidBody& body, u32 version);
-    void visit(const PhysicsConstraint& constraint, u32 version);
     void visit(const PhysicsJoint& joint, u32 version);
     void visit(const ClothPhysics& cloth, u32 version);
     void visit(const IKTwoJoint& joint, u32 version);
@@ -116,12 +115,6 @@ protected:
     // Stands in for a `MAT_` layer slot the model leaves empty. A member
     // because the deferred chunk writes capture their container by reference.
     const std::optional<TextureLayer> emptyLayer{TextureLayer{}};
-
-    // Legacy PHSH chunks are reconstructed from the canonical fields at write
-    // time; the containers must outlive the deferred chunk writes, which
-    // capture them by reference.
-    std::deque<std::vector<Vector3f>> legacyVec3Scratch;
-    std::deque<std::vector<PhysicsMeshTriangle>> legacyTriangleScratch;
 
     common::BinaryWriter& writer;
     bool ismd33;

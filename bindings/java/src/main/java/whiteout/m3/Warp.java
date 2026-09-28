@@ -11,9 +11,9 @@ import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
- * WRP_ — Warp field (v0–v1, 132 bytes)
+ * WRP_ — Vertex warp (v1, 132 bytes)
  * 
- * Warps particle/ribbon trajectories with animated radius, height, and angular/axial/radial strength components.
+ * A vertex-shader deformation particles and ribbons opt into. The client refuses a v0 record, so the parser drops one.
  *
  * <p><b>Lifecycle.</b> Instances hold a handle to a native
  * Warp allocation. Always release them with

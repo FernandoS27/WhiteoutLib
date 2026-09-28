@@ -80,7 +80,6 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::MeshSection>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::OneBoneSolver>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::ParticleEmitter>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::ParticleEmitterCopy>);
-PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::PhysicsConstraint>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::PhysicsJoint>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::PhysicsMeshBvhNode>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::PhysicsShape>);
@@ -251,10 +250,11 @@ These bitmask flags control the per-vertex data layout in the U8__ vertex blob. 
         .value("TRAIL", whiteout::m3::ParticleInstanceType::Trail, R"doc(Like Tail but offset by one tail-length)doc")
     ;
 
-    py::enum_<whiteout::m3::ForceType>(m, "ForceType", R"doc(Force influence type (FOR_))doc")
-        .value("RADIAL", whiteout::m3::ForceType::Radial, R"doc(Radial force (outward from center))doc")
-        .value("WIND", whiteout::m3::ForceType::Wind, R"doc(Wind force (directional))doc")
-        .value("EXPLOSION", whiteout::m3::ForceType::Explosion, R"doc(Explosion force (impulse))doc")
+    py::enum_<whiteout::m3::ForceType>(m, "ForceType", R"doc(Force-field kind (FOR_), as the SC2 5.0 client applies it)doc")
+        .value("DIRECTIONAL", whiteout::m3::ForceType::Directional, R"doc(Pushes along the field's own axis)doc")
+        .value("RADIAL", whiteout::m3::ForceType::Radial, R"doc(Pushes away from the centre (toward it when negative))doc")
+        .value("DRAG", whiteout::m3::ForceType::Drag, R"doc(Slows what moves through it)doc")
+        .value("VORTEX", whiteout::m3::ForceType::Vortex, R"doc(Swirls around the field's axis)doc")
     ;
 
     py::enum_<whiteout::m3::ForceShape>(m, "ForceShape", R"doc(Influence volume shape for a force (FOR_))doc")
@@ -262,6 +262,7 @@ These bitmask flags control the per-vertex data layout in the U8__ vertex blob. 
         .value("CYLINDER", whiteout::m3::ForceShape::Cylinder, R"doc(Cylindrical influence volume)doc")
         .value("BOX", whiteout::m3::ForceShape::Box, R"doc(Box influence volume)doc")
         .value("HEMISPHERE", whiteout::m3::ForceShape::Hemisphere, R"doc(Hemispherical influence volume)doc")
+        .value("CONE", whiteout::m3::ForceShape::Cone, R"doc(Conical influence volume)doc")
     ;
 
     py::enum_<whiteout::m3::RibbonType>(m, "RibbonType", R"doc(Ribbon cross-section type (maps to b_iRibbonType in Ribbon.fx))doc")
@@ -609,6 +610,8 @@ Recovered from `CBBSolver::ApplyBillboard` (SC2 `0x1027F1F30`). The aim directio
         .value("FALLOFF", whiteout::m3::ForceFlag::Falloff, R"doc(Distance falloff)doc")
         .value("HEIGHT_GRADIENT", whiteout::m3::ForceFlag::HeightGradient, R"doc(Height gradient)doc")
         .value("UNBOUNDED", whiteout::m3::ForceFlag::Unbounded, R"doc(Unbounded range)doc")
+        .value("AFFECTS_PARTICLES", whiteout::m3::ForceFlag::AffectsParticles, R"doc(Acts on particles and ribbons; v0/v1 fields get it on upgrade)doc")
+        .value("AFFECTS_BODIES", whiteout::m3::ForceFlag::AffectsBodies, R"doc(Acts on rigid bodies whose force mask it matches; likewise)doc")
     ;
 
     py::enum_<whiteout::m3::RigidBodyFlag>(m, "RigidBodyFlag", R"doc(Rigid body flags (PHRB.flags))doc")
@@ -617,11 +620,12 @@ Recovered from `CBBSolver::ApplyBillboard` (SC2 `0x1027F1F30`). The aim directio
         .value("WALKABLE", whiteout::m3::RigidBodyFlag::Walkable, R"doc(Walkable surface)doc")
         .value("STACKABLE", whiteout::m3::RigidBodyFlag::Stackable, R"doc(Can be stacked)doc")
         .value("SIMULATE_COLLISION", whiteout::m3::RigidBodyFlag::SimulateCollision, R"doc(Simulate collisions)doc")
-        .value("IGNORE_LOCAL_BODIES", whiteout::m3::RigidBodyFlag::IgnoreLocalBodies, R"doc(Ignore local bodies)doc")
-        .value("ALWAYS_EXISTS", whiteout::m3::RigidBodyFlag::AlwaysExists, R"doc(Always present)doc")
-        .value("UNKNOWN6", whiteout::m3::RigidBodyFlag::Unknown6, R"doc(Unknown)doc")
-        .value("NO_SIMULATION", whiteout::m3::RigidBodyFlag::NoSimulation, R"doc(Disable simulation)doc")
-        .value("UNKNOWN9", whiteout::m3::RigidBodyFlag::Unknown9, R"doc(Unknown)doc")
+        .value("IGNORE_LOCAL_BODIES", whiteout::m3::RigidBodyFlag::IgnoreLocalBodies, R"doc(Name unverified: the 5.0 client has no reader)doc")
+        .value("ALWAYS_EXISTS", whiteout::m3::RigidBodyFlag::AlwaysExists, R"doc(Name unverified: the 5.0 client has no reader)doc")
+        .value("INHERIT_DYNAMIC", whiteout::m3::RigidBodyFlag::InheritDynamic, R"doc(Takes the nearest bodied ancestor's dynamic state)doc")
+        .value("KEEP_BONE_DRIVEN", whiteout::m3::RigidBodyFlag::KeepBoneDriven, R"doc(Setup and deactivation leave the bone's physics bit alone)doc")
+        .value("EXEMPT_FROM_RAGDOLL", whiteout::m3::RigidBodyFlag::ExemptFromRagdoll, R"doc(Stays kinematic when the model ragdolls (Heroes))doc")
+        .value("UNKNOWN9", whiteout::m3::RigidBodyFlag::Unknown9, R"doc(The 5.0 client has no reader)doc")
     ;
 
     py::enum_<whiteout::m3::MaterialShaderType>(m, "MaterialShaderType", R"doc(Shader family that prefixes a data-driven material's permutation name
@@ -1092,52 +1096,6 @@ Every field is initialised for the same reason `StandardMaterial`'s are: the par
         .def_readwrite("fresnel_mask", &whiteout::m3::TextureLayer::fresnelMask, R"doc(Fresnel mask vector (v25+))doc")
         .def_readwrite("fresnel_rotation", &whiteout::m3::TextureLayer::fresnelRotation, R"doc(Fresnel UV rotation (v25+))doc")
         .def_readwrite("uv_density", &whiteout::m3::TextureLayer::uvDensity, R"doc(UV density hint (v0–v25, absent in v26))doc")
-    ;
-
-    py::class_<whiteout::m3::StandardMaterial>(m, "StandardMaterial", R"doc(MAT_ — Standard material (v0–v20, 268–352 bytes)
-
-The primary material type with up to 18 texture layers (diffuse, specular, emissive, normal, height, etc.), blend mode, HDR multipliers, and per-version extensions for normal-blend and gloss layers.)doc")
-        .def(py::init<>())
-        .def_readwrite("name", &whiteout::m3::StandardMaterial::name, R"doc(Material name (Ref<CHAR>))doc")
-        .def_readwrite("additional_flags", &whiteout::m3::StandardMaterial::additionalFlags, R"doc(Additional flags)doc")
-        .def_readwrite("flags", &whiteout::m3::StandardMaterial::flags, R"doc(Material rendering flags)doc")
-        .def_readwrite("blend_mode", &whiteout::m3::StandardMaterial::blendMode, R"doc(Alpha blend mode)doc")
-        .def_readwrite("priority", &whiteout::m3::StandardMaterial::priority, R"doc(Render priority (lower = earlier))doc")
-        .def_readwrite("rtt_channels", &whiteout::m3::StandardMaterial::rttChannels, R"doc(RTT channel mask)doc")
-        .def_readwrite("specular_exponent", &whiteout::m3::StandardMaterial::specularExponent, R"doc(Specular highlight exponent)doc")
-        .def_readwrite("depth_blend_falloff", &whiteout::m3::StandardMaterial::depthBlendFalloff, R"doc(Depth blend falloff distance)doc")
-        .def_readwrite("alpha_test_threshold", &whiteout::m3::StandardMaterial::alphaTestThreshold, R"doc(Alpha test cut-off value)doc")
-        .def_readwrite("hdr_specular_multiplier", &whiteout::m3::StandardMaterial::hdrSpecularMultiplier, R"doc(HDR specular multiplier)doc")
-        .def_readwrite("hdr_emissive_multiplier", &whiteout::m3::StandardMaterial::hdrEmissiveMultiplier, R"doc(HDR emissive multiplier)doc")
-        .def_readwrite("hdr_environment_constant", &whiteout::m3::StandardMaterial::hdrEnvironmentConstant, R"doc(HDR environment constant (v20))doc")
-        .def_readwrite("hdr_environment_diffuse", &whiteout::m3::StandardMaterial::hdrEnvironmentDiffuse, R"doc(HDR environment diffuse (v20))doc")
-        .def_readwrite("hdr_environment_specular", &whiteout::m3::StandardMaterial::hdrEnvironmentSpecular, R"doc(HDR environment specular (v20))doc")
-        .def_readwrite("diffuse_layer", &whiteout::m3::StandardMaterial::diffuseLayer, R"doc(Diffuse / albedo texture)doc")
-        .def_readwrite("decal_layer", &whiteout::m3::StandardMaterial::decalLayer, R"doc(Decal overlay texture)doc")
-        .def_readwrite("specular_layer", &whiteout::m3::StandardMaterial::specularLayer, R"doc(Specular map texture)doc")
-        .def_readwrite("gloss_layer", &whiteout::m3::StandardMaterial::glossLayer, R"doc(Gloss map texture (v16+))doc")
-        .def_readwrite("emissive_layer1", &whiteout::m3::StandardMaterial::emissiveLayer1, R"doc(Emissive layer 1)doc")
-        .def_readwrite("emissive_layer2", &whiteout::m3::StandardMaterial::emissiveLayer2, R"doc(Emissive layer 2)doc")
-        .def_readwrite("environment_layer", &whiteout::m3::StandardMaterial::environmentLayer, R"doc(Environment reflection map)doc")
-        .def_readwrite("environment_mask_layer", &whiteout::m3::StandardMaterial::environmentMaskLayer, R"doc(Environment mask)doc")
-        .def_readwrite("alpha_layer1", &whiteout::m3::StandardMaterial::alphaLayer1, R"doc(Alpha mask layer 1)doc")
-        .def_readwrite("alpha_layer2", &whiteout::m3::StandardMaterial::alphaLayer2, R"doc(Alpha mask layer 2)doc")
-        .def_readwrite("normal_layer", &whiteout::m3::StandardMaterial::normalLayer, R"doc(Normal / bump map)doc")
-        .def_readwrite("height_layer", &whiteout::m3::StandardMaterial::heightLayer, R"doc(Height / parallax map)doc")
-        .def_readwrite("light_map_layer", &whiteout::m3::StandardMaterial::lightMapLayer, R"doc(Light map)doc")
-        .def_readwrite("ambient_occlusion_layer", &whiteout::m3::StandardMaterial::ambientOcclusionLayer, R"doc(Ambient occlusion map)doc")
-        .def_readwrite("normal_blend1_mask_layer", &whiteout::m3::StandardMaterial::normalBlend1MaskLayer, R"doc(Normal blend 1 mask (v19+))doc")
-        .def_readwrite("normal_blend2_mask_layer", &whiteout::m3::StandardMaterial::normalBlend2MaskLayer, R"doc(Normal blend 2 mask (v19+))doc")
-        .def_readwrite("normal_blend1_layer", &whiteout::m3::StandardMaterial::normalBlend1Layer, R"doc(Normal blend 1 map (v19+))doc")
-        .def_readwrite("normal_blend2_layer", &whiteout::m3::StandardMaterial::normalBlend2Layer, R"doc(Normal blend 2 map (v19+))doc")
-        .def_readwrite("material_class", &whiteout::m3::StandardMaterial::materialClass, R"doc(Material class (unit, building, etc.))doc")
-        .def_readwrite("layer_blend_mode", &whiteout::m3::StandardMaterial::layerBlendMode, R"doc(Layer blend operation)doc")
-        .def_readwrite("emissive_blend_mode1", &whiteout::m3::StandardMaterial::emissiveBlendMode1, R"doc(Emissive layer 1 blend mode)doc")
-        .def_readwrite("emissive_blend_mode2", &whiteout::m3::StandardMaterial::emissiveBlendMode2, R"doc(Emissive layer 2 blend mode)doc")
-        .def_readwrite("specular_mode", &whiteout::m3::StandardMaterial::specularMode, R"doc(Specular computation mode)doc")
-        .def_readwrite("parallax_height", &whiteout::m3::StandardMaterial::parallaxHeight, R"doc(Animated parallax height)doc")
-        .def_readwrite("motion_blur_amount", &whiteout::m3::StandardMaterial::motionBlurAmount, R"doc(Animated motion blur amount)doc")
-        .def_readwrite("normal_blend_factors", &whiteout::m3::StandardMaterial::normalBlendFactors, R"doc(Normal blend factors (v19+))doc")
     ;
 
     bind_m3_1(m);

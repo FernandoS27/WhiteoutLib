@@ -25,6 +25,7 @@
  * | `AnimChannel` | `target.node` |
  * | `ClipEvent` | `node` |
  * | An emitter-system payload | its node links — `ForEachNodeLink` (§10.9) |
+ * | `PhysicsBody`, `ClothCollider` | `node` — `RemapPhysicsNodes` (physics/references.h) |
  *
  * P6 settled that there is no `Actor` row: an attach point's child model rides
  * the node's own payload (§10.2), so removing the node takes it along and there
@@ -44,6 +45,7 @@
 
 #include "../anim/clip.h"
 #include "../anim/pose_stage.h"
+#include "../physics/physics.h"
 #include "../diagnostics.h"
 #include "../geometry/mesh.h"
 #include "tree.h"
@@ -94,6 +96,11 @@ struct NodeReferencers {
     /// source is dropped from it. Its own channels are left to the channel rule
     /// above.
     std::vector<PoseStage>* stages = nullptr;
+
+    /// This model's physics. A body or collider whose node dies goes with it,
+    /// and so does every joint on such a body; their channels are invalidated
+    /// like a node's.
+    PhysicsSet* physics = nullptr;
 };
 
 /**

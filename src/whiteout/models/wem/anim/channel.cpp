@@ -171,6 +171,24 @@ constexpr EmitterPropertyDesc kSc2Ribbon[] = {
 };
 static_assert(std::size(kSc2Ribbon) == static_cast<std::size_t>(Sc2RibbonProperty::Count));
 
+constexpr EmitterPropertyDesc kForceField[] = {
+    {"strength", AttrType::F32},
+    {"width", AttrType::F32, false, kLength},
+    {"height", AttrType::F32, false, kLength},
+    {"length", AttrType::F32, false, kLength},
+};
+static_assert(std::size(kForceField) == static_cast<std::size_t>(ForceFieldProperty::Count));
+
+constexpr EmitterPropertyDesc kVertexWarp[] = {
+    {"radius", AttrType::F32, false, kLength},
+    {"height", AttrType::F32, false, kLength},
+    {"strength", AttrType::F32},
+    {"angular", AttrType::F32},
+    {"axial", AttrType::F32},
+    {"radial", AttrType::F32},
+};
+static_assert(std::size(kVertexWarp) == static_cast<std::size_t>(VertexWarpProperty::Count));
+
 std::span<const EmitterPropertyDesc> PropertiesOf(NodeKind kind) {
     switch (kind) {
     case NodeKind::Wc3ParticleEmitter1:
@@ -187,6 +205,10 @@ std::span<const EmitterPropertyDesc> PropertiesOf(NodeKind kind) {
         return kSc2Ribbon;
     case NodeKind::M2ParticleEmitter:
         return kM2Particle;
+    case NodeKind::ForceField:
+        return kForceField;
+    case NodeKind::VertexWarp:
+        return kVertexWarp;
     default:
         return {};
     }
@@ -272,6 +294,10 @@ const char* ToString(Channel channel) {
         return "target";
     case Channel::Roll:
         return "roll";
+    case Channel::PhysicsDynamic:
+        return "physicsDynamic";
+    case Channel::ClothActive:
+        return "clothActive";
     case Channel::Count:
         break;
     }
@@ -288,6 +314,8 @@ const char* ToString(TrackTarget::Kind kind) {
         return "materialFeature";
     case TrackTarget::Kind::Section:
         return "section";
+    case TrackTarget::Kind::Physics:
+        return "physics";
     case TrackTarget::Kind::Count:
         break;
     }
@@ -328,6 +356,8 @@ geom::AttrType DefaultValueType(Channel channel) {
     case Channel::FocalLength:
     case Channel::FStop:
     case Channel::Roll:
+    case Channel::PhysicsDynamic:
+    case Channel::ClothActive:
     case Channel::Count:
         break;
     }

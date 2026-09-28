@@ -13,19 +13,11 @@ import whiteout.m3.internal.Native;
 /**
  * DMMN — Physics mesh BVH node (v0: 12 bytes, v1: 8 bytes)
  * 
- * DMMN entries form a linearized k-DOP Bounding Volume Hierarchy (BVH) tree for concave mesh collision. The entry count is always odd: n = 2*n_leaves - 1.
+ * The SC2 5.0 client never reads DMMN: it rebuilds each mesh's tree at load and then takes the tree's centre, extent, tolerance and height from the PHSH. The cooker (physics_cook.h) writes none. Kept so a shipped v3 mesh reads and writes back whole.
  * 
- * **Tree structure** — right-skewed binary tree stored in DFS preorder: - Array layout: (INT_0, LEAF_1), (INT_2, LEAF_3), ..., LEAF_{n-1} - Even indices 0..n-3: internal nodes - Odd indices 1..n-2: leaf nodes - Last index n-1: leaf node - Each internal node 2k: left child = leaf 2k+1, right child = node 2k+2
+ * **v1** (8 bytes per node) — octahedral-encoded normal + quantized slab bounds: - i16 octX, octY: octahedral-mapped slab normal (snorm16 pair) - u16 slabMin, slabMax: quantized bounding-slab distances along the normal
  * 
- * **v0** (Havok-era, 12 bytes per node) — stores only the slab normal direction as a plain Vector3f. No quantized slab bounds are present; the tree topology and bounding-slab directions are identical to v1, but distance culling relies on the runtime computing slab projections against meshBoundsCenter/Extent. Only 3 files in the corpus use v0 (all with PHSH v2).
- * 
- * **v1** (Domino physics, 8 bytes per node) — octahedral-encoded normal + quantized slab bounds: - i16 octX, octY: octahedral-mapped slab normal (snorm16 pair) - u16 slabMin, slabMax: quantized bounding-slab distances along the normal - Internal nodes: slabMax != 0; leaf sentinel: slabMax == 0 (except the last node, which may have slabMax != 0 despite being a leaf)
- * 
- * **Quantization** (v1, universally confirmed across 468 corpus files): - Per-axis step: tol_i = extent_i / 32767 - Projected step: tol_proj = dot(tolerance, |normal|) - Slab values quantized as: q = round(projection / tol_proj) - Root node slab range approaches [-32767, +32767] (full AABB)
- * 
- * Internal nodes use one slab direction; their paired leaf uses a DIFFERENT slab direction, forming a 2-DOP bound per primitive group. Most trees (391/468) use multiple slab normals across internal levels for tighter culling.
- * 
- * PHSH meshTreeDepth gives the tree height (longest root-to-leaf path in nodes).
+ * **v0** (Havok era, 12 bytes per node) is a plain normal; only v2 meshes carry it, and those are rebuilt by the upgrade.
  *
  * <p><b>Lifecycle.</b> Instances hold a handle to a native
  * PhysicsMeshBvhNode allocation. Always release them with

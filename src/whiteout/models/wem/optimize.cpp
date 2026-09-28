@@ -435,6 +435,14 @@ NodeFacts FactsOf(const Document& document, u32 model) {
     for (const Node& node : tree.nodes) {
         ForEachNodeLink(node, [&](const u32& link, EmitterLink) { name(link); });
     }
+    // A body or a cloth collider rides its node: reducing it away would take
+    // the physics along.
+    for (const PhysicsBody& body : owner.physics.bodies) {
+        name(body.node);
+    }
+    for (const ClothCollider& collider : owner.physics.colliders) {
+        name(collider.node);
+    }
     for (const Mesh& mesh : owner.meshes) {
         for (const MeshSection& section : mesh.sections) {
             const i64 gate = section.native.value(kSectionVisibilityNode, -1);
@@ -576,6 +584,7 @@ std::vector<u32> ReduceNodes(Document& document, u32 model, OptimizeReport& repo
     referencers.meshes = std::span<Mesh>(owner.meshes);
     referencers.channels = &owner.animChannels;
     referencers.stages = &owner.poseStages;
+    referencers.physics = &owner.physics;
 
     // Parents first, as the roots' subtrees give them: an `.mdx` import is in
     // object-id order, which is not.

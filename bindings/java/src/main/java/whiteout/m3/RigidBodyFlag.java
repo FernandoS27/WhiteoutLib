@@ -15,15 +15,17 @@ public enum RigidBodyFlag {
     Stackable(4),
     /** Simulate collisions */
     SimulateCollision(8),
-    /** Ignore local bodies */
+    /** Name unverified: the 5.0 client has no reader */
     IgnoreLocalBodies(16),
-    /** Always present */
+    /** Name unverified: the 5.0 client has no reader */
     AlwaysExists(32),
-    /** Unknown */
-    Unknown6(64),
-    /** Disable simulation */
-    NoSimulation(128),
-    /** Unknown */
+    /** Takes the nearest bodied ancestor's dynamic state */
+    InheritDynamic(64),
+    /** Setup and deactivation leave the bone's physics bit alone */
+    KeepBoneDriven(128),
+    /** Stays kinematic when the model ragdolls (Heroes) */
+    ExemptFromRagdoll(256),
+    /** The 5.0 client has no reader */
     Unknown9(512);
 
     public final int value;

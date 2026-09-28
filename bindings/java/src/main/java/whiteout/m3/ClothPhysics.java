@@ -11,9 +11,9 @@ import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
- * PHCL — Cloth physics (v0–v4, 192 bytes)
+ * PHCL — Cloth physics (v4, 192 bytes; v0 140, v1 116, v2 128 and v3 192 read)
  * 
- * Full cloth simulation configuration: skin bone binding, stiffness parameters, damping, wind/explosion/gravity scales, colliders, and proxies. Added in MODL v28.
+ * One cloth: the cage region its particles are, per-particle anchors and movability, colliders, the regions it drives (PHAC) and the solver parameters. A record with colliders and no cage exports them to other models. Added in MODL v28.
  *
  * <p><b>Lifecycle.</b> Instances hold a handle to a native
  * ClothPhysics allocation. Always release them with
@@ -59,17 +59,17 @@ public final class ClothPhysics implements AutoCloseable {
     }
 
     /**
-     * Number of cloth mesh sections
-     * @return the clothMeshCount field of this M3ClothPhysics.
+     * The cage's REGN index
+     * @return the cageRegion field of this M3ClothPhysics.
      */
-    public int getClothMeshCount() {
+    public int getCageRegion() {
         return handle.get(ValueLayout.JAVA_INT, 0L);
     }
-    public void setClothMeshCount(int value) {
+    public void setCageRegion(int value) {
         handle.set(ValueLayout.JAVA_INT, 0L, value);
     }
     /**
-     * Number of skin bones
+     * Never read
      * @return the skinBoneCount field of this M3ClothPhysics.
      */
     public int getSkinBoneCount() {
@@ -79,7 +79,7 @@ public final class ClothPhysics implements AutoCloseable {
         handle.set(ValueLayout.JAVA_INT, 4L, value);
     }
     /**
-     * Skin bone indices (U16_)
+     * Bones the anchors and colliders use (U16_)
      * @return the skinBones field of this M3ClothPhysics.
      */
     public int getSkinBonesCount() {
@@ -104,7 +104,7 @@ public final class ClothPhysics implements AutoCloseable {
         NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_resize_skinBones, handle, (long) count);
     }
     /**
-     * Per-vertex simulation enable flags (U8__)
+     * Per-particle flags, bit 0 movable (U8__)
      * @return the simEnabled field of this M3ClothPhysics.
      */
     public int getSimEnabledCount() {
@@ -129,7 +129,7 @@ public final class ClothPhysics implements AutoCloseable {
         NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_resize_simEnabled, handle, (long) count);
     }
     /**
-     * Per-vertex bone indices (U32_)
+     * Per-particle anchor bones, four bytes (U32_)
      * @return the vertexBones field of this M3ClothPhysics.
      */
     public int getVertexBonesCount() {
@@ -154,7 +154,7 @@ public final class ClothPhysics implements AutoCloseable {
         NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_resize_vertexBones, handle, (long) count);
     }
     /**
-     * Per-vertex bone weights (U32_)
+     * Per-particle anchor weights, four bytes (U32_)
      * @return the vertexWeights field of this M3ClothPhysics.
      */
     public int getVertexWeightsCount() {
@@ -339,7 +339,7 @@ public final class ClothPhysics implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 196L, value);
     }
     /**
-     * Lift factor (v4+)
+     * Lift factor
      * @return the liftFactor field of this M3ClothPhysics.
      */
     public float getLiftFactor() {
@@ -349,7 +349,7 @@ public final class ClothPhysics implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 200L, value);
     }
     /**
-     * Sphere collider stiffness (v4+)
+     * Sphere collider stiffness
      * @return the sphereStiffness field of this M3ClothPhysics.
      */
     public float getSphereStiffness() {
@@ -359,7 +359,7 @@ public final class ClothPhysics implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 204L, value);
     }
     /**
-     * Flatten mode (v4+)
+     * Flatten mode
      * @return the flatten field of this M3ClothPhysics.
      */
     public int getFlatten() {
@@ -369,7 +369,7 @@ public final class ClothPhysics implements AutoCloseable {
         handle.set(ValueLayout.JAVA_INT, 208L, value);
     }
     /**
-     * Animated active state
+     * Animated active state; sampled only when flag bit 1 is set
      * @return the active field of this M3ClothPhysics.
      */
     public AnimRefU32 getActive() {
@@ -420,7 +420,7 @@ public final class ClothPhysics implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 244L, value);
     }
     /**
-     * Local force channel bitmask
+     * Never read
      * @return the localChannels field of this M3ClothPhysics.
      */
     public int getLocalChannels() {
@@ -444,7 +444,7 @@ public final class ClothPhysics implements AutoCloseable {
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 252L, 12L);
     }
     @Override public String toString() {
-        return "ClothPhysics(" + "clothMeshCount=" + getClothMeshCount() + ", " + "skinBoneCount=" + getSkinBoneCount() + ", " + "density=" + getDensity() + ", " + "tracking=" + getTracking() + ", " + "stretchStiffness=" + getStretchStiffness() + ", " + "horizontalStiffness=" + getHorizontalStiffness() + ", " + "bendingStiffness=" + getBendingStiffness() + ", " + "damping=" + getDamping() + ", " + "friction=" + getFriction() + ", " + "gravity=" + getGravity() + ", " + "explosionScale=" + getExplosionScale() + ", " + "windScale=" + getWindScale() + ", " + "shearStiffness=" + getShearStiffness() + ", " + "dragFactor=" + getDragFactor() + ", " + "liftFactor=" + getLiftFactor() + ", " + "sphereStiffness=" + getSphereStiffness() + ", " + "flatten=" + getFlatten() + ", " + "useSkinCollision=" + getUseSkinCollision() + ", " + "skinOffset=" + getSkinOffset() + ", " + "skinExponent=" + getSkinExponent() + ", " + "skinStiffness=" + getSkinStiffness() + ", " + "localChannels=" + getLocalChannels() + ")";
+        return "ClothPhysics(" + "cageRegion=" + getCageRegion() + ", " + "skinBoneCount=" + getSkinBoneCount() + ", " + "density=" + getDensity() + ", " + "tracking=" + getTracking() + ", " + "stretchStiffness=" + getStretchStiffness() + ", " + "horizontalStiffness=" + getHorizontalStiffness() + ", " + "bendingStiffness=" + getBendingStiffness() + ", " + "damping=" + getDamping() + ", " + "friction=" + getFriction() + ", " + "gravity=" + getGravity() + ", " + "explosionScale=" + getExplosionScale() + ", " + "windScale=" + getWindScale() + ", " + "shearStiffness=" + getShearStiffness() + ", " + "dragFactor=" + getDragFactor() + ", " + "liftFactor=" + getLiftFactor() + ", " + "sphereStiffness=" + getSphereStiffness() + ", " + "flatten=" + getFlatten() + ", " + "useSkinCollision=" + getUseSkinCollision() + ", " + "skinOffset=" + getSkinOffset() + ", " + "skinExponent=" + getSkinExponent() + ", " + "skinStiffness=" + getSkinStiffness() + ", " + "localChannels=" + getLocalChannels() + ")";
     }
 
 }

@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 #include <whiteout/models/wem/retarget.h>
+#include <whiteout/models/wem/physics/references.h>
 
 #include <cmath>
 #include <cstring>
@@ -152,6 +153,13 @@ void rescaleEmitter(NodePayload& payload, f32 factor) {
         for (Sc2Property<Vector3f>& point : sp->splinePoints) {
             scale(point, factor);
         }
+    } else if (auto* field = std::get_if<ForceFieldPayload>(&payload)) {
+        field->width *= factor;
+        field->height *= factor;
+        field->length *= factor;
+    } else if (auto* warp = std::get_if<VertexWarpPayload>(&payload)) {
+        warp->radius *= factor;
+        warp->height *= factor;
     } else if (auto* sr = std::get_if<Sc2RibbonEmitterPayload>(&payload)) {
         scale(sr->initialSpeed, factor);
         scale(sr->initialSpeedRandom, factor);
@@ -307,6 +315,7 @@ RescaleResult RescaleDocument(Document& document, f32 factor) {
             rescaleNode(node, factor);
         }
         result.nodesScaled += static_cast<u32>(model.nodes.nodes.size());
+        RescalePhysics(model.physics, factor);
 
         for (AnimChannel& channel : model.animChannels.channels) {
             const int power = lengthPower(model, channel);

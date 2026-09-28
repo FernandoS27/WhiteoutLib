@@ -36,10 +36,12 @@
 #include <whiteout/models/wem/geometry/skin.h>
 #include <whiteout/models/wem/geometry/mesh.h>
 #include <whiteout/models/wem/nodes/emitters.h>
+#include <whiteout/models/wem/nodes/fields.h>
 #include <whiteout/models/wem/nodes/node.h>
 #include <whiteout/models/wem/nodes/tree.h>
 #include <whiteout/models/wem/anim/channel.h>
 #include <whiteout/models/wem/anim/clip.h>
+#include <whiteout/models/wem/physics/physics.h>
 #include <whiteout/models/wem/model.h>
 #include <whiteout/models/wem/document.h>
 #include <whiteout/models/wem/parser.h>
@@ -60,6 +62,9 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AssetKey>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Clip>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ClipEvent>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ClipTrackSet>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Cloth>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ClothBinding>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ClothCollider>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::CombinerStage>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::CompositeLayer>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Diagnostic>);
@@ -72,6 +77,10 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::MeshSection>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Model>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::NativeKind>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Node>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::PhysicsBody>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::PhysicsJoint>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::PhysicsRig>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::PhysicsShape>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::PoseSchema>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ProfileId>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ProfileMaterialSet>);
@@ -152,6 +161,7 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 void bind_wem_1(py::module_& m);
 void bind_wem_2(py::module_& m);
+void bind_wem_3(py::module_& m);
 
 void bind_wem(py::module_& m) {
     py::enum_<whiteout::models::wem::ProfileId>(m, "ProfileId")
@@ -357,6 +367,22 @@ Codes are grouped by area and never renumbered once shipped: the recorded expect
         .value("SKIN_WEIGHT_INVALID", whiteout::models::wem::DiagCode::SkinWeightInvalid, R"doc(A weight is negative, NaN or infinite.)doc")
         .value("SKIN_INFLUENCES_UNSORTED", whiteout::models::wem::DiagCode::SkinInfluencesUnsorted, R"doc(A vertex's influences are not heaviest first.)doc")
         .value("SKIN_SETUP_INVALID", whiteout::models::wem::DiagCode::SkinSetupInvalid, R"doc(The saved skin setup disagrees with the document (§13.4).)doc")
+        .value("PHYSICS_CONSTRAINT_DROPPED", whiteout::models::wem::DiagCode::PhysicsConstraintDropped, R"doc(A `PHCT` on import: none ships and the client never reads it.)doc")
+        .value("PHYSICS_VERSION_REFUSED", whiteout::models::wem::DiagCode::PhysicsVersionRefused, R"doc(A chunk version the client refuses (`WRP_` v0); dropped.)doc")
+        .value("PHYSICS_MATERIAL_MERGED", whiteout::models::wem::DiagCode::PhysicsMaterialMerged, R"doc(A body's shapes disagree on material; the first shape's wins.)doc")
+        .value("PHYSICS_GRAVITY_SCALE_DROPPED", whiteout::models::wem::DiagCode::PhysicsGravityScaleDropped, R"doc(A body's gravity scale is not 1, which StarCraft II cannot say.)doc")
+        .value("PHYSICS_JOINT_KIND_UNSUPPORTED", whiteout::models::wem::DiagCode::PhysicsJointKindUnsupported, R"doc(A joint kind the target has no record for; not written.)doc")
+        .value("PHYSICS_JOINT_FIELD_DROPPED", whiteout::models::wem::DiagCode::PhysicsJointFieldDropped, R"doc(A joint field the target cannot say (springs, breaking, rest).)doc")
+        .value("PHYSICS_JOINT_BODY_AMBIGUOUS", whiteout::models::wem::DiagCode::PhysicsJointBodyAmbiguous, R"doc(A joint body is not the first on its node, which the target binds.)doc")
+        .value("PHYSICS_HULL_SIMPLIFIED", whiteout::models::wem::DiagCode::PhysicsHullSimplified, R"doc(A hull merged faces to fit the cooked tables' limits.)doc")
+        .value("PHYSICS_REFERENCE_INVALID", whiteout::models::wem::DiagCode::PhysicsReferenceInvalid, R"doc(A record names a node, body, section or collider that is not there.)doc")
+        .value("PHYSICS_JOINT_SNAPS", whiteout::models::wem::DiagCode::PhysicsJointSnaps, R"doc(A joint's two frames disagree at rest; it snaps on the first step.)doc")
+        .value("PHYSICS_SHAPE_DEGENERATE", whiteout::models::wem::DiagCode::PhysicsShapeDegenerate, R"doc(A hull with no volume, or a mesh with no triangle.)doc")
+        .value("PHYSICS_UNSUPPORTED", whiteout::models::wem::DiagCode::PhysicsUnsupported, R"doc(A shape kind, joint kind or cloth the target profile does not carry.)doc")
+        .value("CLOTH_PARTICLE_LIMIT", whiteout::models::wem::DiagCode::ClothParticleLimit, R"doc(A cage outside the target's particle range.)doc")
+        .value("CLOTH_ANCHOR_BONE_OUT_OF_RANGE", whiteout::models::wem::DiagCode::ClothAnchorBoneOutOfRange, R"doc(A cloth anchor names a bone past the byte the target stores.)doc")
+        .value("CLOTH_SECTION_SPLIT", whiteout::models::wem::DiagCode::ClothSectionSplit, R"doc(A cloth section needs more bones than one region's palette.)doc")
+        .value("CLOTH_TOPOLOGY_INVALID", whiteout::models::wem::DiagCode::ClothTopologyInvalid, R"doc(A cage not flagged, a binding in another mesh, a lane past the cage.)doc")
         .value("COUNT", whiteout::models::wem::DiagCode::Count)
     ;
 
@@ -382,6 +408,7 @@ Codes are grouped by area and never renumbered once shipped: the recorded expect
         .value("CHANNEL", whiteout::models::wem::ElementKind::Channel)
         .value("TRACK", whiteout::models::wem::ElementKind::Track)
         .value("CHUNK", whiteout::models::wem::ElementKind::Chunk)
+        .value("PHYSICS_RECORD", whiteout::models::wem::ElementKind::PhysicsRecord, R"doc(A `PhysicsSet` record, by id.)doc")
     ;
 
     py::enum_<whiteout::models::wem::ColorSpace>(m, "ColorSpace", R"doc(How a texture's samples are to be interpreted.
@@ -733,6 +760,41 @@ Deliberate: Reforged HD is the only shipped PBR content among the six games, so 
         .value("STAR", whiteout::models::wem::Sc2RibbonType::Star)
     ;
 
+    py::enum_<whiteout::models::wem::ForceKind>(m, "ForceKind", R"doc(Appended, never reordered.)doc")
+        .value("DIRECTIONAL", whiteout::models::wem::ForceKind::Directional)
+        .value("RADIAL", whiteout::models::wem::ForceKind::Radial)
+        .value("DRAG", whiteout::models::wem::ForceKind::Drag)
+        .value("VORTEX", whiteout::models::wem::ForceKind::Vortex)
+        .value("COUNT", whiteout::models::wem::ForceKind::Count)
+    ;
+
+    py::enum_<whiteout::models::wem::ForceVolume>(m, "ForceVolume", R"doc(Appended, never reordered.)doc")
+        .value("SPHERE", whiteout::models::wem::ForceVolume::Sphere)
+        .value("CYLINDER", whiteout::models::wem::ForceVolume::Cylinder)
+        .value("BOX", whiteout::models::wem::ForceVolume::Box)
+        .value("HEMISPHERE", whiteout::models::wem::ForceVolume::Hemisphere)
+        .value("CONE", whiteout::models::wem::ForceVolume::Cone)
+        .value("COUNT", whiteout::models::wem::ForceVolume::Count)
+    ;
+
+    py::enum_<whiteout::models::wem::ForceFieldProperty>(m, "ForceFieldProperty", R"doc(A force field's animatable properties, in `EmitterProperty` sub order.)doc")
+        .value("STRENGTH", whiteout::models::wem::ForceFieldProperty::Strength)
+        .value("WIDTH", whiteout::models::wem::ForceFieldProperty::Width)
+        .value("HEIGHT", whiteout::models::wem::ForceFieldProperty::Height)
+        .value("LENGTH", whiteout::models::wem::ForceFieldProperty::Length)
+        .value("COUNT", whiteout::models::wem::ForceFieldProperty::Count)
+    ;
+
+    py::enum_<whiteout::models::wem::VertexWarpProperty>(m, "VertexWarpProperty", R"doc(A vertex warp's animatable properties, in `EmitterProperty` sub order.)doc")
+        .value("RADIUS", whiteout::models::wem::VertexWarpProperty::Radius)
+        .value("HEIGHT", whiteout::models::wem::VertexWarpProperty::Height)
+        .value("STRENGTH", whiteout::models::wem::VertexWarpProperty::Strength)
+        .value("ANGULAR", whiteout::models::wem::VertexWarpProperty::Angular)
+        .value("AXIAL", whiteout::models::wem::VertexWarpProperty::Axial)
+        .value("RADIAL", whiteout::models::wem::VertexWarpProperty::Radial)
+        .value("COUNT", whiteout::models::wem::VertexWarpProperty::Count)
+    ;
+
     py::enum_<whiteout::models::wem::NodeKind>(m, "NodeKind", R"doc(Appended, never reordered: the value is what a `NODE` chunk stores.)doc")
         .value("HELPER", whiteout::models::wem::NodeKind::Helper, R"doc(Transform only (MDX Helper).)doc")
         .value("BONE", whiteout::models::wem::NodeKind::Bone, R"doc(Skinnable.)doc")
@@ -750,6 +812,8 @@ Deliberate: Reforged HD is the only shipped PBR content among the six games, so 
         .value("SC2_RIBBON_EMITTER", whiteout::models::wem::NodeKind::Sc2RibbonEmitter, R"doc(M3 `RIB_` with its `SRIB` spline.)doc")
         .value("WC3_CORN_EMITTER", whiteout::models::wem::NodeKind::Wc3CornEmitter, R"doc(MDX `CORN`: a PopcornFX effect (Reforged). `NODE` v7.)doc")
         .value("M2_PARTICLE_EMITTER", whiteout::models::wem::NodeKind::M2ParticleEmitter, R"doc(M2 `M2Particle`. `NODE` v8.)doc")
+        .value("FORCE_FIELD", whiteout::models::wem::NodeKind::ForceField, R"doc(M3 `FOR_` (WEM_PHYSICS_DESIGN.md §3.8). `NODE` v14.)doc")
+        .value("VERTEX_WARP", whiteout::models::wem::NodeKind::VertexWarp, R"doc(M3 `WRP_`. `NODE` v14.)doc")
         .value("COUNT", whiteout::models::wem::NodeKind::Count)
     ;
 
@@ -818,7 +882,7 @@ Closed on purpose. A source property with no entry here is **dropped with an `An
         .value("WEIGHT", whiteout::models::wem::Channel::Weight, R"doc(F32. A blend factor with no better name: MDX's fresnel team-colour amount, M3's layer blend weights.)doc")
         .value("TEXTURE_INDEX", whiteout::models::wem::Channel::TextureIndex, R"doc(U32. MDX KMTF's flipbook frame and KRTX's ribbon slot.)doc")
         .value("EMISSIVE", whiteout::models::wem::Channel::Emissive, R"doc(F32. MDX KMTE.)doc")
-        .value("EMITTER_PROPERTY", whiteout::models::wem::Channel::EmitterProperty, R"doc(An emitter system's own property; `sub` says which (§10.9). The type is the property's, not this entry's.)doc")
+        .value("EMITTER_PROPERTY", whiteout::models::wem::Channel::EmitterProperty, R"doc(A node system's own property -- an emitter system's (§10.9), a force field's or a vertex warp's; `sub` says which. The type is the property's, not this entry's.)doc")
         .value("SHADOW_CASTING_START", whiteout::models::wem::Channel::ShadowCastingStart, R"doc(F32. MDX KLSS (v1300).)doc")
         .value("SHADOW_CASTING_END", whiteout::models::wem::Channel::ShadowCastingEnd, R"doc(F32. MDX KLSE (v1300).)doc")
         .value("QUADRATIC_FALLOFF", whiteout::models::wem::Channel::QuadraticFalloff, R"doc(F32. MDX KLQF (v1600).)doc")
@@ -826,12 +890,14 @@ Closed on purpose. A source property with no entry here is **dropped with an `An
         .value("DAMPING", whiteout::models::wem::Channel::Damping, R"doc(F32. MDX KLDA (v1600).)doc")
         .value("STAGE_WEIGHT", whiteout::models::wem::Channel::StageWeight, R"doc(F32. A pose stage's weight, on its first driven node with `sub` the stage's id (WEM_ANIMATION_RUNTIME_DESIGN.md §5.1). The editor's own: every exporter skips it, and an export's bake consumes it.)doc")
         .value("STAGE_SOURCE_WEIGHT", whiteout::models::wem::Channel::StageSourceWeight, R"doc(F32. A constraint source's weight, on the stage's driven node with `sub` `StageSub(stage, source)`. The editor's own, as `StageWeight` is.)doc")
-        .value("STAGE_SOURCE_ENABLED", whiteout::models::wem::Channel::StageSourceEnabled, R"doc(F32. Whether a Link's source is enabled (above 0.5), held from key to key as a visibility is; placed as `StageSourceWeight` is.)doc")
+        .value("STAGE_SOURCE_ENABLED", whiteout::models::wem::Channel::StageSourceEnabled, R"doc(F32. A Link source's share of the carry (`LinkShares`), held from key to key as a visibility is; placed as `StageSourceWeight` is.)doc")
         .value("FOCUS_DISTANCE", whiteout::models::wem::Channel::FocusDistance, R"doc(F32. MDX IDUF, in scene units; 0 turns depth of field off.)doc")
         .value("FOCAL_LENGTH", whiteout::models::wem::Channel::FocalLength, R"doc(F32. MDX ELAF, in millimetres.)doc")
         .value("F_STOP", whiteout::models::wem::Channel::FStop, R"doc(F32. MDX PTSF.)doc")
         .value("TARGET", whiteout::models::wem::Channel::Target, R"doc(F32x3. An offset from `CameraPayload::target`: MDX KTTR, M2 `targetPositions`.)doc")
         .value("ROLL", whiteout::models::wem::Channel::Roll, R"doc(F32. Radians about the line of sight: MDX KCRL, M2 `roll`.)doc")
+        .value("PHYSICS_DYNAMIC", whiteout::models::wem::Channel::PhysicsDynamic, R"doc(F32. Whether a body simulates now; M3 `PHRB.dynamicState`.)doc")
+        .value("CLOTH_ACTIVE", whiteout::models::wem::Channel::ClothActive, R"doc(F32. Whether a cloth writes back; M3 `PHCL.active`.)doc")
         .value("COUNT", whiteout::models::wem::Channel::Count)
     ;
 
@@ -861,10 +927,72 @@ Stored, because a conversion rewrites the keys for another game and the rule has
         .value("WOW", whiteout::models::wem::ReadRule::Wow, R"doc(World of Warcraft: a quaternion nlerp without a sign flip; the ends hold.)doc")
     ;
 
+    py::enum_<whiteout::models::wem::PhysicsShapeKind>(m, "PhysicsShapeKind", R"doc(Appended, never reordered: the value is what a `PSHP` chunk stores.)doc")
+        .value("BOX", whiteout::models::wem::PhysicsShapeKind::Box)
+        .value("SPHERE", whiteout::models::wem::PhysicsShapeKind::Sphere)
+        .value("CAPSULE", whiteout::models::wem::PhysicsShapeKind::Capsule)
+        .value("CYLINDER", whiteout::models::wem::PhysicsShapeKind::Cylinder)
+        .value("CONVEX_HULL", whiteout::models::wem::PhysicsShapeKind::ConvexHull)
+        .value("TRIANGLE_MESH", whiteout::models::wem::PhysicsShapeKind::TriangleMesh)
+        .value("COUNT", whiteout::models::wem::PhysicsShapeKind::Count)
+    ;
+
+    py::enum_<whiteout::models::wem::BodyMotion>(m, "BodyMotion", R"doc(How a body is created, in `dmBodyType` order. Whether it simulates at a moment is `PhysicsBody::simulates` and its channel.)doc")
+        .value("DYNAMIC", whiteout::models::wem::BodyMotion::Dynamic)
+        .value("KINEMATIC", whiteout::models::wem::BodyMotion::Kinematic)
+        .value("STATIC", whiteout::models::wem::BodyMotion::Static)
+        .value("COUNT", whiteout::models::wem::BodyMotion::Count)
+    ;
+
+    py::enum_<whiteout::models::wem::JointKind>(m, "JointKind", R"doc(Appended, never reordered. StarCraft II has the first four.)doc")
+        .value("SPHERICAL", whiteout::models::wem::JointKind::Spherical)
+        .value("REVOLUTE", whiteout::models::wem::JointKind::Revolute)
+        .value("CONE_TWIST", whiteout::models::wem::JointKind::ConeTwist)
+        .value("WELD", whiteout::models::wem::JointKind::Weld)
+        .value("PRISMATIC", whiteout::models::wem::JointKind::Prismatic)
+        .value("DISTANCE", whiteout::models::wem::JointKind::Distance)
+        .value("COUNT", whiteout::models::wem::JointKind::Count)
+    ;
+
+    py::enum_<whiteout::models::wem::JointFriction>(m, "JointFriction")
+        .value("NONE", whiteout::models::wem::JointFriction::None)
+        .value("TORQUE", whiteout::models::wem::JointFriction::Torque, R"doc(A holding torque (World of Warcraft).)doc")
+        .value("GRAVITY_HOLD", whiteout::models::wem::JointFriction::GravityHold, R"doc(A multiplier on an estimated gravity-holding torque (StarCraft II).)doc")
+        .value("COUNT", whiteout::models::wem::JointFriction::Count)
+    ;
+
+    py::enum_<whiteout::models::wem::ClothColliderKind>(m, "ClothColliderKind")
+        .value("CAPSULE", whiteout::models::wem::ClothColliderKind::Capsule)
+        .value("PLANE", whiteout::models::wem::ClothColliderKind::Plane)
+        .value("COUNT", whiteout::models::wem::ClothColliderKind::Count)
+    ;
+
+    py::enum_<whiteout::models::wem::RigStart>(m, "RigStart", R"doc(When a rig starts simulating.)doc")
+        .value("ANIMATED", whiteout::models::wem::RigStart::Animated)
+        .value("ON_DEATH", whiteout::models::wem::RigStart::OnDeath)
+        .value("ALWAYS", whiteout::models::wem::RigStart::Always)
+        .value("NEVER", whiteout::models::wem::RigStart::Never)
+        .value("COUNT", whiteout::models::wem::RigStart::Count)
+    ;
+
     py::enum_<whiteout::models::wem::ValidateLevel>(m, "ValidateLevel")
         .value("STRUCTURAL", whiteout::models::wem::ValidateLevel::Structural, R"doc(Connectivity and index ranges.)doc")
         .value("MANIFOLD", whiteout::models::wem::ValidateLevel::Manifold, R"doc(Structural, plus the §5.10 contract.)doc")
         .value("PROFILE", whiteout::models::wem::ValidateLevel::Profile, R"doc(Manifold, plus per-profile limits and coverage.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::PhysicsCaps>(m, "PhysicsCaps", R"doc(The physics a profile's own format carries (WEM_PHYSICS_DESIGN.md §3.11), read by `Validate` and the exporters.
+
+Empty for a profile whose format has none: its exports bake physics into keys instead. The masks are a bit per `PhysicsShapeKind` / `JointKind` (`physics/physics.h`), plain words for the same reason `NodeKindMask` is.)doc")
+        .def(py::init<>())
+        .def_readwrite("shape_kinds", &whiteout::models::wem::PhysicsCaps::shapeKinds)
+        .def_readwrite("joint_kinds", &whiteout::models::wem::PhysicsCaps::jointKinds)
+        .def_readwrite("cloth", &whiteout::models::wem::PhysicsCaps::cloth)
+        .def_readwrite("max_cloth_particles", &whiteout::models::wem::PhysicsCaps::maxClothParticles)
+        .def_readwrite("max_hull_vertices", &whiteout::models::wem::PhysicsCaps::maxHullVertices)
+        .def_readwrite("max_hull_faces", &whiteout::models::wem::PhysicsCaps::maxHullFaces)
+        .def_readwrite("max_hull_half_edges", &whiteout::models::wem::PhysicsCaps::maxHullHalfEdges)
+        .def_readwrite("max_cloth_anchor_bone", &whiteout::models::wem::PhysicsCaps::maxClothAnchorBone, R"doc(The highest bone index a cloth anchor may name.)doc")
     ;
 
     py::class_<whiteout::models::wem::ProfileDesc>(m, "ProfileDesc", R"doc(Everything WEM knows about a profile, as data.)doc")
@@ -894,6 +1022,7 @@ A Reforged (HD) model uses all four of Warcraft III's model shaders — SD and S
         .def_readwrite("supports_looks", &whiteout::models::wem::ProfileDesc::supportsLooks)
         .def_readwrite("supports_actors", &whiteout::models::wem::ProfileDesc::supportsActors)
         .def_readwrite("node_kinds", &whiteout::models::wem::ProfileDesc::nodeKinds, R"doc(Which node kinds this profile carries (§10.9). The nine shared kinds are in every mask; an emitter-system kind — `Wc3ParticleEmitter2`, `Sc2RibbonEmitter`, … — is in its own game's alone, because its payload is that game's particle system and nothing else can run it. `Validate` and every exporter read the gate from here and nowhere else.)doc")
+        .def_readwrite("physics", &whiteout::models::wem::ProfileDesc::physics)
     ;
 
     py::class_<whiteout::models::wem::ElementRef>(m, "ElementRef", R"doc(Where a diagnostic happened, in the document's own coordinates.
@@ -1191,140 +1320,7 @@ The vertex is left sorted heaviest first, with ties by bone, which is the order 
         .def("sort_by_weight", &whiteout::models::wem::geom::SkinBinding::sortByWeight, R"doc(Sorts each vertex's influences by descending weight — the documented order, which import must establish and edits must preserve.)doc")
     ;
 
-    py::class_<whiteout::models::wem::MeshSection>(m, "MeshSection", R"doc(Metadata only; one per draw section. The faces that belong to it are the ones whose `section` attribute names it.)doc")
-        .def(py::init<>())
-        .def_readwrite("name", &whiteout::models::wem::MeshSection::name)
-        .def_readwrite("material_slot", &whiteout::models::wem::MeshSection::materialSlot, R"doc(-> `Model::materialSlots[]`, or `kInvalidIndex` for NO MATERIAL: a section made by an editor before one has been chosen for it. The sentinel is the emitter links' (§10.9), so one rule covers both, and every profile draws such a section as plain white (`toMdx` writes it a blank SD material; a profile that cannot say "none" must write one).)doc")
-        .def_readwrite("profiles", &whiteout::models::wem::MeshSection::profiles, R"doc(Which profiles draw this section (§6).)doc")
-        .def_readwrite("rigid_node", &whiteout::models::wem::MeshSection::rigidNode, R"doc(Set: every vertex binds here at weight 1 (§5.6).)doc")
-        .def_readwrite("selection_group", &whiteout::models::wem::MeshSection::selectionGroup, R"doc(MDX geoset group / M2 skinSectionId.)doc")
-        .def_readwrite("flags", &whiteout::models::wem::MeshSection::flags)
-        .def_readwrite("bounds", &whiteout::models::wem::MeshSection::bounds, R"doc(Derived, recomputed.)doc")
-        .def_readwrite("native", &whiteout::models::wem::MeshSection::native)
-    ;
-
-    py::class_<whiteout::models::wem::Mesh>(m, "Mesh")
-        .def(py::init<>())
-        .def_readwrite("name", &whiteout::models::wem::Mesh::name)
-        .def_readwrite("lod_level", &whiteout::models::wem::Mesh::lodLevel, R"doc(0, or `kAllLods`: a document holds no other level (`DropLevelsOfDetail`, EDIT_MODE_MODELLING_DESIGN.md §8.1).)doc")
-        .def_readwrite("skin", &whiteout::models::wem::Mesh::skin)
-        .def_readwrite("sections", &whiteout::models::wem::Mesh::sections)
-        .def_readwrite("bounds", &whiteout::models::wem::Mesh::bounds)
-        .def("face_set", &whiteout::models::wem::Mesh::faceSet, R"doc(The indexed face set — the mesh's own form.
-
-Regenerated from the connectivity first when an edit has made it stale, so this is always current even mid-edit.)doc")
-        .def("set_face_set", &whiteout::models::wem::Mesh::setFaceSet, py::arg("faces"), R"doc(Replaces the geometry. Drops any connectivity and the stored triangulation, and resizes the Vertex and Face attribute domains to match; Halfedge and Edge domains are sized by `ensureConnectivity`, since only the build knows how many there are.)doc")
-        .def("has_connectivity", &whiteout::models::wem::Mesh::hasConnectivity)
-        .def("ensure_connectivity", &whiteout::models::wem::Mesh::ensureConnectivity, R"doc(Builds the half-edge arrays if they are not already there.
-
-Deterministic and idempotent. Fails only on a non-manifold face set, which `MeshBuilder` cannot produce — a mesh that came through the builder always builds.)doc")
-        .def("invalidate_connectivity", &whiteout::models::wem::Mesh::invalidateConnectivity, R"doc(Drops the half-edge arrays, syncing the face set first if an edit made it stale. When an edit renumbered the connectivity, it is canonicalized first (`geom::Canonicalize`): lazily deleted elements are compacted and the Halfedge and Edge layers carried to the numbering a rebuild gives, so ids held across this call are renumbered. The geometry is unchanged.)doc")
-        .def("topology", py::overload_cast<>(&whiteout::models::wem::Mesh::topology, py::const_))
-        .def("vertex_count", &whiteout::models::wem::Mesh::vertexCount)
-        .def("face_count", &whiteout::models::wem::Mesh::faceCount)
-        .def("face_sections", py::overload_cast<>(&whiteout::models::wem::Mesh::faceSections, py::const_))
-        .def("faces_of_section", &whiteout::models::wem::Mesh::facesOfSection, py::arg("section"), R"doc(Faces belonging to @p section, in face order. A bucket pass at the point of use, which is what replaces the old sorted-range invariant.)doc")
-        .def("recompute_bounds", &whiteout::models::wem::Mesh::recomputeBounds, R"doc(Recomputes `bounds` and every section's `bounds` from `position`.)doc")
-    ;
-
-    py::class_<whiteout::models::wem::Wc3ParticleEmitter1Payload>(m, "Wc3ParticleEmitter1Payload", R"doc(`PREM`: every particle is a copy of `spawnModel`, flung from the node.)doc")
-        .def(py::init<>())
-        .def_readwrite("emission_rate", &whiteout::models::wem::Wc3ParticleEmitter1Payload::emissionRate, R"doc(Particles a second.)doc")
-        .def_readwrite("gravity", &whiteout::models::wem::Wc3ParticleEmitter1Payload::gravity)
-        .def_readwrite("longitude", &whiteout::models::wem::Wc3ParticleEmitter1Payload::longitude, R"doc(Radians.)doc")
-        .def_readwrite("latitude", &whiteout::models::wem::Wc3ParticleEmitter1Payload::latitude, R"doc(Radians.)doc")
-        .def_readwrite("lifespan", &whiteout::models::wem::Wc3ParticleEmitter1Payload::lifespan, R"doc(Seconds.)doc")
-        .def_readwrite("speed", &whiteout::models::wem::Wc3ParticleEmitter1Payload::speed, R"doc(`initialVelocity`.)doc")
-        .def_readwrite("spawn_model", &whiteout::models::wem::Wc3ParticleEmitter1Payload::spawnModel, R"doc(The model each particle is, by path.)doc")
-        .def_readwrite("uses_mdl", &whiteout::models::wem::Wc3ParticleEmitter1Payload::usesMdl, R"doc(Node flag 0x8000.)doc")
-        .def_readwrite("uses_tga", &whiteout::models::wem::Wc3ParticleEmitter1Payload::usesTga, R"doc(Node flag 0x10000.)doc")
-    ;
-
-    py::class_<whiteout::models::wem::Wc3ParticleSegment>(m, "Wc3ParticleSegment", R"doc(A particle's look at one of its three lifetime points: birth, `time`, death.)doc")
-        .def(py::init<>())
-        .def_readwrite("color", &whiteout::models::wem::Wc3ParticleSegment::color, R"doc(RGB, red first — the static-colour order.)doc")
-        .def_readwrite("alpha", &whiteout::models::wem::Wc3ParticleSegment::alpha)
-        .def_readwrite("scaling", &whiteout::models::wem::Wc3ParticleSegment::scaling, R"doc(The quad's size, in model units.)doc")
-    ;
-
-    py::class_<whiteout::models::wem::Wc3ParticleInterval>(m, "Wc3ParticleInterval", R"doc(A flipbook run: cells `start..end`, `repeat` times over the span.)doc")
-        .def(py::init<>())
-        .def_readwrite("start", &whiteout::models::wem::Wc3ParticleInterval::start)
-        .def_readwrite("end", &whiteout::models::wem::Wc3ParticleInterval::end)
-        .def_readwrite("repeat", &whiteout::models::wem::Wc3ParticleInterval::repeat)
-    ;
-
-    py::class_<whiteout::models::wem::Wc3ParticleEmitter2Payload>(m, "Wc3ParticleEmitter2Payload", R"doc(`PRE2`: camera-facing flipbook quads — the Warcraft III particle.)doc")
-        .def(py::init<>())
-        .def_readwrite("speed", &whiteout::models::wem::Wc3ParticleEmitter2Payload::speed)
-        .def_readwrite("variation", &whiteout::models::wem::Wc3ParticleEmitter2Payload::variation, R"doc(Of the speed, as a fraction.)doc")
-        .def_readwrite("latitude", &whiteout::models::wem::Wc3ParticleEmitter2Payload::latitude, R"doc(Degrees, unlike `PREM`'s.)doc")
-        .def_readwrite("gravity", &whiteout::models::wem::Wc3ParticleEmitter2Payload::gravity)
-        .def_readwrite("lifespan", &whiteout::models::wem::Wc3ParticleEmitter2Payload::lifespan, R"doc(Seconds.)doc")
-        .def_readwrite("emission_rate", &whiteout::models::wem::Wc3ParticleEmitter2Payload::emissionRate)
-        .def_readwrite("width", &whiteout::models::wem::Wc3ParticleEmitter2Payload::width, R"doc(The emission area, in model units.)doc")
-        .def_readwrite("length", &whiteout::models::wem::Wc3ParticleEmitter2Payload::length)
-        .def_readwrite("filter", &whiteout::models::wem::Wc3ParticleEmitter2Payload::filter)
-        .def_readwrite("rows", &whiteout::models::wem::Wc3ParticleEmitter2Payload::rows, R"doc(Flipbook grid.)doc")
-        .def_readwrite("columns", &whiteout::models::wem::Wc3ParticleEmitter2Payload::columns)
-        .def_readwrite("head_or_tail", &whiteout::models::wem::Wc3ParticleEmitter2Payload::headOrTail)
-        .def_readwrite("tail_length", &whiteout::models::wem::Wc3ParticleEmitter2Payload::tailLength)
-        .def_readwrite("time", &whiteout::models::wem::Wc3ParticleEmitter2Payload::time, R"doc(Where `middle` sits in the lifespan, 0..1.)doc")
-        .def_readwrite("start", &whiteout::models::wem::Wc3ParticleEmitter2Payload::start)
-        .def_readwrite("middle", &whiteout::models::wem::Wc3ParticleEmitter2Payload::middle)
-        .def_readwrite("end", &whiteout::models::wem::Wc3ParticleEmitter2Payload::end)
-        .def_readwrite("head_life", &whiteout::models::wem::Wc3ParticleEmitter2Payload::headLife)
-        .def_readwrite("head_decay", &whiteout::models::wem::Wc3ParticleEmitter2Payload::headDecay)
-        .def_readwrite("tail_life", &whiteout::models::wem::Wc3ParticleEmitter2Payload::tailLife)
-        .def_readwrite("tail_decay", &whiteout::models::wem::Wc3ParticleEmitter2Payload::tailDecay)
-        .def_readwrite("texture", &whiteout::models::wem::Wc3ParticleEmitter2Payload::texture, R"doc(-> `Document::textures`.)doc")
-        .def_readwrite("replaceable_id", &whiteout::models::wem::Wc3ParticleEmitter2Payload::replaceableId)
-        .def_readwrite("squirt", &whiteout::models::wem::Wc3ParticleEmitter2Payload::squirt, R"doc(Emission is a burst per rate key, not a rate.)doc")
-        .def_readwrite("priority_plane", &whiteout::models::wem::Wc3ParticleEmitter2Payload::priorityPlane)
-        .def_readwrite("unshaded", &whiteout::models::wem::Wc3ParticleEmitter2Payload::unshaded, R"doc(0x8000.)doc")
-        .def_readwrite("sort_prims_far_z", &whiteout::models::wem::Wc3ParticleEmitter2Payload::sortPrimsFarZ, R"doc(0x10000.)doc")
-        .def_readwrite("line_emitter", &whiteout::models::wem::Wc3ParticleEmitter2Payload::lineEmitter, R"doc(0x20000.)doc")
-        .def_readwrite("unfogged", &whiteout::models::wem::Wc3ParticleEmitter2Payload::unfogged, R"doc(0x40000.)doc")
-        .def_readwrite("xy_quad", &whiteout::models::wem::Wc3ParticleEmitter2Payload::xyQuad, R"doc(0x100000.)doc")
-    ;
-
-    py::class_<whiteout::models::wem::Wc3RibbonEmitterPayload>(m, "Wc3RibbonEmitterPayload", R"doc(`RIBB`: a strip swept between `heightAbove` and `heightBelow` of the node.
-
-Its colour, alpha and flipbook cell key on the shared `Color`, `Alpha` and `TextureIndex` channels and rest here.)doc")
-        .def(py::init<>())
-        .def_readwrite("height_above", &whiteout::models::wem::Wc3RibbonEmitterPayload::heightAbove)
-        .def_readwrite("height_below", &whiteout::models::wem::Wc3RibbonEmitterPayload::heightBelow)
-        .def_readwrite("alpha", &whiteout::models::wem::Wc3RibbonEmitterPayload::alpha)
-        .def_readwrite("color", &whiteout::models::wem::Wc3RibbonEmitterPayload::color, R"doc(RGB, red first.)doc")
-        .def_readwrite("lifespan", &whiteout::models::wem::Wc3RibbonEmitterPayload::lifespan, R"doc(Seconds a segment lives.)doc")
-        .def_readwrite("texture_slot", &whiteout::models::wem::Wc3RibbonEmitterPayload::textureSlot, R"doc(The flipbook cell.)doc")
-        .def_readwrite("emission_rate", &whiteout::models::wem::Wc3RibbonEmitterPayload::emissionRate, R"doc(Segments a second.)doc")
-        .def_readwrite("rows", &whiteout::models::wem::Wc3RibbonEmitterPayload::rows)
-        .def_readwrite("columns", &whiteout::models::wem::Wc3RibbonEmitterPayload::columns)
-        .def_readwrite("material_slot", &whiteout::models::wem::Wc3RibbonEmitterPayload::materialSlot, R"doc(-> `Model::materialSlots`.)doc")
-        .def_readwrite("gravity", &whiteout::models::wem::Wc3RibbonEmitterPayload::gravity)
-    ;
-
-    py::class_<whiteout::models::wem::Wc3CornEmitterPayload>(m, "Wc3CornEmitterPayload", R"doc(`CORN`: a PopcornFX effect run at the node (Reforged).
-
-The effect itself is a `.pkb` WEM does not hold, named by `effect`; what the model owns is the five numbers the game hands the effect every frame. They are MULTIPLIERS on the effect's own values (the game's reader names each track so: "lifespan multiplier keys", ...), which is why they rest at 1.
-
-Its colour, alpha and visibility key on the shared `Color`, `Alpha` and `Visibility` channels and rest here; lifespan, emission rate and speed are `Wc3CornProperty` channels. A keyed colour is blue first in the file, like every other Warcraft III colour key (`ReadBinParticleEmitterPopcorn` keeps the keys as read and reverses only the static colour); the channel is RGB.)doc")
-        .def(py::init<>())
-        .def_readwrite("lifespan", &whiteout::models::wem::Wc3CornEmitterPayload::lifespan, R"doc(Multiplies the effect's particle lifespan.)doc")
-        .def_readwrite("emission_rate", &whiteout::models::wem::Wc3CornEmitterPayload::emissionRate, R"doc(Multiplies its emission rate.)doc")
-        .def_readwrite("speed", &whiteout::models::wem::Wc3CornEmitterPayload::speed, R"doc(Multiplies its particle speed.)doc")
-        .def_readwrite("color", &whiteout::models::wem::Wc3CornEmitterPayload::color, R"doc(Multiplies its colour. RGB, red first.)doc")
-        .def_readwrite("alpha", &whiteout::models::wem::Wc3CornEmitterPayload::alpha, R"doc(Multiplies its alpha.)doc")
-        .def_readwrite("replaceable_id", &whiteout::models::wem::Wc3CornEmitterPayload::replaceableId, R"doc(The team colour/glow the effect's textures take.)doc")
-        .def_readwrite("effect", &whiteout::models::wem::Wc3CornEmitterPayload::effect, R"doc(The PopcornFX effect, by path — a `.pkb`.)doc")
-        .def_readwrite("anim_visibility_guide", &whiteout::models::wem::Wc3CornEmitterPayload::animVisibilityGuide, R"doc(The effect's animation-visibility guide, by name. Opaque here: the engine resolves it against the effect.)doc")
-        .def_readwrite("unshaded", &whiteout::models::wem::Wc3CornEmitterPayload::unshaded, R"doc(0x8000.)doc")
-        .def_readwrite("sort_prims_far_z", &whiteout::models::wem::Wc3CornEmitterPayload::sortPrimsFarZ, R"doc(0x10000.)doc")
-        .def_readwrite("unfogged", &whiteout::models::wem::Wc3CornEmitterPayload::unfogged, R"doc(0x20000.)doc")
-        .def_readwrite("popcorn_scaling", &whiteout::models::wem::Wc3CornEmitterPayload::popcornScaling, R"doc(0x40000: the node's scale reaches the effect.)doc")
-    ;
-
     bind_wem_1(m);
     bind_wem_2(m);
+    bind_wem_3(m);
 }

@@ -25,6 +25,7 @@ bool isIntegerType(AttrType type) {
     case AttrType::U32:
     case AttrType::I32:
     case AttrType::Bool:
+    case AttrType::U32x4:
         return true;
     default:
         return false;
@@ -102,6 +103,11 @@ u32 readUint(const AttrLayer& layer, std::size_t element, u32 component) {
     case AttrType::I32: {
         u32 value = 0;
         std::memcpy(&value, bytes, sizeof(value));
+        return value;
+    }
+    case AttrType::U32x4: {
+        u32 value = 0;
+        std::memcpy(&value, bytes + sizeof(u32) * component, sizeof(value));
         return value;
     }
     default:

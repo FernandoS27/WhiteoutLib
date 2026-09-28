@@ -33,6 +33,7 @@
 
 #include "whiteout/models/m3/engine_compat.h"
 #include "whiteout/models/m3/parser.h"
+#include "whiteout/models/m3/physics_upgrade.h"
 #include "whiteout/models/m3/writer.h"
 #include "whiteout/models/wem/anim/rests.h"
 #include "whiteout/models/wem/converters.h"
@@ -44,6 +45,7 @@
 #include "../materials/m3_core.h"
 #include "m3_anim.h"
 #include "m3_emitters.h"
+#include "m3_physics.h"
 #include "skin_skeleton.h"
 
 #include <algorithm>
@@ -167,29 +169,17 @@ Vector3f Unrebase(const Vector3f& v) {
     return Vector3f{v.y, -v.x, v.z};
 }
 
-/// The same change of basis as a matrix, so a whole transform can be conjugated
-/// by it rather than taken apart first: `v * kRebaseBasis == Rebase(v)`.
-Matrix44f RebaseBasis() {
-    Matrix44f r = Matrix44f::identity();
-    r.data[0][0] = 0.0f;
-    r.data[0][1] = 1.0f;
-    r.data[1][0] = -1.0f;
-    r.data[1][1] = 0.0f;
-    return r;
-}
-
 /// A model-space matrix from SC2's basis into WEM's. A change of basis is a
 /// conjugation, and this is the direction that agrees with `Rebase` on the
 /// translation, on the rotation, **and** on the scale — which the per-component
 /// route does not, since a 90 degree turn about Z swaps a non-uniform x and y.
+/// Done by index and sign rather than as a product, so `-0.0` survives.
 Matrix44f RebaseMatrix(const Matrix44f& m) {
-    const Matrix44f r = RebaseBasis();
-    return r.transpose() * m * r;
+    return m3_physics::RebaseConjugate(m);
 }
 
 Matrix44f UnrebaseMatrix(const Matrix44f& m) {
-    const Matrix44f r = RebaseBasis();
-    return r * m * r.transpose();
+    return m3_physics::UnrebaseConjugate(m);
 }
 
 Extent ToExtent(const m3::Extent& source) {
@@ -481,6 +471,27 @@ NodeTree ImportNodes(const m3::Model& source) {
         tree.add(std::move(node));
     }
 
+    // Force fields and vertex warps (WEM_PHYSICS_DESIGN.md §3.8), placed as the
+    // emitters are: under the bone they name, at identity.
+    for (std::size_t f = 0; f < source.forces.size(); ++f) {
+        const m3::Force& force = source.forces[f];
+        Node node;
+        node.name = "force_" + std::to_string(f);
+        node.kind = NodeKind::ForceField;
+        node.parent = links.bone(force.boneIndex);
+        node.payload = m3_physics::ImportForce(force);
+        tree.add(std::move(node));
+    }
+    for (std::size_t w = 0; w < source.warps.size(); ++w) {
+        const m3::Warp& warp = source.warps[w];
+        Node node;
+        node.name = "warp_" + std::to_string(w);
+        node.kind = NodeKind::VertexWarp;
+        node.parent = links.bone(warp.boneIndex);
+        node.payload = m3_physics::ImportWarp(warp);
+        tree.add(std::move(node));
+    }
+
     return tree;
 }
 
@@ -621,6 +632,32 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
             builder.addVertex(v < positions.size() ? Rebase(positions[v]) : Vector3f{0, 0, 0});
         }
 
+        // Cloth (WEM_PHYSICS_DESIGN.md §3.7): only division 0 draws, and only
+        // it carries PHCL. A cage vertex's anchors become its skin, its
+        // movability a layer, and a bound vertex's PHAC lanes the cage
+        // vertices it names.
+        m3_physics::ClothVertices cloth;
+        if (d == 0) {
+            cloth = m3_physics::PlanClothVertices(source, division, lowest, highest - lowest,
+                                                  diagnostics);
+        }
+        if (cloth.anyCage) {
+            for (u32 v = 0; v < highest - lowest; ++v) {
+                if (cloth.movable[v] != 0xFFu) {
+                    builder.setVertexAttr(geom::VertexId(v), geom::names::kClothMovable,
+                                          static_cast<u8>(cloth.movable[v]));
+                }
+            }
+        }
+        if (cloth.anyBinding) {
+            for (u32 v = 0; v < highest - lowest; ++v) {
+                builder.setVertexAttr(geom::VertexId(v), geom::names::kClothBindVertex,
+                                      cloth.bindVertex[v]);
+                builder.setVertexAttr(geom::VertexId(v), geom::names::kClothBindWeight,
+                                      cloth.bindWeight[v]);
+            }
+        }
+
         std::vector<u32> sectionOfRegion(division.regions.size(), 0);
         for (std::size_t r = 0; r < division.regions.size(); ++r) {
             const m3::Region& region = division.regions[r];
@@ -722,9 +759,22 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
                 }
             }
 
-            // Skinning, through the region's own bone-lookup window.
+            // Skinning, through the region's own bone-lookup window. A cage
+            // vertex's is its PHCL anchors instead: the client never draws the
+            // cage, so its region skin is otherwise unread.
             for (u32 v = 0; v < region.vertexCount; ++v) {
                 const u32 global = region.firstVertex + v;
+                if (global >= lowest && cloth.hasAnchors(global - lowest)) {
+                    const auto& anchors =
+                        cloth.anchors[static_cast<std::size_t>(cloth.anchorOf[global - lowest])];
+                    for (u32 k = 0; k < anchors.count; ++k) {
+                        if (anchors.bones[k] < model.nodes.size()) {
+                            builder.addInfluence(geom::VertexId(global - lowest), anchors.bones[k],
+                                                 anchors.weights[k]);
+                        }
+                    }
+                    continue;
+                }
                 if (global >= boneIndices.size() || global >= boneWeights.size()) {
                     break;
                 }
@@ -755,10 +805,16 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
     }
 
     model.profileSets.push_back(std::move(set));
+    // The physics records (WEM_PHYSICS_DESIGN.md §6), after the meshes they
+    // name. A PHCT ships in no model and nothing reads it; the parser has
+    // already dropped it and said so.
+    const m3_physics::ImportedIds physicsIds = m3_physics::Import(source, model, diagnostics);
     m3_anim::Context animContext;
     animContext.profile = profile;
     animContext.bases = m3_anim::NodeBases::Of(source);
     animContext.layerOrdinals = std::move(layerOrdinals);
+    animContext.bodyIds = physicsIds.bodies;
+    animContext.clothIds = physicsIds.cloths;
 
     const u32 modelIndex = static_cast<u32>(document.models.size());
     document.models.push_back(std::move(model));
@@ -957,6 +1013,12 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                       (settings.effectNodeBones &&
                        (keyedTransform[n] || keyedVisibility[n] ||
                         node.native.find(kNodeSharesParentVisibility) == nullptr));
+            break;
+        // A force field or a vertex warp names a bone as an emitter does, and
+        // the import puts it under that bone at identity.
+        case NodeKind::ForceField:
+        case NodeKind::VertexWarp:
+            carries = !identityLocal(node) || keyedTransform[n];
             break;
         case NodeKind::ParticleEmitter:
         case NodeKind::RibbonEmitter:
@@ -1377,6 +1439,32 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             out.ribbonEmitters.push_back(std::move(ribbon));
             break;
         }
+        case NodeKind::ForceField: {
+            const auto* payload = std::get_if<ForceFieldPayload>(&node.payload);
+            if (payload == nullptr) {
+                break;
+            }
+            m3::Force force = m3_physics::ExportForce(*payload);
+            force.boneIndex = parentBone == 0xFFFFu ? 0u : parentBone;
+            force.forceVersion(m3::kCurrentForceVersion);
+            animContext.nodeSlots[n] = {m3_anim::ExportContext::Slot::Force,
+                                        static_cast<u32>(out.forces.size())};
+            out.forces.push_back(std::move(force));
+            break;
+        }
+        case NodeKind::VertexWarp: {
+            const auto* payload = std::get_if<VertexWarpPayload>(&node.payload);
+            if (payload == nullptr) {
+                break;
+            }
+            m3::Warp warp = m3_physics::ExportWarp(*payload);
+            warp.boneIndex = parentBone == 0xFFFFu ? 0u : parentBone;
+            warp.forceVersion(m3::kCurrentWarpVersion);
+            animContext.nodeSlots[n] = {m3_anim::ExportContext::Slot::Warp,
+                                        static_cast<u32>(out.warps.size())};
+            out.warps.push_back(std::move(warp));
+            break;
+        }
         default:
             break;
         }
@@ -1769,6 +1857,17 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         }
     };
 
+    // Which sections are cloth (WEM_PHYSICS_DESIGN.md §6): a cage is one vertex
+    // per mesh vertex, and neither a cage nor a bound section is split or
+    // skipped, because each is ONE region a PHCL or a PHAC names.
+    m3_physics::ClothEmission clothEmission = m3_physics::PlanClothEmission(model);
+    if (map != nullptr) {
+        map->sectionRegion.assign(model.meshes.size(), {});
+        for (std::size_t m = 0; m < model.meshes.size(); ++m) {
+            map->sectionRegion[m].assign(model.meshes[m].sections.size(), kInvalidIndex);
+        }
+    }
+
     for (std::size_t m = 0; m < model.meshes.size(); ++m) {
         const Mesh& mesh = model.meshes[m];
         const bool warcraftDocument = document.defaultProfile == ProfileId::Wc3Classic ||
@@ -1801,7 +1900,9 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             // trip must preserve. The second rule is Diablo III's per-look
             // bit: `MaterialFlags::Invisible` is the material saying this
             // piece is not worn under the export's look.
-            if (range.section < mesh.sections.size()) {
+            const bool cageRange = clothEmission.isCage(static_cast<u32>(m), range.section);
+            const bool boundRange = clothEmission.isBound(static_cast<u32>(m), range.section);
+            if (range.section < mesh.sections.size() && !cageRange && !boundRange) {
                 const MeshSection& skipTest = mesh.sections[range.section];
                 if (hasFlag(skipTest.flags, SectionFlags::Hidden) &&
                     skipTest.native.find("regionFlags") == nullptr) {
@@ -1873,7 +1974,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                                 }
                             }
                         }
-                        if (window.empty() || paletteLimit == 0 ||
+                        if (window.empty() || paletteLimit == 0 || cageRange || boundRange ||
                             window.size() + adding.size() <= paletteLimit) {
                             break;
                         }
@@ -1915,6 +2016,22 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                                                ? static_cast<i64>(m3::RegionFlag::Hidden)
                                                : 0)));
                 }
+                // The cloth pair's flags come from the cloth records: a cage
+                // is Hidden|ClothSimulated, a bound region
+                // Hidden|Placeholder|ClothInfluenced, and a region no cloth
+                // names claims neither.
+                {
+                    constexpr u32 kClothBits = 0xFu;
+                    u32 flags = static_cast<u32>(region.flags);
+                    if (cageRange) {
+                        flags = (flags & ~kClothBits) | 0x5u;
+                    } else if (boundRange) {
+                        flags = (flags & ~kClothBits) | 0xBu;
+                    } else if ((flags & 0xCu) != 0) {
+                        flags &= ~kClothBits;
+                    }
+                    region.flags = static_cast<m3::RegionFlag>(flags);
+                }
 
                 // A region owns its vertices. Its faces index them from its own
                 // `firstVertex`, and -- the reason it must own them -- a vertex's
@@ -1934,24 +2051,69 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                     return static_cast<u8>(window.size() - 1);
                 };
 
-                // First use order, so the face indices below stay as close to the
-                // source's as a re-emitted buffer can be.
-                std::vector<u32> localOf(positions.size(), kInvalidIndex);
-                std::vector<u32> sourceOf;
+                // Source order: the region's vertices in the order the mesh
+                // numbers them, which for an `.m3` round trip is the file's own.
+                // A cage keys by mesh vertex instead of render vertex: its
+                // particles are its vertices, one each whatever its corners say,
+                // and the client never draws it.
+                const auto keyOf = [&](u32 index) {
+                    return cageRange && index < render.vertexToWemVertex.size()
+                               ? render.vertexToWemVertex[index]
+                               : index;
+                };
+                u32 keySpace = static_cast<u32>(positions.size());
+                if (cageRange) {
+                    keySpace = 0;
+                    for (const u32 wem : render.vertexToWemVertex) {
+                        keySpace = std::max(keySpace, wem + 1);
+                    }
+                }
+                std::vector<u32> firstOf(keySpace, kInvalidIndex);
                 for (u32 i = 0; i < run.second; ++i) {
                     const u32 index = render.indices[range.firstIndex + run.first + i];
-                    if (index >= localOf.size()) {
+                    if (index < positions.size() && firstOf[keyOf(index)] == kInvalidIndex) {
+                        firstOf[keyOf(index)] = index;
+                    }
+                }
+                std::vector<u32> localOf(keySpace, kInvalidIndex);
+                std::vector<u32> sourceOf;
+                std::vector<u32> keyOfEmitted;
+                for (u32 key = 0; key < keySpace; ++key) {
+                    if (firstOf[key] != kInvalidIndex) {
+                        localOf[key] = static_cast<u32>(sourceOf.size());
+                        sourceOf.push_back(firstOf[key]);
+                        keyOfEmitted.push_back(key);
+                    }
+                }
+                for (u32 i = 0; i < run.second; ++i) {
+                    const u32 index = render.indices[range.firstIndex + run.first + i];
+                    if (index >= positions.size()) {
                         diagnostics.warn(
                             DiagCode::IndexOutOfRange, "face corner past the mesh's vertex buffer",
                             ElementRef(ElementKind::Mesh, static_cast<u32>(m)), profile);
                         division.faces.push_back(0);
                         continue;
                     }
-                    if (localOf[index] == kInvalidIndex) {
-                        localOf[index] = static_cast<u32>(sourceOf.size());
-                        sourceOf.push_back(index);
+                    division.faces.push_back(static_cast<u16>(localOf[keyOf(index)]));
+                }
+                m3_physics::CageRegion* cageRecord = nullptr;
+                if (cageRange) {
+                    cageRecord = &clothEmission.cages[{static_cast<u32>(m), range.section}];
+                    cageRecord->region = static_cast<u32>(division.regions.size());
+                    cageRecord->vertices = keyOfEmitted;
+                } else if (boundRange) {
+                    m3_physics::BoundRegion& bound =
+                        clothEmission.bound[{static_cast<u32>(m), range.section}];
+                    bound.region = static_cast<u32>(division.regions.size());
+                    for (const u32 index : sourceOf) {
+                        bound.vertices.push_back(index < render.vertexToWemVertex.size()
+                                                     ? render.vertexToWemVertex[index]
+                                                     : kInvalidIndex);
                     }
-                    division.faces.push_back(static_cast<u16>(localOf[index]));
+                }
+                if (map != nullptr && range.section < map->sectionRegion[m].size() &&
+                    map->sectionRegion[m][range.section] == kInvalidIndex) {
+                    map->sectionRegion[m][range.section] = static_cast<u32>(division.regions.size());
                 }
                 if (sourceOf.size() > 0x10000u) {
                     diagnostics.warn(DiagCode::IndexWidthExceeded,
@@ -1965,6 +2127,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                     // Packed into the leading slots -- an influence on a node that is not
                     // a bone leaves no gap -- so a one-bone vertex names its bone in slot 0.
                     std::array<std::pair<f32, u8>, 4> influences{};
+                    std::array<u32, 4> globalBones{0, 0, 0, 0};
                     std::size_t count = 0;
                     for (std::size_t k = 0; k < 4; ++k) {
                         if (source >= boneIndices.size() || source >= boneWeights.size() ||
@@ -1976,6 +2139,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                         if (bone == 0xFFFFu) {
                             continue;
                         }
+                        globalBones[count] = bone;
                         influences[count++] = {std::clamp(boneWeights[source][k], 0.0f, 1.0f),
                                                slotFor(bone)};
                     }
@@ -1986,6 +2150,27 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                         indices[k] = influences[k].second;
                     }
                     const std::array<u8, 4> weights = skinning::QuantizeWeights(shares, count);
+                    // A cage vertex's skin is its particle's anchors, and PHCL
+                    // states them as global bone bytes.
+                    if (cageRecord != nullptr) {
+                        u32 packedBones = 0;
+                        u32 packedWeights = 0;
+                        for (std::size_t k = 0; k < count; ++k) {
+                            if (globalBones[k] > 0xFFu) {
+                                diagnostics.warn(DiagCode::ClothAnchorBoneOutOfRange,
+                                                 "a cloth anchor names bone " +
+                                                     std::to_string(globalBones[k]) +
+                                                     ", past the byte PHCL stores",
+                                                 ElementRef(ElementKind::Mesh, static_cast<u32>(m)),
+                                                 profile);
+                                continue;
+                            }
+                            packedBones |= globalBones[k] << (8 * k);
+                            packedWeights |= static_cast<u32>(weights[k]) << (8 * k);
+                        }
+                        cageRecord->bones.push_back(packedBones);
+                        cageRecord->weights.push_back(packedWeights);
+                    }
                     rigid = rigid && count <= 1;
                     // A mesh with no tangent layer -- one imported from a format that
                     // has none -- gets the neutral frame the format's own default is.
@@ -2023,8 +2208,14 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                 writtenVertices += sourceOf.size();
 
                 // The split above is what keeps this quiet; it fires only for a
-                // profile whose cap a single triangle could already break.
-                if (paletteLimit != 0 && window.size() > paletteLimit) {
+                // profile whose cap a single triangle could already break, or a
+                // cloth section, which is never split.
+                if (paletteLimit != 0 && window.size() > paletteLimit && (cageRange || boundRange)) {
+                    diagnostics.warn(DiagCode::ClothSectionSplit,
+                                     "a cloth region needs " + std::to_string(window.size()) +
+                                         " bones, past one palette's " + std::to_string(paletteLimit),
+                                     ElementRef(ElementKind::Section, range.section), profile);
+                } else if (paletteLimit != 0 && window.size() > paletteLimit) {
                     diagnostics.warn(DiagCode::BonePaletteLimit,
                                      "region needs " + std::to_string(window.size()) +
                                          " bones, past the profile's " +
@@ -2318,6 +2509,21 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     out.vertices.flags = static_cast<m3::VertexFormatFlag>(vertexFlags);
     out.vertices.data = std::move(encoder.data);
     out.vertices.initialize();
+
+    // The physics records (WEM_PHYSICS_DESIGN.md §6), after the regions a cloth
+    // names and before the animation export binds their switches.
+    {
+        const auto physicsBone = [&](u32 node) -> u32 {
+            if (node >= boneOf.size()) {
+                return 0xFFFFu;
+            }
+            return boneOf[node] != 0xFFFFu ? boneOf[node] : nearestBone(node);
+        };
+        const m3_physics::ExportRecords records =
+            m3_physics::Export(model, profile, clothEmission, physicsBone, out, diagnostics);
+        animContext.bodyRecord = records.bodyRecord;
+        animContext.clothRecord = records.clothRecord;
+    }
 
     // Last, because it re-imports the materials just written to recover which
     // ordinal each layer became, and puts an AnimRef back on the record that

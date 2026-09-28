@@ -75,7 +75,6 @@ protected:
     void visit(PhysicsShape& value, u32 version);
     void visit(RigidBody& value, u32 version);
     void visit(PhysicsJoint& value, u32 version);
-    void visit(PhysicsConstraint& value, u32 version);
     void visit(ClothCollider& value, u32 version);
     void visit(ClothProxy& value, u32 version);
     void visit(ClothPhysics& value, u32 version);
@@ -107,6 +106,10 @@ protected:
     // A CHAR chunk holding opaque bytes rather than text. Deliberately not an
     // overload of visit(): std::vector<u8> already resolves to the U8_ template.
     void visitCharBlob(std::vector<u8>& blob);
+
+    // Consumes a Reference whose chunk is dropped unread (a Havok-era table, a
+    // PHCT the client never reads), marking the chunk used.
+    Reference skipReference();
 
     std::function<Reference(void)> readReferenceFunc;
 

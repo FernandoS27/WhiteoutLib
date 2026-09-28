@@ -15,4 +15,6 @@ public enum ForceShape : int
     Box = 2,
     /// <summary>Hemispherical influence volume</summary>
     Hemisphere = 3,
+    /// <summary>Conical influence volume</summary>
+    Cone = 4,
 }

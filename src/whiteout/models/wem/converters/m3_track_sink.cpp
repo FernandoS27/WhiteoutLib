@@ -677,6 +677,22 @@ std::vector<u32*> KeyableAnimIds(m3::Model& out) {
         Note(ids, r.colorEnd);
         Note(ids, r.active);
     }
+    for (m3::Force& f : out.forces) {
+        for (m3::AnimRef<f32>* ref : {&f.strength, &f.width, &f.height, &f.length}) {
+            Note(ids, *ref);
+        }
+    }
+    for (m3::Warp& w : out.warps) {
+        for (m3::AnimRef<f32>* ref : {&w.radius, &w.height, &w.strength, &w.angular, &w.axial, &w.radial}) {
+            Note(ids, *ref);
+        }
+    }
+    for (m3::RigidBody& body : out.rigidBodies) {
+        Note(ids, body.dynamicState);
+    }
+    for (m3::ClothPhysics& cloth : out.clothPhysics) {
+        Note(ids, cloth.active);
+    }
     return ids;
 }
 

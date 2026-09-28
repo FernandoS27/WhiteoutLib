@@ -116,7 +116,6 @@ struct Model {
 
     // ─── Physics ───────────────────────────────────────────────────
     std::vector<RigidBody> rigidBodies;                ///< Rigid bodies (PHRB)
-    std::vector<PhysicsConstraint> physicsConstraints; ///< Physics constraints (PHCT)
     std::vector<PhysicsJoint> physicsJoints;           ///< Physics joints (PHYJ)
     std::vector<ClothPhysics> clothPhysics;            ///< Cloth physics (PHCL, v28+)
     std::vector<IKTwoJoint> ikTwoJoints;               ///< Two-joint IK solvers (IK2J)

@@ -311,25 +311,28 @@ impl TryFrom<i32> for ParticleInstanceType {
     }
 }
 
-/// Force influence type (FOR_)
+/// Force-field kind (FOR_), as the SC2 5.0 client applies it
 #[repr(i32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ForceType {
-    /// Radial force (outward from center)
-    Radial = 0,
-    /// Wind force (directional)
-    Wind = 1,
-    /// Explosion force (impulse)
-    Explosion = 2,
+    /// Pushes along the field's own axis
+    Directional = 0,
+    /// Pushes away from the centre (toward it when negative)
+    Radial = 1,
+    /// Slows what moves through it
+    Drag = 2,
+    /// Swirls around the field's axis
+    Vortex = 3,
 }
 
 impl TryFrom<i32> for ForceType {
     type Error = crate::Error;
     fn try_from(v: i32) -> Result<Self, crate::Error> {
         match v {
-            0 => Ok(ForceType::Radial),
-            1 => Ok(ForceType::Wind),
-            2 => Ok(ForceType::Explosion),
+            0 => Ok(ForceType::Directional),
+            1 => Ok(ForceType::Radial),
+            2 => Ok(ForceType::Drag),
+            3 => Ok(ForceType::Vortex),
             other => Err(crate::Error::UnknownEnum {
                 name: "ForceType",
                 value: other,
@@ -350,6 +353,8 @@ pub enum ForceShape {
     Box = 2,
     /// Hemispherical influence volume
     Hemisphere = 3,
+    /// Conical influence volume
+    Cone = 4,
 }
 
 impl TryFrom<i32> for ForceShape {
@@ -360,6 +365,7 @@ impl TryFrom<i32> for ForceShape {
             1 => Ok(ForceShape::Cylinder),
             2 => Ok(ForceShape::Box),
             3 => Ok(ForceShape::Hemisphere),
+            4 => Ok(ForceShape::Cone),
             other => Err(crate::Error::UnknownEnum {
                 name: "ForceShape",
                 value: other,
@@ -1922,6 +1928,10 @@ impl ForceFlag {
     pub const HEIGHT_GRADIENT: Self = Self(2);
     /// Unbounded range
     pub const UNBOUNDED: Self = Self(4);
+    /// Acts on particles and ribbons; v0/v1 fields get it on upgrade
+    pub const AFFECTS_PARTICLES: Self = Self(8);
+    /// Acts on rigid bodies whose force mask it matches; likewise
+    pub const AFFECTS_BODIES: Self = Self(16);
 
     #[inline]
     pub const fn contains(self, other: Self) -> bool {
@@ -1979,15 +1989,17 @@ impl RigidBodyFlag {
     pub const STACKABLE: Self = Self(4);
     /// Simulate collisions
     pub const SIMULATE_COLLISION: Self = Self(8);
-    /// Ignore local bodies
+    /// Name unverified: the 5.0 client has no reader
     pub const IGNORE_LOCAL_BODIES: Self = Self(16);
-    /// Always present
+    /// Name unverified: the 5.0 client has no reader
     pub const ALWAYS_EXISTS: Self = Self(32);
-    /// Unknown
-    pub const UNKNOWN_6: Self = Self(64);
-    /// Disable simulation
-    pub const NO_SIMULATION: Self = Self(128);
-    /// Unknown
+    /// Takes the nearest bodied ancestor's dynamic state
+    pub const INHERIT_DYNAMIC: Self = Self(64);
+    /// Setup and deactivation leave the bone's physics bit alone
+    pub const KEEP_BONE_DRIVEN: Self = Self(128);
+    /// Stays kinematic when the model ragdolls (Heroes)
+    pub const EXEMPT_FROM_RAGDOLL: Self = Self(256);
+    /// The 5.0 client has no reader
     pub const UNKNOWN_9: Self = Self(512);
 
     #[inline]
@@ -15460,7 +15472,7 @@ impl Default for TrailingModel {
 
 /// FOR_ — Force field (v0–v2, 104 bytes)
 ///
-/// Applies radial, wind, or explosion forces to particles and ribbons within an influence volume shape (sphere, cylinder, box, hemisphere).
+/// Pushes particles and ribbons (flag 0x8) and rigid bodies (flag 0x10) inside an influence volume. A body is affected when its `localForces | worldForces << 16` mask shares a bit with `localChannels`.
 pub struct Force {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M3Force>,
 }
@@ -15505,7 +15517,7 @@ impl Force {
         }
     }
 
-    /// Force influence type (radial/wind/explosion)
+    /// Force kind
     pub fn force_type(&self) -> ForceType {
         // SAFETY: scalar read; the discriminant is validated below.
         unsafe { ffi::whiteout_m3_M3Force_get_forceType(self.raw.as_ptr()) }
@@ -15531,7 +15543,7 @@ impl Force {
         unsafe { ffi::whiteout_m3_M3Force_set_forceShape(self.raw.as_ptr(), value as i32) }
     }
 
-    /// Unknown field
+    /// Read as local/world scope; no reader traced yet
     pub fn unknown(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3Force_get_unknown(self.raw.as_ptr()) }
@@ -15553,7 +15565,7 @@ impl Force {
         unsafe { ffi::whiteout_m3_M3Force_set_boneIndex(self.raw.as_ptr(), value) }
     }
 
-    /// Force flags (falloff, height gradient, unbounded)
+    /// Falloff, height gradient, unbounded, targets
     pub fn flags(&self) -> ForceFlag {
         // SAFETY: scalar read; a flag set accepts any bits.
         ForceFlag(unsafe { ffi::whiteout_m3_M3Force_get_flags(self.raw.as_ptr()) })
@@ -15564,7 +15576,7 @@ impl Force {
         unsafe { ffi::whiteout_m3_M3Force_set_flags(self.raw.as_ptr(), value.0) }
     }
 
-    /// Local channel bitmask
+    /// Channel mask matched against body and emitter masks
     pub fn local_channels(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3Force_get_localChannels(self.raw.as_ptr()) }
@@ -15682,9 +15694,9 @@ impl Default for Force {
     }
 }
 
-/// WRP_ — Warp field (v0–v1, 132 bytes)
+/// WRP_ — Vertex warp (v1, 132 bytes)
 ///
-/// Warps particle/ribbon trajectories with animated radius, height, and angular/axial/radial strength components.
+/// A vertex-shader deformation particles and ribbons opt into. The client refuses a v0 record, so the parser drops one.
 pub struct Warp {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M3Warp>,
 }
@@ -15921,7 +15933,7 @@ impl Default for Warp {
 
 /// DMSE — Convex hull half-edge (v0, 4 bytes)
 ///
-/// Half-edge connectivity for PHSH convex hull shapes (shapeType = 4). Entries are stored in consecutive twin pairs (forward 0x01 / reverse 0xFF). The nextAroundVertex field chains half-edges into closed per-vertex rings.
+/// Entries come in consecutive twin pairs: an even entry's twin is the next one (`twinOffset` +1), an odd entry's the previous (-1).
 pub struct ConvexHullHalfEdge {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M3ConvexHullHalfEdge>,
 }
@@ -15966,50 +15978,48 @@ impl ConvexHullHalfEdge {
         }
     }
 
-    /// 0x01 = forward, 0xFF = reverse (twin)
-    pub fn type_(&self) -> u8 {
+    /// +1 on the even entry of a pair, -1 on the odd one
+    pub fn twin_offset(&self) -> i8 {
         // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3ConvexHullHalfEdge_get_type(self.raw.as_ptr()) }
+        unsafe { ffi::whiteout_m3_M3ConvexHullHalfEdge_get_twinOffset(self.raw.as_ptr()) }
     }
 
-    pub fn set_type_(&mut self, value: u8) {
+    pub fn set_twin_offset(&mut self, value: i8) {
         // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m3_M3ConvexHullHalfEdge_set_type(self.raw.as_ptr(), value) }
+        unsafe { ffi::whiteout_m3_M3ConvexHullHalfEdge_set_twinOffset(self.raw.as_ptr(), value) }
     }
 
-    /// Face this half-edge borders
-    pub fn face_index(&self) -> u8 {
+    /// Vertex the half-edge leaves
+    pub fn origin_vertex(&self) -> u8 {
         // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3ConvexHullHalfEdge_get_faceIndex(self.raw.as_ptr()) }
+        unsafe { ffi::whiteout_m3_M3ConvexHullHalfEdge_get_originVertex(self.raw.as_ptr()) }
     }
 
-    pub fn set_face_index(&mut self, value: u8) {
+    pub fn set_origin_vertex(&mut self, value: u8) {
         // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m3_M3ConvexHullHalfEdge_set_faceIndex(self.raw.as_ptr(), value) }
+        unsafe { ffi::whiteout_m3_M3ConvexHullHalfEdge_set_originVertex(self.raw.as_ptr(), value) }
     }
 
-    /// Target vertex of this half-edge
-    pub fn vertex_index(&self) -> u8 {
+    /// Face the half-edge borders
+    pub fn face(&self) -> u8 {
         // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3ConvexHullHalfEdge_get_vertexIndex(self.raw.as_ptr()) }
+        unsafe { ffi::whiteout_m3_M3ConvexHullHalfEdge_get_face(self.raw.as_ptr()) }
     }
 
-    pub fn set_vertex_index(&mut self, value: u8) {
+    pub fn set_face(&mut self, value: u8) {
         // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m3_M3ConvexHullHalfEdge_set_vertexIndex(self.raw.as_ptr(), value) }
+        unsafe { ffi::whiteout_m3_M3ConvexHullHalfEdge_set_face(self.raw.as_ptr(), value) }
     }
 
-    /// Next half-edge around the same vertex
-    pub fn next_around_vertex(&self) -> u8 {
+    /// Next half-edge around the same face
+    pub fn next_in_face(&self) -> u8 {
         // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3ConvexHullHalfEdge_get_nextAroundVertex(self.raw.as_ptr()) }
+        unsafe { ffi::whiteout_m3_M3ConvexHullHalfEdge_get_nextInFace(self.raw.as_ptr()) }
     }
 
-    pub fn set_next_around_vertex(&mut self, value: u8) {
+    pub fn set_next_in_face(&mut self, value: u8) {
         // SAFETY: plain scalar write through a live handle.
-        unsafe {
-            ffi::whiteout_m3_M3ConvexHullHalfEdge_set_nextAroundVertex(self.raw.as_ptr(), value)
-        }
+        unsafe { ffi::whiteout_m3_M3ConvexHullHalfEdge_set_nextInFace(self.raw.as_ptr(), value) }
     }
 }
 
@@ -16021,19 +16031,11 @@ impl Default for ConvexHullHalfEdge {
 
 /// DMMN — Physics mesh BVH node (v0: 12 bytes, v1: 8 bytes)
 ///
-/// DMMN entries form a linearized k-DOP Bounding Volume Hierarchy (BVH) tree for concave mesh collision. The entry count is always odd: n = 2*n_leaves - 1.
+/// The SC2 5.0 client never reads DMMN: it rebuilds each mesh's tree at load and then takes the tree's centre, extent, tolerance and height from the PHSH. The cooker (physics_cook.h) writes none. Kept so a shipped v3 mesh reads and writes back whole.
 ///
-/// **Tree structure** — right-skewed binary tree stored in DFS preorder: - Array layout: (INT_0, LEAF_1), (INT_2, LEAF_3), ..., LEAF_{n-1} - Even indices 0..n-3: internal nodes - Odd indices 1..n-2: leaf nodes - Last index n-1: leaf node - Each internal node 2k: left child = leaf 2k+1, right child = node 2k+2
+/// **v1** (8 bytes per node) — octahedral-encoded normal + quantized slab bounds: - i16 octX, octY: octahedral-mapped slab normal (snorm16 pair) - u16 slabMin, slabMax: quantized bounding-slab distances along the normal
 ///
-/// **v0** (Havok-era, 12 bytes per node) — stores only the slab normal direction as a plain Vector3f. No quantized slab bounds are present; the tree topology and bounding-slab directions are identical to v1, but distance culling relies on the runtime computing slab projections against meshBoundsCenter/Extent. Only 3 files in the corpus use v0 (all with PHSH v2).
-///
-/// **v1** (Domino physics, 8 bytes per node) — octahedral-encoded normal + quantized slab bounds: - i16 octX, octY: octahedral-mapped slab normal (snorm16 pair) - u16 slabMin, slabMax: quantized bounding-slab distances along the normal - Internal nodes: slabMax != 0; leaf sentinel: slabMax == 0 (except the last node, which may have slabMax != 0 despite being a leaf)
-///
-/// **Quantization** (v1, universally confirmed across 468 corpus files): - Per-axis step: tol_i = extent_i / 32767 - Projected step: tol_proj = dot(tolerance, |normal|) - Slab values quantized as: q = round(projection / tol_proj) - Root node slab range approaches [-32767, +32767] (full AABB)
-///
-/// Internal nodes use one slab direction; their paired leaf uses a DIFFERENT slab direction, forming a 2-DOP bound per primitive group. Most trees (391/468) use multiple slab normals across internal levels for tighter culling.
-///
-/// PHSH meshTreeDepth gives the tree height (longest root-to-leaf path in nodes).
+/// **v0** (Havok era, 12 bytes per node) is a plain normal; only v2 meshes carry it, and those are rebuilt by the upgrade.
 pub struct PhysicsMeshBvhNode {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M3PhysicsMeshBvhNode>,
 }
@@ -16085,7 +16087,9 @@ impl Default for PhysicsMeshBvhNode {
     }
 }
 
-/// DMMT — Physics mesh triangle (v0, 28 bytes)
+/// DMMT — Havok-era mesh triangle (v0, 28 bytes)
+///
+/// Only a v2 PHSH references it; the upgrade keeps the three vertex indices.
 pub struct PhysicsMeshTriangle {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M3PhysicsMeshTriangle>,
 }
@@ -16226,7 +16230,9 @@ impl Default for PhysicsMeshTriangle {
     }
 }
 
-/// DMME — Physics mesh edge (v0, 20 bytes)
+/// DMME — Havok-era mesh edge (v0, 20 bytes)
+///
+/// Only a v2 PHSH references it, and the upgrade discards it.
 pub struct PhysicsMeshEdge {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M3PhysicsMeshEdge>,
 }
@@ -16333,11 +16339,15 @@ impl Default for PhysicsMeshEdge {
     }
 }
 
-/// PHSH — Physics shape (v0–v3, 132/292/300 bytes)
+/// PHSH — Physics shape (v3, 300 bytes; v0 96, v1 132 and v2 292 read)
 ///
-/// The 300-byte v3 layout is a three-part union. Bytes 0–79 are the common header. Bytes 80–103 hold shape dimensions for simple shapes (0–3) or are zero for complex shapes. Bytes 80–183 form the convex hull section (shapeType 4); bytes 184–299 form the mesh section (shapeType 5).
+/// Bytes 0–103 are common: the matrix, the kind, the two source Refs and the dimensions. Bytes 104–183 are the cooked convex hull (kind 4) and 184–299 the cooked mesh (kind 5).
 ///
-/// v2 shares the v3 layout through the hull section but has a shorter mesh section (292 bytes total): bounds/tolerance, four legacy geometry refs, then a 6-dword tail (unknown, vertexCount, faceCount, 2× unknown, treeDepth) — verified against the SC2 client's version-upgrade copier.
+/// **Source vs cooked.** `sourcePoints`/`sourceTriangles` (+68/+80) are raw input the client cooks at load, with the matrix baked in: a hull from the points, a mesh from both. Only the upgrade of a v0/v1 shape fills them, and `UpgradePhysics` cooks them the same way, so a parsed shape carries the cooked tables and empty sources.
+///
+/// **Hull tables** are used directly as a Domino polytope: the counts at +164/+168/+172 rather than the Ref counts, the volume and surface area as cached mass data (buoyancy; mass under a physics-material override).
+///
+/// **Mesh tables.** The client rebuilds the tree from the vertices and the three indices of each triangle (plus the low byte of its seventh value), then overwrites the tree's centre, extent, tolerance and height with this record's, so those four must be what its builder computes (`CookMesh`). DMMN and the adjacency are never read.
 pub struct PhysicsShape {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M3PhysicsShape>,
 }
@@ -16382,17 +16392,6 @@ impl PhysicsShape {
         }
     }
 
-    /// Havok convex radius (v1 only, ≈ 0.019685)
-    pub fn collision_margin(&self) -> f32 {
-        // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3PhysicsShape_get_collisionMargin(self.raw.as_ptr()) }
-    }
-
-    pub fn set_collision_margin(&mut self, value: f32) {
-        // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m3_M3PhysicsShape_set_collisionMargin(self.raw.as_ptr(), value) }
-    }
-
     /// Shape type (box/sphere/capsule/cylinder/hull/mesh)
     pub fn shape_type(&self) -> PhysicsShapeType {
         // SAFETY: scalar read; the discriminant is validated below.
@@ -16406,27 +16405,104 @@ impl PhysicsShape {
         unsafe { ffi::whiteout_m3_M3PhysicsShape_set_shapeType(self.raw.as_ptr(), value as i32) }
     }
 
-    /// Legacy sizes (v1 only, zero for shapeType 4–5)
-    pub fn old_sizes(&self) -> crate::math::Vector3f {
-        // SAFETY: the getter returns an interior pointer to a
-        // layout-identical POD; we copy it out immediately.
+    /// Uncooked points (VEC3, +68), matrix not yet applied
+    /// Zero-copy view of the underlying `std::vector`.
+    pub fn source_points(&self) -> &[crate::math::Vector3f] {
+        // SAFETY: `_data`/`_count` describe one contiguous C++
+        // allocation, borrowed for as long as `self` is.
         unsafe {
-            *(ffi::whiteout_m3_M3PhysicsShape_get_oldSizes(self.raw.as_ptr())
-                as *const crate::math::Vector3f)
+            let n = ffi::whiteout_m3_M3PhysicsShape_get_sourcePoints_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m3_M3PhysicsShape_get_sourcePoints_data(self.raw.as_ptr())
+                as *const crate::math::Vector3f;
+            if p.is_null() || n == 0 {
+                &[]
+            } else {
+                core::slice::from_raw_parts(p, n)
+            }
         }
     }
 
-    pub fn set_old_sizes(&mut self, value: crate::math::Vector3f) {
-        // SAFETY: as above, in the other direction.
+    /// Zero-copy mutable view. Resize first — the borrow forbids it after.
+    pub fn source_points_mut(&mut self) -> &mut [crate::math::Vector3f] {
+        // SAFETY: as above; `&mut self` rules out aliasing and resizing.
         unsafe {
-            ffi::whiteout_m3_M3PhysicsShape_set_oldSizes(
+            let n = ffi::whiteout_m3_M3PhysicsShape_get_sourcePoints_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m3_M3PhysicsShape_get_sourcePoints_data(self.raw.as_ptr())
+                as *const crate::math::Vector3f as *mut crate::math::Vector3f;
+            if p.is_null() || n == 0 {
+                &mut []
+            } else {
+                core::slice::from_raw_parts_mut(p, n)
+            }
+        }
+    }
+
+    pub fn set_source_points(&mut self, values: &[crate::math::Vector3f]) {
+        // SAFETY: the native side copies `values` before returning.
+        unsafe {
+            ffi::whiteout_m3_M3PhysicsShape_assign_sourcePoints(
                 self.raw.as_ptr(),
-                &value as *const crate::math::Vector3f as *const _,
+                values.as_ptr() as *const _,
+                values.len(),
             )
         }
     }
 
-    /// Shape dimensions (v2+, zero for complex shapes)
+    pub fn resize_source_points(&mut self, count: usize) {
+        // SAFETY: reallocation is safe here precisely because
+        // `&mut self` means no slice borrow is outstanding.
+        unsafe { ffi::whiteout_m3_M3PhysicsShape_resize_sourcePoints(self.raw.as_ptr(), count) }
+    }
+
+    /// Uncooked triangle list (U16_, +80), three per face
+    /// Zero-copy view of the underlying `std::vector`.
+    pub fn source_triangles(&self) -> &[u16] {
+        // SAFETY: `_data`/`_count` describe one contiguous C++
+        // allocation, borrowed for as long as `self` is.
+        unsafe {
+            let n = ffi::whiteout_m3_M3PhysicsShape_get_sourceTriangles_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m3_M3PhysicsShape_get_sourceTriangles_data(self.raw.as_ptr());
+            if p.is_null() || n == 0 {
+                &[]
+            } else {
+                core::slice::from_raw_parts(p, n)
+            }
+        }
+    }
+
+    /// Zero-copy mutable view. Resize first — the borrow forbids it after.
+    pub fn source_triangles_mut(&mut self) -> &mut [u16] {
+        // SAFETY: as above; `&mut self` rules out aliasing and resizing.
+        unsafe {
+            let n = ffi::whiteout_m3_M3PhysicsShape_get_sourceTriangles_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m3_M3PhysicsShape_get_sourceTriangles_data(self.raw.as_ptr())
+                as *mut u16;
+            if p.is_null() || n == 0 {
+                &mut []
+            } else {
+                core::slice::from_raw_parts_mut(p, n)
+            }
+        }
+    }
+
+    pub fn set_source_triangles(&mut self, values: &[u16]) {
+        // SAFETY: the native side copies `values` before returning.
+        unsafe {
+            ffi::whiteout_m3_M3PhysicsShape_assign_sourceTriangles(
+                self.raw.as_ptr(),
+                values.as_ptr() as *const _,
+                values.len(),
+            )
+        }
+    }
+
+    pub fn resize_source_triangles(&mut self, count: usize) {
+        // SAFETY: reallocation is safe here precisely because
+        // `&mut self` means no slice borrow is outstanding.
+        unsafe { ffi::whiteout_m3_M3PhysicsShape_resize_sourceTriangles(self.raw.as_ptr(), count) }
+    }
+
+    /// Box half-extents; sphere radius; capsule/cylinder radius, length
     pub fn shape_dimensions(&self) -> crate::math::Vector3f {
         // SAFETY: the getter returns an interior pointer to a
         // layout-identical POD; we copy it out immediately.
@@ -16446,14 +16522,14 @@ impl PhysicsShape {
         }
     }
 
-    /// Per-face unit normals (VEC3)
+    /// Vertex positions (VEC3)
     /// Zero-copy view of the underlying `std::vector`.
-    pub fn hull_face_normals(&self) -> &[crate::math::Vector3f] {
+    pub fn hull_vertices(&self) -> &[crate::math::Vector3f] {
         // SAFETY: `_data`/`_count` describe one contiguous C++
         // allocation, borrowed for as long as `self` is.
         unsafe {
-            let n = ffi::whiteout_m3_M3PhysicsShape_get_hullFaceNormals_count(self.raw.as_ptr());
-            let p = ffi::whiteout_m3_M3PhysicsShape_get_hullFaceNormals_data(self.raw.as_ptr())
+            let n = ffi::whiteout_m3_M3PhysicsShape_get_hullVertices_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m3_M3PhysicsShape_get_hullVertices_data(self.raw.as_ptr())
                 as *const crate::math::Vector3f;
             if p.is_null() || n == 0 {
                 &[]
@@ -16464,11 +16540,11 @@ impl PhysicsShape {
     }
 
     /// Zero-copy mutable view. Resize first — the borrow forbids it after.
-    pub fn hull_face_normals_mut(&mut self) -> &mut [crate::math::Vector3f] {
+    pub fn hull_vertices_mut(&mut self) -> &mut [crate::math::Vector3f] {
         // SAFETY: as above; `&mut self` rules out aliasing and resizing.
         unsafe {
-            let n = ffi::whiteout_m3_M3PhysicsShape_get_hullFaceNormals_count(self.raw.as_ptr());
-            let p = ffi::whiteout_m3_M3PhysicsShape_get_hullFaceNormals_data(self.raw.as_ptr())
+            let n = ffi::whiteout_m3_M3PhysicsShape_get_hullVertices_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m3_M3PhysicsShape_get_hullVertices_data(self.raw.as_ptr())
                 as *const crate::math::Vector3f as *mut crate::math::Vector3f;
             if p.is_null() || n == 0 {
                 &mut []
@@ -16478,10 +16554,10 @@ impl PhysicsShape {
         }
     }
 
-    pub fn set_hull_face_normals(&mut self, values: &[crate::math::Vector3f]) {
+    pub fn set_hull_vertices(&mut self, values: &[crate::math::Vector3f]) {
         // SAFETY: the native side copies `values` before returning.
         unsafe {
-            ffi::whiteout_m3_M3PhysicsShape_assign_hullFaceNormals(
+            ffi::whiteout_m3_M3PhysicsShape_assign_hullVertices(
                 self.raw.as_ptr(),
                 values.as_ptr() as *const _,
                 values.len(),
@@ -16489,21 +16565,20 @@ impl PhysicsShape {
         }
     }
 
-    pub fn resize_hull_face_normals(&mut self, count: usize) {
+    pub fn resize_hull_vertices(&mut self, count: usize) {
         // SAFETY: reallocation is safe here precisely because
         // `&mut self` means no slice borrow is outstanding.
-        unsafe { ffi::whiteout_m3_M3PhysicsShape_resize_hullFaceNormals(self.raw.as_ptr(), count) }
+        unsafe { ffi::whiteout_m3_M3PhysicsShape_resize_hullVertices(self.raw.as_ptr(), count) }
     }
 
-    /// Vertex positions, w=0 (VEC4)
+    /// Face planes (n, d), n unit length (VEC4)
     /// Zero-copy view of the underlying `std::vector`.
-    pub fn hull_vertex_positions(&self) -> &[crate::math::Vector4f] {
+    pub fn hull_planes(&self) -> &[crate::math::Vector4f] {
         // SAFETY: `_data`/`_count` describe one contiguous C++
         // allocation, borrowed for as long as `self` is.
         unsafe {
-            let n =
-                ffi::whiteout_m3_M3PhysicsShape_get_hullVertexPositions_count(self.raw.as_ptr());
-            let p = ffi::whiteout_m3_M3PhysicsShape_get_hullVertexPositions_data(self.raw.as_ptr())
+            let n = ffi::whiteout_m3_M3PhysicsShape_get_hullPlanes_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m3_M3PhysicsShape_get_hullPlanes_data(self.raw.as_ptr())
                 as *const crate::math::Vector4f;
             if p.is_null() || n == 0 {
                 &[]
@@ -16514,12 +16589,11 @@ impl PhysicsShape {
     }
 
     /// Zero-copy mutable view. Resize first — the borrow forbids it after.
-    pub fn hull_vertex_positions_mut(&mut self) -> &mut [crate::math::Vector4f] {
+    pub fn hull_planes_mut(&mut self) -> &mut [crate::math::Vector4f] {
         // SAFETY: as above; `&mut self` rules out aliasing and resizing.
         unsafe {
-            let n =
-                ffi::whiteout_m3_M3PhysicsShape_get_hullVertexPositions_count(self.raw.as_ptr());
-            let p = ffi::whiteout_m3_M3PhysicsShape_get_hullVertexPositions_data(self.raw.as_ptr())
+            let n = ffi::whiteout_m3_M3PhysicsShape_get_hullPlanes_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m3_M3PhysicsShape_get_hullPlanes_data(self.raw.as_ptr())
                 as *const crate::math::Vector4f as *mut crate::math::Vector4f;
             if p.is_null() || n == 0 {
                 &mut []
@@ -16529,10 +16603,10 @@ impl PhysicsShape {
         }
     }
 
-    pub fn set_hull_vertex_positions(&mut self, values: &[crate::math::Vector4f]) {
+    pub fn set_hull_planes(&mut self, values: &[crate::math::Vector4f]) {
         // SAFETY: the native side copies `values` before returning.
         unsafe {
-            ffi::whiteout_m3_M3PhysicsShape_assign_hullVertexPositions(
+            ffi::whiteout_m3_M3PhysicsShape_assign_hullPlanes(
                 self.raw.as_ptr(),
                 values.as_ptr() as *const _,
                 values.len(),
@@ -16540,15 +16614,13 @@ impl PhysicsShape {
         }
     }
 
-    pub fn resize_hull_vertex_positions(&mut self, count: usize) {
+    pub fn resize_hull_planes(&mut self, count: usize) {
         // SAFETY: reallocation is safe here precisely because
         // `&mut self` means no slice borrow is outstanding.
-        unsafe {
-            ffi::whiteout_m3_M3PhysicsShape_resize_hullVertexPositions(self.raw.as_ptr(), count)
-        }
+        unsafe { ffi::whiteout_m3_M3PhysicsShape_resize_hullPlanes(self.raw.as_ptr(), count) }
     }
 
-    /// Half-edge table (DMSE)
+    /// Half-edge table (DMSE), twin pairs
     pub fn hull_half_edges_len(&self) -> usize {
         // SAFETY: scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3PhysicsShape_get_hullHalfEdges_count(self.raw.as_ptr()) }
@@ -16602,16 +16674,14 @@ impl PhysicsShape {
         unsafe { ffi::whiteout_m3_M3PhysicsShape_resize_hullHalfEdges(self.raw.as_ptr(), count) }
     }
 
-    /// One face index per vertex (U8__)
+    /// Each face's first half-edge (U8__)
     /// Zero-copy view of the underlying `std::vector`.
-    pub fn hull_vertex_face_indices(&self) -> &[u8] {
+    pub fn hull_face_first_edges(&self) -> &[u8] {
         // SAFETY: `_data`/`_count` describe one contiguous C++
         // allocation, borrowed for as long as `self` is.
         unsafe {
-            let n =
-                ffi::whiteout_m3_M3PhysicsShape_get_hullVertexFaceIndices_count(self.raw.as_ptr());
-            let p =
-                ffi::whiteout_m3_M3PhysicsShape_get_hullVertexFaceIndices_data(self.raw.as_ptr());
+            let n = ffi::whiteout_m3_M3PhysicsShape_get_hullFaceFirstEdges_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m3_M3PhysicsShape_get_hullFaceFirstEdges_data(self.raw.as_ptr());
             if p.is_null() || n == 0 {
                 &[]
             } else {
@@ -16621,14 +16691,12 @@ impl PhysicsShape {
     }
 
     /// Zero-copy mutable view. Resize first — the borrow forbids it after.
-    pub fn hull_vertex_face_indices_mut(&mut self) -> &mut [u8] {
+    pub fn hull_face_first_edges_mut(&mut self) -> &mut [u8] {
         // SAFETY: as above; `&mut self` rules out aliasing and resizing.
         unsafe {
-            let n =
-                ffi::whiteout_m3_M3PhysicsShape_get_hullVertexFaceIndices_count(self.raw.as_ptr());
-            let p =
-                ffi::whiteout_m3_M3PhysicsShape_get_hullVertexFaceIndices_data(self.raw.as_ptr())
-                    as *mut u8;
+            let n = ffi::whiteout_m3_M3PhysicsShape_get_hullFaceFirstEdges_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m3_M3PhysicsShape_get_hullFaceFirstEdges_data(self.raw.as_ptr())
+                as *mut u8;
             if p.is_null() || n == 0 {
                 &mut []
             } else {
@@ -16637,10 +16705,10 @@ impl PhysicsShape {
         }
     }
 
-    pub fn set_hull_vertex_face_indices(&mut self, values: &[u8]) {
+    pub fn set_hull_face_first_edges(&mut self, values: &[u8]) {
         // SAFETY: the native side copies `values` before returning.
         unsafe {
-            ffi::whiteout_m3_M3PhysicsShape_assign_hullVertexFaceIndices(
+            ffi::whiteout_m3_M3PhysicsShape_assign_hullFaceFirstEdges(
                 self.raw.as_ptr(),
                 values.as_ptr() as *const _,
                 values.len(),
@@ -16648,46 +16716,35 @@ impl PhysicsShape {
         }
     }
 
-    pub fn resize_hull_vertex_face_indices(&mut self, count: usize) {
+    pub fn resize_hull_face_first_edges(&mut self, count: usize) {
         // SAFETY: reallocation is safe here precisely because
         // `&mut self` means no slice borrow is outstanding.
         unsafe {
-            ffi::whiteout_m3_M3PhysicsShape_resize_hullVertexFaceIndices(self.raw.as_ptr(), count)
+            ffi::whiteout_m3_M3PhysicsShape_resize_hullFaceFirstEdges(self.raw.as_ptr(), count)
         }
     }
 
-    /// Hull centroid
-    pub fn hull_center(&self) -> crate::math::Vector3f {
+    /// Volume centroid
+    pub fn hull_centroid(&self) -> crate::math::Vector3f {
         // SAFETY: the getter returns an interior pointer to a
         // layout-identical POD; we copy it out immediately.
         unsafe {
-            *(ffi::whiteout_m3_M3PhysicsShape_get_hullCenter(self.raw.as_ptr())
+            *(ffi::whiteout_m3_M3PhysicsShape_get_hullCentroid(self.raw.as_ptr())
                 as *const crate::math::Vector3f)
         }
     }
 
-    pub fn set_hull_center(&mut self, value: crate::math::Vector3f) {
+    pub fn set_hull_centroid(&mut self, value: crate::math::Vector3f) {
         // SAFETY: as above, in the other direction.
         unsafe {
-            ffi::whiteout_m3_M3PhysicsShape_set_hullCenter(
+            ffi::whiteout_m3_M3PhysicsShape_set_hullCentroid(
                 self.raw.as_ptr(),
                 &value as *const crate::math::Vector3f as *const _,
             )
         }
     }
 
-    /// Number of face normals
-    pub fn hull_face_normal_count(&self) -> u32 {
-        // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3PhysicsShape_get_hullFaceNormalCount(self.raw.as_ptr()) }
-    }
-
-    pub fn set_hull_face_normal_count(&mut self, value: u32) {
-        // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m3_M3PhysicsShape_set_hullFaceNormalCount(self.raw.as_ptr(), value) }
-    }
-
-    /// Number of vertices
+    /// Vertices the client reads
     pub fn hull_vertex_count(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3PhysicsShape_get_hullVertexCount(self.raw.as_ptr()) }
@@ -16698,7 +16755,18 @@ impl PhysicsShape {
         unsafe { ffi::whiteout_m3_M3PhysicsShape_set_hullVertexCount(self.raw.as_ptr(), value) }
     }
 
-    /// Number of half-edges
+    /// Faces the client reads
+    pub fn hull_face_count(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m3_M3PhysicsShape_get_hullFaceCount(self.raw.as_ptr()) }
+    }
+
+    pub fn set_hull_face_count(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m3_M3PhysicsShape_set_hullFaceCount(self.raw.as_ptr(), value) }
+    }
+
+    /// Half-edges the client reads
     pub fn hull_half_edge_count(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3PhysicsShape_get_hullHalfEdgeCount(self.raw.as_ptr()) }
@@ -16709,29 +16777,29 @@ impl PhysicsShape {
         unsafe { ffi::whiteout_m3_M3PhysicsShape_set_hullHalfEdgeCount(self.raw.as_ptr(), value) }
     }
 
-    /// Unknown hull parameter 0
-    pub fn hull_unknown_0(&self) -> f32 {
+    /// Enclosed volume
+    pub fn hull_volume(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3PhysicsShape_get_hullUnknown0(self.raw.as_ptr()) }
+        unsafe { ffi::whiteout_m3_M3PhysicsShape_get_hullVolume(self.raw.as_ptr()) }
     }
 
-    pub fn set_hull_unknown_0(&mut self, value: f32) {
+    pub fn set_hull_volume(&mut self, value: f32) {
         // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m3_M3PhysicsShape_set_hullUnknown0(self.raw.as_ptr(), value) }
+        unsafe { ffi::whiteout_m3_M3PhysicsShape_set_hullVolume(self.raw.as_ptr(), value) }
     }
 
-    /// Unknown hull parameter 1
-    pub fn hull_unknown_1(&self) -> f32 {
+    /// Surface area
+    pub fn hull_surface_area(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3PhysicsShape_get_hullUnknown1(self.raw.as_ptr()) }
+        unsafe { ffi::whiteout_m3_M3PhysicsShape_get_hullSurfaceArea(self.raw.as_ptr()) }
     }
 
-    pub fn set_hull_unknown_1(&mut self, value: f32) {
+    pub fn set_hull_surface_area(&mut self, value: f32) {
         // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m3_M3PhysicsShape_set_hullUnknown1(self.raw.as_ptr(), value) }
+        unsafe { ffi::whiteout_m3_M3PhysicsShape_set_hullSurfaceArea(self.raw.as_ptr(), value) }
     }
 
-    /// BVH tree nodes (DMMN)
+    /// BVH tree nodes (DMMN), never read
     pub fn mesh_bvh_nodes_len(&self) -> usize {
         // SAFETY: scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3PhysicsShape_get_meshBvhNodes_count(self.raw.as_ptr()) }
@@ -16838,7 +16906,7 @@ impl PhysicsShape {
         }
     }
 
-    /// AABB center in model space (quantization grid origin)
+    /// Tree centre, as the client's builder computes it
     pub fn mesh_bounds_center(&self) -> crate::math::Vector3f {
         // SAFETY: the getter returns an interior pointer to a
         // layout-identical POD; we copy it out immediately.
@@ -16858,7 +16926,7 @@ impl PhysicsShape {
         }
     }
 
-    /// AABB half-extents (quantization range: tolerance = extent / 32767)
+    /// Tree half-extent, likewise
     pub fn mesh_bounds_extent(&self) -> crate::math::Vector3f {
         // SAFETY: the getter returns an interior pointer to a
         // layout-identical POD; we copy it out immediately.
@@ -16898,7 +16966,7 @@ impl PhysicsShape {
         }
     }
 
-    /// Number of mesh normals
+    /// DMMN count
     pub fn mesh_normal_count(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3PhysicsShape_get_meshNormalCount(self.raw.as_ptr()) }
@@ -16920,7 +16988,7 @@ impl PhysicsShape {
         unsafe { ffi::whiteout_m3_M3PhysicsShape_set_meshVertexCount(self.raw.as_ptr(), value) }
     }
 
-    /// MT16 face count (0 when MT32)
+    /// MT16 face count (0 when MT32); the client reads this, not the Ref
     pub fn mesh_face_index_16_count(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3PhysicsShape_get_meshFaceIndex16Count(self.raw.as_ptr()) }
@@ -16946,7 +17014,7 @@ impl PhysicsShape {
         }
     }
 
-    /// Unknown mesh parameter
+    /// Never read
     pub fn mesh_unknown_1(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3PhysicsShape_get_meshUnknown1(self.raw.as_ptr()) }
@@ -16957,7 +17025,7 @@ impl PhysicsShape {
         unsafe { ffi::whiteout_m3_M3PhysicsShape_set_meshUnknown1(self.raw.as_ptr(), value) }
     }
 
-    /// Reserved (always 0)
+    /// Never read
     pub fn mesh_reserved(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3PhysicsShape_get_meshReserved(self.raw.as_ptr()) }
@@ -16968,7 +17036,7 @@ impl PhysicsShape {
         unsafe { ffi::whiteout_m3_M3PhysicsShape_set_meshReserved(self.raw.as_ptr(), value) }
     }
 
-    /// BVH tree height (root-to-leaf path length, 1–12)
+    /// Tree height, as the client's builder computes it
     pub fn mesh_tree_depth(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3PhysicsShape_get_meshTreeDepth(self.raw.as_ptr()) }
@@ -16979,7 +17047,7 @@ impl PhysicsShape {
         unsafe { ffi::whiteout_m3_M3PhysicsShape_set_meshTreeDepth(self.raw.as_ptr(), value) }
     }
 
-    /// Collision margin (MT16: small float; MT32: 0.0)
+    /// Never read
     pub fn mesh_collision_margin(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3PhysicsShape_get_meshCollisionMargin(self.raw.as_ptr()) }
@@ -16997,9 +17065,9 @@ impl Default for PhysicsShape {
     }
 }
 
-/// PHRB — Rigid body (v2–v4, 56–104 bytes)
+/// PHRB — Rigid body (v4, 80 bytes; v0 72, v1 96, v2 104 and v3 56 read)
 ///
-/// Havok rigid body with density, friction, restitution, damping, gravity scale, and collision shape references.
+/// A Domino body on `parentBoneIndex`, with its shapes. `simulationType` is how the body is created; `dynamicState` whether it simulates at a moment.
 pub struct RigidBody {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M3RigidBody>,
 }
@@ -17044,7 +17112,7 @@ impl RigidBody {
         }
     }
 
-    /// Simulation mode (v3+)
+    /// Creation type: 0 dynamic, 1 kinematic, 2 static
     pub fn simulation_type(&self) -> u16 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3RigidBody_get_simulationType(self.raw.as_ptr()) }
@@ -17066,7 +17134,7 @@ impl RigidBody {
         unsafe { ffi::whiteout_m3_M3RigidBody_set_parentBoneIndex(self.raw.as_ptr(), value) }
     }
 
-    /// Engine-specific body type (v3+)
+    /// Physics-material id game data may override
     pub fn physics_type(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3RigidBody_get_physicsType(self.raw.as_ptr()) }
@@ -17132,18 +17200,18 @@ impl RigidBody {
         unsafe { ffi::whiteout_m3_M3RigidBody_set_angularDamping(self.raw.as_ptr(), value) }
     }
 
-    /// Gravity influence scale
-    pub fn gravity_scale(&self) -> f32 {
+    /// Domino inertia scale (gravity scale is fixed at 1)
+    pub fn inertia_scale(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3RigidBody_get_gravityScale(self.raw.as_ptr()) }
+        unsafe { ffi::whiteout_m3_M3RigidBody_get_inertiaScale(self.raw.as_ptr()) }
     }
 
-    pub fn set_gravity_scale(&mut self, value: f32) {
+    pub fn set_inertia_scale(&mut self, value: f32) {
         // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m3_M3RigidBody_set_gravityScale(self.raw.as_ptr(), value) }
+        unsafe { ffi::whiteout_m3_M3RigidBody_set_inertiaScale(self.raw.as_ptr(), value) }
     }
 
-    /// Animated dynamic state (v4+)
+    /// Simulates now; sampled only when flag bit 1 is set
     /// Borrows the field in place — no copy, no allocation.
     pub fn dynamic_state(&self) -> crate::support::Ref<'_, AnimRefU32> {
         // SAFETY: an interior pointer into `self`, valid for this
@@ -17168,7 +17236,7 @@ impl RigidBody {
         }
     }
 
-    /// Dynamic blend-out duration (v4+)
+    /// Never read
     pub fn dynamic_blend_out(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3RigidBody_get_dynamicBlendOut(self.raw.as_ptr()) }
@@ -17263,7 +17331,7 @@ impl RigidBody {
         unsafe { ffi::whiteout_m3_M3RigidBody_set_worldForces(self.raw.as_ptr(), value) }
     }
 
-    /// Simulation priority
+    /// Never read
     pub fn priority(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3RigidBody_get_priority(self.raw.as_ptr()) }
@@ -17283,7 +17351,7 @@ impl Default for RigidBody {
 
 /// PHYJ — Physics joint (v0, 180 bytes)
 ///
-/// Connects two rigid bodies with limit, friction, and break-threshold parameters.
+/// Joins the first body on each of two bones. Angles are radians. `enableLimits` and `enableFriction` are bytes to the client; the upper three bytes are never read.
 pub struct PhysicsJoint {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M3PhysicsJoint>,
 }
@@ -17328,7 +17396,7 @@ impl PhysicsJoint {
         }
     }
 
-    /// Joint type
+    /// 0 spherical, 1 revolute, 2 cone-twist, 3 weld
     pub fn joint_type(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3PhysicsJoint_get_jointType(self.raw.as_ptr()) }
@@ -17361,7 +17429,7 @@ impl PhysicsJoint {
         unsafe { ffi::whiteout_m3_M3PhysicsJoint_set_boneIndex2(self.raw.as_ptr(), value) }
     }
 
-    /// Enable angular limits
+    /// Enable angular limits (low byte)
     pub fn enable_limits(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3PhysicsJoint_get_enableLimits(self.raw.as_ptr()) }
@@ -17405,7 +17473,7 @@ impl PhysicsJoint {
         unsafe { ffi::whiteout_m3_M3PhysicsJoint_set_coneAngle(self.raw.as_ptr(), value) }
     }
 
-    /// Enable joint friction
+    /// Enable joint friction (low byte)
     pub fn enable_friction(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3PhysicsJoint_get_enableFriction(self.raw.as_ptr()) }
@@ -17416,7 +17484,7 @@ impl PhysicsJoint {
         unsafe { ffi::whiteout_m3_M3PhysicsJoint_set_enableFriction(self.raw.as_ptr(), value) }
     }
 
-    /// Friction coefficient
+    /// Multiplier on an estimated gravity-holding torque
     pub fn friction(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3PhysicsJoint_get_friction(self.raw.as_ptr()) }
@@ -17427,7 +17495,7 @@ impl PhysicsJoint {
         unsafe { ffi::whiteout_m3_M3PhysicsJoint_set_friction(self.raw.as_ptr(), value) }
     }
 
-    /// Damping ratio
+    /// Weld spring damping ratio
     pub fn damping_ratio(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3PhysicsJoint_get_dampingRatio(self.raw.as_ptr()) }
@@ -17438,7 +17506,7 @@ impl PhysicsJoint {
         unsafe { ffi::whiteout_m3_M3PhysicsJoint_set_dampingRatio(self.raw.as_ptr(), value) }
     }
 
-    /// Angular frequency
+    /// Weld spring frequency
     pub fn angular_frequency(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3PhysicsJoint_get_angularFrequency(self.raw.as_ptr()) }
@@ -17449,7 +17517,7 @@ impl PhysicsJoint {
         unsafe { ffi::whiteout_m3_M3PhysicsJoint_set_angularFrequency(self.raw.as_ptr(), value) }
     }
 
-    /// Force threshold to break joint
+    /// Never read
     pub fn break_threshold(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3PhysicsJoint_get_breakThreshold(self.raw.as_ptr()) }
@@ -17460,7 +17528,7 @@ impl PhysicsJoint {
         unsafe { ffi::whiteout_m3_M3PhysicsJoint_set_breakThreshold(self.raw.as_ptr(), value) }
     }
 
-    /// Enable shape constraint
+    /// Collide connected
     pub fn enable_shape(&self) -> u8 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3PhysicsJoint_get_enableShape(self.raw.as_ptr()) }
@@ -17478,144 +17546,9 @@ impl Default for PhysicsJoint {
     }
 }
 
-/// PHCT — Physics constraint (v0, 24 bytes)
-///
-/// Constrains two rigid bodies with break-force threshold.
-pub struct PhysicsConstraint {
-    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M3PhysicsConstraint>,
-}
-
-impl Drop for PhysicsConstraint {
-    fn drop(&mut self) {
-        // SAFETY: `raw` came from a native constructor and Drop runs once.
-        unsafe { ffi::whiteout_m3_M3PhysicsConstraint_delete(self.raw.as_ptr()) }
-    }
-}
-
-impl PhysicsConstraint {
-    /// # Safety
-    /// `raw` must be a live handle this value takes ownership of.
-    #[allow(dead_code)] // used by whichever methods return this type
-    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M3PhysicsConstraint) -> Option<Self> {
-        core::ptr::NonNull::new(raw).map(|raw| PhysicsConstraint { raw })
-    }
-}
-
-// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
-// is deliberately NOT implemented — the C++ types make no documented
-// guarantee about concurrent use, and claiming one we haven't verified
-// would be unsound. See `@bind thread_safe` in the plan.
-unsafe impl Send for PhysicsConstraint {}
-
-impl core::fmt::Debug for PhysicsConstraint {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("PhysicsConstraint").finish_non_exhaustive()
-    }
-}
-
-impl PhysicsConstraint {
-    /// # Panics
-    /// Panics if the native allocation fails.
-    pub fn new() -> Self {
-        // SAFETY: the native constructor returns a live handle; a null here
-        // means the library is unusable.
-        unsafe {
-            let raw = ffi::whiteout_m3_M3PhysicsConstraint_new();
-            Self::from_raw(raw).expect("native PhysicsConstraint allocation failed")
-        }
-    }
-
-    /// Dependent bone indices (U16_)
-    /// Zero-copy view of the underlying `std::vector`.
-    pub fn dependents(&self) -> &[u16] {
-        // SAFETY: `_data`/`_count` describe one contiguous C++
-        // allocation, borrowed for as long as `self` is.
-        unsafe {
-            let n = ffi::whiteout_m3_M3PhysicsConstraint_get_dependents_count(self.raw.as_ptr());
-            let p = ffi::whiteout_m3_M3PhysicsConstraint_get_dependents_data(self.raw.as_ptr());
-            if p.is_null() || n == 0 {
-                &[]
-            } else {
-                core::slice::from_raw_parts(p, n)
-            }
-        }
-    }
-
-    /// Zero-copy mutable view. Resize first — the borrow forbids it after.
-    pub fn dependents_mut(&mut self) -> &mut [u16] {
-        // SAFETY: as above; `&mut self` rules out aliasing and resizing.
-        unsafe {
-            let n = ffi::whiteout_m3_M3PhysicsConstraint_get_dependents_count(self.raw.as_ptr());
-            let p = ffi::whiteout_m3_M3PhysicsConstraint_get_dependents_data(self.raw.as_ptr())
-                as *mut u16;
-            if p.is_null() || n == 0 {
-                &mut []
-            } else {
-                core::slice::from_raw_parts_mut(p, n)
-            }
-        }
-    }
-
-    pub fn set_dependents(&mut self, values: &[u16]) {
-        // SAFETY: the native side copies `values` before returning.
-        unsafe {
-            ffi::whiteout_m3_M3PhysicsConstraint_assign_dependents(
-                self.raw.as_ptr(),
-                values.as_ptr() as *const _,
-                values.len(),
-            )
-        }
-    }
-
-    pub fn resize_dependents(&mut self, count: usize) {
-        // SAFETY: reallocation is safe here precisely because
-        // `&mut self` means no slice borrow is outstanding.
-        unsafe { ffi::whiteout_m3_M3PhysicsConstraint_resize_dependents(self.raw.as_ptr(), count) }
-    }
-
-    /// First rigid body index
-    pub fn rigid_body_1(&self) -> u16 {
-        // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3PhysicsConstraint_get_rigidBody1(self.raw.as_ptr()) }
-    }
-
-    pub fn set_rigid_body_1(&mut self, value: u16) {
-        // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m3_M3PhysicsConstraint_set_rigidBody1(self.raw.as_ptr(), value) }
-    }
-
-    /// Second rigid body index
-    pub fn rigid_body_2(&self) -> u16 {
-        // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3PhysicsConstraint_get_rigidBody2(self.raw.as_ptr()) }
-    }
-
-    pub fn set_rigid_body_2(&mut self, value: u16) {
-        // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m3_M3PhysicsConstraint_set_rigidBody2(self.raw.as_ptr(), value) }
-    }
-
-    /// Force required to break constraint
-    pub fn break_force(&self) -> f32 {
-        // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3PhysicsConstraint_get_breakForce(self.raw.as_ptr()) }
-    }
-
-    pub fn set_break_force(&mut self, value: f32) {
-        // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m3_M3PhysicsConstraint_set_breakForce(self.raw.as_ptr(), value) }
-    }
-}
-
-impl Default for PhysicsConstraint {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// PHCC — Cloth collider (v0, 76 bytes)
 ///
-/// Capsule-shaped collider used by cloth simulation.
+/// A capsule along its own +Z, centred, on `bone`.
 pub struct ClothCollider {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M3ClothCollider>,
 }
@@ -17671,7 +17604,7 @@ impl ClothCollider {
         unsafe { ffi::whiteout_m3_M3ClothCollider_set_radius(self.raw.as_ptr(), value) }
     }
 
-    /// Capsule height
+    /// Capsule full length
     pub fn height(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3ClothCollider_get_height(self.raw.as_ptr()) }
@@ -17682,15 +17615,15 @@ impl ClothCollider {
         unsafe { ffi::whiteout_m3_M3ClothCollider_set_height(self.raw.as_ptr(), value) }
     }
 
-    /// Alignment padding
-    pub fn padding(&self) -> u32 {
+    /// Bone index; 0xFFFF is the model root
+    pub fn bone(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3ClothCollider_get_padding(self.raw.as_ptr()) }
+        unsafe { ffi::whiteout_m3_M3ClothCollider_get_bone(self.raw.as_ptr()) }
     }
 
-    pub fn set_padding(&mut self, value: u32) {
+    pub fn set_bone(&mut self, value: u32) {
         // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m3_M3ClothCollider_set_padding(self.raw.as_ptr(), value) }
+        unsafe { ffi::whiteout_m3_M3ClothCollider_set_bone(self.raw.as_ptr(), value) }
     }
 }
 
@@ -17702,7 +17635,7 @@ impl Default for ClothCollider {
 
 /// PHAC — Cloth proxy (v0, 32 bytes)
 ///
-/// Maps cloth vertices to proxy geometry for collision.
+/// Binds one cloth-influenced region to its cage: per vertex of `clothIndex`, four cage-local `u16` lanes packed in a `u64` and four byte weights (/255) packed in a `u32`.
 pub struct ClothProxy {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M3ClothProxy>,
 }
@@ -17747,7 +17680,7 @@ impl ClothProxy {
         }
     }
 
-    /// Proxy mesh index
+    /// The cage's region (REGN index)
     pub fn proxy_index(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3ClothProxy_get_proxyIndex(self.raw.as_ptr()) }
@@ -17758,7 +17691,7 @@ impl ClothProxy {
         unsafe { ffi::whiteout_m3_M3ClothProxy_set_proxyIndex(self.raw.as_ptr(), value) }
     }
 
-    /// Cloth mesh index
+    /// The bound region (REGN index)
     pub fn cloth_index(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3ClothProxy_get_clothIndex(self.raw.as_ptr()) }
@@ -17769,7 +17702,7 @@ impl ClothProxy {
         unsafe { ffi::whiteout_m3_M3ClothProxy_set_clothIndex(self.raw.as_ptr(), value) }
     }
 
-    /// Proxy vertex data (U64_)
+    /// Four cage vertices per bound vertex (U64_)
     /// Zero-copy view of the underlying `std::vector`.
     pub fn proxy_vertices(&self) -> &[u64] {
         // SAFETY: `_data`/`_count` describe one contiguous C++
@@ -17817,7 +17750,7 @@ impl ClothProxy {
         unsafe { ffi::whiteout_m3_M3ClothProxy_resize_proxyVertices(self.raw.as_ptr(), count) }
     }
 
-    /// Proxy blend weights (U32_)
+    /// Four byte weights per bound vertex (U32_)
     /// Zero-copy view of the underlying `std::vector`.
     pub fn proxy_weights(&self) -> &[u32] {
         // SAFETY: `_data`/`_count` describe one contiguous C++
@@ -17872,9 +17805,9 @@ impl Default for ClothProxy {
     }
 }
 
-/// PHCL — Cloth physics (v0–v4, 192 bytes)
+/// PHCL — Cloth physics (v4, 192 bytes; v0 140, v1 116, v2 128 and v3 192 read)
 ///
-/// Full cloth simulation configuration: skin bone binding, stiffness parameters, damping, wind/explosion/gravity scales, colliders, and proxies. Added in MODL v28.
+/// One cloth: the cage region its particles are, per-particle anchors and movability, colliders, the regions it drives (PHAC) and the solver parameters. A record with colliders and no cage exports them to other models. Added in MODL v28.
 pub struct ClothPhysics {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M3ClothPhysics>,
 }
@@ -17919,18 +17852,18 @@ impl ClothPhysics {
         }
     }
 
-    /// Number of cloth mesh sections
-    pub fn cloth_mesh_count(&self) -> u32 {
+    /// The cage's REGN index
+    pub fn cage_region(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3ClothPhysics_get_clothMeshCount(self.raw.as_ptr()) }
+        unsafe { ffi::whiteout_m3_M3ClothPhysics_get_cageRegion(self.raw.as_ptr()) }
     }
 
-    pub fn set_cloth_mesh_count(&mut self, value: u32) {
+    pub fn set_cage_region(&mut self, value: u32) {
         // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m3_M3ClothPhysics_set_clothMeshCount(self.raw.as_ptr(), value) }
+        unsafe { ffi::whiteout_m3_M3ClothPhysics_set_cageRegion(self.raw.as_ptr(), value) }
     }
 
-    /// Number of skin bones
+    /// Never read
     pub fn skin_bone_count(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3ClothPhysics_get_skinBoneCount(self.raw.as_ptr()) }
@@ -17941,7 +17874,7 @@ impl ClothPhysics {
         unsafe { ffi::whiteout_m3_M3ClothPhysics_set_skinBoneCount(self.raw.as_ptr(), value) }
     }
 
-    /// Skin bone indices (U16_)
+    /// Bones the anchors and colliders use (U16_)
     /// Zero-copy view of the underlying `std::vector`.
     pub fn skin_bones(&self) -> &[u16] {
         // SAFETY: `_data`/`_count` describe one contiguous C++
@@ -17989,7 +17922,7 @@ impl ClothPhysics {
         unsafe { ffi::whiteout_m3_M3ClothPhysics_resize_skinBones(self.raw.as_ptr(), count) }
     }
 
-    /// Per-vertex simulation enable flags (U8__)
+    /// Per-particle flags, bit 0 movable (U8__)
     /// Zero-copy view of the underlying `std::vector`.
     pub fn sim_enabled(&self) -> &[u8] {
         // SAFETY: `_data`/`_count` describe one contiguous C++
@@ -18037,7 +17970,7 @@ impl ClothPhysics {
         unsafe { ffi::whiteout_m3_M3ClothPhysics_resize_simEnabled(self.raw.as_ptr(), count) }
     }
 
-    /// Per-vertex bone indices (U32_)
+    /// Per-particle anchor bones, four bytes (U32_)
     /// Zero-copy view of the underlying `std::vector`.
     pub fn vertex_bones(&self) -> &[u32] {
         // SAFETY: `_data`/`_count` describe one contiguous C++
@@ -18085,7 +18018,7 @@ impl ClothPhysics {
         unsafe { ffi::whiteout_m3_M3ClothPhysics_resize_vertexBones(self.raw.as_ptr(), count) }
     }
 
-    /// Per-vertex bone weights (U32_)
+    /// Per-particle anchor weights, four bytes (U32_)
     /// Zero-copy view of the underlying `std::vector`.
     pub fn vertex_weights(&self) -> &[u32] {
         // SAFETY: `_data`/`_count` describe one contiguous C++
@@ -18362,7 +18295,7 @@ impl ClothPhysics {
         unsafe { ffi::whiteout_m3_M3ClothPhysics_set_dragFactor(self.raw.as_ptr(), value) }
     }
 
-    /// Lift factor (v4+)
+    /// Lift factor
     pub fn lift_factor(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3ClothPhysics_get_liftFactor(self.raw.as_ptr()) }
@@ -18373,7 +18306,7 @@ impl ClothPhysics {
         unsafe { ffi::whiteout_m3_M3ClothPhysics_set_liftFactor(self.raw.as_ptr(), value) }
     }
 
-    /// Sphere collider stiffness (v4+)
+    /// Sphere collider stiffness
     pub fn sphere_stiffness(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3ClothPhysics_get_sphereStiffness(self.raw.as_ptr()) }
@@ -18384,7 +18317,7 @@ impl ClothPhysics {
         unsafe { ffi::whiteout_m3_M3ClothPhysics_set_sphereStiffness(self.raw.as_ptr(), value) }
     }
 
-    /// Flatten mode (v4+)
+    /// Flatten mode
     pub fn flatten(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3ClothPhysics_get_flatten(self.raw.as_ptr()) }
@@ -18395,7 +18328,7 @@ impl ClothPhysics {
         unsafe { ffi::whiteout_m3_M3ClothPhysics_set_flatten(self.raw.as_ptr(), value) }
     }
 
-    /// Animated active state
+    /// Animated active state; sampled only when flag bit 1 is set
     /// Borrows the field in place — no copy, no allocation.
     pub fn active(&self) -> crate::support::Ref<'_, AnimRefU32> {
         // SAFETY: an interior pointer into `self`, valid for this
@@ -18464,7 +18397,7 @@ impl ClothPhysics {
         unsafe { ffi::whiteout_m3_M3ClothPhysics_set_skinStiffness(self.raw.as_ptr(), value) }
     }
 
-    /// Local force channel bitmask
+    /// Never read
     pub fn local_channels(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3ClothPhysics_get_localChannels(self.raw.as_ptr()) }
@@ -21306,60 +21239,6 @@ impl Model {
         unsafe { ffi::whiteout_m3_M3Model_resize_rigidBodies(self.raw.as_ptr(), count) }
     }
 
-    /// Physics constraints (PHCT)
-    pub fn physics_constraints_len(&self) -> usize {
-        // SAFETY: scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3Model_get_physicsConstraints_count(self.raw.as_ptr()) }
-    }
-
-    /// Borrows element `index` in place. `None` when out of range.
-    pub fn physics_constraints(
-        &self,
-        index: usize,
-    ) -> Option<crate::support::Ref<'_, PhysicsConstraint>> {
-        if index >= self.physics_constraints_len() {
-            return None;
-        }
-        // SAFETY: index checked above; the pointer is interior to `self`.
-        unsafe {
-            Some(crate::support::Ref::new(PhysicsConstraint {
-                raw: core::ptr::NonNull::new_unchecked(
-                    ffi::whiteout_m3_M3Model_get_physicsConstraints_at(self.raw.as_ptr(), index),
-                ),
-            }))
-        }
-    }
-
-    pub fn physics_constraints_mut(
-        &mut self,
-        index: usize,
-    ) -> Option<crate::support::RefMut<'_, PhysicsConstraint>> {
-        if index >= self.physics_constraints_len() {
-            return None;
-        }
-        // SAFETY: as above; `&mut self` guarantees exclusivity.
-        unsafe {
-            Some(crate::support::RefMut::new(PhysicsConstraint {
-                raw: core::ptr::NonNull::new_unchecked(
-                    ffi::whiteout_m3_M3Model_get_physicsConstraints_at(self.raw.as_ptr(), index),
-                ),
-            }))
-        }
-    }
-
-    /// Iterate the elements, borrowing each in turn.
-    pub fn physics_constraints_iter(
-        &self,
-    ) -> impl ExactSizeIterator<Item = crate::support::Ref<'_, PhysicsConstraint>> {
-        (0..self.physics_constraints_len())
-            .map(move |i| self.physics_constraints(i).expect("index below len"))
-    }
-
-    pub fn resize_physics_constraints(&mut self, count: usize) {
-        // SAFETY: exclusive access, so no borrow is outstanding.
-        unsafe { ffi::whiteout_m3_M3Model_resize_physicsConstraints(self.raw.as_ptr(), count) }
-    }
-
     /// Physics joints (PHYJ)
     pub fn physics_joints_len(&self) -> usize {
         // SAFETY: scalar read through a live handle.
@@ -23735,10 +23614,6 @@ pub mod ffi {
     }
     #[repr(C)]
     pub struct whiteout_M3PhysicsJoint {
-        _private: [u8; 0],
-    }
-    #[repr(C)]
-    pub struct whiteout_M3PhysicsConstraint {
         _private: [u8; 0],
     }
     #[repr(C)]
@@ -27960,31 +27835,31 @@ pub mod ffi {
         // ConvexHullHalfEdge
         pub fn whiteout_m3_M3ConvexHullHalfEdge_new() -> *mut whiteout_M3ConvexHullHalfEdge;
         pub fn whiteout_m3_M3ConvexHullHalfEdge_delete(self_: *mut whiteout_M3ConvexHullHalfEdge);
-        pub fn whiteout_m3_M3ConvexHullHalfEdge_get_type(
+        pub fn whiteout_m3_M3ConvexHullHalfEdge_get_twinOffset(
+            self_: *mut whiteout_M3ConvexHullHalfEdge,
+        ) -> i8;
+        pub fn whiteout_m3_M3ConvexHullHalfEdge_set_twinOffset(
+            self_: *mut whiteout_M3ConvexHullHalfEdge,
+            value: i8,
+        );
+        pub fn whiteout_m3_M3ConvexHullHalfEdge_get_originVertex(
             self_: *mut whiteout_M3ConvexHullHalfEdge,
         ) -> u8;
-        pub fn whiteout_m3_M3ConvexHullHalfEdge_set_type(
+        pub fn whiteout_m3_M3ConvexHullHalfEdge_set_originVertex(
             self_: *mut whiteout_M3ConvexHullHalfEdge,
             value: u8,
         );
-        pub fn whiteout_m3_M3ConvexHullHalfEdge_get_faceIndex(
+        pub fn whiteout_m3_M3ConvexHullHalfEdge_get_face(
             self_: *mut whiteout_M3ConvexHullHalfEdge,
         ) -> u8;
-        pub fn whiteout_m3_M3ConvexHullHalfEdge_set_faceIndex(
+        pub fn whiteout_m3_M3ConvexHullHalfEdge_set_face(
             self_: *mut whiteout_M3ConvexHullHalfEdge,
             value: u8,
         );
-        pub fn whiteout_m3_M3ConvexHullHalfEdge_get_vertexIndex(
+        pub fn whiteout_m3_M3ConvexHullHalfEdge_get_nextInFace(
             self_: *mut whiteout_M3ConvexHullHalfEdge,
         ) -> u8;
-        pub fn whiteout_m3_M3ConvexHullHalfEdge_set_vertexIndex(
-            self_: *mut whiteout_M3ConvexHullHalfEdge,
-            value: u8,
-        );
-        pub fn whiteout_m3_M3ConvexHullHalfEdge_get_nextAroundVertex(
-            self_: *mut whiteout_M3ConvexHullHalfEdge,
-        ) -> u8;
-        pub fn whiteout_m3_M3ConvexHullHalfEdge_set_nextAroundVertex(
+        pub fn whiteout_m3_M3ConvexHullHalfEdge_set_nextInFace(
             self_: *mut whiteout_M3ConvexHullHalfEdge,
             value: u8,
         );
@@ -28091,25 +27966,41 @@ pub mod ffi {
         // PhysicsShape
         pub fn whiteout_m3_M3PhysicsShape_new() -> *mut whiteout_M3PhysicsShape;
         pub fn whiteout_m3_M3PhysicsShape_delete(self_: *mut whiteout_M3PhysicsShape);
-        pub fn whiteout_m3_M3PhysicsShape_get_collisionMargin(
-            self_: *mut whiteout_M3PhysicsShape,
-        ) -> f32;
-        pub fn whiteout_m3_M3PhysicsShape_set_collisionMargin(
-            self_: *mut whiteout_M3PhysicsShape,
-            value: f32,
-        );
         pub fn whiteout_m3_M3PhysicsShape_get_shapeType(self_: *mut whiteout_M3PhysicsShape)
             -> i32;
         pub fn whiteout_m3_M3PhysicsShape_set_shapeType(
             self_: *mut whiteout_M3PhysicsShape,
             value: i32,
         );
-        pub fn whiteout_m3_M3PhysicsShape_get_oldSizes(
+        pub fn whiteout_m3_M3PhysicsShape_get_sourcePoints_count(
             self_: *mut whiteout_M3PhysicsShape,
-        ) -> *mut core::ffi::c_void;
-        pub fn whiteout_m3_M3PhysicsShape_set_oldSizes(
+        ) -> usize;
+        pub fn whiteout_m3_M3PhysicsShape_resize_sourcePoints(
             self_: *mut whiteout_M3PhysicsShape,
-            value: *const core::ffi::c_void,
+            count: usize,
+        );
+        pub fn whiteout_m3_M3PhysicsShape_get_sourcePoints_data(
+            self_: *mut whiteout_M3PhysicsShape,
+        ) -> *const f32;
+        pub fn whiteout_m3_M3PhysicsShape_assign_sourcePoints(
+            self_: *mut whiteout_M3PhysicsShape,
+            data: *const f32,
+            count: usize,
+        );
+        pub fn whiteout_m3_M3PhysicsShape_get_sourceTriangles_count(
+            self_: *mut whiteout_M3PhysicsShape,
+        ) -> usize;
+        pub fn whiteout_m3_M3PhysicsShape_resize_sourceTriangles(
+            self_: *mut whiteout_M3PhysicsShape,
+            count: usize,
+        );
+        pub fn whiteout_m3_M3PhysicsShape_get_sourceTriangles_data(
+            self_: *mut whiteout_M3PhysicsShape,
+        ) -> *const u16;
+        pub fn whiteout_m3_M3PhysicsShape_assign_sourceTriangles(
+            self_: *mut whiteout_M3PhysicsShape,
+            data: *const u16,
+            count: usize,
         );
         pub fn whiteout_m3_M3PhysicsShape_get_shapeDimensions(
             self_: *mut whiteout_M3PhysicsShape,
@@ -28118,32 +28009,32 @@ pub mod ffi {
             self_: *mut whiteout_M3PhysicsShape,
             value: *const core::ffi::c_void,
         );
-        pub fn whiteout_m3_M3PhysicsShape_get_hullFaceNormals_count(
+        pub fn whiteout_m3_M3PhysicsShape_get_hullVertices_count(
             self_: *mut whiteout_M3PhysicsShape,
         ) -> usize;
-        pub fn whiteout_m3_M3PhysicsShape_resize_hullFaceNormals(
+        pub fn whiteout_m3_M3PhysicsShape_resize_hullVertices(
             self_: *mut whiteout_M3PhysicsShape,
             count: usize,
         );
-        pub fn whiteout_m3_M3PhysicsShape_get_hullFaceNormals_data(
+        pub fn whiteout_m3_M3PhysicsShape_get_hullVertices_data(
             self_: *mut whiteout_M3PhysicsShape,
         ) -> *const f32;
-        pub fn whiteout_m3_M3PhysicsShape_assign_hullFaceNormals(
+        pub fn whiteout_m3_M3PhysicsShape_assign_hullVertices(
             self_: *mut whiteout_M3PhysicsShape,
             data: *const f32,
             count: usize,
         );
-        pub fn whiteout_m3_M3PhysicsShape_get_hullVertexPositions_count(
+        pub fn whiteout_m3_M3PhysicsShape_get_hullPlanes_count(
             self_: *mut whiteout_M3PhysicsShape,
         ) -> usize;
-        pub fn whiteout_m3_M3PhysicsShape_resize_hullVertexPositions(
+        pub fn whiteout_m3_M3PhysicsShape_resize_hullPlanes(
             self_: *mut whiteout_M3PhysicsShape,
             count: usize,
         );
-        pub fn whiteout_m3_M3PhysicsShape_get_hullVertexPositions_data(
+        pub fn whiteout_m3_M3PhysicsShape_get_hullPlanes_data(
             self_: *mut whiteout_M3PhysicsShape,
         ) -> *const f32;
-        pub fn whiteout_m3_M3PhysicsShape_assign_hullVertexPositions(
+        pub fn whiteout_m3_M3PhysicsShape_assign_hullPlanes(
             self_: *mut whiteout_M3PhysicsShape,
             data: *const f32,
             count: usize,
@@ -28159,39 +28050,39 @@ pub mod ffi {
             self_: *mut whiteout_M3PhysicsShape,
             index: usize,
         ) -> *mut whiteout_M3ConvexHullHalfEdge;
-        pub fn whiteout_m3_M3PhysicsShape_get_hullVertexFaceIndices_count(
+        pub fn whiteout_m3_M3PhysicsShape_get_hullFaceFirstEdges_count(
             self_: *mut whiteout_M3PhysicsShape,
         ) -> usize;
-        pub fn whiteout_m3_M3PhysicsShape_resize_hullVertexFaceIndices(
+        pub fn whiteout_m3_M3PhysicsShape_resize_hullFaceFirstEdges(
             self_: *mut whiteout_M3PhysicsShape,
             count: usize,
         );
-        pub fn whiteout_m3_M3PhysicsShape_get_hullVertexFaceIndices_data(
+        pub fn whiteout_m3_M3PhysicsShape_get_hullFaceFirstEdges_data(
             self_: *mut whiteout_M3PhysicsShape,
         ) -> *const u8;
-        pub fn whiteout_m3_M3PhysicsShape_assign_hullVertexFaceIndices(
+        pub fn whiteout_m3_M3PhysicsShape_assign_hullFaceFirstEdges(
             self_: *mut whiteout_M3PhysicsShape,
             data: *const u8,
             count: usize,
         );
-        pub fn whiteout_m3_M3PhysicsShape_get_hullCenter(
+        pub fn whiteout_m3_M3PhysicsShape_get_hullCentroid(
             self_: *mut whiteout_M3PhysicsShape,
         ) -> *mut core::ffi::c_void;
-        pub fn whiteout_m3_M3PhysicsShape_set_hullCenter(
+        pub fn whiteout_m3_M3PhysicsShape_set_hullCentroid(
             self_: *mut whiteout_M3PhysicsShape,
             value: *const core::ffi::c_void,
-        );
-        pub fn whiteout_m3_M3PhysicsShape_get_hullFaceNormalCount(
-            self_: *mut whiteout_M3PhysicsShape,
-        ) -> u32;
-        pub fn whiteout_m3_M3PhysicsShape_set_hullFaceNormalCount(
-            self_: *mut whiteout_M3PhysicsShape,
-            value: u32,
         );
         pub fn whiteout_m3_M3PhysicsShape_get_hullVertexCount(
             self_: *mut whiteout_M3PhysicsShape,
         ) -> u32;
         pub fn whiteout_m3_M3PhysicsShape_set_hullVertexCount(
+            self_: *mut whiteout_M3PhysicsShape,
+            value: u32,
+        );
+        pub fn whiteout_m3_M3PhysicsShape_get_hullFaceCount(
+            self_: *mut whiteout_M3PhysicsShape,
+        ) -> u32;
+        pub fn whiteout_m3_M3PhysicsShape_set_hullFaceCount(
             self_: *mut whiteout_M3PhysicsShape,
             value: u32,
         );
@@ -28202,17 +28093,17 @@ pub mod ffi {
             self_: *mut whiteout_M3PhysicsShape,
             value: u32,
         );
-        pub fn whiteout_m3_M3PhysicsShape_get_hullUnknown0(
+        pub fn whiteout_m3_M3PhysicsShape_get_hullVolume(
             self_: *mut whiteout_M3PhysicsShape,
         ) -> f32;
-        pub fn whiteout_m3_M3PhysicsShape_set_hullUnknown0(
+        pub fn whiteout_m3_M3PhysicsShape_set_hullVolume(
             self_: *mut whiteout_M3PhysicsShape,
             value: f32,
         );
-        pub fn whiteout_m3_M3PhysicsShape_get_hullUnknown1(
+        pub fn whiteout_m3_M3PhysicsShape_get_hullSurfaceArea(
             self_: *mut whiteout_M3PhysicsShape,
         ) -> f32;
-        pub fn whiteout_m3_M3PhysicsShape_set_hullUnknown1(
+        pub fn whiteout_m3_M3PhysicsShape_set_hullSurfaceArea(
             self_: *mut whiteout_M3PhysicsShape,
             value: f32,
         );
@@ -28357,8 +28248,8 @@ pub mod ffi {
             self_: *mut whiteout_M3RigidBody,
             value: f32,
         );
-        pub fn whiteout_m3_M3RigidBody_get_gravityScale(self_: *mut whiteout_M3RigidBody) -> f32;
-        pub fn whiteout_m3_M3RigidBody_set_gravityScale(
+        pub fn whiteout_m3_M3RigidBody_get_inertiaScale(self_: *mut whiteout_M3RigidBody) -> f32;
+        pub fn whiteout_m3_M3RigidBody_set_inertiaScale(
             self_: *mut whiteout_M3RigidBody,
             value: f32,
         );
@@ -28486,45 +28377,6 @@ pub mod ffi {
             self_: *mut whiteout_M3PhysicsJoint,
             value: u8,
         );
-        // PhysicsConstraint
-        pub fn whiteout_m3_M3PhysicsConstraint_new() -> *mut whiteout_M3PhysicsConstraint;
-        pub fn whiteout_m3_M3PhysicsConstraint_delete(self_: *mut whiteout_M3PhysicsConstraint);
-        pub fn whiteout_m3_M3PhysicsConstraint_get_dependents_count(
-            self_: *mut whiteout_M3PhysicsConstraint,
-        ) -> usize;
-        pub fn whiteout_m3_M3PhysicsConstraint_resize_dependents(
-            self_: *mut whiteout_M3PhysicsConstraint,
-            count: usize,
-        );
-        pub fn whiteout_m3_M3PhysicsConstraint_get_dependents_data(
-            self_: *mut whiteout_M3PhysicsConstraint,
-        ) -> *const u16;
-        pub fn whiteout_m3_M3PhysicsConstraint_assign_dependents(
-            self_: *mut whiteout_M3PhysicsConstraint,
-            data: *const u16,
-            count: usize,
-        );
-        pub fn whiteout_m3_M3PhysicsConstraint_get_rigidBody1(
-            self_: *mut whiteout_M3PhysicsConstraint,
-        ) -> u16;
-        pub fn whiteout_m3_M3PhysicsConstraint_set_rigidBody1(
-            self_: *mut whiteout_M3PhysicsConstraint,
-            value: u16,
-        );
-        pub fn whiteout_m3_M3PhysicsConstraint_get_rigidBody2(
-            self_: *mut whiteout_M3PhysicsConstraint,
-        ) -> u16;
-        pub fn whiteout_m3_M3PhysicsConstraint_set_rigidBody2(
-            self_: *mut whiteout_M3PhysicsConstraint,
-            value: u16,
-        );
-        pub fn whiteout_m3_M3PhysicsConstraint_get_breakForce(
-            self_: *mut whiteout_M3PhysicsConstraint,
-        ) -> f32;
-        pub fn whiteout_m3_M3PhysicsConstraint_set_breakForce(
-            self_: *mut whiteout_M3PhysicsConstraint,
-            value: f32,
-        );
         // ClothCollider
         pub fn whiteout_m3_M3ClothCollider_new() -> *mut whiteout_M3ClothCollider;
         pub fn whiteout_m3_M3ClothCollider_delete(self_: *mut whiteout_M3ClothCollider);
@@ -28538,9 +28390,8 @@ pub mod ffi {
             self_: *mut whiteout_M3ClothCollider,
             value: f32,
         );
-        pub fn whiteout_m3_M3ClothCollider_get_padding(self_: *mut whiteout_M3ClothCollider)
-            -> u32;
-        pub fn whiteout_m3_M3ClothCollider_set_padding(
+        pub fn whiteout_m3_M3ClothCollider_get_bone(self_: *mut whiteout_M3ClothCollider) -> u32;
+        pub fn whiteout_m3_M3ClothCollider_set_bone(
             self_: *mut whiteout_M3ClothCollider,
             value: u32,
         );
@@ -28590,10 +28441,10 @@ pub mod ffi {
         // ClothPhysics
         pub fn whiteout_m3_M3ClothPhysics_new() -> *mut whiteout_M3ClothPhysics;
         pub fn whiteout_m3_M3ClothPhysics_delete(self_: *mut whiteout_M3ClothPhysics);
-        pub fn whiteout_m3_M3ClothPhysics_get_clothMeshCount(
+        pub fn whiteout_m3_M3ClothPhysics_get_cageRegion(
             self_: *mut whiteout_M3ClothPhysics,
         ) -> u32;
-        pub fn whiteout_m3_M3ClothPhysics_set_clothMeshCount(
+        pub fn whiteout_m3_M3ClothPhysics_set_cageRegion(
             self_: *mut whiteout_M3ClothPhysics,
             value: u32,
         );
@@ -29376,17 +29227,6 @@ pub mod ffi {
             self_: *mut whiteout_M3Model,
             index: usize,
         ) -> *mut whiteout_M3RigidBody;
-        pub fn whiteout_m3_M3Model_get_physicsConstraints_count(
-            self_: *mut whiteout_M3Model,
-        ) -> usize;
-        pub fn whiteout_m3_M3Model_resize_physicsConstraints(
-            self_: *mut whiteout_M3Model,
-            count: usize,
-        );
-        pub fn whiteout_m3_M3Model_get_physicsConstraints_at(
-            self_: *mut whiteout_M3Model,
-            index: usize,
-        ) -> *mut whiteout_M3PhysicsConstraint;
         pub fn whiteout_m3_M3Model_get_physicsJoints_count(self_: *mut whiteout_M3Model) -> usize;
         pub fn whiteout_m3_M3Model_resize_physicsJoints(self_: *mut whiteout_M3Model, count: usize);
         pub fn whiteout_m3_M3Model_get_physicsJoints_at(

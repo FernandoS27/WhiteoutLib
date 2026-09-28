@@ -80,7 +80,6 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::MeshSection>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::OneBoneSolver>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::ParticleEmitter>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::ParticleEmitterCopy>);
-PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::PhysicsConstraint>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::PhysicsJoint>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::PhysicsMeshBvhNode>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::PhysicsShape>);
@@ -172,6 +171,7 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 3 of bind_m3(), which calls the parts in order.
 void bind_m3_3(py::module_& m) {
+    py::bind_vector<std::vector<whiteout::m3::DataDrivenGroup>>(m, "VectorM3DataDrivenGroup");
     py::bind_vector<std::vector<whiteout::m3::DataDrivenMaterial>>(m, "VectorM3DataDrivenMaterial");
     py::bind_vector<std::vector<whiteout::m3::DataDrivenProperty>>(m, "VectorM3DataDrivenProperty");
     py::bind_vector<std::vector<whiteout::m3::DisplacementMaterial>>(m, "VectorM3DisplacementMaterial");
@@ -190,7 +190,6 @@ void bind_m3_3(py::module_& m) {
     py::bind_vector<std::vector<whiteout::m3::OneBoneSolver>>(m, "VectorM3OneBoneSolver");
     py::bind_vector<std::vector<whiteout::m3::ParticleEmitter>>(m, "VectorM3ParticleEmitter");
     py::bind_vector<std::vector<whiteout::m3::ParticleEmitterCopy>>(m, "VectorM3ParticleEmitterCopy");
-    py::bind_vector<std::vector<whiteout::m3::PhysicsConstraint>>(m, "VectorM3PhysicsConstraint");
     py::bind_vector<std::vector<whiteout::m3::PhysicsJoint>>(m, "VectorM3PhysicsJoint");
     py::bind_vector<std::vector<whiteout::m3::PhysicsMeshBvhNode>>(m, "VectorM3PhysicsMeshBvhNode");
 }

@@ -5,6 +5,7 @@
 
 #include <whiteout/models/wem/geometry/ops.h>
 #include <whiteout/models/wem/nodes/emitters.h>
+#include <whiteout/models/wem/physics/references.h>
 
 #include <algorithm>
 #include <array>
@@ -43,6 +44,15 @@ u64 trianglesOf(const Mesh& mesh) {
 void RemapMeshReferencers(Model& model, std::span<const u32> meshRemap, Diagnostics& out) {
     if (meshRemap.empty()) {
         return;
+    }
+    // A cloth whose cage mesh is gone goes, and a binding on a gone mesh.
+    const std::vector<u32> clothsGone = RemapPhysicsMeshes(model.physics, meshRemap);
+    if (!clothsGone.empty()) {
+        out.warn(DiagCode::ClothTopologyInvalid,
+                 number(static_cast<u32>(clothsGone.size())) + " cloths lost their cage mesh",
+                 ElementRef());
+        InvalidatePhysicsChannels(model.animChannels, clothsGone, out);
+        DetachPoseStages(model.poseStages, clothsGone);
     }
     for (AnimChannel& channel : model.animChannels.channels) {
         if (channel.target.kind != TrackTarget::Kind::Section ||
@@ -397,6 +407,21 @@ MeshMergeResult MergeMeshesInto(Model& model, std::span<const u32> meshes, u32 k
                 }
             }
         }
+    }
+
+    // A cloth's cage and bindings are sections of their own, and every section
+    // was just folded into the first: with two or more, none is anything a
+    // cloth can name, and the cloth goes.
+    const std::vector<u32> alone =
+        sectionRemap.size() > 1 ? std::vector<u32>(sectionRemap.size(), kInvalidIndex) : sectionRemap;
+    const std::vector<u32> clothsGone = RemapPhysicsSections(model.physics, keep, alone);
+    if (!clothsGone.empty()) {
+        result.diagnostics.warn(DiagCode::ClothTopologyInvalid,
+                                number(static_cast<u32>(clothsGone.size())) +
+                                    " cloths had their cage merged into another section",
+                                ElementRef(ElementKind::Mesh, keep));
+        InvalidatePhysicsChannels(model.animChannels, clothsGone, result.diagnostics);
+        DetachPoseStages(model.poseStages, clothsGone);
     }
 
     model.meshes[keep] = std::move(built.mesh);

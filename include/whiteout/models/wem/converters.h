@@ -455,6 +455,9 @@ struct M3ExportMap {
     /// Per SEQS: the STC_ its clip's first container became -- the one that
     /// holds the clip's events, and the one a crossed property joins.
     std::vector<u32> sequenceStc;
+    /// Per mesh, per section: the first `REGN` it became (a palette split
+    /// makes more after it), `kInvalidIndex` for one not written.
+    std::vector<std::vector<u32>> sectionRegion;
     /// The first animId no stream or AnimRef the export wrote uses.
     u32 nextAnimId = 1;
 };

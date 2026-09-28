@@ -80,7 +80,6 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::MeshSection>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::OneBoneSolver>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::ParticleEmitter>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::ParticleEmitterCopy>);
-PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::PhysicsConstraint>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::PhysicsJoint>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::PhysicsMeshBvhNode>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::PhysicsShape>);

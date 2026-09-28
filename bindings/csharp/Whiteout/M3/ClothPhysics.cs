@@ -8,7 +8,7 @@ using Whiteout.M3.Internal;
 
 namespace Whiteout.M3;
 
-/// <summary>PHCL — Cloth physics (v0–v4, 192 bytes)</summary>
+/// <summary>PHCL — Cloth physics (v4, 192 bytes; v0 140, v1 116, v2 128 and v3 192 read)</summary>
 public sealed class ClothPhysics : WhiteoutHandle
 {
     public ClothPhysics() : base(NativeMethods.whiteout_m3_M3ClothPhysics_new()) { }
@@ -21,15 +21,15 @@ public sealed class ClothPhysics : WhiteoutHandle
         return true;
     }
 
-    /// <summary>Number of cloth mesh sections</summary>
-    public uint ClothMeshCount
+    /// <summary>The cage's REGN index</summary>
+    public uint CageRegion
     {
-        get => NativeMethods.whiteout_m3_M3ClothPhysics_get_clothMeshCount(DangerousGet());
-        set => NativeMethods.whiteout_m3_M3ClothPhysics_set_clothMeshCount(DangerousGet(), value);
+        get => NativeMethods.whiteout_m3_M3ClothPhysics_get_cageRegion(DangerousGet());
+        set => NativeMethods.whiteout_m3_M3ClothPhysics_set_cageRegion(DangerousGet(), value);
     }
 
 
-    /// <summary>Number of skin bones</summary>
+    /// <summary>Never read</summary>
     public uint SkinBoneCount
     {
         get => NativeMethods.whiteout_m3_M3ClothPhysics_get_skinBoneCount(DangerousGet());
@@ -149,7 +149,7 @@ public sealed class ClothPhysics : WhiteoutHandle
     }
 
 
-    /// <summary>Lift factor (v4+)</summary>
+    /// <summary>Lift factor</summary>
     public float LiftFactor
     {
         get => NativeMethods.whiteout_m3_M3ClothPhysics_get_liftFactor(DangerousGet());
@@ -157,7 +157,7 @@ public sealed class ClothPhysics : WhiteoutHandle
     }
 
 
-    /// <summary>Sphere collider stiffness (v4+)</summary>
+    /// <summary>Sphere collider stiffness</summary>
     public float SphereStiffness
     {
         get => NativeMethods.whiteout_m3_M3ClothPhysics_get_sphereStiffness(DangerousGet());
@@ -165,7 +165,7 @@ public sealed class ClothPhysics : WhiteoutHandle
     }
 
 
-    /// <summary>Flatten mode (v4+)</summary>
+    /// <summary>Flatten mode</summary>
     public uint Flatten
     {
         get => NativeMethods.whiteout_m3_M3ClothPhysics_get_flatten(DangerousGet());
@@ -205,7 +205,7 @@ public sealed class ClothPhysics : WhiteoutHandle
     }
 
 
-    /// <summary>Local force channel bitmask</summary>
+    /// <summary>Never read</summary>
     public uint LocalChannels
     {
         get => NativeMethods.whiteout_m3_M3ClothPhysics_get_localChannels(DangerousGet());

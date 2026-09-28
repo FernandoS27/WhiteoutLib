@@ -248,6 +248,29 @@ const char* ToString(NativeKind kind);
 /// this one.
 using NodeKindMask = u32;
 
+/**
+ * @brief The physics a profile's own format carries (WEM_PHYSICS_DESIGN.md
+ *        §3.11), read by `Validate` and the exporters.
+ *
+ * Empty for a profile whose format has none: its exports bake physics into
+ * keys instead. The masks are a bit per `PhysicsShapeKind` / `JointKind`
+ * (`physics/physics.h`), plain words for the same reason `NodeKindMask` is.
+ */
+struct PhysicsCaps {
+    u32 shapeKinds = 0;
+    u32 jointKinds = 0;
+    bool cloth = false;
+    u32 maxClothParticles = 0;
+    u32 maxHullVertices = 0;
+    u32 maxHullFaces = 0;
+    u32 maxHullHalfEdges = 0;
+    u32 maxClothAnchorBone = 0; ///< The highest bone index a cloth anchor may name.
+
+    bool any() const {
+        return shapeKinds != 0 || cloth;
+    }
+};
+
 // ============================================================================
 // ProfileDesc
 // ============================================================================
@@ -321,6 +344,9 @@ struct ProfileDesc {
     /// is that game's particle system and nothing else can run it. `Validate`
     /// and every exporter read the gate from here and nowhere else.
     NodeKindMask nodeKinds = 0;
+
+    // --- physics ---
+    PhysicsCaps physics;
 
     bool acceptsBlendMode(BlendMode mode) const;
 };

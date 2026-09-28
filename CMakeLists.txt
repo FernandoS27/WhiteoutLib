@@ -398,6 +398,8 @@ add_library(whiteout_lib
     src/whiteout/models/m3/data_driven_material.cpp
     src/whiteout/models/m3/data_driven_to_standard.cpp
     src/whiteout/models/m3/engine_compat.cpp
+    src/whiteout/models/m3/physics_cook.cpp
+    src/whiteout/models/m3/physics_upgrade.cpp
     src/whiteout/models/m3/parser.cpp
     src/whiteout/models/m3/writer.cpp
     src/whiteout/models/m3/binary_parse_visitor.cpp
@@ -481,6 +483,8 @@ add_library(whiteout_lib
     src/whiteout/models/wem/materials/d3_core.cpp
     src/whiteout/models/wem/materials/gltf_core.cpp
     src/whiteout/models/wem/model.cpp
+    src/whiteout/models/wem/physics/physics.cpp
+    src/whiteout/models/wem/physics/references.cpp
     src/whiteout/models/wem/retarget.cpp
     src/whiteout/models/wem/skeleton_retarget.cpp
     src/whiteout/models/wem/rescale.cpp
@@ -497,6 +501,7 @@ add_library(whiteout_lib
     src/whiteout/models/wem/converters/m3_converter.cpp
     src/whiteout/models/wem/converters/m3_anim.cpp
     src/whiteout/models/wem/converters/m3_emitters.cpp
+    src/whiteout/models/wem/converters/m3_physics.cpp
     src/whiteout/models/wem/converters/m3_track_sink.cpp
     src/whiteout/models/cross/mdx_m3_effects.cpp
     src/whiteout/models/cross/wc3_sc2_emitters.cpp

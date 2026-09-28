@@ -49,6 +49,7 @@
 #include "../profile.h"
 #include "../rigging/record.h"
 #include "emitters.h"
+#include "fields.h"
 
 namespace whiteout {
 namespace models {
@@ -130,6 +131,8 @@ enum class NodeKind : u8 {
     Sc2RibbonEmitter,    ///< M3 `RIB_` with its `SRIB` spline.
     Wc3CornEmitter,      ///< MDX `CORN`: a PopcornFX effect (Reforged). `NODE` v7.
     M2ParticleEmitter,   ///< M2 `M2Particle`. `NODE` v8.
+    ForceField,          ///< M3 `FOR_` (WEM_PHYSICS_DESIGN.md §3.8). `NODE` v14.
+    VertexWarp,          ///< M3 `WRP_`. `NODE` v14.
     Count
 };
 
@@ -163,6 +166,11 @@ inline constexpr NodeKindMask kWc3NodeKinds =
 /// StarCraft II's two — `Sc2` and `Heroes`.
 inline constexpr NodeKindMask kSc2NodeKinds =
     NodeKindBit(NodeKind::Sc2ParticleEmitter) | NodeKindBit(NodeKind::Sc2RibbonEmitter);
+
+/// StarCraft II's force fields and vertex warps — `Sc2` and `Heroes`. Not
+/// emitter systems, but carried by the same two profiles alone.
+inline constexpr NodeKindMask kSc2FieldKinds =
+    NodeKindBit(NodeKind::ForceField) | NodeKindBit(NodeKind::VertexWarp);
 
 /// World of Warcraft's — `Wow`. Its ribbons stay the generic reference.
 inline constexpr NodeKindMask kWowNodeKinds = NodeKindBit(NodeKind::M2ParticleEmitter);
@@ -431,7 +439,7 @@ using NodePayload =
                  ParticlePayload, RibbonPayload, EventPayload, CollisionPayload,
                  Wc3ParticleEmitter1Payload, Wc3ParticleEmitter2Payload, Wc3RibbonEmitterPayload,
                  Sc2ParticleEmitterPayload, Sc2RibbonEmitterPayload, Wc3CornEmitterPayload,
-                 M2ParticleEmitterPayload>;
+                 M2ParticleEmitterPayload, ForceFieldPayload, VertexWarpPayload>;
 
 /// Every node index @p payload holds, as `f(u32& node, EmitterLink what)` — the
 /// §10.6 referencer row the emitter systems add. @p payload may be const.
@@ -661,6 +669,13 @@ struct Node {
         // v8, the same way.
         case NodeKind::M2ParticleEmitter:
             v.field("m2Particle", VariantAs<M2ParticleEmitterPayload>(payload));
+            break;
+        // v14, the same way.
+        case NodeKind::ForceField:
+            v.field("forceField", VariantAs<ForceFieldPayload>(payload));
+            break;
+        case NodeKind::VertexWarp:
+            v.field("vertexWarp", VariantAs<VertexWarpPayload>(payload));
             break;
         case NodeKind::Count:
             break;

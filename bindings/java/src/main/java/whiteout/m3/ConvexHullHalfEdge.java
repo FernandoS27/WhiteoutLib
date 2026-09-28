@@ -13,7 +13,7 @@ import whiteout.m3.internal.Native;
 /**
  * DMSE — Convex hull half-edge (v0, 4 bytes)
  * 
- * Half-edge connectivity for PHSH convex hull shapes (shapeType = 4). Entries are stored in consecutive twin pairs (forward 0x01 / reverse 0xFF). The nextAroundVertex field chains half-edges into closed per-vertex rings.
+ * Entries come in consecutive twin pairs: an even entry's twin is the next one (`twinOffset` +1), an odd entry's the previous (-1).
  *
  * <p><b>Lifecycle.</b> Instances hold a handle to a native
  * ConvexHullHalfEdge allocation. Always release them with
@@ -59,47 +59,47 @@ public final class ConvexHullHalfEdge implements AutoCloseable {
     }
 
     /**
-     * 0x01 = forward, 0xFF = reverse (twin)
-     * @return the type field of this M3ConvexHullHalfEdge.
+     * +1 on the even entry of a pair, -1 on the odd one
+     * @return the twinOffset field of this M3ConvexHullHalfEdge.
      */
-    public byte getType() {
+    public byte getTwinOffset() {
         return handle.get(ValueLayout.JAVA_BYTE, 0L);
     }
-    public void setType(byte value) {
+    public void setTwinOffset(byte value) {
         handle.set(ValueLayout.JAVA_BYTE, 0L, value);
     }
     /**
-     * Face this half-edge borders
-     * @return the faceIndex field of this M3ConvexHullHalfEdge.
+     * Vertex the half-edge leaves
+     * @return the originVertex field of this M3ConvexHullHalfEdge.
      */
-    public byte getFaceIndex() {
+    public byte getOriginVertex() {
         return handle.get(ValueLayout.JAVA_BYTE, 1L);
     }
-    public void setFaceIndex(byte value) {
+    public void setOriginVertex(byte value) {
         handle.set(ValueLayout.JAVA_BYTE, 1L, value);
     }
     /**
-     * Target vertex of this half-edge
-     * @return the vertexIndex field of this M3ConvexHullHalfEdge.
+     * Face the half-edge borders
+     * @return the face field of this M3ConvexHullHalfEdge.
      */
-    public byte getVertexIndex() {
+    public byte getFace() {
         return handle.get(ValueLayout.JAVA_BYTE, 2L);
     }
-    public void setVertexIndex(byte value) {
+    public void setFace(byte value) {
         handle.set(ValueLayout.JAVA_BYTE, 2L, value);
     }
     /**
-     * Next half-edge around the same vertex
-     * @return the nextAroundVertex field of this M3ConvexHullHalfEdge.
+     * Next half-edge around the same face
+     * @return the nextInFace field of this M3ConvexHullHalfEdge.
      */
-    public byte getNextAroundVertex() {
+    public byte getNextInFace() {
         return handle.get(ValueLayout.JAVA_BYTE, 3L);
     }
-    public void setNextAroundVertex(byte value) {
+    public void setNextInFace(byte value) {
         handle.set(ValueLayout.JAVA_BYTE, 3L, value);
     }
     @Override public String toString() {
-        return "ConvexHullHalfEdge(" + "type=" + getType() + ", " + "faceIndex=" + getFaceIndex() + ", " + "vertexIndex=" + getVertexIndex() + ", " + "nextAroundVertex=" + getNextAroundVertex() + ")";
+        return "ConvexHullHalfEdge(" + "twinOffset=" + getTwinOffset() + ", " + "originVertex=" + getOriginVertex() + ", " + "face=" + getFace() + ", " + "nextInFace=" + getNextInFace() + ")";
     }
 
 }

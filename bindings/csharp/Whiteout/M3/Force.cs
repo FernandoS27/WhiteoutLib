@@ -21,7 +21,7 @@ public sealed class Force : WhiteoutHandle
         return true;
     }
 
-    /// <summary>Force influence type (radial/wind/explosion)</summary>
+    /// <summary>Force kind</summary>
     public ForceType ForceType
     {
         get => (ForceType)NativeMethods.whiteout_m3_M3Force_get_forceType(DangerousGet());
@@ -37,7 +37,7 @@ public sealed class Force : WhiteoutHandle
     }
 
 
-    /// <summary>Unknown field</summary>
+    /// <summary>Read as local/world scope; no reader traced yet</summary>
     public uint Unknown
     {
         get => NativeMethods.whiteout_m3_M3Force_get_unknown(DangerousGet());
@@ -53,7 +53,7 @@ public sealed class Force : WhiteoutHandle
     }
 
 
-    /// <summary>Force flags (falloff, height gradient, unbounded)</summary>
+    /// <summary>Falloff, height gradient, unbounded, targets</summary>
     public ForceFlag Flags
     {
         get => (ForceFlag)NativeMethods.whiteout_m3_M3Force_get_flags(DangerousGet());
@@ -61,7 +61,7 @@ public sealed class Force : WhiteoutHandle
     }
 
 
-    /// <summary>Local channel bitmask</summary>
+    /// <summary>Channel mask matched against body and emitter masks</summary>
     public uint LocalChannels
     {
         get => NativeMethods.whiteout_m3_M3Force_get_localChannels(DangerousGet());

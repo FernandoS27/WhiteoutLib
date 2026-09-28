@@ -602,6 +602,7 @@ struct ChunkTagTraits<Force> {
     static constexpr u32 value = TAG_FOR;
     static constexpr u32 max_version = 2;
     static constexpr bool is_trivial = false;
+    static constexpr bool writes_current = true;
 };
 
 template <>
@@ -609,6 +610,7 @@ struct ChunkTagTraits<Warp> {
     static constexpr u32 value = TAG_WRP;
     static constexpr u32 max_version = 1;
     static constexpr bool is_trivial = false;
+    static constexpr bool writes_current = true;
 };
 
 template <>
@@ -616,6 +618,7 @@ struct ChunkTagTraits<ConvexHullHalfEdge> {
     static constexpr u32 value = TAG_DMSE;
     static constexpr u32 max_version = 0;
     static constexpr bool is_trivial = false;
+    static constexpr bool writes_current = true;
 };
 
 template <>
@@ -623,6 +626,7 @@ struct ChunkTagTraits<PhysicsMeshBvhNode> {
     static constexpr u32 value = TAG_DMMN;
     static constexpr u32 max_version = 1;
     static constexpr bool is_trivial = false;
+    static constexpr bool writes_current = true;
 };
 
 template <>
@@ -644,6 +648,7 @@ struct ChunkTagTraits<PhysicsShape> {
     static constexpr u32 value = TAG_PHSH;
     static constexpr u32 max_version = 3;
     static constexpr bool is_trivial = false;
+    static constexpr bool writes_current = true;
 };
 
 template <>
@@ -651,6 +656,7 @@ struct ChunkTagTraits<RigidBody> {
     static constexpr u32 value = TAG_PHRB;
     static constexpr u32 max_version = 4;
     static constexpr bool is_trivial = false;
+    static constexpr bool writes_current = true;
 };
 
 template <>
@@ -658,13 +664,7 @@ struct ChunkTagTraits<PhysicsJoint> {
     static constexpr u32 value = TAG_PHYJ;
     static constexpr u32 max_version = 0;
     static constexpr bool is_trivial = false;
-};
-
-template <>
-struct ChunkTagTraits<PhysicsConstraint> {
-    static constexpr u32 value = TAG_PHCT;
-    static constexpr u32 max_version = 0;
-    static constexpr bool is_trivial = false;
+    static constexpr bool writes_current = true;
 };
 
 template <>
@@ -672,6 +672,7 @@ struct ChunkTagTraits<ClothCollider> {
     static constexpr u32 value = TAG_PHCC;
     static constexpr u32 max_version = 0;
     static constexpr bool is_trivial = false;
+    static constexpr bool writes_current = true;
 };
 
 template <>
@@ -679,6 +680,7 @@ struct ChunkTagTraits<ClothProxy> {
     static constexpr u32 value = TAG_PHAC;
     static constexpr u32 max_version = 0;
     static constexpr bool is_trivial = false;
+    static constexpr bool writes_current = true;
 };
 
 template <>
@@ -686,6 +688,7 @@ struct ChunkTagTraits<ClothPhysics> {
     static constexpr u32 value = TAG_PHCL;
     static constexpr u32 max_version = 4;
     static constexpr bool is_trivial = false;
+    static constexpr bool writes_current = true;
 };
 
 // ── Scene ────────────────────────────────────────────────────────────────────

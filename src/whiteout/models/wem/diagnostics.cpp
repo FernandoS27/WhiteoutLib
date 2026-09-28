@@ -126,6 +126,23 @@ constexpr const char* kDiagCodeNames[] = {
     "SkinWeightInvalid",
     "SkinInfluencesUnsorted",
     "SkinSetupInvalid",
+
+    "PhysicsConstraintDropped",
+    "PhysicsVersionRefused",
+    "PhysicsMaterialMerged",
+    "PhysicsGravityScaleDropped",
+    "PhysicsJointKindUnsupported",
+    "PhysicsJointFieldDropped",
+    "PhysicsJointBodyAmbiguous",
+    "PhysicsHullSimplified",
+    "PhysicsReferenceInvalid",
+    "PhysicsJointSnaps",
+    "PhysicsShapeDegenerate",
+    "PhysicsUnsupported",
+    "ClothParticleLimit",
+    "ClothAnchorBoneOutOfRange",
+    "ClothSectionSplit",
+    "ClothTopologyInvalid",
 };
 
 static_assert(sizeof(kDiagCodeNames) / sizeof(kDiagCodeNames[0]) ==
@@ -136,10 +153,11 @@ constexpr const char* kElementKindNames[] = {
     "",        "document", "mesh",     "face",  "vertex",  "halfedge", "edge",
     "section", "node",     "material", "layer", "slot",    "texture",  "look",
     "feature", "actor",    "event",    "clip",  "channel", "track",    "chunk",
+    "physics",
 };
 
 static_assert(sizeof(kElementKindNames) / sizeof(kElementKindNames[0]) ==
-                  static_cast<std::size_t>(ElementKind::Chunk) + 1,
+                  static_cast<std::size_t>(ElementKind::PhysicsRecord) + 1,
               "kElementKindNames must have one entry per ElementKind");
 
 void appendUint(std::string& out, u32 value) {
@@ -183,7 +201,7 @@ const char* ToString(DiagCode code) {
 
 const char* ToString(ElementKind kind) {
     const auto index = static_cast<std::size_t>(kind);
-    if (index > static_cast<std::size_t>(ElementKind::Chunk)) {
+    if (index > static_cast<std::size_t>(ElementKind::PhysicsRecord)) {
         return "";
     }
     return kElementKindNames[index];

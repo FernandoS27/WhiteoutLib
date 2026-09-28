@@ -60,6 +60,7 @@ enum class AttrType : u8 {
     I32,
     Quat, ///< F32x4 with quaternion semantics; distinguished so tools interpolate it right.
     Bool,
+    U32x4, ///< Four u32: a cloth binding's cage vertex ids (WEM_PHYSICS_DESIGN.md §3.7).
     Count
 };
 
@@ -75,6 +76,14 @@ u32 AttrTypeComponents(AttrType type);
 // ============================================================================
 // AttrLayer
 // ============================================================================
+
+struct AttrLayer;
+
+/// Whether @p layer's VALUES are vertex ids of its own mesh -- a layer every
+/// vertex renumbering rewrites through the same table as the layer itself
+/// (`AttributeSet::remapDomain`), and a merge offsets. `cloth.bind.vertex` is
+/// the one.
+bool IsVertexReferenceLayer(const AttrLayer& layer);
 
 /**
  * @brief One named attribute over one domain.
@@ -138,6 +147,15 @@ inline constexpr const char* kSkinLocked = "skinLocked";     ///< Vertex / Bool,
 /// (EDIT_MODE_MODELLING_DESIGN.md §2.2).
 inline constexpr const char* kModelled = "modelled";
 inline constexpr const char* kClassicBones = "classicBones"; ///< Vertex / U16, §12.6.
+
+// Cloth (WEM_PHYSICS_DESIGN.md §3.7). Exported by the formats that carry cloth.
+/// Vertex / Bool: a cage vertex the cloth may move; a pinned one follows its skin.
+inline constexpr const char* kClothMovable = "cloth.movable";
+/// Vertex / U32x4: up to four cage vertex ids that move a bound vertex, or
+/// `kInvalidId`. A reference layer (`IsVertexReferenceLayer`).
+inline constexpr const char* kClothBindVertex = "cloth.bind.vertex";
+/// Vertex / F32x4: the four lanes' weights.
+inline constexpr const char* kClothBindWeight = "cloth.bind.weight";
 /// The prefix of a saved selection's layer, `selection.<name>` (§3.7).
 inline constexpr const char* kSelectionPrefix = "selection.";
 

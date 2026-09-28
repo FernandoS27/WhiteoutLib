@@ -941,6 +941,7 @@ private:
                               "an `.m2` has no per-geoset animation to write a section track to",
                               ElementRef(ElementKind::Mesh, channel.target.mesh), ProfileId::Wow);
             return;
+        case TrackTarget::Kind::Physics: // the export bakes physics (WEM_PHYSICS_DESIGN.md §7)
         case TrackTarget::Kind::Count:
             return;
         }

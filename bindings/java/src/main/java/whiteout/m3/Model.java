@@ -33,7 +33,7 @@ import whiteout.m3.internal.Native;
  * external access if a handle is shared across threads.
  */
 public final class Model implements AutoCloseable {
-    private static final long BYTES = 1624L;
+    private static final long BYTES = 1600L;
 
     final MemorySegment handle;
     final boolean owned;
@@ -925,26 +925,6 @@ public final class Model implements AutoCloseable {
         };
     }
     /**
-     * Physics constraints (PHCT)
-     * @return the physicsConstraints field of this M3Model.
-     */
-    public int getPhysicsConstraintsCount() {
-        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_physicsConstraints_count, handle);
-    }
-    public PhysicsConstraint getPhysicsConstraintsAt(int index) {
-        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_physicsConstraints_at, handle, (long) index);
-        return new PhysicsConstraint(__h, false);
-    }
-    public void resizePhysicsConstraints(int count) {
-        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_physicsConstraints, handle, (long) count);
-    }
-    public java.util.List<PhysicsConstraint> physicsConstraintsView() {
-        return new java.util.AbstractList<PhysicsConstraint>() {
-            @Override public int size() { return getPhysicsConstraintsCount(); }
-            @Override public PhysicsConstraint get(int index) { return getPhysicsConstraintsAt(index); }
-        };
-    }
-    /**
      * Physics joints (PHYJ)
      * @return the physicsJoints field of this M3Model.
      */
@@ -1129,7 +1109,7 @@ public final class Model implements AutoCloseable {
      * @return the tightHitTestObject field of this M3Model.
      */
     public HitTestShape getTightHitTestObject() {
-        return new HitTestShape(handle.asSlice(1304L, 136L), false);
+        return new HitTestShape(handle.asSlice(1280L, 136L), false);
     }
     public void setTightHitTestObject(HitTestShape value) {
         NativeCommon.invokeNative(Native.whiteout_m3_M3Model_set_tightHitTestObject, handle, value == null ? MemorySegment.NULL : value.handle);
@@ -1269,10 +1249,10 @@ public final class Model implements AutoCloseable {
      * @return the m3aAnimHash field of this M3Model.
      */
     public int getM3aAnimHash() {
-        return handle.get(ValueLayout.JAVA_INT, 1584L);
+        return handle.get(ValueLayout.JAVA_INT, 1560L);
     }
     public void setM3aAnimHash(int value) {
-        handle.set(ValueLayout.JAVA_INT, 1584L, value);
+        handle.set(ValueLayout.JAVA_INT, 1560L, value);
     }
     /**
      * Additional .m3a hashes (U32_)

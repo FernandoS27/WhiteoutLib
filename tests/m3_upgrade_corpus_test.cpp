@@ -6,7 +6,8 @@
 // the SC2 client's version-normalization pass (M3_ProcessChunks) produces.
 // Files containing old-version chunks additionally go through a
 // parse → write → re-parse cycle to verify the writer restores the raw
-// pre-upgrade values for old-version write-back.
+// pre-upgrade values for old-version write-back. Physics is upgraded on read
+// instead (physics_upgrade.h) and gated in m3_physics_cook_test.
 
 #include <catch2/catch_all.hpp>
 
@@ -75,13 +76,6 @@ bool hasOldVersionChunks(const Model& model) {
     for (const auto& r : model.ribbonEmitters)
         if (r.getVersion() >= 0 && r.getVersion() < 9)
             return true;
-    for (const auto& b : model.rigidBodies) {
-        if (b.getVersion() >= 0 && b.getVersion() < 4)
-            return true;
-        for (const auto& s : b.rigidBodyShape)
-            if (s.getVersion() >= 0 && s.getVersion() < 3)
-                return true;
-    }
     return false;
 }
 
@@ -111,36 +105,12 @@ void checkUpgradeInvariants(const fs::path& file, const Model& model, Stats& sta
                 stats.violation(file, "RIB_ v" + std::to_string(v) + " colorSmoothing != Linear");
         }
     }
-    for (const auto& b : model.rigidBodies) {
-        const i32 v = b.getVersion();
-        stats.chunkVersions["PHRB v" + std::to_string(v)]++;
-        if (v <= 2) {
-            if (b.physicsType != 24 || b.simulationType != 0)
-                stats.violation(file,
-                                "PHRB v" + std::to_string(v) + " absent-field defaults missing");
-        }
-        for (const auto& s : b.rigidBodyShape) {
-            const i32 sv = s.getVersion();
-            stats.chunkVersions["PHSH v" + std::to_string(sv)]++;
-            if (sv == 1) {
-                if (s.shapeType == PhysicsShapeType::ConvexHull &&
-                    s.hullVertexCount != s.hullVertexPositions.size())
-                    stats.violation(file, "PHSH v1 hull vertices not migrated");
-                if (s.shapeType == PhysicsShapeType::Mesh &&
-                    s.meshVertexCount != s.meshVertexPositions.size())
-                    stats.violation(file, "PHSH v1 mesh vertices not migrated");
-            }
-            if (sv == 2 && s.shapeType == PhysicsShapeType::Mesh && !s.meshFaceIndices32.empty() &&
-                s.meshVertexPositions.empty())
-                stats.violation(file, "PHSH v2 mesh vertices not migrated");
-        }
-    }
+    // Physics: m3_physics_cook_test's G-U gate.
 }
 
 void compareUpgradedFields(const fs::path& file, const Model& a, const Model& b, Stats& stats) {
     if (a.particleEmitters.size() != b.particleEmitters.size() ||
-        a.ribbonEmitters.size() != b.ribbonEmitters.size() ||
-        a.rigidBodies.size() != b.rigidBodies.size()) {
+        a.ribbonEmitters.size() != b.ribbonEmitters.size()) {
         stats.mismatch(file, "chunk counts changed after round-trip");
         return;
     }
@@ -168,38 +138,6 @@ void compareUpgradedFields(const fs::path& file, const Model& a, const Model& b,
             stats.mismatch(file, "RIB_ smoothing");
         if (ra.additionalFlags != rb.additionalFlags)
             stats.mismatch(file, "RIB_ additionalFlags");
-    }
-    for (size_t i = 0; i < a.rigidBodies.size(); ++i) {
-        const auto& ba = a.rigidBodies[i];
-        const auto& bb = b.rigidBodies[i];
-        if (ba.density != bb.density || ba.friction != bb.friction ||
-            ba.gravityScale != bb.gravityScale)
-            stats.mismatch(file, "PHRB material");
-        if (ba.rigidBodyShape.size() != bb.rigidBodyShape.size()) {
-            stats.mismatch(file, "PHSH count");
-            continue;
-        }
-        for (size_t j = 0; j < ba.rigidBodyShape.size(); ++j) {
-            const auto& sa = ba.rigidBodyShape[j];
-            const auto& sb = bb.rigidBodyShape[j];
-            if (sa.shapeDimensions.x != sb.shapeDimensions.x ||
-                sa.shapeDimensions.y != sb.shapeDimensions.y ||
-                sa.shapeDimensions.z != sb.shapeDimensions.z)
-                stats.mismatch(file, "PHSH shapeDimensions");
-            if (sa.meshVertexCount != sb.meshVertexCount ||
-                sa.meshFaceIndex32Count != sb.meshFaceIndex32Count ||
-                sa.meshTreeDepth != sb.meshTreeDepth)
-                stats.mismatch(file, "PHSH mesh counts");
-            if (sa.hullVertexPositions != sb.hullVertexPositions ||
-                sa.meshVertexPositions != sb.meshVertexPositions ||
-                sa.meshFaceIndices32 != sb.meshFaceIndices32 ||
-                sa.meshBvhNodes.size() != sb.meshBvhNodes.size())
-                stats.mismatch(file, "PHSH migrated geometry");
-            if (sa.deprecated.v2.tailUnknown0 != sb.deprecated.v2.tailUnknown0 ||
-                sa.deprecated.v2.tailUnknown1 != sb.deprecated.v2.tailUnknown1 ||
-                sa.deprecated.v2.tailUnknown2 != sb.deprecated.v2.tailUnknown2)
-                stats.mismatch(file, "PHSH v2 tail");
-        }
     }
 }
 

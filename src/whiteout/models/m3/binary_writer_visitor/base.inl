@@ -131,7 +131,7 @@ void BinaryWriterVisitor::visit(const Model& model, u32 version) {
     visit(model.viewVolumes);
 
     visit(model.rigidBodies);
-    visit(model.physicsConstraints);
+    writer.write(Reference{}); // PHCT: never written (the client never reads it)
     visit(model.physicsJoints);
     if (version >= 28) {
         visit(model.clothPhysics);

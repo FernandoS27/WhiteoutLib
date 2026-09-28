@@ -460,7 +460,7 @@ TEST_CASE("wem emitter systems are gated by the profile registry", "[wem][node][
             INFO(ToString(kind));
             const bool expected = HasNodeKind(kSharedNodeKinds, kind) ||
                                   (warcraft && HasNodeKind(kWc3NodeKinds, kind)) ||
-                                  (starcraft && HasNodeKind(kSc2NodeKinds, kind)) ||
+                                  (starcraft && HasNodeKind(kSc2NodeKinds | kSc2FieldKinds, kind)) ||
                                   (wow && HasNodeKind(kWowNodeKinds, kind));
             CHECK(CarriesNodeKind(profile, kind) == expected);
         }

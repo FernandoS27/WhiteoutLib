@@ -11,11 +11,15 @@ import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
- * PHSH — Physics shape (v0–v3, 132/292/300 bytes)
+ * PHSH — Physics shape (v3, 300 bytes; v0 96, v1 132 and v2 292 read)
  * 
- * The 300-byte v3 layout is a three-part union. Bytes 0–79 are the common header. Bytes 80–103 hold shape dimensions for simple shapes (0–3) or are zero for complex shapes. Bytes 80–183 form the convex hull section (shapeType 4); bytes 184–299 form the mesh section (shapeType 5).
+ * Bytes 0–103 are common: the matrix, the kind, the two source Refs and the dimensions. Bytes 104–183 are the cooked convex hull (kind 4) and 184–299 the cooked mesh (kind 5).
  * 
- * v2 shares the v3 layout through the hull section but has a shorter mesh section (292 bytes total): bounds/tolerance, four legacy geometry refs, then a 6-dword tail (unknown, vertexCount, faceCount, 2× unknown, treeDepth) — verified against the SC2 client's version-upgrade copier.
+ * **Source vs cooked.** `sourcePoints`/`sourceTriangles` (+68/+80) are raw input the client cooks at load, with the matrix baked in: a hull from the points, a mesh from both. Only the upgrade of a v0/v1 shape fills them, and `UpgradePhysics` cooks them the same way, so a parsed shape carries the cooked tables and empty sources.
+ * 
+ * **Hull tables** are used directly as a Domino polytope: the counts at +164/+168/+172 rather than the Ref counts, the volume and surface area as cached mass data (buoyancy; mass under a physics-material override).
+ * 
+ * **Mesh tables.** The client rebuilds the tree from the vertices and the three indices of each triangle (plus the low byte of its seventh value), then overwrites the tree's centre, extent, tolerance and height with this record's, so those four must be what its builder computes (`CookMesh`). DMMN and the adjacency are never read.
  *
  * <p><b>Lifecycle.</b> Instances hold a handle to a native
  * PhysicsShape allocation. Always release them with
@@ -33,7 +37,7 @@ import whiteout.m3.internal.Native;
  * external access if a handle is shared across threads.
  */
 public final class PhysicsShape implements AutoCloseable {
-    private static final long BYTES = 528L;
+    private static final long BYTES = 432L;
 
     final MemorySegment handle;
     final boolean owned;
@@ -61,105 +65,131 @@ public final class PhysicsShape implements AutoCloseable {
     }
 
     /**
-     * Havok convex radius (v1 only, ≈ 0.019685)
-     * @return the collisionMargin field of this M3PhysicsShape.
-     */
-    public float getCollisionMargin() {
-        return handle.get(ValueLayout.JAVA_FLOAT, 64L);
-    }
-    public void setCollisionMargin(float value) {
-        handle.set(ValueLayout.JAVA_FLOAT, 64L, value);
-    }
-    /**
      * Shape type (box/sphere/capsule/cylinder/hull/mesh)
      * @return the shapeType field of this M3PhysicsShape.
      */
     public PhysicsShapeType getShapeType() {
-        return PhysicsShapeType.fromInt(handle.get(ValueLayout.JAVA_INT, 68L));
+        return PhysicsShapeType.fromInt(handle.get(ValueLayout.JAVA_INT, 64L));
     }
     public void setShapeType(PhysicsShapeType value) {
-        handle.set(ValueLayout.JAVA_INT, 68L, value.value);
+        handle.set(ValueLayout.JAVA_INT, 64L, value.value);
     }
     /**
-     * Legacy sizes (v1 only, zero for shapeType 4–5)
-     * @return the oldSizes field of this M3PhysicsShape.
+     * Uncooked points (VEC3, +68), matrix not yet applied
+     * @return the sourcePoints field of this M3PhysicsShape.
      */
-    public Vector3f getOldSizes() {
-        return Handles.wrapVector3f(handle.asSlice(72L, 12L), false);
+    public int getSourcePointsCount() {
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_sourcePoints_count, handle);
     }
-    public void setOldSizes(Vector3f value) {
-        if (value == null) {
-            NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_set_oldSizes, handle, MemorySegment.NULL);
-            return;
+    public float[] getSourcePoints() {
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_sourcePoints_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_sourcePoints_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
+        long __scalars = __count * 3L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
+    }
+    public void setSourcePoints(float[] values) {
+        try (Arena arena = Arena.ofConfined()) {
+            long __count = (long) values.length / 3;
+            MemorySegment __seg = arena.allocate((long) values.length * 4L);
+            if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_FLOAT, 0, values.length);
+            NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_assign_sourcePoints, handle, __seg, __count);
         }
-        MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 72L, 12L);
+    }
+    public void resizeSourcePoints(int count) {
+        NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_resize_sourcePoints, handle, (long) count);
     }
     /**
-     * Shape dimensions (v2+, zero for complex shapes)
+     * Uncooked triangle list (U16_, +80), three per face
+     * @return the sourceTriangles field of this M3PhysicsShape.
+     */
+    public int getSourceTrianglesCount() {
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_sourceTriangles_count, handle);
+    }
+    public short[] getSourceTriangles() {
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_sourceTriangles_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_sourceTriangles_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
+    }
+    public void setSourceTriangles(short[] values) {
+        try (Arena arena = Arena.ofConfined()) {
+            long __count = (long) values.length / 1;
+            MemorySegment __seg = arena.allocate((long) values.length * 2L);
+            if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
+            NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_assign_sourceTriangles, handle, __seg, __count);
+        }
+    }
+    public void resizeSourceTriangles(int count) {
+        NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_resize_sourceTriangles, handle, (long) count);
+    }
+    /**
+     * Box half-extents; sphere radius; capsule/cylinder radius, length
      * @return the shapeDimensions field of this M3PhysicsShape.
      */
     public Vector3f getShapeDimensions() {
-        return Handles.wrapVector3f(handle.asSlice(96L, 12L), false);
+        return Handles.wrapVector3f(handle.asSlice(120L, 12L), false);
     }
     public void setShapeDimensions(Vector3f value) {
         if (value == null) {
             NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_set_shapeDimensions, handle, MemorySegment.NULL);
             return;
         }
-        MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 96L, 12L);
+        MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 120L, 12L);
     }
     /**
-     * Per-face unit normals (VEC3)
-     * @return the hullFaceNormals field of this M3PhysicsShape.
+     * Vertex positions (VEC3)
+     * @return the hullVertices field of this M3PhysicsShape.
      */
-    public int getHullFaceNormalsCount() {
-        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullFaceNormals_count, handle);
+    public int getHullVerticesCount() {
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullVertices_count, handle);
     }
-    public float[] getHullFaceNormals() {
-        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullFaceNormals_count, handle);
-        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullFaceNormals_data, handle);
+    public float[] getHullVertices() {
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullVertices_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullVertices_data, handle);
         if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
         long __scalars = __count * 3L;
         return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
     }
-    public void setHullFaceNormals(float[] values) {
+    public void setHullVertices(float[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 3;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_FLOAT, 0, values.length);
-            NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_assign_hullFaceNormals, handle, __seg, __count);
+            NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_assign_hullVertices, handle, __seg, __count);
         }
     }
-    public void resizeHullFaceNormals(int count) {
-        NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_resize_hullFaceNormals, handle, (long) count);
+    public void resizeHullVertices(int count) {
+        NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_resize_hullVertices, handle, (long) count);
     }
     /**
-     * Vertex positions, w=0 (VEC4)
-     * @return the hullVertexPositions field of this M3PhysicsShape.
+     * Face planes (n, d), n unit length (VEC4)
+     * @return the hullPlanes field of this M3PhysicsShape.
      */
-    public int getHullVertexPositionsCount() {
-        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullVertexPositions_count, handle);
+    public int getHullPlanesCount() {
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullPlanes_count, handle);
     }
-    public float[] getHullVertexPositions() {
-        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullVertexPositions_count, handle);
-        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullVertexPositions_data, handle);
+    public float[] getHullPlanes() {
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullPlanes_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullPlanes_data, handle);
         if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
         long __scalars = __count * 4L;
         return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
     }
-    public void setHullVertexPositions(float[] values) {
+    public void setHullPlanes(float[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 4;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_FLOAT, 0, values.length);
-            NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_assign_hullVertexPositions, handle, __seg, __count);
+            NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_assign_hullPlanes, handle, __seg, __count);
         }
     }
-    public void resizeHullVertexPositions(int count) {
-        NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_resize_hullVertexPositions, handle, (long) count);
+    public void resizeHullPlanes(int count) {
+        NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_resize_hullPlanes, handle, (long) count);
     }
     /**
-     * Half-edge table (DMSE)
+     * Half-edge table (DMSE), twin pairs
      * @return the hullHalfEdges field of this M3PhysicsShape.
      */
     public int getHullHalfEdgesCount() {
@@ -179,96 +209,96 @@ public final class PhysicsShape implements AutoCloseable {
         };
     }
     /**
-     * One face index per vertex (U8__)
-     * @return the hullVertexFaceIndices field of this M3PhysicsShape.
+     * Each face's first half-edge (U8__)
+     * @return the hullFaceFirstEdges field of this M3PhysicsShape.
      */
-    public int getHullVertexFaceIndicesCount() {
-        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullVertexFaceIndices_count, handle);
+    public int getHullFaceFirstEdgesCount() {
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullFaceFirstEdges_count, handle);
     }
-    public byte[] getHullVertexFaceIndices() {
-        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullVertexFaceIndices_count, handle);
-        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullVertexFaceIndices_data, handle);
+    public byte[] getHullFaceFirstEdges() {
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullFaceFirstEdges_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullFaceFirstEdges_data, handle);
         if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new byte[0];
         long __scalars = __count * 1L;
         return __ptr.reinterpret(__scalars * 1L).toArray(ValueLayout.JAVA_BYTE);
     }
-    public void setHullVertexFaceIndices(byte[] values) {
+    public void setHullFaceFirstEdges(byte[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 1L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_BYTE, 0, values.length);
-            NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_assign_hullVertexFaceIndices, handle, __seg, __count);
+            NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_assign_hullFaceFirstEdges, handle, __seg, __count);
         }
     }
-    public void resizeHullVertexFaceIndices(int count) {
-        NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_resize_hullVertexFaceIndices, handle, (long) count);
+    public void resizeHullFaceFirstEdges(int count) {
+        NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_resize_hullFaceFirstEdges, handle, (long) count);
     }
     /**
-     * Hull centroid
-     * @return the hullCenter field of this M3PhysicsShape.
+     * Volume centroid
+     * @return the hullCentroid field of this M3PhysicsShape.
      */
-    public Vector3f getHullCenter() {
-        return Handles.wrapVector3f(handle.asSlice(208L, 12L), false);
+    public Vector3f getHullCentroid() {
+        return Handles.wrapVector3f(handle.asSlice(232L, 12L), false);
     }
-    public void setHullCenter(Vector3f value) {
+    public void setHullCentroid(Vector3f value) {
         if (value == null) {
-            NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_set_hullCenter, handle, MemorySegment.NULL);
+            NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_set_hullCentroid, handle, MemorySegment.NULL);
             return;
         }
-        MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 208L, 12L);
+        MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 232L, 12L);
     }
     /**
-     * Number of face normals
-     * @return the hullFaceNormalCount field of this M3PhysicsShape.
-     */
-    public int getHullFaceNormalCount() {
-        return handle.get(ValueLayout.JAVA_INT, 220L);
-    }
-    public void setHullFaceNormalCount(int value) {
-        handle.set(ValueLayout.JAVA_INT, 220L, value);
-    }
-    /**
-     * Number of vertices
+     * Vertices the client reads
      * @return the hullVertexCount field of this M3PhysicsShape.
      */
     public int getHullVertexCount() {
-        return handle.get(ValueLayout.JAVA_INT, 224L);
+        return handle.get(ValueLayout.JAVA_INT, 244L);
     }
     public void setHullVertexCount(int value) {
-        handle.set(ValueLayout.JAVA_INT, 224L, value);
+        handle.set(ValueLayout.JAVA_INT, 244L, value);
     }
     /**
-     * Number of half-edges
+     * Faces the client reads
+     * @return the hullFaceCount field of this M3PhysicsShape.
+     */
+    public int getHullFaceCount() {
+        return handle.get(ValueLayout.JAVA_INT, 248L);
+    }
+    public void setHullFaceCount(int value) {
+        handle.set(ValueLayout.JAVA_INT, 248L, value);
+    }
+    /**
+     * Half-edges the client reads
      * @return the hullHalfEdgeCount field of this M3PhysicsShape.
      */
     public int getHullHalfEdgeCount() {
-        return handle.get(ValueLayout.JAVA_INT, 228L);
+        return handle.get(ValueLayout.JAVA_INT, 252L);
     }
     public void setHullHalfEdgeCount(int value) {
-        handle.set(ValueLayout.JAVA_INT, 228L, value);
+        handle.set(ValueLayout.JAVA_INT, 252L, value);
     }
     /**
-     * Unknown hull parameter 0
-     * @return the hullUnknown0 field of this M3PhysicsShape.
+     * Enclosed volume
+     * @return the hullVolume field of this M3PhysicsShape.
      */
-    public float getHullUnknown0() {
-        return handle.get(ValueLayout.JAVA_FLOAT, 232L);
+    public float getHullVolume() {
+        return handle.get(ValueLayout.JAVA_FLOAT, 256L);
     }
-    public void setHullUnknown0(float value) {
-        handle.set(ValueLayout.JAVA_FLOAT, 232L, value);
+    public void setHullVolume(float value) {
+        handle.set(ValueLayout.JAVA_FLOAT, 256L, value);
     }
     /**
-     * Unknown hull parameter 1
-     * @return the hullUnknown1 field of this M3PhysicsShape.
+     * Surface area
+     * @return the hullSurfaceArea field of this M3PhysicsShape.
      */
-    public float getHullUnknown1() {
-        return handle.get(ValueLayout.JAVA_FLOAT, 236L);
+    public float getHullSurfaceArea() {
+        return handle.get(ValueLayout.JAVA_FLOAT, 260L);
     }
-    public void setHullUnknown1(float value) {
-        handle.set(ValueLayout.JAVA_FLOAT, 236L, value);
+    public void setHullSurfaceArea(float value) {
+        handle.set(ValueLayout.JAVA_FLOAT, 260L, value);
     }
     /**
-     * BVH tree nodes (DMMN)
+     * BVH tree nodes (DMMN), never read
      * @return the meshBvhNodes field of this M3PhysicsShape.
      */
     public int getMeshBvhNodesCount() {
@@ -313,129 +343,129 @@ public final class PhysicsShape implements AutoCloseable {
         NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_resize_meshVertexPositions, handle, (long) count);
     }
     /**
-     * AABB center in model space (quantization grid origin)
+     * Tree centre, as the client's builder computes it
      * @return the meshBoundsCenter field of this M3PhysicsShape.
      */
     public Vector3f getMeshBoundsCenter() {
-        return Handles.wrapVector3f(handle.asSlice(336L, 12L), false);
+        return Handles.wrapVector3f(handle.asSlice(360L, 12L), false);
     }
     public void setMeshBoundsCenter(Vector3f value) {
         if (value == null) {
             NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_set_meshBoundsCenter, handle, MemorySegment.NULL);
             return;
         }
-        MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 336L, 12L);
+        MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 360L, 12L);
     }
     /**
-     * AABB half-extents (quantization range: tolerance = extent / 32767)
+     * Tree half-extent, likewise
      * @return the meshBoundsExtent field of this M3PhysicsShape.
      */
     public Vector3f getMeshBoundsExtent() {
-        return Handles.wrapVector3f(handle.asSlice(348L, 12L), false);
+        return Handles.wrapVector3f(handle.asSlice(372L, 12L), false);
     }
     public void setMeshBoundsExtent(Vector3f value) {
         if (value == null) {
             NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_set_meshBoundsExtent, handle, MemorySegment.NULL);
             return;
         }
-        MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 348L, 12L);
+        MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 372L, 12L);
     }
     /**
      * Per-axis quantization step (= extent / 32767)
      * @return the meshTolerance field of this M3PhysicsShape.
      */
     public Vector3f getMeshTolerance() {
-        return Handles.wrapVector3f(handle.asSlice(360L, 12L), false);
+        return Handles.wrapVector3f(handle.asSlice(384L, 12L), false);
     }
     public void setMeshTolerance(Vector3f value) {
         if (value == null) {
             NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_set_meshTolerance, handle, MemorySegment.NULL);
             return;
         }
-        MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 360L, 12L);
+        MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 384L, 12L);
     }
     /**
-     * Number of mesh normals
+     * DMMN count
      * @return the meshNormalCount field of this M3PhysicsShape.
      */
     public int getMeshNormalCount() {
-        return handle.get(ValueLayout.JAVA_INT, 372L);
+        return handle.get(ValueLayout.JAVA_INT, 396L);
     }
     public void setMeshNormalCount(int value) {
-        handle.set(ValueLayout.JAVA_INT, 372L, value);
+        handle.set(ValueLayout.JAVA_INT, 396L, value);
     }
     /**
      * Number of mesh vertices
      * @return the meshVertexCount field of this M3PhysicsShape.
      */
     public int getMeshVertexCount() {
-        return handle.get(ValueLayout.JAVA_INT, 376L);
+        return handle.get(ValueLayout.JAVA_INT, 400L);
     }
     public void setMeshVertexCount(int value) {
-        handle.set(ValueLayout.JAVA_INT, 376L, value);
+        handle.set(ValueLayout.JAVA_INT, 400L, value);
     }
     /**
-     * MT16 face count (0 when MT32)
+     * MT16 face count (0 when MT32); the client reads this, not the Ref
      * @return the meshFaceIndex16Count field of this M3PhysicsShape.
      */
     public int getMeshFaceIndex16Count() {
-        return handle.get(ValueLayout.JAVA_INT, 380L);
+        return handle.get(ValueLayout.JAVA_INT, 404L);
     }
     public void setMeshFaceIndex16Count(int value) {
-        handle.set(ValueLayout.JAVA_INT, 380L, value);
+        handle.set(ValueLayout.JAVA_INT, 404L, value);
     }
     /**
      * MT32 face count (0 when MT16)
      * @return the meshFaceIndex32Count field of this M3PhysicsShape.
      */
     public int getMeshFaceIndex32Count() {
-        return handle.get(ValueLayout.JAVA_INT, 384L);
+        return handle.get(ValueLayout.JAVA_INT, 408L);
     }
     public void setMeshFaceIndex32Count(int value) {
-        handle.set(ValueLayout.JAVA_INT, 384L, value);
+        handle.set(ValueLayout.JAVA_INT, 408L, value);
     }
     /**
-     * Unknown mesh parameter
+     * Never read
      * @return the meshUnknown1 field of this M3PhysicsShape.
      */
     public int getMeshUnknown1() {
-        return handle.get(ValueLayout.JAVA_INT, 388L);
+        return handle.get(ValueLayout.JAVA_INT, 412L);
     }
     public void setMeshUnknown1(int value) {
-        handle.set(ValueLayout.JAVA_INT, 388L, value);
+        handle.set(ValueLayout.JAVA_INT, 412L, value);
     }
     /**
-     * Reserved (always 0)
+     * Never read
      * @return the meshReserved field of this M3PhysicsShape.
      */
     public int getMeshReserved() {
-        return handle.get(ValueLayout.JAVA_INT, 392L);
+        return handle.get(ValueLayout.JAVA_INT, 416L);
     }
     public void setMeshReserved(int value) {
-        handle.set(ValueLayout.JAVA_INT, 392L, value);
+        handle.set(ValueLayout.JAVA_INT, 416L, value);
     }
     /**
-     * BVH tree height (root-to-leaf path length, 1–12)
+     * Tree height, as the client's builder computes it
      * @return the meshTreeDepth field of this M3PhysicsShape.
      */
     public int getMeshTreeDepth() {
-        return handle.get(ValueLayout.JAVA_INT, 396L);
+        return handle.get(ValueLayout.JAVA_INT, 420L);
     }
     public void setMeshTreeDepth(int value) {
-        handle.set(ValueLayout.JAVA_INT, 396L, value);
+        handle.set(ValueLayout.JAVA_INT, 420L, value);
     }
     /**
-     * Collision margin (MT16: small float; MT32: 0.0)
+     * Never read
      * @return the meshCollisionMargin field of this M3PhysicsShape.
      */
     public float getMeshCollisionMargin() {
-        return handle.get(ValueLayout.JAVA_FLOAT, 400L);
+        return handle.get(ValueLayout.JAVA_FLOAT, 424L);
     }
     public void setMeshCollisionMargin(float value) {
-        handle.set(ValueLayout.JAVA_FLOAT, 400L, value);
+        handle.set(ValueLayout.JAVA_FLOAT, 424L, value);
     }
     @Override public String toString() {
-        return "PhysicsShape(" + "collisionMargin=" + getCollisionMargin() + ", " + "shapeType=" + getShapeType() + ", " + "hullFaceNormalCount=" + getHullFaceNormalCount() + ", " + "hullVertexCount=" + getHullVertexCount() + ", " + "hullHalfEdgeCount=" + getHullHalfEdgeCount() + ", " + "hullUnknown0=" + getHullUnknown0() + ", " + "hullUnknown1=" + getHullUnknown1() + ", " + "meshNormalCount=" + getMeshNormalCount() + ", " + "meshVertexCount=" + getMeshVertexCount() + ", " + "meshFaceIndex16Count=" + getMeshFaceIndex16Count() + ", " + "meshFaceIndex32Count=" + getMeshFaceIndex32Count() + ", " + "meshUnknown1=" + getMeshUnknown1() + ", " + "meshReserved=" + getMeshReserved() + ", " + "meshTreeDepth=" + getMeshTreeDepth() + ", " + "meshCollisionMargin=" + getMeshCollisionMargin() + ")";
+        return "PhysicsShape(" + "shapeType=" + getShapeType() + ", " + "hullVertexCount=" + getHullVertexCount() + ", " + "hullFaceCount=" + getHullFaceCount() + ", " + "hullHalfEdgeCount=" + getHullHalfEdgeCount() + ", " + "hullVolume=" + getHullVolume() + ", " + "hullSurfaceArea=" + getHullSurfaceArea() + ", " + "meshNormalCount=" + getMeshNormalCount() + ", " + "meshVertexCount=" + getMeshVertexCount() + ", " + "meshFaceIndex16Count=" + getMeshFaceIndex16Count() + ", " + "meshFaceIndex32Count=" + getMeshFaceIndex32Count() + ", " + "meshUnknown1=" + getMeshUnknown1() + ", " + "meshReserved=" + getMeshReserved() + ", " + "meshTreeDepth=" + getMeshTreeDepth() + ", " + "meshCollisionMargin=" + getMeshCollisionMargin() + ")";
     }
 
 }

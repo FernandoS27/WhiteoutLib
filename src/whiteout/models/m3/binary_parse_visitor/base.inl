@@ -106,7 +106,10 @@ void BinaryParseVisitor::visit(Model& model, u32 version) {
     visit(model.viewVolumes);
 
     visit(model.rigidBodies);
-    visit(model.physicsConstraints);
+    // PHCT (180 bytes) ships in no model and the client never reads it.
+    if (skipReference().entries != 0) {
+        issues.emplace_back("PHCT physics constraints dropped: the client never reads them.");
+    }
     visit(model.physicsJoints);
     if (version >= 28) {
         visit(model.clothPhysics);
@@ -158,6 +161,14 @@ void BinaryParseVisitor::visit(std::string& str) {
 void BinaryParseVisitor::visit(std::string& str, u32 version) {
     (void)version;
     visit(str);
+}
+
+Reference BinaryParseVisitor::skipReference() {
+    Reference ref = readReferenceFunc();
+    if (ref.entries != 0 && ref.index < indexUsed.size()) {
+        indexUsed[ref.index] = true;
+    }
+    return ref;
 }
 
 void BinaryParseVisitor::visitCharBlob(std::vector<u8>& blob) {

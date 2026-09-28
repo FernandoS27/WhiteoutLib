@@ -101,8 +101,9 @@ enum class Channel : u8 {
     TextureIndex, ///< U32. MDX KMTF's flipbook frame and KRTX's ribbon slot.
     Emissive,     ///< F32. MDX KMTE.
 
-    /// An emitter system's own property; `sub` says which (§10.9). The type is
-    /// the property's, not this entry's.
+    /// A node system's own property -- an emitter system's (§10.9), a force
+    /// field's or a vertex warp's; `sub` says which. The type is the
+    /// property's, not this entry's.
     EmitterProperty,
 
     // A Warcraft III 3.0 light's shadow range and distance falloff
@@ -137,6 +138,12 @@ enum class Channel : u8 {
     // that one moves the node: these move only what the camera looks at.
     Target, ///< F32x3. An offset from `CameraPayload::target`: MDX KTTR, M2 `targetPositions`.
     Roll,   ///< F32. Radians about the line of sight: MDX KCRL, M2 `roll`.
+
+    // The physics switches (WEM_PHYSICS_DESIGN.md §3.6, §3.7), on a
+    // `TrackTarget::Kind::Physics` target naming the record. Flags: 0 or 1,
+    // held from key to key as a visibility is.
+    PhysicsDynamic, ///< F32. Whether a body simulates now; M3 `PHRB.dynamicState`.
+    ClothActive,    ///< F32. Whether a cloth writes back; M3 `PHCL.active`.
 
     Count
 };
@@ -204,6 +211,7 @@ struct TrackTarget {
                          ///< them — a WoW `M2Color` is the case that needs it.
         MaterialFeature, ///< `material` + `sub` as a `MaterialFeature::id` (§7.2.5).
         Section,         ///< `mesh` + `sub` as the section within it (§5.5).
+        Physics,         ///< `sub` as a `PhysicsSet` record id (WEM_PHYSICS_DESIGN.md §3.6).
         Count
     };
 
@@ -241,6 +249,11 @@ constexpr bool IsMaterialTarget(TrackTarget::Kind kind) {
 // ============================================================================
 // AnimChannel
 // ============================================================================
+
+/// Whether @p target is one of the physics switches.
+constexpr bool IsPhysicsChannel(const TrackTarget& target) {
+    return target.kind == TrackTarget::Kind::Physics;
+}
 
 /// Whether @p target is a pose stage's weight (`Channel::StageWeight`).
 constexpr bool IsStageWeight(const TrackTarget& target) {

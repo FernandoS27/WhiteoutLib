@@ -21,7 +21,7 @@ public sealed class PhysicsJoint : WhiteoutHandle
         return true;
     }
 
-    /// <summary>Joint type</summary>
+    /// <summary>0 spherical, 1 revolute, 2 cone-twist, 3 weld</summary>
     public uint JointType
     {
         get => NativeMethods.whiteout_m3_M3PhysicsJoint_get_jointType(DangerousGet());
@@ -45,7 +45,7 @@ public sealed class PhysicsJoint : WhiteoutHandle
     }
 
 
-    /// <summary>Enable angular limits</summary>
+    /// <summary>Enable angular limits (low byte)</summary>
     public uint EnableLimits
     {
         get => NativeMethods.whiteout_m3_M3PhysicsJoint_get_enableLimits(DangerousGet());
@@ -77,7 +77,7 @@ public sealed class PhysicsJoint : WhiteoutHandle
     }
 
 
-    /// <summary>Enable joint friction</summary>
+    /// <summary>Enable joint friction (low byte)</summary>
     public uint EnableFriction
     {
         get => NativeMethods.whiteout_m3_M3PhysicsJoint_get_enableFriction(DangerousGet());
@@ -85,7 +85,7 @@ public sealed class PhysicsJoint : WhiteoutHandle
     }
 
 
-    /// <summary>Friction coefficient</summary>
+    /// <summary>Multiplier on an estimated gravity-holding torque</summary>
     public float Friction
     {
         get => NativeMethods.whiteout_m3_M3PhysicsJoint_get_friction(DangerousGet());
@@ -93,7 +93,7 @@ public sealed class PhysicsJoint : WhiteoutHandle
     }
 
 
-    /// <summary>Damping ratio</summary>
+    /// <summary>Weld spring damping ratio</summary>
     public float DampingRatio
     {
         get => NativeMethods.whiteout_m3_M3PhysicsJoint_get_dampingRatio(DangerousGet());
@@ -101,7 +101,7 @@ public sealed class PhysicsJoint : WhiteoutHandle
     }
 
 
-    /// <summary>Angular frequency</summary>
+    /// <summary>Weld spring frequency</summary>
     public float AngularFrequency
     {
         get => NativeMethods.whiteout_m3_M3PhysicsJoint_get_angularFrequency(DangerousGet());
@@ -109,7 +109,7 @@ public sealed class PhysicsJoint : WhiteoutHandle
     }
 
 
-    /// <summary>Force threshold to break joint</summary>
+    /// <summary>Never read</summary>
     public float BreakThreshold
     {
         get => NativeMethods.whiteout_m3_M3PhysicsJoint_get_breakThreshold(DangerousGet());
@@ -117,7 +117,7 @@ public sealed class PhysicsJoint : WhiteoutHandle
     }
 
 
-    /// <summary>Enable shape constraint</summary>
+    /// <summary>Collide connected</summary>
     public byte EnableShape
     {
         get => NativeMethods.whiteout_m3_M3PhysicsJoint_get_enableShape(DangerousGet());

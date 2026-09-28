@@ -88,9 +88,10 @@ typedef enum {
 } whiteout_m3_ParticleInstanceType;
 
 typedef enum {
+    whiteout_m3_ForceType_Directional,
     whiteout_m3_ForceType_Radial,
-    whiteout_m3_ForceType_Wind,
-    whiteout_m3_ForceType_Explosion,
+    whiteout_m3_ForceType_Drag,
+    whiteout_m3_ForceType_Vortex,
 } whiteout_m3_ForceType;
 
 typedef enum {
@@ -98,6 +99,7 @@ typedef enum {
     whiteout_m3_ForceShape_Cylinder,
     whiteout_m3_ForceShape_Box,
     whiteout_m3_ForceShape_Hemisphere,
+    whiteout_m3_ForceShape_Cone,
 } whiteout_m3_ForceShape;
 
 typedef enum {
@@ -441,6 +443,8 @@ typedef enum {
     whiteout_m3_ForceFlag_Falloff,
     whiteout_m3_ForceFlag_HeightGradient,
     whiteout_m3_ForceFlag_Unbounded,
+    whiteout_m3_ForceFlag_AffectsParticles,
+    whiteout_m3_ForceFlag_AffectsBodies,
 } whiteout_m3_ForceFlag;
 
 typedef enum {
@@ -451,8 +455,9 @@ typedef enum {
     whiteout_m3_RigidBodyFlag_SimulateCollision,
     whiteout_m3_RigidBodyFlag_IgnoreLocalBodies,
     whiteout_m3_RigidBodyFlag_AlwaysExists,
-    whiteout_m3_RigidBodyFlag_Unknown6,
-    whiteout_m3_RigidBodyFlag_NoSimulation,
+    whiteout_m3_RigidBodyFlag_InheritDynamic,
+    whiteout_m3_RigidBodyFlag_KeepBoneDriven,
+    whiteout_m3_RigidBodyFlag_ExemptFromRagdoll,
     whiteout_m3_RigidBodyFlag_Unknown9,
 } whiteout_m3_RigidBodyFlag;
 
@@ -528,7 +533,6 @@ typedef struct whiteout_M3PhysicsMeshEdge whiteout_M3PhysicsMeshEdge;
 typedef struct whiteout_M3PhysicsShape whiteout_M3PhysicsShape;
 typedef struct whiteout_M3RigidBody whiteout_M3RigidBody;
 typedef struct whiteout_M3PhysicsJoint whiteout_M3PhysicsJoint;
-typedef struct whiteout_M3PhysicsConstraint whiteout_M3PhysicsConstraint;
 typedef struct whiteout_M3ClothCollider whiteout_M3ClothCollider;
 typedef struct whiteout_M3ClothProxy whiteout_M3ClothProxy;
 typedef struct whiteout_M3ClothPhysics whiteout_M3ClothPhysics;
@@ -2859,26 +2863,26 @@ void whiteout_m3_M3TrailingModel_set_reserved1(whiteout_M3TrailingModel* self, u
 
 /* FOR_ — Force field (v0–v2, 104 bytes) */
 /*  */
-/* Applies radial, wind, or explosion forces to particles and ribbons within an influence volume shape (sphere, cylinder, box, hemisphere). */
+/* Pushes particles and ribbons (flag 0x8) and rigid bodies (flag 0x10) inside an influence volume. A body is affected when its `localForces | worldForces << 16` mask shares a bit with `localChannels`. */
 whiteout_M3Force* whiteout_m3_M3Force_new(void);
 void whiteout_m3_M3Force_delete(whiteout_M3Force* self);
 
-/* Force influence type (radial/wind/explosion) */
+/* Force kind */
 int32_t whiteout_m3_M3Force_get_forceType(const whiteout_M3Force* self);
 void whiteout_m3_M3Force_set_forceType(whiteout_M3Force* self, int32_t value);
 /* Influence volume shape */
 int32_t whiteout_m3_M3Force_get_forceShape(const whiteout_M3Force* self);
 void whiteout_m3_M3Force_set_forceShape(whiteout_M3Force* self, int32_t value);
-/* Unknown field */
+/* Read as local/world scope; no reader traced yet */
 uint32_t whiteout_m3_M3Force_get_unknown(const whiteout_M3Force* self);
 void whiteout_m3_M3Force_set_unknown(whiteout_M3Force* self, uint32_t value);
 /* Index into BONE array */
 uint32_t whiteout_m3_M3Force_get_boneIndex(const whiteout_M3Force* self);
 void whiteout_m3_M3Force_set_boneIndex(whiteout_M3Force* self, uint32_t value);
-/* Force flags (falloff, height gradient, unbounded) */
+/* Falloff, height gradient, unbounded, targets */
 int32_t whiteout_m3_M3Force_get_flags(const whiteout_M3Force* self);
 void whiteout_m3_M3Force_set_flags(whiteout_M3Force* self, int32_t value);
-/* Local channel bitmask */
+/* Channel mask matched against body and emitter masks */
 uint32_t whiteout_m3_M3Force_get_localChannels(const whiteout_M3Force* self);
 void whiteout_m3_M3Force_set_localChannels(whiteout_M3Force* self, uint32_t value);
 /* Animated force strength */
@@ -2896,9 +2900,9 @@ void whiteout_m3_M3Force_set_length(whiteout_M3Force* self, const whiteout_M3Ani
 
 /* ── M3Warp ─────────────────────────────────────────────── */
 
-/* WRP_ — Warp field (v0–v1, 132 bytes) */
+/* WRP_ — Vertex warp (v1, 132 bytes) */
 /*  */
-/* Warps particle/ribbon trajectories with animated radius, height, and angular/axial/radial strength components. */
+/* A vertex-shader deformation particles and ribbons opt into. The client refuses a v0 record, so the parser drops one. */
 whiteout_M3Warp* whiteout_m3_M3Warp_new(void);
 void whiteout_m3_M3Warp_delete(whiteout_M3Warp* self);
 
@@ -2934,47 +2938,41 @@ void whiteout_m3_M3Warp_set_radial(whiteout_M3Warp* self, const whiteout_M3AnimR
 
 /* DMSE — Convex hull half-edge (v0, 4 bytes) */
 /*  */
-/* Half-edge connectivity for PHSH convex hull shapes (shapeType = 4). Entries are stored in consecutive twin pairs (forward 0x01 / reverse 0xFF). The nextAroundVertex field chains half-edges into closed per-vertex rings. */
+/* Entries come in consecutive twin pairs: an even entry's twin is the next one (`twinOffset` +1), an odd entry's the previous (-1). */
 whiteout_M3ConvexHullHalfEdge* whiteout_m3_M3ConvexHullHalfEdge_new(void);
 void whiteout_m3_M3ConvexHullHalfEdge_delete(whiteout_M3ConvexHullHalfEdge* self);
 
-/* 0x01 = forward, 0xFF = reverse (twin) */
-uint8_t whiteout_m3_M3ConvexHullHalfEdge_get_type(const whiteout_M3ConvexHullHalfEdge* self);
-void whiteout_m3_M3ConvexHullHalfEdge_set_type(whiteout_M3ConvexHullHalfEdge* self, uint8_t value);
-/* Face this half-edge borders */
-uint8_t whiteout_m3_M3ConvexHullHalfEdge_get_faceIndex(const whiteout_M3ConvexHullHalfEdge* self);
-void whiteout_m3_M3ConvexHullHalfEdge_set_faceIndex(whiteout_M3ConvexHullHalfEdge* self, uint8_t value);
-/* Target vertex of this half-edge */
-uint8_t whiteout_m3_M3ConvexHullHalfEdge_get_vertexIndex(const whiteout_M3ConvexHullHalfEdge* self);
-void whiteout_m3_M3ConvexHullHalfEdge_set_vertexIndex(whiteout_M3ConvexHullHalfEdge* self, uint8_t value);
-/* Next half-edge around the same vertex */
-uint8_t whiteout_m3_M3ConvexHullHalfEdge_get_nextAroundVertex(const whiteout_M3ConvexHullHalfEdge* self);
-void whiteout_m3_M3ConvexHullHalfEdge_set_nextAroundVertex(whiteout_M3ConvexHullHalfEdge* self, uint8_t value);
+/* +1 on the even entry of a pair, -1 on the odd one */
+int8_t whiteout_m3_M3ConvexHullHalfEdge_get_twinOffset(const whiteout_M3ConvexHullHalfEdge* self);
+void whiteout_m3_M3ConvexHullHalfEdge_set_twinOffset(whiteout_M3ConvexHullHalfEdge* self, int8_t value);
+/* Vertex the half-edge leaves */
+uint8_t whiteout_m3_M3ConvexHullHalfEdge_get_originVertex(const whiteout_M3ConvexHullHalfEdge* self);
+void whiteout_m3_M3ConvexHullHalfEdge_set_originVertex(whiteout_M3ConvexHullHalfEdge* self, uint8_t value);
+/* Face the half-edge borders */
+uint8_t whiteout_m3_M3ConvexHullHalfEdge_get_face(const whiteout_M3ConvexHullHalfEdge* self);
+void whiteout_m3_M3ConvexHullHalfEdge_set_face(whiteout_M3ConvexHullHalfEdge* self, uint8_t value);
+/* Next half-edge around the same face */
+uint8_t whiteout_m3_M3ConvexHullHalfEdge_get_nextInFace(const whiteout_M3ConvexHullHalfEdge* self);
+void whiteout_m3_M3ConvexHullHalfEdge_set_nextInFace(whiteout_M3ConvexHullHalfEdge* self, uint8_t value);
 
 /* ── M3PhysicsMeshBvhNode ─────────────────────────────────────────────── */
 
 /* DMMN — Physics mesh BVH node (v0: 12 bytes, v1: 8 bytes) */
 /*  */
-/* DMMN entries form a linearized k-DOP Bounding Volume Hierarchy (BVH) tree for concave mesh collision. The entry count is always odd: n = 2*n_leaves - 1. */
+/* The SC2 5.0 client never reads DMMN: it rebuilds each mesh's tree at load and then takes the tree's centre, extent, tolerance and height from the PHSH. The cooker (physics_cook.h) writes none. Kept so a shipped v3 mesh reads and writes back whole. */
 /*  */
-/* **Tree structure** — right-skewed binary tree stored in DFS preorder: - Array layout: (INT_0, LEAF_1), (INT_2, LEAF_3), ..., LEAF_{n-1} - Even indices 0..n-3: internal nodes - Odd indices 1..n-2: leaf nodes - Last index n-1: leaf node - Each internal node 2k: left child = leaf 2k+1, right child = node 2k+2 */
+/* **v1** (8 bytes per node) — octahedral-encoded normal + quantized slab bounds: - i16 octX, octY: octahedral-mapped slab normal (snorm16 pair) - u16 slabMin, slabMax: quantized bounding-slab distances along the normal */
 /*  */
-/* **v0** (Havok-era, 12 bytes per node) — stores only the slab normal direction as a plain Vector3f. No quantized slab bounds are present; the tree topology and bounding-slab directions are identical to v1, but distance culling relies on the runtime computing slab projections against meshBoundsCenter/Extent. Only 3 files in the corpus use v0 (all with PHSH v2). */
-/*  */
-/* **v1** (Domino physics, 8 bytes per node) — octahedral-encoded normal + quantized slab bounds: - i16 octX, octY: octahedral-mapped slab normal (snorm16 pair) - u16 slabMin, slabMax: quantized bounding-slab distances along the normal - Internal nodes: slabMax != 0; leaf sentinel: slabMax == 0 (except the last node, which may have slabMax != 0 despite being a leaf) */
-/*  */
-/* **Quantization** (v1, universally confirmed across 468 corpus files): - Per-axis step: tol_i = extent_i / 32767 - Projected step: tol_proj = dot(tolerance, |normal|) - Slab values quantized as: q = round(projection / tol_proj) - Root node slab range approaches [-32767, +32767] (full AABB) */
-/*  */
-/* Internal nodes use one slab direction; their paired leaf uses a DIFFERENT slab direction, forming a 2-DOP bound per primitive group. Most trees (391/468) use multiple slab normals across internal levels for tighter culling. */
-/*  */
-/* PHSH meshTreeDepth gives the tree height (longest root-to-leaf path in nodes). */
+/* **v0** (Havok era, 12 bytes per node) is a plain normal; only v2 meshes carry it, and those are rebuilt by the upgrade. */
 whiteout_M3PhysicsMeshBvhNode* whiteout_m3_M3PhysicsMeshBvhNode_new(void);
 void whiteout_m3_M3PhysicsMeshBvhNode_delete(whiteout_M3PhysicsMeshBvhNode* self);
 
 
 /* ── M3PhysicsMeshTriangle ─────────────────────────────────────────────── */
 
-/* DMMT — Physics mesh triangle (v0, 28 bytes) */
+/* DMMT — Havok-era mesh triangle (v0, 28 bytes) */
+/*  */
+/* Only a v2 PHSH references it; the upgrade keeps the three vertex indices. */
 whiteout_M3PhysicsMeshTriangle* whiteout_m3_M3PhysicsMeshTriangle_new(void);
 void whiteout_m3_M3PhysicsMeshTriangle_delete(whiteout_M3PhysicsMeshTriangle* self);
 
@@ -3005,7 +3003,9 @@ void whiteout_m3_M3PhysicsMeshTriangle_set_flags(whiteout_M3PhysicsMeshTriangle*
 
 /* ── M3PhysicsMeshEdge ─────────────────────────────────────────────── */
 
-/* DMME — Physics mesh edge (v0, 20 bytes) */
+/* DMME — Havok-era mesh edge (v0, 20 bytes) */
+/*  */
+/* Only a v2 PHSH references it, and the upgrade discards it. */
 whiteout_M3PhysicsMeshEdge* whiteout_m3_M3PhysicsMeshEdge_new(void);
 void whiteout_m3_M3PhysicsMeshEdge_delete(whiteout_M3PhysicsMeshEdge* self);
 
@@ -3027,64 +3027,72 @@ void whiteout_m3_M3PhysicsMeshEdge_set_faceB(whiteout_M3PhysicsMeshEdge* self, u
 
 /* ── M3PhysicsShape ─────────────────────────────────────────────── */
 
-/* PHSH — Physics shape (v0–v3, 132/292/300 bytes) */
+/* PHSH — Physics shape (v3, 300 bytes; v0 96, v1 132 and v2 292 read) */
 /*  */
-/* The 300-byte v3 layout is a three-part union. Bytes 0–79 are the common header. Bytes 80–103 hold shape dimensions for simple shapes (0–3) or are zero for complex shapes. Bytes 80–183 form the convex hull section (shapeType 4); bytes 184–299 form the mesh section (shapeType 5). */
+/* Bytes 0–103 are common: the matrix, the kind, the two source Refs and the dimensions. Bytes 104–183 are the cooked convex hull (kind 4) and 184–299 the cooked mesh (kind 5). */
 /*  */
-/* v2 shares the v3 layout through the hull section but has a shorter mesh section (292 bytes total): bounds/tolerance, four legacy geometry refs, then a 6-dword tail (unknown, vertexCount, faceCount, 2× unknown, treeDepth) — verified against the SC2 client's version-upgrade copier. */
+/* **Source vs cooked.** `sourcePoints`/`sourceTriangles` (+68/+80) are raw input the client cooks at load, with the matrix baked in: a hull from the points, a mesh from both. Only the upgrade of a v0/v1 shape fills them, and `UpgradePhysics` cooks them the same way, so a parsed shape carries the cooked tables and empty sources. */
+/*  */
+/* **Hull tables** are used directly as a Domino polytope: the counts at +164/+168/+172 rather than the Ref counts, the volume and surface area as cached mass data (buoyancy; mass under a physics-material override). */
+/*  */
+/* **Mesh tables.** The client rebuilds the tree from the vertices and the three indices of each triangle (plus the low byte of its seventh value), then overwrites the tree's centre, extent, tolerance and height with this record's, so those four must be what its builder computes (`CookMesh`). DMMN and the adjacency are never read. */
 whiteout_M3PhysicsShape* whiteout_m3_M3PhysicsShape_new(void);
 void whiteout_m3_M3PhysicsShape_delete(whiteout_M3PhysicsShape* self);
 
-/* Havok convex radius (v1 only, ≈ 0.019685) */
-float whiteout_m3_M3PhysicsShape_get_collisionMargin(const whiteout_M3PhysicsShape* self);
-void whiteout_m3_M3PhysicsShape_set_collisionMargin(whiteout_M3PhysicsShape* self, float value);
 /* Shape type (box/sphere/capsule/cylinder/hull/mesh) */
 int32_t whiteout_m3_M3PhysicsShape_get_shapeType(const whiteout_M3PhysicsShape* self);
 void whiteout_m3_M3PhysicsShape_set_shapeType(whiteout_M3PhysicsShape* self, int32_t value);
-/* Legacy sizes (v1 only, zero for shapeType 4–5) */
-whiteout_Vector3f* whiteout_m3_M3PhysicsShape_get_oldSizes(whiteout_M3PhysicsShape* self);
-void whiteout_m3_M3PhysicsShape_set_oldSizes(whiteout_M3PhysicsShape* self, const whiteout_Vector3f* value);
-/* Shape dimensions (v2+, zero for complex shapes) */
+/* Uncooked points (VEC3, +68), matrix not yet applied */
+size_t whiteout_m3_M3PhysicsShape_get_sourcePoints_count(const whiteout_M3PhysicsShape* self);
+void whiteout_m3_M3PhysicsShape_resize_sourcePoints(whiteout_M3PhysicsShape* self, size_t count);
+const float* whiteout_m3_M3PhysicsShape_get_sourcePoints_data(const whiteout_M3PhysicsShape* self);
+void whiteout_m3_M3PhysicsShape_assign_sourcePoints(whiteout_M3PhysicsShape* self, const float* data, size_t count);
+/* Uncooked triangle list (U16_, +80), three per face */
+size_t whiteout_m3_M3PhysicsShape_get_sourceTriangles_count(const whiteout_M3PhysicsShape* self);
+void whiteout_m3_M3PhysicsShape_resize_sourceTriangles(whiteout_M3PhysicsShape* self, size_t count);
+const uint16_t* whiteout_m3_M3PhysicsShape_get_sourceTriangles_data(const whiteout_M3PhysicsShape* self);
+void whiteout_m3_M3PhysicsShape_assign_sourceTriangles(whiteout_M3PhysicsShape* self, const uint16_t* data, size_t count);
+/* Box half-extents; sphere radius; capsule/cylinder radius, length */
 whiteout_Vector3f* whiteout_m3_M3PhysicsShape_get_shapeDimensions(whiteout_M3PhysicsShape* self);
 void whiteout_m3_M3PhysicsShape_set_shapeDimensions(whiteout_M3PhysicsShape* self, const whiteout_Vector3f* value);
-/* Per-face unit normals (VEC3) */
-size_t whiteout_m3_M3PhysicsShape_get_hullFaceNormals_count(const whiteout_M3PhysicsShape* self);
-void whiteout_m3_M3PhysicsShape_resize_hullFaceNormals(whiteout_M3PhysicsShape* self, size_t count);
-const float* whiteout_m3_M3PhysicsShape_get_hullFaceNormals_data(const whiteout_M3PhysicsShape* self);
-void whiteout_m3_M3PhysicsShape_assign_hullFaceNormals(whiteout_M3PhysicsShape* self, const float* data, size_t count);
-/* Vertex positions, w=0 (VEC4) */
-size_t whiteout_m3_M3PhysicsShape_get_hullVertexPositions_count(const whiteout_M3PhysicsShape* self);
-void whiteout_m3_M3PhysicsShape_resize_hullVertexPositions(whiteout_M3PhysicsShape* self, size_t count);
-const float* whiteout_m3_M3PhysicsShape_get_hullVertexPositions_data(const whiteout_M3PhysicsShape* self);
-void whiteout_m3_M3PhysicsShape_assign_hullVertexPositions(whiteout_M3PhysicsShape* self, const float* data, size_t count);
-/* Half-edge table (DMSE) */
+/* Vertex positions (VEC3) */
+size_t whiteout_m3_M3PhysicsShape_get_hullVertices_count(const whiteout_M3PhysicsShape* self);
+void whiteout_m3_M3PhysicsShape_resize_hullVertices(whiteout_M3PhysicsShape* self, size_t count);
+const float* whiteout_m3_M3PhysicsShape_get_hullVertices_data(const whiteout_M3PhysicsShape* self);
+void whiteout_m3_M3PhysicsShape_assign_hullVertices(whiteout_M3PhysicsShape* self, const float* data, size_t count);
+/* Face planes (n, d), n unit length (VEC4) */
+size_t whiteout_m3_M3PhysicsShape_get_hullPlanes_count(const whiteout_M3PhysicsShape* self);
+void whiteout_m3_M3PhysicsShape_resize_hullPlanes(whiteout_M3PhysicsShape* self, size_t count);
+const float* whiteout_m3_M3PhysicsShape_get_hullPlanes_data(const whiteout_M3PhysicsShape* self);
+void whiteout_m3_M3PhysicsShape_assign_hullPlanes(whiteout_M3PhysicsShape* self, const float* data, size_t count);
+/* Half-edge table (DMSE), twin pairs */
 size_t whiteout_m3_M3PhysicsShape_get_hullHalfEdges_count(const whiteout_M3PhysicsShape* self);
 void whiteout_m3_M3PhysicsShape_resize_hullHalfEdges(whiteout_M3PhysicsShape* self, size_t count);
 whiteout_M3ConvexHullHalfEdge* whiteout_m3_M3PhysicsShape_get_hullHalfEdges_at(whiteout_M3PhysicsShape* self, size_t index);
-/* One face index per vertex (U8__) */
-size_t whiteout_m3_M3PhysicsShape_get_hullVertexFaceIndices_count(const whiteout_M3PhysicsShape* self);
-void whiteout_m3_M3PhysicsShape_resize_hullVertexFaceIndices(whiteout_M3PhysicsShape* self, size_t count);
-const uint8_t* whiteout_m3_M3PhysicsShape_get_hullVertexFaceIndices_data(const whiteout_M3PhysicsShape* self);
-void whiteout_m3_M3PhysicsShape_assign_hullVertexFaceIndices(whiteout_M3PhysicsShape* self, const uint8_t* data, size_t count);
-/* Hull centroid */
-whiteout_Vector3f* whiteout_m3_M3PhysicsShape_get_hullCenter(whiteout_M3PhysicsShape* self);
-void whiteout_m3_M3PhysicsShape_set_hullCenter(whiteout_M3PhysicsShape* self, const whiteout_Vector3f* value);
-/* Number of face normals */
-uint32_t whiteout_m3_M3PhysicsShape_get_hullFaceNormalCount(const whiteout_M3PhysicsShape* self);
-void whiteout_m3_M3PhysicsShape_set_hullFaceNormalCount(whiteout_M3PhysicsShape* self, uint32_t value);
-/* Number of vertices */
+/* Each face's first half-edge (U8__) */
+size_t whiteout_m3_M3PhysicsShape_get_hullFaceFirstEdges_count(const whiteout_M3PhysicsShape* self);
+void whiteout_m3_M3PhysicsShape_resize_hullFaceFirstEdges(whiteout_M3PhysicsShape* self, size_t count);
+const uint8_t* whiteout_m3_M3PhysicsShape_get_hullFaceFirstEdges_data(const whiteout_M3PhysicsShape* self);
+void whiteout_m3_M3PhysicsShape_assign_hullFaceFirstEdges(whiteout_M3PhysicsShape* self, const uint8_t* data, size_t count);
+/* Volume centroid */
+whiteout_Vector3f* whiteout_m3_M3PhysicsShape_get_hullCentroid(whiteout_M3PhysicsShape* self);
+void whiteout_m3_M3PhysicsShape_set_hullCentroid(whiteout_M3PhysicsShape* self, const whiteout_Vector3f* value);
+/* Vertices the client reads */
 uint32_t whiteout_m3_M3PhysicsShape_get_hullVertexCount(const whiteout_M3PhysicsShape* self);
 void whiteout_m3_M3PhysicsShape_set_hullVertexCount(whiteout_M3PhysicsShape* self, uint32_t value);
-/* Number of half-edges */
+/* Faces the client reads */
+uint32_t whiteout_m3_M3PhysicsShape_get_hullFaceCount(const whiteout_M3PhysicsShape* self);
+void whiteout_m3_M3PhysicsShape_set_hullFaceCount(whiteout_M3PhysicsShape* self, uint32_t value);
+/* Half-edges the client reads */
 uint32_t whiteout_m3_M3PhysicsShape_get_hullHalfEdgeCount(const whiteout_M3PhysicsShape* self);
 void whiteout_m3_M3PhysicsShape_set_hullHalfEdgeCount(whiteout_M3PhysicsShape* self, uint32_t value);
-/* Unknown hull parameter 0 */
-float whiteout_m3_M3PhysicsShape_get_hullUnknown0(const whiteout_M3PhysicsShape* self);
-void whiteout_m3_M3PhysicsShape_set_hullUnknown0(whiteout_M3PhysicsShape* self, float value);
-/* Unknown hull parameter 1 */
-float whiteout_m3_M3PhysicsShape_get_hullUnknown1(const whiteout_M3PhysicsShape* self);
-void whiteout_m3_M3PhysicsShape_set_hullUnknown1(whiteout_M3PhysicsShape* self, float value);
-/* BVH tree nodes (DMMN) */
+/* Enclosed volume */
+float whiteout_m3_M3PhysicsShape_get_hullVolume(const whiteout_M3PhysicsShape* self);
+void whiteout_m3_M3PhysicsShape_set_hullVolume(whiteout_M3PhysicsShape* self, float value);
+/* Surface area */
+float whiteout_m3_M3PhysicsShape_get_hullSurfaceArea(const whiteout_M3PhysicsShape* self);
+void whiteout_m3_M3PhysicsShape_set_hullSurfaceArea(whiteout_M3PhysicsShape* self, float value);
+/* BVH tree nodes (DMMN), never read */
 size_t whiteout_m3_M3PhysicsShape_get_meshBvhNodes_count(const whiteout_M3PhysicsShape* self);
 void whiteout_m3_M3PhysicsShape_resize_meshBvhNodes(whiteout_M3PhysicsShape* self, size_t count);
 whiteout_M3PhysicsMeshBvhNode* whiteout_m3_M3PhysicsShape_get_meshBvhNodes_at(whiteout_M3PhysicsShape* self, size_t index);
@@ -3093,55 +3101,55 @@ size_t whiteout_m3_M3PhysicsShape_get_meshVertexPositions_count(const whiteout_M
 void whiteout_m3_M3PhysicsShape_resize_meshVertexPositions(whiteout_M3PhysicsShape* self, size_t count);
 const float* whiteout_m3_M3PhysicsShape_get_meshVertexPositions_data(const whiteout_M3PhysicsShape* self);
 void whiteout_m3_M3PhysicsShape_assign_meshVertexPositions(whiteout_M3PhysicsShape* self, const float* data, size_t count);
-/* AABB center in model space (quantization grid origin) */
+/* Tree centre, as the client's builder computes it */
 whiteout_Vector3f* whiteout_m3_M3PhysicsShape_get_meshBoundsCenter(whiteout_M3PhysicsShape* self);
 void whiteout_m3_M3PhysicsShape_set_meshBoundsCenter(whiteout_M3PhysicsShape* self, const whiteout_Vector3f* value);
-/* AABB half-extents (quantization range: tolerance = extent / 32767) */
+/* Tree half-extent, likewise */
 whiteout_Vector3f* whiteout_m3_M3PhysicsShape_get_meshBoundsExtent(whiteout_M3PhysicsShape* self);
 void whiteout_m3_M3PhysicsShape_set_meshBoundsExtent(whiteout_M3PhysicsShape* self, const whiteout_Vector3f* value);
 /* Per-axis quantization step (= extent / 32767) */
 whiteout_Vector3f* whiteout_m3_M3PhysicsShape_get_meshTolerance(whiteout_M3PhysicsShape* self);
 void whiteout_m3_M3PhysicsShape_set_meshTolerance(whiteout_M3PhysicsShape* self, const whiteout_Vector3f* value);
-/* Number of mesh normals */
+/* DMMN count */
 uint32_t whiteout_m3_M3PhysicsShape_get_meshNormalCount(const whiteout_M3PhysicsShape* self);
 void whiteout_m3_M3PhysicsShape_set_meshNormalCount(whiteout_M3PhysicsShape* self, uint32_t value);
 /* Number of mesh vertices */
 uint32_t whiteout_m3_M3PhysicsShape_get_meshVertexCount(const whiteout_M3PhysicsShape* self);
 void whiteout_m3_M3PhysicsShape_set_meshVertexCount(whiteout_M3PhysicsShape* self, uint32_t value);
-/* MT16 face count (0 when MT32) */
+/* MT16 face count (0 when MT32); the client reads this, not the Ref */
 uint32_t whiteout_m3_M3PhysicsShape_get_meshFaceIndex16Count(const whiteout_M3PhysicsShape* self);
 void whiteout_m3_M3PhysicsShape_set_meshFaceIndex16Count(whiteout_M3PhysicsShape* self, uint32_t value);
 /* MT32 face count (0 when MT16) */
 uint32_t whiteout_m3_M3PhysicsShape_get_meshFaceIndex32Count(const whiteout_M3PhysicsShape* self);
 void whiteout_m3_M3PhysicsShape_set_meshFaceIndex32Count(whiteout_M3PhysicsShape* self, uint32_t value);
-/* Unknown mesh parameter */
+/* Never read */
 uint32_t whiteout_m3_M3PhysicsShape_get_meshUnknown1(const whiteout_M3PhysicsShape* self);
 void whiteout_m3_M3PhysicsShape_set_meshUnknown1(whiteout_M3PhysicsShape* self, uint32_t value);
-/* Reserved (always 0) */
+/* Never read */
 uint32_t whiteout_m3_M3PhysicsShape_get_meshReserved(const whiteout_M3PhysicsShape* self);
 void whiteout_m3_M3PhysicsShape_set_meshReserved(whiteout_M3PhysicsShape* self, uint32_t value);
-/* BVH tree height (root-to-leaf path length, 1–12) */
+/* Tree height, as the client's builder computes it */
 uint32_t whiteout_m3_M3PhysicsShape_get_meshTreeDepth(const whiteout_M3PhysicsShape* self);
 void whiteout_m3_M3PhysicsShape_set_meshTreeDepth(whiteout_M3PhysicsShape* self, uint32_t value);
-/* Collision margin (MT16: small float; MT32: 0.0) */
+/* Never read */
 float whiteout_m3_M3PhysicsShape_get_meshCollisionMargin(const whiteout_M3PhysicsShape* self);
 void whiteout_m3_M3PhysicsShape_set_meshCollisionMargin(whiteout_M3PhysicsShape* self, float value);
 
 /* ── M3RigidBody ─────────────────────────────────────────────── */
 
-/* PHRB — Rigid body (v2–v4, 56–104 bytes) */
+/* PHRB — Rigid body (v4, 80 bytes; v0 72, v1 96, v2 104 and v3 56 read) */
 /*  */
-/* Havok rigid body with density, friction, restitution, damping, gravity scale, and collision shape references. */
+/* A Domino body on `parentBoneIndex`, with its shapes. `simulationType` is how the body is created; `dynamicState` whether it simulates at a moment. */
 whiteout_M3RigidBody* whiteout_m3_M3RigidBody_new(void);
 void whiteout_m3_M3RigidBody_delete(whiteout_M3RigidBody* self);
 
-/* Simulation mode (v3+) */
+/* Creation type: 0 dynamic, 1 kinematic, 2 static */
 uint16_t whiteout_m3_M3RigidBody_get_simulationType(const whiteout_M3RigidBody* self);
 void whiteout_m3_M3RigidBody_set_simulationType(whiteout_M3RigidBody* self, uint16_t value);
 /* Parent bone index */
 uint16_t whiteout_m3_M3RigidBody_get_parentBoneIndex(const whiteout_M3RigidBody* self);
 void whiteout_m3_M3RigidBody_set_parentBoneIndex(whiteout_M3RigidBody* self, uint16_t value);
-/* Engine-specific body type (v3+) */
+/* Physics-material id game data may override */
 uint32_t whiteout_m3_M3RigidBody_get_physicsType(const whiteout_M3RigidBody* self);
 void whiteout_m3_M3RigidBody_set_physicsType(whiteout_M3RigidBody* self, uint32_t value);
 /* Body density */
@@ -3159,13 +3167,13 @@ void whiteout_m3_M3RigidBody_set_linearDamping(whiteout_M3RigidBody* self, float
 /* Angular velocity damping */
 float whiteout_m3_M3RigidBody_get_angularDamping(const whiteout_M3RigidBody* self);
 void whiteout_m3_M3RigidBody_set_angularDamping(whiteout_M3RigidBody* self, float value);
-/* Gravity influence scale */
-float whiteout_m3_M3RigidBody_get_gravityScale(const whiteout_M3RigidBody* self);
-void whiteout_m3_M3RigidBody_set_gravityScale(whiteout_M3RigidBody* self, float value);
-/* Animated dynamic state (v4+) */
+/* Domino inertia scale (gravity scale is fixed at 1) */
+float whiteout_m3_M3RigidBody_get_inertiaScale(const whiteout_M3RigidBody* self);
+void whiteout_m3_M3RigidBody_set_inertiaScale(whiteout_M3RigidBody* self, float value);
+/* Simulates now; sampled only when flag bit 1 is set */
 whiteout_M3AnimRefU32* whiteout_m3_M3RigidBody_get_dynamicState(whiteout_M3RigidBody* self);
 void whiteout_m3_M3RigidBody_set_dynamicState(whiteout_M3RigidBody* self, const whiteout_M3AnimRefU32* value);
-/* Dynamic blend-out duration (v4+) */
+/* Never read */
 float whiteout_m3_M3RigidBody_get_dynamicBlendOut(const whiteout_M3RigidBody* self);
 void whiteout_m3_M3RigidBody_set_dynamicBlendOut(whiteout_M3RigidBody* self, float value);
 /* Collision shapes (PHSH) */
@@ -3181,7 +3189,7 @@ void whiteout_m3_M3RigidBody_set_localForces(whiteout_M3RigidBody* self, uint16_
 /* World force channel bitmask */
 uint16_t whiteout_m3_M3RigidBody_get_worldForces(const whiteout_M3RigidBody* self);
 void whiteout_m3_M3RigidBody_set_worldForces(whiteout_M3RigidBody* self, uint16_t value);
-/* Simulation priority */
+/* Never read */
 uint32_t whiteout_m3_M3RigidBody_get_priority(const whiteout_M3RigidBody* self);
 void whiteout_m3_M3RigidBody_set_priority(whiteout_M3RigidBody* self, uint32_t value);
 
@@ -3189,11 +3197,11 @@ void whiteout_m3_M3RigidBody_set_priority(whiteout_M3RigidBody* self, uint32_t v
 
 /* PHYJ — Physics joint (v0, 180 bytes) */
 /*  */
-/* Connects two rigid bodies with limit, friction, and break-threshold parameters. */
+/* Joins the first body on each of two bones. Angles are radians. `enableLimits` and `enableFriction` are bytes to the client; the upper three bytes are never read. */
 whiteout_M3PhysicsJoint* whiteout_m3_M3PhysicsJoint_new(void);
 void whiteout_m3_M3PhysicsJoint_delete(whiteout_M3PhysicsJoint* self);
 
-/* Joint type */
+/* 0 spherical, 1 revolute, 2 cone-twist, 3 weld */
 uint32_t whiteout_m3_M3PhysicsJoint_get_jointType(const whiteout_M3PhysicsJoint* self);
 void whiteout_m3_M3PhysicsJoint_set_jointType(whiteout_M3PhysicsJoint* self, uint32_t value);
 /* First bone index */
@@ -3202,7 +3210,7 @@ void whiteout_m3_M3PhysicsJoint_set_boneIndex1(whiteout_M3PhysicsJoint* self, ui
 /* Second bone index */
 uint32_t whiteout_m3_M3PhysicsJoint_get_boneIndex2(const whiteout_M3PhysicsJoint* self);
 void whiteout_m3_M3PhysicsJoint_set_boneIndex2(whiteout_M3PhysicsJoint* self, uint32_t value);
-/* Enable angular limits */
+/* Enable angular limits (low byte) */
 uint32_t whiteout_m3_M3PhysicsJoint_get_enableLimits(const whiteout_M3PhysicsJoint* self);
 void whiteout_m3_M3PhysicsJoint_set_enableLimits(whiteout_M3PhysicsJoint* self, uint32_t value);
 /* Minimum limit angle */
@@ -3214,86 +3222,63 @@ void whiteout_m3_M3PhysicsJoint_set_limitMax(whiteout_M3PhysicsJoint* self, floa
 /* Cone constraint angle */
 float whiteout_m3_M3PhysicsJoint_get_coneAngle(const whiteout_M3PhysicsJoint* self);
 void whiteout_m3_M3PhysicsJoint_set_coneAngle(whiteout_M3PhysicsJoint* self, float value);
-/* Enable joint friction */
+/* Enable joint friction (low byte) */
 uint32_t whiteout_m3_M3PhysicsJoint_get_enableFriction(const whiteout_M3PhysicsJoint* self);
 void whiteout_m3_M3PhysicsJoint_set_enableFriction(whiteout_M3PhysicsJoint* self, uint32_t value);
-/* Friction coefficient */
+/* Multiplier on an estimated gravity-holding torque */
 float whiteout_m3_M3PhysicsJoint_get_friction(const whiteout_M3PhysicsJoint* self);
 void whiteout_m3_M3PhysicsJoint_set_friction(whiteout_M3PhysicsJoint* self, float value);
-/* Damping ratio */
+/* Weld spring damping ratio */
 float whiteout_m3_M3PhysicsJoint_get_dampingRatio(const whiteout_M3PhysicsJoint* self);
 void whiteout_m3_M3PhysicsJoint_set_dampingRatio(whiteout_M3PhysicsJoint* self, float value);
-/* Angular frequency */
+/* Weld spring frequency */
 float whiteout_m3_M3PhysicsJoint_get_angularFrequency(const whiteout_M3PhysicsJoint* self);
 void whiteout_m3_M3PhysicsJoint_set_angularFrequency(whiteout_M3PhysicsJoint* self, float value);
-/* Force threshold to break joint */
+/* Never read */
 float whiteout_m3_M3PhysicsJoint_get_breakThreshold(const whiteout_M3PhysicsJoint* self);
 void whiteout_m3_M3PhysicsJoint_set_breakThreshold(whiteout_M3PhysicsJoint* self, float value);
-/* Enable shape constraint */
+/* Collide connected */
 uint8_t whiteout_m3_M3PhysicsJoint_get_enableShape(const whiteout_M3PhysicsJoint* self);
 void whiteout_m3_M3PhysicsJoint_set_enableShape(whiteout_M3PhysicsJoint* self, uint8_t value);
-
-/* ── M3PhysicsConstraint ─────────────────────────────────────────────── */
-
-/* PHCT — Physics constraint (v0, 24 bytes) */
-/*  */
-/* Constrains two rigid bodies with break-force threshold. */
-whiteout_M3PhysicsConstraint* whiteout_m3_M3PhysicsConstraint_new(void);
-void whiteout_m3_M3PhysicsConstraint_delete(whiteout_M3PhysicsConstraint* self);
-
-/* Dependent bone indices (U16_) */
-size_t whiteout_m3_M3PhysicsConstraint_get_dependents_count(const whiteout_M3PhysicsConstraint* self);
-void whiteout_m3_M3PhysicsConstraint_resize_dependents(whiteout_M3PhysicsConstraint* self, size_t count);
-const uint16_t* whiteout_m3_M3PhysicsConstraint_get_dependents_data(const whiteout_M3PhysicsConstraint* self);
-void whiteout_m3_M3PhysicsConstraint_assign_dependents(whiteout_M3PhysicsConstraint* self, const uint16_t* data, size_t count);
-/* First rigid body index */
-uint16_t whiteout_m3_M3PhysicsConstraint_get_rigidBody1(const whiteout_M3PhysicsConstraint* self);
-void whiteout_m3_M3PhysicsConstraint_set_rigidBody1(whiteout_M3PhysicsConstraint* self, uint16_t value);
-/* Second rigid body index */
-uint16_t whiteout_m3_M3PhysicsConstraint_get_rigidBody2(const whiteout_M3PhysicsConstraint* self);
-void whiteout_m3_M3PhysicsConstraint_set_rigidBody2(whiteout_M3PhysicsConstraint* self, uint16_t value);
-/* Force required to break constraint */
-float whiteout_m3_M3PhysicsConstraint_get_breakForce(const whiteout_M3PhysicsConstraint* self);
-void whiteout_m3_M3PhysicsConstraint_set_breakForce(whiteout_M3PhysicsConstraint* self, float value);
 
 /* ── M3ClothCollider ─────────────────────────────────────────────── */
 
 /* PHCC — Cloth collider (v0, 76 bytes) */
 /*  */
-/* Capsule-shaped collider used by cloth simulation. */
+/* A capsule along its own +Z, centred, on `bone`. */
 whiteout_M3ClothCollider* whiteout_m3_M3ClothCollider_new(void);
 void whiteout_m3_M3ClothCollider_delete(whiteout_M3ClothCollider* self);
 
 /* Capsule radius */
 float whiteout_m3_M3ClothCollider_get_radius(const whiteout_M3ClothCollider* self);
 void whiteout_m3_M3ClothCollider_set_radius(whiteout_M3ClothCollider* self, float value);
-/* Capsule height */
+/* Capsule full length */
 float whiteout_m3_M3ClothCollider_get_height(const whiteout_M3ClothCollider* self);
 void whiteout_m3_M3ClothCollider_set_height(whiteout_M3ClothCollider* self, float value);
-/* Alignment padding */
-uint32_t whiteout_m3_M3ClothCollider_get_padding(const whiteout_M3ClothCollider* self);
-void whiteout_m3_M3ClothCollider_set_padding(whiteout_M3ClothCollider* self, uint32_t value);
+/* Bone index; 0xFFFF is the model root */
+uint32_t whiteout_m3_M3ClothCollider_get_bone(const whiteout_M3ClothCollider* self);
+void whiteout_m3_M3ClothCollider_set_bone(whiteout_M3ClothCollider* self, uint32_t value);
 
 /* ── M3ClothProxy ─────────────────────────────────────────────── */
 
 /* PHAC — Cloth proxy (v0, 32 bytes) */
 /*  */
-/* Maps cloth vertices to proxy geometry for collision. */
+/* Binds one cloth-influenced region to its cage: per vertex of `clothIndex`, four cage-local `u16` lanes packed in a `u64` and four byte weights (/255) packed in a `u32`. */
 whiteout_M3ClothProxy* whiteout_m3_M3ClothProxy_new(void);
 void whiteout_m3_M3ClothProxy_delete(whiteout_M3ClothProxy* self);
 
-/* Proxy mesh index */
+/* The cage's region (REGN index) */
 uint32_t whiteout_m3_M3ClothProxy_get_proxyIndex(const whiteout_M3ClothProxy* self);
 void whiteout_m3_M3ClothProxy_set_proxyIndex(whiteout_M3ClothProxy* self, uint32_t value);
-/* Cloth mesh index */
+/* The bound region (REGN index) */
 uint32_t whiteout_m3_M3ClothProxy_get_clothIndex(const whiteout_M3ClothProxy* self);
 void whiteout_m3_M3ClothProxy_set_clothIndex(whiteout_M3ClothProxy* self, uint32_t value);
-/* Proxy vertex data (U64_) */
+/* Four cage vertices per bound vertex (U64_) */
 size_t whiteout_m3_M3ClothProxy_get_proxyVertices_count(const whiteout_M3ClothProxy* self);
 void whiteout_m3_M3ClothProxy_resize_proxyVertices(whiteout_M3ClothProxy* self, size_t count);
 const uint64_t* whiteout_m3_M3ClothProxy_get_proxyVertices_data(const whiteout_M3ClothProxy* self);
 void whiteout_m3_M3ClothProxy_assign_proxyVertices(whiteout_M3ClothProxy* self, const uint64_t* data, size_t count);
-/* Proxy blend weights (U32_) */
+/* Four byte weights per bound vertex (U32_) */
 size_t whiteout_m3_M3ClothProxy_get_proxyWeights_count(const whiteout_M3ClothProxy* self);
 void whiteout_m3_M3ClothProxy_resize_proxyWeights(whiteout_M3ClothProxy* self, size_t count);
 const uint32_t* whiteout_m3_M3ClothProxy_get_proxyWeights_data(const whiteout_M3ClothProxy* self);
@@ -3301,34 +3286,34 @@ void whiteout_m3_M3ClothProxy_assign_proxyWeights(whiteout_M3ClothProxy* self, c
 
 /* ── M3ClothPhysics ─────────────────────────────────────────────── */
 
-/* PHCL — Cloth physics (v0–v4, 192 bytes) */
+/* PHCL — Cloth physics (v4, 192 bytes; v0 140, v1 116, v2 128 and v3 192 read) */
 /*  */
-/* Full cloth simulation configuration: skin bone binding, stiffness parameters, damping, wind/explosion/gravity scales, colliders, and proxies. Added in MODL v28. */
+/* One cloth: the cage region its particles are, per-particle anchors and movability, colliders, the regions it drives (PHAC) and the solver parameters. A record with colliders and no cage exports them to other models. Added in MODL v28. */
 whiteout_M3ClothPhysics* whiteout_m3_M3ClothPhysics_new(void);
 void whiteout_m3_M3ClothPhysics_delete(whiteout_M3ClothPhysics* self);
 
-/* Number of cloth mesh sections */
-uint32_t whiteout_m3_M3ClothPhysics_get_clothMeshCount(const whiteout_M3ClothPhysics* self);
-void whiteout_m3_M3ClothPhysics_set_clothMeshCount(whiteout_M3ClothPhysics* self, uint32_t value);
-/* Number of skin bones */
+/* The cage's REGN index */
+uint32_t whiteout_m3_M3ClothPhysics_get_cageRegion(const whiteout_M3ClothPhysics* self);
+void whiteout_m3_M3ClothPhysics_set_cageRegion(whiteout_M3ClothPhysics* self, uint32_t value);
+/* Never read */
 uint32_t whiteout_m3_M3ClothPhysics_get_skinBoneCount(const whiteout_M3ClothPhysics* self);
 void whiteout_m3_M3ClothPhysics_set_skinBoneCount(whiteout_M3ClothPhysics* self, uint32_t value);
-/* Skin bone indices (U16_) */
+/* Bones the anchors and colliders use (U16_) */
 size_t whiteout_m3_M3ClothPhysics_get_skinBones_count(const whiteout_M3ClothPhysics* self);
 void whiteout_m3_M3ClothPhysics_resize_skinBones(whiteout_M3ClothPhysics* self, size_t count);
 const uint16_t* whiteout_m3_M3ClothPhysics_get_skinBones_data(const whiteout_M3ClothPhysics* self);
 void whiteout_m3_M3ClothPhysics_assign_skinBones(whiteout_M3ClothPhysics* self, const uint16_t* data, size_t count);
-/* Per-vertex simulation enable flags (U8__) */
+/* Per-particle flags, bit 0 movable (U8__) */
 size_t whiteout_m3_M3ClothPhysics_get_simEnabled_count(const whiteout_M3ClothPhysics* self);
 void whiteout_m3_M3ClothPhysics_resize_simEnabled(whiteout_M3ClothPhysics* self, size_t count);
 const uint8_t* whiteout_m3_M3ClothPhysics_get_simEnabled_data(const whiteout_M3ClothPhysics* self);
 void whiteout_m3_M3ClothPhysics_assign_simEnabled(whiteout_M3ClothPhysics* self, const uint8_t* data, size_t count);
-/* Per-vertex bone indices (U32_) */
+/* Per-particle anchor bones, four bytes (U32_) */
 size_t whiteout_m3_M3ClothPhysics_get_vertexBones_count(const whiteout_M3ClothPhysics* self);
 void whiteout_m3_M3ClothPhysics_resize_vertexBones(whiteout_M3ClothPhysics* self, size_t count);
 const uint32_t* whiteout_m3_M3ClothPhysics_get_vertexBones_data(const whiteout_M3ClothPhysics* self);
 void whiteout_m3_M3ClothPhysics_assign_vertexBones(whiteout_M3ClothPhysics* self, const uint32_t* data, size_t count);
-/* Per-vertex bone weights (U32_) */
+/* Per-particle anchor weights, four bytes (U32_) */
 size_t whiteout_m3_M3ClothPhysics_get_vertexWeights_count(const whiteout_M3ClothPhysics* self);
 void whiteout_m3_M3ClothPhysics_resize_vertexWeights(whiteout_M3ClothPhysics* self, size_t count);
 const uint32_t* whiteout_m3_M3ClothPhysics_get_vertexWeights_data(const whiteout_M3ClothPhysics* self);
@@ -3377,16 +3362,16 @@ void whiteout_m3_M3ClothPhysics_set_shearStiffness(whiteout_M3ClothPhysics* self
 /* Drag factor */
 float whiteout_m3_M3ClothPhysics_get_dragFactor(const whiteout_M3ClothPhysics* self);
 void whiteout_m3_M3ClothPhysics_set_dragFactor(whiteout_M3ClothPhysics* self, float value);
-/* Lift factor (v4+) */
+/* Lift factor */
 float whiteout_m3_M3ClothPhysics_get_liftFactor(const whiteout_M3ClothPhysics* self);
 void whiteout_m3_M3ClothPhysics_set_liftFactor(whiteout_M3ClothPhysics* self, float value);
-/* Sphere collider stiffness (v4+) */
+/* Sphere collider stiffness */
 float whiteout_m3_M3ClothPhysics_get_sphereStiffness(const whiteout_M3ClothPhysics* self);
 void whiteout_m3_M3ClothPhysics_set_sphereStiffness(whiteout_M3ClothPhysics* self, float value);
-/* Flatten mode (v4+) */
+/* Flatten mode */
 uint32_t whiteout_m3_M3ClothPhysics_get_flatten(const whiteout_M3ClothPhysics* self);
 void whiteout_m3_M3ClothPhysics_set_flatten(whiteout_M3ClothPhysics* self, uint32_t value);
-/* Animated active state */
+/* Animated active state; sampled only when flag bit 1 is set */
 whiteout_M3AnimRefU32* whiteout_m3_M3ClothPhysics_get_active(whiteout_M3ClothPhysics* self);
 void whiteout_m3_M3ClothPhysics_set_active(whiteout_M3ClothPhysics* self, const whiteout_M3AnimRefU32* value);
 /* Use skin mesh for collision */
@@ -3401,7 +3386,7 @@ void whiteout_m3_M3ClothPhysics_set_skinExponent(whiteout_M3ClothPhysics* self, 
 /* Skin collision stiffness */
 float whiteout_m3_M3ClothPhysics_get_skinStiffness(const whiteout_M3ClothPhysics* self);
 void whiteout_m3_M3ClothPhysics_set_skinStiffness(whiteout_M3ClothPhysics* self, float value);
-/* Local force channel bitmask */
+/* Never read */
 uint32_t whiteout_m3_M3ClothPhysics_get_localChannels(const whiteout_M3ClothPhysics* self);
 void whiteout_m3_M3ClothPhysics_set_localChannels(whiteout_M3ClothPhysics* self, uint32_t value);
 /* Local wind direction and magnitude */
@@ -3702,10 +3687,6 @@ whiteout_M3ViewVolume* whiteout_m3_M3Model_get_viewVolumes_at(whiteout_M3Model* 
 size_t whiteout_m3_M3Model_get_rigidBodies_count(const whiteout_M3Model* self);
 void whiteout_m3_M3Model_resize_rigidBodies(whiteout_M3Model* self, size_t count);
 whiteout_M3RigidBody* whiteout_m3_M3Model_get_rigidBodies_at(whiteout_M3Model* self, size_t index);
-/* Physics constraints (PHCT) */
-size_t whiteout_m3_M3Model_get_physicsConstraints_count(const whiteout_M3Model* self);
-void whiteout_m3_M3Model_resize_physicsConstraints(whiteout_M3Model* self, size_t count);
-whiteout_M3PhysicsConstraint* whiteout_m3_M3Model_get_physicsConstraints_at(whiteout_M3Model* self, size_t index);
 /* Physics joints (PHYJ) */
 size_t whiteout_m3_M3Model_get_physicsJoints_count(const whiteout_M3Model* self);
 void whiteout_m3_M3Model_resize_physicsJoints(whiteout_M3Model* self, size_t count);

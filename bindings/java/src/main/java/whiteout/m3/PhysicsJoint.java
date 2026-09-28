@@ -13,7 +13,7 @@ import whiteout.m3.internal.Native;
 /**
  * PHYJ — Physics joint (v0, 180 bytes)
  * 
- * Connects two rigid bodies with limit, friction, and break-threshold parameters.
+ * Joins the first body on each of two bones. Angles are radians. `enableLimits` and `enableFriction` are bytes to the client; the upper three bytes are never read.
  *
  * <p><b>Lifecycle.</b> Instances hold a handle to a native
  * PhysicsJoint allocation. Always release them with
@@ -59,7 +59,7 @@ public final class PhysicsJoint implements AutoCloseable {
     }
 
     /**
-     * Joint type
+     * 0 spherical, 1 revolute, 2 cone-twist, 3 weld
      * @return the jointType field of this M3PhysicsJoint.
      */
     public int getJointType() {
@@ -89,7 +89,7 @@ public final class PhysicsJoint implements AutoCloseable {
         handle.set(ValueLayout.JAVA_INT, 8L, value);
     }
     /**
-     * Enable angular limits
+     * Enable angular limits (low byte)
      * @return the enableLimits field of this M3PhysicsJoint.
      */
     public int getEnableLimits() {
@@ -129,7 +129,7 @@ public final class PhysicsJoint implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 152L, value);
     }
     /**
-     * Enable joint friction
+     * Enable joint friction (low byte)
      * @return the enableFriction field of this M3PhysicsJoint.
      */
     public int getEnableFriction() {
@@ -139,7 +139,7 @@ public final class PhysicsJoint implements AutoCloseable {
         handle.set(ValueLayout.JAVA_INT, 156L, value);
     }
     /**
-     * Friction coefficient
+     * Multiplier on an estimated gravity-holding torque
      * @return the friction field of this M3PhysicsJoint.
      */
     public float getFriction() {
@@ -149,7 +149,7 @@ public final class PhysicsJoint implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 160L, value);
     }
     /**
-     * Damping ratio
+     * Weld spring damping ratio
      * @return the dampingRatio field of this M3PhysicsJoint.
      */
     public float getDampingRatio() {
@@ -159,7 +159,7 @@ public final class PhysicsJoint implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 164L, value);
     }
     /**
-     * Angular frequency
+     * Weld spring frequency
      * @return the angularFrequency field of this M3PhysicsJoint.
      */
     public float getAngularFrequency() {
@@ -169,7 +169,7 @@ public final class PhysicsJoint implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 168L, value);
     }
     /**
-     * Force threshold to break joint
+     * Never read
      * @return the breakThreshold field of this M3PhysicsJoint.
      */
     public float getBreakThreshold() {
@@ -179,7 +179,7 @@ public final class PhysicsJoint implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 172L, value);
     }
     /**
-     * Enable shape constraint
+     * Collide connected
      * @return the enableShape field of this M3PhysicsJoint.
      */
     public byte getEnableShape() {

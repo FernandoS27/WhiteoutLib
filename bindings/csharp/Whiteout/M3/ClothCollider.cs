@@ -29,7 +29,7 @@ public sealed class ClothCollider : WhiteoutHandle
     }
 
 
-    /// <summary>Capsule height</summary>
+    /// <summary>Capsule full length</summary>
     public float Height
     {
         get => NativeMethods.whiteout_m3_M3ClothCollider_get_height(DangerousGet());
@@ -37,11 +37,11 @@ public sealed class ClothCollider : WhiteoutHandle
     }
 
 
-    /// <summary>Alignment padding</summary>
-    public uint Padding
+    /// <summary>Bone index; 0xFFFF is the model root</summary>
+    public uint Bone
     {
-        get => NativeMethods.whiteout_m3_M3ClothCollider_get_padding(DangerousGet());
-        set => NativeMethods.whiteout_m3_M3ClothCollider_set_padding(DangerousGet(), value);
+        get => NativeMethods.whiteout_m3_M3ClothCollider_get_bone(DangerousGet());
+        set => NativeMethods.whiteout_m3_M3ClothCollider_set_bone(DangerousGet(), value);
     }
 
 }

@@ -43,6 +43,7 @@
 #include "materials/material.h"
 #include "native_bag.h"
 #include "nodes/tree.h"
+#include "physics/physics.h"
 #include "profile.h"
 
 namespace whiteout {
@@ -201,6 +202,11 @@ struct Model {
     /// an export bakes them into keys.
     std::vector<PoseStage> poseStages;
 
+    /// Rigid bodies, joints, cloth and their colliders (WEM_PHYSICS_DESIGN.md
+    /// §3). A target that carries physics exports it natively; one that does
+    /// not bakes it.
+    PhysicsSet physics;
+
     template <class V>
     void reflect(V& v) {
         v.field("name", name);
@@ -227,6 +233,8 @@ struct Model {
         v.since(6).field("trackSets", trackSets);
         // v7: the pose stages; none before.
         v.since(7).field("poseStages", poseStages);
+        // v8: the physics set; none before.
+        v.since(8).field("physics", physics);
     }
 };
 

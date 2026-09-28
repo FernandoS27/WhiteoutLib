@@ -13,7 +13,7 @@ import whiteout.m3.internal.Native;
 /**
  * PHCC — Cloth collider (v0, 76 bytes)
  * 
- * Capsule-shaped collider used by cloth simulation.
+ * A capsule along its own +Z, centred, on `bone`.
  *
  * <p><b>Lifecycle.</b> Instances hold a handle to a native
  * ClothCollider allocation. Always release them with
@@ -69,7 +69,7 @@ public final class ClothCollider implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 64L, value);
     }
     /**
-     * Capsule height
+     * Capsule full length
      * @return the height field of this M3ClothCollider.
      */
     public float getHeight() {
@@ -79,17 +79,17 @@ public final class ClothCollider implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 68L, value);
     }
     /**
-     * Alignment padding
-     * @return the padding field of this M3ClothCollider.
+     * Bone index; 0xFFFF is the model root
+     * @return the bone field of this M3ClothCollider.
      */
-    public int getPadding() {
+    public int getBone() {
         return handle.get(ValueLayout.JAVA_INT, 72L);
     }
-    public void setPadding(int value) {
+    public void setBone(int value) {
         handle.set(ValueLayout.JAVA_INT, 72L, value);
     }
     @Override public String toString() {
-        return "ClothCollider(" + "radius=" + getRadius() + ", " + "height=" + getHeight() + ", " + "padding=" + getPadding() + ")";
+        return "ClothCollider(" + "radius=" + getRadius() + ", " + "height=" + getHeight() + ", " + "bone=" + getBone() + ")";
     }
 
 }

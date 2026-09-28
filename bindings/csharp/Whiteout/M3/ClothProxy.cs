@@ -21,7 +21,7 @@ public sealed class ClothProxy : WhiteoutHandle
         return true;
     }
 
-    /// <summary>Proxy mesh index</summary>
+    /// <summary>The cage's region (REGN index)</summary>
     public uint ProxyIndex
     {
         get => NativeMethods.whiteout_m3_M3ClothProxy_get_proxyIndex(DangerousGet());
@@ -29,7 +29,7 @@ public sealed class ClothProxy : WhiteoutHandle
     }
 
 
-    /// <summary>Cloth mesh index</summary>
+    /// <summary>The bound region (REGN index)</summary>
     public uint ClothIndex
     {
         get => NativeMethods.whiteout_m3_M3ClothProxy_get_clothIndex(DangerousGet());

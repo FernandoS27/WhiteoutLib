@@ -333,14 +333,6 @@ public sealed class Model : WhiteoutHandle
             (h, i) => new RigidBody(NativeMethods.whiteout_m3_M3Model_get_rigidBodies_at(h, i), owned: false));
 
 
-    /// <summary>Physics constraints (PHCT)</summary>
-    public IReadOnlyList<PhysicsConstraint> PhysicsConstraints =>
-        new NativeListView<PhysicsConstraint>(
-            DangerousGet(),
-            NativeMethods.whiteout_m3_M3Model_get_physicsConstraints_count,
-            (h, i) => new PhysicsConstraint(NativeMethods.whiteout_m3_M3Model_get_physicsConstraints_at(h, i), owned: false));
-
-
     /// <summary>Physics joints (PHYJ)</summary>
     public IReadOnlyList<PhysicsJoint> PhysicsJoints =>
         new NativeListView<PhysicsJoint>(

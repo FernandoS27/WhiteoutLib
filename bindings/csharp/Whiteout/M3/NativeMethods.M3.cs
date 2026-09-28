@@ -3324,31 +3324,31 @@ internal static partial class NativeMethods
     internal static partial void whiteout_m3_M3ConvexHullHalfEdge_delete(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial byte whiteout_m3_M3ConvexHullHalfEdge_get_type(IntPtr self);
+    internal static partial sbyte whiteout_m3_M3ConvexHullHalfEdge_get_twinOffset(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3ConvexHullHalfEdge_set_type(IntPtr self, byte value);
-
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial byte whiteout_m3_M3ConvexHullHalfEdge_get_faceIndex(IntPtr self);
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3ConvexHullHalfEdge_set_faceIndex(IntPtr self, byte value);
+    internal static partial void whiteout_m3_M3ConvexHullHalfEdge_set_twinOffset(IntPtr self, sbyte value);
 
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial byte whiteout_m3_M3ConvexHullHalfEdge_get_vertexIndex(IntPtr self);
+    internal static partial byte whiteout_m3_M3ConvexHullHalfEdge_get_originVertex(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3ConvexHullHalfEdge_set_vertexIndex(IntPtr self, byte value);
+    internal static partial void whiteout_m3_M3ConvexHullHalfEdge_set_originVertex(IntPtr self, byte value);
 
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial byte whiteout_m3_M3ConvexHullHalfEdge_get_nextAroundVertex(IntPtr self);
+    internal static partial byte whiteout_m3_M3ConvexHullHalfEdge_get_face(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3ConvexHullHalfEdge_set_nextAroundVertex(IntPtr self, byte value);
+    internal static partial void whiteout_m3_M3ConvexHullHalfEdge_set_face(IntPtr self, byte value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial byte whiteout_m3_M3ConvexHullHalfEdge_get_nextInFace(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m3_M3ConvexHullHalfEdge_set_nextInFace(IntPtr self, byte value);
 
 
     [LibraryImport(Runtime.LibraryName)]
@@ -3467,13 +3467,6 @@ internal static partial class NativeMethods
     internal static partial void whiteout_m3_M3PhysicsShape_delete(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial float whiteout_m3_M3PhysicsShape_get_collisionMargin(IntPtr self);
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3PhysicsShape_set_collisionMargin(IntPtr self, float value);
-
-
-    [LibraryImport(Runtime.LibraryName)]
     internal static partial int whiteout_m3_M3PhysicsShape_get_shapeType(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
@@ -3481,10 +3474,10 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial IntPtr whiteout_m3_M3PhysicsShape_get_oldSizes(IntPtr self);
+    internal static partial nuint whiteout_m3_M3PhysicsShape_get_sourcePoints_count(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3PhysicsShape_set_oldSizes(IntPtr self, IntPtr value);
+    internal static partial IntPtr whiteout_m3_M3PhysicsShape_get_sourcePoints_data(IntPtr self);
 
 
     [LibraryImport(Runtime.LibraryName)]
@@ -3495,17 +3488,17 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial nuint whiteout_m3_M3PhysicsShape_get_hullFaceNormals_count(IntPtr self);
+    internal static partial nuint whiteout_m3_M3PhysicsShape_get_hullVertices_count(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial IntPtr whiteout_m3_M3PhysicsShape_get_hullFaceNormals_data(IntPtr self);
+    internal static partial IntPtr whiteout_m3_M3PhysicsShape_get_hullVertices_data(IntPtr self);
 
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial nuint whiteout_m3_M3PhysicsShape_get_hullVertexPositions_count(IntPtr self);
+    internal static partial nuint whiteout_m3_M3PhysicsShape_get_hullPlanes_count(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial IntPtr whiteout_m3_M3PhysicsShape_get_hullVertexPositions_data(IntPtr self);
+    internal static partial IntPtr whiteout_m3_M3PhysicsShape_get_hullPlanes_data(IntPtr self);
 
 
     [LibraryImport(Runtime.LibraryName)]
@@ -3516,17 +3509,10 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial IntPtr whiteout_m3_M3PhysicsShape_get_hullCenter(IntPtr self);
+    internal static partial IntPtr whiteout_m3_M3PhysicsShape_get_hullCentroid(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3PhysicsShape_set_hullCenter(IntPtr self, IntPtr value);
-
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial uint whiteout_m3_M3PhysicsShape_get_hullFaceNormalCount(IntPtr self);
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3PhysicsShape_set_hullFaceNormalCount(IntPtr self, uint value);
+    internal static partial void whiteout_m3_M3PhysicsShape_set_hullCentroid(IntPtr self, IntPtr value);
 
 
     [LibraryImport(Runtime.LibraryName)]
@@ -3537,6 +3523,13 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_m3_M3PhysicsShape_get_hullFaceCount(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m3_M3PhysicsShape_set_hullFaceCount(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
     internal static partial uint whiteout_m3_M3PhysicsShape_get_hullHalfEdgeCount(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
@@ -3544,17 +3537,17 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial float whiteout_m3_M3PhysicsShape_get_hullUnknown0(IntPtr self);
+    internal static partial float whiteout_m3_M3PhysicsShape_get_hullVolume(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3PhysicsShape_set_hullUnknown0(IntPtr self, float value);
+    internal static partial void whiteout_m3_M3PhysicsShape_set_hullVolume(IntPtr self, float value);
 
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial float whiteout_m3_M3PhysicsShape_get_hullUnknown1(IntPtr self);
+    internal static partial float whiteout_m3_M3PhysicsShape_get_hullSurfaceArea(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3PhysicsShape_set_hullUnknown1(IntPtr self, float value);
+    internal static partial void whiteout_m3_M3PhysicsShape_set_hullSurfaceArea(IntPtr self, float value);
 
 
     [LibraryImport(Runtime.LibraryName)]
@@ -3711,10 +3704,10 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial float whiteout_m3_M3RigidBody_get_gravityScale(IntPtr self);
+    internal static partial float whiteout_m3_M3RigidBody_get_inertiaScale(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3RigidBody_set_gravityScale(IntPtr self, float value);
+    internal static partial void whiteout_m3_M3RigidBody_set_inertiaScale(IntPtr self, float value);
 
 
     [LibraryImport(Runtime.LibraryName)]
@@ -3857,33 +3850,6 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial IntPtr whiteout_m3_M3PhysicsConstraint_new();
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3PhysicsConstraint_delete(IntPtr self);
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial ushort whiteout_m3_M3PhysicsConstraint_get_rigidBody1(IntPtr self);
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3PhysicsConstraint_set_rigidBody1(IntPtr self, ushort value);
-
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial ushort whiteout_m3_M3PhysicsConstraint_get_rigidBody2(IntPtr self);
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3PhysicsConstraint_set_rigidBody2(IntPtr self, ushort value);
-
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial float whiteout_m3_M3PhysicsConstraint_get_breakForce(IntPtr self);
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3PhysicsConstraint_set_breakForce(IntPtr self, float value);
-
-
-    [LibraryImport(Runtime.LibraryName)]
     internal static partial IntPtr whiteout_m3_M3ClothCollider_new();
 
     [LibraryImport(Runtime.LibraryName)]
@@ -3904,10 +3870,10 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial uint whiteout_m3_M3ClothCollider_get_padding(IntPtr self);
+    internal static partial uint whiteout_m3_M3ClothCollider_get_bone(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3ClothCollider_set_padding(IntPtr self, uint value);
+    internal static partial void whiteout_m3_M3ClothCollider_set_bone(IntPtr self, uint value);
 
 
     [LibraryImport(Runtime.LibraryName)]
@@ -3937,10 +3903,10 @@ internal static partial class NativeMethods
     internal static partial void whiteout_m3_M3ClothPhysics_delete(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial uint whiteout_m3_M3ClothPhysics_get_clothMeshCount(IntPtr self);
+    internal static partial uint whiteout_m3_M3ClothPhysics_get_cageRegion(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3ClothPhysics_set_clothMeshCount(IntPtr self, uint value);
+    internal static partial void whiteout_m3_M3ClothPhysics_set_cageRegion(IntPtr self, uint value);
 
 
     [LibraryImport(Runtime.LibraryName)]
@@ -4463,13 +4429,6 @@ internal static partial class NativeMethods
 
     [LibraryImport(Runtime.LibraryName)]
     internal static partial IntPtr whiteout_m3_M3Model_get_rigidBodies_at(IntPtr self, nuint index);
-
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial nuint whiteout_m3_M3Model_get_physicsConstraints_count(IntPtr self);
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial IntPtr whiteout_m3_M3Model_get_physicsConstraints_at(IntPtr self, nuint index);
 
 
     [LibraryImport(Runtime.LibraryName)]

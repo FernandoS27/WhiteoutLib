@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 #include <whiteout/models/m3/parser.h>
+#include <whiteout/models/m3/physics_upgrade.h>
 #include "../../common/binary_reader.h"
 #include "../../common/streams.h"
 #include "../../common/unicode_path.h"
@@ -35,6 +36,10 @@ Model Parser::Impl::parseFromReader(BinaryReader& reader) {
 
     // Collect any issues from the visitor.
     for (const auto& issue : visitor.getIssues()) {
+        reportIssue(issue);
+    }
+    // Old physics chunks become current here, as the client upgrades them.
+    for (const auto& issue : UpgradePhysics(model)) {
         reportIssue(issue);
     }
     return model;

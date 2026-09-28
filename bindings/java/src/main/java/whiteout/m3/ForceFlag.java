@@ -12,7 +12,11 @@ public enum ForceFlag {
     /** Height gradient */
     HeightGradient(2),
     /** Unbounded range */
-    Unbounded(4);
+    Unbounded(4),
+    /** Acts on particles and ribbons; v0/v1 fields get it on upgrade */
+    AffectsParticles(8),
+    /** Acts on rigid bodies whose force mask it matches; likewise */
+    AffectsBodies(16);
 
     public final int value;
     ForceFlag(int v) { this.value = v; }

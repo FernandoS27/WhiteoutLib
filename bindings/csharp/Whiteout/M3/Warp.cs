@@ -8,7 +8,7 @@ using Whiteout.M3.Internal;
 
 namespace Whiteout.M3;
 
-/// <summary>WRP_ — Warp field (v0–v1, 132 bytes)</summary>
+/// <summary>WRP_ — Vertex warp (v1, 132 bytes)</summary>
 public sealed class Warp : WhiteoutHandle
 {
     public Warp() : base(NativeMethods.whiteout_m3_M3Warp_new()) { }

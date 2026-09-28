@@ -80,7 +80,6 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::MeshSection>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::OneBoneSolver>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::ParticleEmitter>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::ParticleEmitterCopy>);
-PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::PhysicsConstraint>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::PhysicsJoint>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::PhysicsMeshBvhNode>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::PhysicsShape>);
@@ -172,6 +171,47 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 2 of bind_m3(), which calls the parts in order.
 void bind_m3_2(py::module_& m) {
+    py::class_<whiteout::m3::Writer>(m, "Writer", R"doc(Writer for M3 model files
+
+Writes Model structures to disk in binary M3 format. Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.)doc")
+        .def(py::init<>())
+        .def("write", py::overload_cast<const std::string&, const whiteout::m3::Model&>(&whiteout::m3::Writer::write), py::arg("filePath"), py::arg("model"), R"doc(Write an M3 model to a file on disk @param filePath Output file path @param model Model data to serialize @throws std::runtime_error If file cannot be created or writing fails)doc")
+        .def("write",
+            [](whiteout::m3::Writer& self, const whiteout::m3::Model& model) {
+                auto __v = self.write(model);
+                return py::bytes(
+                    reinterpret_cast<const char*>(__v.data()), __v.size());
+            }, py::arg("model"), R"doc(Write an M3 model to a byte buffer @param model Model data to serialize @return Byte buffer containing the M3 file data)doc")
+    ;
+
+    py::class_<whiteout::m3::AnimRef<whiteout::f32>>(m, "AnimRefF32", R"doc(Animatable reference holding a default value and animation link
+
+Holds both a constant default value and a link to keyframed animation data. If animId == 0, the property is not animated — use initValue as a constant. Otherwise, resolve through STC_.animIds to locate keyframe data. Total size depends on sizeof(T): 12 + 2*sizeof(T) + 4 bytes.
+
+@tparam T The value type (f32, Vector3f, Quaternion, ColorBGRA, Extent, etc.))doc")
+        .def(py::init<>())
+        .def_readwrite("interp_type", &whiteout::m3::AnimRef<whiteout::f32>::interpType, R"doc(Interpolation: 0=none/step, 1=linear, 2=hermite, 3=bezier)doc")
+        .def_readwrite("flags", &whiteout::m3::AnimRef<whiteout::f32>::flags, R"doc(Animation flags)doc")
+        .def_readwrite("anim_id", &whiteout::m3::AnimRef<whiteout::f32>::animId, R"doc(Animation identifier (links to STC animation data; 0=not animated))doc")
+        .def_readwrite("init_value", &whiteout::m3::AnimRef<whiteout::f32>::initValue, R"doc(Initial/default value (used when not animated))doc")
+        .def_readwrite("null_value", &whiteout::m3::AnimRef<whiteout::f32>::nullValue, R"doc(Null/reset value)doc")
+        .def_readwrite("unused", &whiteout::m3::AnimRef<whiteout::f32>::unused, R"doc(Typically -1)doc")
+    ;
+
+    py::class_<whiteout::m3::AnimRef<whiteout::Vector3f>>(m, "AnimRefVector3f", R"doc(Animatable reference holding a default value and animation link
+
+Holds both a constant default value and a link to keyframed animation data. If animId == 0, the property is not animated — use initValue as a constant. Otherwise, resolve through STC_.animIds to locate keyframe data. Total size depends on sizeof(T): 12 + 2*sizeof(T) + 4 bytes.
+
+@tparam T The value type (f32, Vector3f, Quaternion, ColorBGRA, Extent, etc.))doc")
+        .def(py::init<>())
+        .def_readwrite("interp_type", &whiteout::m3::AnimRef<whiteout::Vector3f>::interpType, R"doc(Interpolation: 0=none/step, 1=linear, 2=hermite, 3=bezier)doc")
+        .def_readwrite("flags", &whiteout::m3::AnimRef<whiteout::Vector3f>::flags, R"doc(Animation flags)doc")
+        .def_readwrite("anim_id", &whiteout::m3::AnimRef<whiteout::Vector3f>::animId, R"doc(Animation identifier (links to STC animation data; 0=not animated))doc")
+        .def_readwrite("init_value", &whiteout::m3::AnimRef<whiteout::Vector3f>::initValue, R"doc(Initial/default value (used when not animated))doc")
+        .def_readwrite("null_value", &whiteout::m3::AnimRef<whiteout::Vector3f>::nullValue, R"doc(Null/reset value)doc")
+        .def_readwrite("unused", &whiteout::m3::AnimRef<whiteout::Vector3f>::unused, R"doc(Typically -1)doc")
+    ;
+
     py::class_<whiteout::m3::AnimRef<whiteout::m3::ColorBGRA>>(m, "AnimRefM3ColorBGRA", R"doc(Animatable reference holding a default value and animation link
 
 Holds both a constant default value and a link to keyframed animation data. If animId == 0, the property is not animated — use initValue as a constant. Otherwise, resolve through STC_.animIds to locate keyframe data. Total size depends on sizeof(T): 12 + 2*sizeof(T) + 4 bytes.
@@ -275,5 +315,4 @@ Holds both a constant default value and a link to keyframed animation data. If a
     py::bind_vector<std::vector<whiteout::m3::CompositeSection>>(m, "VectorM3CompositeSection");
     py::bind_vector<std::vector<whiteout::m3::ConvexHullHalfEdge>>(m, "VectorM3ConvexHullHalfEdge");
     py::bind_vector<std::vector<whiteout::m3::CreepMaterial>>(m, "VectorM3CreepMaterial");
-    py::bind_vector<std::vector<whiteout::m3::DataDrivenGroup>>(m, "VectorM3DataDrivenGroup");
 }

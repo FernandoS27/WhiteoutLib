@@ -11,7 +11,9 @@ import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
- * DMME — Physics mesh edge (v0, 20 bytes)
+ * DMME — Havok-era mesh edge (v0, 20 bytes)
+ * 
+ * Only a v2 PHSH references it, and the upgrade discards it.
  *
  * <p><b>Lifecycle.</b> Instances hold a handle to a native
  * PhysicsMeshEdge allocation. Always release them with

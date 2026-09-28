@@ -106,10 +106,11 @@ TEST_CASE("wem a clean document validates at every level", "[wem][document][vali
     // gate and the emitter joins.
     // The Mesh workspace added the mesh referencers; the Skin workspace the
     // skin rows of the node table, the weights' values and the saved setup;
-    // the animation runtime a fifth profile rule, the main game's layering.
-    CHECK(ValidationRulesFor(ValidateLevel::Structural).size() == 14u);
+    // the animation runtime a fifth profile rule, the main game's layering;
+    // physics a structural rule and a profile one.
+    CHECK(ValidationRulesFor(ValidateLevel::Structural).size() == 15u);
     CHECK(ValidationRulesFor(ValidateLevel::Manifold).size() == 1u);
-    CHECK(ValidationRulesFor(ValidateLevel::Profile).size() == 5u);
+    CHECK(ValidationRulesFor(ValidateLevel::Profile).size() == 6u);
 }
 
 // ============================================================================

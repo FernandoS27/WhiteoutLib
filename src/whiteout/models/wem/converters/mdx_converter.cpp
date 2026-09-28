@@ -703,6 +703,8 @@ int ChunkRank(NodeKind kind) {
     case NodeKind::Sc2ParticleEmitter:
     case NodeKind::Sc2RibbonEmitter:
     case NodeKind::M2ParticleEmitter: // crossed to a PRE2 before export, or a helper
+    case NodeKind::ForceField:
+    case NodeKind::VertexWarp:
     case NodeKind::Count:
         break;
     }

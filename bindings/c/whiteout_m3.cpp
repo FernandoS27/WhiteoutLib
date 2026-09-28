@@ -6058,36 +6058,36 @@ void whiteout_m3_M3ConvexHullHalfEdge_delete(whiteout_M3ConvexHullHalfEdge* self
     delete reinterpret_cast<whiteout::m3::ConvexHullHalfEdge*>(self);
 }
 
-uint8_t whiteout_m3_M3ConvexHullHalfEdge_get_type(const whiteout_M3ConvexHullHalfEdge* self) {
-    return reinterpret_cast<const whiteout::m3::ConvexHullHalfEdge*>(self)->type;
+int8_t whiteout_m3_M3ConvexHullHalfEdge_get_twinOffset(const whiteout_M3ConvexHullHalfEdge* self) {
+    return reinterpret_cast<const whiteout::m3::ConvexHullHalfEdge*>(self)->twinOffset;
 }
 
-void whiteout_m3_M3ConvexHullHalfEdge_set_type(whiteout_M3ConvexHullHalfEdge* self, uint8_t value) {
-    reinterpret_cast<whiteout::m3::ConvexHullHalfEdge*>(self)->type = value;
+void whiteout_m3_M3ConvexHullHalfEdge_set_twinOffset(whiteout_M3ConvexHullHalfEdge* self, int8_t value) {
+    reinterpret_cast<whiteout::m3::ConvexHullHalfEdge*>(self)->twinOffset = value;
 }
 
-uint8_t whiteout_m3_M3ConvexHullHalfEdge_get_faceIndex(const whiteout_M3ConvexHullHalfEdge* self) {
-    return reinterpret_cast<const whiteout::m3::ConvexHullHalfEdge*>(self)->faceIndex;
+uint8_t whiteout_m3_M3ConvexHullHalfEdge_get_originVertex(const whiteout_M3ConvexHullHalfEdge* self) {
+    return reinterpret_cast<const whiteout::m3::ConvexHullHalfEdge*>(self)->originVertex;
 }
 
-void whiteout_m3_M3ConvexHullHalfEdge_set_faceIndex(whiteout_M3ConvexHullHalfEdge* self, uint8_t value) {
-    reinterpret_cast<whiteout::m3::ConvexHullHalfEdge*>(self)->faceIndex = value;
+void whiteout_m3_M3ConvexHullHalfEdge_set_originVertex(whiteout_M3ConvexHullHalfEdge* self, uint8_t value) {
+    reinterpret_cast<whiteout::m3::ConvexHullHalfEdge*>(self)->originVertex = value;
 }
 
-uint8_t whiteout_m3_M3ConvexHullHalfEdge_get_vertexIndex(const whiteout_M3ConvexHullHalfEdge* self) {
-    return reinterpret_cast<const whiteout::m3::ConvexHullHalfEdge*>(self)->vertexIndex;
+uint8_t whiteout_m3_M3ConvexHullHalfEdge_get_face(const whiteout_M3ConvexHullHalfEdge* self) {
+    return reinterpret_cast<const whiteout::m3::ConvexHullHalfEdge*>(self)->face;
 }
 
-void whiteout_m3_M3ConvexHullHalfEdge_set_vertexIndex(whiteout_M3ConvexHullHalfEdge* self, uint8_t value) {
-    reinterpret_cast<whiteout::m3::ConvexHullHalfEdge*>(self)->vertexIndex = value;
+void whiteout_m3_M3ConvexHullHalfEdge_set_face(whiteout_M3ConvexHullHalfEdge* self, uint8_t value) {
+    reinterpret_cast<whiteout::m3::ConvexHullHalfEdge*>(self)->face = value;
 }
 
-uint8_t whiteout_m3_M3ConvexHullHalfEdge_get_nextAroundVertex(const whiteout_M3ConvexHullHalfEdge* self) {
-    return reinterpret_cast<const whiteout::m3::ConvexHullHalfEdge*>(self)->nextAroundVertex;
+uint8_t whiteout_m3_M3ConvexHullHalfEdge_get_nextInFace(const whiteout_M3ConvexHullHalfEdge* self) {
+    return reinterpret_cast<const whiteout::m3::ConvexHullHalfEdge*>(self)->nextInFace;
 }
 
-void whiteout_m3_M3ConvexHullHalfEdge_set_nextAroundVertex(whiteout_M3ConvexHullHalfEdge* self, uint8_t value) {
-    reinterpret_cast<whiteout::m3::ConvexHullHalfEdge*>(self)->nextAroundVertex = value;
+void whiteout_m3_M3ConvexHullHalfEdge_set_nextInFace(whiteout_M3ConvexHullHalfEdge* self, uint8_t value) {
+    reinterpret_cast<whiteout::m3::ConvexHullHalfEdge*>(self)->nextInFace = value;
 }
 
 } // extern "C"
@@ -6250,14 +6250,6 @@ void whiteout_m3_M3PhysicsShape_delete(whiteout_M3PhysicsShape* self) {
     delete reinterpret_cast<whiteout::m3::PhysicsShape*>(self);
 }
 
-float whiteout_m3_M3PhysicsShape_get_collisionMargin(const whiteout_M3PhysicsShape* self) {
-    return reinterpret_cast<const whiteout::m3::PhysicsShape*>(self)->collisionMargin;
-}
-
-void whiteout_m3_M3PhysicsShape_set_collisionMargin(whiteout_M3PhysicsShape* self, float value) {
-    reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->collisionMargin = value;
-}
-
 int32_t whiteout_m3_M3PhysicsShape_get_shapeType(const whiteout_M3PhysicsShape* self) {
     return static_cast<int32_t>(reinterpret_cast<const whiteout::m3::PhysicsShape*>(self)->shapeType);
 }
@@ -6266,12 +6258,42 @@ void whiteout_m3_M3PhysicsShape_set_shapeType(whiteout_M3PhysicsShape* self, int
     reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->shapeType = static_cast<whiteout::m3::PhysicsShapeType>(value);
 }
 
-whiteout_Vector3f* whiteout_m3_M3PhysicsShape_get_oldSizes(whiteout_M3PhysicsShape* self) {
-    return reinterpret_cast<whiteout_Vector3f*>(&reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->oldSizes);
+size_t whiteout_m3_M3PhysicsShape_get_sourcePoints_count(const whiteout_M3PhysicsShape* self) {
+    return reinterpret_cast<const whiteout::m3::PhysicsShape*>(self)->sourcePoints.size();
 }
 
-void whiteout_m3_M3PhysicsShape_set_oldSizes(whiteout_M3PhysicsShape* self, const whiteout_Vector3f* value) {
-    reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->oldSizes = *reinterpret_cast<const whiteout::Vector3f*>(value);
+void whiteout_m3_M3PhysicsShape_resize_sourcePoints(whiteout_M3PhysicsShape* self, size_t count) {
+    reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->sourcePoints.resize(count);
+}
+
+const float* whiteout_m3_M3PhysicsShape_get_sourcePoints_data(const whiteout_M3PhysicsShape* self) {
+    const auto& __v = reinterpret_cast<const whiteout::m3::PhysicsShape*>(self)->sourcePoints;
+    return __v.empty() ? nullptr : reinterpret_cast<const float*>(__v.data());
+}
+
+void whiteout_m3_M3PhysicsShape_assign_sourcePoints(whiteout_M3PhysicsShape* self, const float* data, size_t count) {
+    auto& __v = reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->sourcePoints;
+    __v.resize(count);
+    if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::Vector3f));
+}
+
+size_t whiteout_m3_M3PhysicsShape_get_sourceTriangles_count(const whiteout_M3PhysicsShape* self) {
+    return reinterpret_cast<const whiteout::m3::PhysicsShape*>(self)->sourceTriangles.size();
+}
+
+void whiteout_m3_M3PhysicsShape_resize_sourceTriangles(whiteout_M3PhysicsShape* self, size_t count) {
+    reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->sourceTriangles.resize(count);
+}
+
+const uint16_t* whiteout_m3_M3PhysicsShape_get_sourceTriangles_data(const whiteout_M3PhysicsShape* self) {
+    const auto& __v = reinterpret_cast<const whiteout::m3::PhysicsShape*>(self)->sourceTriangles;
+    return __v.empty() ? nullptr : reinterpret_cast<const uint16_t*>(__v.data());
+}
+
+void whiteout_m3_M3PhysicsShape_assign_sourceTriangles(whiteout_M3PhysicsShape* self, const uint16_t* data, size_t count) {
+    auto& __v = reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->sourceTriangles;
+    __v.resize(count);
+    if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::u16));
 }
 
 whiteout_Vector3f* whiteout_m3_M3PhysicsShape_get_shapeDimensions(whiteout_M3PhysicsShape* self) {
@@ -6282,40 +6304,40 @@ void whiteout_m3_M3PhysicsShape_set_shapeDimensions(whiteout_M3PhysicsShape* sel
     reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->shapeDimensions = *reinterpret_cast<const whiteout::Vector3f*>(value);
 }
 
-size_t whiteout_m3_M3PhysicsShape_get_hullFaceNormals_count(const whiteout_M3PhysicsShape* self) {
-    return reinterpret_cast<const whiteout::m3::PhysicsShape*>(self)->hullFaceNormals.size();
+size_t whiteout_m3_M3PhysicsShape_get_hullVertices_count(const whiteout_M3PhysicsShape* self) {
+    return reinterpret_cast<const whiteout::m3::PhysicsShape*>(self)->hullVertices.size();
 }
 
-void whiteout_m3_M3PhysicsShape_resize_hullFaceNormals(whiteout_M3PhysicsShape* self, size_t count) {
-    reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->hullFaceNormals.resize(count);
+void whiteout_m3_M3PhysicsShape_resize_hullVertices(whiteout_M3PhysicsShape* self, size_t count) {
+    reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->hullVertices.resize(count);
 }
 
-const float* whiteout_m3_M3PhysicsShape_get_hullFaceNormals_data(const whiteout_M3PhysicsShape* self) {
-    const auto& __v = reinterpret_cast<const whiteout::m3::PhysicsShape*>(self)->hullFaceNormals;
+const float* whiteout_m3_M3PhysicsShape_get_hullVertices_data(const whiteout_M3PhysicsShape* self) {
+    const auto& __v = reinterpret_cast<const whiteout::m3::PhysicsShape*>(self)->hullVertices;
     return __v.empty() ? nullptr : reinterpret_cast<const float*>(__v.data());
 }
 
-void whiteout_m3_M3PhysicsShape_assign_hullFaceNormals(whiteout_M3PhysicsShape* self, const float* data, size_t count) {
-    auto& __v = reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->hullFaceNormals;
+void whiteout_m3_M3PhysicsShape_assign_hullVertices(whiteout_M3PhysicsShape* self, const float* data, size_t count) {
+    auto& __v = reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->hullVertices;
     __v.resize(count);
     if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::Vector3f));
 }
 
-size_t whiteout_m3_M3PhysicsShape_get_hullVertexPositions_count(const whiteout_M3PhysicsShape* self) {
-    return reinterpret_cast<const whiteout::m3::PhysicsShape*>(self)->hullVertexPositions.size();
+size_t whiteout_m3_M3PhysicsShape_get_hullPlanes_count(const whiteout_M3PhysicsShape* self) {
+    return reinterpret_cast<const whiteout::m3::PhysicsShape*>(self)->hullPlanes.size();
 }
 
-void whiteout_m3_M3PhysicsShape_resize_hullVertexPositions(whiteout_M3PhysicsShape* self, size_t count) {
-    reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->hullVertexPositions.resize(count);
+void whiteout_m3_M3PhysicsShape_resize_hullPlanes(whiteout_M3PhysicsShape* self, size_t count) {
+    reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->hullPlanes.resize(count);
 }
 
-const float* whiteout_m3_M3PhysicsShape_get_hullVertexPositions_data(const whiteout_M3PhysicsShape* self) {
-    const auto& __v = reinterpret_cast<const whiteout::m3::PhysicsShape*>(self)->hullVertexPositions;
+const float* whiteout_m3_M3PhysicsShape_get_hullPlanes_data(const whiteout_M3PhysicsShape* self) {
+    const auto& __v = reinterpret_cast<const whiteout::m3::PhysicsShape*>(self)->hullPlanes;
     return __v.empty() ? nullptr : reinterpret_cast<const float*>(__v.data());
 }
 
-void whiteout_m3_M3PhysicsShape_assign_hullVertexPositions(whiteout_M3PhysicsShape* self, const float* data, size_t count) {
-    auto& __v = reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->hullVertexPositions;
+void whiteout_m3_M3PhysicsShape_assign_hullPlanes(whiteout_M3PhysicsShape* self, const float* data, size_t count) {
+    auto& __v = reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->hullPlanes;
     __v.resize(count);
     if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::Vector4f));
 }
@@ -6332,39 +6354,31 @@ whiteout_M3ConvexHullHalfEdge* whiteout_m3_M3PhysicsShape_get_hullHalfEdges_at(w
     return reinterpret_cast<whiteout_M3ConvexHullHalfEdge*>(&reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->hullHalfEdges[index]);
 }
 
-size_t whiteout_m3_M3PhysicsShape_get_hullVertexFaceIndices_count(const whiteout_M3PhysicsShape* self) {
-    return reinterpret_cast<const whiteout::m3::PhysicsShape*>(self)->hullVertexFaceIndices.size();
+size_t whiteout_m3_M3PhysicsShape_get_hullFaceFirstEdges_count(const whiteout_M3PhysicsShape* self) {
+    return reinterpret_cast<const whiteout::m3::PhysicsShape*>(self)->hullFaceFirstEdges.size();
 }
 
-void whiteout_m3_M3PhysicsShape_resize_hullVertexFaceIndices(whiteout_M3PhysicsShape* self, size_t count) {
-    reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->hullVertexFaceIndices.resize(count);
+void whiteout_m3_M3PhysicsShape_resize_hullFaceFirstEdges(whiteout_M3PhysicsShape* self, size_t count) {
+    reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->hullFaceFirstEdges.resize(count);
 }
 
-const uint8_t* whiteout_m3_M3PhysicsShape_get_hullVertexFaceIndices_data(const whiteout_M3PhysicsShape* self) {
-    const auto& __v = reinterpret_cast<const whiteout::m3::PhysicsShape*>(self)->hullVertexFaceIndices;
+const uint8_t* whiteout_m3_M3PhysicsShape_get_hullFaceFirstEdges_data(const whiteout_M3PhysicsShape* self) {
+    const auto& __v = reinterpret_cast<const whiteout::m3::PhysicsShape*>(self)->hullFaceFirstEdges;
     return __v.empty() ? nullptr : reinterpret_cast<const uint8_t*>(__v.data());
 }
 
-void whiteout_m3_M3PhysicsShape_assign_hullVertexFaceIndices(whiteout_M3PhysicsShape* self, const uint8_t* data, size_t count) {
-    auto& __v = reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->hullVertexFaceIndices;
+void whiteout_m3_M3PhysicsShape_assign_hullFaceFirstEdges(whiteout_M3PhysicsShape* self, const uint8_t* data, size_t count) {
+    auto& __v = reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->hullFaceFirstEdges;
     __v.resize(count);
     if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::u8));
 }
 
-whiteout_Vector3f* whiteout_m3_M3PhysicsShape_get_hullCenter(whiteout_M3PhysicsShape* self) {
-    return reinterpret_cast<whiteout_Vector3f*>(&reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->hullCenter);
+whiteout_Vector3f* whiteout_m3_M3PhysicsShape_get_hullCentroid(whiteout_M3PhysicsShape* self) {
+    return reinterpret_cast<whiteout_Vector3f*>(&reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->hullCentroid);
 }
 
-void whiteout_m3_M3PhysicsShape_set_hullCenter(whiteout_M3PhysicsShape* self, const whiteout_Vector3f* value) {
-    reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->hullCenter = *reinterpret_cast<const whiteout::Vector3f*>(value);
-}
-
-uint32_t whiteout_m3_M3PhysicsShape_get_hullFaceNormalCount(const whiteout_M3PhysicsShape* self) {
-    return reinterpret_cast<const whiteout::m3::PhysicsShape*>(self)->hullFaceNormalCount;
-}
-
-void whiteout_m3_M3PhysicsShape_set_hullFaceNormalCount(whiteout_M3PhysicsShape* self, uint32_t value) {
-    reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->hullFaceNormalCount = value;
+void whiteout_m3_M3PhysicsShape_set_hullCentroid(whiteout_M3PhysicsShape* self, const whiteout_Vector3f* value) {
+    reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->hullCentroid = *reinterpret_cast<const whiteout::Vector3f*>(value);
 }
 
 uint32_t whiteout_m3_M3PhysicsShape_get_hullVertexCount(const whiteout_M3PhysicsShape* self) {
@@ -6375,6 +6389,14 @@ void whiteout_m3_M3PhysicsShape_set_hullVertexCount(whiteout_M3PhysicsShape* sel
     reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->hullVertexCount = value;
 }
 
+uint32_t whiteout_m3_M3PhysicsShape_get_hullFaceCount(const whiteout_M3PhysicsShape* self) {
+    return reinterpret_cast<const whiteout::m3::PhysicsShape*>(self)->hullFaceCount;
+}
+
+void whiteout_m3_M3PhysicsShape_set_hullFaceCount(whiteout_M3PhysicsShape* self, uint32_t value) {
+    reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->hullFaceCount = value;
+}
+
 uint32_t whiteout_m3_M3PhysicsShape_get_hullHalfEdgeCount(const whiteout_M3PhysicsShape* self) {
     return reinterpret_cast<const whiteout::m3::PhysicsShape*>(self)->hullHalfEdgeCount;
 }
@@ -6383,20 +6405,20 @@ void whiteout_m3_M3PhysicsShape_set_hullHalfEdgeCount(whiteout_M3PhysicsShape* s
     reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->hullHalfEdgeCount = value;
 }
 
-float whiteout_m3_M3PhysicsShape_get_hullUnknown0(const whiteout_M3PhysicsShape* self) {
-    return reinterpret_cast<const whiteout::m3::PhysicsShape*>(self)->hullUnknown0;
+float whiteout_m3_M3PhysicsShape_get_hullVolume(const whiteout_M3PhysicsShape* self) {
+    return reinterpret_cast<const whiteout::m3::PhysicsShape*>(self)->hullVolume;
 }
 
-void whiteout_m3_M3PhysicsShape_set_hullUnknown0(whiteout_M3PhysicsShape* self, float value) {
-    reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->hullUnknown0 = value;
+void whiteout_m3_M3PhysicsShape_set_hullVolume(whiteout_M3PhysicsShape* self, float value) {
+    reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->hullVolume = value;
 }
 
-float whiteout_m3_M3PhysicsShape_get_hullUnknown1(const whiteout_M3PhysicsShape* self) {
-    return reinterpret_cast<const whiteout::m3::PhysicsShape*>(self)->hullUnknown1;
+float whiteout_m3_M3PhysicsShape_get_hullSurfaceArea(const whiteout_M3PhysicsShape* self) {
+    return reinterpret_cast<const whiteout::m3::PhysicsShape*>(self)->hullSurfaceArea;
 }
 
-void whiteout_m3_M3PhysicsShape_set_hullUnknown1(whiteout_M3PhysicsShape* self, float value) {
-    reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->hullUnknown1 = value;
+void whiteout_m3_M3PhysicsShape_set_hullSurfaceArea(whiteout_M3PhysicsShape* self, float value) {
+    reinterpret_cast<whiteout::m3::PhysicsShape*>(self)->hullSurfaceArea = value;
 }
 
 size_t whiteout_m3_M3PhysicsShape_get_meshBvhNodes_count(const whiteout_M3PhysicsShape* self) {
@@ -6596,12 +6618,12 @@ void whiteout_m3_M3RigidBody_set_angularDamping(whiteout_M3RigidBody* self, floa
     reinterpret_cast<whiteout::m3::RigidBody*>(self)->angularDamping = value;
 }
 
-float whiteout_m3_M3RigidBody_get_gravityScale(const whiteout_M3RigidBody* self) {
-    return reinterpret_cast<const whiteout::m3::RigidBody*>(self)->gravityScale;
+float whiteout_m3_M3RigidBody_get_inertiaScale(const whiteout_M3RigidBody* self) {
+    return reinterpret_cast<const whiteout::m3::RigidBody*>(self)->inertiaScale;
 }
 
-void whiteout_m3_M3RigidBody_set_gravityScale(whiteout_M3RigidBody* self, float value) {
-    reinterpret_cast<whiteout::m3::RigidBody*>(self)->gravityScale = value;
+void whiteout_m3_M3RigidBody_set_inertiaScale(whiteout_M3RigidBody* self, float value) {
+    reinterpret_cast<whiteout::m3::RigidBody*>(self)->inertiaScale = value;
 }
 
 whiteout_M3AnimRefU32* whiteout_m3_M3RigidBody_get_dynamicState(whiteout_M3RigidBody* self) {
@@ -6784,63 +6806,6 @@ void whiteout_m3_M3PhysicsJoint_set_enableShape(whiteout_M3PhysicsJoint* self, u
 
 } // extern "C"
 
-// ── M3PhysicsConstraint ─────────────────────────────────────────────────
-
-extern "C" {
-
-whiteout_M3PhysicsConstraint* whiteout_m3_M3PhysicsConstraint_new(void) {
-    return reinterpret_cast<whiteout_M3PhysicsConstraint*>(new whiteout::m3::PhysicsConstraint());
-}
-
-void whiteout_m3_M3PhysicsConstraint_delete(whiteout_M3PhysicsConstraint* self) {
-    delete reinterpret_cast<whiteout::m3::PhysicsConstraint*>(self);
-}
-
-size_t whiteout_m3_M3PhysicsConstraint_get_dependents_count(const whiteout_M3PhysicsConstraint* self) {
-    return reinterpret_cast<const whiteout::m3::PhysicsConstraint*>(self)->dependents.size();
-}
-
-void whiteout_m3_M3PhysicsConstraint_resize_dependents(whiteout_M3PhysicsConstraint* self, size_t count) {
-    reinterpret_cast<whiteout::m3::PhysicsConstraint*>(self)->dependents.resize(count);
-}
-
-const uint16_t* whiteout_m3_M3PhysicsConstraint_get_dependents_data(const whiteout_M3PhysicsConstraint* self) {
-    const auto& __v = reinterpret_cast<const whiteout::m3::PhysicsConstraint*>(self)->dependents;
-    return __v.empty() ? nullptr : reinterpret_cast<const uint16_t*>(__v.data());
-}
-
-void whiteout_m3_M3PhysicsConstraint_assign_dependents(whiteout_M3PhysicsConstraint* self, const uint16_t* data, size_t count) {
-    auto& __v = reinterpret_cast<whiteout::m3::PhysicsConstraint*>(self)->dependents;
-    __v.resize(count);
-    if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::u16));
-}
-
-uint16_t whiteout_m3_M3PhysicsConstraint_get_rigidBody1(const whiteout_M3PhysicsConstraint* self) {
-    return reinterpret_cast<const whiteout::m3::PhysicsConstraint*>(self)->rigidBody1;
-}
-
-void whiteout_m3_M3PhysicsConstraint_set_rigidBody1(whiteout_M3PhysicsConstraint* self, uint16_t value) {
-    reinterpret_cast<whiteout::m3::PhysicsConstraint*>(self)->rigidBody1 = value;
-}
-
-uint16_t whiteout_m3_M3PhysicsConstraint_get_rigidBody2(const whiteout_M3PhysicsConstraint* self) {
-    return reinterpret_cast<const whiteout::m3::PhysicsConstraint*>(self)->rigidBody2;
-}
-
-void whiteout_m3_M3PhysicsConstraint_set_rigidBody2(whiteout_M3PhysicsConstraint* self, uint16_t value) {
-    reinterpret_cast<whiteout::m3::PhysicsConstraint*>(self)->rigidBody2 = value;
-}
-
-float whiteout_m3_M3PhysicsConstraint_get_breakForce(const whiteout_M3PhysicsConstraint* self) {
-    return reinterpret_cast<const whiteout::m3::PhysicsConstraint*>(self)->breakForce;
-}
-
-void whiteout_m3_M3PhysicsConstraint_set_breakForce(whiteout_M3PhysicsConstraint* self, float value) {
-    reinterpret_cast<whiteout::m3::PhysicsConstraint*>(self)->breakForce = value;
-}
-
-} // extern "C"
-
 // ── M3ClothCollider ─────────────────────────────────────────────────
 
 extern "C" {
@@ -6869,12 +6834,12 @@ void whiteout_m3_M3ClothCollider_set_height(whiteout_M3ClothCollider* self, floa
     reinterpret_cast<whiteout::m3::ClothCollider*>(self)->height = value;
 }
 
-uint32_t whiteout_m3_M3ClothCollider_get_padding(const whiteout_M3ClothCollider* self) {
-    return reinterpret_cast<const whiteout::m3::ClothCollider*>(self)->padding;
+uint32_t whiteout_m3_M3ClothCollider_get_bone(const whiteout_M3ClothCollider* self) {
+    return reinterpret_cast<const whiteout::m3::ClothCollider*>(self)->bone;
 }
 
-void whiteout_m3_M3ClothCollider_set_padding(whiteout_M3ClothCollider* self, uint32_t value) {
-    reinterpret_cast<whiteout::m3::ClothCollider*>(self)->padding = value;
+void whiteout_m3_M3ClothCollider_set_bone(whiteout_M3ClothCollider* self, uint32_t value) {
+    reinterpret_cast<whiteout::m3::ClothCollider*>(self)->bone = value;
 }
 
 } // extern "C"
@@ -6959,12 +6924,12 @@ void whiteout_m3_M3ClothPhysics_delete(whiteout_M3ClothPhysics* self) {
     delete reinterpret_cast<whiteout::m3::ClothPhysics*>(self);
 }
 
-uint32_t whiteout_m3_M3ClothPhysics_get_clothMeshCount(const whiteout_M3ClothPhysics* self) {
-    return reinterpret_cast<const whiteout::m3::ClothPhysics*>(self)->clothMeshCount;
+uint32_t whiteout_m3_M3ClothPhysics_get_cageRegion(const whiteout_M3ClothPhysics* self) {
+    return reinterpret_cast<const whiteout::m3::ClothPhysics*>(self)->cageRegion;
 }
 
-void whiteout_m3_M3ClothPhysics_set_clothMeshCount(whiteout_M3ClothPhysics* self, uint32_t value) {
-    reinterpret_cast<whiteout::m3::ClothPhysics*>(self)->clothMeshCount = value;
+void whiteout_m3_M3ClothPhysics_set_cageRegion(whiteout_M3ClothPhysics* self, uint32_t value) {
+    reinterpret_cast<whiteout::m3::ClothPhysics*>(self)->cageRegion = value;
 }
 
 uint32_t whiteout_m3_M3ClothPhysics_get_skinBoneCount(const whiteout_M3ClothPhysics* self) {
@@ -8079,18 +8044,6 @@ void whiteout_m3_M3Model_resize_rigidBodies(whiteout_M3Model* self, size_t count
 
 whiteout_M3RigidBody* whiteout_m3_M3Model_get_rigidBodies_at(whiteout_M3Model* self, size_t index) {
     return reinterpret_cast<whiteout_M3RigidBody*>(&reinterpret_cast<whiteout::m3::Model*>(self)->rigidBodies[index]);
-}
-
-size_t whiteout_m3_M3Model_get_physicsConstraints_count(const whiteout_M3Model* self) {
-    return reinterpret_cast<const whiteout::m3::Model*>(self)->physicsConstraints.size();
-}
-
-void whiteout_m3_M3Model_resize_physicsConstraints(whiteout_M3Model* self, size_t count) {
-    reinterpret_cast<whiteout::m3::Model*>(self)->physicsConstraints.resize(count);
-}
-
-whiteout_M3PhysicsConstraint* whiteout_m3_M3Model_get_physicsConstraints_at(whiteout_M3Model* self, size_t index) {
-    return reinterpret_cast<whiteout_M3PhysicsConstraint*>(&reinterpret_cast<whiteout::m3::Model*>(self)->physicsConstraints[index]);
 }
 
 size_t whiteout_m3_M3Model_get_physicsJoints_count(const whiteout_M3Model* self) {

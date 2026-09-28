@@ -25,6 +25,7 @@
 #include <whiteout/models/wem/retarget.h>
 
 #include <whiteout/models/wem/anim/pose.h>
+#include <whiteout/models/wem/physics/references.h>
 
 #include <algorithm>
 #include <cmath>
@@ -668,6 +669,16 @@ void ToPivotRelative(Model& model, std::vector<Clip*>& clips, const ElementRef& 
         remap[n] = next++;
     }
 
+    // Where each node's bind frame was, for what rides it in its own frame:
+    // the physics (WEM_PHYSICS_DESIGN.md §3.10) stays put in model space.
+    std::vector<Matrix44f> bindBefore;
+    if (!model.physics.empty()) {
+        bindBefore.reserve(sourceCount);
+        for (u32 n = 0; n < sourceCount; ++n) {
+            bindBefore.push_back(ToMatrix(model.nodes.worldBind(n)));
+        }
+    }
+
     std::vector<Node> rebuilt;
     rebuilt.reserve(next);
     for (u32 n = 0; n < sourceCount; ++n) {
@@ -765,6 +776,16 @@ void ToPivotRelative(Model& model, std::vector<Clip*>& clips, const ElementRef& 
                 }
             }
         }
+        // `RemapPhysicsNodes` drops nothing here: every source node survives.
+        RemapPhysicsNodes(model.physics, remap);
+    }
+    if (!bindBefore.empty()) {
+        std::vector<Matrix44f> change(model.nodes.size(), Matrix44f::identity());
+        for (u32 n = 0; n < sourceCount; ++n) {
+            const u32 moved = remap[n];
+            change[moved] = bindBefore[n] * AffineInverse(ToMatrix(model.nodes.worldBind(moved)));
+        }
+        RebasePhysicsFrames(model.physics, change);
     }
 
     // --- pass two: rewrite the tracks -----------------------------------------

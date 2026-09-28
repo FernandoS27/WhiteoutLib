@@ -13,7 +13,7 @@ import whiteout.m3.internal.Native;
 /**
  * PHAC — Cloth proxy (v0, 32 bytes)
  * 
- * Maps cloth vertices to proxy geometry for collision.
+ * Binds one cloth-influenced region to its cage: per vertex of `clothIndex`, four cage-local `u16` lanes packed in a `u64` and four byte weights (/255) packed in a `u32`.
  *
  * <p><b>Lifecycle.</b> Instances hold a handle to a native
  * ClothProxy allocation. Always release them with
@@ -59,7 +59,7 @@ public final class ClothProxy implements AutoCloseable {
     }
 
     /**
-     * Proxy mesh index
+     * The cage's region (REGN index)
      * @return the proxyIndex field of this M3ClothProxy.
      */
     public int getProxyIndex() {
@@ -69,7 +69,7 @@ public final class ClothProxy implements AutoCloseable {
         handle.set(ValueLayout.JAVA_INT, 0L, value);
     }
     /**
-     * Cloth mesh index
+     * The bound region (REGN index)
      * @return the clothIndex field of this M3ClothProxy.
      */
     public int getClothIndex() {
@@ -79,7 +79,7 @@ public final class ClothProxy implements AutoCloseable {
         handle.set(ValueLayout.JAVA_INT, 4L, value);
     }
     /**
-     * Proxy vertex data (U64_)
+     * Four cage vertices per bound vertex (U64_)
      * @return the proxyVertices field of this M3ClothProxy.
      */
     public int getProxyVerticesCount() {
@@ -104,7 +104,7 @@ public final class ClothProxy implements AutoCloseable {
         NativeCommon.invokeNative(Native.whiteout_m3_M3ClothProxy_resize_proxyVertices, handle, (long) count);
     }
     /**
-     * Proxy blend weights (U32_)
+     * Four byte weights per bound vertex (U32_)
      * @return the proxyWeights field of this M3ClothProxy.
      */
     public int getProxyWeightsCount() {

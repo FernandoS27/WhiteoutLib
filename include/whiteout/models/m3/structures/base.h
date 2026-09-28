@@ -98,11 +98,12 @@ enum class ParticleInstanceType : u32 {
     Trail = 10,             ///< Like Tail but offset by one tail-length
 };
 
-/** @brief Force influence type (FOR_) */
+/** @brief Force-field kind (FOR_), as the SC2 5.0 client applies it */
 enum class ForceType : u32 {
-    Radial = 0,    ///< Radial force (outward from center)
-    Wind = 1,      ///< Wind force (directional)
-    Explosion = 2, ///< Explosion force (impulse)
+    Directional = 0, ///< Pushes along the field's own axis
+    Radial = 1,      ///< Pushes away from the centre (toward it when negative)
+    Drag = 2,        ///< Slows what moves through it
+    Vortex = 3,      ///< Swirls around the field's axis
 };
 
 /** @brief Influence volume shape for a force (FOR_) */
@@ -111,6 +112,7 @@ enum class ForceShape : u32 {
     Cylinder = 1,   ///< Cylindrical influence volume
     Box = 2,        ///< Box influence volume
     Hemisphere = 3, ///< Hemispherical influence volume
+    Cone = 4,       ///< Conical influence volume
 };
 
 /** @brief Ribbon cross-section type (maps to b_iRibbonType in Ribbon.fx) */
@@ -552,6 +554,8 @@ enum class ForceFlag : u32 {
     Falloff = 0x01,        ///< Distance falloff
     HeightGradient = 0x02, ///< Height gradient
     Unbounded = 0x04,      ///< Unbounded range
+    AffectsParticles = 0x08, ///< Acts on particles and ribbons; v0/v1 fields get it on upgrade
+    AffectsBodies = 0x10,    ///< Acts on rigid bodies whose force mask it matches; likewise
 };
 M3_DEFINE_FLAG_OPS(ForceFlag, u32)
 
@@ -562,11 +566,12 @@ enum class RigidBodyFlag : u32 {
     Walkable = 0x0002,          ///< Walkable surface
     Stackable = 0x0004,         ///< Can be stacked
     SimulateCollision = 0x0008, ///< Simulate collisions
-    IgnoreLocalBodies = 0x0010, ///< Ignore local bodies
-    AlwaysExists = 0x0020,      ///< Always present
-    Unknown6 = 0x0040,          ///< Unknown
-    NoSimulation = 0x0080,      ///< Disable simulation
-    Unknown9 = 0x0200,          ///< Unknown
+    IgnoreLocalBodies = 0x0010, ///< Name unverified: the 5.0 client has no reader
+    AlwaysExists = 0x0020,      ///< Name unverified: the 5.0 client has no reader
+    InheritDynamic = 0x0040,    ///< Takes the nearest bodied ancestor's dynamic state
+    KeepBoneDriven = 0x0080,    ///< Setup and deactivation leave the bone's physics bit alone
+    ExemptFromRagdoll = 0x0100, ///< Stays kinematic when the model ragdolls (Heroes)
+    Unknown9 = 0x0200,          ///< The 5.0 client has no reader
 };
 M3_DEFINE_FLAG_OPS(RigidBodyFlag, u32)
 

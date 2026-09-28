@@ -32,11 +32,12 @@
  *
  * ### What is not imported
  *
- * An `.m3` puts an `AnimRef` on nearly every field it has, most of them on
- * structures §18 keeps out of WEM: particle systems, forces, warps, projectors,
- * physics. Those are dropped silently — a diagnostic per AnimRef would be
- * hundreds per model and would say only "M3 animates more than WEM stores",
- * which this comment says once.
+ * An `.m3` puts an `AnimRef` on nearly every field it has, some on structures
+ * WEM does not store: projectors, most of all. Those are dropped silently — a
+ * diagnostic per AnimRef would be hundreds per model and would say only "M3
+ * animates more than WEM stores", which this comment says once. The physics
+ * switches are imported, and only when their sample bit is set: that is when
+ * the client reads their keys at all.
  */
 
 #include <map>
@@ -55,7 +56,7 @@ namespace m3_anim {
 
 /// Where the node import put each satellite array — `ImportNodes`' own order:
 /// bones, attachment points, lights, cameras, particle emitters, their `PARC`
-/// copies, ribbons.
+/// copies, ribbons, force fields, vertex warps.
 struct NodeBases {
     u32 bone = 0;
     u32 attachment = 0;
@@ -66,6 +67,8 @@ struct NodeBases {
     /// slot order the engine numbers them in. An index past `PARC` makes none.
     u32 particleCopy = 0;
     u32 ribbon = 0;
+    u32 force = 0;
+    u32 warp = 0;
 
     static NodeBases Of(const m3::Model& source);
 };
@@ -77,6 +80,11 @@ struct Context {
     /// Per `materialMaps` entry: the ordinal each `m3_core::StandardLayer`
     /// became, or `kInvalidIndex`. `m3_core::ImportMaterial` fills it.
     std::vector<std::vector<u32>> layerOrdinals;
+
+    /// The physics record each `PHRB` and `PHCL` became (`m3_physics::Import`),
+    /// 0 where none: their switches are `Kind::Physics` channels on it.
+    std::vector<u32> bodyIds;
+    std::vector<u32> clothIds;
 };
 
 void Import(const m3::Model& source, const Context& context, Document& document, u32 model,
@@ -100,6 +108,8 @@ struct ExportContext {
         ParticleEmitter,
         ParticleCopy,
         RibbonEmitter,
+        Force,
+        Warp,
     };
 
     struct NodeSlot {
@@ -156,6 +166,11 @@ struct ExportContext {
     /// R6b): per slot, the ordinal whose alpha track drives the first
     /// section's `alphaLayer1.rgbAdd` instead of a carrier.
     std::map<u32 /*slot*/, u32 /*ordinal*/> coverageSwitches;
+
+    /// Where each physics record landed: body id -> `PHRB`, cloth id -> `PHCL`.
+    /// A switch channel binds that record's AnimRef.
+    std::map<u32, u32> bodyRecord;
+    std::map<u32, u32> clothRecord;
 
     /// Per exported material map entry: the source-body ordinal each
     /// `m3_core::StandardLayer` took, as `ExportMaterial` reported it

@@ -10,6 +10,13 @@ template <typename T>
 struct has_get_version<T, std::void_t<decltype(std::declval<T&>().getVersion())>>
     : std::true_type {};
 
+template <typename T, typename = void>
+struct writes_current : std::false_type {};
+
+template <typename T>
+struct writes_current<T, std::void_t<decltype(ChunkTagTraits<T>::writes_current)>>
+    : std::bool_constant<ChunkTagTraits<T>::writes_current> {};
+
 /// The version to stamp on @p value's index entry.
 ///
 /// A chunk a parser stamped keeps what it was read with — that is the whole of
@@ -24,14 +31,21 @@ struct has_get_version<T, std::void_t<decltype(std::declval<T&>().getVersion())>
 /// itself (`m3_core::pushStandard`) — nothing reaches here still undecided.
 template <typename T>
 u32 getStructureVersion(const T& value) {
-    if constexpr (has_get_version<T>::value) {
-        const i32 stated = value.getVersion();
-        if (stated >= 0) {
-            return static_cast<u32>(stated);
+    // Physics: the parser upgrades every older record, and the writer spells
+    // only the current layout (physics_upgrade.h).
+    if constexpr (writes_current<T>::value) {
+        (void)value;
+        return ChunkTagTraits<T>::max_version;
+    } else {
+        if constexpr (has_get_version<T>::value) {
+            const i32 stated = value.getVersion();
+            if (stated >= 0) {
+                return static_cast<u32>(stated);
+            }
         }
+        return CurrentChunkVersion(ChunkTagTraits<T>::value, ChunkTagTraits<T>::max_version,
+                                   Engine::Both);
     }
-    return CurrentChunkVersion(ChunkTagTraits<T>::value, ChunkTagTraits<T>::max_version,
-                               Engine::Both);
 }
 
 } // namespace detail

@@ -8,7 +8,7 @@ using Whiteout.M3.Internal;
 
 namespace Whiteout.M3;
 
-/// <summary>PHRB — Rigid body (v2–v4, 56–104 bytes)</summary>
+/// <summary>PHRB — Rigid body (v4, 80 bytes; v0 72, v1 96, v2 104 and v3 56 read)</summary>
 public sealed class RigidBody : WhiteoutHandle
 {
     public RigidBody() : base(NativeMethods.whiteout_m3_M3RigidBody_new()) { }
@@ -21,7 +21,7 @@ public sealed class RigidBody : WhiteoutHandle
         return true;
     }
 
-    /// <summary>Simulation mode (v3+)</summary>
+    /// <summary>Creation type: 0 dynamic, 1 kinematic, 2 static</summary>
     public ushort SimulationType
     {
         get => NativeMethods.whiteout_m3_M3RigidBody_get_simulationType(DangerousGet());
@@ -37,7 +37,7 @@ public sealed class RigidBody : WhiteoutHandle
     }
 
 
-    /// <summary>Engine-specific body type (v3+)</summary>
+    /// <summary>Physics-material id game data may override</summary>
     public uint PhysicsType
     {
         get => NativeMethods.whiteout_m3_M3RigidBody_get_physicsType(DangerousGet());
@@ -85,15 +85,15 @@ public sealed class RigidBody : WhiteoutHandle
     }
 
 
-    /// <summary>Gravity influence scale</summary>
-    public float GravityScale
+    /// <summary>Domino inertia scale (gravity scale is fixed at 1)</summary>
+    public float InertiaScale
     {
-        get => NativeMethods.whiteout_m3_M3RigidBody_get_gravityScale(DangerousGet());
-        set => NativeMethods.whiteout_m3_M3RigidBody_set_gravityScale(DangerousGet(), value);
+        get => NativeMethods.whiteout_m3_M3RigidBody_get_inertiaScale(DangerousGet());
+        set => NativeMethods.whiteout_m3_M3RigidBody_set_inertiaScale(DangerousGet(), value);
     }
 
 
-    /// <summary>Dynamic blend-out duration (v4+)</summary>
+    /// <summary>Never read</summary>
     public float DynamicBlendOut
     {
         get => NativeMethods.whiteout_m3_M3RigidBody_get_dynamicBlendOut(DangerousGet());
@@ -133,7 +133,7 @@ public sealed class RigidBody : WhiteoutHandle
     }
 
 
-    /// <summary>Simulation priority</summary>
+    /// <summary>Never read</summary>
     public uint Priority
     {
         get => NativeMethods.whiteout_m3_M3RigidBody_get_priority(DangerousGet());

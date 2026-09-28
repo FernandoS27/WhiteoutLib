@@ -893,6 +893,99 @@ void Append(std::vector<u8>& bytes, const T& value) {
     bytes.insert(bytes.end(), at, at + sizeof(T));
 }
 
+/// Whether @p target runs @p stage itself: the rig or cloth it names goes out
+/// as records, and the bake leaves it to the game (WEM_PHYSICS_DESIGN.md §7).
+bool RunsNatively(const Model& model, const PoseStage& stage, ProfileId target) {
+    const PhysicsCaps& caps = Profile(target).physics;
+    if (stage.kind == StageKind::Ragdoll) {
+        return stage.rig != 0 && caps.shapeKinds != 0 && model.physics.rig(stage.rig) != nullptr;
+    }
+    return stage.kind == StageKind::Cloth && stage.cloth != 0 && caps.cloth &&
+           model.physics.cloth(stage.cloth) != nullptr;
+}
+
+/// @p record's @p channel switch, declared when it has none.
+u32 SwitchChannel(Model& model, u32 record, Channel channel) {
+    for (const AnimChannel& entry : model.animChannels.channels) {
+        if (entry.target.kind == TrackTarget::Kind::Physics && entry.target.sub == record &&
+            entry.target.channel == channel) {
+            return entry.id;
+        }
+    }
+    AnimChannel made;
+    made.id = model.animChannels.nextFreeId();
+    made.target.kind = TrackTarget::Kind::Physics;
+    made.target.sub = record;
+    made.target.channel = channel;
+    made.valueType = geom::AttrType::F32;
+    return model.animChannels.add(made);
+}
+
+/// A natively run stage's weight as the switches the game reads: each rig
+/// body's `PhysicsDynamic`, or the cloth's `ClothActive`, on wherever the
+/// weight is over a half at the bake's rate. They replace the records' own.
+void WeightToSwitches(Document& document, u32 m, const PoseStage& stage) {
+    Model& model = document.models[m];
+    const bool ragdoll = stage.kind == StageKind::Ragdoll;
+    const Channel channel = ragdoll ? Channel::PhysicsDynamic : Channel::ClothActive;
+    // No weight key means a weight of 1: on.
+    std::vector<u32> switches;
+    for (const u32 record : ragdoll ? model.physics.rig(stage.rig)->bodies : std::vector<u32>{stage.cloth}) {
+        if (PhysicsBody* body = ragdoll ? model.physics.body(record) : nullptr) {
+            body->simulates = true;
+        } else if (Cloth* cloth = ragdoll ? nullptr : model.physics.cloth(record)) {
+            cloth->active = true;
+        } else {
+            continue;
+        }
+        switches.push_back(SwitchChannel(model, record, channel));
+    }
+    const AnimChannel* weight = StageWeightChannel(model, stage);
+    const u32 weightId = weight != nullptr ? weight->id : 0;
+    const f32 one = 1.0f;
+    for (Clip& clip : document.clips) {
+        if (clip.model != m || clip.containers.empty()) {
+            continue;
+        }
+        for (SubTrackContainer& container : clip.containers) {
+            std::erase_if(container.subTracks, [&](const SubTrack& track) {
+                return std::find(switches.begin(), switches.end(), track.channel) != switches.end();
+            });
+        }
+        const SubTrack* keyed = weight != nullptr ? FindSubTrack(clip, weightId) : nullptr;
+        if (keyed == nullptr || keyed->times.empty()) {
+            continue;
+        }
+        const u32 count = std::max<u32>(1, static_cast<u32>(std::ceil(clip.duration * kBakeRate)));
+        std::vector<i32> timesMs;
+        for (u32 k = 0; k <= count; ++k) {
+            timesMs.push_back(static_cast<i32>(Milliseconds(std::min(static_cast<f32>(k) / kBakeRate, clip.duration))));
+        }
+        const std::vector<u8> sampled = SampleSubTrackBatch(
+            clip, *keyed, geom::AttrType::F32, timesMs,
+            std::span<const u8>(reinterpret_cast<const u8*>(&one), sizeof(one)));
+        SubTrack track;
+        track.interp = Interpolation::Step;
+        for (u32 k = 0; k < timesMs.size() && (k + 1) * sizeof(f32) <= sampled.size(); ++k) {
+            f32 w = 1.0f;
+            std::memcpy(&w, sampled.data() + k * sizeof(f32), sizeof(f32));
+            const f32 on = w > 0.5f ? 1.0f : 0.0f;
+            f32 last = -1.0f;
+            if (!track.values.empty()) {
+                std::memcpy(&last, track.values.data() + track.values.size() - sizeof(f32), sizeof(f32));
+            }
+            if (on != last) {
+                track.times.push_back(static_cast<f32>(timesMs[k]) / 1000.0f);
+                Append(track.values, on);
+            }
+        }
+        for (const u32 id : switches) {
+            track.channel = id;
+            clip.containers.front().subTracks.push_back(track);
+        }
+    }
+}
+
 /// Every stage and its own channels gone from @p model, with their sub-tracks
 /// from every clip.
 void RemoveStages(Document& document, u32 model) {
@@ -930,6 +1023,16 @@ u32 BakeStages(Document& document, ProfileId target, const StageHooks* hooks, Di
     for (u32 m = 0; m < document.models.size(); ++m) {
         if (document.models[m].poseStages.empty()) {
             continue;
+        }
+        // A rig or cloth the target runs itself goes out as its records and
+        // their switches, not as keys.
+        for (PoseStage& stage : document.models[m].poseStages) {
+            if (stage.enabled && RunsNatively(document.models[m], stage, target)) {
+                WeightToSwitches(document, m, stage);
+                diagnostics.info(DiagCode::AnimStageBaked, "stage '" + stage.name + "' left to the game's physics",
+                                 ElementRef(ElementKind::Node, stage.driven.empty() ? kInvalidNode : stage.driven.front()));
+                stage.enabled = false;
+            }
         }
         // What can be baked here: every enabled stage but a host's physics
         // with no host to run it.

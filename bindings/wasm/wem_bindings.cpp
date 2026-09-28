@@ -38,10 +38,12 @@
 #include <whiteout/models/wem/geometry/skin.h>
 #include <whiteout/models/wem/geometry/mesh.h>
 #include <whiteout/models/wem/nodes/emitters.h>
+#include <whiteout/models/wem/nodes/fields.h>
 #include <whiteout/models/wem/nodes/node.h>
 #include <whiteout/models/wem/nodes/tree.h>
 #include <whiteout/models/wem/anim/channel.h>
 #include <whiteout/models/wem/anim/clip.h>
+#include <whiteout/models/wem/physics/physics.h>
 #include <whiteout/models/wem/model.h>
 #include <whiteout/models/wem/document.h>
 #include <whiteout/models/wem/parser.h>
@@ -246,6 +248,22 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("SkinWeightInvalid", whiteout::models::wem::DiagCode::SkinWeightInvalid)
         .value("SkinInfluencesUnsorted", whiteout::models::wem::DiagCode::SkinInfluencesUnsorted)
         .value("SkinSetupInvalid", whiteout::models::wem::DiagCode::SkinSetupInvalid)
+        .value("PhysicsConstraintDropped", whiteout::models::wem::DiagCode::PhysicsConstraintDropped)
+        .value("PhysicsVersionRefused", whiteout::models::wem::DiagCode::PhysicsVersionRefused)
+        .value("PhysicsMaterialMerged", whiteout::models::wem::DiagCode::PhysicsMaterialMerged)
+        .value("PhysicsGravityScaleDropped", whiteout::models::wem::DiagCode::PhysicsGravityScaleDropped)
+        .value("PhysicsJointKindUnsupported", whiteout::models::wem::DiagCode::PhysicsJointKindUnsupported)
+        .value("PhysicsJointFieldDropped", whiteout::models::wem::DiagCode::PhysicsJointFieldDropped)
+        .value("PhysicsJointBodyAmbiguous", whiteout::models::wem::DiagCode::PhysicsJointBodyAmbiguous)
+        .value("PhysicsHullSimplified", whiteout::models::wem::DiagCode::PhysicsHullSimplified)
+        .value("PhysicsReferenceInvalid", whiteout::models::wem::DiagCode::PhysicsReferenceInvalid)
+        .value("PhysicsJointSnaps", whiteout::models::wem::DiagCode::PhysicsJointSnaps)
+        .value("PhysicsShapeDegenerate", whiteout::models::wem::DiagCode::PhysicsShapeDegenerate)
+        .value("PhysicsUnsupported", whiteout::models::wem::DiagCode::PhysicsUnsupported)
+        .value("ClothParticleLimit", whiteout::models::wem::DiagCode::ClothParticleLimit)
+        .value("ClothAnchorBoneOutOfRange", whiteout::models::wem::DiagCode::ClothAnchorBoneOutOfRange)
+        .value("ClothSectionSplit", whiteout::models::wem::DiagCode::ClothSectionSplit)
+        .value("ClothTopologyInvalid", whiteout::models::wem::DiagCode::ClothTopologyInvalid)
         .value("Count", whiteout::models::wem::DiagCode::Count);
 
     enum_<whiteout::models::wem::ElementKind>("WemElementKind")
@@ -269,7 +287,8 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("Clip", whiteout::models::wem::ElementKind::Clip)
         .value("Channel", whiteout::models::wem::ElementKind::Channel)
         .value("Track", whiteout::models::wem::ElementKind::Track)
-        .value("Chunk", whiteout::models::wem::ElementKind::Chunk);
+        .value("Chunk", whiteout::models::wem::ElementKind::Chunk)
+        .value("PhysicsRecord", whiteout::models::wem::ElementKind::PhysicsRecord);
 
     enum_<whiteout::models::wem::ColorSpace>("WemColorSpace")
         .value("Auto", whiteout::models::wem::ColorSpace::Auto)
@@ -577,6 +596,37 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("Cylinder", whiteout::models::wem::Sc2RibbonType::Cylinder)
         .value("Star", whiteout::models::wem::Sc2RibbonType::Star);
 
+    enum_<whiteout::models::wem::ForceKind>("WemForceKind")
+        .value("Directional", whiteout::models::wem::ForceKind::Directional)
+        .value("Radial", whiteout::models::wem::ForceKind::Radial)
+        .value("Drag", whiteout::models::wem::ForceKind::Drag)
+        .value("Vortex", whiteout::models::wem::ForceKind::Vortex)
+        .value("Count", whiteout::models::wem::ForceKind::Count);
+
+    enum_<whiteout::models::wem::ForceVolume>("WemForceVolume")
+        .value("Sphere", whiteout::models::wem::ForceVolume::Sphere)
+        .value("Cylinder", whiteout::models::wem::ForceVolume::Cylinder)
+        .value("Box", whiteout::models::wem::ForceVolume::Box)
+        .value("Hemisphere", whiteout::models::wem::ForceVolume::Hemisphere)
+        .value("Cone", whiteout::models::wem::ForceVolume::Cone)
+        .value("Count", whiteout::models::wem::ForceVolume::Count);
+
+    enum_<whiteout::models::wem::ForceFieldProperty>("WemForceFieldProperty")
+        .value("Strength", whiteout::models::wem::ForceFieldProperty::Strength)
+        .value("Width", whiteout::models::wem::ForceFieldProperty::Width)
+        .value("Height", whiteout::models::wem::ForceFieldProperty::Height)
+        .value("Length", whiteout::models::wem::ForceFieldProperty::Length)
+        .value("Count", whiteout::models::wem::ForceFieldProperty::Count);
+
+    enum_<whiteout::models::wem::VertexWarpProperty>("WemVertexWarpProperty")
+        .value("Radius", whiteout::models::wem::VertexWarpProperty::Radius)
+        .value("Height", whiteout::models::wem::VertexWarpProperty::Height)
+        .value("Strength", whiteout::models::wem::VertexWarpProperty::Strength)
+        .value("Angular", whiteout::models::wem::VertexWarpProperty::Angular)
+        .value("Axial", whiteout::models::wem::VertexWarpProperty::Axial)
+        .value("Radial", whiteout::models::wem::VertexWarpProperty::Radial)
+        .value("Count", whiteout::models::wem::VertexWarpProperty::Count);
+
     enum_<whiteout::models::wem::NodeKind>("WemNodeKind")
         .value("Helper", whiteout::models::wem::NodeKind::Helper)
         .value("Bone", whiteout::models::wem::NodeKind::Bone)
@@ -594,6 +644,8 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("Sc2RibbonEmitter", whiteout::models::wem::NodeKind::Sc2RibbonEmitter)
         .value("Wc3CornEmitter", whiteout::models::wem::NodeKind::Wc3CornEmitter)
         .value("M2ParticleEmitter", whiteout::models::wem::NodeKind::M2ParticleEmitter)
+        .value("ForceField", whiteout::models::wem::NodeKind::ForceField)
+        .value("VertexWarp", whiteout::models::wem::NodeKind::VertexWarp)
         .value("Count", whiteout::models::wem::NodeKind::Count);
 
     enum_<whiteout::models::wem::NodeFlags>("WemNodeFlags")
@@ -660,6 +712,8 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("FStop", whiteout::models::wem::Channel::FStop)
         .value("Target", whiteout::models::wem::Channel::Target)
         .value("Roll", whiteout::models::wem::Channel::Roll)
+        .value("PhysicsDynamic", whiteout::models::wem::Channel::PhysicsDynamic)
+        .value("ClothActive", whiteout::models::wem::Channel::ClothActive)
         .value("Count", whiteout::models::wem::Channel::Count);
 
     enum_<whiteout::models::wem::Interpolation>("WemInterpolation")
@@ -681,12 +735,66 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("Sc2", whiteout::models::wem::ReadRule::Sc2)
         .value("Wow", whiteout::models::wem::ReadRule::Wow);
 
+    enum_<whiteout::models::wem::PhysicsShapeKind>("WemPhysicsShapeKind")
+        .value("Box", whiteout::models::wem::PhysicsShapeKind::Box)
+        .value("Sphere", whiteout::models::wem::PhysicsShapeKind::Sphere)
+        .value("Capsule", whiteout::models::wem::PhysicsShapeKind::Capsule)
+        .value("Cylinder", whiteout::models::wem::PhysicsShapeKind::Cylinder)
+        .value("ConvexHull", whiteout::models::wem::PhysicsShapeKind::ConvexHull)
+        .value("TriangleMesh", whiteout::models::wem::PhysicsShapeKind::TriangleMesh)
+        .value("Count", whiteout::models::wem::PhysicsShapeKind::Count);
+
+    enum_<whiteout::models::wem::BodyMotion>("WemBodyMotion")
+        .value("Dynamic", whiteout::models::wem::BodyMotion::Dynamic)
+        .value("Kinematic", whiteout::models::wem::BodyMotion::Kinematic)
+        .value("Static", whiteout::models::wem::BodyMotion::Static)
+        .value("Count", whiteout::models::wem::BodyMotion::Count);
+
+    enum_<whiteout::models::wem::JointKind>("WemJointKind")
+        .value("Spherical", whiteout::models::wem::JointKind::Spherical)
+        .value("Revolute", whiteout::models::wem::JointKind::Revolute)
+        .value("ConeTwist", whiteout::models::wem::JointKind::ConeTwist)
+        .value("Weld", whiteout::models::wem::JointKind::Weld)
+        .value("Prismatic", whiteout::models::wem::JointKind::Prismatic)
+        .value("Distance", whiteout::models::wem::JointKind::Distance)
+        .value("Count", whiteout::models::wem::JointKind::Count);
+
+    enum_<whiteout::models::wem::JointFriction>("WemJointFriction")
+        .value("None", whiteout::models::wem::JointFriction::None)
+        .value("Torque", whiteout::models::wem::JointFriction::Torque)
+        .value("GravityHold", whiteout::models::wem::JointFriction::GravityHold)
+        .value("Count", whiteout::models::wem::JointFriction::Count);
+
+    enum_<whiteout::models::wem::ClothColliderKind>("WemClothColliderKind")
+        .value("Capsule", whiteout::models::wem::ClothColliderKind::Capsule)
+        .value("Plane", whiteout::models::wem::ClothColliderKind::Plane)
+        .value("Count", whiteout::models::wem::ClothColliderKind::Count);
+
+    enum_<whiteout::models::wem::RigStart>("WemRigStart")
+        .value("Animated", whiteout::models::wem::RigStart::Animated)
+        .value("OnDeath", whiteout::models::wem::RigStart::OnDeath)
+        .value("Always", whiteout::models::wem::RigStart::Always)
+        .value("Never", whiteout::models::wem::RigStart::Never)
+        .value("Count", whiteout::models::wem::RigStart::Count);
+
     enum_<whiteout::models::wem::ValidateLevel>("WemValidateLevel")
         .value("Structural", whiteout::models::wem::ValidateLevel::Structural)
         .value("Manifold", whiteout::models::wem::ValidateLevel::Manifold)
         .value("Profile", whiteout::models::wem::ValidateLevel::Profile);
 
     // ── Classes ──────────────────────────────────────────────────────────
+    class_<whiteout::models::wem::PhysicsCaps>("WemPhysicsCaps")
+        .constructor<>()
+        .property("shapeKinds", &whiteout::models::wem::PhysicsCaps::shapeKinds)
+        .property("jointKinds", &whiteout::models::wem::PhysicsCaps::jointKinds)
+        .property("cloth", &whiteout::models::wem::PhysicsCaps::cloth)
+        .property("maxClothParticles", &whiteout::models::wem::PhysicsCaps::maxClothParticles)
+        .property("maxHullVertices", &whiteout::models::wem::PhysicsCaps::maxHullVertices)
+        .property("maxHullFaces", &whiteout::models::wem::PhysicsCaps::maxHullFaces)
+        .property("maxHullHalfEdges", &whiteout::models::wem::PhysicsCaps::maxHullHalfEdges)
+        .property("maxClothAnchorBone", &whiteout::models::wem::PhysicsCaps::maxClothAnchorBone)
+    ;
+
     class_<whiteout::models::wem::ProfileDesc>("WemProfileDesc")
         .constructor<>()
         .property("id", &whiteout::models::wem::ProfileDesc::id)
@@ -708,6 +816,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("supportsLooks", &whiteout::models::wem::ProfileDesc::supportsLooks)
         .property("supportsActors", &whiteout::models::wem::ProfileDesc::supportsActors)
         .property("nodeKinds", &whiteout::models::wem::ProfileDesc::nodeKinds)
+        .property("physics", &whiteout::models::wem::ProfileDesc::physics)
     ;
 
     class_<whiteout::models::wem::ElementRef>("WemElementRef")
@@ -1397,6 +1506,35 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("deprecatedUnknown", &whiteout::models::wem::Sc2RibbonEmitterPayload::deprecatedUnknown)
     ;
 
+    class_<whiteout::models::wem::ForceFieldPayload>("WemForceFieldPayload")
+        .constructor<>()
+        .property("kind", &whiteout::models::wem::ForceFieldPayload::kind)
+        .property("volume", &whiteout::models::wem::ForceFieldPayload::volume)
+        .property("falloff", &whiteout::models::wem::ForceFieldPayload::falloff)
+        .property("heightGradient", &whiteout::models::wem::ForceFieldPayload::heightGradient)
+        .property("unbounded", &whiteout::models::wem::ForceFieldPayload::unbounded)
+        .property("affectsParticles", &whiteout::models::wem::ForceFieldPayload::affectsParticles)
+        .property("affectsBodies", &whiteout::models::wem::ForceFieldPayload::affectsBodies)
+        .property("channels", &whiteout::models::wem::ForceFieldPayload::channels)
+        .property("scope", &whiteout::models::wem::ForceFieldPayload::scope)
+        .property("strength", &whiteout::models::wem::ForceFieldPayload::strength)
+        .property("width", &whiteout::models::wem::ForceFieldPayload::width)
+        .property("height", &whiteout::models::wem::ForceFieldPayload::height)
+        .property("length", &whiteout::models::wem::ForceFieldPayload::length)
+    ;
+
+    class_<whiteout::models::wem::VertexWarpPayload>("WemVertexWarpPayload")
+        .constructor<>()
+        .property("type", &whiteout::models::wem::VertexWarpPayload::type)
+        .property("reserved", &whiteout::models::wem::VertexWarpPayload::reserved)
+        .property("radius", &whiteout::models::wem::VertexWarpPayload::radius)
+        .property("height", &whiteout::models::wem::VertexWarpPayload::height)
+        .property("strength", &whiteout::models::wem::VertexWarpPayload::strength)
+        .property("angular", &whiteout::models::wem::VertexWarpPayload::angular)
+        .property("axial", &whiteout::models::wem::VertexWarpPayload::axial)
+        .property("radial", &whiteout::models::wem::VertexWarpPayload::radial)
+    ;
+
     class_<whiteout::models::wem::Transform>("WemTransform")
         .constructor<>()
         .property("translation", &whiteout::models::wem::Transform::translation)
@@ -1623,6 +1761,164 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("baseAnimSet", &whiteout::models::wem::AnimSet::baseAnimSet)
     ;
 
+    class_<whiteout::models::wem::PhysicsMaterial>("WemPhysicsMaterial")
+        .constructor<>()
+        .property("density", &whiteout::models::wem::PhysicsMaterial::density)
+        .property("friction", &whiteout::models::wem::PhysicsMaterial::friction)
+        .property("restitution", &whiteout::models::wem::PhysicsMaterial::restitution)
+    ;
+
+    class_<whiteout::models::wem::PhysicsShape>("WemPhysicsShape")
+        .constructor<>()
+        .property("kind", &whiteout::models::wem::PhysicsShape::kind)
+        .property("halfExtents", &whiteout::models::wem::PhysicsShape::halfExtents)
+        .property("radius", &whiteout::models::wem::PhysicsShape::radius)
+        .property("length", &whiteout::models::wem::PhysicsShape::length)
+        .property("points", &whiteout::models::wem::PhysicsShape::points)
+        .property("vertices", &whiteout::models::wem::PhysicsShape::vertices)
+        .property("triangles", &whiteout::models::wem::PhysicsShape::triangles)
+        .property("material", &whiteout::models::wem::PhysicsShape::material)
+    ;
+
+    class_<whiteout::models::wem::Sc2BodyExtension>("WemSc2BodyExtension")
+        .constructor<>()
+        .property("physicsMaterial", &whiteout::models::wem::Sc2BodyExtension::physicsMaterial)
+        .property("collidable", &whiteout::models::wem::Sc2BodyExtension::collidable)
+        .property("walkable", &whiteout::models::wem::Sc2BodyExtension::walkable)
+        .property("stackable", &whiteout::models::wem::Sc2BodyExtension::stackable)
+        .property("simulateCollision", &whiteout::models::wem::Sc2BodyExtension::simulateCollision)
+        .property("keepsBoneDriven", &whiteout::models::wem::Sc2BodyExtension::keepsBoneDriven)
+        .property("untracedFlags", &whiteout::models::wem::Sc2BodyExtension::untracedFlags)
+    ;
+
+    class_<whiteout::models::wem::PhysicsBody>("WemPhysicsBody")
+        .constructor<>()
+        .property("id", &whiteout::models::wem::PhysicsBody::id)
+        .property("node", &whiteout::models::wem::PhysicsBody::node)
+        .property("motion", &whiteout::models::wem::PhysicsBody::motion)
+        .property("simulates", &whiteout::models::wem::PhysicsBody::simulates)
+        .property("shapes", &whiteout::models::wem::PhysicsBody::shapes)
+        .property("linearDamping", &whiteout::models::wem::PhysicsBody::linearDamping)
+        .property("angularDamping", &whiteout::models::wem::PhysicsBody::angularDamping)
+        .property("inertiaScale", &whiteout::models::wem::PhysicsBody::inertiaScale)
+        .property("gravityScale", &whiteout::models::wem::PhysicsBody::gravityScale)
+        .property("inheritDynamic", &whiteout::models::wem::PhysicsBody::inheritDynamic)
+        .property("exemptFromRagdoll", &whiteout::models::wem::PhysicsBody::exemptFromRagdoll)
+        .property("forceChannels", &whiteout::models::wem::PhysicsBody::forceChannels)
+        .property("sc2", &whiteout::models::wem::PhysicsBody::sc2)
+    ;
+
+    class_<whiteout::models::wem::JointSpring>("WemJointSpring")
+        .constructor<>()
+        .property("hz", &whiteout::models::wem::JointSpring::hz)
+        .property("damping", &whiteout::models::wem::JointSpring::damping)
+    ;
+
+    class_<whiteout::models::wem::PhysicsJoint>("WemPhysicsJoint")
+        .constructor<>()
+        .property("id", &whiteout::models::wem::PhysicsJoint::id)
+        .property("bodyA", &whiteout::models::wem::PhysicsJoint::bodyA)
+        .property("bodyB", &whiteout::models::wem::PhysicsJoint::bodyB)
+        .property("kind", &whiteout::models::wem::PhysicsJoint::kind)
+        .property("collideConnected", &whiteout::models::wem::PhysicsJoint::collideConnected)
+        .property("limitEnabled", &whiteout::models::wem::PhysicsJoint::limitEnabled)
+        .property("lower", &whiteout::models::wem::PhysicsJoint::lower)
+        .property("upper", &whiteout::models::wem::PhysicsJoint::upper)
+        .property("cone", &whiteout::models::wem::PhysicsJoint::cone)
+        .property("friction", &whiteout::models::wem::PhysicsJoint::friction)
+        .property("frictionAmount", &whiteout::models::wem::PhysicsJoint::frictionAmount)
+        .property("angularSpring", &whiteout::models::wem::PhysicsJoint::angularSpring)
+        .property("linearSpring", &whiteout::models::wem::PhysicsJoint::linearSpring)
+        .property("restLength", &whiteout::models::wem::PhysicsJoint::restLength)
+        .property("breakForce", &whiteout::models::wem::PhysicsJoint::breakForce)
+        .property("breakTorque", &whiteout::models::wem::PhysicsJoint::breakTorque)
+    ;
+
+    class_<whiteout::models::wem::SectionRef>("WemSectionRef")
+        .constructor<>()
+        .property("mesh", &whiteout::models::wem::SectionRef::mesh)
+        .property("section", &whiteout::models::wem::SectionRef::section)
+    ;
+
+    class_<whiteout::models::wem::ClothCollider>("WemClothCollider")
+        .constructor<>()
+        .property("id", &whiteout::models::wem::ClothCollider::id)
+        .property("node", &whiteout::models::wem::ClothCollider::node)
+        .property("kind", &whiteout::models::wem::ClothCollider::kind)
+        .property("radius", &whiteout::models::wem::ClothCollider::radius)
+        .property("length", &whiteout::models::wem::ClothCollider::length)
+    ;
+
+    class_<whiteout::models::wem::ClothBinding>("WemClothBinding")
+        .constructor<>()
+        .property("section", &whiteout::models::wem::ClothBinding::section)
+    ;
+
+    class_<whiteout::models::wem::Sc2ClothParams>("WemSc2ClothParams")
+        .constructor<>()
+        .property("tracking", &whiteout::models::wem::Sc2ClothParams::tracking)
+        .property("horizontalStiffness", &whiteout::models::wem::Sc2ClothParams::horizontalStiffness)
+        .property("shearStiffness", &whiteout::models::wem::Sc2ClothParams::shearStiffness)
+        .property("explosionScale", &whiteout::models::wem::Sc2ClothParams::explosionScale)
+        .property("windScale", &whiteout::models::wem::Sc2ClothParams::windScale)
+        .property("dragFactor", &whiteout::models::wem::Sc2ClothParams::dragFactor)
+        .property("liftFactor", &whiteout::models::wem::Sc2ClothParams::liftFactor)
+        .property("sphereStiffness", &whiteout::models::wem::Sc2ClothParams::sphereStiffness)
+        .property("flatten", &whiteout::models::wem::Sc2ClothParams::flatten)
+        .property("useSkinCollision", &whiteout::models::wem::Sc2ClothParams::useSkinCollision)
+        .property("skinOffset", &whiteout::models::wem::Sc2ClothParams::skinOffset)
+        .property("skinExponent", &whiteout::models::wem::Sc2ClothParams::skinExponent)
+        .property("skinStiffness", &whiteout::models::wem::Sc2ClothParams::skinStiffness)
+    ;
+
+    class_<whiteout::models::wem::Cloth>("WemCloth")
+        .constructor<>()
+        .property("id", &whiteout::models::wem::Cloth::id)
+        .property("cage", &whiteout::models::wem::Cloth::cage)
+        .property("bindings", &whiteout::models::wem::Cloth::bindings)
+        .property("colliders", &whiteout::models::wem::Cloth::colliders)
+        .property("active", &whiteout::models::wem::Cloth::active)
+        .property("density", &whiteout::models::wem::Cloth::density)
+        .property("damping", &whiteout::models::wem::Cloth::damping)
+        .property("friction", &whiteout::models::wem::Cloth::friction)
+        .property("stretchStiffness", &whiteout::models::wem::Cloth::stretchStiffness)
+        .property("bendStiffness", &whiteout::models::wem::Cloth::bendStiffness)
+        .property("gravityScale", &whiteout::models::wem::Cloth::gravityScale)
+        .property("wind", &whiteout::models::wem::Cloth::wind)
+        .property("sc2", &whiteout::models::wem::Cloth::sc2)
+    ;
+
+    class_<whiteout::models::wem::PhysicsRig>("WemPhysicsRig")
+        .constructor<>()
+        .property("id", &whiteout::models::wem::PhysicsRig::id)
+        .property("name", &whiteout::models::wem::PhysicsRig::name)
+        .property("start", &whiteout::models::wem::PhysicsRig::start)
+        .property("bodies", &whiteout::models::wem::PhysicsRig::bodies)
+    ;
+
+    class_<whiteout::models::wem::PhysicsSet>("WemPhysicsSet")
+        .constructor<>()
+        .property("bodies", &whiteout::models::wem::PhysicsSet::bodies)
+        .property("joints", &whiteout::models::wem::PhysicsSet::joints)
+        .property("colliders", &whiteout::models::wem::PhysicsSet::colliders)
+        .property("cloths", &whiteout::models::wem::PhysicsSet::cloths)
+        .property("rigs", &whiteout::models::wem::PhysicsSet::rigs)
+        .property("nextId", &whiteout::models::wem::PhysicsSet::nextId)
+    ;
+
+    class_<whiteout::models::wem::PhysicsHost>("WemPhysicsHost")
+        .constructor<>()
+        .property("gravity", &whiteout::models::wem::PhysicsHost::gravity)
+        .property("step", &whiteout::models::wem::PhysicsHost::step)
+        .property("maxSubsteps", &whiteout::models::wem::PhysicsHost::maxSubsteps)
+        .property("velocityIterations", &whiteout::models::wem::PhysicsHost::velocityIterations)
+        .property("positionIterations", &whiteout::models::wem::PhysicsHost::positionIterations)
+        .property("snapLinear", &whiteout::models::wem::PhysicsHost::snapLinear)
+        .property("snapAngular", &whiteout::models::wem::PhysicsHost::snapAngular)
+        .property("releaseLinear", &whiteout::models::wem::PhysicsHost::releaseLinear)
+        .property("releaseAngular", &whiteout::models::wem::PhysicsHost::releaseAngular)
+    ;
+
     class_<whiteout::models::wem::SlotBinding>("WemSlotBinding")
         .constructor<>()
         .property("byLook", &whiteout::models::wem::SlotBinding::byLook)
@@ -1662,6 +1958,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("tPose", &whiteout::models::wem::Model::tPose)
         .property("lodExport", &whiteout::models::wem::Model::lodExport)
         .property("trackSets", &whiteout::models::wem::Model::trackSets)
+        .property("physics", &whiteout::models::wem::Model::physics)
         .function("slotIndex", &whiteout::models::wem::Model::slotIndex)
         .function("addSlot", &whiteout::models::wem::Model::addSlot)
         .function("drawnProfiles", &whiteout::models::wem::Model::drawnProfiles)
@@ -1782,6 +2079,9 @@ EMSCRIPTEN_BINDINGS(wem) {
     register_vector<whiteout::models::wem::Clip>("VectorWemClip");
     register_vector<whiteout::models::wem::ClipEvent>("VectorWemClipEvent");
     register_vector<whiteout::models::wem::ClipTrackSet>("VectorWemClipTrackSet");
+    register_vector<whiteout::models::wem::Cloth>("VectorWemCloth");
+    register_vector<whiteout::models::wem::ClothBinding>("VectorWemClothBinding");
+    register_vector<whiteout::models::wem::ClothCollider>("VectorWemClothCollider");
     register_vector<whiteout::models::wem::CombinerStage>("VectorWemCombinerStage");
     register_vector<whiteout::models::wem::CompositeLayer>("VectorWemCompositeLayer");
     register_vector<whiteout::models::wem::Diagnostic>("VectorWemDiagnostic");
@@ -1794,6 +2094,10 @@ EMSCRIPTEN_BINDINGS(wem) {
     register_vector<whiteout::models::wem::Model>("VectorWemModel");
     register_vector<whiteout::models::wem::NativeKind>("VectorWemNativeKind");
     register_vector<whiteout::models::wem::Node>("VectorWemNode");
+    register_vector<whiteout::models::wem::PhysicsBody>("VectorWemPhysicsBody");
+    register_vector<whiteout::models::wem::PhysicsJoint>("VectorWemPhysicsJoint");
+    register_vector<whiteout::models::wem::PhysicsRig>("VectorWemPhysicsRig");
+    register_vector<whiteout::models::wem::PhysicsShape>("VectorWemPhysicsShape");
     register_vector<whiteout::models::wem::PoseSchema>("VectorWemPoseSchema");
     register_vector<whiteout::models::wem::ProfileId>("VectorWemProfileId");
     register_vector<whiteout::models::wem::ProfileMaterialSet>("VectorWemProfileMaterialSet");

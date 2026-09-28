@@ -121,6 +121,11 @@ struct PoseStage {
     f32 stiffness = 0.2f;
     f32 damping = 0.6f;
     f32 gravity = 0.0f;
+    /// Ragdoll: the `PhysicsRig` it previews and bakes, 0 for the capsule chain
+    /// over `driven`. Cloth: the `Cloth`. A target that runs either itself
+    /// exports it natively instead (WEM_PHYSICS_DESIGN.md §7).
+    u32 rig = 0;
+    u32 cloth = 0;
 
     template <class V>
     void reflect(V& v) {
@@ -139,6 +144,8 @@ struct PoseStage {
         v.field("stiffness", stiffness);
         v.field("damping", damping);
         v.field("gravity", gravity);
+        v.since(2).field("rig", rig);
+        v.since(2).field("cloth", cloth);
     }
 };
 
