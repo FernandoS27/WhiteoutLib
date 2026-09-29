@@ -127,10 +127,10 @@ struct TestPose {
 /// is never overwritten.
 enum class TPoseSource : u8 {
     None,      ///< Nothing put it there — the node was not solved.
-    Donor,     ///< Copied from a model that is already T-posed.
-    Record,    ///< A pose saved in this document before.
-    Clips,     ///< A clip frame that stands close enough to a T.
-    BindFrame, ///< `BPOS`, the file's own rest orientation.
+    Donor,     ///< Solved onto a twin's directions, a model that is already T-posed.
+    Record,    ///< Solved from the rig's record, onto the canon's directions.
+    Clips,     ///< A clip's frame, taken whole. A re-solve starts from it.
+    BindFrame, ///< `BPOS`, the file's own rest orientation. Nothing solves from it yet.
     You,       ///< A correction made by hand. Never re-solved over.
 };
 

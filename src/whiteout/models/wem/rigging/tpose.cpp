@@ -3,6 +3,7 @@
 
 #include "whiteout/models/wem/rigging/tpose.h"
 
+#include "whiteout/models/wem/rigging/detect.h"
 #include "whiteout/models/wem/rigging/ik.h"
 #include "whiteout/models/wem/skinning/mirror.h"
 
@@ -36,6 +37,22 @@ Vector3f RestPoint(const NodeTree& tree, u32 node) {
                                                     : tree.worldBind(node).translation;
 }
 
+/// The child @p node's bone runs to: its first joint child with a length, every
+/// point read through @p at. A prop or a pad rides the node without being part
+/// of it — a sword numbered before the fingers is not where a hand points — so
+/// neither answers, as neither is in `SpreadOf`.
+template <class At>
+u32 AimChildOf(const NodeTree& tree, u32 node, const At& at) {
+    for (const u32 child : tree.children(node)) {
+        const RigRole role = tree.nodes[child].rig.role;
+        if (IsJoint(tree, child) && role != RigRole::Prop && role != RigRole::Pad &&
+            (at(child) - at(node)).length_squared() > 1e-12f) {
+            return child;
+        }
+    }
+    return kInvalidNode;
+}
+
 /// The bend record on @p node, or null. `Twist`, `Spin` and `Slide` are not
 /// hinges and do not answer here.
 const Joint* BendJointOf(const NodeTree& tree, u32 node) {
@@ -58,11 +75,9 @@ Vector3f JointAxisAt(const NodeTree& tree, u32 node, const Joint& joint) {
     case JointAxis::Z:
         return {0, 0, 1};
     case JointAxis::Along: {
-        const NodeRange children = tree.children(node);
-        if (children.empty()) {
-            return {0, 0, 0};
-        }
-        return RestPoint(tree, children[0]) - RestPoint(tree, node);
+        const auto at = [&](u32 n) { return RestPoint(tree, n); };
+        const u32 aim = AimChildOf(tree, node, at);
+        return aim == kInvalidNode ? Vector3f{0, 0, 0} : at(aim) - at(node);
     }
     }
     return {0, 0, 0};
@@ -368,15 +383,6 @@ f32 WrapDeg(f32 deg) {
     return deg;
 }
 
-u32 FirstJointChild(const NodeTree& tree, u32 node) {
-    for (const u32 child : tree.children(node)) {
-        if (IsJoint(tree, child)) {
-            return child;
-        }
-    }
-    return kInvalidNode;
-}
-
 /// The line @p end's own joints spread along, square to @p bone (see
 /// `LimbDirections::spread`), with every point read through @p at. Props and
 /// pads ride a hand without being part of it, and are left out.
@@ -436,7 +442,9 @@ Quaternion RollOnto(const Vector3f& from, const Vector3f& to, const Vector3f& ax
 /// Where a role’s bone aims (R§3.0’s ladder): the donor’s direction for the same
 /// limb, side and role where it has one, else the canon’s. A foot’s target is a
 /// heading and level, because a foot’s slope is the bind’s (R§1.6): a donor’s
-/// foot gives only where it points.
+/// foot gives only where it points, and one pointing nearly down gives none.
+/// A donor’s hand with no bone of its own continues its forearm, as
+/// `MeasureTPose` reads it: the canon’s would kink the wrist by the difference.
 Vector3f TargetOf(RigLimb limb, RigSide side, RigRole role, const TPoseRules& rules,
                   const LimbDirections* twin, bool* fromDonor) {
     {
@@ -446,8 +454,10 @@ Vector3f TargetOf(RigLimb limb, RigSide side, RigRole role, const TPoseRules& ru
                                                 : twin->lowerDir;
             if (limb == RigLimb::Leg && role == RigRole::End) {
                 d.z = 0;
+            } else if (role == RigRole::End && d.length_squared() == 0) {
+                d = twin->lowerDir;
             }
-            if (d.length_squared() > 1e-12f) {
+            if (d.length_squared() > 1e-6f) {
                 if (fromDonor != nullptr) {
                     *fromDonor = true;
                 }
@@ -553,30 +563,12 @@ HingeFit MirroredHinge(const HingeFit& fit, const Matrix44f& from, const Matrix4
     return out;
 }
 
-/// The bone @p node owns: its rest point to its first joint child's. Zero for a
-/// leaf, which has no direction of its own to aim.
+/// The bone @p node owns: its rest point to its aim child's (`AimChildOf`).
+/// Zero for a leaf, which has no direction of its own to aim.
 Vector3f BoneOf(const NodeTree& tree, u32 node, const std::vector<Matrix44f>& carried) {
-    for (const u32 child : tree.children(node)) {
-        if (IsJoint(tree, child)) {
-            const Vector3f along = Moved(RestPoint(tree, child), carried[node]) -
-                                   Moved(RestPoint(tree, node), carried[node]);
-            if (along.length_squared() > 1e-12f) {
-                return along;
-            }
-        }
-    }
-    return {0, 0, 0};
-}
-
-/// A model-space pose entry that is not the bind — `BPOS`, where the file had
-/// one. `kInvalidIndex` when the tree carries only its own bind.
-u32 RestOrientationPose(const NodeTree& tree) {
-    for (u32 i = 0; i < tree.poseSchema.size(); ++i) {
-        if (i != tree.authoritativePose && tree.poseSchema[i].space == PoseSpace::Model) {
-            return i;
-        }
-    }
-    return kInvalidIndex;
+    const auto at = [&](u32 n) { return Moved(RestPoint(tree, n), carried[node]); };
+    const u32 aim = AimChildOf(tree, node, at);
+    return aim == kInvalidNode ? Vector3f{0, 0, 0} : at(aim) - at(node);
 }
 
 /// One limb's rest press.
@@ -618,6 +610,45 @@ void ApplyLimits(const NodeTree& tree, const Limb& limb, const HingeFit& hinge, 
                               : std::pair{joint->low, joint->high};
 }
 
+/// @p hinge squared to the bones at @p press. A measured hinge is a few degrees
+/// off the plane the rest bones bend in (a knee twists as it bends), and a hinge
+/// not square to both bones sweeps the Lower round a cone that never reaches the
+/// Upper's line — the DE grunt's straight twin was out of reach by 18 degrees.
+/// At rest the hinge only says which way the joint bends, so: the plane the
+/// limb bends in now, turned to agree with it, or for a limb pressed straight
+/// the hinge squared off its line.
+Vector3f SquaredHinge(const Vector3f& hinge, const LimbPress& press) {
+    const Vector3f u = press.lower - press.upper;
+    const Vector3f v = press.end - press.lower;
+    const Vector3f plane = ::whiteout::cross(u, v);
+    const f32 sine = plane.length() / std::max(u.length() * v.length(), 1e-12f);
+    if (sine > std::sin(2.0f / kDeg)) {
+        return Unit(plane) * (plane.dot(hinge) < 0 ? -1.0f : 1.0f);
+    }
+    const Vector3f line = Unit(u + v);
+    const Vector3f square = hinge - line * hinge.dot(line);
+    return square.length() > 1e-3f ? Unit(square) : hinge;
+}
+
+/// How far @p limb's Lower stands bent about @p hinge (unit, the bind's frame)
+/// from its bind: its turn against its parent's, both carried from the bind —
+/// what `LimbSetup::bendDeg` asks for, so the limits bound the whole bend and
+/// not only the solve's share of it.
+f32 BendFromBind(const NodeTree& tree, const Limb& limb, const Vector3f& hinge,
+                 const std::vector<Matrix44f>& carried) {
+    const u32 parent = ParentOf(tree, limb.lower);
+    const Quaternion above =
+        parent == kInvalidNode ? Quaternion::identity() : FromMatrix(carried[parent]).rotation;
+    const Quaternion own = (above.conjugate() * FromMatrix(carried[limb.lower]).rotation).normalized();
+    f32 along = own.x * hinge.x + own.y * hinge.y + own.z * hinge.z;
+    f32 w = own.w;
+    if (w < 0.0f) {
+        along = -along;
+        w = -w;
+    }
+    return 2.0f * std::atan2(along, w) * kDeg;
+}
+
 /// Every node, parents before children. NOT index order: the MDX importer
 /// numbers by `objectId`, which is per chunk, so a bone can sit before the
 /// helper it hangs from (`jainasea.mdx` has a whole arm running backwards).
@@ -648,8 +679,12 @@ std::vector<u32> PreOrder(const NodeTree& tree) {
 /// Per node, the model-space motion the turns ABOVE and ON it add up to. One
 /// walk, shared by the solve (which needs each limb pressed where the limbs
 /// above it have left it) and by @ref TPoseRest (which turns it into a rest).
+/// @p steps, when given, are the saved pose's moves, each in its parent's space
+/// as a delta keeps it: the turns above carry it, and it carries what hangs
+/// from it.
 std::vector<Matrix44f> Accumulate(const NodeTree& tree, const std::vector<u32>& order,
-                                  const std::vector<TPoseJoint>& joints) {
+                                  const std::vector<TPoseJoint>& joints,
+                                  const std::vector<Vector3f>* steps = nullptr) {
     std::vector<const TPoseJoint*> turn(tree.size(), nullptr);
     for (const TPoseJoint& joint : joints) {
         if (joint.node < tree.size()) {
@@ -665,6 +700,9 @@ std::vector<Matrix44f> Accumulate(const NodeTree& tree, const std::vector<u32>& 
             // About its rest point where the turns above have already left it:
             // the same place the solve measured its own turns about.
             carried[n] = above * TurnAbout(turn[n]->turn, Moved(RestPoint(tree, n), above));
+        }
+        if (steps != nullptr && n < steps->size() && (*steps)[n].length_squared() > 0) {
+            carried[n] = carried[n] * Matrix44f::translation(Turned((*steps)[n], above));
         }
     }
     return carried;
@@ -707,12 +745,15 @@ constexpr f32 kLevelFloor = 1e-3f;
 /// show rather than bent away.
 constexpr f32 kLevelCeiling = 0.1f;
 
-/// A second solve of a limb whose joints already carry the first one's turns.
-/// A row is applied after everything above it, so the second solve's world
-/// turns cannot simply be multiplied on: each joint's row becomes what puts it
-/// where the second solve says, given what its parent's row now does —
-/// `D(k) * r(k) * D(parent)^-1`, D being the second solve's composite at k.
-void PushOnto(TPoseResult& result, const Limb& limb, const LimbSolve& solve, TPoseSource source) {
+/// A solve of a limb whose joints may already hold rows — a first solve's, or a
+/// clip frame the solve starts from. A row is applied after everything above
+/// it, so the solve's world turns cannot simply be multiplied on: each joint's
+/// row becomes what puts it where the solve says, given what its parent's row
+/// now does — `D(k) * r(k) * D(parent)^-1`, D being the solve's composite at k.
+/// With no rows there, that is the solve's own turns. @p endSource names the
+/// End's row when the End has none yet.
+void PushOnto(TPoseResult& result, const Limb& limb, const LimbSolve& solve, TPoseSource source,
+              TPoseSource endSource) {
     const auto rowOf = [&](u32 node) {
         for (const TPoseJoint& joint : result.joints) {
             if (joint.node == node) {
@@ -730,16 +771,85 @@ void PushOnto(TPoseResult& result, const Limb& limb, const LimbSolve& solve, TPo
     // old one's inverse.
     PushJoint(result, limb.upper, dUpper, source);
     PushJoint(result, limb.lower, dLower * rLower * dUpper.conjugate() * rLower.conjugate(), source);
-    PushJoint(result, limb.end, dEnd * rEnd * dLower.conjugate() * rEnd.conjugate(), source);
+    PushJoint(result, limb.end, dEnd * rEnd * dLower.conjugate() * rEnd.conjugate(), endSource);
+}
+
+/// Joints the solve starts from where the saved pose has them (§3.1). Each keeps
+/// its delta in its PARENT's space, as the store keeps it, so its row is read
+/// again whenever a rule turns something above it (`Carry`), its move with it.
+/// A `Kept` joint is never solved over: every one set by hand, and the rest of a
+/// limb one of them is in. A `Start` joint — a clip frame taken as the pose — is
+/// where the solve begins (D§3: onto the stored deltas), and a rule that turns
+/// it takes it over (`Release`).
+struct Held {
+    enum : u8 { Free = 0, Kept = 1, Start = 2 };
+    std::vector<u8> on;
+    std::vector<Quaternion> delta;
+    /// The saved moves, kept after a release: the solve turns, and never moves.
+    std::vector<Vector3f> step;
+    std::vector<TPoseSource> source;
+
+    bool operator[](u32 node) const {
+        return node < on.size() && on[node] != Free;
+    }
+    bool kept(u32 node) const {
+        return node < on.size() && on[node] == Kept;
+    }
+};
+
+/// A `Start` joint a rule is about to turn: its row is the rule's from here on,
+/// under @p source. A kept joint stays kept, and a free one has nothing to give.
+void Release(Held& held, TPoseResult& result, u32 node, TPoseSource source) {
+    if (node >= held.on.size() || held.on[node] != Held::Start) {
+        return;
+    }
+    held.on[node] = Held::Free;
+    for (TPoseJoint& joint : result.joints) {
+        if (joint.node == node) {
+            joint.source = source;
+        }
+    }
+}
+
+/// `Accumulate`, with every held joint's row first read again from its delta
+/// under the turns now above it, and the saved moves carried.
+std::vector<Matrix44f> Carry(const NodeTree& tree, const std::vector<u32>& order, const Held& held,
+                             TPoseResult& result) {
+    std::vector<u32> row(tree.size(), kInvalidIndex);
+    for (u32 i = 0; i < result.joints.size(); ++i) {
+        if (result.joints[i].node < tree.size()) {
+            row[result.joints[i].node] = i;
+        }
+    }
+    std::vector<Quaternion> composite(tree.size(), Quaternion::identity());
+    for (const u32 n : order) {
+        const u32 parent = ParentOf(tree, n);
+        const Quaternion above = parent == kInvalidNode ? Quaternion::identity() : composite[parent];
+        if (held[n]) {
+            // `TPoseDeltaTurns`'s identity, read the other way: row * P = P * delta.
+            const Quaternion turn = (above * held.delta[n] * above.conjugate()).normalized();
+            if (row[n] != kInvalidIndex) {
+                result.joints[row[n]].turn = turn;
+                result.joints[row[n]].turnDeg = DegreesOf(turn);
+            } else if (std::fabs(turn.w) <= 0.9999999f) {
+                row[n] = static_cast<u32>(result.joints.size());
+                PushJoint(result, n, turn, held.source[n]);
+            }
+        }
+        const Quaternion turn = row[n] == kInvalidIndex ? Quaternion::identity() : result.joints[row[n]].turn;
+        composite[n] = (turn * above).normalized();
+    }
+    return Accumulate(tree, order, result.joints, &held.step);
 }
 
 /// A chain's world turns, root first — each applied after the ones above it,
 /// as `SolveChain` hands them back — onto rows the joints may already hold:
 /// the row of each becomes `D(k) * r(k) * D(parent)^-1`, D the composite so
-/// far, as `PushOnto` does for a limb. A joint a person set keeps its row, and
-/// the composite still passes through it.
+/// far, as `PushOnto` does for a limb. A kept joint takes no turn: it rides the
+/// joint above it (`Carry`), so D(parent) below it is that joint's, while the
+/// joints below still take the turns the chain asked of them.
 void PushChain(TPoseResult& result, const std::vector<u32>& chain, const std::vector<Quaternion>& turns,
-               const std::vector<u8>& yours, TPoseSource source) {
+               Held& held, TPoseSource source) {
     const auto rowOf = [&](u32 node) {
         for (const TPoseJoint& joint : result.joints) {
             if (joint.node == node) {
@@ -748,14 +858,17 @@ void PushChain(TPoseResult& result, const std::vector<u32>& chain, const std::ve
         }
         return Quaternion::identity();
     };
-    Quaternion above = Quaternion::identity();
+    Quaternion asked = Quaternion::identity();
+    Quaternion taken = Quaternion::identity();
     for (std::size_t i = 0; i < chain.size() && i < turns.size(); ++i) {
-        const Quaternion here = (turns[i] * above).normalized();
-        if (!yours[chain[i]]) {
+        const Quaternion here = (turns[i] * asked).normalized();
+        if (!held.kept(chain[i])) {
+            Release(held, result, chain[i], source);
             const Quaternion row = rowOf(chain[i]);
-            PushJoint(result, chain[i], here * row * above.conjugate() * row.conjugate(), source);
+            PushJoint(result, chain[i], here * row * taken.conjugate() * row.conjugate(), source);
+            taken = here;
         }
-        above = here;
+        asked = here;
     }
 }
 
@@ -874,9 +987,9 @@ Vector3f MiddleOf(const NodeTree& tree, const std::vector<u32>& nodes,
 /// @p framed marks what it turned, because a frame turn is not a limb turn: the
 /// symmetry rule below reads "a solved turn above me" as "my limb is already
 /// solved", and a turn at the root would mean that of every node in the model.
-void SquareFigure(const NodeTree& tree, const std::vector<u32>& order,
-                  const std::vector<u8>& yours, const RigDirections* donor, TPoseResult& result,
-                  std::vector<Matrix44f>& carried, std::vector<u8>& framed) {
+void SquareFigure(const NodeTree& tree, const std::vector<u32>& order, Held& yours,
+                  const RigDirections* donor, TPoseResult& result, std::vector<Matrix44f>& carried,
+                  std::vector<u8>& framed) {
     // Onto the twin's own axes where it has them (R§3.0: the twin's frame is a
     // target like its limbs), else onto +Y — level.
     const auto want = [&](const Vector3f& twin) {
@@ -891,7 +1004,7 @@ void SquareFigure(const NodeTree& tree, const std::vector<u32>& order,
     // aimed legs' ankles apart by exactly that (R§3.5). Nothing else: a turn
     // about the axis itself would pitch the figure over.
     const auto squareAt = [&](u32 meet, const Sides& sides, const Vector3f& onto) {
-        if (meet == kInvalidNode || yours[meet]) {
+        if (meet == kInvalidNode || yours.kept(meet)) {
             return;
         }
         const Vector3f across =
@@ -906,9 +1019,10 @@ void SquareFigure(const NodeTree& tree, const std::vector<u32>& order,
         if (DegreesOf(turn) < kSquareFloor) {
             return;
         }
+        Release(yours, result, meet, TPoseSource::Record);
         PushJoint(result, meet, turn, TPoseSource::Record);
         framed[meet] = 1;
-        carried = Accumulate(tree, order, result.joints);
+        carried = Carry(tree, order, yours, result);
     };
 
     // Both sides at once, so a quadruped's four legs meet where all four hang
@@ -925,9 +1039,11 @@ void SquareFigure(const NodeTree& tree, const std::vector<u32>& order,
     if (hips.both()) {
         squareAt(hipMeet, hips, hipsWant);
     }
-    // Untwisting only untwists BELOW the square: the same node again, or one
-    // above it, would turn the hips a second time and undo them.
-    if (shoulders.both() && (hipMeet == kInvalidNode || Holds(tree, hipMeet, armMeet))) {
+    // Untwisting never turns the hips again: the same node, or one above it,
+    // would undo the square. Below it, or on a branch of its own — a spine
+    // beside the pelvis under a yawed root — the shoulders are squared too.
+    if (shoulders.both() &&
+        (hipMeet == kInvalidNode || (armMeet != hipMeet && !Holds(tree, armMeet, hipMeet)))) {
         squareAt(armMeet, shoulders, shouldersWant);
     }
 }
@@ -992,23 +1108,54 @@ TPoseResult SolveTPose(const Document& document, u32 model, const TPoseRules& ru
     }
     const Model& owner = document.models[model];
     const NodeTree& tree = owner.nodes;
-    const bool haveBindFrames = RestOrientationPose(tree) != kInvalidIndex;
+    // Every turn here is about a pivot in a rest whose locals are the identity,
+    // and every delta is read that way: an explicit bind is neither.
+    if (tree.rig != RigConvention::PivotRelative) {
+        return result;
+    }
     const std::vector<u32> order = PreOrder(tree);
     std::vector<Matrix44f> carried(tree.size(), Matrix44f::identity());
 
     // What a person set by hand is never solved over (§3.1): those joints keep
-    // the turn the saved pose holds, and the solve leaves their limb alone.
-    std::vector<u8> yours(tree.size(), 0);
-    for (const TPoseJoint& joint : TPoseFromDeltas(owner, inputs.keep).joints) {
-        if (joint.source == TPoseSource::You) {
-            yours[joint.node] = 1;
-            PushJoint(result, joint.node, joint.turn, TPoseSource::You);
+    // the turn the saved pose holds, and the solve leaves their limb alone. By
+    // the source, not the turn: a joint only moved is yours as well. A clip
+    // frame taken as the pose is where the solve starts from instead.
+    Held yours;
+    yours.on.assign(tree.size(), Held::Free);
+    yours.delta.assign(tree.size(), Quaternion::identity());
+    yours.step.assign(tree.size(), Vector3f{0, 0, 0});
+    yours.source.assign(tree.size(), TPoseSource::None);
+    const auto saved = [&](u32 node) -> const PoseDelta* {
+        const NodeSkinSetup& skin = tree.nodes[node].skin;
+        return inputs.keep < owner.testPoses.size() && inputs.keep < skin.poseDeltas.size()
+                   ? &skin.poseDeltas[inputs.keep]
+                   : nullptr;
+    };
+    const auto savedSource = [&](u32 node) {
+        const NodeSkinSetup& skin = tree.nodes[node].skin;
+        return inputs.keep < owner.testPoses.size() && inputs.keep < skin.poseSources.size()
+                   ? skin.poseSources[inputs.keep]
+                   : TPoseSource::None;
+    };
+    const auto hold = [&](u32 node, u8 kind) {
+        if (node >= tree.size() || yours.kept(node)) {
+            return;
+        }
+        yours.on[node] = kind;
+        yours.source[node] = savedSource(node);
+        if (const PoseDelta* delta = saved(node)) {
+            yours.delta[node] = delta->rotation.normalized();
+            yours.step[node] = delta->translation;
+        }
+    };
+    for (u32 n = 0; n < tree.size(); ++n) {
+        if (savedSource(n) == TPoseSource::You) {
+            hold(n, Held::Kept);
+        } else if (savedSource(n) == TPoseSource::Clips) {
+            hold(n, Held::Start);
         }
     }
-
-    if (!result.joints.empty()) {
-        carried = Accumulate(tree, order, result.joints);
-    }
+    carried = Carry(tree, order, yours, result);
 
     // --- the figure's own frame --------------------------------------------
     //
@@ -1037,7 +1184,7 @@ TPoseResult SolveTPose(const Document& document, u32 model, const TPoseRules& ru
         }
         const std::vector<u32> above =
             tip == kInvalidNode ? std::vector<u32>{} : ChainAbove(tree, tip, kSpineChain);
-        if (!above.empty() && !yours[tip]) {
+        if (!above.empty() && !yours.kept(tip)) {
             // Where the spine stands NOW, for the reason `RestOf` says: the
             // square has already moved it, and a press taken from the file's
             // rest would solve a figure that is no longer there.
@@ -1052,24 +1199,45 @@ TPoseResult SolveTPose(const Document& document, u32 model, const TPoseRules& ru
                 reach += Gap(press[i + 1], press[i]);
             }
             if (reach > 1e-4f) {
+                // R§3.6: the head where the twin's trunk puts it, the chain's
+                // own span kept so a curve that is the twin's stays one; else
+                // straight up. The twin's neck is its last segment's aim, not
+                // the whole trunk's — along it the figure would pitch by the
+                // neck's lean — so with a neck to lean, the chain below it
+                // reaches for where the neck must stand for the head to land
+                // there, and the neck then leans as the twin's.
+                const bool twinned = donor != nullptr && donor->trunk.length_squared() > 0;
+                const bool leans = twinned && donor->headBone.length_squared() > 0 && above.size() >= 2;
+                const Vector3f head = twinned ? press.front() + Unit(donor->trunk) * Gap(press.back(), press.front())
+                                              : press.front() + Vector3f{0, 0, 1} * reach;
+                const Vector3f neck = press.back() - press[press.size() - 2];
                 IkGoal goal;
-                // R§3.6: the head aimed where the twin's is, else straight up.
-                const Vector3f up = donor != nullptr && donor->headBone.length_squared() > 0
-                                        ? Unit(donor->headBone)
-                                        : Vector3f{0, 0, 1};
-                goal.position = press.front() + up * reach;
+                goal.position = leans ? head - Unit(donor->headBone) * neck.length() : head;
                 goal.holdOrientation = false;
-                const ChainSolve solve = SolveChain(press, Quaternion::identity(), goal);
+                const ChainSolve solve = SolveChain(
+                    std::span<const Vector3f>(press.data(), leans ? above.size() : press.size()),
+                    Quaternion::identity(), goal);
                 if (solve.ok) {
                     // Composed onto what each joint already holds — the square
                     // may have turned one — given what its parent now does.
                     std::vector<u32> chain = above;
                     chain.push_back(tip);
                     std::vector<Quaternion> turns(solve.deltas.begin(), solve.deltas.end());
-                    turns.resize(above.size(), Quaternion::identity());
-                    turns.push_back(solve.endDelta);
+                    if (leans) {
+                        // The neck's own turn: its segment, carried by the turns
+                        // below it, onto the twin's. The head rides it.
+                        Quaternion asked = Quaternion::identity();
+                        for (const Quaternion& turn : turns) {
+                            asked = (turn * asked).normalized();
+                        }
+                        turns.push_back(ArcBetween(Rotate(asked, neck), donor->headBone));
+                        turns.push_back(Quaternion::identity());
+                    } else {
+                        turns.resize(above.size(), Quaternion::identity());
+                        turns.push_back(solve.endDelta);
+                    }
                     PushChain(result, chain, turns, yours, TPoseSource::Record);
-                    carried = Accumulate(tree, order, result.joints);
+                    carried = Carry(tree, order, yours, result);
                 }
             }
         }
@@ -1186,6 +1354,7 @@ TPoseResult SolveTPose(const Document& document, u32 model, const TPoseRules& ru
     //
     // In the hierarchy's order, so a limb nested under another is pressed where
     // the one above it has left it rather than where the file rested it.
+    std::vector<u8> inBand(tree.size(), 0);
     for (const u32 n : order) {
         const NodeRig& rig = tree.nodes[n].rig;
         if (rig.role != RigRole::End || rig.limb == RigLimb::Other) {
@@ -1204,9 +1373,17 @@ TPoseResult SolveTPose(const Document& document, u32 model, const TPoseRules& ru
             result.limbs.push_back(row);
             continue;
         }
-        if (yours[limb->upper] || yours[limb->lower] || yours[limb->end]) {
-            // Where a person put it is where it goes.
+        const u32 joints[] = {limb->upper, limb->lower, limb->hock, limb->end};
+        if (std::any_of(std::begin(joints), std::end(joints), [&](u32 j) { return yours.kept(j); })) {
+            // Where a person put it is where it goes, and the rest of the limb
+            // stays where it stood with it: a joint of it left out would be
+            // stored as the bind under the one that was set.
+            for (const u32 j : joints) {
+                hold(j, Held::Kept);
+            }
+            carried = Carry(tree, order, yours, result);
             row.landing = TPoseLanding::OnTarget;
+            row.held = true;
             result.limbs.push_back(row);
             continue;
         }
@@ -1214,9 +1391,10 @@ TPoseResult SolveTPose(const Document& document, u32 model, const TPoseRules& ru
         // and the weapon in it, both walked up to the same elbow. Turning the
         // pair twice adds the two solves together, so the second is reported
         // rather than worked around (§5.3): on `chaosspaceorc.mdx` that is the
-        // difference between an arm 98 degrees off +Y and one on it.
+        // difference between an arm 98 degrees off +Y and one on it. A row the
+        // solve started from is no turn of another limb's.
         const auto alreadyTurned = [&](u32 node) {
-            return node != kInvalidNode &&
+            return node != kInvalidNode && !yours[node] &&
                    std::any_of(result.joints.begin(), result.joints.end(),
                                [node](const TPoseJoint& joint) { return joint.node == node; });
         };
@@ -1243,60 +1421,50 @@ TPoseResult SolveTPose(const Document& document, u32 model, const TPoseRules& ru
         // press is where the turns above have put it — the square, a limb
         // above, yours. An axis left behind by the figure's own yaw is not
         // square to the bones any more, and a hinge that is not square cannot
-        // bend the limb where it is asked.
-        setup.hinge = Unit(Turned(row.hinge.axis, carried[limb->lower]));
-        // And square to the bones. A measured hinge is a few degrees off the
-        // plane the rest bones bend in (a knee twists as it bends), and a
-        // hinge not square to both bones sweeps the Lower round a cone that
-        // never reaches the Upper's line — the DE grunt's straight twin was
-        // out of reach by 18 degrees. At rest the hinge only has to say which
-        // way the joint bends; the swivel below puts the plane where the
-        // target has it. So: the plane the limb bends in now, turned to agree
-        // with the measurement, or for a limb pressed straight the
-        // measurement squared off its line.
-        {
-            const Vector3f u = rest.press.lower - rest.press.upper;
-            const Vector3f v = rest.press.end - rest.press.lower;
-            const Vector3f plane = ::whiteout::cross(u, v);
-            const f32 sine = plane.length() / std::max(u.length() * v.length(), 1e-12f);
-            if (sine > std::sin(2.0f / kDeg)) {
-                setup.hinge = Unit(plane) * (plane.dot(setup.hinge) < 0 ? -1.0f : 1.0f);
-            } else {
-                const Vector3f line = Unit(u + v);
-                const Vector3f square = setup.hinge - line * setup.hinge.dot(line);
-                if (square.length() > 1e-3f) {
-                    setup.hinge = Unit(square);
-                }
-            }
-        }
+        // bend the limb where it is asked; the swivel below puts the plane
+        // where the target has it.
+        setup.hinge = SquaredHinge(Unit(Turned(row.hinge.axis, carried[limb->lower])), rest.press);
         ApplyLimits(tree, *limb, row.hinge, setup);
+        setup.bendDeg = BendFromBind(tree, *limb, Unit(row.hinge.axis), carried);
 
         // R§3.0: the twin’s directions for this limb, else the canon’s; and
-        // the joint says which.
+        // the joint says which. Which rung the hinge came off is the row's
+        // own field, not the joint's source.
         bool fromDonor = false;
         const Vector3f upperWant =
             TargetOf(rig.limb, rig.side, RigRole::Upper, rules, twinOf[n], &fromDonor);
         const Vector3f lowerWant =
             TargetOf(rig.limb, rig.side, RigRole::Lower, rules, twinOf[n], nullptr);
-        const TPoseSource source = fromDonor                                  ? TPoseSource::Donor
-                                   : row.hinge.source == HingeSource::Clips ? TPoseSource::Clips
-                                                                            : TPoseSource::Record;
+        const TPoseSource source = fromDonor ? TPoseSource::Donor : TPoseSource::Record;
         // R§2's band: the table is a median, and a limb already within the
-        // canon's spread of it is a correct one, left alone. A twin is exact.
+        // canon's spread of it is a correct one, left alone — both its bones,
+        // or a forearm folded across the chest under a good upper arm would be
+        // left too. The Lower is judged against the Upper it hangs from: the
+        // table's, carried by the turn that stands the table's Upper where this
+        // one stands, so the bend is measured and not the Upper's lean twice.
+        // A twin is exact.
         if (!fromDonor && rules.canon.spreadDeg > 0) {
-            const Vector3f stands = rest.press.lower - rest.press.upper;
-            if (stands.length() > 1e-6f &&
-                std::acos(std::clamp(stands.normalized().dot(upperWant), -1.0f, 1.0f)) * 180.0f /
-                        kPi <=
-                    rules.canon.spreadDeg) {
+            const auto within = [&](const Vector3f& stands, const Vector3f& want, f32 spread) {
+                return stands.length() > 1e-6f && AngleDeg(stands, want) <= spread;
+            };
+            const Vector3f upperStands = rest.press.lower - rest.press.upper;
+            const f32 bend = rig.limb == RigLimb::Arm ? rules.canon.elbowSpreadDeg : rules.canon.kneeSpreadDeg;
+            if (within(upperStands, upperWant, rules.canon.spreadDeg) &&
+                within(rest.press.end - rest.press.lower, Rotate(ArcBetween(upperWant, upperStands), lowerWant), bend)) {
                 row.inCanon = true;
                 row.landing = TPoseLanding::OnTarget;
+                for (const u32 j : joints) {
+                    if (j < tree.size()) {
+                        inBand[j] = 1;
+                    }
+                }
                 // Left alone, but a foot still stands at its bind: the square
                 // may have levelled the pelvis it hangs from.
                 if (rig.limb == RigLimb::Leg) {
+                    Release(yours, result, limb->end, TPoseSource::Record);
                     PushJoint(result, limb->end, FromMatrix(carried[limb->end]).rotation.conjugate(),
                               TPoseSource::Record);
-                    carried = Accumulate(tree, order, result.joints);
+                    carried = Carry(tree, order, yours, result);
                 }
                 result.limbs.push_back(row);
                 continue;
@@ -1328,10 +1496,13 @@ TPoseResult SolveTPose(const Document& document, u32 model, const TPoseRules& ru
 
         LimbSolve solve = SolveLimb(press, setup, goal);
         if (!solve.ok) {
-            row.refusal = TPoseRefusal::Unreachable;
+            // `SolveLimb` refuses a bone with no length or a limb with no hinge,
+            // and says which by nothing else.
+            row.refusal = setup.hinge.length_squared() == 0 ? TPoseRefusal::NoHinge : TPoseRefusal::ZeroLength;
             result.limbs.push_back(row);
             continue;
         }
+        const bool reached = solve.reached;
         // R§3.3: the bend is about the hinge, and its plane is wherever the
         // hinge put it. The whole limb turns about its own Upper-to-End line
         // until that plane holds the target's — the twin's, else the canon's
@@ -1380,20 +1551,23 @@ TPoseResult SolveTPose(const Document& document, u32 model, const TPoseRules& ru
         row.landedDeg = std::max(row.aimDeg, AngleDeg(solve.end - solve.lower, lowerWant));
         row.landing = row.landedDeg > kAimTolerance ? TPoseLanding::Off : TPoseLanding::OnTarget;
         if (row.landing == TPoseLanding::Off) {
-            row.refusal =
-                setup.bendLimitsDeg ? TPoseRefusal::JointLimits : TPoseRefusal::Unreachable;
+            // The limits are the reason only where they bound: the same limb
+            // free of them reaches the goal this one stopped short of.
+            bool limited = false;
+            if (setup.bendLimitsDeg && !reached) {
+                LimbSetup free = setup;
+                free.bendLimitsDeg.reset();
+                limited = SolveLimb(press, free, goal).reached;
+            }
+            row.refusal = limited ? TPoseRefusal::JointLimits : TPoseRefusal::Unreachable;
         }
-        PushJoint(result, limb->upper, solve.upperDelta, source);
-        PushJoint(result, limb->lower, solve.lowerDelta, source);
 
         Quaternion endTurn = solve.endDelta;
         TPoseSource endSource = source;
         if (rules.handsAndFeet) {
             // R§3.4. The End's rest bone is carried by the turns above it
             // first — for a foot that is nothing, it was held — so what is
-            // left is the turn from there to the target. Where the file
-            // carries `BPOS` that rest bone is a real orientation and not a
-            // guess, which is what the row then says.
+            // left is the turn from there to the target.
             const Vector3f bone = BoneOf(tree, limb->end, carried);
             if (bone.length_squared() > 1e-12f) {
                 const auto carry = [&](const Vector3f& v) {
@@ -1429,12 +1603,16 @@ TPoseResult SolveTPose(const Document& document, u32 model, const TPoseRules& ru
                 }
                 if (endFromDonor) {
                     endSource = TPoseSource::Donor;
-                } else if (haveBindFrames) {
-                    endSource = TPoseSource::BindFrame;
                 }
             }
         }
-        PushJoint(result, limb->end, endTurn, endSource);
+        // Onto whatever the joints started from: a clip frame's rows are the
+        // press this solve was taken at.
+        for (const u32 j : {limb->upper, limb->lower, limb->end}) {
+            Release(yours, result, j, j == limb->end ? endSource : source);
+        }
+        solve.endDelta = endTurn;
+        PushOnto(result, *limb, solve, source, endSource);
 
         for (const TPoseJoint& joint : result.joints) {
             if (joint.node == limb->upper || joint.node == limb->lower || joint.node == limb->end) {
@@ -1443,7 +1621,7 @@ TPoseResult SolveTPose(const Document& document, u32 model, const TPoseRules& ru
         }
         result.limbs.push_back(row);
         // The next limb down is pressed where this one has left it.
-        carried = Accumulate(tree, order, result.joints);
+        carried = Carry(tree, order, yours, result);
     }
 
     // --- the ankles, level (R§3.5) -------------------------------------------
@@ -1504,8 +1682,8 @@ TPoseResult SolveTPose(const Document& document, u32 model, const TPoseRules& ru
             // Only two legs the solve placed: one it refused, or one it left
             // in the band, is where it was and is not this rule's to move.
             if (a == nullptr || b == nullptr || a->landing != TPoseLanding::OnTarget ||
-                b->landing != TPoseLanding::OnTarget || a->inCanon || b->inCanon ||
-                yours[left] || yours[right]) {
+                b->landing != TPoseLanding::OnTarget || a->inCanon || b->inCanon || a->held ||
+                b->held) {
                 continue;
             }
             // Level means the twin's own gap, to scale — none on nearly every
@@ -1531,8 +1709,12 @@ TPoseResult SolveTPose(const Document& document, u32 model, const TPoseRules& ru
             if (!now.ok || gap <= kLevelFloor * length || gap > kLevelCeiling * length) {
                 continue;
             }
+            // The hinge and the limits the leg's own solve bent it by, and the
+            // bend it already has, so the limits bound the whole of it.
             LimbSetup setup;
-            setup.hinge = Unit(Turned(row.hinge.axis, carried[limb.lower]));
+            setup.hinge = SquaredHinge(Unit(Turned(row.hinge.axis, carried[limb.lower])), now.press);
+            ApplyLimits(tree, limb, row.hinge, setup);
+            setup.bendDeg = BendFromBind(tree, limb, Unit(row.hinge.axis), carried);
             IkGoal goal;
             goal.position = now.press.end + Vector3f{0, 0, gap};
             goal.position = now.press.upper +
@@ -1547,9 +1729,22 @@ TPoseResult SolveTPose(const Document& document, u32 model, const TPoseRules& ru
                 continue;
             }
             // Onto the rows the leg's own solve wrote, whose source stays.
-            PushOnto(result, limb, solve, TPoseSource::Record);
+            PushOnto(result, limb, solve, TPoseSource::Record, TPoseSource::Record);
             row.raised = gap;
-            carried = Accumulate(tree, order, result.joints);
+            carried = Carry(tree, order, yours, result);
+            // The row says where the leg stands now: its aim traded for the
+            // stance, and the turns that took it there.
+            const LimbRest raised = RestOf(tree, limb, carried);
+            const Vector3f upperWant = TargetOf(RigLimb::Leg, row.side, RigRole::Upper, rules, twinOf[low], nullptr);
+            const Vector3f lowerWant = TargetOf(RigLimb::Leg, row.side, RigRole::Lower, rules, twinOf[low], nullptr);
+            row.aimDeg = AngleDeg(raised.press.lower - raised.press.upper, upperWant);
+            row.landedDeg = std::max(row.aimDeg, AngleDeg(raised.press.end - raised.press.lower, lowerWant));
+            row.turnDeg = 0;
+            for (const TPoseJoint& joint : result.joints) {
+                if (joint.node == limb.upper || joint.node == limb.lower || joint.node == limb.end) {
+                    row.turnDeg = std::max(row.turnDeg, joint.turnDeg);
+                }
+            }
         }
     }
 
@@ -1577,7 +1772,6 @@ TPoseResult SolveTPose(const Document& document, u32 model, const TPoseRules& ru
         // as solved and leave this rule with nothing to do.
         const auto solvedAt = [&](u32 n) { return turned[n] != kInvalidIndex && !framed[n]; };
         std::vector<u8> near(tree.size(), 0);
-        const std::vector<u32> order = PreOrder(tree);
         for (const u32 n : order) {
             const u32 parent = ParentOf(tree, n);
             if (parent != kInvalidNode && (near[parent] || solvedAt(parent))) {
@@ -1594,13 +1788,19 @@ TPoseResult SolveTPose(const Document& document, u32 model, const TPoseRules& ru
             skinning::BuildBoneMirror(tree, skinning::MirrorAxis::Y);
         for (u32 n = 0; n < mirror.size() && n < tree.size(); ++n) {
             const u32 partner = mirror[n].node;
-            if (partner >= tree.size() || partner == n || yours[n] || near[n] ||
-                turned[n] != kInvalidIndex || turned[partner] == kInvalidIndex) {
+            // Nor a limb the band left alone: it is already where the rule asks.
+            // Nor a partner's clip frame, which is a pose and not a solve.
+            if (partner >= tree.size() || partner == n || yours[n] || inBand[n] || near[n] ||
+                turned[n] != kInvalidIndex || turned[partner] == kInvalidIndex ||
+                yours.on[partner] == Held::Start) {
                 continue;
             }
+            // The solve's reflection of a hand-set turn, not a hand-set one.
             const TPoseJoint& from = solved[turned[partner]];
-            PushJoint(result, n, MirroredTurn(from.turn), from.source);
+            PushJoint(result, n, MirroredTurn(from.turn),
+                      from.source == TPoseSource::You ? TPoseSource::Record : from.source);
         }
+        Carry(tree, order, yours, result);
     }
 
     return result;
@@ -1827,7 +2027,8 @@ RigDirections DirectionsOf(const Model& model, std::span<const Transform> rest) 
             }
             d.upperDir = Unit(at(limb->lower) - at(limb->upper));
             d.lowerDir = Unit(at(limb->end) - at(limb->lower));
-            const u32 toe = FirstJointChild(tree, n);
+            // The bone the solve aims (`BoneOf`).
+            const u32 toe = AimChildOf(tree, n, at);
             d.bone = toe == kInvalidNode ? Vector3f{0, 0, 0} : Unit(at(toe) - at(n));
             d.up = Rotate(rest[n].rotation, Vector3f{0, 0, 1});
             d.spread = SpreadOf(tree, n, toe == kInvalidNode ? d.lowerDir : d.bone, at);
@@ -1856,6 +2057,11 @@ RigDirections DirectionsOf(const Model& model, std::span<const Transform> rest) 
             out.headBone = Unit(at(out.head) - at(parent));
         }
         out.headUp = Rotate(rest[out.head].rotation, Vector3f{0, 0, 1});
+        // The chain the spine rule turns, read the way it reads it.
+        const std::vector<u32> chain = ChainAbove(tree, out.head, kSpineChain);
+        if (!chain.empty()) {
+            out.trunk = Unit(at(out.head) - at(chain.front()));
+        }
     }
     // The axes the solve squares a figure by (`SquareFigure`): every limb a
     // side starts, averaged. The first Upper alone is a diagonal on a spider
@@ -1881,6 +2087,78 @@ RigDirections DirectionsOf(const Model& model, std::span<const Transform> rest) 
 
 RigDirections DirectionsAtBind(const Model& model) {
     return DirectionsOf(model, TPoseRest(model, TPoseResult{}));
+}
+
+std::vector<u32> TPoseNodes(const Document& document, u32 model) {
+    std::vector<u32> out;
+    if (model >= document.models.size()) {
+        return out;
+    }
+    // `DetectRig` reads the tree alone.
+    Model scratch;
+    scratch.nodes = document.models[model].nodes;
+    EnsureRig(scratch);
+    const NodeTree& tree = scratch.nodes;
+    std::vector<u8> taken(tree.size(), 0);
+    const auto keep = [&](u32 node) {
+        if (node < tree.size() && !taken[node]) {
+            taken[node] = 1;
+            out.push_back(node);
+        }
+    };
+    const auto at = [&](u32 n) { return RestPoint(tree, n); };
+    for (u32 n = 0; n < tree.size(); ++n) {
+        const NodeRig& rig = tree.nodes[n].rig;
+        if (rig.role != RigRole::End || rig.limb == RigLimb::Other) {
+            continue;
+        }
+        // The limb itself, every joint from its Upper down to its End — a twist
+        // between them carries the Lower, and the record names it again after
+        // the reduction.
+        if (const std::optional<Limb> limb = LimbOf(tree, n)) {
+            for (u32 joint = limb->end, steps = tree.size(); joint != kInvalidNode && steps > 0;
+                 joint = ParentOf(tree, joint), --steps) {
+                keep(joint);
+                if (joint == limb->upper) {
+                    break;
+                }
+            }
+        }
+        // Every joint the hand's roll is read from (`SpreadOf`), the aim among
+        // them.
+        for (const u32 below : tree.subtree(n)) {
+            const RigRole role = tree.nodes[below].rig.role;
+            if (below != n && IsJoint(tree, below) && role != RigRole::Prop && role != RigRole::Pad) {
+                keep(below);
+            }
+        }
+        // And every joint child before the aim (`AimChildOf`): reduced, a
+        // prop or a pad would hand its own children up to the End ahead of it.
+        const u32 aim = AimChildOf(tree, n, at);
+        for (const u32 child : tree.children(n)) {
+            if (child == aim) {
+                break;
+            }
+            if (IsJoint(tree, child)) {
+                keep(child);
+            }
+        }
+        // Children are listed in index order, and a reduced sibling hands its
+        // own to the End: one numbered below the aim would be read first, so
+        // that sibling stays too.
+        for (const u32 child : tree.children(n)) {
+            if (aim == kInvalidNode || child <= aim) {
+                continue;
+            }
+            for (const u32 below : tree.subtree(child)) {
+                if (below != child && below < aim && IsJoint(tree, below)) {
+                    keep(child);
+                    break;
+                }
+            }
+        }
+    }
+    return out;
 }
 
 f32 PitchDeg(const Vector3f& direction) {

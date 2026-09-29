@@ -169,10 +169,12 @@ struct Model {
     /// `Node::skin.poseDeltas[i]`, so removing a node takes its deltas with it.
     /// No file carries them.
     std::vector<TestPose> testPoses;
-    /// Which of them is the recovered T-pose (EDIT_MODE_TPOSE_DESIGN.md §7), or
-    /// `kInvalidIndex` for none. An index rather than a name because the list is
-    /// already indexed by every node's `poseDeltas`, and a rename must not lose
-    /// it. No exporter reads it.
+    /// Which of them is the pending repose — the pose the editor's Reposing
+    /// mode wears and makes the rest, a recovered T-pose among its authors
+    /// (EDIT_MODE_REPOSING_DESIGN.md §3) — or `kInvalidIndex` for none, where
+    /// the editor adopts one by its name and sets this on the first write. An
+    /// index rather than a name because the list is already indexed by every
+    /// node's `poseDeltas`, and a rename must not lose it. No exporter reads it.
     u32 tPose = kInvalidIndex;
 
     /// How the `.mdx` export makes levels of detail (`LodExport`).

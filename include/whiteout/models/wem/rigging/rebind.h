@@ -30,11 +30,16 @@
  *  - the linear part `S' * R' = L(b)^-1 * (S * R) * L(parent)`, where `L` is
  *    `B`'s rotation — so the **scale is untouched** and, in row vectors,
  *    `q' = q_parent * q * conj(q_b)`;
- *  - the translation `t' = t * L(parent)`, and **nothing else**: the pivot
- *    terms cancel identically, so `t = 0` stays `t = 0` and no translation
- *    track ever gains a key;
- *  - the pivots `p'(b) = p(b) * B(parent)`, which is what makes that
- *    cancellation happen and is therefore not a separate choice.
+ *  - the translation `t' = t * L(parent) - o(b)`, where `o(b) = p'(b) -
+ *    p(b) * B(parent)` is how far the node's new pivot sits off the place its
+ *    parent's move carries the old one. The pivot terms cancel into that one
+ *    constant. A rotation-only rest has `o(b) = 0`, and a node with an offset
+ *    and no translation track a clip reads gains one constant key there — a
+ *    rotation the same way — in the interpolation its channel has elsewhere;
+ *  - the pivots `p'(b)` are the rest's own translations.
+ *
+ * The constant goes on a key's value and on a `Bezier` key's handles, which
+ * are positions, never on a `Hermite` key's tangents, which are derivatives.
  *
  * Because every one of those is a **constant** map applied to each key at its
  * own unchanged time, and every interpolation WEM has is linear in its control
@@ -52,6 +57,7 @@
 
 #include "../diagnostics.h"
 #include "../document.h"
+#include "../skinning/setup.h"
 
 namespace whiteout {
 namespace models {
@@ -63,8 +69,8 @@ enum class RebindCase : u8 {
     NonUniformScale,  ///< The node's scale is not the same on every axis.
     DontInherit,      ///< It refuses part of its parent's frame.
     Billboard,        ///< The runtime faces it at the camera, rest or no rest.
-    CollisionShape,   ///< Model-space geometry under a node that turned.
-    GlobalSequence,   ///< A rotation track on a clock of its own.
+    CollisionShape,   ///< Model-space geometry its parent moved, or its own node turned.
+    GlobalSequence,   ///< A track on a clock of its own, rewritten.
     Count
 };
 
@@ -85,6 +91,17 @@ struct RebindOptions {
     /// And it stops there, however many clips the model has, so that pressing
     /// a button on a model with three hundred of them is still a button press.
     u32 maxSampleFrames = 512;
+    /// Take the change (EDIT_MODE_REPOSING_DESIGN.md §5.3): one `PoseDelta`
+    /// per node, laid over every key of every clip — the rotation by the plain
+    /// product `delta * key`, the translation added — before the keys are
+    /// re-bound, so the clips play the pose too. Empty is *play as before*; a
+    /// rest that moves nothing re-binds nothing and carries nothing.
+    ///
+    /// The plain product and not a composition through matrices: a sign a
+    /// matrix round trip canonicalises would move a key pair's raw dot across
+    /// `Wc3Slerp`'s 0.9, and the curve between them would no longer be the
+    /// one carried.
+    std::span<const PoseDelta> carry;
 };
 
 struct RebindResult {
@@ -94,7 +111,7 @@ struct RebindResult {
     u32 keysRewritten = 0;
     u32 keysAdded = 0;
     u32 shapesMoved = 0;
-    /// The four cases of §5.3, one row per node that has one.
+    /// The structural cases of §5.3, one row per node and case.
     std::vector<RebindStructural> cases;
     /// The worst vertex's move as a share of the model's size — what §5.3
     /// measures a re-bind's cost in. It is the spread between what a blended
@@ -119,7 +136,9 @@ struct RebindResult {
  *
  * The caller builds it — `TPoseRest` (rigging/tpose.h) for a recovered T-pose,
  * a sampled clip frame for "bake this pose". A span of the wrong length is
- * refused rather than half-applied.
+ * refused rather than half-applied, and so is a rig that is not
+ * `PivotRelative`: the identity above is a pivot rig's. A non-empty
+ * `RebindOptions::carry` is one per node too.
  *
  * Extents are **not** recomputed here: they are the union over the clips, which
  * the editor already computes its own way (`RecomputeExtents`), and doing it
@@ -136,7 +155,8 @@ RebindResult Rebind(Document& document, u32 model, std::span<const Transform> re
  * asked here rather than worked out by the caller, so the skinning that answers
  * it is the skinning that will run.
  *
- * An empty extent when @p rest is the wrong length or the model has no mesh.
+ * An empty extent when @p rest is the wrong length, the model has no mesh, or
+ * its rig is not `PivotRelative`.
  */
 Extent RestExtent(const Model& model, std::span<const Transform> rest);
 

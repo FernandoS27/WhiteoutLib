@@ -18,6 +18,7 @@
  * renumbers an index by hand.
  */
 
+#include <functional>
 #include <vector>
 
 #include <whiteout/common_types.h>
@@ -44,6 +45,10 @@ struct OptimizeOptions {
     /// document, since the other three bind animation from outside the model
     /// (§4.4).
     bool reduceNodesOfEveryGame = false;
+    /// Nodes the node pass leaves whatever its rules say, by index, asked once
+    /// per model before its nodes are reduced: what the caller still reads the
+    /// document by. Unset keeps none.
+    std::function<std::vector<u32>(const Document& document, u32 model)> keepNodes;
     /// Merge duplicate textures and material slots, and drop unused ones.
     bool mergeMaterials = true;
     /// Remove the keys no frame can tell apart (`ReduceKeysExactly`), first,

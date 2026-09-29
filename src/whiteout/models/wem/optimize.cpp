@@ -570,13 +570,22 @@ bool ReduciblePayload(const Node& node) {
 }
 
 /// Pass 4 on one model. Returns old -> new, empty when nothing went.
-std::vector<u32> ReduceNodes(Document& document, u32 model, OptimizeReport& report) {
+std::vector<u32> ReduceNodes(Document& document, u32 model, const OptimizeOptions& options,
+                             OptimizeReport& report) {
     Model& owner = document.models[model];
     NodeTree& tree = owner.nodes;
     if (tree.empty()) {
         return {};
     }
     const NodeFacts facts = FactsOf(document, model);
+    std::vector<u8> kept(tree.size(), 0);
+    if (options.keepNodes) {
+        for (const u32 n : options.keepNodes(document, model)) {
+            if (n < kept.size()) {
+                kept[n] = 1;
+            }
+        }
+    }
     const bool classic = document.carries(ProfileId::Wc3Classic);
     const bool pivot = tree.rig == RigConvention::PivotRelative;
 
@@ -596,7 +605,8 @@ std::vector<u32> ReduceNodes(Document& document, u32 model, OptimizeReport& repo
         }
     }
     const auto untouchable = [&](u32 n) {
-        return !ReduciblePayload(tree.nodes[n]) || facts.named[n] != 0 || facts.engine[n] != 0;
+        return !ReduciblePayload(tree.nodes[n]) || facts.named[n] != 0 || facts.engine[n] != 0 ||
+               kept[n] != 0;
     };
 
     // A model with geometry keeps a bone: an `.mdx` with none is a shape no
@@ -1139,7 +1149,7 @@ OptimizeReport OptimizeDocument(Document& document, const OptimizeOptions& optio
     for (u32 m = 0; m < document.models.size(); ++m) {
         ModelOptimizeReport& model = report.models[m];
         if (ReducesNodes(document, options)) {
-            model.nodeRemap = ReduceNodes(document, m, report);
+            model.nodeRemap = ReduceNodes(document, m, options, report);
         }
         if (!options.mergeMeshes) {
             continue;

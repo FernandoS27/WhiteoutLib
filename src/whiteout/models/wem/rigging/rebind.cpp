@@ -4,12 +4,14 @@
 #include "whiteout/models/wem/rigging/rebind.h"
 
 #include "whiteout/models/wem/anim/pose.h"
+#include "whiteout/models/wem/anim/track_read.h"
 #include "whiteout/models/wem/rigging/limbs.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace whiteout {
 namespace models {
@@ -29,6 +31,14 @@ Vector3f Turn(const Quaternion& q, const Vector3f& v) {
 
 bool IsIdentity(const Quaternion& q) {
     return std::fabs(std::fabs(q.w) - 1.0f) < 1e-7f;
+}
+
+/// A constant turn this small is the rounding of two readings of one frame —
+/// a node its parent carries rigidly, read once through a matrix — and a key of
+/// it would declare a channel for nothing. `IsIdentity`'s 1e-7 is below one
+/// ulp of `w`; this is on the axis, about 2e-4 of a degree.
+bool Negligible(const Quaternion& q) {
+    return Vector3f{q.x, q.y, q.z}.length() < 2e-6f;
 }
 
 /// One node's move, in the model's space: `v -> (v - from) * turn + to`.
@@ -113,13 +123,12 @@ std::unordered_map<u32, NodeChannel> NodeChannels(const Model& model) {
     return out;
 }
 
-/// The rotation channel a node is keyed on, declaring one if it has none — a
-/// node the re-bind turned needs somewhere to put its constant key.
-u32 RotationChannelOf(Model& model, u32 node) {
+/// The channel a node is keyed on for @p which, declaring one if it has none —
+/// a node the re-bind moved needs somewhere to put its constant key.
+u32 NodeChannelOf(Model& model, u32 node, Channel which, geom::AttrType type) {
     for (const AnimChannel& channel : model.animChannels.channels) {
         if (channel.target.kind == TrackTarget::Kind::Node && channel.target.node == node &&
-            channel.target.channel == Channel::Rotation &&
-            channel.valueType == geom::AttrType::Quat) {
+            channel.target.channel == which && channel.valueType == type) {
             return channel.id;
         }
     }
@@ -127,9 +136,17 @@ u32 RotationChannelOf(Model& model, u32 node) {
     made.id = model.animChannels.nextFreeId();
     made.target.kind = TrackTarget::Kind::Node;
     made.target.node = node;
-    made.target.channel = Channel::Rotation;
-    made.valueType = geom::AttrType::Quat;
+    made.target.channel = which;
+    made.valueType = type;
     return model.animChannels.add(made);
+}
+
+u32 RotationChannelOf(Model& model, u32 node) {
+    return NodeChannelOf(model, node, Channel::Rotation, geom::AttrType::Quat);
+}
+
+u32 TranslationChannelOf(Model& model, u32 node) {
+    return NodeChannelOf(model, node, Channel::Translation, geom::AttrType::F32x3);
 }
 
 void WriteQuat(std::vector<u8>& into, std::size_t at, const Quaternion& q) {
@@ -166,6 +183,38 @@ std::vector<Move> MovesOf(const NodeTree& tree, std::span<const Transform> rest)
             !IsIdentity(move[n].turn) || (move[n].to - move[n].from).length() > kTiny;
     }
     return move;
+}
+
+/// An offset under this share of the model is the rounding of the caller's
+/// own composition, not a move. `TPoseRest` carries a pivot through matrices
+/// and this file through quaternions: over the five HD T-poses `rebind_test`
+/// re-binds, the widest gap is 1.21e-07 of the model (the grunt), so 100x that.
+constexpr f32 kOffsetTiny = 1.2e-05f;
+
+/// Where each node's new pivot sits off the place its parent's move carries
+/// the old one, `o_b = p'_b - m_parent(p_b)`: what a key's translation gives
+/// back so a node that moved on its own still plays where it played. Zero,
+/// snapped, for a rotation-only rest; a free move, a clip frame or the grid
+/// lift makes one.
+std::vector<Vector3f> OffsetsOf(const NodeTree& tree, const std::vector<Move>& move, f32 size) {
+    std::vector<Vector3f> offset(tree.size(), Vector3f{0, 0, 0});
+    for (u32 n = 0; n < tree.size(); ++n) {
+        const u32 parent = ParentOf(tree, n);
+        const bool carried = parent != kInvalidNode && move[parent].moves;
+        if (!move[n].moves && !carried) {
+            continue;
+        }
+        const Vector3f off = move[n].to - (carried ? move[parent].point(move[n].from)
+                                                   : move[n].from);
+        if (off.length() > kOffsetTiny * size) {
+            offset[n] = off;
+        }
+    }
+    return offset;
+}
+
+bool Shifted(const Vector3f& offset) {
+    return offset.x != 0.0f || offset.y != 0.0f || offset.z != 0.0f;
 }
 
 /// Which bones hold each vertex: the binding where there is one, and a
@@ -218,6 +267,223 @@ bool Landing(const std::vector<geom::Influence>& holds, const std::vector<Move>&
     }
     out = moved * (1.0f / weight);
     return true;
+}
+
+/// Which node channels each of @p model's clips READS, in any container: what
+/// the constant passes ask once per node and clip, looked up rather than
+/// walked. A sub-track is read where its clip's rule reads a key of it — under
+/// `Wc3` only the keys inside the window, so the bracket an importer slices
+/// round a sequence that keys nothing plays the rest there — and only the first
+/// of its channel in a container is read at all (`SubTrackContainer::find`).
+/// A snapshot, so it is taken after the writes it has to see.
+struct ClipKeys {
+    const Document& document;
+    std::vector<std::vector<u32>> rotation;          ///< Per node, its channel ids.
+    std::vector<std::vector<u32>> translation;       ///< Per node, its channel ids.
+    std::vector<std::unordered_set<u32>> keyed;      ///< Per clip; empty for another model's.
+    std::unordered_map<u32, Interpolation> interpOf; ///< Per channel, as a clip keys it.
+
+    ClipKeys(const Document& in, u32 model) : document(in) {
+        const Model& owner = in.models[model];
+        rotation.resize(owner.nodes.size());
+        translation.resize(owner.nodes.size());
+        std::unordered_map<u32, geom::AttrType> typeOf;
+        for (const AnimChannel& channel : owner.animChannels.channels) {
+            if (channel.target.kind != TrackTarget::Kind::Node ||
+                channel.target.node >= owner.nodes.size()) {
+                continue;
+            }
+            if (channel.target.channel == Channel::Rotation) {
+                rotation[channel.target.node].push_back(channel.id);
+            } else if (channel.target.channel == Channel::Translation) {
+                translation[channel.target.node].push_back(channel.id);
+            } else {
+                continue;
+            }
+            typeOf.emplace(channel.id, channel.valueType);
+        }
+        keyed.resize(in.clips.size());
+        for (u32 c = 0; c < in.clips.size(); ++c) {
+            const Clip& clip = in.clips[c];
+            if (clip.model != model) {
+                continue;
+            }
+            const SampleWindow window = ClipWindow(clip, 0, -1);
+            for (const SubTrackContainer& container : clip.containers) {
+                std::unordered_set<u32> first;
+                for (const SubTrack& track : container.subTracks) {
+                    const auto type = typeOf.find(track.channel);
+                    if (type == typeOf.end() || !first.insert(track.channel).second ||
+                        track.times.empty()) {
+                        continue;
+                    }
+                    interpOf.emplace(track.channel, track.interp);
+                    if (ReadTrack(clip, track, type->second, window)) {
+                        keyed[c].insert(track.channel);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Whether clip @p clip reads @p node's @p which channel.
+    bool keys(u32 clip, u32 node, Channel which) const {
+        for (const u32 id : (which == Channel::Rotation ? rotation : translation)[node]) {
+            if (keyed[clip].count(id) != 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// Whether a global loop reads it: a node keyed on a loop of its own plays
+    /// that track through every clip, and a second would claim it.
+    bool onLoop(u32 node, Channel which) const {
+        for (u32 c = 0; c < keyed.size(); ++c) {
+            if (IsGlobalLoop(document.clips[c]) && keys(c, node, which)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// The interpolation @p channel is keyed in elsewhere, @p otherwise where
+    /// no clip keys it.
+    Interpolation interp(u32 channel, Interpolation otherwise) const {
+        const auto found = interpOf.find(channel);
+        return found == interpOf.end() ? otherwise : found->second;
+    }
+};
+
+/// Whether @p clip may take a constant for a node: a loop plays over every
+/// clip and keys only what it animates (its container abstains on the rest),
+/// so a constant there would override the node in every clip.
+bool TakesConstant(const Clip& clip, u32 model) {
+    return clip.model == model && !clip.containers.empty() && !IsGlobalLoop(clip);
+}
+
+/// Makes @p clip play @p channel at one value, a turn @p q or a step @p t: a
+/// key in the sub-track the clip has for it where that one is read nowhere in
+/// the window — the first of a channel is the one read, so a second would be
+/// ignored — else a sub-track of its own. In the interpolation the channel is
+/// keyed in elsewhere: `toMdx` writes a channel's clips as ONE track, and a
+/// part with fewer values per key would flatten every curve it has. Flat, so
+/// every control point of a turn is the turn, a Bezier handle is the step and
+/// a Hermite tangent (a derivative) is zero.
+void PutConstant(Clip& clip, u32 channel, Interpolation interp, bool rotation, const Quaternion& q,
+                 const Vector3f& t) {
+    SubTrack* into = nullptr;
+    for (SubTrackContainer& container : clip.containers) {
+        for (SubTrack& track : container.subTracks) {
+            if (track.channel == channel) {
+                into = &track;
+                break;
+            }
+        }
+        if (into != nullptr) {
+            break;
+        }
+    }
+    if (into == nullptr) {
+        clip.containers.front().subTracks.emplace_back();
+        into = &clip.containers.front().subTracks.back();
+    }
+    *into = SubTrack{};
+    into->channel = channel;
+    into->interp = interp;
+    into->times.push_back(0.0f);
+    const u32 stride = ValuesPerKey(interp);
+    const std::size_t each = (rotation ? 4 : 3) * sizeof(f32);
+    into->values.resize(stride * each);
+    for (u32 k = 0; k < stride; ++k) {
+        if (rotation) {
+            WriteQuat(into->values, k * each, q);
+        } else {
+            WriteVec3(into->values, k * each,
+                      k == 0 || interp == Interpolation::Bezier ? t : Vector3f{0, 0, 0});
+        }
+    }
+}
+
+/// Take the change (§5.3): every key of each posed node with its delta laid
+/// over it, as `PoseNodes` lays one over a sampled frame — a node with a delta
+/// and no track a clip reads gains a constant — before the re-bind proper runs
+/// as it does for play as before. Both are constant maps per key, so the
+/// curve between keys is carried exactly. The keys it lays a delta over are
+/// counted once, by the key pass that re-binds them after; the constants it
+/// puts are counted as added, and @p constants names them per clip so that pass
+/// does not count them again.
+void CarryPose(Document& document, u32 model, std::span<const PoseDelta> carry,
+               RebindResult& result, std::vector<std::unordered_set<u32>>& constants) {
+    Model& owner = document.models[model];
+    const u32 count = owner.nodes.size();
+    const std::unordered_map<u32, NodeChannel> channels = NodeChannels(owner);
+    const ClipKeys index(document, model);
+    const auto turns = [&](u32 n) { return !IsIdentity(carry[n].rotation.normalized()); };
+    const auto steps = [&](u32 n) { return carry[n].translation.length() > 0.0f; };
+    for (Clip& clip : document.clips) {
+        if (clip.model != model) {
+            continue;
+        }
+        for (SubTrackContainer& container : clip.containers) {
+            for (SubTrack& track : container.subTracks) {
+                const auto found = channels.find(track.channel);
+                if (found == channels.end() || found->second.node >= count) {
+                    continue;
+                }
+                const u32 node = found->second.node;
+                const u32 stride = ValuesPerKey(track.interp);
+                if (found->second.channel == Channel::Rotation && turns(node)) {
+                    // Left-multiplying every control point by one unit
+                    // quaternion keeps every raw dot, so `Wc3Slerp` and
+                    // `Wc3Squad` read the same curve, turned.
+                    const Quaternion delta = carry[node].rotation.normalized();
+                    const std::size_t each = 4 * sizeof(f32);
+                    const std::size_t keys =
+                        std::min(track.times.size(), track.values.size() / (stride * each));
+                    for (std::size_t k = 0; k < keys * stride; ++k) {
+                        WriteQuat(track.values, k * each, delta * ReadQuat(track.values, k * each));
+                    }
+                } else if (found->second.channel == Channel::Translation && steps(node)) {
+                    // The constant on values and Bezier handles, never on a
+                    // Hermite tangent (a derivative), as §5.1's offset.
+                    const bool handles = track.interp == Interpolation::Bezier;
+                    const std::size_t each = 3 * sizeof(f32);
+                    const std::size_t keys =
+                        std::min(track.times.size(), track.values.size() / (stride * each));
+                    for (std::size_t k = 0; k < keys * stride; ++k) {
+                        if (k % stride == 0 || handles) {
+                            WriteVec3(track.values, k * each,
+                                      ReadVec3(track.values, k * each) + carry[node].translation);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    constants.assign(document.clips.size(), {});
+    for (u32 n = 0; n < count; ++n) {
+        for (const Channel which : {Channel::Rotation, Channel::Translation}) {
+            const bool rotation = which == Channel::Rotation;
+            if (!(rotation ? turns(n) : steps(n)) || index.onLoop(n, which)) {
+                continue;
+            }
+            for (u32 c = 0; c < document.clips.size(); ++c) {
+                Clip& clip = document.clips[c];
+                if (!TakesConstant(clip, model) || index.keys(c, n, which)) {
+                    continue;
+                }
+                const u32 channel =
+                    rotation ? RotationChannelOf(owner, n) : TranslationChannelOf(owner, n);
+                const Interpolation interp =
+                    index.interp(channel, rotation ? Interpolation::Slerp : Interpolation::Linear);
+                PutConstant(clip, channel, interp, rotation, carry[n].rotation.normalized(),
+                            carry[n].translation);
+                constants[c].insert(channel);
+                ++result.keysAdded;
+            }
+        }
+    }
 }
 
 /// Every node, parents before children — the hierarchy's order, not the
@@ -280,6 +546,21 @@ RebindResult Rebind(Document& document, u32 model, std::span<const Transform> re
                                      std::to_string(tree.size()) + " nodes");
         return result;
     }
+    // D§5.6: the identity above is a pivot rig's. An explicit bind stores a
+    // frame per node that this would have to derive, and a half-derived one is
+    // a model that disagrees with itself.
+    if (tree.rig != RigConvention::PivotRelative) {
+        result.diagnostics.error(DiagCode::Unspecified,
+                                 "a re-bind moves pivots, and this rig binds by explicit frames");
+        return result;
+    }
+    if (!options.carry.empty() && options.carry.size() != tree.size()) {
+        result.diagnostics.error(DiagCode::Unspecified,
+                                 "taking the change carries one delta per node: " +
+                                     std::to_string(options.carry.size()) + " for " +
+                                     std::to_string(tree.size()) + " nodes");
+        return result;
+    }
     if (tree.empty()) {
         result.ok = true;
         return result;
@@ -303,38 +584,6 @@ RebindResult Rebind(Document& document, u32 model, std::span<const Transform> re
         return parent == kInvalidNode ? still : move[parent];
     };
 
-    // --- 2. the four structural cases, counted and never worked around ------
-    for (u32 n = 0; n < tree.size(); ++n) {
-        if (!move[n].moves && !parentMove(n).moves) {
-            continue;
-        }
-        const Node& node = tree.nodes[n];
-        const Vector3f& s = node.local.scale;
-        if (std::fabs(s.x - s.y) > 1e-4f || std::fabs(s.y - s.z) > 1e-4f) {
-            result.cases.push_back({RebindCase::NonUniformScale, n});
-        }
-        if (hasFlag(node.flags, NodeFlags::DontInheritTranslation) ||
-            hasFlag(node.flags, NodeFlags::DontInheritRotation) ||
-            hasFlag(node.flags, NodeFlags::DontInheritScale)) {
-            result.cases.push_back({RebindCase::DontInherit, n});
-        }
-        if (hasFlag(node.flags, NodeFlags::Billboarded) ||
-            hasFlag(node.flags, NodeFlags::BillboardLockX) ||
-            hasFlag(node.flags, NodeFlags::BillboardLockY) ||
-            hasFlag(node.flags, NodeFlags::BillboardLockZ)) {
-            result.cases.push_back({RebindCase::Billboard, n});
-        }
-        if (node.kind == NodeKind::CollisionShape && parentMove(n).moves) {
-            result.cases.push_back({RebindCase::CollisionShape, n});
-        }
-    }
-
-    // --- 3. the mesh --------------------------------------------------------
-    //
-    // A vertex goes where the bones it is bound to take it, by their weights —
-    // the one place a re-bind is not exact, because a vertex blended between
-    // two bones is skinned twice: once into this rest and once out of the old
-    // one (§5.3).
     // From the positions, not from `Mesh::bounds`: a mesh whose bounds nobody
     // has recomputed would make the worst vertex a share of nothing.
     f32 size = 1.0f;
@@ -350,11 +599,97 @@ RebindResult Rebind(Document& document, u32 model, std::span<const Transform> re
                 any = true;
             }
         }
-        if (any) {
-            const Vector3f span = high - low;
-            size = std::max(1.0f, std::max(span.x, std::max(span.y, span.z)));
+        // A model with no mesh is measured by its rig, or a snap meant as a
+        // share of it would be absolute.
+        for (u32 n = 0; n < tree.size() && !any; ++n) {
+            for (const Vector3f& p : {RestAt(tree, n), rest[n].translation}) {
+                low = Vector3f{std::min(low.x, p.x), std::min(low.y, p.y), std::min(low.z, p.z)};
+                high = Vector3f{std::max(high.x, p.x), std::max(high.y, p.y),
+                                std::max(high.z, p.z)};
+            }
+        }
+        const Vector3f span = high - low;
+        size = std::max(1.0f, std::max(span.x, std::max(span.y, span.z)));
+    }
+    const std::vector<Vector3f> offset = OffsetsOf(tree, move, size);
+
+    // --- 2. the structural cases, counted and never worked around ----------
+    //
+    // A stretch is one whether the rest holds it or a key does: a turn does
+    // not commute with a scale that differs by axis, so either one is moved
+    // only approximately. One walk of the sub-tracks, the channels looked up.
+    std::vector<u8> keyedStretch(tree.size(), 0);
+    std::unordered_map<u32, u32> scaleOf;
+    for (const AnimChannel& channel : owner.animChannels.channels) {
+        if (channel.target.kind == TrackTarget::Kind::Node &&
+            channel.target.channel == Channel::Scale &&
+            channel.valueType == geom::AttrType::F32x3 && channel.target.node < tree.size()) {
+            scaleOf.emplace(channel.id, channel.target.node);
         }
     }
+    for (const Clip& clip : document.clips) {
+        if (clip.model != model || scaleOf.empty()) {
+            continue;
+        }
+        for (const SubTrackContainer& container : clip.containers) {
+            for (const SubTrack& track : container.subTracks) {
+                const auto found = scaleOf.find(track.channel);
+                if (found == scaleOf.end() || keyedStretch[found->second] != 0) {
+                    continue;
+                }
+                const std::size_t each = 3 * sizeof(f32) * ValuesPerKey(track.interp);
+                for (std::size_t at = 0; at + each <= track.values.size(); at += each) {
+                    const Vector3f s = ReadVec3(track.values, at);
+                    if (std::fabs(s.x - s.y) > 1e-4f || std::fabs(s.y - s.z) > 1e-4f) {
+                        keyedStretch[found->second] = 1;
+                    }
+                }
+            }
+        }
+    }
+    for (u32 n = 0; n < tree.size(); ++n) {
+        if (!move[n].moves && !parentMove(n).moves) {
+            continue;
+        }
+        const Node& node = tree.nodes[n];
+        const Vector3f& s = node.local.scale;
+        if (std::fabs(s.x - s.y) > 1e-4f || std::fabs(s.y - s.z) > 1e-4f || keyedStretch[n] != 0) {
+            result.cases.push_back({RebindCase::NonUniformScale, n});
+        }
+        if (hasFlag(node.flags, NodeFlags::DontInheritTranslation) ||
+            hasFlag(node.flags, NodeFlags::DontInheritRotation) ||
+            hasFlag(node.flags, NodeFlags::DontInheritScale)) {
+            result.cases.push_back({RebindCase::DontInherit, n});
+        }
+        if (hasFlag(node.flags, NodeFlags::Billboarded) ||
+            hasFlag(node.flags, NodeFlags::BillboardLockX) ||
+            hasFlag(node.flags, NodeFlags::BillboardLockY) ||
+            hasFlag(node.flags, NodeFlags::BillboardLockZ)) {
+            result.cases.push_back({RebindCase::Billboard, n});
+        }
+        // Its parent's move, or a turn of its own; a step of its own alone
+        // moves a box exactly.
+        if (node.kind == NodeKind::CollisionShape &&
+            (parentMove(n).moves || !Negligible(parentMove(n).turn.conjugate() * move[n].turn))) {
+            result.cases.push_back({RebindCase::CollisionShape, n});
+        }
+    }
+
+    // Take the change, first: favouring the animations fits against the
+    // frames the chosen kind produces, and the key pass below re-binds keys
+    // the carry has already laid the pose over.
+    std::vector<std::unordered_set<u32>> carried(document.clips.size());
+    if (!options.carry.empty()) {
+        CarryPose(document, model, options.carry, result, carried);
+    }
+
+    // --- 3. the mesh --------------------------------------------------------
+    //
+    // A vertex goes where the bones it is bound to take it, by their weights —
+    // the one place a re-bind is not exact, because a vertex blended between
+    // two bones is skinned twice: once into this rest and once out of the old
+    // one (§5.3).
+    //
     // §5.5, favour the animations: the rest each vertex would need so that the
     // frames it is actually SEEN in move least, instead of the one a single
     // skinning puts it at. It runs here, before section 4 rewrites a key,
@@ -581,8 +916,8 @@ RebindResult Rebind(Document& document, u32 model, std::span<const Transform> re
     // A constant map per node, applied at each key's own unchanged time, so no
     // claim changes hands and no window moves (§5.4).
     const std::unordered_map<u32, NodeChannel> channels = NodeChannels(owner);
-    std::vector<u8> keyed(tree.size(), 0);
-    for (Clip& clip : document.clips) {
+    for (u32 c = 0; c < document.clips.size(); ++c) {
+        Clip& clip = document.clips[c];
         if (clip.model != model) {
             continue;
         }
@@ -598,9 +933,11 @@ RebindResult Rebind(Document& document, u32 model, std::span<const Transform> re
                 if (!self.moves && !above.moves) {
                     continue;
                 }
+                // The carry's constants are rewritten with the rest, and were
+                // counted as added.
+                const u32 counted = carried[c].count(track.channel) != 0 ? 0u : 1u;
                 const u32 stride = ValuesPerKey(track.interp);
                 if (found->second.channel == Channel::Rotation) {
-                    keyed[node] = 1;
                     const std::size_t each = 4 * sizeof(f32);
                     const std::size_t count =
                         std::min(track.times.size(), track.values.size() / (stride * each));
@@ -616,18 +953,28 @@ RebindResult Rebind(Document& document, u32 model, std::span<const Transform> re
                     // A tangent is a control point of the same curve, so it
                     // takes the same map; `tcb` derives its tangents linearly
                     // from the values and so needs no rewrite at all.
-                    result.keysRewritten += static_cast<u32>(count);
-                } else if (above.moves) {
+                    result.keysRewritten += static_cast<u32>(count) * counted;
+                } else if (above.moves || Shifted(offset[node])) {
                     const std::size_t each = 3 * sizeof(f32);
                     const std::size_t count =
                         std::min(track.times.size(), track.values.size() / (stride * each));
+                    // A Bezier handle is a position and takes the constant with
+                    // its key; a Hermite tangent is a derivative, which it does
+                    // not change.
+                    const bool handles = track.interp == Interpolation::Bezier;
                     for (std::size_t k = 0; k < count * stride; ++k) {
                         // The pivot terms cancel identically, so this is the
-                        // whole of it: a translation of zero stays zero.
-                        WriteVec3(track.values, k * each,
-                                  Turn(above.turn, ReadVec3(track.values, k * each)));
+                        // whole of it: `t * L(parent) - o_b`.
+                        Vector3f value = ReadVec3(track.values, k * each);
+                        if (above.moves) {
+                            value = Turn(above.turn, value);
+                        }
+                        if (Shifted(offset[node]) && (k % stride == 0 || handles)) {
+                            value = value - offset[node];
+                        }
+                        WriteVec3(track.values, k * each, value);
                     }
-                    result.keysRewritten += static_cast<u32>(count);
+                    result.keysRewritten += static_cast<u32>(count) * counted;
                 }
             }
         }
@@ -635,51 +982,72 @@ RebindResult Rebind(Document& document, u32 model, std::span<const Transform> re
 
     // A moved node with no rotation key in a clip still has to say where it
     // now rests, or the clip would play it at the identity it no longer holds.
-    for (Clip& clip : document.clips) {
-        if (clip.model != model || clip.containers.empty()) {
+    // A track the clip reads was already re-bound above, so only a clip that
+    // reads it nowhere gains one (`PutConstant`), never a loop
+    // (`TakesConstant`), and none at all where a loop reads it: that track
+    // plays through every clip.
+    const ClipKeys index(document, model);
+    for (u32 n = 0; n < tree.size(); ++n) {
+        const Move& self = move[n];
+        const Move& above = parentMove(n);
+        if (!self.moves && !above.moves) {
             continue;
         }
-        for (u32 n = 0; n < tree.size(); ++n) {
-            const Move& self = move[n];
-            const Move& above = parentMove(n);
-            if (!self.moves && !above.moves) {
+        const Quaternion constant = (above.turn * self.turn.conjugate()).normalized();
+        if (Negligible(constant) || index.onLoop(n, Channel::Rotation)) {
+            continue;
+        }
+        for (u32 c = 0; c < document.clips.size(); ++c) {
+            Clip& clip = document.clips[c];
+            if (!TakesConstant(clip, model) || index.keys(c, n, Channel::Rotation)) {
                 continue;
             }
-            const Quaternion constant = above.turn * self.turn.conjugate();
-            if (IsIdentity(constant)) {
-                continue;
-            }
-            SubTrackContainer& container = clip.containers.front();
             const u32 channel = RotationChannelOf(owner, n);
-            const auto has =
-                std::find_if(container.subTracks.begin(), container.subTracks.end(),
-                             [channel](const SubTrack& t) { return t.channel == channel; });
-            if (has != container.subTracks.end()) {
-                continue;
-            }
-            SubTrack added;
-            added.channel = channel;
-            added.interp = Interpolation::Slerp;
-            added.times.push_back(0.0f);
-            added.values.resize(4 * sizeof(f32));
-            WriteQuat(added.values, 0, constant);
-            container.subTracks.push_back(std::move(added));
+            PutConstant(clip, channel, index.interp(channel, Interpolation::Slerp), true, constant,
+                        Vector3f{0, 0, 0});
             ++result.keysAdded;
         }
     }
 
-    // Every rotation track on a clock of its own is a row of the report: it
-    // plays outside any clip's window, so a reader has to know it moved.
+    // And a node that moved off its parent's carry with no translation key has
+    // to give the offset back the same way, by the same rules.
+    for (u32 n = 0; n < tree.size(); ++n) {
+        if (!Shifted(offset[n]) || index.onLoop(n, Channel::Translation)) {
+            continue;
+        }
+        for (u32 c = 0; c < document.clips.size(); ++c) {
+            Clip& clip = document.clips[c];
+            if (!TakesConstant(clip, model) || index.keys(c, n, Channel::Translation)) {
+                continue;
+            }
+            const u32 channel = TranslationChannelOf(owner, n);
+            PutConstant(clip, channel, index.interp(channel, Interpolation::Linear), false,
+                        Quaternion::identity(), Vector3f{0, 0, 0} - offset[n]);
+            ++result.keysAdded;
+        }
+    }
+
+    // Every track on a clock of its own that the key pass rewrote is a row of
+    // the report, one a node: it plays outside any clip's window, so a reader
+    // has to know it moved.
+    std::vector<u8> looped(tree.size(), 0);
     for (const Clip& clip : document.clips) {
-        if (clip.model != model || !hasFlag(clip.flags, ClipFlags::WorldClocked)) {
+        if (clip.model != model || !IsGlobalLoop(clip)) {
             continue;
         }
         for (const SubTrackContainer& container : clip.containers) {
             for (const SubTrack& track : container.subTracks) {
                 const auto found = channels.find(track.channel);
-                if (found != channels.end() && found->second.node < tree.size() &&
-                    found->second.channel == Channel::Rotation && move[found->second.node].moves) {
-                    result.cases.push_back({RebindCase::GlobalSequence, found->second.node});
+                if (found == channels.end() || found->second.node >= tree.size()) {
+                    continue;
+                }
+                const u32 n = found->second.node;
+                const bool rewritten = found->second.channel == Channel::Rotation
+                                           ? move[n].moves || parentMove(n).moves
+                                           : parentMove(n).moves || Shifted(offset[n]);
+                if (rewritten && looped[n] == 0) {
+                    looped[n] = 1;
+                    result.cases.push_back({RebindCase::GlobalSequence, n});
                 }
             }
         }
@@ -721,11 +1089,16 @@ RebindResult Rebind(Document& document, u32 model, std::span<const Transform> re
         }
 
         // A collision shape's vertices are model-space geometry, not
-        // pivot-relative: `CLID` lands them verbatim.
+        // pivot-relative: `CLID` lands them verbatim. They go with the node's
+        // own move when it has one of its own; otherwise that move IS its
+        // parent's carry, and reading `above` keeps every such output as it was.
         if (auto* collision = std::get_if<CollisionPayload>(&node.payload)) {
-            if (above.moves) {
-                collision->shape.box.minimum = above.point(collision->shape.box.minimum);
-                collision->shape.box.maximum = above.point(collision->shape.box.maximum);
+            const bool own =
+                Shifted(offset[n]) || !Negligible(above.turn.conjugate() * self.turn);
+            const Move& carry = own ? self : above;
+            if (carry.moves) {
+                collision->shape.box.minimum = carry.point(collision->shape.box.minimum);
+                collision->shape.box.maximum = carry.point(collision->shape.box.maximum);
                 // A turned box comes back as a new axis-aligned one, which is a
                 // report row rather than a silent shrink.
                 const Vector3f low{std::min(collision->shape.box.minimum.x, collision->shape.box.maximum.x),
@@ -736,7 +1109,7 @@ RebindResult Rebind(Document& document, u32 model, std::span<const Transform> re
                                     std::max(collision->shape.box.minimum.z, collision->shape.box.maximum.z)};
                 collision->shape.box.minimum = low;
                 collision->shape.box.maximum = high;
-                collision->shape.sphere.center = above.point(collision->shape.sphere.center);
+                collision->shape.sphere.center = carry.point(collision->shape.sphere.center);
                 ++result.shapesMoved;
             }
         } else if (auto* camera = std::get_if<CameraPayload>(&node.payload)) {
@@ -768,7 +1141,8 @@ RebindResult Rebind(Document& document, u32 model, std::span<const Transform> re
 Extent RestExtent(const Model& model, std::span<const Transform> rest) {
     Extent out;
     ResetExtent(out);
-    if (rest.size() != model.nodes.size() || model.nodes.empty()) {
+    if (rest.size() != model.nodes.size() || model.nodes.empty() ||
+        model.nodes.rig != RigConvention::PivotRelative) {
         return out;
     }
     const std::vector<Move> move = MovesOf(model.nodes, rest);

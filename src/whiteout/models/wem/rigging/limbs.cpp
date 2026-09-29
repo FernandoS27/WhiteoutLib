@@ -70,8 +70,13 @@ std::optional<Limb> LimbOf(const NodeTree& tree, u32 node) {
     Limb limb;
     limb.end = end;
     std::vector<u32> hocks;
+    // A parent cycle of riders is a malformed tree, not a limb: no walk up
+    // takes more steps than there are nodes.
+    std::size_t steps = 0;
     u32 at = ParentOf(tree, end);
     while (at != kNone && (RoleOf(tree, at) == RigRole::Twist || RoleOf(tree, at) == RigRole::Hock)) {
+        if (++steps > tree.size())
+            return std::nullopt;
         if (RoleOf(tree, at) == RigRole::Hock)
             hocks.push_back(at);
         else
@@ -83,6 +88,8 @@ std::optional<Limb> LimbOf(const NodeTree& tree, u32 node) {
     limb.lower = at;
     at = ParentOf(tree, at);
     while (at != kNone && RoleOf(tree, at) == RigRole::Twist) {
+        if (++steps > tree.size())
+            return std::nullopt;
         limb.riders.push_back(at);
         at = ParentOf(tree, at);
     }
@@ -102,7 +109,9 @@ std::optional<Limb> LimbOf(const NodeTree& tree, u32 node) {
 
 std::vector<u32> ChainAbove(const NodeTree& tree, u32 tip, u32 length) {
     std::vector<u32> chain;
-    for (u32 at = ParentOf(tree, tip); at != kNone && chain.size() < length; at = ParentOf(tree, at)) {
+    std::size_t steps = 0;
+    for (u32 at = ParentOf(tree, tip); at != kNone && chain.size() < length && steps++ < tree.size();
+         at = ParentOf(tree, at)) {
         // A root turned would swing everything under it: that is the Body's
         // move, or the stage's, never a reach.
         if (!IsJoint(tree, at) || RoleOf(tree, at) == RigRole::Body || IsRoot(tree, at))

@@ -19,6 +19,7 @@
 #include <whiteout/models/wem/native/mdx_native.h>
 #include <whiteout/models/wem/optimize.h>
 #include <whiteout/models/wem/reflect_bytes.h>
+#include <whiteout/models/wem/rigging/tpose.h>
 #include <whiteout/models/wem/skinning/deform.h>
 #include <whiteout/models/wem/validate.h>
 
@@ -673,6 +674,70 @@ TEST_CASE("optimize reduces nodes only where the model is the whole animation",
     OptimizeOptions anyGame = nodesOnly();
     anyGame.reduceNodesOfEveryGame = true;
     CHECK(OptimizeDocument(every, anyGame).nodesRemoved == 3);
+}
+
+TEST_CASE("optimize keeps the nodes its caller names", "[wem][optimize]") {
+    OptimizeOptions options = nodesOnly();
+    options.keepNodes = [](const Document& document, u32 model) {
+        return std::vector<u32>{nodeNamed(document.models[model], "inert"),
+                                nodeNamed(document.models[model], "tail"), kInvalidNode};
+    };
+    const Optimized run = optimize(Skeleton(), options);
+    const Model& model = run.after.models[0];
+    // A pass-through and a dead leaf, both kept; the helper still goes.
+    CHECK(nodeNamed(model, "inert") != kInvalidNode);
+    CHECK(nodeNamed(model, "tail") != kInvalidNode);
+    CHECK(nodeNamed(model, "helper") == kInvalidNode);
+    CHECK(run.report.nodesRemoved == 1);
+}
+
+TEST_CASE("an End keeps the joints the solve reads", "[wem][optimize]") {
+    // The hand's first joint child is a metacarpal numbered after a finger that
+    // hangs under a pass-through helper. Children are in index order, so the
+    // helper, reduced, would hand the finger to the hand ahead of it.
+    Rig rig;
+    const u32 skin = rig.material(rig.texture("textures/skin.blp"));
+    const u32 root = rig.bone("pelvis_bind_jnt", kNoParent, {0, 0, 60});
+    const u32 upper = rig.bone("L_upr_arm_bind_jnt", root, {0, 10, 60}, true);
+    const u32 lower = rig.bone("L_lwr_arm_bind_jnt", upper, {10, 24, 52}, true);
+    const u32 hand = rig.bone("bone_hand_left", lower, {18, 34, 44}, true);
+    const u32 finger = rig.bone("L_finger_01", 6, {22, 40, 42}, true);
+    rig.bone("L_meta_01", hand, {20, 36, 44});
+    REQUIRE(rig.helper("L_finger_root", hand, {19, 37, 43}) == 6);
+    // An unweighted finger tip: the roll is read along the fingers, so it
+    // stays with the rest of them.
+    rig.bone("L_finger_02", finger, {24, 42, 41});
+    rig.geoset(skin, {root}, {0, 0, 60});
+    rig.geoset(skin, {finger}, {22, 40, 42});
+    const Document before = rig.import();
+    const std::vector<u32> kept = TPoseNodes(before, 0);
+    for (const char* name : {"L_upr_arm_bind_jnt", "L_lwr_arm_bind_jnt", "bone_hand_left", "L_meta_01",
+                             "L_finger_root", "L_finger_01", "L_finger_02"}) {
+        INFO(name);
+        CHECK(std::find(kept.begin(), kept.end(), nodeNamed(before.models[0], name)) != kept.end());
+    }
+    CHECK(std::find(kept.begin(), kept.end(), nodeNamed(before.models[0], "pelvis_bind_jnt")) == kept.end());
+
+    const auto firstJoint = [](const Document& document) {
+        const NodeTree& tree = document.models[0].nodes;
+        for (const u32 child : tree.children(nodeNamed(document.models[0], "bone_hand_left"))) {
+            const NodeKind kind = tree.nodes[child].kind;
+            if (kind == NodeKind::Bone || kind == NodeKind::Helper) {
+                return tree.nodes[child].name;
+            }
+        }
+        return std::string();
+    };
+    Document plain = before;
+    OptimizeDocument(plain, nodesOnly());
+    CHECK(firstJoint(plain) == "L_finger_01");
+    CHECK(nodeNamed(plain.models[0], "L_finger_02") == kInvalidNode);
+    Document imported = before;
+    OptimizeOptions options = nodesOnly();
+    options.keepNodes = TPoseNodes;
+    OptimizeDocument(imported, options);
+    CHECK(firstJoint(imported) == "L_meta_01");
+    CHECK(nodeNamed(imported.models[0], "L_finger_02") != kInvalidNode);
 }
 
 TEST_CASE("optimize keeps a bone whose gate its attachments inherit", "[wem][optimize]") {
