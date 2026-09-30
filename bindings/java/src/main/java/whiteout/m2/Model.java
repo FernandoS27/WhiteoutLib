@@ -29,7 +29,7 @@ import whiteout.m2.internal.Native;
  * external access if a handle is shared across threads.
  */
 public final class Model implements AutoCloseable {
-    private static final long BYTES = 2000L;
+    private static final long BYTES = 2112L;
 
     final MemorySegment handle;
     final boolean owned;
@@ -56,6 +56,16 @@ public final class Model implements AutoCloseable {
         }
     }
 
+    /**
+     * The MD20 version the file carried; 0 for a model built in memory. Some fields change meaning by version (Batch::flags2).
+     * @return the fileVersion field of this M2Model.
+     */
+    public int getFileVersion() {
+        return handle.get(ValueLayout.JAVA_INT, 0L);
+    }
+    public void setFileVersion(int value) {
+        handle.set(ValueLayout.JAVA_INT, 0L, value);
+    }
     /** @return the modelName field of this M2Model. */
     public String getModelName() {
         try (Arena arena = Arena.ofConfined()) {
@@ -79,7 +89,7 @@ public final class Model implements AutoCloseable {
     }
     /** @return the globalFlags field of this M2Model. */
     public GlobalFlags getGlobalFlags() {
-        return new GlobalFlags(handle.asSlice(32L, 4L), false);
+        return new GlobalFlags(handle.asSlice(40L, 4L), false);
     }
     public void setGlobalFlags(GlobalFlags value) {
         NativeCommon.invokeNative(Native.whiteout_m2_M2Model_set_globalFlags, handle, value == null ? MemorySegment.NULL : value.handle);
@@ -232,10 +242,10 @@ public final class Model implements AutoCloseable {
     }
     /** @return the numSkinProfiles field of this M2Model. */
     public int getNumSkinProfiles() {
-        return handle.get(ValueLayout.JAVA_INT, 232L);
+        return handle.get(ValueLayout.JAVA_INT, 240L);
     }
     public void setNumSkinProfiles(int value) {
-        handle.set(ValueLayout.JAVA_INT, 232L, value);
+        handle.set(ValueLayout.JAVA_INT, 240L, value);
     }
     /** @return the colors field of this M2Model. */
     public int getColorsCount() {
@@ -388,27 +398,30 @@ public final class Model implements AutoCloseable {
     public void resizeTextureCombos(int count) {
         NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_textureCombos, handle, (long) count);
     }
-    /** @return the textureCoordCombos field of this M2Model. */
-    public int getTextureCoordCombosCount() {
-        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureCoordCombos_count, handle);
+    /**
+     * Header +0x88. With GlobalFlag::TextureTransformsUsesBoneSequences, texture transform `i` runs on the clock of bone `[i]`; the 12.1 client reads it for nothing else (older tools called it `textureCoordCombos`).
+     * @return the textureTransformBoneMap field of this M2Model.
+     */
+    public int getTextureTransformBoneMapCount() {
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureTransformBoneMap_count, handle);
     }
-    public short[] getTextureCoordCombos() {
-        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureCoordCombos_count, handle);
-        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureCoordCombos_data, handle);
+    public short[] getTextureTransformBoneMap() {
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureTransformBoneMap_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureTransformBoneMap_data, handle);
         if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
         long __scalars = __count * 1L;
         return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
-    public void setTextureCoordCombos(short[] values) {
+    public void setTextureTransformBoneMap(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            NativeCommon.invokeNative(Native.whiteout_m2_M2Model_assign_textureCoordCombos, handle, __seg, __count);
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Model_assign_textureTransformBoneMap, handle, __seg, __count);
         }
     }
-    public void resizeTextureCoordCombos(int count) {
-        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_textureCoordCombos, handle, (long) count);
+    public void resizeTextureTransformBoneMap(int count) {
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_textureTransformBoneMap, handle, (long) count);
     }
     /** @return the textureWeightCombos field of this M2Model. */
     public int getTextureWeightCombosCount() {
@@ -456,14 +469,14 @@ public final class Model implements AutoCloseable {
     }
     /** @return the bounding field of this M2Model. */
     public Extent getBounding() {
-        return new Extent(handle.asSlice(504L, 28L), false);
+        return new Extent(handle.asSlice(512L, 28L), false);
     }
     public void setBounding(Extent value) {
         NativeCommon.invokeNative(Native.whiteout_m2_M2Model_set_bounding, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the collision field of this M2Model. */
     public Extent getCollision() {
-        return new Extent(handle.asSlice(532L, 28L), false);
+        return new Extent(handle.asSlice(540L, 28L), false);
     }
     public void setCollision(Extent value) {
         NativeCommon.invokeNative(Native.whiteout_m2_M2Model_set_collision, handle, value == null ? MemorySegment.NULL : value.handle);
@@ -680,7 +693,10 @@ public final class Model implements AutoCloseable {
             @Override public ParticleEmitter get(int index) { return getParticleEmittersAt(index); }
         };
     }
-    /** @return the textureCombinerCombos field of this M2Model. */
+    /**
+     * Present only in files of version 271 and below with GlobalFlag::UseTextureCombinerCombos.
+     * @return the textureCombinerCombos field of this M2Model.
+     */
     public int getTextureCombinerCombosCount() {
         return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureCombinerCombos_count, handle);
     }
@@ -1039,22 +1055,22 @@ public final class Model implements AutoCloseable {
     }
     /**
      * DBOC
-     * @return the debugOcclusionEntries field of this M2Model.
+     * @return the depthBasedOpacityEntries field of this M2Model.
      */
-    public int getDebugOcclusionEntriesCount() {
-        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_debugOcclusionEntries_count, handle);
+    public int getDepthBasedOpacityEntriesCount() {
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_depthBasedOpacityEntries_count, handle);
     }
-    public DebugOcclusionData getDebugOcclusionEntriesAt(int index) {
-        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_debugOcclusionEntries_at, handle, (long) index);
-        return new DebugOcclusionData(__h, false);
+    public DepthBasedOpacityData getDepthBasedOpacityEntriesAt(int index) {
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_depthBasedOpacityEntries_at, handle, (long) index);
+        return new DepthBasedOpacityData(__h, false);
     }
-    public void resizeDebugOcclusionEntries(int count) {
-        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_debugOcclusionEntries, handle, (long) count);
+    public void resizeDepthBasedOpacityEntries(int count) {
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_depthBasedOpacityEntries, handle, (long) count);
     }
-    public java.util.List<DebugOcclusionData> debugOcclusionEntriesView() {
-        return new java.util.AbstractList<DebugOcclusionData>() {
-            @Override public int size() { return getDebugOcclusionEntriesCount(); }
-            @Override public DebugOcclusionData get(int index) { return getDebugOcclusionEntriesAt(index); }
+    public java.util.List<DepthBasedOpacityData> depthBasedOpacityEntriesView() {
+        return new java.util.AbstractList<DepthBasedOpacityData>() {
+            @Override public int size() { return getDepthBasedOpacityEntriesCount(); }
+            @Override public DepthBasedOpacityData get(int index) { return getDepthBasedOpacityEntriesAt(index); }
         };
     }
     /**
@@ -1123,7 +1139,7 @@ public final class Model implements AutoCloseable {
         };
     }
     @Override public String toString() {
-        return "Model(" + "modelName=" + getModelName() + ", " + "numSkinProfiles=" + getNumSkinProfiles() + ")";
+        return "Model(" + "fileVersion=" + getFileVersion() + ", " + "modelName=" + getModelName() + ", " + "numSkinProfiles=" + getNumSkinProfiles() + ")";
     }
 
 }

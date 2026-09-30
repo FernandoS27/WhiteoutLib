@@ -122,10 +122,8 @@ Chain ChainOf(M2PixelShader shader);
 /// Where a texture unit's coordinates come from -- the VERTEX column of
 /// `s_modelShaderEffect`, reduced to what `TextureInput` can carry. WoW spells
 /// environment mapping in the vertex shader a batch selects (`Diffuse_T1_Env`
-/// = unit 0 explicit UV 0, unit 1 env sphere), never in `textureCoordCombos`
-/// -- that table is empty on every post-Cataclysm model, which is why
-/// `ImportBatch` left every stage `ExplicitUV` and the env sheen vanished
-/// from every cross-profile export.
+/// = unit 0 explicit UV 0, unit 1 env sphere). Header +0x88, once read as a
+/// UV-set table, is `textureTransformBoneMap`.
 enum class M2UvSource : u8 { T1 = 0, T2, Env };
 
 struct UvSources {

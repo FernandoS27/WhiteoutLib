@@ -447,7 +447,7 @@ void BinaryParseVisitor::visit(Model& header) {
     visit(header.materials);
     visit(header.boneCombos);
     visit(header.textureCombos);
-    visit(header.textureCoordCombos);
+    visit(header.textureTransformBoneMap);
     visit(header.textureWeightCombos);
     visit(header.textureTransformCombos);
     header.bounding.minimum = reader.read<Vector3f>();
@@ -471,7 +471,9 @@ void BinaryParseVisitor::visit(Model& header) {
     visit(header.ribbonEmitters);
     visit(header.particleEmitters);
 
-    if (hasFlag(header.globalFlags.value, GlobalFlag::UseTextureCombinerCombos)) {
+    // 12.1 loads versions 272-274 only and never tests the bit there.
+    if (version != 0 && version <= 271 &&
+        hasFlag(header.globalFlags.value, GlobalFlag::UseTextureCombinerCombos)) {
         visit(header.textureCombinerCombos);
     }
 }

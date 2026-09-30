@@ -4,13 +4,22 @@ package whiteout.m2;
 
 public enum SequenceFlag {
     None(0),
-    TiltIn(1),
-    TiltOut(2),
-    TiltFixed(4),
+    Unk_0x1(1),
+    /** Ground alignment ramps to full over the first half of the play. */
+    GroundAlignRampIn(2),
+    /** Ground alignment ramps from full over the first half of the play. */
+    GroundAlignRampOut(4),
+    /** Full ground alignment for the whole play. */
+    GroundAlignFull(8),
+    /** Full ground alignment for the whole play. */
     Looping(32),
+    /** Full ground alignment for the whole play. */
     IsAlias(64),
+    /** Full ground alignment for the whole play. */
     AnimatedSetup(128),
+    /** Full ground alignment for the whole play. */
     StoredAnimated(256),
+    /** Full ground alignment for the whole play. */
     EnableComposite(512);
 
     public final int value;

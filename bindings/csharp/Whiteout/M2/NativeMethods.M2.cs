@@ -389,37 +389,44 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial IntPtr whiteout_m2_M2DebugOcclusionData_new();
+    internal static partial IntPtr whiteout_m2_M2DepthBasedOpacityData_new();
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m2_M2DebugOcclusionData_delete(IntPtr self);
+    internal static partial void whiteout_m2_M2DepthBasedOpacityData_delete(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial float whiteout_m2_M2DebugOcclusionData_get_unknown1_1(IntPtr self);
+    internal static partial float whiteout_m2_M2DepthBasedOpacityData_get_scale(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m2_M2DebugOcclusionData_set_unknown1_1(IntPtr self, float value);
-
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial float whiteout_m2_M2DebugOcclusionData_get_unknown1_2(IntPtr self);
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m2_M2DebugOcclusionData_set_unknown1_2(IntPtr self, float value);
+    internal static partial void whiteout_m2_M2DepthBasedOpacityData_set_scale(IntPtr self, float value);
 
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial uint whiteout_m2_M2DebugOcclusionData_get_unknown1_3(IntPtr self);
+    internal static partial float whiteout_m2_M2DepthBasedOpacityData_get_exponent(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m2_M2DebugOcclusionData_set_unknown1_3(IntPtr self, uint value);
+    internal static partial void whiteout_m2_M2DepthBasedOpacityData_set_exponent(IntPtr self, float value);
 
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial uint whiteout_m2_M2DebugOcclusionData_get_unknown1_4(IntPtr self);
+    internal static partial ushort whiteout_m2_M2DepthBasedOpacityData_get_materialIndex(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m2_M2DebugOcclusionData_set_unknown1_4(IntPtr self, uint value);
+    internal static partial void whiteout_m2_M2DepthBasedOpacityData_set_materialIndex(IntPtr self, ushort value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial ushort whiteout_m2_M2DepthBasedOpacityData_get_pad0(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2DepthBasedOpacityData_set_pad0(IntPtr self, ushort value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_m2_M2DepthBasedOpacityData_get_pad1(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2DepthBasedOpacityData_set_pad1(IntPtr self, uint value);
 
 
     [LibraryImport(Runtime.LibraryName)]
@@ -2448,6 +2455,13 @@ internal static partial class NativeMethods
     internal static partial void whiteout_m2_M2Model_delete(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_m2_M2Model_get_fileVersion(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2Model_set_fileVersion(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
     internal static partial Whiteout.Common.NativeCString whiteout_m2_M2Model_get_modelName(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
@@ -2651,10 +2665,10 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial nuint whiteout_m2_M2Model_get_debugOcclusionEntries_count(IntPtr self);
+    internal static partial nuint whiteout_m2_M2Model_get_depthBasedOpacityEntries_count(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial IntPtr whiteout_m2_M2Model_get_debugOcclusionEntries_at(IntPtr self, nuint index);
+    internal static partial IntPtr whiteout_m2_M2Model_get_depthBasedOpacityEntries_at(IntPtr self, nuint index);
 
 
     [LibraryImport(Runtime.LibraryName)]

@@ -648,3 +648,65 @@ TEST_CASE("M2 resolves physics through PFDC and PFID", "[m2][phys][corpus]") {
     CHECK(inlineModels > 0);
     CHECK(referencedModels > 0);
 }
+
+// 12.1 never reads the `.phys` a PFID names when the model sets SuppressPhysicsFile (0x1000000),
+// so neither does the parser: the Collisions overlay would otherwise draw shapes the client never
+// loads.
+TEST_CASE("M2 SuppressPhysicsFile skips the PFID read", "[m2][phys][corpus]") {
+    const std::string dir = corpusDir();
+    if (dir.empty()) {
+        SKIP("WoW corpus not found");
+    }
+
+    fs::path source;
+    for (const auto& entry : fs::recursive_directory_iterator(dir)) {
+        if (!entry.is_regular_file() || entry.path().extension() != ".m2") {
+            continue;
+        }
+        if (fs::exists(fs::path(entry.path()).replace_extension(".phys")) &&
+            extractPfdc(readFile(entry.path())).empty()) {
+            source = entry.path();
+            break;
+        }
+    }
+    REQUIRE_FALSE(source.empty());
+
+    // A copy of the model and its siblings with the flag set in MD20 +0x10.
+    const fs::path outDir = fs::temp_directory_path() / "m2_phys_suppress_test";
+    fs::remove_all(outDir);
+    fs::create_directories(outDir);
+    const std::string stem = source.stem().string();
+    for (const auto& entry : fs::directory_iterator(source.parent_path())) {
+        const std::string name = entry.path().filename().string();
+        if (entry.is_regular_file() && name.rfind(stem, 0) == 0) {
+            fs::copy_file(entry.path(), outDir / name);
+        }
+    }
+    const fs::path copy = fs::absolute(outDir / source.filename());
+    std::vector<u8> bytes = readFile(copy);
+    REQUIRE(bytes.size() >= 0x1C);
+    REQUIRE(std::memcmp(bytes.data(), "MD21", 4) == 0);
+    u32 flags = 0;
+    std::memcpy(&flags, bytes.data() + 0x18, 4);
+    flags |= static_cast<u32>(m2::GlobalFlag::SuppressPhysicsFile);
+    std::memcpy(bytes.data() + 0x18, &flags, 4);
+    {
+        std::ofstream out(copy, std::ios::binary);
+        out.write(reinterpret_cast<const char*>(bytes.data()),
+                  static_cast<std::streamsize>(bytes.size()));
+    }
+
+    INFO(source.filename().string());
+    utils::OsFileSystem vfs(fs::absolute(source).parent_path().string());
+    m2::Parser plain;
+    const m2::Model referenced = plain.parse(vfs, fs::absolute(source).string());
+    REQUIRE(referenced.physics);
+    REQUIRE(referenced.physicsFileId.has_value());
+
+    utils::OsFileSystem copyVfs(outDir.string());
+    m2::Parser parser;
+    const m2::Model suppressed = parser.parse(copyVfs, copy.string());
+    CHECK_FALSE(suppressed.physics.has_value());
+    CHECK_FALSE(suppressed.physicsFileId.has_value());
+    fs::remove_all(outDir);
+}

@@ -173,11 +173,12 @@ void BinaryWriterVisitor::visit(const DETLChunk& chunk) {
     }
 }
 
-void BinaryWriterVisitor::visit(const DebugOcclusionData& entry) {
-    writer.write(entry.unknown1_1);
-    writer.write(entry.unknown1_2);
-    writer.write(entry.unknown1_3);
-    writer.write(entry.unknown1_4);
+void BinaryWriterVisitor::visit(const DepthBasedOpacityData& entry) {
+    writer.write(entry.scale);
+    writer.write(entry.exponent);
+    writer.write(entry.materialIndex);
+    writer.write(entry.pad0);
+    writer.write(entry.pad1);
 }
 
 void BinaryWriterVisitor::visit(const DBOCChunk& chunk) {

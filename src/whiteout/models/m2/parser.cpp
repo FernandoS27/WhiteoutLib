@@ -61,6 +61,11 @@ Model Parser::parse(interfaces::CascFileSystem& cascFs, std::span<const uint8_t>
     wfs->setLazyAnimations(pImpl->lazyAnimations);
     Model model;
     pImpl->parseModel(std::move(wfs), model);
+    // By id the SKPD parent is in reach; a path parse leaves it to the caller.
+    if (model.parentSkeleton && !loadParentSkeleton(model, cascFs, pImpl->lazyAnimations)) {
+        pImpl->reportIssue("SKPD parent skeleton " + std::to_string(model.parentSkeleton->fileId) +
+                           " could not be read");
+    }
 
     pImpl->chunkParser.drainIssues(pImpl->issues);
     return model;
@@ -111,6 +116,7 @@ void Parser::Impl::parse(WoWFileSystem& wfs, Model& result) {
         parseBase(reader, m2, &wfs);
     }
     result = std::move(m2.header.model);
+    result.fileVersion = m2.header.version;
     const auto readSkinProfile = [&](std::vector<SkinProfile>& profiles,
                                      std::span<const u8> skinData, size_t /*i*/) {
         common::span_streambuf sbuf(skinData);
@@ -152,10 +158,11 @@ void Parser::Impl::parse(WoWFileSystem& wfs, Model& result) {
         }
     }
 
+    // 12.1 reads the SKID `.skel` only for a model that sets ExternalSkeleton,
+    // and always evaluates that skeleton itself. An SKPD parent adds a second
+    // sequence table (loadParentSkeleton); it never replaces the child.
     std::optional<SkeletonFile> skeleton;
-    bool hasParent = false;
-    do {
-        hasParent = false;
+    if (hasFlag(result.globalFlags.value, GlobalFlag::ExternalSkeleton)) {
         auto skelData = wfs.getSkeleton();
         if (!skelData.empty()) {
             common::span_streambuf sbuf(skelData);
@@ -163,18 +170,13 @@ void Parser::Impl::parse(WoWFileSystem& wfs, Model& result) {
             BinaryReader reader(in);
             skeleton.emplace();
             chunkParser.parseChunkedSkeleton(reader, skeleton.value(), &wfs);
-            if (skeleton->skpd_chunk) {
-                hasParent = true;
-                wfs.setParentSkeletonChunk(*skeleton->skpd_chunk);
-                skeleton.reset();
-            }
         }
-    } while (hasParent);
+    }
 
     if (skeleton) {
-        if (skeleton->skpd_chunk) {
-            reportIssue("Parent skeleton reference found, but parent skeleton parsing is not yet "
-                        "implemented");
+        if (skeleton->skpd_chunk && skeleton->skpd_chunk->parentSkeletonFileId != 0) {
+            result.parentSkeleton.emplace();
+            result.parentSkeleton->fileId = skeleton->skpd_chunk->parentSkeletonFileId;
         }
         if (skeleton->skb1_chunk) {
             result.bones = std::move(skeleton->skb1_chunk->bones);
@@ -253,7 +255,7 @@ void Parser::Impl::parse(WoWFileSystem& wfs, Model& result) {
     if (m2.detl_chunk)
         result.detailedLightEntries = std::move(m2.detl_chunk->records);
     if (m2.dboc_chunk)
-        result.debugOcclusionEntries = std::move(m2.dboc_chunk->entries);
+        result.depthBasedOpacityEntries = std::move(m2.dboc_chunk->entries);
     if (m2.afra_chunk)
         result.animFrameData = std::move(m2.afra_chunk->data);
     if (m2.pcol_chunk) {
@@ -270,14 +272,16 @@ void Parser::Impl::parse(WoWFileSystem& wfs, Model& result) {
         result.texturedLightEntries = std::move(m2.texl_chunk->texturedLights);
 
     // Physics that is not inline lives in a `.phys` of its own: a plain MD20
-    // with the LoadPhysicsData flag names it by path, and a chunked model names
-    // it by file id through PFID.
-    if (!result.physics) {
+    // with the CreatePhysics flag names it by path, and a chunked model names
+    // it by file id through PFID. 12.1 never reads the file of a model that
+    // sets SuppressPhysicsFile.
+    if (!result.physics &&
+        !hasFlag(result.globalFlags.value, GlobalFlag::SuppressPhysicsFile)) {
         if (m2.pfid_chunk && m2.pfid_chunk->physFileDataId != 0) {
             result.physicsFileId = m2.pfid_chunk->physFileDataId;
         }
         const bool named = result.physicsFileId.has_value() ||
-                           hasFlag(result.globalFlags.value, GlobalFlag::LoadPhysicsData);
+                           hasFlag(result.globalFlags.value, GlobalFlag::CreatePhysics);
         if (named) {
             auto physData = wfs.getPhysics();
             if (!physData.empty()) {

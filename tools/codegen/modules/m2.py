@@ -44,6 +44,8 @@ CONFIG = ModuleConfig(
         # Format is a top-level enum used by the parser; not a public Model
         # field. Keep internal.
         'Format',
+        # Model::parentSkeleton is `@bind skip`; its type holds a loader handle.
+        'ParentSkeleton',
     ],
     # `--backend wem-native`: M2 is the one block whose *shape* is authored
     # (design §7.3) — a WoW per-batch material is a join across four combo

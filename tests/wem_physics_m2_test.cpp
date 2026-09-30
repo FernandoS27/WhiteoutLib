@@ -205,7 +205,7 @@ TEST_CASE("wem physics a WoW model's records cross both ways", "[wem][physics][m
     CHECK(out.shoulderJoints[0].coneAngle == 45.0f);
     CHECK(out.shoulderJoints[0].motorFrequencyHz == 1.0f);
     const u32 flags = static_cast<u32>(exported->globalFlags.value);
-    CHECK((flags & static_cast<u32>(m2::GlobalFlag::LoadPhysicsData)) != 0);
+    CHECK((flags & static_cast<u32>(m2::GlobalFlag::CreatePhysics)) != 0);
     CHECK((flags & static_cast<u32>(m2::GlobalFlag::SuppressPhysicsFile)) != 0);
     CHECK((exported->bones[1].flags & static_cast<u32>(m2::BoneFlag::Kinematic)) != 0);
 }

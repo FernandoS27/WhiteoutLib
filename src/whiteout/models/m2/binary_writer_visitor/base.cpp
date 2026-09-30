@@ -463,7 +463,7 @@ void BinaryWriterVisitor::visit(const Model& model) {
     visit(model.materials);
     visit(model.boneCombos);
     visit(model.textureCombos);
-    visit(model.textureCoordCombos);
+    visit(model.textureTransformBoneMap);
     visit(model.textureWeightCombos);
     visit(model.textureTransformCombos);
 
@@ -487,7 +487,9 @@ void BinaryWriterVisitor::visit(const Model& model) {
     visit(model.cameraIndicesById);
     visit(model.ribbonEmitters);
     visit(model.particleEmitters);
-    if (hasFlag(model.globalFlags.value, GlobalFlag::UseTextureCombinerCombos)) {
+    // 12.1 loads versions 272-274 only and never tests the bit there.
+    if (version != 0 && version <= 271 &&
+        hasFlag(model.globalFlags.value, GlobalFlag::UseTextureCombinerCombos)) {
         visit(model.textureCombinerCombos);
     }
 }

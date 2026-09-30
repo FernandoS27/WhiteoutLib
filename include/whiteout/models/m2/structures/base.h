@@ -10,35 +10,43 @@ namespace whiteout {
 namespace m2 {
 
 /// @brief The MD20 header's `globalFlags`, named for what WoW 12.1 does with
-///        each bit (`WOW_M2_FLAGS.md`, corrected where noted).
+///        each bit (`M2_FLAGS_RE.md`).
 enum class GlobalFlag : u32 {
     None = 0,
-    /// The model leans to follow the ground normal, about X and about Y.
-    TiltX = 0x00000001,
-    TiltY = 0x00000002,
-    /// The world transform is taken as is: no attachment parent's scale or
-    /// translation is composed in, and emitters do not inherit it.
-    WorldAbsoluteTransform = 0x00000004,
-    /// The header carries `textureCombinerCombos` after its fixed part. Read by
-    /// the parser; the 12.1 client never tests it.
+    /// Ground alignment, read as the 2-bit value `flags & 3`: 1 pitches the
+    /// model onto the ground normal, 3 aligns it fully, and 2 alone does nothing.
+    GroundTiltPitch = 0x00000001,
+    /// The high half of the ground-alignment value; see GroundTiltPitch.
+    GroundTiltFull = 0x00000002,
+    /// The model does not inherit its attach parent's render state: alpha,
+    /// diffuse, emissive and model effect. Fade is inherited regardless.
+    NoParentRenderState = 0x00000004,
+    /// Files of version 271 and below: the header carries
+    /// `textureCombinerCombos` after its fixed part. The 12.1 client never
+    /// tests it, so the parser ignores it from version 272 on.
     UseTextureCombinerCombos = 0x00000008,
-    /// Batch bounds and sort distance come from the bone-transformed geometry.
-    AnimatedBounds = 0x00000010,
-    /// Load physics when the model attaches to a scene. CM2Shared::FinishLoadingM2Data
-    /// tests it before LegacyLoadPhysData.
-    LoadPhysicsData = 0x00000020,
-    /// Enters the visible-geometry optimiser and the shadow-map gather.
-    VisibleGeometryOptimise = 0x00000080,
+    /// Transparent batches sort by the model's distance first, as one unit;
+    /// clear, each batch sorts by its own animated centre.
+    SortAsOneUnit = 0x00000010,
+    /// The only gate on creating the `.phys` ragdoll or phantom, whether the
+    /// definition came from PFDC or PFID.
+    CreatePhysics = 0x00000020,
+    /// Consecutive compatible batches merge, and the model casts dynamic shadows.
+    MergeBatchesCastShadows = 0x00000080,
     /// Emitters of record type 4 are relinked when the model attaches to a parent.
     ParentLinkedParticles = 0x00000100,
     /// Files of version 271 and below: the particle record carries the 16-byte
-    /// multi-texture scroll tail. 12.1 reads the bit on helmets instead, as
-    /// "has per-race rows in HelmetAnimScaling" (bone flag HelmetAnimScaled).
+    /// multi-texture scroll tail. From 272 on the tail is always there.
     NewParticleRecord = 0x00000200,
+    /// 12.1's reading of 0x200, on a character body: its HelmetAnimScaled bones
+    /// take a per-race scale from `HelmetAnimScaling`.
+    HelmetAnimScaling = 0x00000200,
+    /// No reader in 12.1.
     Unk_0x400 = 0x00000400,
     /// Texture transforms are driven by bone sequences through textureTransformBoneMap.
     TextureTransformsUsesBoneSequences = 0x00000800,
-    Unk_0x1000 = 0x00001000,
+    /// Particles fade where they meet scene depth, over their own size.
+    SoftParticles = 0x00001000,
     /// Each skin profile owns a slice of the vertex array starting at its
     /// SkinProfile::lodVertexBase; clear, every profile indexes from 0.
     PerSkinVertexBlocks = 0x00002000,
@@ -70,13 +78,14 @@ enum class GlobalFlag : u32 {
     SkipOcclusionQuery = 0x02000000,
     /// Treat the model as visible without querying occlusion.
     ForceUnoccluded = 0x04000000,
-    /// Patches two bytes of the M2 render-state word; the bytes' meaning is
-    /// not resolved.
-    PipelineStateOverride = 0x08000000,
-    /// Past a LOD threshold the model swaps its link record and releases its textures.
-    FarLodLinkSubstitute = 0x10000000,
-    /// Picks which of two render-state words a secondary pass draws the model with.
-    SecondaryPassRenderState = 0x20000000,
+    /// ORs 0x10 into the stencil reference the model's opaque draws write.
+    StencilMark0x10 = 0x08000000,
+    /// At the last LDV1 LOD the model draws through the reduced
+    /// `FlipbookImpostor` model effect.
+    LastLodReducedEffect = 0x10000000,
+    /// The model's projected decals paint on M2 models too, not only on
+    /// terrain and WMOs.
+    DecalsPaintModels = 0x20000000,
 };
 
 inline GlobalFlag operator|(GlobalFlag lhs, GlobalFlag rhs) {
@@ -115,9 +124,13 @@ struct GlobalSequence {
 
 enum class SequenceFlag : u32 {
     None = 0,
-    TiltIn = 0x00000001,
-    TiltOut = 0x00000002,
-    TiltFixed = 0x00000004,
+    Unk_0x1 = 0x00000001,
+    /// Ground alignment ramps to full over the first half of the play.
+    GroundAlignRampIn = 0x00000002,
+    /// Ground alignment ramps from full over the first half of the play.
+    GroundAlignRampOut = 0x00000004,
+    /// Full ground alignment for the whole play.
+    GroundAlignFull = 0x00000008,
     Looping = 0x00000020,
     IsAlias = 0x00000040,
     AnimatedSetup = 0x00000080,
@@ -220,16 +233,33 @@ enum class BoneFlag : u32 {
     Transformed = 0x200,
     /// Eligible for physics: a live dynamic body on the bone replaces its animation.
     Kinematic = 0x400,
+    /// Left out of the spawn table of type-4 "spawn on the body" emitters.
+    NoBodySpawn = 0x800,
     /// The helmet-scaling pass writes its per-race scale into this bone.
     HelmetAnimScaled = 0x1000,
     PrimarySequenceAttached = 0x2000,   ///< runtime
     SecondarySequenceAttached = 0x4000, ///< runtime
-    PhysicsInteractionOffset = 0x200000, ///< runtime
-    PhysicsDriven = 0x400000,            ///< runtime: a dynamic body owns the bone
-    /// With PrimarySequenceAttached, skip the per-sequence blend weight.
-    SkipSequenceBlendWeight = 0x800000,
-    /// With ProceduralTransform, apply the matrix after parenting, in world space.
-    ProceduralInWorldSpace = 0x1000000,
+    /// @name Bone-LOD tiers
+    /// Nested: a bone in tier 0 is in tiers 1 and 2 too. LDV1 names the tier
+    /// each LOD culls, and a culled bone stops animating.
+    /// @{
+    LodTier0 = 0x10000,
+    LodTier1 = 0x20000,
+    LodTier2 = 0x40000,
+    /// @}
+    /// Dropped once onto the ground below its pivot, on the first frame.
+    GroundSnap = 0x80000,
+    /// runtime: a loaded skin references the bone or a descendant.
+    SkinnedRuntime = 0x100000,
+    VegetationPush = 0x200000, ///< runtime: a PHYT-2 phantom offsets the bone
+    PhysicsDriven = 0x400000,  ///< runtime: a dynamic body owns the bone
+    /// runtime: the bone's blend weight is its own, not scaled by its parent's.
+    AbsoluteBlendWeight = 0x800000,
+    /// With ProceduralTransform, rotate in model space about the bone's
+    /// current pivot, discarding the procedural translation.
+    ProceduralModelSpace = 0x1000000,
+    /// Animated every frame even when no loaded skin references it.
+    AlwaysAnimate = 0x2000000,
 };
 
 /// @brief The bits the client's billboard switch reads (12.1 widened 6.0.1's 0x78).

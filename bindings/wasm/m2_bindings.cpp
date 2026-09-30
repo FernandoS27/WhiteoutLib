@@ -67,20 +67,24 @@ EMSCRIPTEN_BINDINGS(m2) {
         .value("Bezier", whiteout::m2::InterpolationType::Bezier)
         .value("Hermite", whiteout::m2::InterpolationType::Hermite);
 
+    enum_<whiteout::m2::BatchFlags2>("M2BatchFlags2")
+        .value("Decal", whiteout::m2::BatchFlags2::Decal);
+
     enum_<whiteout::m2::GlobalFlag>("M2GlobalFlag")
         .value("None", whiteout::m2::GlobalFlag::None)
-        .value("TiltX", whiteout::m2::GlobalFlag::TiltX)
-        .value("TiltY", whiteout::m2::GlobalFlag::TiltY)
-        .value("WorldAbsoluteTransform", whiteout::m2::GlobalFlag::WorldAbsoluteTransform)
+        .value("GroundTiltPitch", whiteout::m2::GlobalFlag::GroundTiltPitch)
+        .value("GroundTiltFull", whiteout::m2::GlobalFlag::GroundTiltFull)
+        .value("NoParentRenderState", whiteout::m2::GlobalFlag::NoParentRenderState)
         .value("UseTextureCombinerCombos", whiteout::m2::GlobalFlag::UseTextureCombinerCombos)
-        .value("AnimatedBounds", whiteout::m2::GlobalFlag::AnimatedBounds)
-        .value("LoadPhysicsData", whiteout::m2::GlobalFlag::LoadPhysicsData)
-        .value("VisibleGeometryOptimise", whiteout::m2::GlobalFlag::VisibleGeometryOptimise)
+        .value("SortAsOneUnit", whiteout::m2::GlobalFlag::SortAsOneUnit)
+        .value("CreatePhysics", whiteout::m2::GlobalFlag::CreatePhysics)
+        .value("MergeBatchesCastShadows", whiteout::m2::GlobalFlag::MergeBatchesCastShadows)
         .value("ParentLinkedParticles", whiteout::m2::GlobalFlag::ParentLinkedParticles)
         .value("NewParticleRecord", whiteout::m2::GlobalFlag::NewParticleRecord)
+        .value("HelmetAnimScaling", whiteout::m2::GlobalFlag::HelmetAnimScaling)
         .value("Unk_0x400", whiteout::m2::GlobalFlag::Unk_0x400)
         .value("TextureTransformsUsesBoneSequences", whiteout::m2::GlobalFlag::TextureTransformsUsesBoneSequences)
-        .value("Unk_0x1000", whiteout::m2::GlobalFlag::Unk_0x1000)
+        .value("SoftParticles", whiteout::m2::GlobalFlag::SoftParticles)
         .value("PerSkinVertexBlocks", whiteout::m2::GlobalFlag::PerSkinVertexBlocks)
         .value("ParentSkeletonBound", whiteout::m2::GlobalFlag::ParentSkeletonBound)
         .value("LightAttenuationTracks", whiteout::m2::GlobalFlag::LightAttenuationTracks)
@@ -92,15 +96,16 @@ EMSCRIPTEN_BINDINGS(m2) {
         .value("SuppressPhysicsFile", whiteout::m2::GlobalFlag::SuppressPhysicsFile)
         .value("SkipOcclusionQuery", whiteout::m2::GlobalFlag::SkipOcclusionQuery)
         .value("ForceUnoccluded", whiteout::m2::GlobalFlag::ForceUnoccluded)
-        .value("PipelineStateOverride", whiteout::m2::GlobalFlag::PipelineStateOverride)
-        .value("FarLodLinkSubstitute", whiteout::m2::GlobalFlag::FarLodLinkSubstitute)
-        .value("SecondaryPassRenderState", whiteout::m2::GlobalFlag::SecondaryPassRenderState);
+        .value("StencilMark0x10", whiteout::m2::GlobalFlag::StencilMark0x10)
+        .value("LastLodReducedEffect", whiteout::m2::GlobalFlag::LastLodReducedEffect)
+        .value("DecalsPaintModels", whiteout::m2::GlobalFlag::DecalsPaintModels);
 
     enum_<whiteout::m2::SequenceFlag>("M2SequenceFlag")
         .value("None", whiteout::m2::SequenceFlag::None)
-        .value("TiltIn", whiteout::m2::SequenceFlag::TiltIn)
-        .value("TiltOut", whiteout::m2::SequenceFlag::TiltOut)
-        .value("TiltFixed", whiteout::m2::SequenceFlag::TiltFixed)
+        .value("Unk_0x1", whiteout::m2::SequenceFlag::Unk_0x1)
+        .value("GroundAlignRampIn", whiteout::m2::SequenceFlag::GroundAlignRampIn)
+        .value("GroundAlignRampOut", whiteout::m2::SequenceFlag::GroundAlignRampOut)
+        .value("GroundAlignFull", whiteout::m2::SequenceFlag::GroundAlignFull)
         .value("Looping", whiteout::m2::SequenceFlag::Looping)
         .value("IsAlias", whiteout::m2::SequenceFlag::IsAlias)
         .value("AnimatedSetup", whiteout::m2::SequenceFlag::AnimatedSetup)
@@ -120,13 +125,20 @@ EMSCRIPTEN_BINDINGS(m2) {
         .value("ProceduralTransform", whiteout::m2::BoneFlag::ProceduralTransform)
         .value("Transformed", whiteout::m2::BoneFlag::Transformed)
         .value("Kinematic", whiteout::m2::BoneFlag::Kinematic)
+        .value("NoBodySpawn", whiteout::m2::BoneFlag::NoBodySpawn)
         .value("HelmetAnimScaled", whiteout::m2::BoneFlag::HelmetAnimScaled)
         .value("PrimarySequenceAttached", whiteout::m2::BoneFlag::PrimarySequenceAttached)
         .value("SecondarySequenceAttached", whiteout::m2::BoneFlag::SecondarySequenceAttached)
-        .value("PhysicsInteractionOffset", whiteout::m2::BoneFlag::PhysicsInteractionOffset)
+        .value("LodTier0", whiteout::m2::BoneFlag::LodTier0)
+        .value("LodTier1", whiteout::m2::BoneFlag::LodTier1)
+        .value("LodTier2", whiteout::m2::BoneFlag::LodTier2)
+        .value("GroundSnap", whiteout::m2::BoneFlag::GroundSnap)
+        .value("SkinnedRuntime", whiteout::m2::BoneFlag::SkinnedRuntime)
+        .value("VegetationPush", whiteout::m2::BoneFlag::VegetationPush)
         .value("PhysicsDriven", whiteout::m2::BoneFlag::PhysicsDriven)
-        .value("SkipSequenceBlendWeight", whiteout::m2::BoneFlag::SkipSequenceBlendWeight)
-        .value("ProceduralInWorldSpace", whiteout::m2::BoneFlag::ProceduralInWorldSpace);
+        .value("AbsoluteBlendWeight", whiteout::m2::BoneFlag::AbsoluteBlendWeight)
+        .value("ProceduralModelSpace", whiteout::m2::BoneFlag::ProceduralModelSpace)
+        .value("AlwaysAnimate", whiteout::m2::BoneFlag::AlwaysAnimate);
 
     enum_<whiteout::m2::MaterialFlag>("M2MaterialFlag")
         .value("None", whiteout::m2::MaterialFlag::None)
@@ -328,12 +340,13 @@ EMSCRIPTEN_BINDINGS(m2) {
         .property("unknown1", &whiteout::m2::DetailedLightData::unknown1)
     ;
 
-    class_<whiteout::m2::DebugOcclusionData>("M2DebugOcclusionData")
+    class_<whiteout::m2::DepthBasedOpacityData>("M2DepthBasedOpacityData")
         .constructor<>()
-        .property("unknown1_1", &whiteout::m2::DebugOcclusionData::unknown1_1)
-        .property("unknown1_2", &whiteout::m2::DebugOcclusionData::unknown1_2)
-        .property("unknown1_3", &whiteout::m2::DebugOcclusionData::unknown1_3)
-        .property("unknown1_4", &whiteout::m2::DebugOcclusionData::unknown1_4)
+        .property("scale", &whiteout::m2::DepthBasedOpacityData::scale)
+        .property("exponent", &whiteout::m2::DepthBasedOpacityData::exponent)
+        .property("materialIndex", &whiteout::m2::DepthBasedOpacityData::materialIndex)
+        .property("pad0", &whiteout::m2::DepthBasedOpacityData::pad0)
+        .property("pad1", &whiteout::m2::DepthBasedOpacityData::pad1)
     ;
 
     class_<whiteout::m2::TexturedLightData>("M2TexturedLightData")
@@ -859,6 +872,7 @@ EMSCRIPTEN_BINDINGS(m2) {
 
     class_<whiteout::m2::Model>("M2Model")
         .constructor<>()
+        .property("fileVersion", &whiteout::m2::Model::fileVersion)
         .property("modelName", &whiteout::m2::Model::modelName)
         .property("globalFlags", &whiteout::m2::Model::globalFlags)
         .property("globalLoops", &whiteout::m2::Model::globalLoops)
@@ -878,7 +892,7 @@ EMSCRIPTEN_BINDINGS(m2) {
         .property("materials", &whiteout::m2::Model::materials)
         .property("boneCombos", &whiteout::m2::Model::boneCombos)
         .property("textureCombos", &whiteout::m2::Model::textureCombos)
-        .property("textureCoordCombos", &whiteout::m2::Model::textureCoordCombos)
+        .property("textureTransformBoneMap", &whiteout::m2::Model::textureTransformBoneMap)
         .property("textureWeightCombos", &whiteout::m2::Model::textureWeightCombos)
         .property("textureTransformCombos", &whiteout::m2::Model::textureTransformCombos)
         .property("bounding", &whiteout::m2::Model::bounding)
@@ -914,7 +928,7 @@ EMSCRIPTEN_BINDINGS(m2) {
         .property("edgeFadeEntries", &whiteout::m2::Model::edgeFadeEntries)
         .property("nerfEntries", &whiteout::m2::Model::nerfEntries)
         .property("detailedLightEntries", &whiteout::m2::Model::detailedLightEntries)
-        .property("debugOcclusionEntries", &whiteout::m2::Model::debugOcclusionEntries)
+        .property("depthBasedOpacityEntries", &whiteout::m2::Model::depthBasedOpacityEntries)
         .property("animFrameData", &whiteout::m2::Model::animFrameData)
         .property("physicsCollision", &whiteout::m2::Model::physicsCollision)
         .property("dpivData", &whiteout::m2::Model::dpivData)
@@ -1063,7 +1077,7 @@ EMSCRIPTEN_BINDINGS(m2) {
     register_vector<whiteout::m2::CapsuleShape>("VectorM2CapsuleShape");
     register_vector<whiteout::m2::ColorAnimation>("VectorM2ColorAnimation");
     register_vector<whiteout::m2::CompatQuaternion>("VectorM2CompatQuaternion");
-    register_vector<whiteout::m2::DebugOcclusionData>("VectorM2DebugOcclusionData");
+    register_vector<whiteout::m2::DepthBasedOpacityData>("VectorM2DepthBasedOpacityData");
     register_vector<whiteout::m2::DetailedLightData>("VectorM2DetailedLightData");
     register_vector<whiteout::m2::DistanceFadeData>("VectorM2DistanceFadeData");
     register_vector<whiteout::m2::DistanceJoint>("VectorM2DistanceJoint");

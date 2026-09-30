@@ -20,6 +20,14 @@ public sealed class Model : WhiteoutHandle
         return true;
     }
 
+    /// <summary>The MD20 version the file carried; 0 for a model built in memory. Some fields change meaning by version (Batch::flags2).</summary>
+    public uint FileVersion
+    {
+        get => NativeMethods.whiteout_m2_M2Model_get_fileVersion(DangerousGet());
+        set => NativeMethods.whiteout_m2_M2Model_set_fileVersion(DangerousGet(), value);
+    }
+
+
     public string ModelName
     {
         get => NativeMethods.whiteout_m2_M2Model_get_modelName(DangerousGet()).ToManagedString();
@@ -240,11 +248,11 @@ public sealed class Model : WhiteoutHandle
 
 
     /// <summary>DBOC</summary>
-    public IReadOnlyList<DebugOcclusionData> DebugOcclusionEntries =>
-        new NativeListView<DebugOcclusionData>(
+    public IReadOnlyList<DepthBasedOpacityData> DepthBasedOpacityEntries =>
+        new NativeListView<DepthBasedOpacityData>(
             DangerousGet(),
-            NativeMethods.whiteout_m2_M2Model_get_debugOcclusionEntries_count,
-            (h, i) => new DebugOcclusionData(NativeMethods.whiteout_m2_M2Model_get_debugOcclusionEntries_at(h, i), owned: false));
+            NativeMethods.whiteout_m2_M2Model_get_depthBasedOpacityEntries_count,
+            (h, i) => new DepthBasedOpacityData(NativeMethods.whiteout_m2_M2Model_get_depthBasedOpacityEntries_at(h, i), owned: false));
 
 
     /// <summary>DPIV (32 B per record)</summary>

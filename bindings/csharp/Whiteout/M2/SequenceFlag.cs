@@ -7,12 +7,21 @@ namespace Whiteout.M2;
 public enum SequenceFlag : int
 {
     None = 0,
-    TiltIn = 1,
-    TiltOut = 2,
-    TiltFixed = 4,
+    Unk0x1 = 1,
+    /// <summary>Ground alignment ramps to full over the first half of the play.</summary>
+    GroundAlignRampIn = 2,
+    /// <summary>Ground alignment ramps from full over the first half of the play.</summary>
+    GroundAlignRampOut = 4,
+    /// <summary>Full ground alignment for the whole play.</summary>
+    GroundAlignFull = 8,
+    /// <summary>Full ground alignment for the whole play.</summary>
     Looping = 32,
+    /// <summary>Full ground alignment for the whole play.</summary>
     IsAlias = 64,
+    /// <summary>Full ground alignment for the whole play.</summary>
     AnimatedSetup = 128,
+    /// <summary>Full ground alignment for the whole play.</summary>
     StoredAnimated = 256,
+    /// <summary>Full ground alignment for the whole play.</summary>
     EnableComposite = 512,
 }

@@ -500,9 +500,9 @@ BaseFile Writer::Impl::wrapModel(const Model& model) const {
         detl.records = model.detailedLightEntries;
         base.detl_chunk = std::move(detl);
     }
-    if (!model.debugOcclusionEntries.empty()) {
+    if (!model.depthBasedOpacityEntries.empty()) {
         DBOCChunk dboc;
-        dboc.entries = model.debugOcclusionEntries;
+        dboc.entries = model.depthBasedOpacityEntries;
         base.dboc_chunk = std::move(dboc);
     }
     if (!model.animFrameData.empty()) {

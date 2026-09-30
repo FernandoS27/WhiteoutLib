@@ -99,7 +99,7 @@ protected:
     void visit(NERFChunk& chunk);
     void visit(DetailedLightData& entry);
     void visit(DETLChunk& chunk);
-    void visit(DebugOcclusionData& entry);
+    void visit(DepthBasedOpacityData& entry);
     void visit(DBOCChunk& chunk);
     void visit(AFRAChunk& chunk);
     void visit(PCOLChunk& chunk);

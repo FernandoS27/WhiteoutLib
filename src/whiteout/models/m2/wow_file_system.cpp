@@ -91,13 +91,6 @@ void WoWFileSystem::setPhysicsChunk(const PFIDChunk& chunk) {
 void WoWFileSystem::setBoneChunk(const BFIDChunk& chunk) {
     m_bfid = chunk;
 }
-void WoWFileSystem::setParentSkeletonChunk(const SKPDChunk& chunk) {
-    SKIDChunk parentSkid;
-    parentSkid.skeletonFileDataId = chunk.parentSkeletonFileId;
-    m_skid = parentSkid;
-    m_skelLoaded = false;
-    m_isParentSkeleton = true;
-}
 
 std::span<const u8> WoWFileSystem::getSkin(u32 skinId, bool isLod) {
     auto& cache = isLod ? m_lodSkinCache : m_skinCache;
@@ -200,12 +193,8 @@ std::span<const u8> WoWFileSystem::getSkeleton() {
         }
         m_skelCache = m_cascFs->readFile(m_skid.skeletonFileDataId);
     } else {
-        // Parent skeletons are referenced by file data ID, which requires CASC.
-        // In path-based mode we can only load the skeleton that shares the same
-        // base stem as the .m2 file; cross-directory parent skeletons cannot be resolved.
-        if (m_isParentSkeleton) {
-            return {};
-        }
+        // By path only the skeleton sharing the model's stem is in reach; an
+        // SKPD parent is named by file id (loadParentSkeleton).
         std::string const path = buildSkelPath();
         if (!m_pathFs->fileExists(path)) {
             return {};

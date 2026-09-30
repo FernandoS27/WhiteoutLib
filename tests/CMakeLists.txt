@@ -83,6 +83,7 @@ whiteout_add_test(m2_diag_test m2_diag_test.cpp)
 whiteout_add_test(m2_legacy_version_test m2_legacy_version_test.cpp)
 whiteout_add_test(m2_phys_test m2_phys_test.cpp)
 whiteout_add_test(m2_bone_test m2_bone_test.cpp)
+whiteout_add_test(m2_load_flags_test m2_load_flags_test.cpp)
 
 # WEM Tests
 whiteout_add_test(gltf_json_test gltf_json_test.cpp)

@@ -69,7 +69,7 @@ public final class PhysicsTuning implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 0L, value);
     }
     /**
-     * Yards per frame a bone is pushed while a unit moves along it, times dt.
+     * The fraction of its target a bone is pushed each frame while a unit moves along it; 12.1 does not scale it by dt.
      * @return the posPushAmt field of this M2PhysicsTuning.
      */
     public float getPosPushAmt() {

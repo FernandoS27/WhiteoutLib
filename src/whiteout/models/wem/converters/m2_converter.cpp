@@ -840,7 +840,7 @@ Result<m2::Model> M2Converter::toM2(const Document& document, ProfileId profile,
         out.physics = std::move(physics);
         out.physicsFileId.reset();
         out.globalFlags.value = static_cast<m2::GlobalFlag>(static_cast<u32>(out.globalFlags.value) |
-                                                            static_cast<u32>(m2::GlobalFlag::LoadPhysicsData) |
+                                                            static_cast<u32>(m2::GlobalFlag::CreatePhysics) |
                                                             static_cast<u32>(m2::GlobalFlag::SuppressPhysicsFile));
     }
 

@@ -68,7 +68,6 @@ m2::Model makeModel() {
     material.blendingMode = 0;
     model.materials.push_back(material);
     model.textureCombos = {0};
-    model.textureCoordCombos = {0};
     model.textureWeightCombos = {0};
     model.textureTransformCombos = {0};
 

@@ -189,10 +189,8 @@ Material ImportBatch(const m2::Model& model, const m2::Batch& batch, const Conte
                     out)) {
             resolved.texture = value;
         }
-        if (comboAt(model.textureCoordCombos, batch.textureCoordComboIndex, unit,
-                    "textureCoordCombos", value, out)) {
-            resolved.uvSet = value;
-        }
+        // No UV set is read: header +0x88 is `textureTransformBoneMap`, and the
+        // 12.1 client takes each unit's UV source from the shader id alone.
         if (comboAt(model.textureTransformCombos, batch.textureTransformComboIndex, unit,
                     "textureTransformCombos", value, out)) {
             // Live data, unlike `ribbonColorIndex` sitting next to it in the
@@ -235,10 +233,8 @@ Material ImportBatch(const m2::Model& model, const m2::Batch& batch, const Conte
     CombinersBody body;
     const u32 stages = chain.stageCount < block.units.size() ? chain.stageCount
                                                              : static_cast<u32>(block.units.size());
-    // The vertex column is where WoW says which UV source feeds each unit --
-    // `textureCoordCombos` (the raw `uvSet` kept on the native block) is empty
-    // on every post-Cataclysm model, so reading it left every stage explicit
-    // and dropped the env sheen from every cross-profile export.
+    // The vertex column is where WoW says which UV source feeds each unit; the
+    // native block's `uvSet` is only the fallback past the shader's units.
     const UvSources sources = UvSourcesFor(batch.textureCount, batch.shaderId);
     if (sources.edgeFade) {
         out.info(DiagCode::LossyKindConversion,
@@ -312,12 +308,10 @@ void appendCombos(const std::vector<native::M2TextureUnit>& units, m2::Model& mo
                   m2::Batch& batch) {
     batch.textureCount = static_cast<u16>(units.size());
     batch.textureComboIndex = static_cast<u16>(model.textureCombos.size());
-    batch.textureCoordComboIndex = static_cast<u16>(model.textureCoordCombos.size());
     batch.textureTransformComboIndex = static_cast<u16>(model.textureTransformCombos.size());
     batch.textureWeightComboIndex = static_cast<u16>(model.textureWeightCombos.size());
     for (const native::M2TextureUnit& unit : units) {
         model.textureCombos.push_back(unit.texture);
-        model.textureCoordCombos.push_back(unit.uvSet);
         model.textureTransformCombos.push_back(unit.transform);
         model.textureWeightCombos.push_back(unit.weight);
     }

@@ -69,7 +69,6 @@ m2::Model makeModel() {
     texture.filename = "world/body.blp";
     model.textures.push_back(texture);
     model.textureCombos = {0};
-    model.textureCoordCombos = {0};
     model.textureWeightCombos = {0};
     model.textureTransformCombos = {0xFFFF};
     model.materials.push_back(m2::Material{});
@@ -641,7 +640,6 @@ TEST_CASE("wem m2 each animated layer gets a texture animation of its own",
     second.filename = "world/detail.blp";
     model.textures.push_back(second);
     model.textureCombos = {0, 1};
-    model.textureCoordCombos = {0, 0};
     model.textureWeightCombos = {0, 0};
     model.textureTransformCombos = {0, 1};
     // Two units, and `shaderId` 0 over two of them is the bit-field path's

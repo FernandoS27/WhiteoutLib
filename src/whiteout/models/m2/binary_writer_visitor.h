@@ -106,7 +106,7 @@ protected:
     void visit(const NERFChunk& chunk);
     void visit(const DetailedLightData& entry);
     void visit(const DETLChunk& chunk);
-    void visit(const DebugOcclusionData& entry);
+    void visit(const DepthBasedOpacityData& entry);
     void visit(const DBOCChunk& chunk);
     void visit(const AFRAChunk& chunk);
     void visit(const PCOLChunk& chunk);

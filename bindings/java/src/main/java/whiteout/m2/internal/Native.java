@@ -197,19 +197,21 @@ public final class Native {
     public static final MethodHandle whiteout_m2_M2DetailedLightData_get_unknown1 = find("whiteout_m2_M2DetailedLightData_get_unknown1", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2DetailedLightData_set_unknown1 = find("whiteout_m2_M2DetailedLightData_set_unknown1", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
 
-    // -- M2DebugOcclusionData --
-    public static final MethodHandle whiteout_m2_M2DebugOcclusionData_new = find(
-        "whiteout_m2_M2DebugOcclusionData_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m2_M2DebugOcclusionData_delete = find(
-        "whiteout_m2_M2DebugOcclusionData_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m2_M2DebugOcclusionData_get_unknown1_1 = find("whiteout_m2_M2DebugOcclusionData_get_unknown1_1", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m2_M2DebugOcclusionData_set_unknown1_1 = find("whiteout_m2_M2DebugOcclusionData_set_unknown1_1", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
-    public static final MethodHandle whiteout_m2_M2DebugOcclusionData_get_unknown1_2 = find("whiteout_m2_M2DebugOcclusionData_get_unknown1_2", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m2_M2DebugOcclusionData_set_unknown1_2 = find("whiteout_m2_M2DebugOcclusionData_set_unknown1_2", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
-    public static final MethodHandle whiteout_m2_M2DebugOcclusionData_get_unknown1_3 = find("whiteout_m2_M2DebugOcclusionData_get_unknown1_3", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m2_M2DebugOcclusionData_set_unknown1_3 = find("whiteout_m2_M2DebugOcclusionData_set_unknown1_3", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
-    public static final MethodHandle whiteout_m2_M2DebugOcclusionData_get_unknown1_4 = find("whiteout_m2_M2DebugOcclusionData_get_unknown1_4", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m2_M2DebugOcclusionData_set_unknown1_4 = find("whiteout_m2_M2DebugOcclusionData_set_unknown1_4", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    // -- M2DepthBasedOpacityData --
+    public static final MethodHandle whiteout_m2_M2DepthBasedOpacityData_new = find(
+        "whiteout_m2_M2DepthBasedOpacityData_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2DepthBasedOpacityData_delete = find(
+        "whiteout_m2_M2DepthBasedOpacityData_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2DepthBasedOpacityData_get_scale = find("whiteout_m2_M2DepthBasedOpacityData_get_scale", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2DepthBasedOpacityData_set_scale = find("whiteout_m2_M2DepthBasedOpacityData_set_scale", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
+    public static final MethodHandle whiteout_m2_M2DepthBasedOpacityData_get_exponent = find("whiteout_m2_M2DepthBasedOpacityData_get_exponent", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2DepthBasedOpacityData_set_exponent = find("whiteout_m2_M2DepthBasedOpacityData_set_exponent", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
+    public static final MethodHandle whiteout_m2_M2DepthBasedOpacityData_get_materialIndex = find("whiteout_m2_M2DepthBasedOpacityData_get_materialIndex", FunctionDescriptor.of(ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2DepthBasedOpacityData_set_materialIndex = find("whiteout_m2_M2DepthBasedOpacityData_set_materialIndex", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT));
+    public static final MethodHandle whiteout_m2_M2DepthBasedOpacityData_get_pad0 = find("whiteout_m2_M2DepthBasedOpacityData_get_pad0", FunctionDescriptor.of(ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2DepthBasedOpacityData_set_pad0 = find("whiteout_m2_M2DepthBasedOpacityData_set_pad0", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT));
+    public static final MethodHandle whiteout_m2_M2DepthBasedOpacityData_get_pad1 = find("whiteout_m2_M2DepthBasedOpacityData_get_pad1", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2DepthBasedOpacityData_set_pad1 = find("whiteout_m2_M2DepthBasedOpacityData_set_pad1", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
 
     // -- M2TexturedLightData --
     public static final MethodHandle whiteout_m2_M2TexturedLightData_new = find(
@@ -1173,6 +1175,8 @@ public final class Native {
         "whiteout_m2_M2Model_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2Model_delete = find(
         "whiteout_m2_M2Model_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2Model_get_fileVersion = find("whiteout_m2_M2Model_get_fileVersion", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2Model_set_fileVersion = find("whiteout_m2_M2Model_set_fileVersion", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
     public static final MethodHandle whiteout_m2_M2Model_get_modelName = find("whiteout_m2_M2Model_get_modelName", FunctionDescriptor.of(CSTRING_LAYOUT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2Model_set_modelName = find("whiteout_m2_M2Model_set_modelName", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2Model_get_globalFlags = find("whiteout_m2_M2Model_get_globalFlags", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
@@ -1232,10 +1236,10 @@ public final class Native {
     public static final MethodHandle whiteout_m2_M2Model_resize_textureCombos = find("whiteout_m2_M2Model_resize_textureCombos", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m2_M2Model_get_textureCombos_data = find("whiteout_m2_M2Model_get_textureCombos_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2Model_assign_textureCombos = find("whiteout_m2_M2Model_assign_textureCombos", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
-    public static final MethodHandle whiteout_m2_M2Model_get_textureCoordCombos_count = find("whiteout_m2_M2Model_get_textureCoordCombos_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m2_M2Model_resize_textureCoordCombos = find("whiteout_m2_M2Model_resize_textureCoordCombos", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
-    public static final MethodHandle whiteout_m2_M2Model_get_textureCoordCombos_data = find("whiteout_m2_M2Model_get_textureCoordCombos_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m2_M2Model_assign_textureCoordCombos = find("whiteout_m2_M2Model_assign_textureCoordCombos", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m2_M2Model_get_textureTransformBoneMap_count = find("whiteout_m2_M2Model_get_textureTransformBoneMap_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2Model_resize_textureTransformBoneMap = find("whiteout_m2_M2Model_resize_textureTransformBoneMap", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m2_M2Model_get_textureTransformBoneMap_data = find("whiteout_m2_M2Model_get_textureTransformBoneMap_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2Model_assign_textureTransformBoneMap = find("whiteout_m2_M2Model_assign_textureTransformBoneMap", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m2_M2Model_get_textureWeightCombos_count = find("whiteout_m2_M2Model_get_textureWeightCombos_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2Model_resize_textureWeightCombos = find("whiteout_m2_M2Model_resize_textureWeightCombos", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m2_M2Model_get_textureWeightCombos_data = find("whiteout_m2_M2Model_get_textureWeightCombos_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
@@ -1342,9 +1346,9 @@ public final class Native {
     public static final MethodHandle whiteout_m2_M2Model_get_detailedLightEntries_count = find("whiteout_m2_M2Model_get_detailedLightEntries_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2Model_resize_detailedLightEntries = find("whiteout_m2_M2Model_resize_detailedLightEntries", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m2_M2Model_get_detailedLightEntries_at = find("whiteout_m2_M2Model_get_detailedLightEntries_at", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
-    public static final MethodHandle whiteout_m2_M2Model_get_debugOcclusionEntries_count = find("whiteout_m2_M2Model_get_debugOcclusionEntries_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m2_M2Model_resize_debugOcclusionEntries = find("whiteout_m2_M2Model_resize_debugOcclusionEntries", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
-    public static final MethodHandle whiteout_m2_M2Model_get_debugOcclusionEntries_at = find("whiteout_m2_M2Model_get_debugOcclusionEntries_at", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m2_M2Model_get_depthBasedOpacityEntries_count = find("whiteout_m2_M2Model_get_depthBasedOpacityEntries_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2Model_resize_depthBasedOpacityEntries = find("whiteout_m2_M2Model_resize_depthBasedOpacityEntries", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m2_M2Model_get_depthBasedOpacityEntries_at = find("whiteout_m2_M2Model_get_depthBasedOpacityEntries_at", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m2_M2Model_get_animFrameData_count = find("whiteout_m2_M2Model_get_animFrameData_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2Model_resize_animFrameData = find("whiteout_m2_M2Model_resize_animFrameData", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m2_M2Model_get_animFrameData_data = find("whiteout_m2_M2Model_get_animFrameData_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));

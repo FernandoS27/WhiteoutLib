@@ -650,48 +650,56 @@ void whiteout_m2_M2DetailedLightData_set_unknown1(whiteout_M2DetailedLightData* 
 
 } // extern "C"
 
-// ── M2DebugOcclusionData ─────────────────────────────────────────────────
+// ── M2DepthBasedOpacityData ─────────────────────────────────────────────────
 
 extern "C" {
 
-whiteout_M2DebugOcclusionData* whiteout_m2_M2DebugOcclusionData_new(void) {
-    return reinterpret_cast<whiteout_M2DebugOcclusionData*>(new whiteout::m2::DebugOcclusionData());
+whiteout_M2DepthBasedOpacityData* whiteout_m2_M2DepthBasedOpacityData_new(void) {
+    return reinterpret_cast<whiteout_M2DepthBasedOpacityData*>(new whiteout::m2::DepthBasedOpacityData());
 }
 
-void whiteout_m2_M2DebugOcclusionData_delete(whiteout_M2DebugOcclusionData* self) {
-    delete reinterpret_cast<whiteout::m2::DebugOcclusionData*>(self);
+void whiteout_m2_M2DepthBasedOpacityData_delete(whiteout_M2DepthBasedOpacityData* self) {
+    delete reinterpret_cast<whiteout::m2::DepthBasedOpacityData*>(self);
 }
 
-float whiteout_m2_M2DebugOcclusionData_get_unknown1_1(const whiteout_M2DebugOcclusionData* self) {
-    return reinterpret_cast<const whiteout::m2::DebugOcclusionData*>(self)->unknown1_1;
+float whiteout_m2_M2DepthBasedOpacityData_get_scale(const whiteout_M2DepthBasedOpacityData* self) {
+    return reinterpret_cast<const whiteout::m2::DepthBasedOpacityData*>(self)->scale;
 }
 
-void whiteout_m2_M2DebugOcclusionData_set_unknown1_1(whiteout_M2DebugOcclusionData* self, float value) {
-    reinterpret_cast<whiteout::m2::DebugOcclusionData*>(self)->unknown1_1 = value;
+void whiteout_m2_M2DepthBasedOpacityData_set_scale(whiteout_M2DepthBasedOpacityData* self, float value) {
+    reinterpret_cast<whiteout::m2::DepthBasedOpacityData*>(self)->scale = value;
 }
 
-float whiteout_m2_M2DebugOcclusionData_get_unknown1_2(const whiteout_M2DebugOcclusionData* self) {
-    return reinterpret_cast<const whiteout::m2::DebugOcclusionData*>(self)->unknown1_2;
+float whiteout_m2_M2DepthBasedOpacityData_get_exponent(const whiteout_M2DepthBasedOpacityData* self) {
+    return reinterpret_cast<const whiteout::m2::DepthBasedOpacityData*>(self)->exponent;
 }
 
-void whiteout_m2_M2DebugOcclusionData_set_unknown1_2(whiteout_M2DebugOcclusionData* self, float value) {
-    reinterpret_cast<whiteout::m2::DebugOcclusionData*>(self)->unknown1_2 = value;
+void whiteout_m2_M2DepthBasedOpacityData_set_exponent(whiteout_M2DepthBasedOpacityData* self, float value) {
+    reinterpret_cast<whiteout::m2::DepthBasedOpacityData*>(self)->exponent = value;
 }
 
-uint32_t whiteout_m2_M2DebugOcclusionData_get_unknown1_3(const whiteout_M2DebugOcclusionData* self) {
-    return reinterpret_cast<const whiteout::m2::DebugOcclusionData*>(self)->unknown1_3;
+uint16_t whiteout_m2_M2DepthBasedOpacityData_get_materialIndex(const whiteout_M2DepthBasedOpacityData* self) {
+    return reinterpret_cast<const whiteout::m2::DepthBasedOpacityData*>(self)->materialIndex;
 }
 
-void whiteout_m2_M2DebugOcclusionData_set_unknown1_3(whiteout_M2DebugOcclusionData* self, uint32_t value) {
-    reinterpret_cast<whiteout::m2::DebugOcclusionData*>(self)->unknown1_3 = value;
+void whiteout_m2_M2DepthBasedOpacityData_set_materialIndex(whiteout_M2DepthBasedOpacityData* self, uint16_t value) {
+    reinterpret_cast<whiteout::m2::DepthBasedOpacityData*>(self)->materialIndex = value;
 }
 
-uint32_t whiteout_m2_M2DebugOcclusionData_get_unknown1_4(const whiteout_M2DebugOcclusionData* self) {
-    return reinterpret_cast<const whiteout::m2::DebugOcclusionData*>(self)->unknown1_4;
+uint16_t whiteout_m2_M2DepthBasedOpacityData_get_pad0(const whiteout_M2DepthBasedOpacityData* self) {
+    return reinterpret_cast<const whiteout::m2::DepthBasedOpacityData*>(self)->pad0;
 }
 
-void whiteout_m2_M2DebugOcclusionData_set_unknown1_4(whiteout_M2DebugOcclusionData* self, uint32_t value) {
-    reinterpret_cast<whiteout::m2::DebugOcclusionData*>(self)->unknown1_4 = value;
+void whiteout_m2_M2DepthBasedOpacityData_set_pad0(whiteout_M2DepthBasedOpacityData* self, uint16_t value) {
+    reinterpret_cast<whiteout::m2::DepthBasedOpacityData*>(self)->pad0 = value;
+}
+
+uint32_t whiteout_m2_M2DepthBasedOpacityData_get_pad1(const whiteout_M2DepthBasedOpacityData* self) {
+    return reinterpret_cast<const whiteout::m2::DepthBasedOpacityData*>(self)->pad1;
+}
+
+void whiteout_m2_M2DepthBasedOpacityData_set_pad1(whiteout_M2DepthBasedOpacityData* self, uint32_t value) {
+    reinterpret_cast<whiteout::m2::DepthBasedOpacityData*>(self)->pad1 = value;
 }
 
 } // extern "C"
@@ -4121,6 +4129,14 @@ void whiteout_m2_M2Model_delete(whiteout_M2Model* self) {
     delete reinterpret_cast<whiteout::m2::Model*>(self);
 }
 
+uint32_t whiteout_m2_M2Model_get_fileVersion(const whiteout_M2Model* self) {
+    return reinterpret_cast<const whiteout::m2::Model*>(self)->fileVersion;
+}
+
+void whiteout_m2_M2Model_set_fileVersion(whiteout_M2Model* self, uint32_t value) {
+    reinterpret_cast<whiteout::m2::Model*>(self)->fileVersion = value;
+}
+
 whiteout_CString whiteout_m2_M2Model_get_modelName(const whiteout_M2Model* self) {
     auto* __owned = new std::string(reinterpret_cast<const whiteout::m2::Model*>(self)->modelName);
     return whiteout_CString{ __owned->c_str(), __owned->size(), __owned };
@@ -4373,21 +4389,21 @@ void whiteout_m2_M2Model_assign_textureCombos(whiteout_M2Model* self, const uint
     if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::u16));
 }
 
-size_t whiteout_m2_M2Model_get_textureCoordCombos_count(const whiteout_M2Model* self) {
-    return reinterpret_cast<const whiteout::m2::Model*>(self)->textureCoordCombos.size();
+size_t whiteout_m2_M2Model_get_textureTransformBoneMap_count(const whiteout_M2Model* self) {
+    return reinterpret_cast<const whiteout::m2::Model*>(self)->textureTransformBoneMap.size();
 }
 
-void whiteout_m2_M2Model_resize_textureCoordCombos(whiteout_M2Model* self, size_t count) {
-    reinterpret_cast<whiteout::m2::Model*>(self)->textureCoordCombos.resize(count);
+void whiteout_m2_M2Model_resize_textureTransformBoneMap(whiteout_M2Model* self, size_t count) {
+    reinterpret_cast<whiteout::m2::Model*>(self)->textureTransformBoneMap.resize(count);
 }
 
-const uint16_t* whiteout_m2_M2Model_get_textureCoordCombos_data(const whiteout_M2Model* self) {
-    const auto& __v = reinterpret_cast<const whiteout::m2::Model*>(self)->textureCoordCombos;
+const uint16_t* whiteout_m2_M2Model_get_textureTransformBoneMap_data(const whiteout_M2Model* self) {
+    const auto& __v = reinterpret_cast<const whiteout::m2::Model*>(self)->textureTransformBoneMap;
     return __v.empty() ? nullptr : reinterpret_cast<const uint16_t*>(__v.data());
 }
 
-void whiteout_m2_M2Model_assign_textureCoordCombos(whiteout_M2Model* self, const uint16_t* data, size_t count) {
-    auto& __v = reinterpret_cast<whiteout::m2::Model*>(self)->textureCoordCombos;
+void whiteout_m2_M2Model_assign_textureTransformBoneMap(whiteout_M2Model* self, const uint16_t* data, size_t count) {
+    auto& __v = reinterpret_cast<whiteout::m2::Model*>(self)->textureTransformBoneMap;
     __v.resize(count);
     if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::u16));
 }
@@ -4861,16 +4877,16 @@ whiteout_M2DetailedLightData* whiteout_m2_M2Model_get_detailedLightEntries_at(wh
     return reinterpret_cast<whiteout_M2DetailedLightData*>(&reinterpret_cast<whiteout::m2::Model*>(self)->detailedLightEntries[index]);
 }
 
-size_t whiteout_m2_M2Model_get_debugOcclusionEntries_count(const whiteout_M2Model* self) {
-    return reinterpret_cast<const whiteout::m2::Model*>(self)->debugOcclusionEntries.size();
+size_t whiteout_m2_M2Model_get_depthBasedOpacityEntries_count(const whiteout_M2Model* self) {
+    return reinterpret_cast<const whiteout::m2::Model*>(self)->depthBasedOpacityEntries.size();
 }
 
-void whiteout_m2_M2Model_resize_debugOcclusionEntries(whiteout_M2Model* self, size_t count) {
-    reinterpret_cast<whiteout::m2::Model*>(self)->debugOcclusionEntries.resize(count);
+void whiteout_m2_M2Model_resize_depthBasedOpacityEntries(whiteout_M2Model* self, size_t count) {
+    reinterpret_cast<whiteout::m2::Model*>(self)->depthBasedOpacityEntries.resize(count);
 }
 
-whiteout_M2DebugOcclusionData* whiteout_m2_M2Model_get_debugOcclusionEntries_at(whiteout_M2Model* self, size_t index) {
-    return reinterpret_cast<whiteout_M2DebugOcclusionData*>(&reinterpret_cast<whiteout::m2::Model*>(self)->debugOcclusionEntries[index]);
+whiteout_M2DepthBasedOpacityData* whiteout_m2_M2Model_get_depthBasedOpacityEntries_at(whiteout_M2Model* self, size_t index) {
+    return reinterpret_cast<whiteout_M2DepthBasedOpacityData*>(&reinterpret_cast<whiteout::m2::Model*>(self)->depthBasedOpacityEntries[index]);
 }
 
 size_t whiteout_m2_M2Model_get_animFrameData_count(const whiteout_M2Model* self) {

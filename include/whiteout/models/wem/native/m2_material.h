@@ -63,7 +63,8 @@ enum class M2BlendingMode : u16 {
 struct M2TextureUnit {
     /// Texture index, resolved through `textureCombos`.
     u16 texture = 0;
-    /// UV set, resolved through `textureCoordCombos`.
+    /// UV set. An M2 names none of its own (its shader id picks the UV sources),
+    /// so an import leaves it 0.
     u16 uvSet = 0;
     /// Texture-transform index, resolved through `textureTransformCombos`.
     /// Live data — see the file comment.

@@ -291,7 +291,8 @@ struct DistanceJoint {
 struct PhysicsTuning {
     /// Yards a bone may be pushed from its base before it is clamped.
     f32 posMaxPush = 1.25f;
-    /// Yards per frame a bone is pushed while a unit moves along it, times dt.
+    /// The fraction of its target a bone is pushed each frame while a unit moves
+    /// along it; 12.1 does not scale it by dt.
     f32 posPushAmt = 0.25f;
     /// How fast the bone returns to rest once the unit leaves.
     f32 posRelaxSpeed = 8.0f;

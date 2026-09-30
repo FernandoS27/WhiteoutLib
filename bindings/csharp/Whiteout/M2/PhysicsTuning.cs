@@ -29,7 +29,7 @@ public sealed class PhysicsTuning : WhiteoutHandle
     }
 
 
-    /// <summary>Yards per frame a bone is pushed while a unit moves along it, times dt.</summary>
+    /// <summary>The fraction of its target a bone is pushed each frame while a unit moves along it; 12.1 does not scale it by dt.</summary>
     public float PosPushAmt
     {
         get => NativeMethods.whiteout_m2_M2PhysicsTuning_get_posPushAmt(DangerousGet());

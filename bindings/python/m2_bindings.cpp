@@ -66,7 +66,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::CameraSpline>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::CapsuleShape>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::ColorAnimation>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::CompatQuaternion>);
-PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::DebugOcclusionData>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::DepthBasedOpacityData>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::DetailedLightData>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::DistanceFadeData>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::DistanceJoint>);
@@ -179,20 +179,25 @@ void bind_m2(py::module_& m) {
         .value("HERMITE", whiteout::m2::InterpolationType::Hermite)
     ;
 
-    py::enum_<whiteout::m2::GlobalFlag>(m, "GlobalFlag", R"doc(The MD20 header's `globalFlags`, named for what WoW 12.1 does with each bit (`WOW_M2_FLAGS.md`, corrected where noted).)doc")
+    py::enum_<whiteout::m2::BatchFlags2>(m, "BatchFlags2", R"doc(Bits of the batch's `flags2` word (see Batch::flags2).)doc")
+        .value("DECAL", whiteout::m2::BatchFlags2::Decal, R"doc(Drawn as a deferred box decal projected onto the scene, not as geometry.)doc")
+    ;
+
+    py::enum_<whiteout::m2::GlobalFlag>(m, "GlobalFlag", R"doc(The MD20 header's `globalFlags`, named for what WoW 12.1 does with each bit (`M2_FLAGS_RE.md`).)doc")
         .value("NONE", whiteout::m2::GlobalFlag::None)
-        .value("TILT_X", whiteout::m2::GlobalFlag::TiltX, R"doc(The model leans to follow the ground normal, about X and about Y.)doc")
-        .value("TILT_Y", whiteout::m2::GlobalFlag::TiltY, R"doc(The model leans to follow the ground normal, about X and about Y.)doc")
-        .value("WORLD_ABSOLUTE_TRANSFORM", whiteout::m2::GlobalFlag::WorldAbsoluteTransform, R"doc(The world transform is taken as is: no attachment parent's scale or translation is composed in, and emitters do not inherit it.)doc")
-        .value("USE_TEXTURE_COMBINER_COMBOS", whiteout::m2::GlobalFlag::UseTextureCombinerCombos, R"doc(The header carries `textureCombinerCombos` after its fixed part. Read by the parser; the 12.1 client never tests it.)doc")
-        .value("ANIMATED_BOUNDS", whiteout::m2::GlobalFlag::AnimatedBounds, R"doc(Batch bounds and sort distance come from the bone-transformed geometry.)doc")
-        .value("LOAD_PHYSICS_DATA", whiteout::m2::GlobalFlag::LoadPhysicsData, R"doc(Load physics when the model attaches to a scene. CM2Shared::FinishLoadingM2Data tests it before LegacyLoadPhysData.)doc")
-        .value("VISIBLE_GEOMETRY_OPTIMISE", whiteout::m2::GlobalFlag::VisibleGeometryOptimise, R"doc(Enters the visible-geometry optimiser and the shadow-map gather.)doc")
+        .value("GROUND_TILT_PITCH", whiteout::m2::GlobalFlag::GroundTiltPitch, R"doc(Ground alignment, read as the 2-bit value `flags & 3`: 1 pitches the model onto the ground normal, 3 aligns it fully, and 2 alone does nothing.)doc")
+        .value("GROUND_TILT_FULL", whiteout::m2::GlobalFlag::GroundTiltFull, R"doc(The high half of the ground-alignment value; see GroundTiltPitch.)doc")
+        .value("NO_PARENT_RENDER_STATE", whiteout::m2::GlobalFlag::NoParentRenderState, R"doc(The model does not inherit its attach parent's render state: alpha, diffuse, emissive and model effect. Fade is inherited regardless.)doc")
+        .value("USE_TEXTURE_COMBINER_COMBOS", whiteout::m2::GlobalFlag::UseTextureCombinerCombos, R"doc(Files of version 271 and below: the header carries `textureCombinerCombos` after its fixed part. The 12.1 client never tests it, so the parser ignores it from version 272 on.)doc")
+        .value("SORT_AS_ONE_UNIT", whiteout::m2::GlobalFlag::SortAsOneUnit, R"doc(Transparent batches sort by the model's distance first, as one unit; clear, each batch sorts by its own animated centre.)doc")
+        .value("CREATE_PHYSICS", whiteout::m2::GlobalFlag::CreatePhysics, R"doc(The only gate on creating the `.phys` ragdoll or phantom, whether the definition came from PFDC or PFID.)doc")
+        .value("MERGE_BATCHES_CAST_SHADOWS", whiteout::m2::GlobalFlag::MergeBatchesCastShadows, R"doc(Consecutive compatible batches merge, and the model casts dynamic shadows.)doc")
         .value("PARENT_LINKED_PARTICLES", whiteout::m2::GlobalFlag::ParentLinkedParticles, R"doc(Emitters of record type 4 are relinked when the model attaches to a parent.)doc")
-        .value("NEW_PARTICLE_RECORD", whiteout::m2::GlobalFlag::NewParticleRecord, R"doc(Files of version 271 and below: the particle record carries the 16-byte multi-texture scroll tail. 12.1 reads the bit on helmets instead, as "has per-race rows in HelmetAnimScaling" (bone flag HelmetAnimScaled).)doc")
-        .value("UNK_0X400", whiteout::m2::GlobalFlag::Unk_0x400, R"doc(Files of version 271 and below: the particle record carries the 16-byte multi-texture scroll tail. 12.1 reads the bit on helmets instead, as "has per-race rows in HelmetAnimScaling" (bone flag HelmetAnimScaled).)doc")
+        .value("NEW_PARTICLE_RECORD", whiteout::m2::GlobalFlag::NewParticleRecord, R"doc(Files of version 271 and below: the particle record carries the 16-byte multi-texture scroll tail. From 272 on the tail is always there.)doc")
+        .value("HELMET_ANIM_SCALING", whiteout::m2::GlobalFlag::HelmetAnimScaling, R"doc(12.1's reading of 0x200, on a character body: its HelmetAnimScaled bones take a per-race scale from `HelmetAnimScaling`.)doc")
+        .value("UNK_0X400", whiteout::m2::GlobalFlag::Unk_0x400, R"doc(No reader in 12.1.)doc")
         .value("TEXTURE_TRANSFORMS_USES_BONE_SEQUENCES", whiteout::m2::GlobalFlag::TextureTransformsUsesBoneSequences, R"doc(Texture transforms are driven by bone sequences through textureTransformBoneMap.)doc")
-        .value("UNK_0X1000", whiteout::m2::GlobalFlag::Unk_0x1000, R"doc(Texture transforms are driven by bone sequences through textureTransformBoneMap.)doc")
+        .value("SOFT_PARTICLES", whiteout::m2::GlobalFlag::SoftParticles, R"doc(Particles fade where they meet scene depth, over their own size.)doc")
         .value("PER_SKIN_VERTEX_BLOCKS", whiteout::m2::GlobalFlag::PerSkinVertexBlocks, R"doc(Each skin profile owns a slice of the vertex array starting at its SkinProfile::lodVertexBase; clear, every profile indexes from 0.)doc")
         .value("PARENT_SKELETON_BOUND", whiteout::m2::GlobalFlag::ParentSkeletonBound, R"doc(A skinned attachment posed by its parent model: the client rebinds its bones to the parent skeleton by Bone::boneNameCRC.)doc")
         .value("LIGHT_ATTENUATION_TRACKS", whiteout::m2::GlobalFlag::LightAttenuationTracks, R"doc(Point lights take their attenuation start and end from their tracks; clear, the client uses 1.6666 and 5.2666 times the model scale. (WOW_M2_FLAGS.md reads this as a ribbon bit: the 156-byte record it describes is the light.))doc")
@@ -204,21 +209,22 @@ void bind_m2(py::module_& m) {
         .value("SUPPRESS_PHYSICS_FILE", whiteout::m2::GlobalFlag::SuppressPhysicsFile, R"doc(Ignore the PFID physics file, whatever the model carries.)doc")
         .value("SKIP_OCCLUSION_QUERY", whiteout::m2::GlobalFlag::SkipOcclusionQuery, R"doc(Skip the HiZ occlusion test.)doc")
         .value("FORCE_UNOCCLUDED", whiteout::m2::GlobalFlag::ForceUnoccluded, R"doc(Treat the model as visible without querying occlusion.)doc")
-        .value("PIPELINE_STATE_OVERRIDE", whiteout::m2::GlobalFlag::PipelineStateOverride, R"doc(Patches two bytes of the M2 render-state word; the bytes' meaning is not resolved.)doc")
-        .value("FAR_LOD_LINK_SUBSTITUTE", whiteout::m2::GlobalFlag::FarLodLinkSubstitute, R"doc(Past a LOD threshold the model swaps its link record and releases its textures.)doc")
-        .value("SECONDARY_PASS_RENDER_STATE", whiteout::m2::GlobalFlag::SecondaryPassRenderState, R"doc(Picks which of two render-state words a secondary pass draws the model with.)doc")
+        .value("STENCIL_MARK0X10", whiteout::m2::GlobalFlag::StencilMark0x10, R"doc(ORs 0x10 into the stencil reference the model's opaque draws write.)doc")
+        .value("LAST_LOD_REDUCED_EFFECT", whiteout::m2::GlobalFlag::LastLodReducedEffect, R"doc(At the last LDV1 LOD the model draws through the reduced `FlipbookImpostor` model effect.)doc")
+        .value("DECALS_PAINT_MODELS", whiteout::m2::GlobalFlag::DecalsPaintModels, R"doc(The model's projected decals paint on M2 models too, not only on terrain and WMOs.)doc")
     ;
 
     py::enum_<whiteout::m2::SequenceFlag>(m, "SequenceFlag")
         .value("NONE", whiteout::m2::SequenceFlag::None)
-        .value("TILT_IN", whiteout::m2::SequenceFlag::TiltIn)
-        .value("TILT_OUT", whiteout::m2::SequenceFlag::TiltOut)
-        .value("TILT_FIXED", whiteout::m2::SequenceFlag::TiltFixed)
-        .value("LOOPING", whiteout::m2::SequenceFlag::Looping)
-        .value("IS_ALIAS", whiteout::m2::SequenceFlag::IsAlias)
-        .value("ANIMATED_SETUP", whiteout::m2::SequenceFlag::AnimatedSetup)
-        .value("STORED_ANIMATED", whiteout::m2::SequenceFlag::StoredAnimated)
-        .value("ENABLE_COMPOSITE", whiteout::m2::SequenceFlag::EnableComposite)
+        .value("UNK_0X1", whiteout::m2::SequenceFlag::Unk_0x1)
+        .value("GROUND_ALIGN_RAMP_IN", whiteout::m2::SequenceFlag::GroundAlignRampIn, R"doc(Ground alignment ramps to full over the first half of the play.)doc")
+        .value("GROUND_ALIGN_RAMP_OUT", whiteout::m2::SequenceFlag::GroundAlignRampOut, R"doc(Ground alignment ramps from full over the first half of the play.)doc")
+        .value("GROUND_ALIGN_FULL", whiteout::m2::SequenceFlag::GroundAlignFull, R"doc(Full ground alignment for the whole play.)doc")
+        .value("LOOPING", whiteout::m2::SequenceFlag::Looping, R"doc(Full ground alignment for the whole play.)doc")
+        .value("IS_ALIAS", whiteout::m2::SequenceFlag::IsAlias, R"doc(Full ground alignment for the whole play.)doc")
+        .value("ANIMATED_SETUP", whiteout::m2::SequenceFlag::AnimatedSetup, R"doc(Full ground alignment for the whole play.)doc")
+        .value("STORED_ANIMATED", whiteout::m2::SequenceFlag::StoredAnimated, R"doc(Full ground alignment for the whole play.)doc")
+        .value("ENABLE_COMPOSITE", whiteout::m2::SequenceFlag::EnableComposite, R"doc(Full ground alignment for the whole play.)doc")
     ;
 
     py::enum_<whiteout::m2::BoneFlag>(m, "BoneFlag", R"doc(`M2CompBone.flags`, as WoW 12.1 reads it (`WOW_M2_FLAGS.md` §7).
@@ -236,13 +242,20 @@ The client ORs the file word with a runtime word, so the bits marked runtime bel
         .value("PROCEDURAL_TRANSFORM", whiteout::m2::BoneFlag::ProceduralTransform, R"doc(@} A procedural matrix is multiplied into the local transform.)doc")
         .value("TRANSFORMED", whiteout::m2::BoneFlag::Transformed, R"doc(Has animation; with ProceduralTransform clear too, the bone skips animation.)doc")
         .value("KINEMATIC", whiteout::m2::BoneFlag::Kinematic, R"doc(Eligible for physics: a live dynamic body on the bone replaces its animation.)doc")
+        .value("NO_BODY_SPAWN", whiteout::m2::BoneFlag::NoBodySpawn, R"doc(Left out of the spawn table of type-4 "spawn on the body" emitters.)doc")
         .value("HELMET_ANIM_SCALED", whiteout::m2::BoneFlag::HelmetAnimScaled, R"doc(The helmet-scaling pass writes its per-race scale into this bone.)doc")
         .value("PRIMARY_SEQUENCE_ATTACHED", whiteout::m2::BoneFlag::PrimarySequenceAttached, R"doc(runtime)doc")
         .value("SECONDARY_SEQUENCE_ATTACHED", whiteout::m2::BoneFlag::SecondarySequenceAttached, R"doc(runtime)doc")
-        .value("PHYSICS_INTERACTION_OFFSET", whiteout::m2::BoneFlag::PhysicsInteractionOffset, R"doc(runtime)doc")
+        .value("LOD_TIER0", whiteout::m2::BoneFlag::LodTier0, R"doc(@name Bone-LOD tiers Nested: a bone in tier 0 is in tiers 1 and 2 too. LDV1 names the tier each LOD culls, and a culled bone stops animating. @{)doc")
+        .value("LOD_TIER1", whiteout::m2::BoneFlag::LodTier1, R"doc(@name Bone-LOD tiers Nested: a bone in tier 0 is in tiers 1 and 2 too. LDV1 names the tier each LOD culls, and a culled bone stops animating. @{)doc")
+        .value("LOD_TIER2", whiteout::m2::BoneFlag::LodTier2, R"doc(@name Bone-LOD tiers Nested: a bone in tier 0 is in tiers 1 and 2 too. LDV1 names the tier each LOD culls, and a culled bone stops animating. @{)doc")
+        .value("GROUND_SNAP", whiteout::m2::BoneFlag::GroundSnap, R"doc(@} Dropped once onto the ground below its pivot, on the first frame.)doc")
+        .value("SKINNED_RUNTIME", whiteout::m2::BoneFlag::SkinnedRuntime, R"doc(runtime: a loaded skin references the bone or a descendant.)doc")
+        .value("VEGETATION_PUSH", whiteout::m2::BoneFlag::VegetationPush, R"doc(runtime: a PHYT-2 phantom offsets the bone)doc")
         .value("PHYSICS_DRIVEN", whiteout::m2::BoneFlag::PhysicsDriven, R"doc(runtime: a dynamic body owns the bone)doc")
-        .value("SKIP_SEQUENCE_BLEND_WEIGHT", whiteout::m2::BoneFlag::SkipSequenceBlendWeight, R"doc(With PrimarySequenceAttached, skip the per-sequence blend weight.)doc")
-        .value("PROCEDURAL_IN_WORLD_SPACE", whiteout::m2::BoneFlag::ProceduralInWorldSpace, R"doc(With ProceduralTransform, apply the matrix after parenting, in world space.)doc")
+        .value("ABSOLUTE_BLEND_WEIGHT", whiteout::m2::BoneFlag::AbsoluteBlendWeight, R"doc(runtime: the bone's blend weight is its own, not scaled by its parent's.)doc")
+        .value("PROCEDURAL_MODEL_SPACE", whiteout::m2::BoneFlag::ProceduralModelSpace, R"doc(With ProceduralTransform, rotate in model space about the bone's current pivot, discarding the procedural translation.)doc")
+        .value("ALWAYS_ANIMATE", whiteout::m2::BoneFlag::AlwaysAnimate, R"doc(Animated every frame even when no loaded skin references it.)doc")
     ;
 
     py::enum_<whiteout::m2::MaterialFlag>(m, "MaterialFlag")
@@ -487,12 +500,13 @@ Kept only by a lazily parsed model (Parser::setLazyAnimations), which leaves the
         .def_readwrite("unknown1", &whiteout::m2::DetailedLightData::unknown1)
     ;
 
-    py::class_<whiteout::m2::DebugOcclusionData>(m, "DebugOcclusionData")
+    py::class_<whiteout::m2::DepthBasedOpacityData>(m, "DepthBasedOpacityData", R"doc(One DBOC entry: the soft edge a material with flag 0x1000 fades by against the scene depth copy, `alpha *= saturate((sceneDepth - depth) * scale)^exponent`. The 12.1 client takes the first entry naming the batch's material, else (2/3, 1.5) (`sub_141900320`).)doc")
         .def(py::init<>())
-        .def_readwrite("unknown1_1", &whiteout::m2::DebugOcclusionData::unknown1_1)
-        .def_readwrite("unknown1_2", &whiteout::m2::DebugOcclusionData::unknown1_2)
-        .def_readwrite("unknown1_3", &whiteout::m2::DebugOcclusionData::unknown1_3)
-        .def_readwrite("unknown1_4", &whiteout::m2::DebugOcclusionData::unknown1_4)
+        .def_readwrite("scale", &whiteout::m2::DepthBasedOpacityData::scale)
+        .def_readwrite("exponent", &whiteout::m2::DepthBasedOpacityData::exponent)
+        .def_readwrite("material_index", &whiteout::m2::DepthBasedOpacityData::materialIndex)
+        .def_readwrite("pad0", &whiteout::m2::DepthBasedOpacityData::pad0)
+        .def_readwrite("pad1", &whiteout::m2::DepthBasedOpacityData::pad1)
     ;
 
     py::class_<whiteout::m2::TexturedLightData>(m, "TexturedLightData")
@@ -553,7 +567,7 @@ The client keeps the payload pointer and a record count of `chunkSize / 32`, so 
         .def_readwrite("priority_plane", &whiteout::m2::Batch::priorityPlane)
         .def_readwrite("shader_id", &whiteout::m2::Batch::shaderId)
         .def_readwrite("skin_section_index", &whiteout::m2::Batch::skinSectionIndex)
-        .def_readwrite("geoset_index", &whiteout::m2::Batch::geosetIndex)
+        .def_readwrite("geoset_index", &whiteout::m2::Batch::geosetIndex, R"doc(The u16 at +6: a geoset index before version 0x112, which the 12.1 client zeroes on load, and `flags2` from 0x112 on (Batch::flags2).)doc")
         .def_readwrite("color_index", &whiteout::m2::Batch::colorIndex)
         .def_readwrite("material_index", &whiteout::m2::Batch::materialIndex)
         .def_readwrite("material_layer", &whiteout::m2::Batch::materialLayer)
@@ -1021,7 +1035,7 @@ The chunk stores fixed-size headers and variable-size payloads in two blocks; bo
 Read only for a `PHYT` 2 model, which becomes a phantom pushed by units walking through it rather than a ragdoll.)doc")
         .def(py::init<>())
         .def_readwrite("pos_max_push", &whiteout::m2::PhysicsTuning::posMaxPush, R"doc(Yards a bone may be pushed from its base before it is clamped.)doc")
-        .def_readwrite("pos_push_amt", &whiteout::m2::PhysicsTuning::posPushAmt, R"doc(Yards per frame a bone is pushed while a unit moves along it, times dt.)doc")
+        .def_readwrite("pos_push_amt", &whiteout::m2::PhysicsTuning::posPushAmt, R"doc(The fraction of its target a bone is pushed each frame while a unit moves along it; 12.1 does not scale it by dt.)doc")
         .def_readwrite("pos_relax_speed", &whiteout::m2::PhysicsTuning::posRelaxSpeed, R"doc(How fast the bone returns to rest once the unit leaves.)doc")
         .def_readwrite("vel_max_push", &whiteout::m2::PhysicsTuning::velMaxPush, R"doc(Extra push along a moving unit's velocity.)doc")
         .def_readwrite("vel_speed", &whiteout::m2::PhysicsTuning::velSpeed, R"doc(How fast the bone sways along that velocity.)doc")

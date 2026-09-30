@@ -66,7 +66,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::CameraSpline>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::CapsuleShape>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::ColorAnimation>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::CompatQuaternion>);
-PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::DebugOcclusionData>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::DepthBasedOpacityData>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::DetailedLightData>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::DistanceFadeData>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::DistanceJoint>);
@@ -176,7 +176,7 @@ void bind_m2_2(py::module_& m) {
     py::bind_vector<std::vector<whiteout::m2::CapsuleShape>>(m, "VectorM2CapsuleShape");
     py::bind_vector<std::vector<whiteout::m2::ColorAnimation>>(m, "VectorM2ColorAnimation");
     py::bind_vector<std::vector<whiteout::m2::CompatQuaternion>>(m, "VectorM2CompatQuaternion");
-    py::bind_vector<std::vector<whiteout::m2::DebugOcclusionData>>(m, "VectorM2DebugOcclusionData");
+    py::bind_vector<std::vector<whiteout::m2::DepthBasedOpacityData>>(m, "VectorM2DepthBasedOpacityData");
     py::bind_vector<std::vector<whiteout::m2::DetailedLightData>>(m, "VectorM2DetailedLightData");
     py::bind_vector<std::vector<whiteout::m2::DistanceFadeData>>(m, "VectorM2DistanceFadeData");
     py::bind_vector<std::vector<whiteout::m2::DistanceJoint>>(m, "VectorM2DistanceJoint");

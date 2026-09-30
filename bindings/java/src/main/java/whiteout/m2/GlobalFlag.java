@@ -3,34 +3,36 @@
 package whiteout.m2;
 
 /**
- * The MD20 header's `globalFlags`, named for what WoW 12.1 does with each bit (`WOW_M2_FLAGS.md`, corrected where noted).
+ * The MD20 header's `globalFlags`, named for what WoW 12.1 does with each bit (`M2_FLAGS_RE.md`).
  */
 public enum GlobalFlag {
     None(0),
-    /** The model leans to follow the ground normal, about X and about Y. */
-    TiltX(1),
-    /** The model leans to follow the ground normal, about X and about Y. */
-    TiltY(2),
-    /** The world transform is taken as is: no attachment parent's scale or translation is composed in, and emitters do not inherit it. */
-    WorldAbsoluteTransform(4),
-    /** The header carries `textureCombinerCombos` after its fixed part. Read by the parser; the 12.1 client never tests it. */
+    /** Ground alignment, read as the 2-bit value `flags & 3`: 1 pitches the model onto the ground normal, 3 aligns it fully, and 2 alone does nothing. */
+    GroundTiltPitch(1),
+    /** The high half of the ground-alignment value; see GroundTiltPitch. */
+    GroundTiltFull(2),
+    /** The model does not inherit its attach parent's render state: alpha, diffuse, emissive and model effect. Fade is inherited regardless. */
+    NoParentRenderState(4),
+    /** Files of version 271 and below: the header carries `textureCombinerCombos` after its fixed part. The 12.1 client never tests it, so the parser ignores it from version 272 on. */
     UseTextureCombinerCombos(8),
-    /** Batch bounds and sort distance come from the bone-transformed geometry. */
-    AnimatedBounds(16),
-    /** Load physics when the model attaches to a scene. CM2Shared::FinishLoadingM2Data tests it before LegacyLoadPhysData. */
-    LoadPhysicsData(32),
-    /** Enters the visible-geometry optimiser and the shadow-map gather. */
-    VisibleGeometryOptimise(128),
+    /** Transparent batches sort by the model's distance first, as one unit; clear, each batch sorts by its own animated centre. */
+    SortAsOneUnit(16),
+    /** The only gate on creating the `.phys` ragdoll or phantom, whether the definition came from PFDC or PFID. */
+    CreatePhysics(32),
+    /** Consecutive compatible batches merge, and the model casts dynamic shadows. */
+    MergeBatchesCastShadows(128),
     /** Emitters of record type 4 are relinked when the model attaches to a parent. */
     ParentLinkedParticles(256),
-    /** Files of version 271 and below: the particle record carries the 16-byte multi-texture scroll tail. 12.1 reads the bit on helmets instead, as "has per-race rows in HelmetAnimScaling" (bone flag HelmetAnimScaled). */
+    /** Files of version 271 and below: the particle record carries the 16-byte multi-texture scroll tail. From 272 on the tail is always there. */
     NewParticleRecord(512),
-    /** Files of version 271 and below: the particle record carries the 16-byte multi-texture scroll tail. 12.1 reads the bit on helmets instead, as "has per-race rows in HelmetAnimScaling" (bone flag HelmetAnimScaled). */
+    /** 12.1's reading of 0x200, on a character body: its HelmetAnimScaled bones take a per-race scale from `HelmetAnimScaling`. */
+    HelmetAnimScaling(512),
+    /** No reader in 12.1. */
     Unk_0x400(1024),
     /** Texture transforms are driven by bone sequences through textureTransformBoneMap. */
     TextureTransformsUsesBoneSequences(2048),
-    /** Texture transforms are driven by bone sequences through textureTransformBoneMap. */
-    Unk_0x1000(4096),
+    /** Particles fade where they meet scene depth, over their own size. */
+    SoftParticles(4096),
     /** Each skin profile owns a slice of the vertex array starting at its SkinProfile::lodVertexBase; clear, every profile indexes from 0. */
     PerSkinVertexBlocks(8192),
     /** A skinned attachment posed by its parent model: the client rebinds its bones to the parent skeleton by Bone::boneNameCRC. */
@@ -53,12 +55,12 @@ public enum GlobalFlag {
     SkipOcclusionQuery(33554432),
     /** Treat the model as visible without querying occlusion. */
     ForceUnoccluded(67108864),
-    /** Patches two bytes of the M2 render-state word; the bytes' meaning is not resolved. */
-    PipelineStateOverride(134217728),
-    /** Past a LOD threshold the model swaps its link record and releases its textures. */
-    FarLodLinkSubstitute(268435456),
-    /** Picks which of two render-state words a secondary pass draws the model with. */
-    SecondaryPassRenderState(536870912);
+    /** ORs 0x10 into the stencil reference the model's opaque draws write. */
+    StencilMark0x10(134217728),
+    /** At the last LDV1 LOD the model draws through the reduced `FlipbookImpostor` model effect. */
+    LastLodReducedEffect(268435456),
+    /** The model's projected decals paint on M2 models too, not only on terrain and WMOs. */
+    DecalsPaintModels(536870912);
 
     public final int value;
     GlobalFlag(int v) { this.value = v; }

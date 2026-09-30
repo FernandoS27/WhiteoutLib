@@ -62,6 +62,8 @@ struct M2Batch {
     i8 priorityPlane{};
     u16 shaderId{};
     u16 skinSectionIndex{};
+    /// The u16 at +6: a geoset index before version 0x112, which the 12.1 client zeroes
+    /// on load, and `flags2` from 0x112 on (Batch::flags2).
     u16 geosetIndex{};
     i16 colorIndex{};
     u16 materialIndex{};

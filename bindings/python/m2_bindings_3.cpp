@@ -66,7 +66,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::CameraSpline>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::CapsuleShape>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::ColorAnimation>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::CompatQuaternion>);
-PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::DebugOcclusionData>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::DepthBasedOpacityData>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::DetailedLightData>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::DistanceFadeData>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::DistanceJoint>);

@@ -1338,7 +1338,6 @@ m2::Model makeM2WithEmitter() {
         model.textures.push_back(texture);
     }
     model.textureCombos = {0};
-    model.textureCoordCombos = {0};
     model.textureWeightCombos = {0};
     model.textureTransformCombos = {0xFFFF};
     model.materials.push_back(m2::Material{});

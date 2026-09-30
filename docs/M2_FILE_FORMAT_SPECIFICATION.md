@@ -218,7 +218,7 @@ Version ranges are inclusive. Models are version-tagged by the exporter; the ver
 | `NewParticleRecord` flag OR `> 271` | Particle emitter record is 492 bytes instead of 476: the extended `multiTexScrollMid[2][2]` / `multiTexScrollRange[2][2]` fields (16 × `fixed16_9` = 16 bytes) are appended |
 | `flag_use_texture_combiner_combos` | `textureCombinerCombos` array appended at header end |
 
-Pre-Legion models reference their sibling files by path rather than FileDataID: `<stem>%02d.skin`, `<stem>_LOD%02d.skin`, `<stem>%04d-%02d.anim` and — when the `LoadPhysicsData` global flag (0x100) is set — `<stem>.phys`. The naming was verified against the WoD 6.0.1 client's `CM2Shared::LoadSkinProfile` / `LoadLowPrioritySequence` format strings; matching is case-insensitive, as the client's own lookups are.
+Pre-Legion models reference their sibling files by path rather than FileDataID: `<stem>%02d.skin`, `<stem>_LOD%02d.skin`, `<stem>%04d-%02d.anim` and — when the `CreatePhysics` global flag (0x20) is set — `<stem>.phys`. The naming was verified against the WoD 6.0.1 client's `CM2Shared::LoadSkinProfile` / `LoadLowPrioritySequence` format strings; matching is case-insensitive, as the client's own lookups are.
 
 ---
 
@@ -494,7 +494,7 @@ Offset  Type                          Field
 0x070   M2Array<M2Material>           materials
 0x078   M2Array<u16>                  boneCombos
 0x080   M2Array<u16>                  textureCombos
-0x088   M2Array<u16>                  textureCoordCombos
+0x088   M2Array<u16>                  textureTransformBoneMap
 0x090   M2Array<u16>                  textureWeightCombos
 0x098   M2Array<u16>                  textureTransformCombos
 0x0A0   Extent                        bounding
@@ -510,7 +510,7 @@ Offset  Type                          Field
 0x118   M2Array<u16>                  cameraIndicesById
 0x120   M2Array<M2Ribbon>             ribbonEmitters
 0x128   M2Array<M2Particle>           particleEmitters
---- conditional (if globalFlags & UseTextureCombinerCombos, >= BC) ---
+--- conditional (if globalFlags & UseTextureCombinerCombos, BC through 271) ---
 0x130   M2Array<u16>                  textureCombinerCombos
 ```
 
@@ -541,7 +541,7 @@ struct MD20Header {
 
     std::vector<u16> boneCombos;
     std::vector<u16> textureCombos;
-    std::vector<u16> textureCoordCombos;
+    std::vector<u16> textureTransformBoneMap;
     std::vector<u16> textureWeightCombos;
     std::vector<u16> textureTransformCombos;
 
@@ -566,37 +566,37 @@ struct MD20Header {
 ### 6.2 Global Flags
 
 Stored as `u32` at offset `0x010` in the header. WhiteoutLib exposes these as `GlobalFlag`. The meanings are
-what the WoW 12.1.0 client does with each bit, traced through its code (the census in BlizzPartRE's
-`WOW_M2_FLAGS.md`, corrected for bits 15 and 17); the frequencies are this corpus's.
+what the WoW 12.1.0 client does with each bit, traced through its code (WhiteoutFlakes' `M2_FLAGS_RE.md`,
+which supersedes BlizzPartRE's `WOW_M2_FLAGS.md`); the frequencies are this corpus's.
 
 | Flag | Bit | What 12.1 does with it | Corpus Freq |
 |---|---|---|---|
-| `TiltX` | `0x001` | The model leans about X to follow the ground normal | 402 / 9059 |
-| `TiltY` | `0x002` | The same about Y; the pair is read as a 2-bit value | 118 / 9059 |
-| `WorldAbsoluteTransform` | `0x004` | No attachment parent's scale or translation is composed in, and emitters do not inherit it | 60 / 9059 |
-| `UseTextureCombinerCombos` | `0x008` | Appends `textureCombinerCombos` at the header end; read by the parser, never tested by the 12.1 client | — |
-| `AnimatedBounds` | `0x010` | Batch bounds and sort distance come from bone-transformed geometry | 5664 / 9059 |
-| `LoadPhysicsData` | `0x020` | Physics is loaded when the model attaches to a scene | 56 / 9059 |
-| `VisibleGeometryOptimise` | `0x080` | Enters the visible-geometry optimiser and the shadow-map gather | 9059 / 9059 |
+| `GroundTiltPitch` | `0x001` | Ground alignment, read as the 2-bit value `flags & 3`: 1 pitches onto the ground normal, 3 aligns fully, 2 does nothing | 402 / 9059 |
+| `GroundTiltFull` | `0x002` | The high half of that value | 118 / 9059 |
+| `NoParentRenderState` | `0x004` | The model does not inherit its attach parent's alpha, diffuse, emissive or model effect (fade still multiplies) | 60 / 9059 |
+| `UseTextureCombinerCombos` | `0x008` | Versions BC–271: `textureCombinerCombos` follows the header. The 12.1 client (versions 272–274) never tests it, and WhiteoutLib ignores it there | — |
+| `SortAsOneUnit` | `0x010` | Transparent batches sort by the model's distance first, as one unit; clear, each batch sorts by its own animated centre | 5664 / 9059 |
+| `CreatePhysics` | `0x020` | The only gate on creating the `.phys` ragdoll or phantom, from PFDC or PFID alike | 56 / 9059 |
+| `MergeBatchesCastShadows` | `0x080` | Compatible batches merge, and the model casts dynamic shadows | 9059 / 9059 |
 | `ParentLinkedParticles` | `0x100` | Emitters of record type 4 are relinked when the model attaches to a parent | 3 / 9059 |
-| `NewParticleRecord` | `0x200` | Version 271 and below: the 492-byte particle record. 12.1 reads it on helmets as "has per-race `HelmetAnimScaling` rows" | 7 / 9059 |
+| `NewParticleRecord` / `HelmetAnimScaling` | `0x200` | Version 271 and below: the 492-byte particle record. 12.1 tests it on a character body before per-race `HelmetAnimScaling` (dormant: no caller passes a real key) | 7 / 9059 |
 | `Unk_0x400` | `0x400` | Not read | — |
-| `TextureTransformsUsesBoneSequences` | `0x800` | Texture transforms are driven by bone sequences through `textureTransformBoneMap` | — |
-| `Unk_0x1000` | `0x1000` | Not read | 2617 / 9059 |
+| `TextureTransformsUsesBoneSequences` | `0x800` | Texture transform `i` runs on the clock of bone `textureTransformBoneMap[i]` | — |
+| `SoftParticles` | `0x1000` | Particles fade where they meet scene depth, over their own size (needs the soft-edge setting) | 2617 / 9059 |
 | `PerSkinVertexBlocks` | `0x2000` | Each skin profile's indices start at its `lodVertexBase` in the vertex array; clear, every profile starts at 0 | 5867 / 9059 |
 | `ParentSkeletonBound` | `0x4000` | A skinned attachment rebound to its parent's skeleton by bone name CRC | — |
 | `LightAttenuationTracks` | `0x8000` | Point lights take attenuation start/end from their tracks; clear, 1.6666 and 5.2666 times the model scale | 512 / 9059 |
 | `RibbonTextureTransforms` | `0x20000` | Ribbons resolve `textureTransformIndex` through `textureTransformCombos`; clear, it is ignored | 560 / 9059 |
 | `BoneWind` | `0x40000` | Bone wind: every palette entry but the root's carries wind amplitude and phase for a wind vertex shader | — |
-| `ExternalSkeleton` | `0x100000` | Sequences and bones come from the `.skel`, not the header | 61 / 9059 |
-| `ChunkedAnimAfm2` | `0x200000` | External `.anim` files are chunk streams whose `AFM2` chunk holds the sequence data | 4274 / 9059 |
+| `ExternalSkeleton` | `0x100000` | The SKID `.skel` supplies bones, sequences and attachments; clear, the `.skel` is never read | 61 / 9059 |
+| `ChunkedAnimAfm2` | `0x200000` | External `.anim` files are chunk streams whose `AFM2` chunk holds the sequence data (a `.skel`'s always are) | 4274 / 9059 |
 | `NamedTextureRequestInert` | `0x800000` | Sets a texture-creation flag nothing reads | — |
-| `SuppressPhysicsFile` | `0x1000000` | Ignore the `PFID` physics file | 21 / 9059 |
+| `SuppressPhysicsFile` | `0x1000000` | The `PFID` physics file is never read | 21 / 9059 |
 | `SkipOcclusionQuery` | `0x2000000` | Skip the HiZ occlusion test | — |
 | `ForceUnoccluded` | `0x4000000` | Treat the model as visible without querying | — |
-| `PipelineStateOverride` | `0x8000000` | Patches two bytes of the M2 render-state word (bytes not decoded) | — |
-| `FarLodLinkSubstitute` | `0x10000000` | Past a LOD threshold the link record is swapped and textures released | — |
-| `SecondaryPassRenderState` | `0x20000000` | Picks one of two render-state words for a secondary pass | 53 / 9059 |
+| `StencilMark0x10` | `0x8000000` | ORs `0x10` into the stencil reference the model's opaque draws write | — |
+| `LastLodReducedEffect` | `0x10000000` | At the last LDV1 LOD the model draws through the reduced `FlipbookImpostor` effect | — |
+| `DecalsPaintModels` | `0x20000000` | The model's decal batches (`flags2 & 2`) paint M2 models too, not only terrain and WMOs | 53 / 9059 |
 
 `0x40000000` (14 files) and the bits not listed are read by nothing in 12.1 and are kept raw by WhiteoutLib.
 The bone flags (`BoneFlag`) are documented beside `Bone`; their billboard bits are one switch over
@@ -647,9 +647,9 @@ The `blendTimeIn` / `blendTimeOut` split was introduced around WoD; older files 
 | Flag | Value | Description | Corpus Freq |
 |---|---|---|---|
 | Unk_0x01 | `0x01` | Unknown; seen commonly in sequences | 19220 / 45310 |
-| Tilt In | `0x02` | Model starts upright, tilts over X/Y by end | 21305 / 45310 |
-| Tilt Out | `0x04` | Model starts tilted, returns upright by end | 21062 / 45310 |
-| Tilt Fixed | `0x08` | Model stays tilted for entire animation | 20664 / 45310 |
+| GroundAlignRampIn | `0x02` | Ground alignment ramps to full over the first half of the play | 21305 / 45310 |
+| GroundAlignRampOut | `0x04` | Ground alignment ramps back from full over the first half of the play | 21062 / 45310 |
+| GroundAlignFull | `0x08` | Full ground alignment for the whole play | 20664 / 45310 |
 | Runtime loaded | `0x10` | Set at runtime for loaded low-priority sequences | 21310 / 45310 |
 | Primary bone sequence | `0x20` | Animation data is embedded in the .m2 file (not externalized to .anim) | 21583 / 45310 |
 | Is alias | `0x40` | This entry is an alias; follow `aliasNext` to find actual data | 20528 / 45310 |
@@ -719,9 +719,22 @@ The bone hierarchy defines the skeleton. Each bone's final transform is computed
 | `CylindricalBillboardX` | `0x010` | Billboard locked to X axis |
 | `CylindricalBillboardY` | `0x020` | Billboard locked to Y axis |
 | `CylindricalBillboardZ` | `0x040` | Billboard locked to Z axis |
+| `ProceduralTransform` | `0x080` | runtime: a procedural matrix joins the local transform |
 | `Transformed` | `0x200` | Bone has animation transforms |
 | `Kinematic` | `0x400` | Physics system can influence this bone (MoP+) |
+| `NoBodySpawn` | `0x800` | Left out of type-4 "spawn on the body" emitters |
 | `HelmetAnimScaled` | `0x1000` | Helmet animation scaling via HelmetAnimScaling.dbc |
+| `LodTier0/1/2` | `0x10000`–`0x40000` | Nested bone-LOD tiers LDV1 culls |
+| `GroundSnap` | `0x80000` | Dropped once onto the ground below its pivot |
+| `SkinnedRuntime` | `0x100000` | runtime: a loaded skin references the bone |
+| `VegetationPush` | `0x200000` | runtime: a PHYT-2 phantom offsets the bone |
+| `PhysicsDriven` | `0x400000` | runtime: a dynamic body owns the bone |
+| `AbsoluteBlendWeight` | `0x800000` | runtime: the blend weight is not scaled by the parent's |
+| `ProceduralModelSpace` | `0x1000000` | With `0x80`, the procedural rotation applies in model space |
+| `AlwaysAnimate` | `0x2000000` | Animated every frame even when no skin references it |
+| `BillboardAimAtCamera` | `0x4000000` | Billboard aims at the camera position |
+
+`IgnoreParentRotation` gives the bone an identity basis in 12.1, dropping the parent's scale as well.
 
 Spherical and cylindrical billboard bits are mutually exclusive. Billboards are used for light halos, cannonball hemispheres, and similar view-facing geometry.
 
@@ -888,7 +901,7 @@ The header contains several `u16[]` indirection tables that skin batches use to 
 |---|---|---|
 | `boneCombos` | bone_lookup_table | Bone indices for skinning; skin sections reference a slice |
 | `textureCombos` | texture_lookup_table | Indices into the `textures[]` array |
-| `textureCoordCombos` | tex_unit_lookup_table | UV mapping selection (-1=env, 0=UV0, 1=UV1) |
+| `textureTransformBoneMap` | tex_unit_lookup_table | With global `0x800`, the bone whose clock drives texture transform `i` (the client's own error string names it); the shader id picks UV sources |
 | `textureWeightCombos` | transparency_lookup_table | Indices into `textureWeights[]` |
 | `textureTransformCombos` | texture_transforms_lookup_table | Indices into `textureTransforms[]` |
 | `textureIndicesById` | replacable_texture_lookup | Replaceable texture lookup (type → texture index, or -1) |
@@ -1358,23 +1371,23 @@ The `skinSectionId` groups submeshes for geoset-based visibility toggling (e.g.,
 
 ```cpp
 struct Batch {        // 24 bytes
-    u8  flags;
+    u8  flags;                  // 0x04: projected texture (drawn onto receivers)
     i8  priorityPlane;
     u16 shaderId;
     u16 skinSectionIndex;       // into submeshes[]
-    u16 geosetIndex;
+    u16 geosetIndex;            // flags2 from 0x112 (0x02: box decal); 12.1 zeroes it before
     i16 colorIndex;             // into header's colors[], or -1
     u16 materialIndex;          // into header's materials[]
     u16 materialLayer;
     u16 textureCount;
     u16 textureComboIndex;      // into header's textureCombos[]
-    u16 textureCoordComboIndex; // into header's textureCoordCombos[]
+    u16 textureCoordComboIndex; // the +0x88 slot; UV sources come from shaderId
     u16 textureWeightComboIndex;
     u16 textureTransformComboIndex;
 };
 ```
 
-Each batch represents a draw call. The `shaderId` selects which vertex/pixel shader combination to use and which UV sets to pass. When `UseTextureCombinerCombos` is set, `shaderId` also indexes into the `textureCombinerCombos` array for the second texture's blend mode.
+Each batch represents a draw call. The `shaderId` selects which vertex/pixel shader combination to use and which UV sets to pass. When `UseTextureCombinerCombos` is set on a file of version 271 or below, `shaderId` also indexes into the `textureCombinerCombos` array for the second texture's blend mode.
 
 Material, texture, and animation indices use the combo tables as indirection layers, enabling multiple skin sections to share resources efficiently.
 
@@ -2532,7 +2545,7 @@ checks that all 315 corpus payloads come back byte for byte.
 
 | Source | Condition | Where it lands |
 |---|---|---|
-| `<stem>.phys` sibling | MD20 with the `LoadPhysicsData` global flag, path mode | `Model::physics` |
+| `<stem>.phys` sibling | MD20 with the `CreatePhysics` global flag, path mode | `Model::physics` |
 | `PFID` file id | MD21 carrying `PFID`, resolved by id in CASC mode or by sibling path otherwise | `Model::physics`, id kept in `Model::physicsFileId` |
 | `PFDC` chunk | MD21 carrying the payload inline | `Model::physics` |
 

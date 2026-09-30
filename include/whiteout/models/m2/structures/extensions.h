@@ -89,11 +89,16 @@ struct DetailedLightData {
     u32 unknown1 = 0;
 };
 
-struct DebugOcclusionData {
-    f32 unknown1_1 = 0.0f;
-    f32 unknown1_2 = 0.0f;
-    u32 unknown1_3 = 0;
-    u32 unknown1_4 = 0;
+/// One DBOC entry: the soft edge a material with flag 0x1000 fades by against
+/// the scene depth copy, `alpha *= saturate((sceneDepth - depth) * scale)^exponent`.
+/// The 12.1 client takes the first entry naming the batch's material, else
+/// (2/3, 1.5) (`sub_141900320`).
+struct DepthBasedOpacityData {
+    f32 scale = 0.0f;
+    f32 exponent = 0.0f;
+    u16 materialIndex = 0;
+    u16 pad0 = 0;
+    u32 pad1 = 0;
 };
 
 struct TexturedLightData {

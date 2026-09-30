@@ -31,6 +31,8 @@
 
 #include "structures.h"
 
+#include <whiteout/interfaces.h>
+
 namespace whiteout {
 namespace m2 {
 
@@ -68,6 +70,24 @@ void unloadSequence(Model& model, u32 sequenceIndex);
 
 /// @brief unloadSequence() for every streamed sequence.
 void unloadAllSequences(Model& model);
+
+/// @brief Read the SKPD parent skeleton @p model's `.skel` names, by id through
+///        @p cascFs, into Model::parentSkeleton.
+///
+/// The parent's sequences load from the parent's own AFID. When its bone count
+/// matches, every parent bone flag but the LOD tiers is ORed into the child's,
+/// as the 12.1 client does. True when the parent is loaded afterwards; false
+/// for a model with no parent, or a parent the file system cannot read. With
+/// @p lazyAnimations the parent's keys wait for loadParentSequence().
+bool loadParentSkeleton(Model& model, interfaces::CascFileSystem& cascFs,
+                        bool lazyAnimations = false);
+
+/// @brief sequenceKeysPending() for the parent skeleton's table.
+bool parentSequenceKeysPending(const Model& model, u32 sequenceIndex);
+
+/// @brief loadSequence() for the parent skeleton's table: fills that sequence's
+///        slice of the parent bones' tracks from the parent's `.anim`.
+bool loadParentSequence(Model& model, u32 sequenceIndex);
 
 } // namespace m2
 } // namespace whiteout

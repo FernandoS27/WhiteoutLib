@@ -151,7 +151,7 @@ struct DETLChunk {
 };
 
 struct DBOCChunk {
-    std::vector<DebugOcclusionData> entries;
+    std::vector<DepthBasedOpacityData> entries;
 };
 
 struct AFRAChunk {

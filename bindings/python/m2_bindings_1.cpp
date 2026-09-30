@@ -66,7 +66,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::CameraSpline>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::CapsuleShape>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::ColorAnimation>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::CompatQuaternion>);
-PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::DebugOcclusionData>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::DepthBasedOpacityData>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::DetailedLightData>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::DistanceFadeData>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::DistanceJoint>);
@@ -184,6 +184,7 @@ On disk this is two parallel chunks — `BIDA` holds the bone ids and `BOMT` the
 
     py::class_<whiteout::m2::Model>(m, "Model")
         .def(py::init<>())
+        .def_readwrite("file_version", &whiteout::m2::Model::fileVersion, R"doc(The MD20 version the file carried; 0 for a model built in memory. Some fields change meaning by version (Batch::flags2).)doc")
         .def_readwrite("model_name", &whiteout::m2::Model::modelName)
         .def_readwrite("global_flags", &whiteout::m2::Model::globalFlags)
         .def_readwrite("global_loops", &whiteout::m2::Model::globalLoops)
@@ -203,7 +204,7 @@ On disk this is two parallel chunks — `BIDA` holds the bone ids and `BOMT` the
         .def_readwrite("materials", &whiteout::m2::Model::materials)
         .def_readwrite("bone_combos", &whiteout::m2::Model::boneCombos)
         .def_readwrite("texture_combos", &whiteout::m2::Model::textureCombos)
-        .def_readwrite("texture_coord_combos", &whiteout::m2::Model::textureCoordCombos)
+        .def_readwrite("texture_transform_bone_map", &whiteout::m2::Model::textureTransformBoneMap, R"doc(Header +0x88. With GlobalFlag::TextureTransformsUsesBoneSequences, texture transform `i` runs on the clock of bone `[i]`; the 12.1 client reads it for nothing else (older tools called it `textureCoordCombos`).)doc")
         .def_readwrite("texture_weight_combos", &whiteout::m2::Model::textureWeightCombos)
         .def_readwrite("texture_transform_combos", &whiteout::m2::Model::textureTransformCombos)
         .def_readwrite("bounding", &whiteout::m2::Model::bounding)
@@ -219,7 +220,7 @@ On disk this is two parallel chunks — `BIDA` holds the bone ids and `BOMT` the
         .def_readwrite("camera_indices_by_id", &whiteout::m2::Model::cameraIndicesById)
         .def_readwrite("ribbon_emitters", &whiteout::m2::Model::ribbonEmitters)
         .def_readwrite("particle_emitters", &whiteout::m2::Model::particleEmitters)
-        .def_readwrite("texture_combiner_combos", &whiteout::m2::Model::textureCombinerCombos)
+        .def_readwrite("texture_combiner_combos", &whiteout::m2::Model::textureCombinerCombos, R"doc(Present only in files of version 271 and below with GlobalFlag::UseTextureCombinerCombos.)doc")
         .def_readwrite("playable_animation_lookup", &whiteout::m2::Model::playableAnimationLookup, R"doc(One 4-byte record per animation id; vanilla/BC clients use it to pick fallback animations. Preserved verbatim so old files round-trip.)doc")
         .def_readwrite("texture_flipbooks", &whiteout::m2::Model::textureFlipbooks, R"doc("Texture flipbooks" — unused even by old clients, preserved verbatim.)doc")
         .def_readwrite("texture_ids", &whiteout::m2::Model::texture_ids, R"doc(TXID)doc")
@@ -239,7 +240,7 @@ On disk this is two parallel chunks — `BIDA` holds the bone ids and `BOMT` the
         .def_readwrite("edge_fade_entries", &whiteout::m2::Model::edgeFadeEntries, R"doc(EDGF)doc")
         .def_readwrite("nerf_entries", &whiteout::m2::Model::nerfEntries, R"doc(NERF)doc")
         .def_readwrite("detailed_light_entries", &whiteout::m2::Model::detailedLightEntries, R"doc(DETL)doc")
-        .def_readwrite("debug_occlusion_entries", &whiteout::m2::Model::debugOcclusionEntries, R"doc(DBOC)doc")
+        .def_readwrite("depth_based_opacity_entries", &whiteout::m2::Model::depthBasedOpacityEntries, R"doc(DBOC)doc")
         .def_readwrite("anim_frame_data", &whiteout::m2::Model::animFrameData, R"doc(AFRA)doc")
         .def_readwrite("physics_collision", &whiteout::m2::Model::physicsCollision, R"doc(PCOL)doc")
         .def_readwrite("dpiv_data", &whiteout::m2::Model::dpivData, R"doc(DPIV (32 B per record))doc")

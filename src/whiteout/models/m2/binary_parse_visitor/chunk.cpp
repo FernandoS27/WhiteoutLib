@@ -168,11 +168,12 @@ void BinaryParseVisitor::visit(DETLChunk& chunk) {
     parse_chunked_vector(chunk.records);
 }
 
-void BinaryParseVisitor::visit(DebugOcclusionData& entry) {
-    entry.unknown1_1 = reader.read<f32>();
-    entry.unknown1_2 = reader.read<f32>();
-    entry.unknown1_3 = reader.read<u32>();
-    entry.unknown1_4 = reader.read<u32>();
+void BinaryParseVisitor::visit(DepthBasedOpacityData& entry) {
+    entry.scale = reader.read<f32>();
+    entry.exponent = reader.read<f32>();
+    entry.materialIndex = reader.read<u16>();
+    entry.pad0 = reader.read<u16>();
+    entry.pad1 = reader.read<u32>();
 }
 
 void BinaryParseVisitor::visit(DBOCChunk& chunk) {

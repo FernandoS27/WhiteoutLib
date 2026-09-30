@@ -27,18 +27,32 @@ public enum BoneFlag : int
     Transformed = 512,
     /// <summary>Eligible for physics: a live dynamic body on the bone replaces its animation.</summary>
     Kinematic = 1024,
+    /// <summary>Left out of the spawn table of type-4 "spawn on the body" emitters.</summary>
+    NoBodySpawn = 2048,
     /// <summary>The helmet-scaling pass writes its per-race scale into this bone.</summary>
     HelmetAnimScaled = 4096,
     /// <summary>runtime</summary>
     PrimarySequenceAttached = 8192,
     /// <summary>runtime</summary>
     SecondarySequenceAttached = 16384,
-    /// <summary>runtime</summary>
-    PhysicsInteractionOffset = 2097152,
+    /// <summary>@name Bone-LOD tiers Nested: a bone in tier 0 is in tiers 1 and 2 too. LDV1 names the tier each LOD culls, and a culled bone stops animating. @{</summary>
+    LodTier0 = 65536,
+    /// <summary>@name Bone-LOD tiers Nested: a bone in tier 0 is in tiers 1 and 2 too. LDV1 names the tier each LOD culls, and a culled bone stops animating. @{</summary>
+    LodTier1 = 131072,
+    /// <summary>@name Bone-LOD tiers Nested: a bone in tier 0 is in tiers 1 and 2 too. LDV1 names the tier each LOD culls, and a culled bone stops animating. @{</summary>
+    LodTier2 = 262144,
+    /// <summary>@} Dropped once onto the ground below its pivot, on the first frame.</summary>
+    GroundSnap = 524288,
+    /// <summary>runtime: a loaded skin references the bone or a descendant.</summary>
+    SkinnedRuntime = 1048576,
+    /// <summary>runtime: a PHYT-2 phantom offsets the bone</summary>
+    VegetationPush = 2097152,
     /// <summary>runtime: a dynamic body owns the bone</summary>
     PhysicsDriven = 4194304,
-    /// <summary>With PrimarySequenceAttached, skip the per-sequence blend weight.</summary>
-    SkipSequenceBlendWeight = 8388608,
-    /// <summary>With ProceduralTransform, apply the matrix after parenting, in world space.</summary>
-    ProceduralInWorldSpace = 16777216,
+    /// <summary>runtime: the bone's blend weight is its own, not scaled by its parent's.</summary>
+    AbsoluteBlendWeight = 8388608,
+    /// <summary>With ProceduralTransform, rotate in model space about the bone's current pivot, discarding the procedural translation.</summary>
+    ProceduralModelSpace = 16777216,
+    /// <summary>Animated every frame even when no loaded skin references it.</summary>
+    AlwaysAnimate = 33554432,
 }

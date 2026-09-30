@@ -48,6 +48,7 @@ public sealed class Batch : WhiteoutHandle
     }
 
 
+    /// <summary>The u16 at +6: a geoset index before version 0x112, which the 12.1 client zeroes on load, and `flags2` from 0x112 on (Batch::flags2).</summary>
     public ushort GeosetIndex
     {
         get => NativeMethods.whiteout_m2_M2Batch_get_geosetIndex(DangerousGet());

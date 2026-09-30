@@ -22,19 +22,24 @@ typedef enum {
 } whiteout_m2_InterpolationType;
 
 typedef enum {
+    whiteout_m2_BatchFlags2_Decal,
+} whiteout_m2_BatchFlags2;
+
+typedef enum {
     whiteout_m2_GlobalFlag_None,
-    whiteout_m2_GlobalFlag_TiltX,
-    whiteout_m2_GlobalFlag_TiltY,
-    whiteout_m2_GlobalFlag_WorldAbsoluteTransform,
+    whiteout_m2_GlobalFlag_GroundTiltPitch,
+    whiteout_m2_GlobalFlag_GroundTiltFull,
+    whiteout_m2_GlobalFlag_NoParentRenderState,
     whiteout_m2_GlobalFlag_UseTextureCombinerCombos,
-    whiteout_m2_GlobalFlag_AnimatedBounds,
-    whiteout_m2_GlobalFlag_LoadPhysicsData,
-    whiteout_m2_GlobalFlag_VisibleGeometryOptimise,
+    whiteout_m2_GlobalFlag_SortAsOneUnit,
+    whiteout_m2_GlobalFlag_CreatePhysics,
+    whiteout_m2_GlobalFlag_MergeBatchesCastShadows,
     whiteout_m2_GlobalFlag_ParentLinkedParticles,
     whiteout_m2_GlobalFlag_NewParticleRecord,
+    whiteout_m2_GlobalFlag_HelmetAnimScaling,
     whiteout_m2_GlobalFlag_Unk_0x400,
     whiteout_m2_GlobalFlag_TextureTransformsUsesBoneSequences,
-    whiteout_m2_GlobalFlag_Unk_0x1000,
+    whiteout_m2_GlobalFlag_SoftParticles,
     whiteout_m2_GlobalFlag_PerSkinVertexBlocks,
     whiteout_m2_GlobalFlag_ParentSkeletonBound,
     whiteout_m2_GlobalFlag_LightAttenuationTracks,
@@ -46,16 +51,17 @@ typedef enum {
     whiteout_m2_GlobalFlag_SuppressPhysicsFile,
     whiteout_m2_GlobalFlag_SkipOcclusionQuery,
     whiteout_m2_GlobalFlag_ForceUnoccluded,
-    whiteout_m2_GlobalFlag_PipelineStateOverride,
-    whiteout_m2_GlobalFlag_FarLodLinkSubstitute,
-    whiteout_m2_GlobalFlag_SecondaryPassRenderState,
+    whiteout_m2_GlobalFlag_StencilMark0x10,
+    whiteout_m2_GlobalFlag_LastLodReducedEffect,
+    whiteout_m2_GlobalFlag_DecalsPaintModels,
 } whiteout_m2_GlobalFlag;
 
 typedef enum {
     whiteout_m2_SequenceFlag_None,
-    whiteout_m2_SequenceFlag_TiltIn,
-    whiteout_m2_SequenceFlag_TiltOut,
-    whiteout_m2_SequenceFlag_TiltFixed,
+    whiteout_m2_SequenceFlag_Unk_0x1,
+    whiteout_m2_SequenceFlag_GroundAlignRampIn,
+    whiteout_m2_SequenceFlag_GroundAlignRampOut,
+    whiteout_m2_SequenceFlag_GroundAlignFull,
     whiteout_m2_SequenceFlag_Looping,
     whiteout_m2_SequenceFlag_IsAlias,
     whiteout_m2_SequenceFlag_AnimatedSetup,
@@ -76,13 +82,20 @@ typedef enum {
     whiteout_m2_BoneFlag_ProceduralTransform,
     whiteout_m2_BoneFlag_Transformed,
     whiteout_m2_BoneFlag_Kinematic,
+    whiteout_m2_BoneFlag_NoBodySpawn,
     whiteout_m2_BoneFlag_HelmetAnimScaled,
     whiteout_m2_BoneFlag_PrimarySequenceAttached,
     whiteout_m2_BoneFlag_SecondarySequenceAttached,
-    whiteout_m2_BoneFlag_PhysicsInteractionOffset,
+    whiteout_m2_BoneFlag_LodTier0,
+    whiteout_m2_BoneFlag_LodTier1,
+    whiteout_m2_BoneFlag_LodTier2,
+    whiteout_m2_BoneFlag_GroundSnap,
+    whiteout_m2_BoneFlag_SkinnedRuntime,
+    whiteout_m2_BoneFlag_VegetationPush,
     whiteout_m2_BoneFlag_PhysicsDriven,
-    whiteout_m2_BoneFlag_SkipSequenceBlendWeight,
-    whiteout_m2_BoneFlag_ProceduralInWorldSpace,
+    whiteout_m2_BoneFlag_AbsoluteBlendWeight,
+    whiteout_m2_BoneFlag_ProceduralModelSpace,
+    whiteout_m2_BoneFlag_AlwaysAnimate,
 } whiteout_m2_BoneFlag;
 
 typedef enum {
@@ -190,7 +203,7 @@ typedef struct whiteout_M2ParticleGeosetData whiteout_M2ParticleGeosetData;
 typedef struct whiteout_M2EdgeFadeData whiteout_M2EdgeFadeData;
 typedef struct whiteout_M2DistanceFadeData whiteout_M2DistanceFadeData;
 typedef struct whiteout_M2DetailedLightData whiteout_M2DetailedLightData;
-typedef struct whiteout_M2DebugOcclusionData whiteout_M2DebugOcclusionData;
+typedef struct whiteout_M2DepthBasedOpacityData whiteout_M2DepthBasedOpacityData;
 typedef struct whiteout_M2TexturedLightData whiteout_M2TexturedLightData;
 typedef struct whiteout_M2PivotDisplacementData whiteout_M2PivotDisplacementData;
 typedef struct whiteout_M2PhysicsCollision whiteout_M2PhysicsCollision;
@@ -436,19 +449,22 @@ void whiteout_m2_M2DetailedLightData_set_unknown0(whiteout_M2DetailedLightData* 
 uint32_t whiteout_m2_M2DetailedLightData_get_unknown1(const whiteout_M2DetailedLightData* self);
 void whiteout_m2_M2DetailedLightData_set_unknown1(whiteout_M2DetailedLightData* self, uint32_t value);
 
-/* ── M2DebugOcclusionData ─────────────────────────────────────────────── */
+/* ── M2DepthBasedOpacityData ─────────────────────────────────────────────── */
 
-whiteout_M2DebugOcclusionData* whiteout_m2_M2DebugOcclusionData_new(void);
-void whiteout_m2_M2DebugOcclusionData_delete(whiteout_M2DebugOcclusionData* self);
+/* One DBOC entry: the soft edge a material with flag 0x1000 fades by against the scene depth copy, `alpha *= saturate((sceneDepth - depth) * scale)^exponent`. The 12.1 client takes the first entry naming the batch's material, else (2/3, 1.5) (`sub_141900320`). */
+whiteout_M2DepthBasedOpacityData* whiteout_m2_M2DepthBasedOpacityData_new(void);
+void whiteout_m2_M2DepthBasedOpacityData_delete(whiteout_M2DepthBasedOpacityData* self);
 
-float whiteout_m2_M2DebugOcclusionData_get_unknown1_1(const whiteout_M2DebugOcclusionData* self);
-void whiteout_m2_M2DebugOcclusionData_set_unknown1_1(whiteout_M2DebugOcclusionData* self, float value);
-float whiteout_m2_M2DebugOcclusionData_get_unknown1_2(const whiteout_M2DebugOcclusionData* self);
-void whiteout_m2_M2DebugOcclusionData_set_unknown1_2(whiteout_M2DebugOcclusionData* self, float value);
-uint32_t whiteout_m2_M2DebugOcclusionData_get_unknown1_3(const whiteout_M2DebugOcclusionData* self);
-void whiteout_m2_M2DebugOcclusionData_set_unknown1_3(whiteout_M2DebugOcclusionData* self, uint32_t value);
-uint32_t whiteout_m2_M2DebugOcclusionData_get_unknown1_4(const whiteout_M2DebugOcclusionData* self);
-void whiteout_m2_M2DebugOcclusionData_set_unknown1_4(whiteout_M2DebugOcclusionData* self, uint32_t value);
+float whiteout_m2_M2DepthBasedOpacityData_get_scale(const whiteout_M2DepthBasedOpacityData* self);
+void whiteout_m2_M2DepthBasedOpacityData_set_scale(whiteout_M2DepthBasedOpacityData* self, float value);
+float whiteout_m2_M2DepthBasedOpacityData_get_exponent(const whiteout_M2DepthBasedOpacityData* self);
+void whiteout_m2_M2DepthBasedOpacityData_set_exponent(whiteout_M2DepthBasedOpacityData* self, float value);
+uint16_t whiteout_m2_M2DepthBasedOpacityData_get_materialIndex(const whiteout_M2DepthBasedOpacityData* self);
+void whiteout_m2_M2DepthBasedOpacityData_set_materialIndex(whiteout_M2DepthBasedOpacityData* self, uint16_t value);
+uint16_t whiteout_m2_M2DepthBasedOpacityData_get_pad0(const whiteout_M2DepthBasedOpacityData* self);
+void whiteout_m2_M2DepthBasedOpacityData_set_pad0(whiteout_M2DepthBasedOpacityData* self, uint16_t value);
+uint32_t whiteout_m2_M2DepthBasedOpacityData_get_pad1(const whiteout_M2DepthBasedOpacityData* self);
+void whiteout_m2_M2DepthBasedOpacityData_set_pad1(whiteout_M2DepthBasedOpacityData* self, uint32_t value);
 
 /* ── M2TexturedLightData ─────────────────────────────────────────────── */
 
@@ -550,6 +566,7 @@ uint16_t whiteout_m2_M2Batch_get_shaderId(const whiteout_M2Batch* self);
 void whiteout_m2_M2Batch_set_shaderId(whiteout_M2Batch* self, uint16_t value);
 uint16_t whiteout_m2_M2Batch_get_skinSectionIndex(const whiteout_M2Batch* self);
 void whiteout_m2_M2Batch_set_skinSectionIndex(whiteout_M2Batch* self, uint16_t value);
+/* The u16 at +6: a geoset index before version 0x112, which the 12.1 client zeroes on load, and `flags2` from 0x112 on (Batch::flags2). */
 uint16_t whiteout_m2_M2Batch_get_geosetIndex(const whiteout_M2Batch* self);
 void whiteout_m2_M2Batch_set_geosetIndex(whiteout_M2Batch* self, uint16_t value);
 int16_t whiteout_m2_M2Batch_get_colorIndex(const whiteout_M2Batch* self);
@@ -1381,7 +1398,7 @@ void whiteout_m2_M2PhysicsTuning_delete(whiteout_M2PhysicsTuning* self);
 /* Yards a bone may be pushed from its base before it is clamped. */
 float whiteout_m2_M2PhysicsTuning_get_posMaxPush(const whiteout_M2PhysicsTuning* self);
 void whiteout_m2_M2PhysicsTuning_set_posMaxPush(whiteout_M2PhysicsTuning* self, float value);
-/* Yards per frame a bone is pushed while a unit moves along it, times dt. */
+/* The fraction of its target a bone is pushed each frame while a unit moves along it; 12.1 does not scale it by dt. */
 float whiteout_m2_M2PhysicsTuning_get_posPushAmt(const whiteout_M2PhysicsTuning* self);
 void whiteout_m2_M2PhysicsTuning_set_posPushAmt(whiteout_M2PhysicsTuning* self, float value);
 /* How fast the bone returns to rest once the unit leaves. */
@@ -1514,6 +1531,9 @@ whiteout_M2BoneOverride* whiteout_m2_M2BoneOverrideSet_get_overrides_at(whiteout
 whiteout_M2Model* whiteout_m2_M2Model_new(void);
 void whiteout_m2_M2Model_delete(whiteout_M2Model* self);
 
+/* The MD20 version the file carried; 0 for a model built in memory. Some fields change meaning by version (Batch::flags2). */
+uint32_t whiteout_m2_M2Model_get_fileVersion(const whiteout_M2Model* self);
+void whiteout_m2_M2Model_set_fileVersion(whiteout_M2Model* self, uint32_t value);
 whiteout_CString whiteout_m2_M2Model_get_modelName(const whiteout_M2Model* self);
 void whiteout_m2_M2Model_set_modelName(whiteout_M2Model* self, const char* value);
 whiteout_M2GlobalFlags* whiteout_m2_M2Model_get_globalFlags(whiteout_M2Model* self);
@@ -1573,10 +1593,11 @@ size_t whiteout_m2_M2Model_get_textureCombos_count(const whiteout_M2Model* self)
 void whiteout_m2_M2Model_resize_textureCombos(whiteout_M2Model* self, size_t count);
 const uint16_t* whiteout_m2_M2Model_get_textureCombos_data(const whiteout_M2Model* self);
 void whiteout_m2_M2Model_assign_textureCombos(whiteout_M2Model* self, const uint16_t* data, size_t count);
-size_t whiteout_m2_M2Model_get_textureCoordCombos_count(const whiteout_M2Model* self);
-void whiteout_m2_M2Model_resize_textureCoordCombos(whiteout_M2Model* self, size_t count);
-const uint16_t* whiteout_m2_M2Model_get_textureCoordCombos_data(const whiteout_M2Model* self);
-void whiteout_m2_M2Model_assign_textureCoordCombos(whiteout_M2Model* self, const uint16_t* data, size_t count);
+/* Header +0x88. With GlobalFlag::TextureTransformsUsesBoneSequences, texture transform `i` runs on the clock of bone `[i]`; the 12.1 client reads it for nothing else (older tools called it `textureCoordCombos`). */
+size_t whiteout_m2_M2Model_get_textureTransformBoneMap_count(const whiteout_M2Model* self);
+void whiteout_m2_M2Model_resize_textureTransformBoneMap(whiteout_M2Model* self, size_t count);
+const uint16_t* whiteout_m2_M2Model_get_textureTransformBoneMap_data(const whiteout_M2Model* self);
+void whiteout_m2_M2Model_assign_textureTransformBoneMap(whiteout_M2Model* self, const uint16_t* data, size_t count);
 size_t whiteout_m2_M2Model_get_textureWeightCombos_count(const whiteout_M2Model* self);
 void whiteout_m2_M2Model_resize_textureWeightCombos(whiteout_M2Model* self, size_t count);
 const uint16_t* whiteout_m2_M2Model_get_textureWeightCombos_data(const whiteout_M2Model* self);
@@ -1627,6 +1648,7 @@ whiteout_M2RibbonEmitter* whiteout_m2_M2Model_get_ribbonEmitters_at(whiteout_M2M
 size_t whiteout_m2_M2Model_get_particleEmitters_count(const whiteout_M2Model* self);
 void whiteout_m2_M2Model_resize_particleEmitters(whiteout_M2Model* self, size_t count);
 whiteout_M2ParticleEmitter* whiteout_m2_M2Model_get_particleEmitters_at(whiteout_M2Model* self, size_t index);
+/* Present only in files of version 271 and below with GlobalFlag::UseTextureCombinerCombos. */
 size_t whiteout_m2_M2Model_get_textureCombinerCombos_count(const whiteout_M2Model* self);
 void whiteout_m2_M2Model_resize_textureCombinerCombos(whiteout_M2Model* self, size_t count);
 const uint16_t* whiteout_m2_M2Model_get_textureCombinerCombos_data(const whiteout_M2Model* self);
@@ -1699,9 +1721,9 @@ size_t whiteout_m2_M2Model_get_detailedLightEntries_count(const whiteout_M2Model
 void whiteout_m2_M2Model_resize_detailedLightEntries(whiteout_M2Model* self, size_t count);
 whiteout_M2DetailedLightData* whiteout_m2_M2Model_get_detailedLightEntries_at(whiteout_M2Model* self, size_t index);
 /* DBOC */
-size_t whiteout_m2_M2Model_get_debugOcclusionEntries_count(const whiteout_M2Model* self);
-void whiteout_m2_M2Model_resize_debugOcclusionEntries(whiteout_M2Model* self, size_t count);
-whiteout_M2DebugOcclusionData* whiteout_m2_M2Model_get_debugOcclusionEntries_at(whiteout_M2Model* self, size_t index);
+size_t whiteout_m2_M2Model_get_depthBasedOpacityEntries_count(const whiteout_M2Model* self);
+void whiteout_m2_M2Model_resize_depthBasedOpacityEntries(whiteout_M2Model* self, size_t count);
+whiteout_M2DepthBasedOpacityData* whiteout_m2_M2Model_get_depthBasedOpacityEntries_at(whiteout_M2Model* self, size_t index);
 /* AFRA */
 size_t whiteout_m2_M2Model_get_animFrameData_count(const whiteout_M2Model* self);
 void whiteout_m2_M2Model_resize_animFrameData(whiteout_M2Model* self, size_t count);

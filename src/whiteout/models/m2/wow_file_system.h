@@ -42,7 +42,6 @@ public:
     void setAnimChunk(const AFIDChunk& chunk);
     void setSkeletonChunk(const SKIDChunk& chunk);
     void setPhysicsChunk(const PFIDChunk& chunk);
-    void setParentSkeletonChunk(const SKPDChunk& chunk);
 
     std::span<const u8> getSkin(u32 skinId, bool isLod);
 
@@ -179,7 +178,6 @@ private:
     u32 m_physFileId = 0;
     bool m_physLoaded = false;
     bool m_skelLoaded = false;
-    bool m_isParentSkeleton = false;
     bool m_lazyAnimations = false;
 
     std::vector<u8> m_sequenceInFile;

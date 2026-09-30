@@ -28,20 +28,34 @@ public enum BoneFlag {
     Transformed(512),
     /** Eligible for physics: a live dynamic body on the bone replaces its animation. */
     Kinematic(1024),
+    /** Left out of the spawn table of type-4 "spawn on the body" emitters. */
+    NoBodySpawn(2048),
     /** The helmet-scaling pass writes its per-race scale into this bone. */
     HelmetAnimScaled(4096),
     /** runtime */
     PrimarySequenceAttached(8192),
     /** runtime */
     SecondarySequenceAttached(16384),
-    /** runtime */
-    PhysicsInteractionOffset(2097152),
+    /** @name Bone-LOD tiers Nested: a bone in tier 0 is in tiers 1 and 2 too. LDV1 names the tier each LOD culls, and a culled bone stops animating. @{ */
+    LodTier0(65536),
+    /** @name Bone-LOD tiers Nested: a bone in tier 0 is in tiers 1 and 2 too. LDV1 names the tier each LOD culls, and a culled bone stops animating. @{ */
+    LodTier1(131072),
+    /** @name Bone-LOD tiers Nested: a bone in tier 0 is in tiers 1 and 2 too. LDV1 names the tier each LOD culls, and a culled bone stops animating. @{ */
+    LodTier2(262144),
+    /** @} Dropped once onto the ground below its pivot, on the first frame. */
+    GroundSnap(524288),
+    /** runtime: a loaded skin references the bone or a descendant. */
+    SkinnedRuntime(1048576),
+    /** runtime: a PHYT-2 phantom offsets the bone */
+    VegetationPush(2097152),
     /** runtime: a dynamic body owns the bone */
     PhysicsDriven(4194304),
-    /** With PrimarySequenceAttached, skip the per-sequence blend weight. */
-    SkipSequenceBlendWeight(8388608),
-    /** With ProceduralTransform, apply the matrix after parenting, in world space. */
-    ProceduralInWorldSpace(16777216);
+    /** runtime: the bone's blend weight is its own, not scaled by its parent's. */
+    AbsoluteBlendWeight(8388608),
+    /** With ProceduralTransform, rotate in model space about the bone's current pivot, discarding the procedural translation. */
+    ProceduralModelSpace(16777216),
+    /** Animated every frame even when no loaded skin references it. */
+    AlwaysAnimate(33554432);
 
     public final int value;
     BoneFlag(int v) { this.value = v; }

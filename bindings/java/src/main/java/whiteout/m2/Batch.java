@@ -84,7 +84,10 @@ public final class Batch implements AutoCloseable {
     public void setSkinSectionIndex(short value) {
         handle.set(ValueLayout.JAVA_SHORT, 4L, value);
     }
-    /** @return the geosetIndex field of this M2Batch. */
+    /**
+     * The u16 at +6: a geoset index before version 0x112, which the 12.1 client zeroes on load, and `flags2` from 0x112 on (Batch::flags2).
+     * @return the geosetIndex field of this M2Batch.
+     */
     public short getGeosetIndex() {
         return handle.get(ValueLayout.JAVA_SHORT, 6L);
     }

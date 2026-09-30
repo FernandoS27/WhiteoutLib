@@ -9,7 +9,7 @@
 ///    resolved batch; export rebuilds the tables. Doing that on hand-built
 ///    tables, where the expected indices are visible, is the only way to see
 ///    that the *right* table fed the right field — a sweep would pass just as
-///    happily with `textureCoordCombos` and `textureTransformCombos` swapped.
+///    happily with `textureWeightCombos` and `textureTransformCombos` swapped.
 /// 2. **A combo row past the table does not fall back to row 0.** Row 0 is
 ///    `Opaque_Mod2xNA_Alpha`, an opaque two-texture environment combiner, and
 ///    silently choosing it is the recorded black-box artifact. The refusal is
@@ -56,7 +56,6 @@ m2::Model makeModel() {
     // Offsets 0 and 1 are the batch's two units; the leading padding entry makes
     // "read from index 0" visibly wrong.
     model.textureCombos = {99, 0, 1};
-    model.textureCoordCombos = {99, 0, 1};
     model.textureTransformCombos = {99, 7, 8};
     model.textureWeightCombos = {99, 3, 4};
     return model;
@@ -109,6 +108,28 @@ TEST_CASE("wem an m2 batch resolves its four combo tables", "[wem][materials][m2
     CHECK(block.materialLayer == 1);
     CHECK(imported.Common().blend == BlendMode::AlphaBlend);
     CHECK(imported.Common().cull == CullMode::None);
+}
+
+TEST_CASE("wem header +0x88 is a bone map, not a UV-set table", "[wem][materials][m2]") {
+    // 12.1 names the array `textureTransformBoneMap` and reads it only under global flag 0x800;
+    // each unit's UV source comes from the shader id. Read as UV sets, these 1s would move both
+    // units onto the second UV set.
+    m2::Model model = makeModel();
+    model.textureTransformBoneMap = {99, 1, 1};
+    Diagnostics diagnostics;
+    const m2_core::Context context = makeContext();
+    const Material imported = m2_core::ImportBatch(model, makeBatch(0), context, diagnostics);
+
+    const auto& block = std::get<native::M2Material>(imported.Native());
+    REQUIRE(block.units.size() == 2);
+    CHECK(block.units[0].uvSet == 0);
+    CHECK(block.units[1].uvSet == 0);
+
+    // And an export leaves the map alone.
+    m2::Model rebuilt;
+    rebuilt.textures = model.textures;
+    m2_core::ExportMaterial(imported, context, rebuilt, diagnostics);
+    CHECK(rebuilt.textureTransformBoneMap.empty());
 }
 
 TEST_CASE("wem a replaceable texture type rides the resolved unit", "[wem][materials][m2]") {

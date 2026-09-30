@@ -22,11 +22,19 @@ struct SkinSection {
     f32 sortRadius = 0.0f;
 };
 
+/// @brief Bits of the batch's `flags2` word (see Batch::flags2).
+enum class BatchFlags2 : u16 {
+    /// Drawn as a deferred box decal projected onto the scene, not as geometry.
+    Decal = 0x0002,
+};
+
 struct Batch {
     u8 flags = 0;
     i8 priorityPlane = 0;
     u16 shaderId = 0;
     u16 skinSectionIndex = 0;
+    /// The u16 at +6: a geoset index before version 0x112, which the 12.1 client
+    /// zeroes on load, and `flags2` from 0x112 on (Batch::flags2).
     u16 geosetIndex = 0;
     i16 colorIndex = -1;
     u16 materialIndex = 0;
@@ -36,6 +44,12 @@ struct Batch {
     u16 textureCoordComboIndex = 0;
     u16 textureWeightComboIndex = 0;
     u16 textureTransformComboIndex = 0;
+
+    /// The +6 word as 12.1 reads it for a file of @p version: `flags2`
+    /// (BatchFlags2) from 0x112 on, and 0 before.
+    u16 flags2(u32 version) const {
+        return version >= 0x112 ? geosetIndex : u16{0};
+    }
 };
 
 struct ShadowBatch {

@@ -35,37 +35,60 @@ impl TryFrom<i32> for InterpolationType {
     }
 }
 
-/// The MD20 header's `globalFlags`, named for what WoW 12.1 does with each bit (`WOW_M2_FLAGS.md`, corrected where noted).
+/// Bits of the batch's `flags2` word (see Batch::flags2).
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum BatchFlags2 {
+    /// Drawn as a deferred box decal projected onto the scene, not as geometry.
+    Decal = 2,
+}
+
+impl TryFrom<i32> for BatchFlags2 {
+    type Error = crate::Error;
+    fn try_from(v: i32) -> Result<Self, crate::Error> {
+        match v {
+            2 => Ok(BatchFlags2::Decal),
+            other => Err(crate::Error::UnknownEnum {
+                name: "BatchFlags2",
+                value: other,
+            }),
+        }
+    }
+}
+
+/// The MD20 header's `globalFlags`, named for what WoW 12.1 does with each bit (`M2_FLAGS_RE.md`).
 /// Bit flags. Combine with `|`, test with [`GlobalFlag::contains`].
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct GlobalFlag(pub i32);
 
 impl GlobalFlag {
     pub const NONE: Self = Self(0);
-    /// The model leans to follow the ground normal, about X and about Y.
-    pub const TILT_X: Self = Self(1);
-    /// The model leans to follow the ground normal, about X and about Y.
-    pub const TILT_Y: Self = Self(2);
-    /// The world transform is taken as is: no attachment parent's scale or translation is composed in, and emitters do not inherit it.
-    pub const WORLD_ABSOLUTE_TRANSFORM: Self = Self(4);
-    /// The header carries `textureCombinerCombos` after its fixed part. Read by the parser; the 12.1 client never tests it.
+    /// Ground alignment, read as the 2-bit value `flags & 3`: 1 pitches the model onto the ground normal, 3 aligns it fully, and 2 alone does nothing.
+    pub const GROUND_TILT_PITCH: Self = Self(1);
+    /// The high half of the ground-alignment value; see GroundTiltPitch.
+    pub const GROUND_TILT_FULL: Self = Self(2);
+    /// The model does not inherit its attach parent's render state: alpha, diffuse, emissive and model effect. Fade is inherited regardless.
+    pub const NO_PARENT_RENDER_STATE: Self = Self(4);
+    /// Files of version 271 and below: the header carries `textureCombinerCombos` after its fixed part. The 12.1 client never tests it, so the parser ignores it from version 272 on.
     pub const USE_TEXTURE_COMBINER_COMBOS: Self = Self(8);
-    /// Batch bounds and sort distance come from the bone-transformed geometry.
-    pub const ANIMATED_BOUNDS: Self = Self(16);
-    /// Load physics when the model attaches to a scene. CM2Shared::FinishLoadingM2Data tests it before LegacyLoadPhysData.
-    pub const LOAD_PHYSICS_DATA: Self = Self(32);
-    /// Enters the visible-geometry optimiser and the shadow-map gather.
-    pub const VISIBLE_GEOMETRY_OPTIMISE: Self = Self(128);
+    /// Transparent batches sort by the model's distance first, as one unit; clear, each batch sorts by its own animated centre.
+    pub const SORT_AS_ONE_UNIT: Self = Self(16);
+    /// The only gate on creating the `.phys` ragdoll or phantom, whether the definition came from PFDC or PFID.
+    pub const CREATE_PHYSICS: Self = Self(32);
+    /// Consecutive compatible batches merge, and the model casts dynamic shadows.
+    pub const MERGE_BATCHES_CAST_SHADOWS: Self = Self(128);
     /// Emitters of record type 4 are relinked when the model attaches to a parent.
     pub const PARENT_LINKED_PARTICLES: Self = Self(256);
-    /// Files of version 271 and below: the particle record carries the 16-byte multi-texture scroll tail. 12.1 reads the bit on helmets instead, as "has per-race rows in HelmetAnimScaling" (bone flag HelmetAnimScaled).
+    /// Files of version 271 and below: the particle record carries the 16-byte multi-texture scroll tail. From 272 on the tail is always there.
     pub const NEW_PARTICLE_RECORD: Self = Self(512);
-    /// Files of version 271 and below: the particle record carries the 16-byte multi-texture scroll tail. 12.1 reads the bit on helmets instead, as "has per-race rows in HelmetAnimScaling" (bone flag HelmetAnimScaled).
+    /// 12.1's reading of 0x200, on a character body: its HelmetAnimScaled bones take a per-race scale from `HelmetAnimScaling`.
+    pub const HELMET_ANIM_SCALING: Self = Self(512);
+    /// No reader in 12.1.
     pub const UNK_0X_400: Self = Self(1024);
     /// Texture transforms are driven by bone sequences through textureTransformBoneMap.
     pub const TEXTURE_TRANSFORMS_USES_BONE_SEQUENCES: Self = Self(2048);
-    /// Texture transforms are driven by bone sequences through textureTransformBoneMap.
-    pub const UNK_0X_1000: Self = Self(4096);
+    /// Particles fade where they meet scene depth, over their own size.
+    pub const SOFT_PARTICLES: Self = Self(4096);
     /// Each skin profile owns a slice of the vertex array starting at its SkinProfile::lodVertexBase; clear, every profile indexes from 0.
     pub const PER_SKIN_VERTEX_BLOCKS: Self = Self(8192);
     /// A skinned attachment posed by its parent model: the client rebinds its bones to the parent skeleton by Bone::boneNameCRC.
@@ -88,12 +111,12 @@ impl GlobalFlag {
     pub const SKIP_OCCLUSION_QUERY: Self = Self(33554432);
     /// Treat the model as visible without querying occlusion.
     pub const FORCE_UNOCCLUDED: Self = Self(67108864);
-    /// Patches two bytes of the M2 render-state word; the bytes' meaning is not resolved.
-    pub const PIPELINE_STATE_OVERRIDE: Self = Self(134217728);
-    /// Past a LOD threshold the model swaps its link record and releases its textures.
-    pub const FAR_LOD_LINK_SUBSTITUTE: Self = Self(268435456);
-    /// Picks which of two render-state words a secondary pass draws the model with.
-    pub const SECONDARY_PASS_RENDER_STATE: Self = Self(536870912);
+    /// ORs 0x10 into the stencil reference the model's opaque draws write.
+    pub const STENCIL_MARK_0X_10: Self = Self(134217728);
+    /// At the last LDV1 LOD the model draws through the reduced `FlipbookImpostor` model effect.
+    pub const LAST_LOD_REDUCED_EFFECT: Self = Self(268435456);
+    /// The model's projected decals paint on M2 models too, not only on terrain and WMOs.
+    pub const DECALS_PAINT_MODELS: Self = Self(536870912);
 
     #[inline]
     pub const fn contains(self, other: Self) -> bool {
@@ -142,13 +165,22 @@ pub struct SequenceFlag(pub i32);
 
 impl SequenceFlag {
     pub const NONE: Self = Self(0);
-    pub const TILT_IN: Self = Self(1);
-    pub const TILT_OUT: Self = Self(2);
-    pub const TILT_FIXED: Self = Self(4);
+    pub const UNK_0X_1: Self = Self(1);
+    /// Ground alignment ramps to full over the first half of the play.
+    pub const GROUND_ALIGN_RAMP_IN: Self = Self(2);
+    /// Ground alignment ramps from full over the first half of the play.
+    pub const GROUND_ALIGN_RAMP_OUT: Self = Self(4);
+    /// Full ground alignment for the whole play.
+    pub const GROUND_ALIGN_FULL: Self = Self(8);
+    /// Full ground alignment for the whole play.
     pub const LOOPING: Self = Self(32);
+    /// Full ground alignment for the whole play.
     pub const IS_ALIAS: Self = Self(64);
+    /// Full ground alignment for the whole play.
     pub const ANIMATED_SETUP: Self = Self(128);
+    /// Full ground alignment for the whole play.
     pub const STORED_ANIMATED: Self = Self(256);
+    /// Full ground alignment for the whole play.
     pub const ENABLE_COMPOSITE: Self = Self(512);
 
     #[inline]
@@ -220,20 +252,34 @@ impl BoneFlag {
     pub const TRANSFORMED: Self = Self(512);
     /// Eligible for physics: a live dynamic body on the bone replaces its animation.
     pub const KINEMATIC: Self = Self(1024);
+    /// Left out of the spawn table of type-4 "spawn on the body" emitters.
+    pub const NO_BODY_SPAWN: Self = Self(2048);
     /// The helmet-scaling pass writes its per-race scale into this bone.
     pub const HELMET_ANIM_SCALED: Self = Self(4096);
     /// runtime
     pub const PRIMARY_SEQUENCE_ATTACHED: Self = Self(8192);
     /// runtime
     pub const SECONDARY_SEQUENCE_ATTACHED: Self = Self(16384);
-    /// runtime
-    pub const PHYSICS_INTERACTION_OFFSET: Self = Self(2097152);
+    /// @name Bone-LOD tiers Nested: a bone in tier 0 is in tiers 1 and 2 too. LDV1 names the tier each LOD culls, and a culled bone stops animating. @{
+    pub const LOD_TIER_0: Self = Self(65536);
+    /// @name Bone-LOD tiers Nested: a bone in tier 0 is in tiers 1 and 2 too. LDV1 names the tier each LOD culls, and a culled bone stops animating. @{
+    pub const LOD_TIER_1: Self = Self(131072);
+    /// @name Bone-LOD tiers Nested: a bone in tier 0 is in tiers 1 and 2 too. LDV1 names the tier each LOD culls, and a culled bone stops animating. @{
+    pub const LOD_TIER_2: Self = Self(262144);
+    /// @} Dropped once onto the ground below its pivot, on the first frame.
+    pub const GROUND_SNAP: Self = Self(524288);
+    /// runtime: a loaded skin references the bone or a descendant.
+    pub const SKINNED_RUNTIME: Self = Self(1048576);
+    /// runtime: a PHYT-2 phantom offsets the bone
+    pub const VEGETATION_PUSH: Self = Self(2097152);
     /// runtime: a dynamic body owns the bone
     pub const PHYSICS_DRIVEN: Self = Self(4194304);
-    /// With PrimarySequenceAttached, skip the per-sequence blend weight.
-    pub const SKIP_SEQUENCE_BLEND_WEIGHT: Self = Self(8388608);
-    /// With ProceduralTransform, apply the matrix after parenting, in world space.
-    pub const PROCEDURAL_IN_WORLD_SPACE: Self = Self(16777216);
+    /// runtime: the bone's blend weight is its own, not scaled by its parent's.
+    pub const ABSOLUTE_BLEND_WEIGHT: Self = Self(8388608);
+    /// With ProceduralTransform, rotate in model space about the bone's current pivot, discarding the procedural translation.
+    pub const PROCEDURAL_MODEL_SPACE: Self = Self(16777216);
+    /// Animated every frame even when no loaded skin references it.
+    pub const ALWAYS_ANIMATE: Self = Self(33554432);
 
     #[inline]
     pub const fn contains(self, other: Self) -> bool {
@@ -1868,23 +1914,24 @@ impl Default for DetailedLightData {
     }
 }
 
-pub struct DebugOcclusionData {
-    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2DebugOcclusionData>,
+/// One DBOC entry: the soft edge a material with flag 0x1000 fades by against the scene depth copy, `alpha *= saturate((sceneDepth - depth) * scale)^exponent`. The 12.1 client takes the first entry naming the batch's material, else (2/3, 1.5) (`sub_141900320`).
+pub struct DepthBasedOpacityData {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2DepthBasedOpacityData>,
 }
 
-impl Drop for DebugOcclusionData {
+impl Drop for DepthBasedOpacityData {
     fn drop(&mut self) {
         // SAFETY: `raw` came from a native constructor and Drop runs once.
-        unsafe { ffi::whiteout_m2_M2DebugOcclusionData_delete(self.raw.as_ptr()) }
+        unsafe { ffi::whiteout_m2_M2DepthBasedOpacityData_delete(self.raw.as_ptr()) }
     }
 }
 
-impl DebugOcclusionData {
+impl DepthBasedOpacityData {
     /// # Safety
     /// `raw` must be a live handle this value takes ownership of.
     #[allow(dead_code)] // used by whichever methods return this type
-    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M2DebugOcclusionData) -> Option<Self> {
-        core::ptr::NonNull::new(raw).map(|raw| DebugOcclusionData { raw })
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M2DepthBasedOpacityData) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| DepthBasedOpacityData { raw })
     }
 }
 
@@ -1892,68 +1939,81 @@ impl DebugOcclusionData {
 // is deliberately NOT implemented — the C++ types make no documented
 // guarantee about concurrent use, and claiming one we haven't verified
 // would be unsound. See `@bind thread_safe` in the plan.
-unsafe impl Send for DebugOcclusionData {}
+unsafe impl Send for DepthBasedOpacityData {}
 
-impl core::fmt::Debug for DebugOcclusionData {
+impl core::fmt::Debug for DepthBasedOpacityData {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("DebugOcclusionData").finish_non_exhaustive()
+        f.debug_struct("DepthBasedOpacityData")
+            .finish_non_exhaustive()
     }
 }
 
-impl DebugOcclusionData {
+impl DepthBasedOpacityData {
     /// # Panics
     /// Panics if the native allocation fails.
     pub fn new() -> Self {
         // SAFETY: the native constructor returns a live handle; a null here
         // means the library is unusable.
         unsafe {
-            let raw = ffi::whiteout_m2_M2DebugOcclusionData_new();
-            Self::from_raw(raw).expect("native DebugOcclusionData allocation failed")
+            let raw = ffi::whiteout_m2_M2DepthBasedOpacityData_new();
+            Self::from_raw(raw).expect("native DepthBasedOpacityData allocation failed")
         }
     }
 
-    pub fn unknown_1_1(&self) -> f32 {
+    pub fn scale(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m2_M2DebugOcclusionData_get_unknown1_1(self.raw.as_ptr()) }
+        unsafe { ffi::whiteout_m2_M2DepthBasedOpacityData_get_scale(self.raw.as_ptr()) }
     }
 
-    pub fn set_unknown_1_1(&mut self, value: f32) {
+    pub fn set_scale(&mut self, value: f32) {
         // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m2_M2DebugOcclusionData_set_unknown1_1(self.raw.as_ptr(), value) }
+        unsafe { ffi::whiteout_m2_M2DepthBasedOpacityData_set_scale(self.raw.as_ptr(), value) }
     }
 
-    pub fn unknown_1_2(&self) -> f32 {
+    pub fn exponent(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m2_M2DebugOcclusionData_get_unknown1_2(self.raw.as_ptr()) }
+        unsafe { ffi::whiteout_m2_M2DepthBasedOpacityData_get_exponent(self.raw.as_ptr()) }
     }
 
-    pub fn set_unknown_1_2(&mut self, value: f32) {
+    pub fn set_exponent(&mut self, value: f32) {
         // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m2_M2DebugOcclusionData_set_unknown1_2(self.raw.as_ptr(), value) }
+        unsafe { ffi::whiteout_m2_M2DepthBasedOpacityData_set_exponent(self.raw.as_ptr(), value) }
     }
 
-    pub fn unknown_1_3(&self) -> u32 {
+    pub fn material_index(&self) -> u16 {
         // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m2_M2DebugOcclusionData_get_unknown1_3(self.raw.as_ptr()) }
+        unsafe { ffi::whiteout_m2_M2DepthBasedOpacityData_get_materialIndex(self.raw.as_ptr()) }
     }
 
-    pub fn set_unknown_1_3(&mut self, value: u32) {
+    pub fn set_material_index(&mut self, value: u16) {
         // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m2_M2DebugOcclusionData_set_unknown1_3(self.raw.as_ptr(), value) }
+        unsafe {
+            ffi::whiteout_m2_M2DepthBasedOpacityData_set_materialIndex(self.raw.as_ptr(), value)
+        }
     }
 
-    pub fn unknown_1_4(&self) -> u32 {
+    pub fn pad_0(&self) -> u16 {
         // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m2_M2DebugOcclusionData_get_unknown1_4(self.raw.as_ptr()) }
+        unsafe { ffi::whiteout_m2_M2DepthBasedOpacityData_get_pad0(self.raw.as_ptr()) }
     }
 
-    pub fn set_unknown_1_4(&mut self, value: u32) {
+    pub fn set_pad_0(&mut self, value: u16) {
         // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m2_M2DebugOcclusionData_set_unknown1_4(self.raw.as_ptr(), value) }
+        unsafe { ffi::whiteout_m2_M2DepthBasedOpacityData_set_pad0(self.raw.as_ptr(), value) }
+    }
+
+    pub fn pad_1(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2DepthBasedOpacityData_get_pad1(self.raw.as_ptr()) }
+    }
+
+    pub fn set_pad_1(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2DepthBasedOpacityData_set_pad1(self.raw.as_ptr(), value) }
     }
 }
 
-impl Default for DebugOcclusionData {
+impl Default for DepthBasedOpacityData {
     fn default() -> Self {
         Self::new()
     }
@@ -2694,6 +2754,7 @@ impl Batch {
         unsafe { ffi::whiteout_m2_M2Batch_set_skinSectionIndex(self.raw.as_ptr(), value) }
     }
 
+    /// The u16 at +6: a geoset index before version 0x112, which the 12.1 client zeroes on load, and `flags2` from 0x112 on (Batch::flags2).
     pub fn geoset_index(&self) -> u16 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m2_M2Batch_get_geosetIndex(self.raw.as_ptr()) }
@@ -8760,7 +8821,7 @@ impl PhysicsTuning {
         unsafe { ffi::whiteout_m2_M2PhysicsTuning_set_posMaxPush(self.raw.as_ptr(), value) }
     }
 
-    /// Yards per frame a bone is pushed while a unit moves along it, times dt.
+    /// The fraction of its target a bone is pushed each frame while a unit moves along it; 12.1 does not scale it by dt.
     pub fn pos_push_amt(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m2_M2PhysicsTuning_get_posPushAmt(self.raw.as_ptr()) }
@@ -10033,6 +10094,17 @@ impl Model {
         }
     }
 
+    /// The MD20 version the file carried; 0 for a model built in memory. Some fields change meaning by version (Batch::flags2).
+    pub fn file_version(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2Model_get_fileVersion(self.raw.as_ptr()) }
+    }
+
+    pub fn set_file_version(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2Model_set_fileVersion(self.raw.as_ptr(), value) }
+    }
+
     pub fn model_name(&self) -> String {
         // SAFETY: the native side hands over an owned CString.
         unsafe {
@@ -10847,13 +10919,14 @@ impl Model {
         unsafe { ffi::whiteout_m2_M2Model_resize_textureCombos(self.raw.as_ptr(), count) }
     }
 
+    /// Header +0x88. With GlobalFlag::TextureTransformsUsesBoneSequences, texture transform `i` runs on the clock of bone `[i]`; the 12.1 client reads it for nothing else (older tools called it `textureCoordCombos`).
     /// Zero-copy view of the underlying `std::vector`.
-    pub fn texture_coord_combos(&self) -> &[u16] {
+    pub fn texture_transform_bone_map(&self) -> &[u16] {
         // SAFETY: `_data`/`_count` describe one contiguous C++
         // allocation, borrowed for as long as `self` is.
         unsafe {
-            let n = ffi::whiteout_m2_M2Model_get_textureCoordCombos_count(self.raw.as_ptr());
-            let p = ffi::whiteout_m2_M2Model_get_textureCoordCombos_data(self.raw.as_ptr());
+            let n = ffi::whiteout_m2_M2Model_get_textureTransformBoneMap_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m2_M2Model_get_textureTransformBoneMap_data(self.raw.as_ptr());
             if p.is_null() || n == 0 {
                 &[]
             } else {
@@ -10863,12 +10936,12 @@ impl Model {
     }
 
     /// Zero-copy mutable view. Resize first — the borrow forbids it after.
-    pub fn texture_coord_combos_mut(&mut self) -> &mut [u16] {
+    pub fn texture_transform_bone_map_mut(&mut self) -> &mut [u16] {
         // SAFETY: as above; `&mut self` rules out aliasing and resizing.
         unsafe {
-            let n = ffi::whiteout_m2_M2Model_get_textureCoordCombos_count(self.raw.as_ptr());
-            let p =
-                ffi::whiteout_m2_M2Model_get_textureCoordCombos_data(self.raw.as_ptr()) as *mut u16;
+            let n = ffi::whiteout_m2_M2Model_get_textureTransformBoneMap_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m2_M2Model_get_textureTransformBoneMap_data(self.raw.as_ptr())
+                as *mut u16;
             if p.is_null() || n == 0 {
                 &mut []
             } else {
@@ -10877,10 +10950,10 @@ impl Model {
         }
     }
 
-    pub fn set_texture_coord_combos(&mut self, values: &[u16]) {
+    pub fn set_texture_transform_bone_map(&mut self, values: &[u16]) {
         // SAFETY: the native side copies `values` before returning.
         unsafe {
-            ffi::whiteout_m2_M2Model_assign_textureCoordCombos(
+            ffi::whiteout_m2_M2Model_assign_textureTransformBoneMap(
                 self.raw.as_ptr(),
                 values.as_ptr() as *const _,
                 values.len(),
@@ -10888,10 +10961,10 @@ impl Model {
         }
     }
 
-    pub fn resize_texture_coord_combos(&mut self, count: usize) {
+    pub fn resize_texture_transform_bone_map(&mut self, count: usize) {
         // SAFETY: reallocation is safe here precisely because
         // `&mut self` means no slice borrow is outstanding.
-        unsafe { ffi::whiteout_m2_M2Model_resize_textureCoordCombos(self.raw.as_ptr(), count) }
+        unsafe { ffi::whiteout_m2_M2Model_resize_textureTransformBoneMap(self.raw.as_ptr(), count) }
     }
 
     /// Zero-copy view of the underlying `std::vector`.
@@ -11565,6 +11638,7 @@ impl Model {
         unsafe { ffi::whiteout_m2_M2Model_resize_particleEmitters(self.raw.as_ptr(), count) }
     }
 
+    /// Present only in files of version 271 and below with GlobalFlag::UseTextureCombinerCombos.
     /// Zero-copy view of the underlying `std::vector`.
     pub fn texture_combiner_combos(&self) -> &[u16] {
         // SAFETY: `_data`/`_count` describe one contiguous C++
@@ -12374,57 +12448,67 @@ impl Model {
     }
 
     /// DBOC
-    pub fn debug_occlusion_entries_len(&self) -> usize {
+    pub fn depth_based_opacity_entries_len(&self) -> usize {
         // SAFETY: scalar read through a live handle.
-        unsafe { ffi::whiteout_m2_M2Model_get_debugOcclusionEntries_count(self.raw.as_ptr()) }
+        unsafe { ffi::whiteout_m2_M2Model_get_depthBasedOpacityEntries_count(self.raw.as_ptr()) }
     }
 
     /// Borrows element `index` in place. `None` when out of range.
-    pub fn debug_occlusion_entries(
+    pub fn depth_based_opacity_entries(
         &self,
         index: usize,
-    ) -> Option<crate::support::Ref<'_, DebugOcclusionData>> {
-        if index >= self.debug_occlusion_entries_len() {
+    ) -> Option<crate::support::Ref<'_, DepthBasedOpacityData>> {
+        if index >= self.depth_based_opacity_entries_len() {
             return None;
         }
         // SAFETY: index checked above; the pointer is interior to `self`.
         unsafe {
-            Some(crate::support::Ref::new(DebugOcclusionData {
+            Some(crate::support::Ref::new(DepthBasedOpacityData {
                 raw: core::ptr::NonNull::new_unchecked(
-                    ffi::whiteout_m2_M2Model_get_debugOcclusionEntries_at(self.raw.as_ptr(), index),
+                    ffi::whiteout_m2_M2Model_get_depthBasedOpacityEntries_at(
+                        self.raw.as_ptr(),
+                        index,
+                    ),
                 ),
             }))
         }
     }
 
-    pub fn debug_occlusion_entries_mut(
+    pub fn depth_based_opacity_entries_mut(
         &mut self,
         index: usize,
-    ) -> Option<crate::support::RefMut<'_, DebugOcclusionData>> {
-        if index >= self.debug_occlusion_entries_len() {
+    ) -> Option<crate::support::RefMut<'_, DepthBasedOpacityData>> {
+        if index >= self.depth_based_opacity_entries_len() {
             return None;
         }
         // SAFETY: as above; `&mut self` guarantees exclusivity.
         unsafe {
-            Some(crate::support::RefMut::new(DebugOcclusionData {
+            Some(crate::support::RefMut::new(DepthBasedOpacityData {
                 raw: core::ptr::NonNull::new_unchecked(
-                    ffi::whiteout_m2_M2Model_get_debugOcclusionEntries_at(self.raw.as_ptr(), index),
+                    ffi::whiteout_m2_M2Model_get_depthBasedOpacityEntries_at(
+                        self.raw.as_ptr(),
+                        index,
+                    ),
                 ),
             }))
         }
     }
 
     /// Iterate the elements, borrowing each in turn.
-    pub fn debug_occlusion_entries_iter(
+    pub fn depth_based_opacity_entries_iter(
         &self,
-    ) -> impl ExactSizeIterator<Item = crate::support::Ref<'_, DebugOcclusionData>> {
-        (0..self.debug_occlusion_entries_len())
-            .map(move |i| self.debug_occlusion_entries(i).expect("index below len"))
+    ) -> impl ExactSizeIterator<Item = crate::support::Ref<'_, DepthBasedOpacityData>> {
+        (0..self.depth_based_opacity_entries_len()).map(move |i| {
+            self.depth_based_opacity_entries(i)
+                .expect("index below len")
+        })
     }
 
-    pub fn resize_debug_occlusion_entries(&mut self, count: usize) {
+    pub fn resize_depth_based_opacity_entries(&mut self, count: usize) {
         // SAFETY: exclusive access, so no borrow is outstanding.
-        unsafe { ffi::whiteout_m2_M2Model_resize_debugOcclusionEntries(self.raw.as_ptr(), count) }
+        unsafe {
+            ffi::whiteout_m2_M2Model_resize_depthBasedOpacityEntries(self.raw.as_ptr(), count)
+        }
     }
 
     /// AFRA
@@ -15347,7 +15431,7 @@ pub mod ffi {
         _private: [u8; 0],
     }
     #[repr(C)]
-    pub struct whiteout_M2DebugOcclusionData {
+    pub struct whiteout_M2DepthBasedOpacityData {
         _private: [u8; 0],
     }
     #[repr(C)]
@@ -15972,35 +16056,44 @@ pub mod ffi {
             self_: *mut whiteout_M2DetailedLightData,
             value: u32,
         );
-        // DebugOcclusionData
-        pub fn whiteout_m2_M2DebugOcclusionData_new() -> *mut whiteout_M2DebugOcclusionData;
-        pub fn whiteout_m2_M2DebugOcclusionData_delete(self_: *mut whiteout_M2DebugOcclusionData);
-        pub fn whiteout_m2_M2DebugOcclusionData_get_unknown1_1(
-            self_: *mut whiteout_M2DebugOcclusionData,
+        // DepthBasedOpacityData
+        pub fn whiteout_m2_M2DepthBasedOpacityData_new() -> *mut whiteout_M2DepthBasedOpacityData;
+        pub fn whiteout_m2_M2DepthBasedOpacityData_delete(
+            self_: *mut whiteout_M2DepthBasedOpacityData,
+        );
+        pub fn whiteout_m2_M2DepthBasedOpacityData_get_scale(
+            self_: *mut whiteout_M2DepthBasedOpacityData,
         ) -> f32;
-        pub fn whiteout_m2_M2DebugOcclusionData_set_unknown1_1(
-            self_: *mut whiteout_M2DebugOcclusionData,
+        pub fn whiteout_m2_M2DepthBasedOpacityData_set_scale(
+            self_: *mut whiteout_M2DepthBasedOpacityData,
             value: f32,
         );
-        pub fn whiteout_m2_M2DebugOcclusionData_get_unknown1_2(
-            self_: *mut whiteout_M2DebugOcclusionData,
+        pub fn whiteout_m2_M2DepthBasedOpacityData_get_exponent(
+            self_: *mut whiteout_M2DepthBasedOpacityData,
         ) -> f32;
-        pub fn whiteout_m2_M2DebugOcclusionData_set_unknown1_2(
-            self_: *mut whiteout_M2DebugOcclusionData,
+        pub fn whiteout_m2_M2DepthBasedOpacityData_set_exponent(
+            self_: *mut whiteout_M2DepthBasedOpacityData,
             value: f32,
         );
-        pub fn whiteout_m2_M2DebugOcclusionData_get_unknown1_3(
-            self_: *mut whiteout_M2DebugOcclusionData,
-        ) -> u32;
-        pub fn whiteout_m2_M2DebugOcclusionData_set_unknown1_3(
-            self_: *mut whiteout_M2DebugOcclusionData,
-            value: u32,
+        pub fn whiteout_m2_M2DepthBasedOpacityData_get_materialIndex(
+            self_: *mut whiteout_M2DepthBasedOpacityData,
+        ) -> u16;
+        pub fn whiteout_m2_M2DepthBasedOpacityData_set_materialIndex(
+            self_: *mut whiteout_M2DepthBasedOpacityData,
+            value: u16,
         );
-        pub fn whiteout_m2_M2DebugOcclusionData_get_unknown1_4(
-            self_: *mut whiteout_M2DebugOcclusionData,
+        pub fn whiteout_m2_M2DepthBasedOpacityData_get_pad0(
+            self_: *mut whiteout_M2DepthBasedOpacityData,
+        ) -> u16;
+        pub fn whiteout_m2_M2DepthBasedOpacityData_set_pad0(
+            self_: *mut whiteout_M2DepthBasedOpacityData,
+            value: u16,
+        );
+        pub fn whiteout_m2_M2DepthBasedOpacityData_get_pad1(
+            self_: *mut whiteout_M2DepthBasedOpacityData,
         ) -> u32;
-        pub fn whiteout_m2_M2DebugOcclusionData_set_unknown1_4(
-            self_: *mut whiteout_M2DebugOcclusionData,
+        pub fn whiteout_m2_M2DepthBasedOpacityData_set_pad1(
+            self_: *mut whiteout_M2DepthBasedOpacityData,
             value: u32,
         );
         // TexturedLightData
@@ -18233,6 +18326,8 @@ pub mod ffi {
         // Model
         pub fn whiteout_m2_M2Model_new() -> *mut whiteout_M2Model;
         pub fn whiteout_m2_M2Model_delete(self_: *mut whiteout_M2Model);
+        pub fn whiteout_m2_M2Model_get_fileVersion(self_: *mut whiteout_M2Model) -> u32;
+        pub fn whiteout_m2_M2Model_set_fileVersion(self_: *mut whiteout_M2Model, value: u32);
         pub fn whiteout_m2_M2Model_get_modelName(self_: *mut whiteout_M2Model) -> RawCString;
         pub fn whiteout_m2_M2Model_set_modelName(
             self_: *mut whiteout_M2Model,
@@ -18377,17 +18472,17 @@ pub mod ffi {
             data: *const u16,
             count: usize,
         );
-        pub fn whiteout_m2_M2Model_get_textureCoordCombos_count(
+        pub fn whiteout_m2_M2Model_get_textureTransformBoneMap_count(
             self_: *mut whiteout_M2Model,
         ) -> usize;
-        pub fn whiteout_m2_M2Model_resize_textureCoordCombos(
+        pub fn whiteout_m2_M2Model_resize_textureTransformBoneMap(
             self_: *mut whiteout_M2Model,
             count: usize,
         );
-        pub fn whiteout_m2_M2Model_get_textureCoordCombos_data(
+        pub fn whiteout_m2_M2Model_get_textureTransformBoneMap_data(
             self_: *mut whiteout_M2Model,
         ) -> *const u16;
-        pub fn whiteout_m2_M2Model_assign_textureCoordCombos(
+        pub fn whiteout_m2_M2Model_assign_textureTransformBoneMap(
             self_: *mut whiteout_M2Model,
             data: *const u16,
             count: usize,
@@ -18738,17 +18833,17 @@ pub mod ffi {
             self_: *mut whiteout_M2Model,
             index: usize,
         ) -> *mut whiteout_M2DetailedLightData;
-        pub fn whiteout_m2_M2Model_get_debugOcclusionEntries_count(
+        pub fn whiteout_m2_M2Model_get_depthBasedOpacityEntries_count(
             self_: *mut whiteout_M2Model,
         ) -> usize;
-        pub fn whiteout_m2_M2Model_resize_debugOcclusionEntries(
+        pub fn whiteout_m2_M2Model_resize_depthBasedOpacityEntries(
             self_: *mut whiteout_M2Model,
             count: usize,
         );
-        pub fn whiteout_m2_M2Model_get_debugOcclusionEntries_at(
+        pub fn whiteout_m2_M2Model_get_depthBasedOpacityEntries_at(
             self_: *mut whiteout_M2Model,
             index: usize,
-        ) -> *mut whiteout_M2DebugOcclusionData;
+        ) -> *mut whiteout_M2DepthBasedOpacityData;
         pub fn whiteout_m2_M2Model_get_animFrameData_count(self_: *mut whiteout_M2Model) -> usize;
         pub fn whiteout_m2_M2Model_resize_animFrameData(self_: *mut whiteout_M2Model, count: usize);
         pub fn whiteout_m2_M2Model_get_animFrameData_data(
