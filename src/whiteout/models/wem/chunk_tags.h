@@ -280,7 +280,8 @@ struct ChunkTagTraits<Matrix44f> {
 /// the `EXPT` multipliers and the `EXP2` alpha cutoff); v12 `poseSources`,
 /// where each of a node's saved deltas came from (EDIT_MODE_TPOSE_DESIGN.md
 /// §7); v13 a camera's depth of field (MDX v1800's IDUF/ELAF/PTSF rests); v14
-/// the `ForceField` and `VertexWarp` kinds (WEM_PHYSICS_DESIGN.md §3.8).
+/// the `ForceField` and `VertexWarp` kinds (WEM_PHYSICS_DESIGN.md §3.8); v15 a
+/// force field's own frame.
 /// An older chunk holds none of them, so it reads unchanged. A NEWER one does
 /// not: records sit back to back, and nothing checks a chunk's version against
 /// this, so a build older than a field misreads every node after the first
@@ -288,7 +289,7 @@ struct ChunkTagTraits<Matrix44f> {
 template <>
 struct ChunkTagTraits<Node> {
     static constexpr u32 value = kTag("NODE");
-    static constexpr u32 max_version = 14;
+    static constexpr u32 max_version = 15;
     static constexpr bool is_trivial = false;
 };
 
@@ -537,7 +538,7 @@ struct ChunkTagTraits<StageSource> {
 template <>
 struct ChunkTagTraits<PhysicsBody> {
     static constexpr u32 value = kTag("PBDY");
-    static constexpr u32 max_version = 2; // v2: the `wow` extension
+    static constexpr u32 max_version = 3; // v2: the `wow` extension; v3: `locked`
     static constexpr bool is_trivial = false;
 };
 
@@ -551,7 +552,7 @@ struct ChunkTagTraits<PhysicsShape> {
 template <>
 struct ChunkTagTraits<PhysicsJoint> {
     static constexpr u32 value = kTag("PJNT");
-    static constexpr u32 max_version = 2; // v2: the motor and the reference translation
+    static constexpr u32 max_version = 3; // v2: the motor and the reference translation; v3: `locked`
     static constexpr bool is_trivial = false;
 };
 
@@ -579,7 +580,7 @@ struct ChunkTagTraits<ClothBinding> {
 template <>
 struct ChunkTagTraits<PhysicsRig> {
     static constexpr u32 value = kTag("PRIG");
-    static constexpr u32 max_version = 2; // v2: the `wow` extension
+    static constexpr u32 max_version = 3; // v2: the `wow` extension; v3: the ragdoll's recipe
     static constexpr bool is_trivial = false;
 };
 

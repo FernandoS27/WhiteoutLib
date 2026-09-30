@@ -276,8 +276,26 @@ u32 FitPhysicsToProfile(Document& document, ProfileId target, Diagnostics& out) 
         return 0;
     }
     u32 changed = 0;
+    // A cylinder the target lacks goes as the prism the host's engine runs it
+    // as, where the target has hulls (World of Warcraft).
+    const auto carries = [&](PhysicsShapeKind kind) { return (caps.shapeKinds & (1u << static_cast<u32>(kind))) != 0; };
+    const bool prism = !carries(PhysicsShapeKind::Cylinder) && carries(PhysicsShapeKind::ConvexHull);
     for (u32 m = 0; m < document.models.size(); ++m) {
         Model& model = document.models[m];
+        for (PhysicsBody& body : model.physics.bodies) {
+            for (PhysicsShape& shape : body.shapes) {
+                if (!prism || shape.kind != PhysicsShapeKind::Cylinder) {
+                    continue;
+                }
+                shape.points = CylinderPrism(shape);
+                shape.kind = PhysicsShapeKind::ConvexHull;
+                shape.radius = 0.0f;
+                shape.length = 0.0f;
+                ++changed;
+                out.info(DiagCode::PhysicsUnsupported, "a cylinder carried as a hull of its 16-sided prism",
+                         ElementRef(ElementKind::PhysicsRecord, body.id), target);
+            }
+        }
         if (!model.physics.rigs.empty()) {
             changed += ChooseRigs(model, target, caps, out);
             if (caps.switches) {

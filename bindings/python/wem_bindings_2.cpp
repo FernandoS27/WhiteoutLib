@@ -42,6 +42,7 @@
 #include <whiteout/models/wem/anim/channel.h>
 #include <whiteout/models/wem/anim/clip.h>
 #include <whiteout/models/wem/physics/physics.h>
+#include <whiteout/models/wem/physics/materials.h>
 #include <whiteout/models/wem/model.h>
 #include <whiteout/models/wem/document.h>
 #include <whiteout/models/wem/parser.h>
@@ -161,24 +162,6 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 2 of bind_wem(), which calls the parts in order.
 void bind_wem_2(py::module_& m) {
-    py::class_<whiteout::models::wem::PhysicsBody>(m, "PhysicsBody")
-        .def(py::init<>())
-        .def_readwrite("id", &whiteout::models::wem::PhysicsBody::id)
-        .def_readwrite("node", &whiteout::models::wem::PhysicsBody::node)
-        .def_readwrite("motion", &whiteout::models::wem::PhysicsBody::motion)
-        .def_readwrite("simulates", &whiteout::models::wem::PhysicsBody::simulates, R"doc(The rest value of `Channel::PhysicsDynamic`: whether it simulates where no key says otherwise.)doc")
-        .def_readwrite("shapes", &whiteout::models::wem::PhysicsBody::shapes)
-        .def_readwrite("linear_damping", &whiteout::models::wem::PhysicsBody::linearDamping)
-        .def_readwrite("angular_damping", &whiteout::models::wem::PhysicsBody::angularDamping)
-        .def_readwrite("inertia_scale", &whiteout::models::wem::PhysicsBody::inertiaScale)
-        .def_readwrite("gravity_scale", &whiteout::models::wem::PhysicsBody::gravityScale, R"doc(StarCraft II hard-wires 1; World of Warcraft authors it.)doc")
-        .def_readwrite("inherit_dynamic", &whiteout::models::wem::PhysicsBody::inheritDynamic, R"doc(Takes the nearest bodied ancestor's current state instead of its own (StarCraft II flag 0x40).)doc")
-        .def_readwrite("exempt_from_ragdoll", &whiteout::models::wem::PhysicsBody::exemptFromRagdoll, R"doc(Stays kinematic when the model ragdolls (StarCraft II flag 0x100).)doc")
-        .def_readwrite("force_channels", &whiteout::models::wem::PhysicsBody::forceChannels, R"doc(Which force fields act on it: matched against `ForceFieldPayload::channels`. StarCraft II's `localForces | worldForces << 16`.)doc")
-        .def_readwrite("sc2", &whiteout::models::wem::PhysicsBody::sc2)
-        .def_readwrite("wow", &whiteout::models::wem::PhysicsBody::wow)
-    ;
-
     py::class_<whiteout::models::wem::JointSpring>(m, "JointSpring")
         .def(py::init<>())
         .def_readwrite("hz", &whiteout::models::wem::JointSpring::hz)
@@ -207,6 +190,7 @@ void bind_wem_2(py::module_& m) {
         .def_readwrite("max_motor_force", &whiteout::models::wem::PhysicsJoint::maxMotorForce, R"doc(A torque; a force for Prismatic.)doc")
         .def_readwrite("motor_speed", &whiteout::models::wem::PhysicsJoint::motorSpeed, R"doc(Prismatic: the target velocity.)doc")
         .def_readwrite("reference_translation", &whiteout::models::wem::PhysicsJoint::referenceTranslation, R"doc(Prismatic: where the limits are measured from.)doc")
+        .def_readwrite("locked", &whiteout::models::wem::PhysicsJoint::locked, R"doc(Tuned by hand: the pivot, axes, kind and range stay through the editor's whole-ragdoll tools (§8.7). Authoring state; no export reads it.)doc")
     ;
 
     py::class_<whiteout::models::wem::SectionRef>(m, "SectionRef", R"doc(A section of a mesh of the same model.)doc")
@@ -282,6 +266,25 @@ void bind_wem_2(py::module_& m) {
         .def_readwrite("allow_list", &whiteout::models::wem::WowRigExtension::allowList, R"doc(`PHAO`: name CRCs of the host skeletons whose wearer keeps the bodies' follow factors. On any other host they give way to a flat 0.7.)doc")
     ;
 
+    py::class_<whiteout::models::wem::RagdollRecipe>(m, "RagdollRecipe", R"doc(How the editor built a ragdoll, so adapting it later builds the same way (EDIT_MODE_PHYSICS_REDESIGN.md §8, §17). Its defaults are the editor's *Ragdoll from rig*. Authoring state; no export reads it.)doc")
+        .def(py::init<>())
+        .def_readwrite("torso", &whiteout::models::wem::RagdollRecipe::torso, R"doc(Each role group's shape: the torso (body, spine), the head (neck, head), the limbs -- and every bone with no role -- and the props.)doc")
+        .def_readwrite("head", &whiteout::models::wem::RagdollRecipe::head)
+        .def_readwrite("limbs", &whiteout::models::wem::RagdollRecipe::limbs)
+        .def_readwrite("props", &whiteout::models::wem::RagdollRecipe::props)
+        .def_readwrite("hull_points", &whiteout::models::wem::RagdollRecipe::hullPoints, R"doc(StarCraft II's art tools' default.)doc")
+        .def_readwrite("tightness", &whiteout::models::wem::RagdollRecipe::tightness, R"doc(The share of a cloud a fit covers.)doc")
+        .def_readwrite("thickness", &whiteout::models::wem::RagdollRecipe::thickness, R"doc(Scales every radius and cross-section.)doc")
+        .def_readwrite("range", &whiteout::models::wem::RagdollRecipe::range, R"doc(Stiff, Normal, Loose.)doc")
+        .def_readwrite("hinges", &whiteout::models::wem::RagdollRecipe::hinges, R"doc(Knees and elbows hinge; else every joint is a cone-twist.)doc")
+        .def_readwrite("collide_connected", &whiteout::models::wem::RagdollRecipe::collideConnected)
+        .def_readwrite("fold_short_links", &whiteout::models::wem::RagdollRecipe::foldShortLinks, R"doc(Select figure folds a short torso link into the one above.)doc")
+        .def_readwrite("weld_props", &whiteout::models::wem::RagdollRecipe::weldProps, R"doc(Select figure takes the props the figure carries.)doc")
+        .def_readwrite("material", &whiteout::models::wem::RagdollRecipe::material, R"doc(A StarCraft II preset (`materials.h`): Flesh.)doc")
+        .def_readwrite("linear_damping", &whiteout::models::wem::RagdollRecipe::linearDamping, R"doc(A little more drag than the preset's, so a limb does not swing as long.)doc")
+        .def_readwrite("angular_damping", &whiteout::models::wem::RagdollRecipe::angularDamping)
+    ;
+
     py::class_<whiteout::models::wem::PhysicsRig>(m, "PhysicsRig", R"doc(A named subset of bodies a game switches on at once (World of Warcraft, Diablo III). StarCraft II has none: its import makes none and its export ignores them.)doc")
         .def(py::init<>())
         .def_readwrite("id", &whiteout::models::wem::PhysicsRig::id)
@@ -289,6 +292,7 @@ void bind_wem_2(py::module_& m) {
         .def_readwrite("start", &whiteout::models::wem::PhysicsRig::start)
         .def_readwrite("bodies", &whiteout::models::wem::PhysicsRig::bodies, R"doc(Body ids.)doc")
         .def_readwrite("wow", &whiteout::models::wem::PhysicsRig::wow)
+        .def_readwrite("recipe", &whiteout::models::wem::PhysicsRig::recipe, R"doc(Set when the editor built it as a ragdoll; none reads as the defaults.)doc")
     ;
 
     py::class_<whiteout::models::wem::PhysicsSet>(m, "PhysicsSet")
@@ -365,7 +369,7 @@ A document holds LOD 0 only: import drops the rest (`DropLevelsOfDetail`), and t
 On the `Model` because that is what a D3 actor's `snoAnimSet` names once the actor has become one (§9.1) — there is no `Actor` to hang it on, and a document-level pairing would be a side table with the model index in it, which is the shape §10.2 exists to avoid. Two actors sharing an appearance but not an animset are therefore two models, the same way two that equip differently are.)doc")
         .def_readwrite("profile_sets", &whiteout::models::wem::Model::profileSets)
         .def_readwrite("bounds", &whiteout::models::wem::Model::bounds)
-        .def_readwrite("t_pose", &whiteout::models::wem::Model::tPose, R"doc(Which of them is the recovered T-pose (EDIT_MODE_TPOSE_DESIGN.md §7), or `kInvalidIndex` for none. An index rather than a name because the list is already indexed by every node's `poseDeltas`, and a rename must not lose it. No exporter reads it.)doc")
+        .def_readwrite("t_pose", &whiteout::models::wem::Model::tPose, R"doc(Which of them is the pending repose — the pose the editor's Reposing mode wears and makes the rest, a recovered T-pose among its authors (EDIT_MODE_REPOSING_DESIGN.md §3) — or `kInvalidIndex` for none, where the editor adopts one by its name and sets this on the first write. An index rather than a name because the list is already indexed by every node's `poseDeltas`, and a rename must not lose it. No exporter reads it.)doc")
         .def_readwrite("lod_export", &whiteout::models::wem::Model::lodExport, R"doc(How the `.mdx` export makes levels of detail (`LodExport`).)doc")
         .def_readwrite("track_sets", &whiteout::models::wem::Model::trackSets, R"doc(The named channel groups clips play on layers of their own (`Clip::trackSets`).)doc")
         .def_readwrite("physics", &whiteout::models::wem::Model::physics, R"doc(Rigid bodies, joints, cloth and their colliders (WEM_PHYSICS_DESIGN.md §3). A target that carries physics exports it natively; one that does not bakes it.)doc")

@@ -44,6 +44,7 @@
 #include <whiteout/models/wem/anim/channel.h>
 #include <whiteout/models/wem/anim/clip.h>
 #include <whiteout/models/wem/physics/physics.h>
+#include <whiteout/models/wem/physics/materials.h>
 #include <whiteout/models/wem/model.h>
 #include <whiteout/models/wem/document.h>
 #include <whiteout/models/wem/parser.h>
@@ -265,6 +266,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("ClothSectionSplit", whiteout::models::wem::DiagCode::ClothSectionSplit)
         .value("ClothTopologyInvalid", whiteout::models::wem::DiagCode::ClothTopologyInvalid)
         .value("PhysicsChunkDropped", whiteout::models::wem::DiagCode::PhysicsChunkDropped)
+        .value("PhysicsRigDropped", whiteout::models::wem::DiagCode::PhysicsRigDropped)
         .value("Count", whiteout::models::wem::DiagCode::Count);
 
     enum_<whiteout::models::wem::ElementKind>("WemElementKind")
@@ -1831,6 +1833,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("forceChannels", &whiteout::models::wem::PhysicsBody::forceChannels)
         .property("sc2", &whiteout::models::wem::PhysicsBody::sc2)
         .property("wow", &whiteout::models::wem::PhysicsBody::wow)
+        .property("locked", &whiteout::models::wem::PhysicsBody::locked)
     ;
 
     class_<whiteout::models::wem::JointSpring>("WemJointSpring")
@@ -1861,6 +1864,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("maxMotorForce", &whiteout::models::wem::PhysicsJoint::maxMotorForce)
         .property("motorSpeed", &whiteout::models::wem::PhysicsJoint::motorSpeed)
         .property("referenceTranslation", &whiteout::models::wem::PhysicsJoint::referenceTranslation)
+        .property("locked", &whiteout::models::wem::PhysicsJoint::locked)
     ;
 
     class_<whiteout::models::wem::SectionRef>("WemSectionRef")
@@ -1934,6 +1938,25 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("allowList", &whiteout::models::wem::WowRigExtension::allowList)
     ;
 
+    class_<whiteout::models::wem::RagdollRecipe>("WemRagdollRecipe")
+        .constructor<>()
+        .property("torso", &whiteout::models::wem::RagdollRecipe::torso)
+        .property("head", &whiteout::models::wem::RagdollRecipe::head)
+        .property("limbs", &whiteout::models::wem::RagdollRecipe::limbs)
+        .property("props", &whiteout::models::wem::RagdollRecipe::props)
+        .property("hullPoints", &whiteout::models::wem::RagdollRecipe::hullPoints)
+        .property("tightness", &whiteout::models::wem::RagdollRecipe::tightness)
+        .property("thickness", &whiteout::models::wem::RagdollRecipe::thickness)
+        .property("range", &whiteout::models::wem::RagdollRecipe::range)
+        .property("hinges", &whiteout::models::wem::RagdollRecipe::hinges)
+        .property("collideConnected", &whiteout::models::wem::RagdollRecipe::collideConnected)
+        .property("foldShortLinks", &whiteout::models::wem::RagdollRecipe::foldShortLinks)
+        .property("weldProps", &whiteout::models::wem::RagdollRecipe::weldProps)
+        .property("material", &whiteout::models::wem::RagdollRecipe::material)
+        .property("linearDamping", &whiteout::models::wem::RagdollRecipe::linearDamping)
+        .property("angularDamping", &whiteout::models::wem::RagdollRecipe::angularDamping)
+    ;
+
     class_<whiteout::models::wem::PhysicsRig>("WemPhysicsRig")
         .constructor<>()
         .property("id", &whiteout::models::wem::PhysicsRig::id)
@@ -1941,6 +1964,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("start", &whiteout::models::wem::PhysicsRig::start)
         .property("bodies", &whiteout::models::wem::PhysicsRig::bodies)
         .property("wow", &whiteout::models::wem::PhysicsRig::wow)
+        .property("recipe", &whiteout::models::wem::PhysicsRig::recipe)
     ;
 
     class_<whiteout::models::wem::PhysicsSet>("WemPhysicsSet")

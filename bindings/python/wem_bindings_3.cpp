@@ -42,6 +42,7 @@
 #include <whiteout/models/wem/anim/channel.h>
 #include <whiteout/models/wem/anim/clip.h>
 #include <whiteout/models/wem/physics/physics.h>
+#include <whiteout/models/wem/physics/materials.h>
 #include <whiteout/models/wem/model.h>
 #include <whiteout/models/wem/document.h>
 #include <whiteout/models/wem/parser.h>

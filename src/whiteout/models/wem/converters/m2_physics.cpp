@@ -470,7 +470,7 @@ std::optional<m2::PhysicsData> Export(const Model& model, ProfileId profile,
             data.capsuleShapes.push_back(m2::CapsuleShape{p1, p2, shape.radius});
             break;
         }
-        default: {
+        case PhysicsShapeKind::ConvexHull: {
             // A polytope has no matrix: it goes into the points. An identity
             // matrix skips the multiply, so shipped points stay bit-exact.
             std::vector<Vector3f> points;
@@ -495,6 +495,11 @@ std::optional<m2::PhysicsData> Export(const Model& model, ProfileId profile,
             }
             break;
         }
+        default:
+            // A kind the caps let through with no writer here.
+            out.warn(DiagCode::PhysicsUnsupported, std::string("a ") + ToString(shape.kind) + " shape; not written",
+                     where, profile);
+            return false;
         }
         data.shapes.push_back(ref);
         return true;

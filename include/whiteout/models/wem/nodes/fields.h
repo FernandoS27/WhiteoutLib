@@ -19,6 +19,7 @@
  */
 
 #include <whiteout/common_types.h>
+#include <whiteout/vector_types.h>
 
 namespace whiteout {
 namespace models {
@@ -56,6 +57,11 @@ struct ForceFieldPayload {
     f32 width = 0.0f;
     f32 height = 0.0f;
     f32 length = 0.0f;
+    /// Own frame -> the node's, as a shape's is: a Warcraft III node cannot turn
+    /// at rest, so the field's axis lives here. `FOR_` has none, so the
+    /// StarCraft II export gives a turned field a bone of its own. `NODE` v15.
+    /// @bind skip — no value binding has a `Matrix44f` shape (`Node::poseMatrices`).
+    Matrix44f transform = Matrix44f::identity();
 
     template <class V>
     void reflect(V& v) {
@@ -72,6 +78,7 @@ struct ForceFieldPayload {
         v.field("width", width);
         v.field("height", height);
         v.field("length", length);
+        v.since(15).field("transform", transform);
     }
 };
 

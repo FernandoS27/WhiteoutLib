@@ -154,9 +154,15 @@ void rescaleEmitter(NodePayload& payload, f32 factor) {
             scale(point, factor);
         }
     } else if (auto* field = std::get_if<ForceFieldPayload>(&payload)) {
+        // The strength is an acceleration, a length a second squared.
+        field->strength *= factor;
         field->width *= factor;
-        field->height *= factor;
+        // A cone's height is the cosine of its angle.
+        if (field->volume != ForceVolume::Cone) {
+            field->height *= factor;
+        }
         field->length *= factor;
+        scaleMatrixTranslation(field->transform, factor);
     } else if (auto* warp = std::get_if<VertexWarpPayload>(&payload)) {
         warp->radius *= factor;
         warp->height *= factor;

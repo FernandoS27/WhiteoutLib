@@ -429,6 +429,8 @@ add_library(whiteout_lib
     src/whiteout/models/wem/geometry/lattice.cpp
     src/whiteout/models/wem/geometry/triangulation.cpp
     src/whiteout/models/wem/geometry/select.cpp
+    src/whiteout/models/wem/geometry/hull.cpp
+    src/whiteout/models/wem/geometry/fit.cpp
     src/whiteout/models/wem/geometry/primitives.cpp
     src/whiteout/models/wem/geometry/uv/islands.cpp
     src/whiteout/models/wem/geometry/uv/seams.cpp
@@ -485,6 +487,7 @@ add_library(whiteout_lib
     src/whiteout/models/wem/model.cpp
     src/whiteout/models/wem/physics/physics.cpp
     src/whiteout/models/wem/physics/references.cpp
+    src/whiteout/models/wem/physics/materials.cpp
     src/whiteout/models/wem/retarget.cpp
     src/whiteout/models/wem/skeleton_retarget.cpp
     src/whiteout/models/wem/rescale.cpp

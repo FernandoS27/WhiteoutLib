@@ -172,7 +172,7 @@ constexpr EmitterPropertyDesc kSc2Ribbon[] = {
 static_assert(std::size(kSc2Ribbon) == static_cast<std::size_t>(Sc2RibbonProperty::Count));
 
 constexpr EmitterPropertyDesc kForceField[] = {
-    {"strength", AttrType::F32},
+    {"strength", AttrType::F32, false, kLength},
     {"width", AttrType::F32, false, kLength},
     {"height", AttrType::F32, false, kLength},
     {"length", AttrType::F32, false, kLength},

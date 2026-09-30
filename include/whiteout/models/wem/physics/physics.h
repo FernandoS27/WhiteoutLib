@@ -59,6 +59,11 @@ struct PhysicsShape;
 /// matrix's +Z. An identity matrix leaves stated ends untouched, to the bit.
 std::pair<Vector3f, Vector3f> CapsuleEnds(const PhysicsShape& shape);
 
+/// A cylinder as the sixteen-sided prism a physics engine or a game with no
+/// cylinder carries it as, in its own frame (before its matrix), its axis +Z:
+/// as wide as the circle in area, so it weighs what the cylinder does.
+std::vector<Vector3f> CylinderPrism(const PhysicsShape& shape);
+
 /// The centred frame whose +Z runs from @p a to @p b, and in @p length the
 /// distance between them: how StarCraft II states a capsule.
 Matrix44f CapsuleFrame(const Vector3f& a, const Vector3f& b, f32& length);
@@ -193,6 +198,10 @@ struct PhysicsBody {
     u32 forceChannels = 0;
     std::optional<Sc2BodyExtension> sc2;
     std::optional<WowBodyExtension> wow;
+    /// Tuned by hand: the editor's tools that run over a whole ragdoll leave its
+    /// shapes alone (EDIT_MODE_PHYSICS_REDESIGN.md §8.7). Authoring state; no
+    /// export reads it.
+    bool locked = false;
 
     template <class V>
     void reflect(V& v) {
@@ -210,6 +219,7 @@ struct PhysicsBody {
         v.field("forceChannels", forceChannels);
         v.optional("sc2", sc2);
         v.since(2).optional("wow", wow);
+        v.since(3).field("locked", locked);
     }
 };
 
@@ -271,6 +281,9 @@ struct PhysicsJoint {
     f32 maxMotorForce = 0.0f;        ///< A torque; a force for Prismatic.
     f32 motorSpeed = 0.0f;           ///< Prismatic: the target velocity.
     f32 referenceTranslation = 0.0f; ///< Prismatic: where the limits are measured from.
+    /// Tuned by hand: the pivot, axes, kind and range stay through the editor's
+    /// whole-ragdoll tools (§8.7). Authoring state; no export reads it.
+    bool locked = false;
 
     template <class V>
     void reflect(V& v) {
@@ -296,6 +309,7 @@ struct PhysicsJoint {
         v.since(2).field("maxMotorForce", maxMotorForce);
         v.since(2).field("motorSpeed", motorSpeed);
         v.since(2).field("referenceTranslation", referenceTranslation);
+        v.since(3).field("locked", locked);
     }
 };
 
@@ -491,6 +505,49 @@ struct WowRigExtension {
     }
 };
 
+/// How the editor built a ragdoll, so adapting it later builds the same way
+/// (EDIT_MODE_PHYSICS_REDESIGN.md §8, §17). Its defaults are the editor's
+/// *Ragdoll from rig*. Authoring state; no export reads it.
+struct RagdollRecipe {
+    /// Each role group's shape: the torso (body, spine), the head (neck,
+    /// head), the limbs -- and every bone with no role -- and the props.
+    PhysicsShapeKind torso = PhysicsShapeKind::Capsule;
+    PhysicsShapeKind head = PhysicsShapeKind::Capsule;
+    PhysicsShapeKind limbs = PhysicsShapeKind::Capsule;
+    PhysicsShapeKind props = PhysicsShapeKind::Capsule;
+    u8 hullPoints = 8;     ///< StarCraft II's art tools' default.
+    f32 tightness = 0.75f; ///< The share of a cloud a fit covers.
+    f32 thickness = 1.0f;  ///< Scales every radius and cross-section.
+    u8 range = 1;          ///< Stiff, Normal, Loose.
+    bool hinges = true;    ///< Knees and elbows hinge; else every joint is a cone-twist.
+    bool collideConnected = false;
+    bool foldShortLinks = true; ///< Select figure folds a short torso link into the one above.
+    bool weldProps = true;      ///< Select figure takes the props the figure carries.
+    u32 material = 4;           ///< A StarCraft II preset (`materials.h`): Flesh.
+    /// A little more drag than the preset's, so a limb does not swing as long.
+    f32 linearDamping = 0.05f;
+    f32 angularDamping = 0.3f;
+
+    template <class V>
+    void reflect(V& v) {
+        v.field("torso", torso);
+        v.field("head", head);
+        v.field("limbs", limbs);
+        v.field("props", props);
+        v.field("hullPoints", hullPoints);
+        v.field("tightness", tightness);
+        v.field("thickness", thickness);
+        v.field("range", range);
+        v.field("hinges", hinges);
+        v.field("collideConnected", collideConnected);
+        v.field("foldShortLinks", foldShortLinks);
+        v.field("weldProps", weldProps);
+        v.field("material", material);
+        v.field("linearDamping", linearDamping);
+        v.field("angularDamping", angularDamping);
+    }
+};
+
 /// A named subset of bodies a game switches on at once (World of Warcraft,
 /// Diablo III). StarCraft II has none: its import makes none and its export
 /// ignores them.
@@ -500,6 +557,8 @@ struct PhysicsRig {
     RigStart start = RigStart::Animated;
     std::vector<u32> bodies; ///< Body ids.
     std::optional<WowRigExtension> wow;
+    /// Set when the editor built it as a ragdoll; none reads as the defaults.
+    std::optional<RagdollRecipe> recipe;
 
     template <class V>
     void reflect(V& v) {
@@ -508,6 +567,7 @@ struct PhysicsRig {
         v.field("start", start);
         v.field("bodies", bodies);
         v.since(2).optional("wow", wow);
+        v.since(3).optional("recipe", recipe);
     }
 };
 

@@ -86,8 +86,58 @@ Vector3f RestOrigin(const Model& model, const PhysicsBody& body, const Matrix44f
     if (body.node >= model.nodes.size()) {
         return Row(frame, 3);
     }
+    // A record's frames sit in its node's frame at rest (WEM_PHYSICS_DESIGN.md
+    // §3): a pivot rig's node stands at its pivot, unturned; an explicit-bind
+    // one at its bind.
+    if (model.nodes.rig == RigConvention::PivotRelative) {
+        const Vector3f pivot = model.nodes.nodes[body.node].pivot;
+        const Vector3f at = Row(frame, 3);
+        return Vector3f{at.x + pivot.x, at.y + pivot.y, at.z + pivot.z};
+    }
     const Transform world = model.nodes.worldBind(body.node);
     return TransformPoint(world, Row(frame, 3));
+}
+
+/// Whether @p points lie in one plane (or a line), to a millionth of their
+/// spread: a hull with no volume, which no game cooks.
+bool Flat(const std::vector<Vector3f>& points) {
+    if (points.size() < 4) {
+        return true;
+    }
+    const Vector3f o = points[0];
+    Vector3f far = o;
+    for (const Vector3f& p : points) {
+        if ((p - o).length() > (far - o).length()) {
+            far = p;
+        }
+    }
+    const f32 spread = (far - o).length();
+    if (spread <= 0.0f) {
+        return true;
+    }
+    const Vector3f line = (far - o) * (1.0f / spread);
+    Vector3f third = o;
+    f32 off = 0.0f;
+    for (const Vector3f& p : points) {
+        const Vector3f d = p - o;
+        const f32 away = (d - line * d.dot(line)).length();
+        if (away > off) {
+            off = away;
+            third = p;
+        }
+    }
+    const Vector3f normal = cross(far - o, third - o);
+    if (normal.length() <= 1e-12f * spread * spread) {
+        return true;
+    }
+    const Vector3f n = normal.normalized();
+    f32 low = 0.0f, high = 0.0f;
+    for (const Vector3f& p : points) {
+        const f32 h = (p - o).dot(n);
+        low = std::min(low, h);
+        high = std::max(high, h);
+    }
+    return high - low <= 1e-6f * spread;
 }
 
 } // namespace
@@ -348,6 +398,18 @@ void CheckPhysics(const Model& model, Diagnostics& out) {
                 out.warn(DiagCode::PhysicsShapeDegenerate,
                          "a hull of " + number(shape.points.size()) + " points has no volume",
                          ElementRef(ElementKind::PhysicsRecord, body.id));
+            } else if (shape.kind == PhysicsShapeKind::ConvexHull && Flat(shape.points)) {
+                out.warn(DiagCode::PhysicsShapeDegenerate, "a flat hull: its points lie in one plane",
+                         ElementRef(ElementKind::PhysicsRecord, body.id));
+            }
+            const bool round = shape.kind == PhysicsShapeKind::Sphere || shape.kind == PhysicsShapeKind::Capsule ||
+                               shape.kind == PhysicsShapeKind::Cylinder;
+            const Vector3f& h = shape.halfExtents;
+            if ((round && !(shape.radius > 0.0f)) ||
+                (shape.kind == PhysicsShapeKind::Cylinder && !(shape.length > 0.0f)) ||
+                (shape.kind == PhysicsShapeKind::Box && !(h.x > 0.0f && h.y > 0.0f && h.z > 0.0f))) {
+                out.error(DiagCode::PhysicsShapeDegenerate, std::string("a ") + ToString(shape.kind) + " with no size",
+                          ElementRef(ElementKind::PhysicsRecord, body.id));
             }
             if (shape.kind == PhysicsShapeKind::TriangleMesh &&
                 (shape.triangles.size() < 3 || shape.triangles.size() % 3 != 0 ||
@@ -499,7 +561,14 @@ void CheckPhysicsForProfile(const Model& model, ProfileId profile, Diagnostics& 
     for (const PhysicsBody& body : physics.bodies) {
         const ElementRef where(ElementKind::PhysicsRecord, body.id);
         for (const PhysicsShape& shape : body.shapes) {
-            if ((caps.shapeKinds & (1u << static_cast<u32>(shape.kind))) == 0) {
+            const auto carries = [&](PhysicsShapeKind kind) {
+                return (caps.shapeKinds & (1u << static_cast<u32>(kind))) != 0;
+            };
+            if (!carries(shape.kind) && shape.kind == PhysicsShapeKind::Cylinder &&
+                carries(PhysicsShapeKind::ConvexHull)) {
+                out.info(DiagCode::PhysicsUnsupported, "a cylinder the profile carries as a hull of its 16-sided prism",
+                         where, profile);
+            } else if (!carries(shape.kind)) {
                 out.warn(DiagCode::PhysicsUnsupported,
                          std::string("a ") + ToString(shape.kind) + " shape the profile cannot carry",
                          where, profile);

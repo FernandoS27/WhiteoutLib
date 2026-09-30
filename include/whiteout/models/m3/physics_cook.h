@@ -21,7 +21,9 @@
  * file's and a mismatch misplaces every triangle.
  */
 
+#include <array>
 #include <span>
+#include <vector>
 
 #include "structures.h"
 
@@ -60,6 +62,18 @@ inline constexpr u32 kMaxHullHalfEdges = 256;
  */
 HullCookReport CookHull(PhysicsShape& shape, std::span<const Vector3f> points,
                         HullCook mode = HullCook::Exact);
+
+/**
+ * @brief The convex hull of @p points as outward triangles.
+ *
+ * The cooker's own incremental hull, in double precision and in a frame of
+ * unit size, so its tolerance is relative to the hull's size: what `CookHull`
+ * builds its polytope from, before coplanar triangles merge. Each triangle is
+ * three indices into @p points, wound counter-clockwise about its outward
+ * normal. False, and no triangles, when a point is not finite or the points
+ * span no volume.
+ */
+bool HullTriangles(std::span<const Vector3f> points, std::vector<std::array<u32, 3>>& triangles);
 
 /// The four tree values the client copies from a PHSH over its own mesh tree.
 struct MeshTree {

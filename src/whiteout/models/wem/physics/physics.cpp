@@ -135,6 +135,22 @@ std::pair<Vector3f, Vector3f> CapsuleEnds(const PhysicsShape& shape) {
     return {Vector3f{o.x - e.x, o.y - e.y, o.z - e.z}, Vector3f{o.x + e.x, o.y + e.y, o.z + e.z}};
 }
 
+std::vector<Vector3f> CylinderPrism(const PhysicsShape& shape) {
+    constexpr int kSides = 16;
+    const f64 turn = 6.283185307179586;
+    const f64 wide = shape.radius * std::sqrt(3.141592653589793 / (0.5 * kSides * std::sin(turn / kSides)));
+    const f32 half = shape.length * 0.5f;
+    std::vector<Vector3f> points;
+    points.reserve(kSides * 2);
+    for (int k = 0; k < kSides; ++k) {
+        const f64 a = turn * k / kSides;
+        const f32 x = static_cast<f32>(wide * std::cos(a)), y = static_cast<f32>(wide * std::sin(a));
+        points.push_back(Vector3f{x, y, half});
+        points.push_back(Vector3f{x, y, -half});
+    }
+    return points;
+}
+
 Matrix44f CapsuleFrame(const Vector3f& a, const Vector3f& b, f32& length) {
     const f64 dx = static_cast<f64>(b.x) - a.x;
     const f64 dy = static_cast<f64>(b.y) - a.y;

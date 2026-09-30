@@ -255,6 +255,64 @@ TEST_CASE("wem physics a small model's records cross both ways", "[wem][physics]
     CHECK(out.forces[0].localChannels == 0x4u);
 }
 
+TEST_CASE("wem physics a turned force field keeps its frame through the .m3", "[wem][physics][m3]") {
+    M3Converter converter;
+    Result<Document> imported = converter.fromM3(PhysicsFixture(), ProfileId::Sc2);
+    REQUIRE(imported.ok());
+    const auto fieldOf = [](const Document& document) -> u32 {
+        const NodeTree& tree = document.models.front().nodes;
+        for (u32 n = 0; n < tree.size(); ++n) {
+            if (tree.nodes[n].kind == NodeKind::ForceField) {
+                return n;
+            }
+        }
+        return kInvalidNode;
+    };
+    const auto frameOf = [](const Document& document, u32 n) {
+        const NodeTree& tree = document.models.front().nodes;
+        return std::get<ForceFieldPayload>(tree.nodes[n].payload).transform * ToMatrix(tree.worldBind(n));
+    };
+    const u32 field = fieldOf(*imported);
+    REQUIRE(field != kInvalidNode);
+    // A quarter turn about X and an offset: what the editor writes on a
+    // Warcraft III node, which cannot turn.
+    Matrix44f turned = Matrix44f::identity();
+    turned.data[1][1] = 0.0f;
+    turned.data[1][2] = 1.0f;
+    turned.data[2][1] = -1.0f;
+    turned.data[2][2] = 0.0f;
+    turned.data[3][0] = 0.5f;
+    turned.data[3][2] = -2.0f;
+    std::get<ForceFieldPayload>(imported->models.front().nodes.nodes[field].payload).transform = turned;
+    const Matrix44f want = frameOf(*imported, field);
+
+    // The `.wem` carries it (NODE v15).
+    Writer writer;
+    const std::vector<u8> bytes = writer.write(*imported);
+    Parser parser;
+    const std::optional<Document> reread = parser.parse(std::span<const u8>(bytes));
+    REQUIRE(reread.has_value());
+    CHECK(SameBits(std::get<ForceFieldPayload>(reread->models.front().nodes.nodes[field].payload).transform, turned));
+
+    // The `.m3` puts it on a bone of its own, and reads back at identity there.
+    const Result<m3::Model> exported = converter.toM3(*reread, ProfileId::Sc2);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->forces.size() == 1);
+    REQUIRE(exported->forces[0].boneIndex < exported->bones.size());
+    CHECK(exported->bones[exported->forces[0].boneIndex].name.ends_with("_Frame"));
+    CHECK(exported->initialReference.size() == exported->bones.size());
+    const Result<Document> back = converter.fromM3(*exported, ProfileId::Sc2);
+    REQUIRE(back.ok());
+    const u32 again = fieldOf(*back);
+    REQUIRE(again != kInvalidNode);
+    const Matrix44f got = frameOf(*back, again);
+    for (int r = 0; r < 4; ++r) {
+        for (int c = 0; c < 3; ++c) {
+            CHECK(got.data[r][c] == Approx(want.data[r][c]).margin(1e-5));
+        }
+    }
+}
+
 // ============================================================================
 // G-P1
 // ============================================================================

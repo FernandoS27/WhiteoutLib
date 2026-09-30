@@ -27,6 +27,7 @@
 #include <whiteout/models/wem/writer.h>
 
 #include "wem_material_fixture.h"
+#include "whiteout/models/wem/chunk_tags.h"
 
 using namespace whiteout;
 using namespace whiteout::models::wem;
@@ -668,3 +669,213 @@ TEST_CASE("wem physics rescales forces and torques at the fourth power", "[wem][
     CHECK(document.models[0].physics.joints[0].frictionAmount == 32.0f);
 }
 
+TEST_CASE("wem physics rescales a force field's strength, sizes and frame", "[wem][physics]") {
+    Document document = PhysicsDocument();
+    Node node;
+    node.name = "field";
+    node.kind = NodeKind::ForceField;
+    ForceFieldPayload field;
+    field.strength = 3.0f;
+    field.width = 4.0f;
+    field.transform.data[3][0] = 5.0f;
+    node.payload = field;
+    const u32 index = document.models[0].nodes.size();
+    document.models[0].nodes.add(std::move(node));
+    REQUIRE(RescaleDocument(document, 2.0f).ok);
+    const auto& scaled = std::get<ForceFieldPayload>(document.models[0].nodes.nodes[index].payload);
+    // The strength is an acceleration: a length a second squared.
+    CHECK(scaled.strength == 6.0f);
+    CHECK(scaled.width == 8.0f);
+    CHECK(scaled.transform.data[3][0] == 10.0f);
+    CHECK(scaled.transform.data[0][0] == 1.0f);
+}
+
+
+namespace {
+
+/// The document with its authoring state set: a locked body and joint, and a
+/// rig built as a ragdoll with a recipe off its defaults.
+Document Authored() {
+    Document document = PhysicsDocument();
+    PhysicsSet& physics = document.models[0].physics;
+    physics.bodies[1].locked = true;
+    physics.joints[0].locked = true;
+    PhysicsRig rig;
+    rig.id = physics.allocateId();
+    rig.name = "Ragdoll";
+    rig.start = RigStart::OnDeath;
+    rig.bodies = {physics.bodies[0].id, physics.bodies[1].id};
+    RagdollRecipe recipe;
+    recipe.torso = PhysicsShapeKind::Box;
+    recipe.hullPoints = 12;
+    recipe.tightness = 0.6f;
+    recipe.range = 2;
+    recipe.weldProps = false;
+    recipe.material = 13;
+    rig.recipe = recipe;
+    physics.rigs.push_back(rig);
+    return document;
+}
+
+} // namespace
+
+TEST_CASE("wem physics carries its locks and a ragdoll's recipe", "[wem][physics]") {
+    const Document document = Authored();
+    Writer writer;
+    const std::vector<u8> bytes = writer.write(document);
+    Parser parser;
+    const std::optional<Document> read = parser.parse(std::span<const u8>(bytes));
+    REQUIRE(read.has_value());
+    const PhysicsSet& back = read->models[0].physics;
+    CHECK_FALSE(back.bodies[0].locked);
+    CHECK(back.bodies[1].locked);
+    CHECK(back.joints[0].locked);
+    REQUIRE(back.rigs.size() == 1u);
+    REQUIRE(back.rigs[0].recipe.has_value());
+    const RagdollRecipe& recipe = *back.rigs[0].recipe;
+    CHECK(recipe.torso == PhysicsShapeKind::Box);
+    CHECK(recipe.head == PhysicsShapeKind::Capsule);
+    CHECK(recipe.hullPoints == 12);
+    CHECK(recipe.tightness == 0.6f);
+    CHECK(recipe.range == 2);
+    CHECK_FALSE(recipe.weldProps);
+    CHECK(recipe.material == 13u);
+    CHECK(recipe.angularDamping == 0.3f);
+}
+
+TEST_CASE("wem a physics chunk from before the locks reads unlocked, with no recipe", "[wem][physics]") {
+    // What a build without the fields wrote: the records stamped v2, whose
+    // reader stops before the v3 fields. Each chunk holds one record, so the
+    // v3 bytes it leaves unread are the chunk's last, and nothing after them
+    // moves.
+    Document document = Authored();
+    PhysicsSet& physics = document.models[0].physics;
+    physics.bodies.erase(physics.bodies.begin());
+    physics.joints[0].bodyA = physics.joints[0].bodyB;
+    physics.rigs[0].bodies = {physics.bodies[0].id};
+    Writer writer;
+    std::vector<u8> bytes = writer.write(document);
+    WEMHeader header{};
+    std::memcpy(&header, bytes.data(), sizeof(header));
+    u32 stamped = 0;
+    for (u32 i = 0; i < header.indexCount; ++i) {
+        IndexEntry entry{};
+        const std::size_t at = header.indexOffset + i * sizeof(IndexEntry);
+        std::memcpy(&entry, bytes.data() + at, sizeof(entry));
+        if (entry.tag != ChunkTagTraits<PhysicsBody>::value && entry.tag != ChunkTagTraits<PhysicsJoint>::value &&
+            entry.tag != ChunkTagTraits<PhysicsRig>::value)
+            continue;
+        CHECK(entry.version == 3u);
+        entry.version = 2;
+        std::memcpy(bytes.data() + at, &entry, sizeof(entry));
+        ++stamped;
+    }
+    REQUIRE(stamped == 3u);
+    Parser parser;
+    const std::optional<Document> read = parser.parse(std::span<const u8>(bytes));
+    REQUIRE(read.has_value());
+    const PhysicsSet& back = read->models[0].physics;
+    REQUIRE(back.bodies.size() == 1u);
+    CHECK_FALSE(back.bodies[0].locked);
+    REQUIRE(back.joints.size() == 1u);
+    CHECK_FALSE(back.joints[0].locked);
+    CHECK(back.joints[0].kind == JointKind::ConeTwist);
+    REQUIRE(back.rigs.size() == 1u);
+    CHECK(back.rigs[0].name == "Ragdoll");
+    CHECK_FALSE(back.rigs[0].recipe.has_value());
+    CHECK(back.bodies[0].shapes[0].points.size() == 4u);
+}
+
+// ---- Every kind, carried or checked (EDIT_MODE_PHYSICS_REDESIGN.md §24.4) ------
+
+TEST_CASE("wem a cylinder's prism is as wide as its circle in area", "[wem][physics]") {
+    PhysicsShape cylinder;
+    cylinder.kind = PhysicsShapeKind::Cylinder;
+    cylinder.radius = 2.0f;
+    cylinder.length = 3.0f;
+    const std::vector<Vector3f> prism = CylinderPrism(cylinder);
+    REQUIRE(prism.size() == 32u);
+    // The cap's polygon, by the shoelace over its top ring.
+    f64 area = 0.0;
+    std::vector<Vector3f> top;
+    for (const Vector3f& p : prism) {
+        CHECK(std::abs(std::abs(p.z) - 1.5f) < 1e-6f);
+        if (p.z > 0.0f)
+            top.push_back(p);
+    }
+    REQUIRE(top.size() == 16u);
+    for (std::size_t i = 0; i < top.size(); ++i) {
+        const Vector3f& a = top[i];
+        const Vector3f& b = top[(i + 1) % top.size()];
+        area += 0.5 * (static_cast<f64>(a.x) * b.y - static_cast<f64>(b.x) * a.y);
+    }
+    CHECK(area == Catch::Approx(3.14159265 * 4.0).epsilon(1e-5));
+}
+
+TEST_CASE("wem World of Warcraft carries a cylinder as a hull, StarCraft II as itself", "[wem][physics]") {
+    const auto withCylinder = [] {
+        Document document = PhysicsDocument();
+        PhysicsShape& shape = document.models[0].physics.bodies[0].shapes[0];
+        shape.kind = PhysicsShapeKind::Cylinder;
+        shape.radius = 1.0f;
+        shape.length = 2.0f;
+        shape.points.clear();
+        return document;
+    };
+    Document wow = withCylinder();
+    const Model before = wow.models[0];
+    // Checked for the game, the cylinder is a note that it goes as a hull,
+    // never a warning that it is lost: as many warnings as the box had.
+    const auto unsupported = [](const Model& model, Severity severity) {
+        Diagnostics report;
+        CheckPhysicsForProfile(model, ProfileId::Wow, report);
+        u32 count = 0;
+        for (const Diagnostic& entry : report.bySeverity(severity))
+            count += entry.code == DiagCode::PhysicsUnsupported ? 1u : 0u;
+        return count;
+    };
+    const Model boxed = PhysicsDocument().models[0];
+    CHECK(unsupported(before, Severity::Warning) == unsupported(boxed, Severity::Warning));
+    CHECK(unsupported(before, Severity::Info) == unsupported(boxed, Severity::Info) + 1u);
+    Diagnostics report;
+    FitPhysicsToProfile(wow, ProfileId::Wow, report);
+    const PhysicsShape& carried = wow.models[0].physics.bodies[0].shapes[0];
+    CHECK(carried.kind == PhysicsShapeKind::ConvexHull);
+    CHECK(carried.points == CylinderPrism(before.physics.bodies[0].shapes[0]));
+    Document sc2 = withCylinder();
+    FitPhysicsToProfile(sc2, ProfileId::Sc2, report);
+    CHECK(sc2.models[0].physics.bodies[0].shapes[0].kind == PhysicsShapeKind::Cylinder);
+}
+
+TEST_CASE("wem validation names a shape with no size and a flat hull", "[wem][physics]") {
+    const auto degenerate = [](const Document& document) {
+        const Diagnostics report = Validate(document, ValidateLevel::Structural);
+        u32 count = 0;
+        for (const Diagnostic& entry : report.all())
+            count += entry.code == DiagCode::PhysicsShapeDegenerate ? 1u : 0u;
+        return count;
+    };
+    const Document clean = PhysicsDocument();
+    const u32 base = degenerate(clean);
+    Document none = clean;
+    PhysicsShape sphere;
+    sphere.kind = PhysicsShapeKind::Sphere;
+    sphere.radius = 0.0f;
+    none.models[0].physics.bodies[0].shapes.push_back(sphere);
+    CHECK(degenerate(none) == base + 1u);
+    Document box = clean;
+    PhysicsShape flatBox;
+    flatBox.kind = PhysicsShapeKind::Box;
+    flatBox.halfExtents = {1.0f, 1.0f, 0.0f};
+    box.models[0].physics.bodies[0].shapes.push_back(flatBox);
+    CHECK(degenerate(box) == base + 1u);
+    Document flat = clean;
+    PhysicsShape hull;
+    hull.kind = PhysicsShapeKind::ConvexHull;
+    hull.points = {Vector3f{0, 0, 0}, Vector3f{1, 0, 0}, Vector3f{1, 1, 0}, Vector3f{0, 1, 0}};
+    flat.models[0].physics.bodies[0].shapes.push_back(hull);
+    CHECK(degenerate(flat) == base + 1u);
+    hull.points.push_back(Vector3f{0.5f, 0.5f, 1.0f});
+    flat.models[0].physics.bodies[0].shapes.back() = hull;
+    CHECK(degenerate(flat) == base);
+}

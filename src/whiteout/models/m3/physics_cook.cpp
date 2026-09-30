@@ -358,9 +358,13 @@ bool MergeFaces(const std::vector<D3>& p, const std::vector<std::array<u32, 3>>&
     return out.vertices.size() + out.faces.size() == edges / 2 + 2 && edges % 2 == 0;
 }
 
-/// The exact hull of @p p, merged into polygons.
-bool ExactHull(const std::vector<D3>& p, Polytope& out) {
-    // Work in a unit frame so both tolerances are relative to the hull's size.
+/// @p p in a frame of unit size about its middle, so both hull tolerances are
+/// relative to the hull's size, and the tolerance faces merge within there.
+/// False when the points have no extent.
+bool UnitFrame(const std::vector<D3>& p, std::vector<D3>& unit, double& mergeTolerance) {
+    if (p.empty()) {
+        return false;
+    }
     D3 lo = p[0], hi = p[0];
     for (const D3& q : p) {
         lo = {std::min(lo.x, q.x), std::min(lo.y, q.y), std::min(lo.z, q.z)};
@@ -371,7 +375,7 @@ bool ExactHull(const std::vector<D3>& p, Polytope& out) {
     if (!(radius > 0)) {
         return false;
     }
-    std::vector<D3> unit(p.size());
+    unit.resize(p.size());
     for (std::size_t i = 0; i < p.size(); ++i) {
         unit[i] = (p[i] - center) * (1.0 / radius);
     }
@@ -380,8 +384,17 @@ bool ExactHull(const std::vector<D3>& p, Polytope& out) {
         extreme = {std::max(extreme.x, std::abs(q.x)), std::max(extreme.y, std::abs(q.y)),
                    std::max(extreme.z, std::abs(q.z))};
     }
-    const double mergeTolerance =
-        3.0 * std::numeric_limits<f32>::epsilon() * (extreme.x + extreme.y + extreme.z);
+    mergeTolerance = 3.0 * std::numeric_limits<f32>::epsilon() * (extreme.x + extreme.y + extreme.z);
+    return true;
+}
+
+/// The exact hull of @p p, merged into polygons.
+bool ExactHull(const std::vector<D3>& p, Polytope& out) {
+    std::vector<D3> unit;
+    double mergeTolerance = 0;
+    if (!UnitFrame(p, unit, mergeTolerance)) {
+        return false;
+    }
     std::vector<std::array<u32, 3>> tris;
     for (double eps = 1e-10; eps < 1e-5; eps *= 10) {
         if (TriangleHull(unit, eps, tris) && MergeFaces(unit, tris, mergeTolerance, out)) {
@@ -785,6 +798,30 @@ HullCookReport CookHull(PhysicsShape& shape, std::span<const Vector3f> points, H
         ClearHull(shape);
     }
     return report;
+}
+
+bool HullTriangles(std::span<const Vector3f> points, std::vector<std::array<u32, 3>>& triangles) {
+    triangles.clear();
+    std::vector<D3> p;
+    p.reserve(points.size());
+    for (const Vector3f& v : points) {
+        if (!Finite(v)) {
+            return false;
+        }
+        p.push_back({v.x, v.y, v.z});
+    }
+    std::vector<D3> unit;
+    double mergeTolerance = 0;
+    if (!UnitFrame(p, unit, mergeTolerance)) {
+        return false;
+    }
+    for (double eps = 1e-10; eps < 1e-5; eps *= 10) {
+        if (TriangleHull(unit, eps, triangles)) {
+            return true;
+        }
+    }
+    triangles.clear();
+    return false;
 }
 
 MeshTree ComputeMeshTree(std::span<const Vector3f> vertices, std::span<const u32> triangles) {

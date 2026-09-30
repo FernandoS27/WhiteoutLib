@@ -40,6 +40,7 @@
 #include "whiteout/models/wem/geometry/builder.h"
 #include "whiteout/models/wem/geometry/render_view.h"
 #include "whiteout/models/wem/meshes/remove.h"
+#include "whiteout/models/wem/physics/references.h"
 #include "whiteout/models/wem/skinning/quantize.h"
 
 #include "../materials/m3_core.h"
@@ -180,6 +181,18 @@ Matrix44f RebaseMatrix(const Matrix44f& m) {
 
 Matrix44f UnrebaseMatrix(const Matrix44f& m) {
     return m3_physics::UnrebaseConjugate(m);
+}
+
+/// Whether @p m is the identity, to within what an edit leaves.
+bool IsIdentityFrame(const Matrix44f& m) {
+    for (int r = 0; r < 4; ++r) {
+        for (int c = 0; c < 4; ++c) {
+            if (std::fabs(m.data[r][c] - (r == c ? 1.0f : 0.0f)) > 1e-6f) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 Extent ToExtent(const m3::Extent& source) {
@@ -1138,6 +1151,34 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             animContext.nodeVisBone[n] = visBoneOf[n] != 0xFFFFu ? visBoneOf[n] : boneOf[n];
         }
     }
+    // A force field turned in its node's frame rides a bone of its own under the
+    // one it would name: `FOR_` has no matrix.
+    std::vector<u32> frameBoneOf(nodeCount, 0xFFFFu);
+    for (u32 n = 0; n < nodeCount; ++n) {
+        const Node& node = model.nodes.nodes[n];
+        const auto* field =
+            node.kind == NodeKind::ForceField ? std::get_if<ForceFieldPayload>(&node.payload) : nullptr;
+        if (field == nullptr || IsIdentityFrame(field->transform)) {
+            continue;
+        }
+        const u32 carrier = visBoneOf[n] != 0xFFFFu ? visBoneOf[n]
+                            : boneOf[n] != 0xFFFFu  ? boneOf[n]
+                                                    : nearestBone(n);
+        const Transform local = FromMatrix(field->transform);
+        m3::Bone bone;
+        bone.name = node.name + "_Frame";
+        bone.parentIndex = carrier == 0xFFFFu ? u16(0xFFFFu) : static_cast<u16>(carrier);
+        bone.position.initValue = Unrebase(local.translation);
+        bone.rotation.initValue =
+            Quaternion{local.rotation.y, -local.rotation.x, local.rotation.z, local.rotation.w};
+        bone.scale.initValue = local.scale;
+        bone.visibility.initValue = 1u;
+        frameBoneOf[n] = static_cast<u32>(out.bones.size());
+        out.bones.push_back(std::move(bone));
+        m3::InitialReference reference;
+        reference.matrix = UnrebaseMatrix(model.nodes.inverseBindMatrix(n) * AffineInverse(field->transform));
+        out.initialReference.push_back(reference);
+    }
     out.skinBoneCount = static_cast<u32>(out.bones.size());
 
     // --- billboards (WC3_TO_SC2_COMPLETION_PLAN.md §4.2) ---------------------
@@ -1445,7 +1486,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                 break;
             }
             m3::Force force = m3_physics::ExportForce(*payload);
-            force.boneIndex = parentBone == 0xFFFFu ? 0u : parentBone;
+            force.boneIndex = frameBoneOf[n] != 0xFFFFu ? frameBoneOf[n] : parentBone == 0xFFFFu ? 0u : parentBone;
             force.forceVersion(m3::kCurrentForceVersion);
             animContext.nodeSlots[n] = {m3_anim::ExportContext::Slot::Force,
                                         static_cast<u32>(out.forces.size())};
