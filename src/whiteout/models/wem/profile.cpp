@@ -197,9 +197,11 @@ const std::array<ProfileDesc, static_cast<std::size_t>(ProfileId::Count)>& descs
                  RigConvention::PivotRelative, kCombiners, kComposite | kCombiners),
 
         // World of Warcraft. Stage order and combine ops *are* the material, so
-        // Combiners is the only kind; looks carry texture variations (§8).
+        // Combiners is the only kind; looks carry texture variations (§8). Four
+        // UV sets and vertex colours are the game's WMOs; an `.m2` uses two and
+        // none, and `toM2` keeps what it can hold.
         makeDesc(ProfileId::Wow, "wow", "World of Warcraft", "m2", CoordSpace::Blizzard, 100.0f, 4,
-                 2, 0, IndexWidth::U16, false, false, modes(kM2BlendModes), kCombiners,
+                 4, 0, IndexWidth::U16, false, /*vcolor*/ true, modes(kM2BlendModes), kCombiners,
                  NativeKind::M2, /*looks*/ true, false),
 
         // StarCraft II. Five UV sets; the 256-entry bone palette is the M3 ceiling.

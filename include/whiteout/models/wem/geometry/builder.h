@@ -56,6 +56,10 @@ public:
         setAttr(Domain::Vertex, vertex.value(), name, &value, sizeof(T));
     }
 
+    /// Creates layer @p name as @p type before any value is set: a free name is
+    /// otherwise typed by its value's size, and four bytes read as `F32`.
+    void declareAttr(Domain domain, const std::string& name, AttrType type);
+
     /// Direct access to the position array, for a bulk de-interleave.
     std::span<Vector3f> positions();
 

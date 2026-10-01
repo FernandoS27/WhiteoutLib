@@ -72,10 +72,12 @@ TEST_CASE("wem profile source spaces", "[wem][profile]") {
 }
 
 TEST_CASE("wem profile geometry limits", "[wem][profile]") {
-    // §6.2: maxUvSets is 1 wc3_classic | 2 wc3_reforged, wow, diablo3 | 5 sc2, heroes.
+    // §6.2: maxUvSets is 1 wc3_classic | 2 wc3_reforged, diablo3 | 4 wow (its WMOs) |
+    // 5 sc2, heroes.
     CHECK(wem::Profile(wem::ProfileId::Wc3Classic).maxUvSets == 1);
     CHECK(wem::Profile(wem::ProfileId::Wc3Reforged).maxUvSets == 2);
-    CHECK(wem::Profile(wem::ProfileId::Wow).maxUvSets == 2);
+    CHECK(wem::Profile(wem::ProfileId::Wow).maxUvSets == 4);
+    CHECK(wem::Profile(wem::ProfileId::Wow).allowsVertexColor);
     CHECK(wem::Profile(wem::ProfileId::Sc2).maxUvSets == 5);
     CHECK(wem::Profile(wem::ProfileId::Heroes).maxUvSets == 5);
     CHECK(wem::Profile(wem::ProfileId::Diablo3).maxUvSets == 2);

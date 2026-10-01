@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <iterator>
 #include <string>
 #include <type_traits>
 
@@ -699,6 +700,92 @@ const char* rowName(TextureRow row) {
 }
 
 } // namespace
+
+u32 AppendDocument(Document& into, Document&& from, Diagnostics& out) {
+    for (const Model& model : from.models) {
+        for (const ProfileMaterialSet& set : model.profileSets) {
+            for (const Material& material : set.materials) {
+                const NativeKind kind = material.nativeKind();
+                if (kind == NativeKind::M3 || kind == NativeKind::D3) {
+                    out.error(DiagCode::OperationUnsupported,
+                              std::string("a ") + ToString(kind) +
+                                  " native block names textures this operation does not know",
+                              ElementRef(), set.profile);
+                    return kInvalidIndex;
+                }
+            }
+        }
+    }
+    const u32 textureBase = static_cast<u32>(into.textures.size());
+    const u32 modelBase = static_cast<u32>(into.models.size());
+    const u32 clipBase = static_cast<u32>(into.clips.size());
+    const u32 animSetBase = static_cast<u32>(into.animSets.size());
+    const auto shift = [](u32& index, u32 base) {
+        if (index != kInvalidIndex) {
+            index += base;
+        }
+    };
+
+    forEachTextureReferencer(from, [&](u32& index, const TextureReferencer&) { shift(index, textureBase); });
+    for (Model& model : from.models) {
+        for (ProfileMaterialSet& set : model.profileSets) {
+            for (Material& material : set.materials) {
+                const auto* block = std::get_if<native::M2Material>(&material.Native());
+                if (block == nullptr) {
+                    continue;
+                }
+                native::M2Material edited = *block;
+                for (native::M2TextureUnit& unit : edited.units) {
+                    unit.texture = static_cast<u16>(unit.texture + textureBase);
+                }
+                // Both halves renumbered, so the sync state carries over.
+                const NativeSync sync = material.sync();
+                if (sync == NativeSync::NativeAuthoritative) {
+                    material.SetNativeAuthoritative(std::move(edited));
+                } else {
+                    material.SetNativeInSync(std::move(edited));
+                    if (sync == NativeSync::CommonEdited) {
+                        material.MutableCommon();
+                    }
+                }
+            }
+        }
+        for (Node& node : model.nodes.nodes) {
+            if (auto* attachment = std::get_if<AttachmentPayload>(&node.payload)) {
+                shift(attachment->model, modelBase);
+            }
+        }
+        shift(model.animSet, animSetBase);
+        for (TestPose& pose : model.testPoses) {
+            shift(pose.clip, clipBase);
+        }
+    }
+    for (Clip& clip : from.clips) {
+        shift(clip.model, modelBase);
+    }
+    for (AnimSet& set : from.animSets) {
+        for (AnimTag& tag : set.byTag) {
+            shift(tag.clip, clipBase);
+        }
+        shift(set.baseAnimSet, animSetBase);
+    }
+    if (!from.unknownChunks.empty()) {
+        out.info(DiagCode::OrphanChunk,
+                 number(from.unknownChunks.size()) + " unknown chunk(s) of an appended document dropped");
+    }
+
+    for (const ProfileId profile : from.profiles) {
+        into.declare(profile);
+    }
+    const auto append = [](auto& to, auto& source) {
+        to.insert(to.end(), std::make_move_iterator(source.begin()), std::make_move_iterator(source.end()));
+    };
+    append(into.textures, from.textures);
+    append(into.models, from.models);
+    append(into.clips, from.clips);
+    append(into.animSets, from.animSets);
+    return modelBase;
+}
 
 RemovalResult RemoveTexture(Document& document, u32 texture, u32 replacement) {
     RemovalResult result;

@@ -1383,6 +1383,10 @@ Result<gltf::Asset> GltfConverter::toGltf(const Document& document, ProfileId pr
     gltf::Scene scene;
     scene.name = document.name;
     std::vector<u32> modelNodeBase(document.models.size(), 0);
+    // Per model, what a second attachment of it copies: its skin and its
+    // meshes (glTF index, skinned).
+    std::vector<u32> modelSkins(document.models.size(), gltf::kNone);
+    std::vector<std::vector<std::pair<u32, bool>>> modelMeshes(document.models.size());
 
     for (std::size_t m = 0; m < document.models.size(); ++m) {
         const Model& model = document.models[m];
@@ -1459,18 +1463,23 @@ Result<gltf::Asset> GltfConverter::toGltf(const Document& document, ProfileId pr
             gltf::Node holder;
             holder.name = asset.meshes[exported].name;
             holder.mesh = exported;
-            if (context.skinned && !model.nodes.empty()) {
+            const bool skinned = context.skinned && !model.nodes.empty();
+            if (skinned) {
                 holder.skin = ensureSkin();
             }
             asset.nodes.push_back(std::move(holder));
+            modelMeshes[m].emplace_back(exported, skinned);
         }
+        modelSkins[m] = modelSkin;
     }
 
     // Child models ride their attach points (§7): an `AttachmentPayload` that
     // resolved to a model in this document parents that model's roots under
-    // the attachment node. A model claimed twice keeps its second reference at
-    // the scene root — glTF nodes have one parent, and duplicating a subtree
-    // is a cost nobody asked for.
+    // the attachment node. A model attached again — a WMO's doodad, placed
+    // dozens of times — gets a copy of its tree there, with its own skin over
+    // the same inverse binds and holders of the same meshes; the animation
+    // repeats its channels on the copy, on the same samplers.
+    std::vector<std::pair<u32, u32>> instances;
     if (options.bakeChildModels) {
         std::vector<bool> claimed(document.models.size(), false);
         for (std::size_t m = 0; m < document.models.size(); ++m) {
@@ -1483,23 +1492,40 @@ Result<gltf::Asset> GltfConverter::toGltf(const Document& document, ProfileId pr
                     attachment->model >= document.models.size() || attachment->model == m) {
                     continue;
                 }
-                if (claimed[attachment->model]) {
-                    result.diagnostics.info(
-                        DiagCode::Unspecified,
-                        "model '" + document.models[attachment->model].name +
-                            "' is attached more than once; the extra reference stays at "
-                            "the scene root");
+                const u32 child = attachment->model;
+                if (!claimed[child]) {
+                    claimed[child] = true;
+                    // The child model's synthetic root is the one node to claim.
+                    asset.nodes[modelNodeBase[m] + i].children.push_back(modelNodeBase[child] - 1);
                     continue;
                 }
-                claimed[attachment->model] = true;
-                // The child model's synthetic root is the one node to claim.
-                asset.nodes[modelNodeBase[m] + i].children.push_back(
-                    modelNodeBase[attachment->model] - 1);
+                const u32 base = ExportNodes(asset, document.models[child], result.diagnostics, child);
+                u32 skin = gltf::kNone;
+                if (modelSkins[child] != gltf::kNone) {
+                    gltf::Skin copy = asset.skins[modelSkins[child]];
+                    copy.skeleton = base - 1;
+                    for (u32 j = 0; j < copy.joints.size(); ++j) {
+                        copy.joints[j] = base + j;
+                    }
+                    asset.skins.push_back(std::move(copy));
+                    skin = static_cast<u32>(asset.skins.size() - 1);
+                }
+                for (const auto& [mesh, skinned] : modelMeshes[child]) {
+                    gltf::Node holder;
+                    holder.name = asset.meshes[mesh].name;
+                    holder.mesh = mesh;
+                    if (skinned) {
+                        holder.skin = skin;
+                    }
+                    asset.nodes.push_back(std::move(holder));
+                }
+                asset.nodes[modelNodeBase[m] + i].children.push_back(base - 1);
+                instances.emplace_back(child, base);
             }
         }
     }
 
-    gltf_anim::Export(document, asset, bin, modelNodeBase, result.diagnostics);
+    gltf_anim::Export(document, asset, bin, modelNodeBase, instances, result.diagnostics);
 
     // Scene roots are whatever nothing claimed as a child — model roots the
     // attachment pass left alone, and every mesh holder.

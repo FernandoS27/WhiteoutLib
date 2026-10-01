@@ -709,7 +709,8 @@ DecodeResult decodeTrack(const SubTrack& track, const AnimChannel& channel,
 } // namespace
 
 void Export(const Document& document, gltf::Asset& asset, gltf_detail::BinBuilder& bin,
-            std::span<const u32> modelNodeBase, Diagnostics& diagnostics) {
+            std::span<const u32> modelNodeBase, std::span<const std::pair<u32, u32>> instances,
+            Diagnostics& diagnostics) {
     for (std::size_t clipIndex = 0; clipIndex < document.clips.size(); ++clipIndex) {
         const Clip& clip = document.clips[clipIndex];
         if (clip.model >= document.models.size() || clip.model >= modelNodeBase.size()) {
@@ -832,6 +833,12 @@ void Export(const Document& document, gltf::Asset& asset, gltf_detail::BinBuilde
             target.targetPath = path;
             animation.channels.push_back(target);
             usedTargets.emplace_back(targetNode, path);
+            for (const auto& [copied, base] : instances) {
+                if (copied == clip.model) {
+                    target.targetNode = base + channel->target.node;
+                    animation.channels.push_back(target);
+                }
+            }
         }
 
         const ElementRef where(ElementKind::Clip, static_cast<u32>(clipIndex));

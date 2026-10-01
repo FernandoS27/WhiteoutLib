@@ -26,6 +26,7 @@
 #include <whiteout/models/m2/parser.h>
 #include <whiteout/models/wem/converters.h>
 #include <whiteout/models/wem/geometry/builder.h>
+#include <whiteout/models/wem/materials/ops.h>
 #include <whiteout/utils/os_file_system.h>
 
 #include "test_helpers.h"
@@ -480,6 +481,67 @@ TEST_CASE("gltf export crosses the animation clock-for-clock", "[wem][gltf]") {
     // Key 0 in-tangent is unused and written as zero.
     CHECK(values[0] == 0.0f);
     CHECK(values[2] == 0.0f);
+}
+
+TEST_CASE("gltf export places a model attached twice twice", "[wem][gltf]") {
+    // A parent with two attachments, both naming the fixture: a WMO's doodad,
+    // placed more than once.
+    Document document;
+    document.name = "parent";
+    document.declare(ProfileId::Generic);
+    Model parent;
+    parent.name = "parent";
+    Node root;
+    root.name = "root";
+    parent.nodes.add(root);
+    for (const f32 x : {10.0f, -10.0f}) {
+        Node at;
+        at.name = "at";
+        at.parent = 0;
+        at.kind = NodeKind::Attachment;
+        at.resetPayloadForKind();
+        at.local.translation = Vector3f{x, 0, 0};
+        parent.nodes.add(at);
+    }
+    document.models.push_back(std::move(parent));
+    Diagnostics appended;
+    const u32 child = AppendDocument(document, makeFixture(), appended);
+    REQUIRE(child == 1);
+    for (const u32 node : {1u, 2u}) {
+        std::get<AttachmentPayload>(document.models[0].nodes.nodes[node].payload).model = child;
+    }
+
+    Result<gltf::Asset> exported = GltfConverter{}.toGltf(document, ProfileId::Generic);
+    REQUIRE(exported.ok());
+    const gltf::Asset& asset = *exported;
+
+    // Two copies of the fixture's tree, each with its own skin, both holding
+    // the one mesh, under different attachments.
+    std::vector<u32> bones;
+    for (u32 i = 0; i < asset.nodes.size(); ++i) {
+        if (asset.nodes[i].name == "child") {
+            bones.push_back(i);
+        }
+    }
+    REQUIRE(bones.size() == 2);
+    REQUIRE(asset.skins.size() == 2);
+    CHECK(asset.skins[0].joints != asset.skins[1].joints);
+    CHECK(asset.skins[0].inverseBindMatrices == asset.skins[1].inverseBindMatrices);
+    u32 holders = 0;
+    for (const gltf::Node& node : asset.nodes) {
+        holders += node.mesh == 0 ? 1u : 0u;
+    }
+    CHECK(holders == 2);
+    const std::vector<Matrix44f> world = gltfWorldTransforms(asset);
+    CHECK(world[bones[0]].data[2][3] - world[bones[1]].data[2][3] == Catch::Approx(20.0f));
+
+    // The clip moves both: its channels repeat on the copy, on the same samplers.
+    REQUIRE(asset.animations.size() == 1);
+    const gltf::Animation& animation = asset.animations[0];
+    REQUIRE(animation.channels.size() == 4);
+    CHECK(animation.samplers.size() == 2);
+    CHECK(animation.channels[1].sampler == animation.channels[0].sampler);
+    CHECK(animation.channels[1].targetNode != animation.channels[0].targetNode);
 }
 
 TEST_CASE("gltf export is byte-stable and refuses honestly", "[wem][gltf]") {

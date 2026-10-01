@@ -207,6 +207,18 @@ struct TextureReferencerCount {
 };
 TextureReferencerCount CountTextureReferencers(const Document& document, u32 texture);
 
+/**
+ * @brief Moves @p from's models in after @p into's own, every index they hold
+ *        re-based: the §7.4 texture rows and an `.m2` block's units (document
+ *        indices, as `fromM2` numbers them), the clips, the anim sets, the test
+ *        poses' clips and the models an attachment resolved to.
+ *
+ * The profiles @p from declares are declared. Returns the index @p from's first
+ * model now has; `kInvalidIndex`, with nothing moved, when @p from holds a
+ * native block whose textures the table has no rows for (M3, D3).
+ */
+u32 AppendDocument(Document& into, Document&& from, Diagnostics& out);
+
 } // namespace wem
 } // namespace models
 } // namespace whiteout

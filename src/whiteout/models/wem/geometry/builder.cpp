@@ -101,6 +101,10 @@ AttrLayer& MeshBuilder::layerFor(Domain domain, const std::string& name, std::si
     return pending_.create(name, domain, guessType(size));
 }
 
+void MeshBuilder::declareAttr(Domain domain, const std::string& name, AttrType type) {
+    pending_.create(name, domain, type);
+}
+
 void MeshBuilder::setAttr(Domain domain, u32 element, const std::string& name, const void* value,
                           std::size_t size) {
     AttrLayer& layer = layerFor(domain, name, size);

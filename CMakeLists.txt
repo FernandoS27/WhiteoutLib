@@ -393,6 +393,11 @@ add_library(whiteout_lib
     src/whiteout/models/m2/animation_names.cpp
     src/whiteout/models/m2/wow_file_system.cpp
 
+    # WoW WMO
+    src/whiteout/models/wow/wmo/parser.cpp
+    src/whiteout/models/wow/wmo/runtime.cpp
+    src/whiteout/models/wow/wmo/cull.cpp
+
     # M3
     src/whiteout/models/m3/types.cpp
     src/whiteout/models/m3/data_driven_material.cpp
@@ -504,6 +509,7 @@ add_library(whiteout_lib
     src/whiteout/models/wem/converters/mdx_anim.cpp
     src/whiteout/models/wem/converters/m2_converter.cpp
     src/whiteout/models/wem/converters/m2_anim.cpp
+    src/whiteout/models/wem/converters/wmo_converter.cpp
     src/whiteout/models/wem/converters/m3_converter.cpp
     src/whiteout/models/wem/converters/m3_anim.cpp
     src/whiteout/models/wem/converters/m3_emitters.cpp

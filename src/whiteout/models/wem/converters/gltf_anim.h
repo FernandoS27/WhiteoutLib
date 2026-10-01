@@ -9,6 +9,7 @@
  */
 
 #include <span>
+#include <utility>
 
 #include <whiteout/common_types.h>
 #include <whiteout/compatibility.h>
@@ -30,9 +31,12 @@ namespace gltf_anim {
  * first tree node (the converter's numbering: synthetic root at `base - 1`).
  * Containers flatten by priority; node Translation/Rotation/Scale sub-tracks
  * become channels and everything else drops with counted diagnostics.
+ * @p instances are further copies of a model's tree, (model, first node): each
+ * channel is repeated on the copy's node, on the same sampler.
  */
 void Export(const Document& document, gltf::Asset& asset, gltf_detail::BinBuilder& bin,
-            std::span<const u32> modelNodeBase, Diagnostics& diagnostics);
+            std::span<const u32> modelNodeBase, std::span<const std::pair<u32, u32>> instances,
+            Diagnostics& diagnostics);
 
 /**
  * @brief Imports every glTF animation as one `Clip` on `document.models[0]`.
