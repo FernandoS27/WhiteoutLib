@@ -85,7 +85,8 @@ bool uvDiffers(std::span<const Vector2f> uvs, HalfedgeId a, HalfedgeId b) {
 } // namespace
 
 std::span<const u32> UvIslands::facesOf(u32 island) const {
-    if (island + 1 >= faceOffsets.size()) {
+    // Past the end, `kInvalidId` among it: never `island + 1`, which wraps.
+    if (faceOffsets.empty() || island >= faceOffsets.size() - 1) {
         return {};
     }
     return std::span<const u32>(faces.data() + faceOffsets[island],
@@ -93,7 +94,7 @@ std::span<const u32> UvIslands::facesOf(u32 island) const {
 }
 
 std::span<const HalfedgeId> UvIslands::boundaryOf(u32 island) const {
-    if (island + 1 >= boundaryOffsets.size()) {
+    if (boundaryOffsets.empty() || island >= boundaryOffsets.size() - 1) {
         return {};
     }
     return std::span<const HalfedgeId>(boundary.data() + boundaryOffsets[island],
@@ -101,7 +102,7 @@ std::span<const HalfedgeId> UvIslands::boundaryOf(u32 island) const {
 }
 
 std::span<const u32> UvIslands::cornersOf(u32 wedge) const {
-    if (wedge + 1 >= wedgeOffsets.size()) {
+    if (wedgeOffsets.empty() || wedge >= wedgeOffsets.size() - 1) {
         return {};
     }
     return std::span<const u32>(wedgeCorners.data() + wedgeOffsets[wedge],
@@ -351,9 +352,13 @@ UvFirstVisit EnsureUvSet(Mesh& mesh, u32 set) {
         // this a first visit would see one island where the artist shipped
         // forty (§4).
         const std::vector<u8> cuts = CutsOf(mesh, set);
-        const std::span<u8> marks =
-            mesh.attributes.getOrCreate<u8>(seamName, Domain::Edge, AttrType::Bool);
-        const std::size_t n = std::min(marks.size(), cuts.size());
+        mesh.attributes.getOrCreate<u8>(seamName, Domain::Edge, AttrType::Bool);
+        // The same bits again as the file's: what tells a mark the artist
+        // made from one the file brought (EDIT_MODE_UV_AUDIT.md §4.3).
+        mesh.attributes.getOrCreate<u8>(names::uvFileSeam(set), Domain::Edge, AttrType::Bool);
+        const std::span<u8> marks = mesh.attributes.get<u8>(seamName, Domain::Edge);
+        const std::span<u8> file = mesh.attributes.get<u8>(names::uvFileSeam(set), Domain::Edge);
+        const std::size_t n = std::min({marks.size(), file.size(), cuts.size()});
         for (std::size_t e = 0; e < n; ++e) {
             // A mesh border needs no mark: it cuts by being a border, and
             // marking it would write a bit that says nothing and would have to
@@ -361,6 +366,7 @@ UvFirstVisit EnsureUvSet(Mesh& mesh, u32 set) {
             if (cuts[e] != 0 &&
                 !std::as_const(mesh).topology().isBoundary(EdgeId(static_cast<u32>(e)))) {
                 marks[e] = 1;
+                file[e] = 1;
             }
         }
     }

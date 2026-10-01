@@ -176,6 +176,10 @@ std::string uvPin(u32 index);
 /// "uvFree0", … Face / Bool: the faces the automatic passes may move. What the
 /// file placed is locked (§4).
 std::string uvFree(u32 index);
+/// "uvFileSeam0", … Edge / Bool: the marks the first visit read off the file's
+/// own splits (EDIT_MODE_UV_AUDIT.md §4.3), until a gesture or a command marks
+/// or clears the edge and so makes it the user's. Absent, every mark is.
+std::string uvFileSeam(u32 index);
 
 /// True for any `uvPinN`. The one predicate the prepare's two corner tests skip
 /// a layer through, so a pin can never split a weld or mark a seam (§3).

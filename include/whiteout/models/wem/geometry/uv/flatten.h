@@ -5,13 +5,14 @@
 
 /**
  * @file flatten.h
- * @brief One flattener (EDIT_MODE_UV_DESIGN.md §6).
+ * @brief The flatteners (EDIT_MODE_UV_DESIGN.md §6, EDIT_MODE_UV_AUDIT.md U6).
  *
- * LSCM -- least squares conformal maps, Lévy et al. 2002 -- and nothing else.
- * It is the one method that needs no boundary given to it, holds whatever the
+ * LSCM -- least squares conformal maps, Lévy et al. 2002 -- is the one every
+ * solve starts from: it needs no boundary given to it, holds whatever the
  * caller pins, and fails in a way anyone can see: angles are kept and area is
- * not. A second flattener would be a second set of answers to the same
- * question, and the design says no.
+ * not. Minimum stretch refines its map by SLIM where area matters too, and
+ * starts over from Tutte's embedding where LSCM's own minimum folds; which one
+ * a command uses is the workspace's one option.
  *
  * The solve is CGLS over the least-squares system, applying `A` and `Aᵀ` and
  * never forming `AᵀA`: a direct factorisation would be a dependency, and this
@@ -37,7 +38,8 @@ namespace geom {
 namespace uv {
 
 struct LscmOptions {
-    /// Stop when `‖Aᵀr‖ / ‖Aᵀb‖` falls below this.
+    /// Stop when the normal residual `‖DAᵀr‖`, `D` scaling each column to
+    /// unit length, falls below this share of where the solve started.
     f32 tolerance = 1e-6f;
     /// And stop, whatever the residual, after this many iterations per unknown.
     u32 iterationsPerUnknown = 4;
@@ -58,8 +60,15 @@ struct FlattenResult {
     Refusal refusal = Refusal::None;
     u32 flipped = 0;    ///< Triangles whose UV winding disagrees with the island's.
     u32 degenerate = 0; ///< Triangles with no 3D area, skipped.
-    u32 iterations = 0;
+    u32 iterations = 0; ///< The least-squares solve's.
+    u32 rounds = 0;     ///< Minimum stretch's, after LSCM's solve.
+    /// The residual `LscmOptions::tolerance` is measured in, at the end.
+    /// Above it with `capped` unset, the doubles' floor stopped it: as
+    /// converged as the arithmetic allows.
     f32 residual = 0.0f;
+    /// The solve ran out of iterations short of the tolerance: its map may be
+    /// unfinished, and a fold in it may be the solve's.
+    bool capped = false;
 
     bool ok() const {
         return refusal == Refusal::None;
@@ -82,6 +91,18 @@ FlattenResult Lscm(Mesh& mesh, const UvIslands& islands, u32 island, u32 set,
 /// the rest", and none of them wants to write the pin layer to say so.
 FlattenResult LscmPinning(Mesh& mesh, const UvIslands& islands, u32 island, u32 set,
                           std::span<const u32> alsoPinned, const LscmOptions& options = {});
+
+/// Minimum stretch (EDIT_MODE_UV_AUDIT.md U6), Blender's method of the name:
+/// `LscmPinning`'s map, then SLIM (Rabinovich et al. 2017) on the symmetric
+/// Dirichlet energy, which grows without bound as a triangle loses its area --
+/// 25 rounds at most, or until a round buys under a ten-thousandth of it. Each
+/// round stops short of turning a triangle over, so it never makes a fold; an
+/// island LSCM folded without pins starts from Tutte's embedding instead, and
+/// one that still folds (pins holding the fold) keeps LSCM's map. Keeps the
+/// map's size and, with nothing held, the place and turn LSCM landed it at;
+/// the pins hold as they do in LSCM.
+FlattenResult MinimumStretch(Mesh& mesh, const UvIslands& islands, u32 island, u32 set,
+                             std::span<const u32> alsoPinned = {}, const LscmOptions& options = {});
 
 struct RelaxOptions {
     u32 passes = 10;
@@ -126,26 +147,57 @@ struct RectangleResult {
 RectangleResult Rectangle(Mesh& mesh, const UvIslands& islands, u32 island, u32 set);
 
 /// The shapes a projection can take. The frame is the caller's: the library
-/// does not know where the camera is, and Fit is `FitPlane`'s answer. Box sends
-/// each face to the frame's axis its normal is nearest, plane by plane, and
-/// cuts where two planes meet (EDIT_MODE_UV_REDESIGN.md §8).
+/// does not know where the camera is. Box sends each face to the frame's axis
+/// its normal is nearest, plane by plane, and cuts where two planes meet
+/// (EDIT_MODE_UV_REDESIGN.md §8).
 enum class ProjectShape : u8 { Planar, Cylinder, Sphere, Box };
 
-/// An orthonormal frame with a place. `axisN` is the projection's axis: the
-/// plane's normal, the cylinder's and the sphere's pole.
+/// A projector, framed as a camera is (EDIT_MODE_UV_AUDIT.md §4.1): `axisU` is
+/// the image's right, `axisV` its down -- the way a texture's v runs -- and
+/// `axisN = axisU x axisV` the way it looks. A surface the projector looks at
+/// from outside therefore reads upright and unmirrored, whatever the shape:
+/// - Planar maps (d.U, d.V).
+/// - Box's front is the side facing the projector (-N); each of the six reads
+///   as seen from outside, upright, with -V up and the front at a top's top.
+/// - Cylinder's axis is V, so its height runs down the image; U runs round
+///   from the front, and the wrap is at the back (+N).
+/// - Sphere's up pole is -V; the same turn and wrap.
 struct ProjectFrame {
     Vector3f origin{0.0f, 0.0f, 0.0f};
-    Vector3f axisU{1.0f, 0.0f, 0.0f};
-    Vector3f axisV{0.0f, 1.0f, 0.0f};
-    Vector3f axisN{0.0f, 0.0f, 1.0f};
+    Vector3f axisU{0.0f, 1.0f, 0.0f};
+    Vector3f axisV{0.0f, 0.0f, -1.0f};
+    Vector3f axisN{-1.0f, 0.0f, 0.0f};
+    /// World units per tile: the map at the world's own scale when set (Max's
+    /// Length and Tile), and the caller's to scale when zero.
+    f32 extent = 0.0f;
+};
+
+/// The frame that looks along @p look at @p origin, upright: the image's up is
+/// @p up laid on the view, or @p front where the view runs along @p up (a top
+/// or a bottom view, the front at the image's top).
+ProjectFrame UprightFrame(const Vector3f& origin, const Vector3f& look, const Vector3f& up,
+                          const Vector3f& front);
+
+/// A cylinder's or a sphere's frame round @p pole: the pole down the image from
+/// its end nearer @p up (else nearer @p front), looked at from the front, so
+/// the wrap falls on the back.
+ProjectFrame PoleFrame(const Vector3f& origin, const Vector3f& pole, const Vector3f& up,
+                       const Vector3f& front);
+
+struct ProjectOptions {
+    /// Cylinder: the faces within 45 degrees of its axis are laid flat as its
+    /// caps, each seen from outside as Box's top and bottom are, and cut from
+    /// the side -- Max's Cap.
+    bool cap = false;
 };
 
 /// Projects @p faces into `uvN` through @p frame, and marks the projection's
 /// own cuts: the cylinder's and the sphere's wrap, where a face would span the
-/// turn. A projection is not a solve and cannot fail on the geometry, so the
-/// result carries only its counts.
+/// turn, Box's edges between planes, and a cap's rim. A projection is not a
+/// solve and cannot fail on the geometry, so the result carries only its
+/// counts.
 FlattenResult Project(Mesh& mesh, std::span<const FaceId> faces, u32 set, ProjectShape shape,
-                      const ProjectFrame& frame);
+                      const ProjectFrame& frame, const ProjectOptions& options = {});
 
 /// Sander's L2 stretch per face slot, normalised by its island's own scale: 1
 /// is isometric, above 1 is stretched, below 1 is squashed, and 0 is a face

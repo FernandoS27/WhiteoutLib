@@ -71,8 +71,13 @@ struct UvChecks {
     std::vector<UvIslandRef> stretched;
     /// Islands with a UV outside the tile. Empty when the texture wraps.
     std::vector<UvIslandRef> outside;
-    /// Islands with no UV area at all: new geometry, a cleared set.
+    /// Islands with no map: every corner at the origin, as new geometry and a
+    /// cleared set have them (`IslandHasNoMap`).
     std::vector<UvIslandRef> noMap;
+    /// Islands with no UV area anywhere else: faces laid on one texel for a
+    /// flat colour, or on a line for a gradient -- on purpose, so
+    /// informational, and nothing unwraps them unasked (EDIT_MODE_UV_AUDIT.md U3).
+    std::vector<UvIslandRef> flatColour;
     /// Islands with two boundary loops or more: a tube open at both ends,
     /// which flattens into an annulus.
     std::vector<UvIslandRef> rings;
@@ -90,6 +95,11 @@ struct UvChecks {
 
 /// Every row over @p inputs, which draw one image and so share one map.
 UvChecks CheckUv(std::span<const UvCheckInput> inputs, const UvCheckOptions& options = {});
+
+/// No map (EDIT_MODE_UV_AUDIT.md U3): every corner of @p island at the origin,
+/// what `EnsureUvSet` zero-fills and Clear leaves. Zero area anywhere else is
+/// a flat colour, which an artist laid out.
+bool IslandHasNoMap(const Mesh& mesh, const UvIslands& islands, u32 island, u32 set);
 
 } // namespace uv
 } // namespace geom

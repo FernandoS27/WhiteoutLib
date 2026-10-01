@@ -344,6 +344,158 @@ TEST_CASE("UV stack: a mirrored pair is laid corner for corner", "[wem][uv][layo
     CHECK(uv::FindStacks(mesh, islands, 0).size() == 1u);
 }
 
+TEST_CASE("UV stack: a reflected pair is paired the other way round", "[wem][uv][layout]") {
+    // A true reflection turns the winding: the twin of 0-1-2-3 goes round
+    // 1-0-3-2, so the faces pair backwards, as the footman's arms do.
+    Mesh mesh = patches({
+        Patch{{0.0f, 0.0f}, {0.5f, 0.5f}, 1.0f, true},
+        Patch{{0.6f, 0.6f}, {0.9f, 0.9f}, 1.0f, true},
+    });
+    const uv::UvIslands islands = uv::BuildUvIslands(mesh, 0);
+    REQUIRE(islands.count == 2u);
+    std::vector<u32> mirror(mesh.vertexCount(), geom::kInvalidId);
+    const u32 twins[4] = {5, 4, 7, 6};
+    for (u32 v = 0; v < 4; ++v) {
+        mirror[v] = twins[v];
+        mirror[twins[v]] = v;
+    }
+    const uv::StackResult result =
+        uv::Stack(mesh, islands, 0, 1, 0, std::span<const u32>(mirror.data(), mirror.size()));
+    CHECK(result.ok());
+    CHECK(result.byMirror);
+    const std::span<const Vector2f> uvs =
+        mesh.attributes.get<const Vector2f>(geom::names::uv(0), Domain::Halfedge);
+    const Topology& topology = mesh.topology();
+    for (const HalfedgeId h : topology.fh(FaceId(1))) {
+        const u32 twin = mirror[topology.from(h).value()];
+        bool found = false;
+        for (const HalfedgeId other : topology.fh(FaceId(0))) {
+            if (topology.from(other).value() == twin) {
+                found = std::memcmp(&uvs[h.index()], &uvs[other.index()], sizeof(Vector2f)) == 0;
+                break;
+            }
+        }
+        CHECK(found);
+    }
+    // The copy lies mirrored, as a reflected twin's texture does.
+    const auto area = [&](u32 face) {
+        std::vector<Vector2f> ring;
+        for (const HalfedgeId h : topology.fh(FaceId(face))) {
+            ring.push_back(uvs[h.index()]);
+        }
+        f32 twice = 0.0f;
+        for (std::size_t i = 0; i < ring.size(); ++i) {
+            twice += ring[i].x * ring[(i + 1) % ring.size()].y - ring[i].y * ring[(i + 1) % ring.size()].x;
+        }
+        return 0.5f * twice;
+    };
+    REQUIRE(area(0) != 0.0f);
+    CHECK(std::abs(area(1) + area(0)) < 1e-6f);
+}
+
+TEST_CASE("UV stack: a mirror with one quad split the other way is still paired by it", "[wem][uv][layout]") {
+    // Two quads in triangles, and their reflection with the second quad's
+    // diagonal the other way: its two triangles have no twin face, and take
+    // each corner from the primary's triangles round their twins instead.
+    const std::vector<Vector3f> positions = {
+        {0, 0, 0}, {1, 0, 0}, {2, 0, 0}, {0, 1, 0}, {1, 1, 0}, {2, 1, 0},
+        {10, 0, 0}, {9, 0, 0}, {8, 0, 0}, {10, 1, 0}, {9, 1, 0}, {8, 1, 0},
+    };
+    const u32 triangles[8][3] = {
+        {0, 1, 4}, {0, 4, 3}, {1, 2, 5}, {1, 5, 4},  // the primary
+        {6, 10, 7}, {6, 9, 10}, {7, 10, 8}, {8, 10, 11}, // mirrored, 8-10 the diagonal
+    };
+    geom::FaceSet set;
+    set.vertexCount = static_cast<u32>(positions.size());
+    for (const auto& t : triangles) {
+        set.addFace(std::span<const u32>(t, 3));
+    }
+    Mesh mesh;
+    mesh.setFaceSet(set);
+    const std::span<Vector3f> out =
+        mesh.attributes.getOrCreate<Vector3f>(geom::names::kPosition, Domain::Vertex, geom::AttrType::F32x3);
+    std::copy(positions.begin(), positions.end(), out.begin());
+    REQUIRE(mesh.ensureConnectivity().ok());
+    mesh.faceSections();
+    mesh.sections.emplace_back();
+    const std::span<Vector2f> uvs =
+        mesh.attributes.getOrCreate<Vector2f>(geom::names::uv(0), Domain::Halfedge, geom::AttrType::F32x2);
+    const Topology& topology = std::as_const(mesh).topology();
+    for (u32 face = 0; face < 8; ++face) {
+        for (const HalfedgeId h : topology.fh(FaceId(face))) {
+            const Vector3f& p = out[topology.from(h).index()];
+            uvs[h.index()] = face < 4 ? Vector2f{p.x * 0.2f, p.y * 0.2f} : Vector2f{0.5f + p.x * 0.01f, 0.5f + p.y * 0.1f};
+        }
+    }
+    const uv::UvIslands islands = uv::BuildUvIslands(mesh, 0);
+    REQUIRE(islands.count == 2u);
+    std::vector<u32> mirror(mesh.vertexCount(), geom::kInvalidId);
+    for (u32 v = 0; v < 6; ++v) {
+        mirror[v] = v + 6;
+        mirror[v + 6] = v;
+    }
+    const uv::StackResult result = uv::Stack(mesh, islands, islands.islandOf(0), islands.islandOf(4), 0,
+                                             std::span<const u32>(mirror.data(), mirror.size()));
+    CHECK(result.ok());
+    CHECK(result.byMirror);
+    // Every corner holds its twin's UV, and every copied triangle lies the
+    // same way round -- mirrored, as a reflection's texture does.
+    const std::span<const Vector2f> after = mesh.attributes.get<const Vector2f>(geom::names::uv(0), Domain::Halfedge);
+    for (u32 face = 4; face < 8; ++face) {
+        std::vector<Vector2f> ring;
+        for (const HalfedgeId h : topology.fh(FaceId(face))) {
+            const u32 twin = mirror[topology.from(h).value()];
+            ring.push_back(after[h.index()]);
+            const Vector2f expected{out[twin].x * 0.2f, out[twin].y * 0.2f};
+            CHECK(std::memcmp(&after[h.index()], &expected, sizeof(Vector2f)) == 0);
+        }
+        const f32 area = (ring[1].x - ring[0].x) * (ring[2].y - ring[0].y) - (ring[1].y - ring[0].y) * (ring[2].x - ring[0].x);
+        CHECK(area < 0.0f);
+    }
+    CHECK(uv::FindStacks(mesh, islands, 0).size() == 1u);
+}
+
+TEST_CASE("UV stack: a near mirror that twists a face is left to the walk", "[wem][uv][layout]") {
+    // The footman's folds (EDIT_MODE_UV_AUDIT.md §6.4): a mirror that swaps
+    // two twins still gives every corner a partner, and pairing by it would
+    // lay the quad on itself crossed.
+    Mesh mesh = patches({
+        Patch{{0.0f, 0.0f}, {0.5f, 0.5f}, 1.0f, true},
+        Patch{{0.6f, 0.6f}, {0.9f, 0.9f}, 1.0f, true},
+    });
+    const uv::UvIslands islands = uv::BuildUvIslands(mesh, 0);
+    REQUIRE(islands.count == 2u);
+    std::vector<u32> mirror(mesh.vertexCount(), geom::kInvalidId);
+    for (u32 v = 0; v < 4; ++v) {
+        mirror[v] = v + 4;
+        mirror[v + 4] = v;
+    }
+    std::swap(mirror[4], mirror[5]);
+    const uv::StackResult result =
+        uv::Stack(mesh, islands, 0, 1, 0, std::span<const u32>(mirror.data(), mirror.size()));
+    CHECK(result.ok());
+    CHECK_FALSE(result.byMirror);
+    CHECK(uv::FindStacks(mesh, islands, 0).size() == 1u);
+    // The copy is the quad, not a bow tie: the same area, the same way round.
+    const std::span<const Vector2f> uvs =
+        mesh.attributes.get<const Vector2f>(geom::names::uv(0), Domain::Halfedge);
+    const auto area = [&](u32 face) {
+        std::vector<Vector2f> ring;
+        for (const HalfedgeId h : mesh.topology().fh(FaceId(face))) {
+            ring.push_back(uvs[h.index()]);
+        }
+        f32 twice = 0.0f;
+        for (std::size_t i = 0; i < ring.size(); ++i) {
+            const Vector2f& a = ring[i];
+            const Vector2f& b = ring[(i + 1) % ring.size()];
+            twice += a.x * b.y - a.y * b.x;
+        }
+        return 0.5f * twice;
+    };
+    REQUIRE(area(0) != 0.0f);
+    CHECK(std::abs(area(1) - area(0)) < 1e-6f);
+}
+
 TEST_CASE("UV stack: with no mirror the two surfaces are walked", "[wem][uv][layout]") {
     Mesh mesh = patches({
         Patch{{0.0f, 0.0f}, {0.5f, 0.5f}, 1.0f, true},

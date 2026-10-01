@@ -200,6 +200,10 @@ std::string uvFree(u32 index) {
     return indexedName("uvFree", index);
 }
 
+std::string uvFileSeam(u32 index) {
+    return indexedName("uvFileSeam", index);
+}
+
 bool IsUvPin(const std::string& name) {
     return isIndexedFamily(name, "uvPin");
 }
@@ -226,6 +230,9 @@ ReservedLayer LookupReserved(const std::string& name) {
     }
     if (isIndexedFamily(name, "uvFree")) {
         return ReservedLayer{Domain::Face, AttrType::Bool};
+    }
+    if (isIndexedFamily(name, "uvFileSeam")) {
+        return ReservedLayer{Domain::Edge, AttrType::Bool};
     }
     if (isIndexedFamily(name, "color")) {
         return ReservedLayer{Domain::Halfedge, AttrType::U8x4};

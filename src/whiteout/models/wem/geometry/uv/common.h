@@ -89,6 +89,29 @@ inline f32 TriAreaUv(const Vector2f& a, const Vector2f& b, const Vector2f& c) {
     return ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) * 0.5f;
 }
 
+/// A triangle laid in its own plane, in doubles: the first corner at the
+/// origin, the first edge along x, the third corner at positive y -- the
+/// frame LSCM and SLIM both measure a triangle in. False for one with no area.
+inline bool LocalTriangle(const Vector3f& a, const Vector3f& b, const Vector3f& c, f64 (&out)[3][2]) {
+    const f64 e1[3] = {static_cast<f64>(b.x) - a.x, static_cast<f64>(b.y) - a.y, static_cast<f64>(b.z) - a.z};
+    const f64 e2[3] = {static_cast<f64>(c.x) - a.x, static_cast<f64>(c.y) - a.y, static_cast<f64>(c.z) - a.z};
+    const f64 n[3] = {e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]};
+    const f64 twiceArea = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+    const f64 length = std::sqrt(e1[0] * e1[0] + e1[1] * e1[1] + e1[2] * e1[2]);
+    if (!(twiceArea > 0.0) || !(length > 0.0)) {
+        return false;
+    }
+    const f64 x = (e2[0] * e1[0] + e2[1] * e1[1] + e2[2] * e1[2]) / length;
+    const f64 y = twiceArea / length;
+    out[0][0] = 0.0;
+    out[0][1] = 0.0;
+    out[1][0] = length;
+    out[1][1] = 0.0;
+    out[2][0] = x;
+    out[2][1] = y;
+    return length * y != 0.0;
+}
+
 /// The texels of a @p width x @p height grid that a triangle (in texel units)
 /// covers, each handed to @p fill(x, y): those whose centre is inside, and with
 /// @p ring the ring round them as well -- the packer's conservative cover, so

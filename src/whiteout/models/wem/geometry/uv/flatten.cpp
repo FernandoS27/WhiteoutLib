@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 #include <unordered_map>
 #include <utility>
 
@@ -27,22 +28,23 @@ constexpr f32 kPi = 3.14159265358979323846f;
 
 /// The least-squares system, rows of at most six entries over the free wedges'
 /// two columns each. Compressed by row because that is the order both `A` and
-/// `Aᵀ` are applied in, and neither ever wants a column.
+/// `Aᵀ` are applied in, and neither ever wants a column. In doubles, which cost
+/// little here: a system two pins hold is badly conditioned.
 struct Csr {
     std::vector<u32> rowStart;
     std::vector<u32> column;
-    std::vector<f32> value;
-    std::vector<f32> rhs;
+    std::vector<f64> value;
+    std::vector<f64> rhs;
     u32 columns = 0;
 
     void beginRow() {
         rowStart.push_back(static_cast<u32>(column.size()));
     }
-    void push(u32 col, f32 v) {
+    void push(u32 col, f64 v) {
         column.push_back(col);
         value.push_back(v);
     }
-    void endRow(f32 b) {
+    void endRow(f64 b) {
         rhs.push_back(b);
     }
     u32 rows() const {
@@ -53,10 +55,10 @@ struct Csr {
     }
 
     /// `out = A x`.
-    void apply(const std::vector<f32>& x, std::vector<f32>& out) const {
-        out.assign(rows(), 0.0f);
+    void apply(const std::vector<f64>& x, std::vector<f64>& out) const {
+        out.assign(rows(), 0.0);
         for (u32 r = 0; r < rows(); ++r) {
-            f32 sum = 0.0f;
+            f64 sum = 0.0;
             for (u32 i = rowStart[r]; i < rowStart[r + 1]; ++i) {
                 sum += value[i] * x[column[i]];
             }
@@ -65,11 +67,11 @@ struct Csr {
     }
 
     /// `out = Aᵀ y`.
-    void applyTransposed(const std::vector<f32>& y, std::vector<f32>& out) const {
-        out.assign(columns, 0.0f);
+    void applyTransposed(const std::vector<f64>& y, std::vector<f64>& out) const {
+        out.assign(columns, 0.0);
         for (u32 r = 0; r < rows(); ++r) {
-            const f32 scale = y[r];
-            if (scale == 0.0f) {
+            const f64 scale = y[r];
+            if (scale == 0.0) {
                 continue;
             }
             for (u32 i = rowStart[r]; i < rowStart[r + 1]; ++i) {
@@ -77,63 +79,117 @@ struct Csr {
             }
         }
     }
+
+    /// Each column's length: what the Jacobi preconditioner divides by, and
+    /// zero for a column no row reaches.
+    std::vector<f64> columnNorms() const {
+        std::vector<f64> out(columns, 0.0);
+        for (u32 i = 0; i < column.size(); ++i) {
+            out[column[i]] += value[i] * value[i];
+        }
+        for (f64& n : out) {
+            n = std::sqrt(n);
+        }
+        return out;
+    }
 };
 
-f32 norm2(const std::vector<f32>& v) {
+f64 norm2(const std::vector<f64>& v) {
     f64 sum = 0.0;
-    for (const f32 x : v) {
-        sum += static_cast<f64>(x) * static_cast<f64>(x);
+    for (const f64 x : v) {
+        sum += x * x;
     }
-    return static_cast<f32>(sum);
+    return sum;
 }
 
 /// CGLS: conjugate gradients on the normal equations, applying `A` and `Aᵀ` and
 /// never forming `AᵀA` (which would square the condition number and the
-/// memory both).
-u32 SolveCgls(const Csr& a, std::vector<f32>& x, f32 tolerance, u32 maxIterations,
-              f32& residualOut) {
-    std::vector<f32> r(a.rows(), 0.0f);
-    a.apply(x, r);
-    for (u32 i = 0; i < a.rows(); ++i) {
-        r[i] = a.rhs[i] - r[i];
+/// memory both), on `A` with its columns scaled to unit length -- the Jacobi
+/// preconditioner, which LSCM's rows, weighted by each triangle's area, need.
+/// A column no row reaches stays where it started.
+///
+/// It stops on the residual `LscmOptions::tolerance` names -- the scaled
+/// normal residual `‖DAᵀr‖`, relative to where the solve started -- and
+/// reports the same one, measured: the recursion's own r drifts, so where it
+/// says done the true one is taken, and the solve restarts from there when
+/// that is not. A restart that buys nothing is the doubles' floor (a start
+/// already at the answer has no millionth left to shed); @p cappedOut is set
+/// only when the iterations ran out short of the tolerance.
+u32 SolveCgls(const Csr& a, std::vector<f64>& x, f64 tolerance, u32 maxIterations, f64& residualOut,
+              bool& cappedOut) {
+    std::vector<f64> scale = a.columnNorms();
+    for (f64& d : scale) {
+        d = d > 0.0 ? 1.0 / d : 0.0;
     }
-    std::vector<f32> s;
-    a.applyTransposed(r, s);
-    std::vector<f32> p = s;
-    f32 gamma = norm2(s);
-    const f32 gamma0 = gamma;
-    residualOut = gamma0 > 0.0f ? 1.0f : 0.0f;
-    if (gamma0 <= 0.0f) {
-        return 0;
-    }
-    std::vector<f32> q;
-    u32 iteration = 0;
-    for (; iteration < maxIterations; ++iteration) {
-        a.apply(p, q);
-        const f32 qq = norm2(q);
-        if (qq <= 0.0f) {
-            break;
-        }
-        const f32 alpha = gamma / qq;
-        for (u32 i = 0; i < a.columns; ++i) {
-            x[i] += alpha * p[i];
-        }
+    std::vector<f64> r;
+    std::vector<f64> s;
+    // Leaves s = DAᵀr, in the scaled unknowns y (x = x0 + D y).
+    const auto trueResidual = [&]() {
+        a.apply(x, r);
         for (u32 i = 0; i < a.rows(); ++i) {
-            r[i] -= alpha * q[i];
+            r[i] = a.rhs[i] - r[i];
         }
         a.applyTransposed(r, s);
-        const f32 next = norm2(s);
-        residualOut = std::sqrt(next / gamma0);
-        if (residualOut < tolerance) {
-            ++iteration;
+        for (u32 j = 0; j < a.columns; ++j) {
+            s[j] *= scale[j];
+        }
+        return norm2(s);
+    };
+    f64 now = trueResidual();
+    const f64 start = now;
+    cappedOut = false;
+    if (start <= 0.0) {
+        residualOut = 0.0;
+        return 0;
+    }
+    const f64 goal = tolerance * tolerance * start;
+    std::vector<f64> p;
+    std::vector<f64> q;
+    std::vector<f64> dp(a.columns, 0.0);
+    u32 iteration = 0;
+    while (now > goal && iteration < maxIterations) {
+        p = s;
+        f64 gamma = now;
+        for (; iteration < maxIterations && gamma > 0.0; ++iteration) {
+            for (u32 j = 0; j < a.columns; ++j) {
+                dp[j] = scale[j] * p[j];
+            }
+            a.apply(dp, q);
+            const f64 qq = norm2(q);
+            if (qq <= 0.0) {
+                break;
+            }
+            const f64 alpha = gamma / qq;
+            for (u32 j = 0; j < a.columns; ++j) {
+                x[j] += alpha * dp[j];
+            }
+            for (u32 i = 0; i < a.rows(); ++i) {
+                r[i] -= alpha * q[i];
+            }
+            a.applyTransposed(r, s);
+            for (u32 j = 0; j < a.columns; ++j) {
+                s[j] *= scale[j];
+            }
+            const f64 next = norm2(s);
+            if (next <= goal) {
+                ++iteration;
+                break;
+            }
+            const f64 beta = next / gamma;
+            for (u32 j = 0; j < a.columns; ++j) {
+                p[j] = s[j] + beta * p[j];
+            }
+            gamma = next;
+        }
+        const f64 before = now;
+        now = trueResidual();
+        // A restart that bought nothing will buy nothing next time either.
+        if (!(now < before)) {
             break;
         }
-        const f32 beta = next / gamma;
-        for (u32 i = 0; i < a.columns; ++i) {
-            p[i] = s[i] + beta * p[i];
-        }
-        gamma = next;
     }
+    residualOut = std::sqrt(now / start);
+    cappedOut = now > goal && iteration >= maxIterations;
     return iteration;
 }
 
@@ -309,35 +365,22 @@ FlattenResult LscmPinning(Mesh& mesh, const UvIslands& islands, u32 island, u32 
     a.columns = columns;
     for (const u32 face : faces) {
         for (const Tri& tri : detail::TrianglesOf(mesh, FaceId(face))) {
-            const Vector3f p[3] = {positions[topology.from(tri.corner[0]).index()],
-                                   positions[topology.from(tri.corner[1]).index()],
-                                   positions[topology.from(tri.corner[2]).index()]};
             // The triangle's own plane, as a frame: the first edge is x, the
             // normal gives y. Conformality is a statement about this frame, so
-            // the map never sees the model's axes at all.
-            const Vector3f e1 = p[1] - p[0];
-            const Vector3f e2 = p[2] - p[0];
-            const Vector3f n = cross(e1, e2);
-            const f32 twiceArea = n.length();
-            const f32 xLength = e1.length();
-            if (twiceArea <= 0.0f || xLength <= 0.0f) {
+            // the map never sees the model's axes at all. In doubles, as the
+            // solve is.
+            f64 local[3][2];
+            if (!detail::LocalTriangle(positions[topology.from(tri.corner[0]).index()],
+                                       positions[topology.from(tri.corner[1]).index()],
+                                       positions[topology.from(tri.corner[2]).index()], local)) {
                 ++result.degenerate;
                 continue;
             }
-            const Vector3f xAxis = e1 * (1.0f / xLength);
-            const Vector3f yAxis = cross(n * (1.0f / twiceArea), xAxis);
-            const f32 local[3][2] = {{0.0f, 0.0f},
-                                     {xLength, 0.0f},
-                                     {e2.dot(xAxis), e2.dot(yAxis)}};
-            const f32 dT = local[1][0] * local[2][1] - local[1][1] * local[2][0];
-            if (dT == 0.0f) {
-                ++result.degenerate;
-                continue;
-            }
-            const f32 scale = 1.0f / std::sqrt(std::abs(dT));
+            const f64 dT = local[1][0] * local[2][1] - local[1][1] * local[2][0];
+            const f64 scale = 1.0 / std::sqrt(std::abs(dT));
             // W_k = (x_{k+2} - x_{k+1}) + i (y_{k+2} - y_{k+1}).
-            f32 wr[3];
-            f32 wi[3];
+            f64 wr[3];
+            f64 wi[3];
             for (u32 k = 0; k < 3; ++k) {
                 const u32 next = (k + 1) % 3;
                 const u32 last = (k + 2) % 3;
@@ -363,10 +406,10 @@ FlattenResult LscmPinning(Mesh& mesh, const UvIslands& islands, u32 island, u32 
             // `Σ W_k u_k = 0`, with the held columns moved to the right.
             for (u32 part = 0; part < 2; ++part) {
                 a.beginRow();
-                f32 b = 0.0f;
+                f64 b = 0.0;
                 for (u32 k = 0; k < 3; ++k) {
-                    const f32 cu = part == 0 ? wr[k] : wi[k];
-                    const f32 cv = part == 0 ? -wi[k] : wr[k];
+                    const f64 cu = part == 0 ? wr[k] : wi[k];
+                    const f64 cv = part == 0 ? -wi[k] : wr[k];
                     const u32 index = local3[k];
                     if (pinned[index] != 0) {
                         b -= cu * held[index].x + cv * held[index].y;
@@ -386,7 +429,7 @@ FlattenResult LscmPinning(Mesh& mesh, const UvIslands& islands, u32 island, u32 
         return result;
     }
 
-    std::vector<f32> x(columns, 0.0f);
+    std::vector<f64> x(columns, 0.0);
     for (u32 i = 0; i < wedges.size(); ++i) {
         if (columnOf[i] != kInvalidId) {
             // From where it is: a re-unwrap of a map that is nearly right
@@ -396,11 +439,56 @@ FlattenResult LscmPinning(Mesh& mesh, const UvIslands& islands, u32 island, u32 
         }
     }
     const u32 cap = std::max<u32>(32u, options.iterationsPerUnknown * columns);
-    result.iterations = SolveCgls(a, x, options.tolerance, cap, result.residual);
+    f64 residual = 0.0;
+    result.iterations = SolveCgls(a, x, options.tolerance, cap, residual, result.capped);
+    result.residual = static_cast<f32>(residual);
 
     std::vector<Vector2f> solved(wedges.size());
     for (u32 i = 0; i < wedges.size(); ++i) {
-        solved[i] = pinned[i] != 0 ? held[i] : Vector2f{x[columnOf[i]], x[columnOf[i] + 1]};
+        solved[i] = pinned[i] != 0 ? held[i]
+                                   : Vector2f{static_cast<f32>(x[columnOf[i]]), static_cast<f32>(x[columnOf[i] + 1])};
+    }
+    // A wedge only triangles with no area touch is in no row, and would keep
+    // whatever it had -- a spike out of the new map. It goes to the mean of
+    // the wedges it shares a face with instead.
+    {
+        const std::vector<f64> norms = a.columnNorms();
+        std::vector<u8> floating(wedges.size(), 0);
+        bool any = false;
+        for (u32 i = 0; i < wedges.size(); ++i) {
+            floating[i] = columnOf[i] != kInvalidId && norms[columnOf[i]] == 0.0 ? 1 : 0;
+            any = any || floating[i] != 0;
+        }
+        if (any) {
+            std::vector<Vector2f> sum(wedges.size(), Vector2f{0.0f, 0.0f});
+            std::vector<u32> count(wedges.size(), 0);
+            std::vector<u32> ring;
+            for (const u32 face : faces) {
+                ring.clear();
+                for (const HalfedgeId h : topology.fh(FaceId(face))) {
+                    const u32 w = islands.wedgeOf(h);
+                    if (w != kInvalidId && localOf[w] != kInvalidId) {
+                        ring.push_back(localOf[w]);
+                    }
+                }
+                for (const u32 i : ring) {
+                    if (floating[i] == 0) {
+                        continue;
+                    }
+                    for (const u32 j : ring) {
+                        if (floating[j] == 0) {
+                            sum[i] = sum[i] + solved[j];
+                            ++count[i];
+                        }
+                    }
+                }
+            }
+            for (u32 i = 0; i < wedges.size(); ++i) {
+                if (floating[i] != 0 && count[i] != 0) {
+                    solved[i] = sum[i] * (1.0f / static_cast<f32>(count[i]));
+                }
+            }
+        }
     }
     if (refit) {
         // Two held points fix the solve's turn along whatever line joined them
@@ -570,6 +658,644 @@ FlattenResult LscmPinning(Mesh& mesh, const UvIslands& islands, u32 island, u32 
     const bool positive = balance >= 0;
     for (const f32 area : signs) {
         if ((area > 0.0f) != positive) {
+            ++result.flipped;
+        }
+    }
+    return result;
+}
+
+namespace {
+
+/// One triangle as Minimum stretch reads it: its three wedges (the island's
+/// local numbering), its rest shape laid flat, and -- once the rest is scaled
+/// -- the gradient of each corner's hat function and the rest area.
+struct StretchTri {
+    u32 w[3];
+    f64 x[3][2];
+    f64 g[3][2];
+    f64 area;
+};
+
+/// Conjugate gradients on a symmetric positive definite operator, in doubles,
+/// warm-started from @p x, Jacobi-preconditioned by @p diagonal when given.
+template <class Apply>
+void SolveSpd(const Apply& apply, const std::vector<f64>& b, std::vector<f64>& x, f64 tolerance, u32 cap,
+              const std::vector<f64>& diagonal = {}) {
+    const std::size_t n = b.size();
+    std::vector<f64> r(n);
+    std::vector<f64> z(n);
+    std::vector<f64> ap(n);
+    apply(x, ap);
+    for (std::size_t i = 0; i < n; ++i) {
+        r[i] = b[i] - ap[i];
+    }
+    const auto precondition = [&]() {
+        f64 rz = 0.0;
+        for (std::size_t i = 0; i < n; ++i) {
+            z[i] = i < diagonal.size() && diagonal[i] > 0.0 ? r[i] / diagonal[i] : r[i];
+            rz += r[i] * z[i];
+        }
+        return rz;
+    };
+    f64 rz = precondition();
+    std::vector<f64> p = z;
+    const f64 bb = std::max(norm2(b), 1e-300);
+    for (u32 k = 0; k < cap && norm2(r) > tolerance * tolerance * bb; ++k) {
+        apply(p, ap);
+        f64 pap = 0.0;
+        for (std::size_t i = 0; i < n; ++i) {
+            pap += p[i] * ap[i];
+        }
+        if (!(pap > 0.0)) {
+            break;
+        }
+        const f64 alpha = rz / pap;
+        for (std::size_t i = 0; i < n; ++i) {
+            x[i] += alpha * p[i];
+            r[i] -= alpha * ap[i];
+        }
+        const f64 next = precondition();
+        const f64 beta = next / rz;
+        for (std::size_t i = 0; i < n; ++i) {
+            p[i] = z[i] + beta * p[i];
+        }
+        rz = next;
+    }
+}
+
+/// A 2x2 map's signed singular values and turns: `j = Rot(phi) diag(s) Rot(theta)`,
+/// `s[1]` negative when the map mirrors.
+struct Svd2 {
+    f64 s[2];
+    f64 phi;
+    f64 theta;
+};
+
+Svd2 SignedSvd(const f64 (&j)[2][2]) {
+    const f64 e = 0.5 * (j[0][0] + j[1][1]);
+    const f64 f = 0.5 * (j[0][0] - j[1][1]);
+    const f64 g = 0.5 * (j[1][0] + j[0][1]);
+    const f64 h = 0.5 * (j[1][0] - j[0][1]);
+    const f64 big = std::sqrt(e * e + h * h) + std::sqrt(f * f + g * g);
+    const f64 a1 = std::atan2(g, f);
+    const f64 a2 = std::atan2(h, e);
+    // The small one through the determinant: q - r cancels as it nears zero.
+    const f64 det = j[0][0] * j[1][1] - j[0][1] * j[1][0];
+    return {{big, big > 0.0 ? det / big : 0.0}, 0.5 * (a2 + a1), 0.5 * (a2 - a1)};
+}
+
+f64 SignedArea2(const f64 (&a)[2], const f64 (&b)[2], const f64 (&c)[2]) {
+    return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+}
+
+} // namespace
+
+FlattenResult MinimumStretch(Mesh& mesh, const UvIslands& islands, u32 island, u32 set,
+                             std::span<const u32> alsoPinned, const LscmOptions& options) {
+    FlattenResult result = LscmPinning(mesh, islands, island, set, alsoPinned, options);
+    if (!result.ok()) {
+        return result;
+    }
+    const Topology& topology = std::as_const(mesh).topology();
+    const std::span<const Vector3f> positions =
+        std::as_const(mesh).attributes.get<const Vector3f>(names::kPosition, Domain::Vertex);
+    const std::span<Vector2f> uvs =
+        mesh.attributes.getOrCreate<Vector2f>(names::uv(set), Domain::Halfedge, AttrType::F32x2);
+    const std::span<const u8> pins =
+        std::as_const(mesh).attributes.get<const u8>(names::uvPin(set), Domain::Halfedge);
+    const std::vector<u32> wedges = IslandWedges(islands, mesh, island);
+    std::vector<u32> localOf(islands.wedgeCount, kInvalidId);
+    for (u32 i = 0; i < wedges.size(); ++i) {
+        localOf[wedges[i]] = i;
+    }
+    // Held: the layer's pins and the caller's, which hold here as in LSCM.
+    std::vector<u8> fixed(wedges.size(), 0);
+    bool userPins = false;
+    for (u32 i = 0; i < wedges.size(); ++i) {
+        for (const u32 corner : islands.cornersOf(wedges[i])) {
+            if (corner < pins.size() && pins[corner] != 0) {
+                fixed[i] = 1;
+            }
+        }
+    }
+    for (const u32 wedge : alsoPinned) {
+        if (wedge < localOf.size() && localOf[wedge] != kInvalidId) {
+            fixed[localOf[wedge]] = 1;
+        }
+    }
+    for (const u8 f : fixed) {
+        userPins = userPins || f != 0;
+    }
+    const std::vector<u8> held = fixed;
+
+    // --- the triangles and their rest shapes ----------------------------------
+    std::vector<StretchTri> tris;
+    f64 worldArea = 0.0;
+    f64 uvArea = 0.0;
+    std::vector<std::array<f64, 2>> u(wedges.size());
+    for (u32 i = 0; i < wedges.size(); ++i) {
+        const Vector2f p = readWedge(islands, uvs, wedges[i]);
+        u[i] = {p.x, p.y};
+    }
+    for (const u32 face : islands.facesOf(island)) {
+        for (const Tri& tri : detail::TrianglesOf(mesh, FaceId(face))) {
+            StretchTri t{};
+            bool ok = true;
+            for (u32 k = 0; k < 3 && ok; ++k) {
+                const u32 wedge = islands.wedgeOf(tri.corner[k]);
+                ok = wedge != kInvalidId && localOf[wedge] != kInvalidId;
+                if (ok) {
+                    t.w[k] = localOf[wedge];
+                }
+            }
+            if (!ok || t.w[0] == t.w[1] || t.w[1] == t.w[2] || t.w[0] == t.w[2] ||
+                !detail::LocalTriangle(positions[topology.from(tri.corner[0]).index()],
+                                       positions[topology.from(tri.corner[1]).index()],
+                                       positions[topology.from(tri.corner[2]).index()], t.x)) {
+                continue;
+            }
+            worldArea += 0.5 * t.x[1][0] * t.x[2][1];
+            const f64 ua[2] = {u[t.w[0]][0], u[t.w[0]][1]};
+            const f64 ub[2] = {u[t.w[1]][0], u[t.w[1]][1]};
+            const f64 uc[2] = {u[t.w[2]][0], u[t.w[2]][1]};
+            uvArea += 0.5 * std::abs(SignedArea2(ua, ub, uc));
+            tris.push_back(t);
+        }
+    }
+    if (tris.empty() || !(worldArea > 0.0) || !(uvArea > 0.0)) {
+        return result;
+    }
+    const std::vector<std::array<f64, 2>> lscm = u;
+    // Folds: LSCM's own minimum can turn a region over, and the rounds below
+    // need a start that folds nothing. An island that folds starts instead
+    // from Tutte's embedding -- its outer border on a circle, each other wedge
+    // (a hole's too) at its neighbours' mean -- which folds nothing.
+    if (!userPins && island < islands.loops.size() && islands.loops[island] >= 1) {
+        i64 votes = 0;
+        std::vector<f64> areas;
+        for (const StretchTri& t : tris) {
+            const f64 a[2] = {u[t.w[0]][0], u[t.w[0]][1]};
+            const f64 b[2] = {u[t.w[1]][0], u[t.w[1]][1]};
+            const f64 c[2] = {u[t.w[2]][0], u[t.w[2]][1]};
+            areas.push_back(SignedArea2(a, b, c));
+            votes += areas.back() > 0.0 ? 1 : (areas.back() < 0.0 ? -1 : 0);
+        }
+        const bool folds = std::any_of(areas.begin(), areas.end(),
+                                       [&](f64 area) { return area * (votes >= 0 ? 1.0 : -1.0) <= 0.0; });
+        // The loops lie end to end, each entry starting at the wedge the one
+        // before reached; the longest is the outer border.
+        const std::span<const HalfedgeId> loopsOf =
+            folds ? islands.boundaryOf(island) : std::span<const HalfedgeId>{};
+        const auto lengthOf = [&](HalfedgeId h) {
+            return static_cast<f64>((positions[topology.to(h).index()] - positions[topology.from(h).index()]).length());
+        };
+        std::size_t outerBegin = 0;
+        std::size_t outerEnd = 0;
+        f64 outerLength = -1.0;
+        for (std::size_t begin = 0; begin < loopsOf.size();) {
+            std::size_t end = begin + 1;
+            f64 length = lengthOf(loopsOf[begin]);
+            while (end < loopsOf.size() &&
+                   islands.wedgeOf(loopsOf[end]) == islands.wedgeOf(topology.next(loopsOf[end - 1]))) {
+                length += lengthOf(loopsOf[end]);
+                ++end;
+            }
+            if (length > outerLength) {
+                outerBegin = begin;
+                outerEnd = end;
+                outerLength = length;
+            }
+            begin = end;
+        }
+        const std::span<const HalfedgeId> border = loopsOf.subspan(outerBegin, outerEnd - outerBegin);
+        std::vector<u32> ring;
+        std::vector<f64> along;
+        std::vector<u8> onBorder(wedges.size(), 0);
+        f64 total = 0.0;
+        bool simple = folds && border.size() >= 3;
+        for (const HalfedgeId h : border) {
+            if (!simple) {
+                break;
+            }
+            const u32 wedge = islands.wedgeOf(h);
+            const u32 at = wedge != kInvalidId ? localOf[wedge] : kInvalidId;
+            // A border that passes a wedge twice is no circle's.
+            simple = at != kInvalidId && onBorder[at] == 0;
+            if (simple) {
+                onBorder[at] = 1;
+                ring.push_back(at);
+                along.push_back(total);
+                total += lengthOf(h);
+            }
+        }
+        if (simple && total > 0.0) {
+            constexpr f64 kTurn = 6.283185307179586;
+            f64 centre[2] = {0.0, 0.0};
+            for (const auto& p : lscm) {
+                centre[0] += p[0];
+                centre[1] += p[1];
+            }
+            centre[0] /= static_cast<f64>(lscm.size());
+            centre[1] /= static_cast<f64>(lscm.size());
+            const f64 radius = std::sqrt(uvArea / (0.5 * kTurn));
+            std::vector<std::array<f64, 2>> tutte(wedges.size(), std::array<f64, 2>{centre[0], centre[1]});
+            for (std::size_t k = 0; k < ring.size(); ++k) {
+                const f64 angle = kTurn * along[k] / total;
+                tutte[ring[k]] = {centre[0] + radius * std::cos(angle), centre[1] + radius * std::sin(angle)};
+            }
+            std::vector<std::vector<u32>> adjacent(wedges.size());
+            for (const StretchTri& t : tris) {
+                for (u32 k = 0; k < 3; ++k) {
+                    adjacent[t.w[k]].push_back(t.w[(k + 1) % 3]);
+                    adjacent[t.w[(k + 1) % 3]].push_back(t.w[k]);
+                }
+            }
+            std::vector<u32> column(wedges.size(), kInvalidId);
+            std::vector<u32> inner;
+            for (u32 i = 0; i < wedges.size(); ++i) {
+                std::sort(adjacent[i].begin(), adjacent[i].end());
+                adjacent[i].erase(std::unique(adjacent[i].begin(), adjacent[i].end()), adjacent[i].end());
+                if (onBorder[i] == 0 && !adjacent[i].empty()) {
+                    column[i] = static_cast<u32>(inner.size());
+                    inner.push_back(i);
+                }
+            }
+            const auto laplace = [&](const std::vector<f64>& y, std::vector<f64>& out) {
+                out.assign(y.size(), 0.0);
+                for (u32 c = 0; c < inner.size(); ++c) {
+                    const u32 i = inner[c];
+                    f64 sum = static_cast<f64>(adjacent[i].size()) * y[c];
+                    for (const u32 j : adjacent[i]) {
+                        if (column[j] != kInvalidId) {
+                            sum -= y[column[j]];
+                        }
+                    }
+                    out[c] = sum;
+                }
+            };
+            for (u32 axis = 0; axis < 2 && !inner.empty(); ++axis) {
+                std::vector<f64> b(inner.size(), 0.0);
+                std::vector<f64> x(inner.size(), centre[axis]);
+                for (u32 c = 0; c < inner.size(); ++c) {
+                    for (const u32 j : adjacent[inner[c]]) {
+                        if (column[j] == kInvalidId) {
+                            b[c] += tutte[j][axis];
+                        }
+                    }
+                }
+                SolveSpd(laplace, b, x, 1e-12, std::max<u32>(128u, 8u * static_cast<u32>(inner.size())));
+                for (u32 c = 0; c < inner.size(); ++c) {
+                    tutte[inner[c]][axis] = x[c];
+                }
+            }
+            // The circle runs one way round; LSCM's map may be the mirror of
+            // it (refitted to a mirrored map), which the landing's turn cannot
+            // undo, so the start is mirrored to match.
+            i64 turn = 0;
+            for (const StretchTri& t : tris) {
+                const f64 a[2] = {tutte[t.w[0]][0], tutte[t.w[0]][1]};
+                const f64 b[2] = {tutte[t.w[1]][0], tutte[t.w[1]][1]};
+                const f64 c[2] = {tutte[t.w[2]][0], tutte[t.w[2]][1]};
+                const f64 area = SignedArea2(a, b, c);
+                turn += area > 0.0 ? 1 : (area < 0.0 ? -1 : 0);
+            }
+            if ((turn >= 0) != (votes >= 0)) {
+                for (auto& p : tutte) {
+                    p[0] = 2.0 * centre[0] - p[0];
+                }
+            }
+            u = std::move(tutte);
+        }
+    }
+    // Which way round the map is: LSCM may lay an island mirrored whole, which
+    // is no fault, and a rotation cannot mirror -- so the rest shapes are
+    // mirrored to match, or the rounds would read the whole map as folded.
+    i64 balance = 0;
+    for (const StretchTri& t : tris) {
+        const f64 a[2] = {u[t.w[0]][0], u[t.w[0]][1]};
+        const f64 b[2] = {u[t.w[1]][0], u[t.w[1]][1]};
+        const f64 c[2] = {u[t.w[2]][0], u[t.w[2]][1]};
+        const f64 area = SignedArea2(a, b, c);
+        balance += area > 0.0 ? 1 : (area < 0.0 ? -1 : 0);
+    }
+    const f64 sign = balance >= 0 ? 1.0 : -1.0;
+    // Rest shapes at the map's own scale, so the pins and the landing LSCM
+    // made still fit, and each corner's gradient over its rest triangle.
+    const f64 scale = std::sqrt(uvArea / worldArea);
+    for (StretchTri& t : tris) {
+        for (auto& corner : t.x) {
+            corner[0] *= scale;
+            corner[1] *= scale * sign;
+        }
+        const f64 twice = SignedArea2(t.x[0], t.x[1], t.x[2]);
+        for (u32 k = 0; k < 3; ++k) {
+            const f64* a = t.x[(k + 1) % 3];
+            const f64* b = t.x[(k + 2) % 3];
+            t.g[k][0] = (a[1] - b[1]) / twice;
+            t.g[k][1] = (b[0] - a[0]) / twice;
+        }
+        t.area = 0.5 * std::abs(twice);
+    }
+    const auto jacobianOf = [&](const StretchTri& t, const std::vector<std::array<f64, 2>>& at, f64 (&j)[2][2]) {
+        j[0][0] = j[0][1] = j[1][0] = j[1][1] = 0.0;
+        for (u32 k = 0; k < 3; ++k) {
+            const std::array<f64, 2>& p = at[t.w[k]];
+            j[0][0] += p[0] * t.g[k][0];
+            j[0][1] += p[0] * t.g[k][1];
+            j[1][0] += p[1] * t.g[k][0];
+            j[1][1] += p[1] * t.g[k][1];
+        }
+    };
+    // Symmetric Dirichlet: s^2 + 1/s^2 per singular value, least at no
+    // stretch and endless as a triangle loses its area, so no step that the
+    // energy accepts can crush one.
+    const auto energyOf = [&](const std::vector<std::array<f64, 2>>& at) {
+        f64 total = 0.0;
+        for (const StretchTri& t : tris) {
+            f64 j[2][2];
+            jacobianOf(t, at, j);
+            const Svd2 d = SignedSvd(j);
+            if (!(d.s[1] > 0.0)) {
+                return std::numeric_limits<f64>::infinity();
+            }
+            total += t.area * (d.s[0] * d.s[0] + 1.0 / (d.s[0] * d.s[0]) + d.s[1] * d.s[1] + 1.0 / (d.s[1] * d.s[1]));
+        }
+        return total;
+    };
+    f64 energy = energyOf(u);
+    // A start that still folds -- pins that hold a fold, a border Tutte could
+    // not use -- keeps LSCM's map, as Conformal would.
+    if (!std::isfinite(energy)) {
+        return result;
+    }
+    // A wedge no triangle reaches stays; with nothing held at all, one wedge
+    // holds the map in place, the rest of the gauge being the rotations'.
+    std::vector<u8> touched(wedges.size(), 0);
+    for (const StretchTri& t : tris) {
+        touched[t.w[0]] = touched[t.w[1]] = touched[t.w[2]] = 1;
+    }
+    for (u32 i = 0; i < wedges.size(); ++i) {
+        fixed[i] = fixed[i] != 0 || touched[i] == 0 ? 1 : 0;
+    }
+    if (!userPins) {
+        for (u32 i = 0; i < wedges.size(); ++i) {
+            if (touched[i] != 0) {
+                fixed[i] = 1;
+                break;
+            }
+        }
+    }
+    std::vector<u32> columnOf(wedges.size(), kInvalidId);
+    std::vector<u32> wedgeOf;
+    for (u32 i = 0; i < wedges.size(); ++i) {
+        if (fixed[i] == 0) {
+            columnOf[i] = static_cast<u32>(wedgeOf.size());
+            wedgeOf.push_back(i);
+        }
+    }
+    if (wedgeOf.empty()) {
+        return result;
+    }
+    const std::size_t unknowns = wedgeOf.size();
+
+    // --- rounds (SLIM: Rabinovich et al. 2017) ------------------------------
+    // Each round weighs every triangle by how its energy bends at its current
+    // stretch and solves for the positions nearest each one's rotation under
+    // those weights -- one system, u and v coupled. The step then goes no
+    // farther than the first triangle would lose its area, and back until the
+    // energy falls.
+    std::vector<std::array<f64, 5>> weigh(tris.size()); // m00, m01, m11, cos, sin
+    const auto apply = [&](const std::vector<f64>& y, std::vector<f64>& out) {
+        out.assign(y.size(), 0.0);
+        for (std::size_t ti = 0; ti < tris.size(); ++ti) {
+            const StretchTri& t = tris[ti];
+            const std::array<f64, 5>& m = weigh[ti];
+            f64 a[2] = {0.0, 0.0};
+            f64 b[2] = {0.0, 0.0};
+            for (u32 k = 0; k < 3; ++k) {
+                const u32 c = columnOf[t.w[k]];
+                if (c != kInvalidId) {
+                    a[0] += y[c] * t.g[k][0];
+                    a[1] += y[c] * t.g[k][1];
+                    b[0] += y[unknowns + c] * t.g[k][0];
+                    b[1] += y[unknowns + c] * t.g[k][1];
+                }
+            }
+            const f64 pa[2] = {m[0] * a[0] + m[1] * b[0], m[0] * a[1] + m[1] * b[1]};
+            const f64 pb[2] = {m[1] * a[0] + m[2] * b[0], m[1] * a[1] + m[2] * b[1]};
+            for (u32 k = 0; k < 3; ++k) {
+                const u32 c = columnOf[t.w[k]];
+                if (c != kInvalidId) {
+                    out[c] += t.area * (pa[0] * t.g[k][0] + pa[1] * t.g[k][1]);
+                    out[unknowns + c] += t.area * (pb[0] * t.g[k][0] + pb[1] * t.g[k][1]);
+                }
+            }
+        }
+    };
+    constexpr u32 kRounds = 25;
+    std::vector<f64> solved(unknowns * 2);
+    std::vector<f64> rhs(unknowns * 2);
+    std::vector<f64> diagonal(unknowns * 2);
+    std::vector<std::array<f64, 2>> trial(u.size());
+    for (u32 round = 0; round < kRounds; ++round) {
+        // Local: each triangle's weights and nearest rotation.
+        std::fill(rhs.begin(), rhs.end(), 0.0);
+        std::fill(diagonal.begin(), diagonal.end(), 0.0);
+        for (std::size_t ti = 0; ti < tris.size(); ++ti) {
+            const StretchTri& t = tris[ti];
+            f64 j[2][2];
+            jacobianOf(t, u, j);
+            const Svd2 d = SignedSvd(j);
+            f64 w[2];
+            for (u32 k = 0; k < 2; ++k) {
+                const f64 sv = d.s[k];
+                w[k] = (sv + 1.0) * (sv * sv + 1.0) / (sv * sv * sv);
+            }
+            const f64 c = std::cos(d.phi);
+            const f64 sn = std::sin(d.phi);
+            std::array<f64, 5>& m = weigh[ti];
+            m = {c * c * w[0] + sn * sn * w[1], c * sn * (w[0] - w[1]), sn * sn * w[0] + c * c * w[1],
+                 std::cos(d.phi + d.theta), std::sin(d.phi + d.theta)};
+            // The target's rows less what the held corners already give.
+            f64 r0[2] = {m[3], -m[4]};
+            f64 r1[2] = {m[4], m[3]};
+            for (u32 k = 0; k < 3; ++k) {
+                if (columnOf[t.w[k]] == kInvalidId) {
+                    const std::array<f64, 2>& p = u[t.w[k]];
+                    r0[0] -= p[0] * t.g[k][0];
+                    r0[1] -= p[0] * t.g[k][1];
+                    r1[0] -= p[1] * t.g[k][0];
+                    r1[1] -= p[1] * t.g[k][1];
+                }
+            }
+            const f64 pa[2] = {m[0] * r0[0] + m[1] * r1[0], m[0] * r0[1] + m[1] * r1[1]};
+            const f64 pb[2] = {m[1] * r0[0] + m[2] * r1[0], m[1] * r0[1] + m[2] * r1[1]};
+            for (u32 k = 0; k < 3; ++k) {
+                const u32 col = columnOf[t.w[k]];
+                if (col != kInvalidId) {
+                    const f64 gg = t.g[k][0] * t.g[k][0] + t.g[k][1] * t.g[k][1];
+                    rhs[col] += t.area * (pa[0] * t.g[k][0] + pa[1] * t.g[k][1]);
+                    rhs[unknowns + col] += t.area * (pb[0] * t.g[k][0] + pb[1] * t.g[k][1]);
+                    diagonal[col] += t.area * m[0] * gg;
+                    diagonal[unknowns + col] += t.area * m[2] * gg;
+                }
+            }
+        }
+        // Global: warm-started from where the map is.
+        for (std::size_t c = 0; c < unknowns; ++c) {
+            solved[c] = u[wedgeOf[c]][0];
+            solved[unknowns + c] = u[wedgeOf[c]][1];
+        }
+        SolveSpd(apply, rhs, solved, 1e-10, std::clamp<u32>(4u * static_cast<u32>(unknowns), 64u, 1000u), diagonal);
+        std::vector<std::array<f64, 2>> next = u;
+        for (std::size_t c = 0; c < unknowns; ++c) {
+            next[wedgeOf[c]] = {solved[c], solved[unknowns + c]};
+        }
+        // Short of the first step at which a triangle would reach no area
+        // (area(s) = a s^2 + b s + c, each one positive now).
+        f64 step = 1.0;
+        for (const StretchTri& t : tris) {
+            const f64 e1[2] = {u[t.w[1]][0] - u[t.w[0]][0], u[t.w[1]][1] - u[t.w[0]][1]};
+            const f64 e2[2] = {u[t.w[2]][0] - u[t.w[0]][0], u[t.w[2]][1] - u[t.w[0]][1]};
+            const f64 d0[2] = {next[t.w[0]][0] - u[t.w[0]][0], next[t.w[0]][1] - u[t.w[0]][1]};
+            const f64 d1[2] = {next[t.w[1]][0] - u[t.w[1]][0] - d0[0], next[t.w[1]][1] - u[t.w[1]][1] - d0[1]};
+            const f64 d2[2] = {next[t.w[2]][0] - u[t.w[2]][0] - d0[0], next[t.w[2]][1] - u[t.w[2]][1] - d0[1]};
+            const f64 c = (e1[0] * e2[1] - e1[1] * e2[0]) * sign;
+            const f64 b = (e1[0] * d2[1] - e1[1] * d2[0] + d1[0] * e2[1] - d1[1] * e2[0]) * sign;
+            const f64 a = (d1[0] * d2[1] - d1[1] * d2[0]) * sign;
+            f64 root = std::numeric_limits<f64>::infinity();
+            if (std::abs(a) < 1e-300) {
+                if (b < 0.0) {
+                    root = -c / b;
+                }
+            } else if (const f64 disc = b * b - 4.0 * a * c; disc >= 0.0) {
+                // q and c / q, not -b +- sqrt: no cancellation when a is small.
+                const f64 q = -0.5 * (b + std::copysign(std::sqrt(disc), b));
+                for (const f64 r : {q / a, q != 0.0 ? c / q : std::numeric_limits<f64>::infinity()}) {
+                    if (r > 0.0) {
+                        root = std::min(root, r);
+                    }
+                }
+            }
+            step = std::min(step, 0.8 * root);
+        }
+        f64 after = energy;
+        for (; step > 1e-8; step *= 0.5) {
+            for (std::size_t i = 0; i < u.size(); ++i) {
+                trial[i] = {u[i][0] + step * (next[i][0] - u[i][0]), u[i][1] + step * (next[i][1] - u[i][1])};
+            }
+            after = energyOf(trial);
+            if (after < energy) {
+                break;
+            }
+        }
+        if (!(after < energy)) {
+            break;
+        }
+        u.swap(trial);
+        ++result.rounds;
+        // Done once a round buys under a ten-thousandth of the energy.
+        const bool settled = energy - after < 1e-4 * energy;
+        energy = after;
+        if (settled) {
+            break;
+        }
+    }
+
+    // Where LSCM landed it: with nothing held, the turn and place that best
+    // lays the result over LSCM's map, which the caller's landing already
+    // chose; with pins, they placed it.
+    if (!userPins) {
+        f64 ca[2] = {0.0, 0.0};
+        f64 cl[2] = {0.0, 0.0};
+        f64 reached = 0.0;
+        for (std::size_t i = 0; i < u.size(); ++i) {
+            if (touched[i] == 0) {
+                continue;
+            }
+            ca[0] += u[i][0];
+            ca[1] += u[i][1];
+            cl[0] += lscm[i][0];
+            cl[1] += lscm[i][1];
+            reached += 1.0;
+        }
+        ca[0] /= reached;
+        ca[1] /= reached;
+        cl[0] /= reached;
+        cl[1] /= reached;
+        f64 dotSum = 0.0;
+        f64 crossSum = 0.0;
+        for (std::size_t i = 0; i < u.size(); ++i) {
+            if (touched[i] == 0) {
+                continue;
+            }
+            const f64 px = u[i][0] - ca[0], py = u[i][1] - ca[1];
+            const f64 qx = lscm[i][0] - cl[0], qy = lscm[i][1] - cl[1];
+            dotSum += px * qx + py * qy;
+            crossSum += px * qy - py * qx;
+        }
+        const f64 theta = std::atan2(crossSum, dotSum);
+        const f64 c = std::cos(theta);
+        const f64 s = std::sin(theta);
+        for (auto& p : u) {
+            const f64 x = p[0] - ca[0];
+            const f64 y = p[1] - ca[1];
+            p = {cl[0] + c * x - s * y, cl[1] + s * x + c * y};
+        }
+    }
+    // A wedge only triangles with no area touch followed none of the rounds
+    // (a Tutte start left it at the centre): unless pinned, it goes to the
+    // mean of the wedges it shares a face with, as LSCM's own pass puts it.
+    if (std::find(touched.begin(), touched.end(), u8{0}) != touched.end()) {
+        std::vector<std::array<f64, 2>> sum(wedges.size(), std::array<f64, 2>{0.0, 0.0});
+        std::vector<u32> count(wedges.size(), 0);
+        std::vector<u32> ring;
+        for (const u32 face : islands.facesOf(island)) {
+            ring.clear();
+            for (const HalfedgeId h : topology.fh(FaceId(face))) {
+                const u32 w = islands.wedgeOf(h);
+                if (w != kInvalidId && localOf[w] != kInvalidId) {
+                    ring.push_back(localOf[w]);
+                }
+            }
+            for (const u32 i : ring) {
+                if (touched[i] != 0 || held[i] != 0) {
+                    continue;
+                }
+                for (const u32 j : ring) {
+                    if (touched[j] != 0) {
+                        sum[i][0] += u[j][0];
+                        sum[i][1] += u[j][1];
+                        ++count[i];
+                    }
+                }
+            }
+        }
+        for (u32 i = 0; i < wedges.size(); ++i) {
+            if (count[i] != 0) {
+                u[i] = {sum[i][0] / count[i], sum[i][1] / count[i]};
+            }
+        }
+    }
+    for (u32 i = 0; i < wedges.size(); ++i) {
+        writeWedge(islands, uvs, wedges[i], Vector2f{static_cast<f32>(u[i][0]), static_cast<f32>(u[i][1])});
+    }
+    // Flips, counted against the island's majority as LSCM counts them.
+    result.flipped = 0;
+    i32 votes = 0;
+    std::vector<f32> signs;
+    for (const u32 face : islands.facesOf(island)) {
+        for (const Tri& tri : detail::TrianglesOf(mesh, FaceId(face))) {
+            const f32 area = detail::TriAreaUv(uvs[tri.corner[0].index()], uvs[tri.corner[1].index()],
+                                               uvs[tri.corner[2].index()]);
+            if (area != 0.0f) {
+                signs.push_back(area);
+                votes += area > 0.0f ? 1 : -1;
+            }
+        }
+    }
+    for (const f32 area : signs) {
+        if ((area > 0.0f) != (votes >= 0)) {
             ++result.flipped;
         }
     }
@@ -941,6 +1667,7 @@ FlattenResult Straighten(Mesh& mesh, const UvIslands& islands,
         result.degenerate += solved.degenerate;
         result.iterations += solved.iterations;
         result.residual = std::max(result.residual, solved.residual);
+        result.capped = result.capped || solved.capped;
         if (!solved.ok()) {
             result.refusal = solved.refusal;
         }
@@ -1080,6 +1807,25 @@ RectangleResult Rectangle(Mesh& mesh, const UvIslands& islands, u32 island, u32 
 
 namespace {
 
+/// World units to tiles, when the frame says how many make one.
+void toExtent(Mesh& mesh, std::span<const FaceId> faces, u32 set, f32 extent) {
+    if (extent <= 0.0f) {
+        return;
+    }
+    const Topology& topology = std::as_const(mesh).topology();
+    const std::span<Vector2f> uvs =
+        mesh.attributes.getOrCreate<Vector2f>(names::uv(set), Domain::Halfedge, AttrType::F32x2);
+    const f32 scale = 1.0f / extent;
+    for (const FaceId face : faces) {
+        if (!face.valid() || topology.isDeleted(face)) {
+            continue;
+        }
+        for (const HalfedgeId h : topology.fh(face)) {
+            uvs[h.index()] = uvs[h.index()] * scale;
+        }
+    }
+}
+
 /// Box (EDIT_MODE_UV_REDESIGN.md §8): each face to the frame axis its normal is
 /// nearest, projected on that plane the way round that keeps its winding, and
 /// a cut wherever two planes meet.
@@ -1118,15 +1864,16 @@ FlattenResult projectBox(Mesh& mesh, std::span<const FaceId> faces, u32 set, con
             const f32 u = d.dot(frame.axisU);
             const f32 v = d.dot(frame.axisV);
             const f32 w = d.dot(frame.axisN);
-            // Each pair (a, b) has a x b along the side's outward axis, so a
-            // face seen from outside keeps its turn in the map.
+            // Each side as a camera outside it sees it: (right, down) with
+            // right x down along the look, -V up, and a top's or a bottom's
+            // front (-N) at its top.
             switch (side[face.index()]) {
-            case 0: uvs[h.index()] = Vector2f{v, w}; break;   // +U
-            case 1: uvs[h.index()] = Vector2f{-v, w}; break;  // -U
-            case 2: uvs[h.index()] = Vector2f{-u, w}; break;  // +V
-            case 3: uvs[h.index()] = Vector2f{u, w}; break;   // -V
-            case 4: uvs[h.index()] = Vector2f{u, v}; break;   // +N
-            default: uvs[h.index()] = Vector2f{-u, v}; break; // -N
+            case 0: uvs[h.index()] = Vector2f{w, v}; break;   // +U, the right side
+            case 1: uvs[h.index()] = Vector2f{-w, v}; break;  // -U, the left side
+            case 2: uvs[h.index()] = Vector2f{u, w}; break;   // +V, the bottom
+            case 3: uvs[h.index()] = Vector2f{-u, w}; break;  // -V, the top
+            case 4: uvs[h.index()] = Vector2f{-u, v}; break;  // +N, the back
+            default: uvs[h.index()] = Vector2f{u, v}; break;  // -N, the front
             }
         }
     }
@@ -1152,14 +1899,60 @@ FlattenResult projectBox(Mesh& mesh, std::span<const FaceId> faces, u32 set, con
 } // namespace
 
 FlattenResult Project(Mesh& mesh, std::span<const FaceId> faces, u32 set, ProjectShape shape,
-                      const ProjectFrame& frame) {
+                      const ProjectFrame& frame, const ProjectOptions& options) {
     FlattenResult result;
     if (!mesh.hasConnectivity() || faces.empty()) {
         result.refusal = FlattenResult::Refusal::NoFaces;
         return result;
     }
     if (shape == ProjectShape::Box) {
-        return projectBox(mesh, faces, set, frame);
+        result = projectBox(mesh, faces, set, frame);
+        toExtent(mesh, faces, set, frame.extent);
+        return result;
+    }
+    if (shape == ProjectShape::Cylinder && options.cap) {
+        // The caps first, as Box's top and bottom, then the side without them;
+        // the rim between the two is a cut.
+        const std::span<const Vector3f> at =
+            std::as_const(mesh).attributes.get<const Vector3f>(names::kPosition, Domain::Vertex);
+        const Topology& topo = std::as_const(mesh).topology();
+        std::vector<FaceId> caps;
+        std::vector<FaceId> side;
+        for (const FaceId face : faces) {
+            if (!face.valid() || topo.isDeleted(face)) {
+                continue;
+            }
+            Vector3f n{0.0f, 0.0f, 0.0f};
+            for (const HalfedgeId h : topo.fh(face)) {
+                n = n + cross(at[topo.from(h).index()], at[topo.to(h).index()]);
+            }
+            const f32 length = n.length();
+            (length > 0.0f && std::abs(n.dot(frame.axisV)) >= 0.70710678f * length ? caps : side).push_back(face);
+        }
+        if (!caps.empty()) {
+            projectBox(mesh, caps, set, frame);
+            std::vector<u8> isSide(topo.faceCount(), 0);
+            for (const FaceId face : side) {
+                isSide[face.index()] = 1;
+            }
+            std::vector<EdgeId> rim;
+            for (const FaceId face : caps) {
+                for (const HalfedgeId h : topo.fh(face)) {
+                    const FaceId other = topo.face(topo.opposite(h));
+                    if (other.valid() && isSide[other.index()]) {
+                        rim.push_back(Topology::edge(h));
+                    }
+                }
+            }
+            if (!rim.empty()) {
+                ApplyMarks(mesh, set, std::span<const EdgeId>(rim.data(), rim.size()), true);
+            }
+            if (!side.empty()) {
+                result = Project(mesh, side, set, shape, frame);
+            }
+            toExtent(mesh, caps, set, frame.extent);
+            return result;
+        }
     }
     const Topology& topology = std::as_const(mesh).topology();
     const std::span<const Vector3f> positions =
@@ -1167,22 +1960,23 @@ FlattenResult Project(Mesh& mesh, std::span<const FaceId> faces, u32 set, Projec
     const std::span<Vector2f> uvs =
         mesh.attributes.getOrCreate<Vector2f>(names::uv(set), Domain::Halfedge, AttrType::F32x2);
 
+    // Round the V axis: 0 at the front (-N), a quarter turn at the right (+U),
+    // the wrap at the back, so the front reads as a planar map of it would.
+    const auto turn = [&](const Vector3f& d) {
+        return std::atan2(d.dot(frame.axisU), -d.dot(frame.axisN)) / (2.0f * kPi) + 0.5f;
+    };
     const auto project = [&](const Vector3f& world) {
         const Vector3f d = world - frame.origin;
         switch (shape) {
         case ProjectShape::Planar:
             return Vector2f{d.dot(frame.axisU), d.dot(frame.axisV)};
-        case ProjectShape::Cylinder: {
-            const f32 angle = std::atan2(d.dot(frame.axisV), d.dot(frame.axisU));
-            return Vector2f{angle / (2.0f * kPi) + 0.5f, d.dot(frame.axisN)};
-        }
+        case ProjectShape::Cylinder:
+            return Vector2f{turn(d), d.dot(frame.axisV)};
         case ProjectShape::Sphere:
         default: {
-            const f32 angle = std::atan2(d.dot(frame.axisV), d.dot(frame.axisU));
             const f32 length = d.length();
-            const f32 up = length > 0.0f ? d.dot(frame.axisN) / length : 0.0f;
-            return Vector2f{angle / (2.0f * kPi) + 0.5f,
-                            std::acos(std::clamp(up, -1.0f, 1.0f)) / kPi};
+            const f32 up = length > 0.0f ? -d.dot(frame.axisV) / length : 0.0f;
+            return Vector2f{turn(d), std::acos(std::clamp(up, -1.0f, 1.0f)) / kPi};
         }
         }
     };
@@ -1205,7 +1999,7 @@ FlattenResult Project(Mesh& mesh, std::span<const FaceId> faces, u32 set, Projec
             lowest = std::min(lowest, value.x);
             highest = std::max(highest, value.x);
             // The cylinder's radius is off its axis, the sphere's from its centre.
-            radius += shape == ProjectShape::Cylinder ? (d - frame.axisN * d.dot(frame.axisN)).length() : d.length();
+            radius += shape == ProjectShape::Cylinder ? (d - frame.axisV * d.dot(frame.axisV)).length() : d.length();
             ++points;
         }
         // A round projection wraps somewhere. A face that spans the turn takes
@@ -1261,7 +2055,71 @@ FlattenResult Project(Mesh& mesh, std::span<const FaceId> faces, u32 set, Projec
                       wrapped.end());
         ApplyMarks(mesh, set, std::span<const EdgeId>(wrapped.data(), wrapped.size()), true);
     }
+    toExtent(mesh, faces, set, frame.extent);
     return result;
+}
+
+namespace {
+
+Vector3f unitOr(const Vector3f& v, const Vector3f& fallback) {
+    const f32 length = v.length();
+    return length > 1e-6f ? v * (1.0f / length) : fallback;
+}
+
+/// @p v with its part along unit @p axis taken out.
+Vector3f across(const Vector3f& v, const Vector3f& axis) {
+    return v - axis * v.dot(axis);
+}
+
+/// Any unit vector square to unit @p axis.
+Vector3f squareTo(const Vector3f& axis) {
+    const Vector3f seed = std::abs(axis.x) < 0.9f ? Vector3f{1.0f, 0.0f, 0.0f} : Vector3f{0.0f, 1.0f, 0.0f};
+    return unitOr(cross(axis, seed), Vector3f{0.0f, 0.0f, 1.0f});
+}
+
+} // namespace
+
+ProjectFrame UprightFrame(const Vector3f& origin, const Vector3f& look, const Vector3f& up,
+                          const Vector3f& front) {
+    ProjectFrame frame;
+    frame.origin = origin;
+    const Vector3f n = unitOr(look, Vector3f{-1.0f, 0.0f, 0.0f});
+    // The image's up: the world's up laid on the view; looking along it, the
+    // front is up instead, so a top view has the front at its top.
+    Vector3f top = across(up, n);
+    if (top.length() < 1e-3f) {
+        top = across(front, n);
+    }
+    top = unitOr(top, squareTo(n));
+    frame.axisN = n;
+    frame.axisV = top * -1.0f;
+    frame.axisU = cross(frame.axisV, frame.axisN);
+    return frame;
+}
+
+ProjectFrame PoleFrame(const Vector3f& origin, const Vector3f& pole, const Vector3f& up,
+                       const Vector3f& front) {
+    ProjectFrame frame;
+    frame.origin = origin;
+    Vector3f v = unitOr(pole, Vector3f{0.0f, 0.0f, -1.0f});
+    // Down the image from the end nearer up; a level pole from the end nearer
+    // the front.
+    const f32 rise = v.dot(up);
+    const f32 ahead = v.dot(front);
+    if (std::abs(rise) > 1e-3f ? rise > 0.0f : ahead > 0.0f) {
+        v = v * -1.0f;
+    }
+    // Looked at from the front, so the wrap -- at +N -- is on the back; a pole
+    // along the front is looked at from above, and wraps underneath.
+    Vector3f n = across(front, v) * -1.0f;
+    if (n.length() < 1e-3f) {
+        n = across(up, v) * -1.0f;
+    }
+    n = unitOr(n, squareTo(v));
+    frame.axisV = v;
+    frame.axisN = n;
+    frame.axisU = cross(v, n);
+    return frame;
 }
 
 std::vector<f32> FaceStretch(const Mesh& mesh, const UvIslands& islands, u32 set) {

@@ -172,8 +172,17 @@ TEST_CASE("UV check: outside the tile, unless the texture wraps", "[wem][uv][che
 TEST_CASE("UV check: no map, and nothing else said of it", "[wem][uv][checks]") {
     const uv::UvChecks checks = check(quads({square(0.1f, 0.1f, 0.3f), square(0.0f, 0.0f, 0.0f)}));
     CHECK(islandsOf(checks.noMap) == std::vector<u32>{1});
+    CHECK(checks.flatColour.empty());
     CHECK(checks.flipped.empty());
     CHECK(checks.overlapping.empty());
+}
+
+TEST_CASE("UV check: faces on one texel are a flat colour, not a missing map", "[wem][uv][checks]") {
+    // EDIT_MODE_UV_AUDIT.md U3: an artist's colour swatch has no UV area, and
+    // is not at the origin a cleared set leaves.
+    const uv::UvChecks checks = check(quads({square(0.1f, 0.1f, 0.3f), square(0.6f, 0.6f, 0.0f)}));
+    CHECK(checks.noMap.empty());
+    CHECK(islandsOf(checks.flatColour) == std::vector<u32>{1});
 }
 
 TEST_CASE("UV check: stretched faces and density outliers", "[wem][uv][checks]") {

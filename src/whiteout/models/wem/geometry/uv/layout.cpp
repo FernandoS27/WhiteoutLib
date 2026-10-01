@@ -7,7 +7,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace whiteout {
@@ -1218,9 +1220,9 @@ StackResult Stack(Mesh& mesh, const UvIslands& islands, u32 primary, u32 other, 
         return out;
     }
 
-    // Where every corner of the primary is, by the vertex it sits at: what a
-    // pairing has to look up.
-    std::unordered_map<u32, HalfedgeId> primaryCornerAt;
+    // Every corner of the primary, by the vertex it sits at: what a pairing has
+    // to look up. A vertex can hold several, one per face round it.
+    std::unordered_multimap<u32, HalfedgeId> primaryCornerAt;
     for (const u32 face : primaryFaces) {
         for (const HalfedgeId h : topology.fh(FaceId(face))) {
             primaryCornerAt.emplace(topology.from(h).value(), h);
@@ -1228,30 +1230,148 @@ StackResult Stack(Mesh& mesh, const UvIslands& islands, u32 primary, u32 other, 
     }
 
     // --- the mirror ----------------------------------------------------------
+    // Face for face: each face of the other finds the primary face its
+    // vertices' twins go round, in one direction for the whole island (a
+    // mirror reverses it), and its corners take that face's. A near mirror
+    // that pairs corners of different faces, or twists one, would fold the
+    // copy. A face with no twin face -- its quad split along the other
+    // diagonal -- takes each corner from the primary faces round its twins,
+    // when those agree on one UV and the copy turns nothing over; failing
+    // that, or with fewer than half the faces paired whole, the walk pairs.
     std::vector<std::pair<u32, u32>> pairing; // other corner -> primary corner
     if (!pointMirror.empty()) {
-        u32 hits = 0;
-        u32 total = 0;
+        const auto twinOf = [&](HalfedgeId h) {
+            const u32 vertex = topology.from(h).value();
+            return vertex < pointMirror.size() ? pointMirror[vertex] : kInvalidId;
+        };
         std::vector<std::pair<u32, u32>> attempt;
+        std::unordered_set<u32> taken;
+        i32 direction = 0; // +1 the same way round, -1 reversed, 0 not yet known
+        bool whole = true;
+        std::vector<u32> unmatched;
+        std::vector<HalfedgeId> mine;
+        std::vector<HalfedgeId> theirs;
         for (const u32 face : otherFaces) {
+            mine.clear();
             for (const HalfedgeId h : topology.fh(FaceId(face))) {
-                ++total;
-                const u32 vertex = topology.from(h).value();
-                const u32 twin = vertex < pointMirror.size() ? pointMirror[vertex] : kInvalidId;
-                if (twin == kInvalidId) {
+                mine.push_back(h);
+            }
+            const std::size_t n = mine.size();
+            bool matched = false;
+            for (auto [at, end] = primaryCornerAt.equal_range(twinOf(mine[0])); at != end && !matched; ++at) {
+                const FaceId candidate = topology.face(at->second);
+                if (taken.contains(candidate.value())) {
                     continue;
                 }
-                const auto found = primaryCornerAt.find(twin);
-                if (found == primaryCornerAt.end()) {
+                theirs.clear();
+                for (const HalfedgeId h : topology.fh(candidate)) {
+                    theirs.push_back(h);
+                }
+                if (theirs.size() != n) {
                     continue;
                 }
-                attempt.emplace_back(h.index(), found->second.index());
-                ++hits;
+                const std::size_t start = static_cast<std::size_t>(
+                    std::find(theirs.begin(), theirs.end(), at->second) - theirs.begin());
+                for (const i32 way : {1, -1}) {
+                    if (matched || (direction != 0 && way != direction)) {
+                        continue;
+                    }
+                    const auto partner = [&](std::size_t i) {
+                        return theirs[way > 0 ? (start + i) % n : (start + n - i % n) % n];
+                    };
+                    bool round = true;
+                    for (std::size_t i = 0; i < n && round; ++i) {
+                        round = topology.from(partner(i)).value() == twinOf(mine[i]);
+                    }
+                    if (round) {
+                        matched = true;
+                        direction = way;
+                        taken.insert(candidate.value());
+                        for (std::size_t i = 0; i < n; ++i) {
+                            attempt.emplace_back(mine[i].index(), partner(i).index());
+                        }
+                    }
+                }
+            }
+            if (!matched) {
+                unmatched.push_back(face);
             }
         }
-        // Nine in ten is a mirrored pair; anything less is two shapes that
-        // happen to be near each other.
-        if (total > 0 && hits * 10 >= total * 9) {
+        const std::span<const Vector2f> uvs =
+            std::as_const(mesh).attributes.get<const Vector2f>(names::uv(set), Domain::Halfedge);
+        whole = direction != 0 && unmatched.size() * 2 <= otherFaces.size() && (unmatched.empty() || !uvs.empty());
+        if (whole && !unmatched.empty()) {
+            // The way round the copied faces lie in the map, which a face
+            // copied corner by corner must share.
+            const auto fanSigns = [&](std::span<const std::pair<u32, u32>> ring, i32& positive, i32& negative) {
+                for (std::size_t k = 1; k + 1 < ring.size(); ++k) {
+                    const Vector2f a = uvs[ring[0].second];
+                    const Vector2f b = uvs[ring[k].second];
+                    const Vector2f c = uvs[ring[k + 1].second];
+                    const f32 area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+                    positive += area > 0.0f ? 1 : 0;
+                    negative += area < 0.0f ? 1 : 0;
+                }
+            };
+            i32 positive = 0;
+            i32 negative = 0;
+            for (std::size_t begin = 0; begin < attempt.size();) {
+                const std::size_t n = topology.valence(topology.face(HalfedgeId(attempt[begin].first)));
+                fanSigns(std::span<const std::pair<u32, u32>>(attempt).subspan(begin, n), positive, negative);
+                begin += n;
+            }
+            const bool upward = positive >= negative;
+            std::vector<u32> twins;
+            std::vector<std::pair<u32, u32>> ring;
+            for (const u32 face : unmatched) {
+                twins.clear();
+                ring.clear();
+                for (const HalfedgeId h : topology.fh(FaceId(face))) {
+                    twins.push_back(twinOf(h));
+                }
+                std::sort(twins.begin(), twins.end());
+                for (const HalfedgeId h : topology.fh(FaceId(face))) {
+                    // The primary corners at this twin in faces no whole pair
+                    // took and that hold another of the face's twins.
+                    u32 from = kInvalidId;
+                    bool agree = true;
+                    for (auto [at, end] = primaryCornerAt.equal_range(twinOf(h)); at != end && agree; ++at) {
+                        const FaceId candidate = topology.face(at->second);
+                        if (taken.contains(candidate.value())) {
+                            continue;
+                        }
+                        u32 shared = 0;
+                        for (const HalfedgeId g : topology.fh(candidate)) {
+                            shared += std::binary_search(twins.begin(), twins.end(), topology.from(g).value()) ? 1 : 0;
+                        }
+                        if (shared < 2) {
+                            continue;
+                        }
+                        if (from == kInvalidId) {
+                            from = at->second.value();
+                        } else {
+                            agree = std::memcmp(&uvs[from], &uvs[at->second.index()], sizeof(Vector2f)) == 0;
+                        }
+                    }
+                    if (from == kInvalidId || !agree) {
+                        whole = false;
+                        break;
+                    }
+                    ring.emplace_back(h.value(), from);
+                }
+                i32 up = 0;
+                i32 down = 0;
+                if (whole) {
+                    fanSigns(ring, up, down);
+                    whole = (upward ? down : up) == 0;
+                }
+                if (!whole) {
+                    break;
+                }
+                attempt.insert(attempt.end(), ring.begin(), ring.end());
+            }
+        }
+        if (whole) {
             pairing = std::move(attempt);
             out.byMirror = true;
         }

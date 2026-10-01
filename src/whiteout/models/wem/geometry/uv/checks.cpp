@@ -120,7 +120,7 @@ UvChecks CheckUv(std::span<const UvCheckInput> inputs, const UvCheckOptions& opt
             }
             const detail::IslandArea areas = detail::AreasOf(mesh, islands, island, positions, uvs);
             if (areas.uv <= 1e-12f) {
-                out.noMap.push_back(ref);
+                (IslandHasNoMap(mesh, islands, island, set) ? out.noMap : out.flatColour).push_back(ref);
                 continue;
             }
             // Against the island's own majority, by area: a whole mirrored
@@ -178,6 +178,22 @@ UvChecks CheckUv(std::span<const UvCheckInput> inputs, const UvCheckOptions& opt
         }
     }
     return out;
+}
+
+bool IslandHasNoMap(const Mesh& mesh, const UvIslands& islands, u32 island, u32 set) {
+    const std::span<const Vector2f> uvs = mesh.attributes.get<const Vector2f>(names::uv(set), Domain::Halfedge);
+    if (!mesh.hasConnectivity()) {
+        return false;
+    }
+    const Topology& topology = mesh.topology();
+    for (const u32 face : islands.facesOf(island)) {
+        for (const HalfedgeId h : topology.fh(FaceId(face))) {
+            if (h.index() < uvs.size() && (uvs[h.index()].x != 0.0f || uvs[h.index()].y != 0.0f)) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 } // namespace uv

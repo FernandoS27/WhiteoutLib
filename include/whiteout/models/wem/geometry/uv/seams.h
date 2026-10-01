@@ -52,7 +52,9 @@ u32 MarkDelimitSeams(Mesh& mesh);
 u32 MarkDelimitSeams(Mesh& mesh, std::span<const u32> edges);
 
 /// Sets or clears `uvSeamN` on @p edges. The one writer of a mark, so the
-/// layer's creation and the set's numbering live in one place.
+/// layer's creation and the set's numbering live in one place; every edge it
+/// writes, marked or cleared, is the user's from then on (`uvFileSeamN` loses
+/// it).
 void ApplyMarks(Mesh& mesh, u32 set, std::span<const EdgeId> edges, bool mark);
 
 // ============================================================================

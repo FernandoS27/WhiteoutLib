@@ -72,9 +72,16 @@ void ApplyMarks(Mesh& mesh, u32 set, std::span<const EdgeId> edges, bool mark) {
     }
     const std::span<u8> marks =
         mesh.attributes.getOrCreate<u8>(names::uvSeam(set), Domain::Edge, AttrType::Bool);
+    // An edge written here is the user's from now on, marked or cleared.
+    const std::span<u8> file = mesh.attributes.has(names::uvFileSeam(set), Domain::Edge)
+                                   ? mesh.attributes.get<u8>(names::uvFileSeam(set), Domain::Edge)
+                                   : std::span<u8>{};
     for (const EdgeId edge : edges) {
         if (edge.index() < marks.size()) {
             marks[edge.index()] = mark ? 1 : 0;
+        }
+        if (edge.index() < file.size()) {
+            file[edge.index()] = 0;
         }
     }
 }
