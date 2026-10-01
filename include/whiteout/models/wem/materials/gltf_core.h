@@ -65,11 +65,6 @@ private:
                         const std::string& where);
     gltf::TextureInfo textureInfoFor(const TextureInput& input, Diagnostics& diagnostics,
                                      const std::string& where);
-    /// Whether @p input's texture would actually cross — a real document
-    /// texture, not a replaceable slot, on explicit UVs. The stage/layer picks
-    /// ask this so a texture-less plate cannot claim a slot a textured layer
-    /// above it should fill.
-    bool textureExportable(const TextureInput& input) const;
     void noteExtension(const char* name);
 
     const Document& document_;

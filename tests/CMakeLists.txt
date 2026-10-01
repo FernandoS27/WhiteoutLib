@@ -205,6 +205,14 @@ whiteout_add_test(wem_convert_d3_test wem_convert_d3_test.cpp)
 target_include_directories(wem_convert_d3_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 whiteout_add_test(wem_convert_gltf_test wem_convert_gltf_test.cpp)
 target_include_directories(wem_convert_gltf_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# FBX_OBJ_DESIGN O1/O2: the OBJ/MTL codec and its WEM crossing.
+whiteout_add_test(wem_convert_obj_test wem_convert_obj_test.cpp)
+# FBX_OBJ_DESIGN F1: the FBX record codec, binary both ways and ASCII in.
+whiteout_add_test(fbx_codec_test fbx_codec_test.cpp)
+# FBX_OBJ_DESIGN F2-F7: FbxConverter both ways.
+whiteout_add_test(wem_convert_fbx_test wem_convert_fbx_test.cpp)
+# FBX_OBJ_DESIGN S1/S5/S7: the flat surface, the derive's factors, posed normals.
+whiteout_add_test(wem_interchange_shared_test wem_interchange_shared_test.cpp)
 whiteout_add_test(mdx_m3_effects_test mdx_m3_effects_test.cpp)
 target_include_directories(mdx_m3_effects_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # EDIT_MODE_SKIN S1: what a Warcraft III file holds for each vertex's skin.

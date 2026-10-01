@@ -51,6 +51,16 @@ Vector3f DeformPosition(const Vector3f& rest, std::span<const geom::Influence> i
 std::vector<Vector3f> DeformMesh(const Mesh& mesh, std::span<const Matrix44f> skin,
                                  std::span<const std::vector<geom::Influence>> written = {});
 
+/**
+ * @brief Every corner normal of @p mesh, posed by @p skin, indexed like the
+ *        mesh's Halfedge `normal` layer (empty when it has none).
+ *
+ * Each normal goes through its vertex's blended matrix inverse-transposed, so a
+ * non-uniform scale leaves it perpendicular to the posed surface, and comes out
+ * unit length. The influences are `DeformMesh`'s own, rigid sections included.
+ */
+std::vector<Vector3f> DeformNormals(const Mesh& mesh, std::span<const Matrix44f> skin);
+
 } // namespace skinning
 } // namespace wem
 } // namespace models

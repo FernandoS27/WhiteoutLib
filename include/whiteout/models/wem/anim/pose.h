@@ -74,6 +74,9 @@ public:
     /// @p node's model-space frame at @p seconds, composed up the chain.
     Matrix44f frame(u32 node, f32 seconds) const;
 
+    /// Every node's frame at @p seconds at once, indexed by node.
+    void framesAt(f32 seconds, std::vector<Matrix44f>& out) const;
+
     /// `A(b,t)`: the matrix the runtime skins a vertex with, the identity at
     /// rest. For a pivot rig that is the composed chain itself; otherwise it is
     /// the inverse bind ahead of it.

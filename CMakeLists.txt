@@ -360,6 +360,7 @@ add_library(whiteout_lib
     src/whiteout/utils/timeline_semaphore.cpp
     src/whiteout/vector_types.cpp
     src/whiteout/common/bit_io.cpp
+    src/whiteout/common/text.cpp
     src/whiteout/common/huffman_table.cpp
 
     # MDX
@@ -415,6 +416,17 @@ add_library(whiteout_lib
     src/whiteout/models/gltf/gltf.cpp
     src/whiteout/models/gltf/parser.cpp
     src/whiteout/models/gltf/writer.cpp
+
+    # FBX
+    src/whiteout/models/fbx/fbx.cpp
+    src/whiteout/models/fbx/binary.cpp
+    src/whiteout/models/fbx/ascii.cpp
+    src/whiteout/models/fbx/scene.cpp
+    src/whiteout/models/fbx/eval.cpp
+
+    # OBJ
+    src/whiteout/models/obj/parser.cpp
+    src/whiteout/models/obj/writer.cpp
 
     # WEM
     src/whiteout/models/wem/diagnostics.cpp
@@ -492,6 +504,7 @@ add_library(whiteout_lib
     src/whiteout/models/wem/materials/m3_core.cpp
     src/whiteout/models/wem/materials/d3_core.cpp
     src/whiteout/models/wem/materials/gltf_core.cpp
+    src/whiteout/models/wem/materials/surface_flatten.cpp
     src/whiteout/models/wem/model.cpp
     src/whiteout/models/wem/physics/physics.cpp
     src/whiteout/models/wem/physics/references.cpp
@@ -528,6 +541,12 @@ add_library(whiteout_lib
     src/whiteout/models/wem/converters/d3_anim.cpp
     src/whiteout/models/wem/converters/gltf_converter.cpp
     src/whiteout/models/wem/converters/gltf_anim.cpp
+    src/whiteout/models/wem/converters/export_sections.cpp
+    src/whiteout/models/wem/converters/interchange_mesh.cpp
+    src/whiteout/models/wem/converters/obj_converter.cpp
+    src/whiteout/models/wem/converters/fbx_import.cpp
+    src/whiteout/models/wem/converters/fbx_export.cpp
+    src/whiteout/models/wem/interchange.cpp
 
     # Textures
     src/whiteout/textures/texture.cpp

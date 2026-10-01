@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 #include <whiteout/models/wem/retarget.h>
+#include <whiteout/models/wem/materials/surface_flatten.h>
 
 #include <string>
 #include <unordered_map>
@@ -501,9 +502,14 @@ PbrDeferredBody toPbr(const CommonMaterial& source, const KindContext& ctx) {
     if (const PbrDeferredBody* pbr = source.pbr()) {
         return *pbr;
     }
+    // No body below is a metal. The struct's 1/1 default made every derived
+    // Phong surface chrome wherever a factor is read (glTF, FBX), and a baked
+    // ORM that lands later restores the factors with it.
     PbrDeferredBody out;
+    out.metallicFactor = 0.0f;
     if (const LegacyDeferredBody* legacy = source.legacy()) {
         out.baseColorFactor = legacy->diffuseFactor;
+        out.roughnessFactor = InterchangeRoughness(legacy->specularExponent);
         out.emissiveFactor =
             Vector3f{legacy->emissiveFactor.x, legacy->emissiveFactor.y, legacy->emissiveFactor.z};
         for (const auto& entry : legacy->slots) {
@@ -531,6 +537,7 @@ PbrDeferredBody toPbr(const CommonMaterial& source, const KindContext& ctx) {
     }
     if (const CompositeBody* composite = source.composite()) {
         out.baseColorFactor = composite->diffuseFactor;
+        out.roughnessFactor = InterchangeRoughness(composite->specularExponent);
         out.emissiveFactor = Vector3f{composite->emissiveFactor.x, composite->emissiveFactor.y,
                                       composite->emissiveFactor.z};
         for (const auto& entry : firstPerChannel(*composite, ctx)) {

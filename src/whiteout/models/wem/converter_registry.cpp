@@ -3,6 +3,8 @@
 
 #include "whiteout/models/wem/converters.h"
 #include "whiteout/models/wem/d3_converter.h"
+#include "whiteout/models/wem/fbx_converter.h"
+#include "whiteout/models/wem/obj_converter.h"
 
 #include <algorithm>
 #include <array>
@@ -104,6 +106,9 @@ void RegisterBuiltinConverters(ConverterRegistry& registry) {
     // Registered last on purpose: `findForProfile` prefers earlier entries, and
     // glTF listing `Generic` must never shadow a game converter's answer.
     registry.registerConverter(std::make_shared<GltfConverter>());
+    // After glTF, for the same reason: `findForProfile(Generic)` keeps its answer.
+    registry.registerConverter(std::make_shared<ObjConverter>());
+    registry.registerConverter(std::make_shared<FbxConverter>());
 }
 
 ConverterRegistry::ConverterRegistry() : pImpl(std::make_unique<Impl>()) {

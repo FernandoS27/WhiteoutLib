@@ -557,6 +557,11 @@ public:
     Result<Document> fromGltf(const gltf::Asset& source) const;
     Result<gltf::Asset> toGltf(const Document& document, ProfileId profile,
                                const GltfWriteOptions& options = {}) const;
+
+    /// The `TextureRef::path` `fromGltf` gives image @p image of @p source:
+    /// its URI, or for an embedded image (a buffer view or a `data:` URI) the
+    /// name the host writes its bytes under (FBX_OBJ_DESIGN §6).
+    static std::string ImagePath(const gltf::Asset& source, u32 image);
 };
 
 /// Registers the built-in converters. Called by `ConverterRegistry`'s

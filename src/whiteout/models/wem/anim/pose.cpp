@@ -144,6 +144,16 @@ Matrix44f ClipPose::skinning(u32 node, f32 seconds) const {
     return pose.skinning[node];
 }
 
+void ClipPose::framesAt(f32 seconds, std::vector<Matrix44f>& out) const {
+    if (tree_ == nullptr) {
+        out.clear();
+        return;
+    }
+    Pose pose;
+    poseAt(seconds, pose);
+    out = std::move(pose.frame);
+}
+
 void ClipPose::skinningAt(f32 seconds, std::vector<Matrix44f>& out) const {
     if (tree_ == nullptr) {
         out.clear();

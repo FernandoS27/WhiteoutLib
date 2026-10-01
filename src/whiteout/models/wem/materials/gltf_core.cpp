@@ -3,7 +3,8 @@
 
 #include "whiteout/models/wem/materials/gltf_core.h"
 
-#include <whiteout/textures/pbr_bake.h>
+#include "whiteout/models/wem/converters.h"
+#include "whiteout/models/wem/materials/surface_flatten.h"
 
 #include <cmath>
 
@@ -12,18 +13,6 @@ namespace models {
 namespace wem {
 
 namespace {
-
-/// Specular exponent to roughness. glTF's roughness is perceptual — the BRDF
-/// squares it into alpha, as Reforged's `ggxNDF` does — so this is the bake's
-/// `sqrt(sqrt(2 / (n + 2)))`, not the lobe-width alpha itself: the alpha put
-/// exponent 20, most of StarCraft II, at 0.30 instead of 0.55 and exported every
-/// surface lacquered. An exponent of 0 is "no specular highlight", roughness 1.
-f32 RoughnessFromExponent(f32 exponent) {
-    if (exponent <= 0.0f) {
-        return 1.0f;
-    }
-    return textures::pbr::RoughnessFromExponent(exponent);
-}
 
 gltf::WrapMode WrapToGltf(WrapMode mode) {
     switch (mode) {
@@ -63,14 +52,6 @@ std::string SuggestUri(const TextureRef& ref, u32 index) {
     return base + ".png";
 }
 
-/// Folds a factor-only input (no texture) into a colour factor.
-void FoldConstant(Vector4f& factor, const TextureInput& input) {
-    factor.x *= input.constant.x;
-    factor.y *= input.constant.y;
-    factor.z *= input.constant.z;
-    factor.w *= input.constant.w * input.weight;
-}
-
 } // namespace
 
 // ============================================================================
@@ -89,12 +70,6 @@ void GltfMaterialExporter::noteExtension(const char* name) {
         }
     }
     asset_.extensionsUsed.push_back(name);
-}
-
-bool GltfMaterialExporter::textureExportable(const TextureInput& input) const {
-    return input.hasTexture() && input.texture < document_.textures.size() &&
-           document_.textures[input.texture].replaceableId == 0 &&
-           input.mapping == UVMappingMode::ExplicitUV;
 }
 
 u32 GltfMaterialExporter::textureIndexFor(const TextureInput& input, Diagnostics& diagnostics,
@@ -211,22 +186,23 @@ GltfExportedMaterial GltfMaterialExporter::exportMaterial(const Material& materi
         }
     }
 
-    const CommonMaterial& common = material.Common();
+    const FlatSurface surface = FlattenSurface(document_, material);
     gltf::Material out;
     out.name = !material.name.empty() ? material.name : where;
 
     GltfExportedMaterial exported;
-    exported.invisible = hasFlag(common.flags, MaterialFlags::Invisible);
+    exported.invisible = surface.invisible;
+    exported.gameComposited = surface.gameComposited;
 
     // --- kind-independent state ----------------------------------------------
-    switch (common.blend) {
+    switch (surface.blend) {
     case BlendMode::Opaque:
         out.alphaMode = gltf::AlphaMode::Opaque;
         break;
     case BlendMode::AlphaKey:
     case BlendMode::Transparent:
         out.alphaMode = gltf::AlphaMode::Mask;
-        out.alphaCutoff = common.alphaTestThreshold > 0.0f ? common.alphaTestThreshold : 0.5f;
+        out.alphaCutoff = surface.alphaTestThreshold > 0.0f ? surface.alphaTestThreshold : 0.5f;
         break;
     case BlendMode::AlphaBlend:
         out.alphaMode = gltf::AlphaMode::Blend;
@@ -234,260 +210,79 @@ GltfExportedMaterial GltfMaterialExporter::exportMaterial(const Material& materi
     default:
         out.alphaMode = gltf::AlphaMode::Blend;
         diagnostics.warn(DiagCode::LossyBlendMode,
-                         where + ": " + std::string(ToString(common.blend)) +
+                         where + ": " + std::string(ToString(surface.blend)) +
                              " has no glTF equivalent; exported as BLEND");
         break;
     }
-    if (common.cull == CullMode::None) {
+    if (surface.cull == CullMode::None) {
         out.doubleSided = true;
-    } else if (common.cull == CullMode::Front) {
+    } else if (surface.cull == CullMode::Front) {
         // No glTF spelling; the mesh exporter reverses those primitives'
         // winding instead, which draws the same faces.
         exported.reverseWinding = true;
     }
-    if (hasFlag(common.flags, MaterialFlags::Unlit)) {
+    if (surface.unlit) {
         out.unlit = true;
         noteExtension("KHR_materials_unlit");
     }
 
-    // --- the body ------------------------------------------------------------
+    // --- the flattened surface -----------------------------------------------
+    out.pbr.baseColorFactor = surface.baseColorFactor;
+    out.pbr.metallicFactor = surface.metallicFactor;
+    out.pbr.roughnessFactor = surface.roughnessFactor;
+    out.emissiveFactor = surface.emissiveFactor;
     const auto dropLayer = [&](const char* what) {
         diagnostics.warn(DiagCode::LayerDropped,
                          where + ": " + what + " does not cross to metallic-roughness");
     };
-    const auto referencesReplaceable = [&](const TextureInput& input) {
-        return input.hasTexture() && input.texture < document_.textures.size() &&
-               document_.textures[input.texture].replaceableId != 0;
-    };
-
-    const auto exportLegacyBody = [&](const LegacyDeferredBody& body) {
-        out.pbr.baseColorFactor = body.diffuseFactor;
-        out.pbr.metallicFactor = 0.0f;
-        out.pbr.roughnessFactor = RoughnessFromExponent(body.specularExponent);
-        out.emissiveFactor =
-            Vector3f{body.emissiveFactor.x, body.emissiveFactor.y, body.emissiveFactor.z};
-        for (const auto& [slot, input] : body.slots) {
-            switch (slot) {
-            case LegacySlot::Diffuse:
-                if (textureExportable(input)) {
-                    out.pbr.baseColorTexture = textureInfoFor(input, diagnostics, where);
-                } else {
-                    if (referencesReplaceable(input)) {
-                        exported.gameComposited = true;
-                    }
-                    FoldConstant(out.pbr.baseColorFactor, input);
-                }
-                break;
-            case LegacySlot::Normal:
-                out.normalTexture = textureInfoFor(input, diagnostics, where);
-                break;
-            case LegacySlot::Emissive:
-                out.emissiveTexture = textureInfoFor(input, diagnostics, where);
-                break;
-            case LegacySlot::AmbientOcclusion:
-                out.occlusionTexture = textureInfoFor(input, diagnostics, where);
-                break;
-            case LegacySlot::Specular:
-                dropLayer("the specular map (the exponent lowers to a roughness constant)");
-                break;
-            case LegacySlot::Gloss:
-                dropLayer("the gloss map (the app driver packs it into an ORM; the library "
-                          "cannot)");
-                break;
-            case LegacySlot::Environment:
-                dropLayer("the environment layer");
-                break;
-            case LegacySlot::Height:
-                dropLayer("the height map");
-                break;
-            case LegacySlot::Lightmap:
-                dropLayer("the lightmap");
-                break;
-            case LegacySlot::Detail:
-                dropLayer("the detail layer");
-                break;
-            case LegacySlot::Count:
-                break;
-            }
-        }
-    };
-
-    switch (common.kind()) {
-    case MaterialKind::PBRDeferred: {
-        const PbrDeferredBody& body = *common.pbr();
-        out.pbr.baseColorFactor = body.baseColorFactor;
-        out.pbr.metallicFactor = body.metallicFactor;
-        out.pbr.roughnessFactor = body.roughnessFactor;
-        out.emissiveFactor = body.emissiveFactor;
-        for (const auto& [slot, input] : body.slots) {
-            switch (slot) {
-            case PbrSlot::BaseColor:
-                if (input.hasTexture()) {
-                    out.pbr.baseColorTexture = textureInfoFor(input, diagnostics, where);
-                } else {
-                    FoldConstant(out.pbr.baseColorFactor, input);
-                }
-                break;
-            case PbrSlot::Normal:
-                out.normalTexture = textureInfoFor(input, diagnostics, where);
-                break;
-            case PbrSlot::Orm:
-                // glTF's G=roughness/B=metalness packing IS the ORM layout,
-                // and its R is the occlusion the spec's occlusionTexture
-                // reads — one image, both bindings, the well-formed case.
-                out.pbr.metallicRoughnessTexture = textureInfoFor(input, diagnostics, where);
-                out.occlusionTexture = out.pbr.metallicRoughnessTexture;
-                break;
-            case PbrSlot::AmbientOcclusion:
-                out.occlusionTexture = textureInfoFor(input, diagnostics, where);
-                break;
-            case PbrSlot::Metallic:
-                dropLayer("the unpacked metallic map (the app driver packs an ORM; the "
-                          "library cannot)");
-                break;
-            case PbrSlot::Roughness:
-                dropLayer("the unpacked roughness map (the app driver packs an ORM; the "
-                          "library cannot)");
-                break;
-            case PbrSlot::Emissive:
-                out.emissiveTexture = textureInfoFor(input, diagnostics, where);
-                break;
-            case PbrSlot::Environment:
-                dropLayer("the environment layer");
-                break;
-            case PbrSlot::TeamColorMask:
-                dropLayer("the team-colour mask");
-                break;
-            case PbrSlot::Count:
-                break;
-            }
-        }
-        break;
-    }
-    case MaterialKind::LegacyDeferred:
-        exportLegacyBody(*common.legacy());
-        break;
-    case MaterialKind::Composite: {
-        const CompositeBody& body = *common.composite();
-        if (std::optional<LegacyDeferredBody> flattened = Flatten(body);
-            flattened.has_value()) {
-            exportLegacyBody(*flattened);
+    for (const SurfaceBinding& binding : surface.bindings) {
+        switch (binding.role) {
+        case SurfaceRole::BaseColor:
+            out.pbr.baseColorTexture = textureInfoFor(binding.input, diagnostics, where);
+            break;
+        case SurfaceRole::Normal:
+            out.normalTexture = textureInfoFor(binding.input, diagnostics, where);
+            break;
+        case SurfaceRole::Orm:
+            // glTF's G=roughness/B=metalness packing IS the ORM layout, and
+            // its R is the occlusion the spec's occlusionTexture reads — one
+            // image, both bindings, the well-formed case.
+            out.pbr.metallicRoughnessTexture = textureInfoFor(binding.input, diagnostics, where);
+            out.occlusionTexture = out.pbr.metallicRoughnessTexture;
+            break;
+        case SurfaceRole::Occlusion:
+            out.occlusionTexture = textureInfoFor(binding.input, diagnostics, where);
+            break;
+        case SurfaceRole::Emissive:
+            out.emissiveTexture = textureInfoFor(binding.input, diagnostics, where);
+            break;
+        case SurfaceRole::Specular:
+            dropLayer("the specular map (the exponent lowers to a roughness constant)");
+            break;
+        case SurfaceRole::Gloss:
+            dropLayer("the gloss map (the app driver packs it into an ORM; the library cannot)");
+            break;
+        case SurfaceRole::Height:
+            dropLayer("the height map");
+            break;
+        case SurfaceRole::Metallic:
+            dropLayer("the unpacked metallic map (the app driver packs an ORM; the library "
+                      "cannot)");
+            break;
+        case SurfaceRole::Roughness:
+            dropLayer("the unpacked roughness map (the app driver packs an ORM; the library "
+                      "cannot)");
+            break;
+        case SurfaceRole::Dropped:
+            dropLayer(binding.what);
             break;
         }
-        // Not a slot map: take each channel's first layer, drop the rest of
-        // the stack with a count — honest about how much shading is missing.
-        out.pbr.baseColorFactor = body.diffuseFactor;
-        out.pbr.metallicFactor = 0.0f;
-        out.pbr.roughnessFactor = RoughnessFromExponent(body.specularExponent);
-        out.emissiveFactor =
-            Vector3f{body.emissiveFactor.x, body.emissiveFactor.y, body.emissiveFactor.z};
-        bool haveColor = false;
-        bool haveNormal = false;
-        bool haveEmissive = false;
-        bool haveOcclusion = false;
-        bool sawReplaceable = false;
-        for (const CompositeLayer& layer : body.layers) {
-            bool taken = false;
-            sawReplaceable = sawReplaceable || referencesReplaceable(layer.input);
-            switch (layer.target) {
-            case SurfaceChannel::Color:
-                if (!haveColor && textureExportable(layer.input)) {
-                    out.pbr.baseColorTexture = textureInfoFor(layer.input, diagnostics, where);
-                    haveColor = true;
-                    taken = true;
-                }
-                break;
-            case SurfaceChannel::Normal:
-                if (!haveNormal) {
-                    out.normalTexture = textureInfoFor(layer.input, diagnostics, where);
-                    haveNormal = true;
-                    taken = true;
-                }
-                break;
-            case SurfaceChannel::Emissive:
-                if (!haveEmissive) {
-                    out.emissiveTexture = textureInfoFor(layer.input, diagnostics, where);
-                    haveEmissive = true;
-                    taken = true;
-                }
-                break;
-            case SurfaceChannel::AmbientOcclusion:
-                if (!haveOcclusion) {
-                    out.occlusionTexture = textureInfoFor(layer.input, diagnostics, where);
-                    haveOcclusion = true;
-                    taken = true;
-                }
-                break;
-            default:
-                break;
-            }
-            if (!taken) {
-                dropLayer("a stacked composite layer");
-            }
-        }
-        if (!haveColor && sawReplaceable) {
-            exported.gameComposited = true;
-        }
-        break;
-    }
-    case MaterialKind::Combiners: {
-        const CombinersBody& body = *common.combiners();
-        out.pbr.baseColorFactor = body.diffuseFactor;
-        out.pbr.metallicFactor = 0.0f;
-        out.pbr.roughnessFactor = 0.9f;
-        out.emissiveFactor =
-            Vector3f{body.emissiveFactor.x, body.emissiveFactor.y, body.emissiveFactor.z};
-        // The base-colour stage is the first whose texture actually crosses.
-        // WC3 body materials put the team-colour plate at stage 0 — no file
-        // behind it — with the diffuse texture layered above; a positional
-        // stage-0 claim exported those bodies flat white.
-        std::size_t baseStage = body.stages.size();
-        for (std::size_t stage = 0; stage < body.stages.size(); ++stage) {
-            if (textureExportable(body.stages[stage].input)) {
-                baseStage = stage;
-                break;
-            }
-        }
-        bool sawReplaceable = false;
-        for (std::size_t stage = 0; stage < body.stages.size(); ++stage) {
-            const CombinerStage& entry = body.stages[stage];
-            sawReplaceable = sawReplaceable || referencesReplaceable(entry.input);
-            if (stage == baseStage) {
-                out.pbr.baseColorTexture = textureInfoFor(entry.input, diagnostics, where);
-                continue;
-            }
-            // A texture-less stage under the base is a plate the base draws
-            // over; above it, only a plain modulate by a constant folds — the
-            // rest of a combiner chain is not expressible in
-            // metallic-roughness and the count says how much is missing.
-            if (!entry.input.hasTexture() &&
-                (stage < baseStage || entry.rgb == CombinerOp::Mod ||
-                 entry.rgb == CombinerOp::Mod2x)) {
-                FoldConstant(out.pbr.baseColorFactor, entry.input);
-                if (entry.rgb == CombinerOp::Mod2x) {
-                    out.pbr.baseColorFactor.x *= 2.0f;
-                    out.pbr.baseColorFactor.y *= 2.0f;
-                    out.pbr.baseColorFactor.z *= 2.0f;
-                }
-                continue;
-            }
-            dropLayer("a combiner stage");
-        }
-        if (baseStage == body.stages.size() && sawReplaceable) {
-            exported.gameComposited = true;
-        }
-        break;
-    }
-    case MaterialKind::Count:
-        break;
     }
 
-    // A composite's emissive factor, as the M3 import states it, is
-    // `hdrEmissiveMultiplier`: a gain on the emissive layer, shipped at 1 on
-    // materials that have no such layer. glTF reads a factor with no texture as
-    // constant emission, so those surfaces exported glowing flat white — every
-    // crate on SM_ArmorySpectreCrate. With no map to scale there is nothing to emit.
-    if (common.kind() == MaterialKind::Composite && !out.emissiveTexture.present()) {
+    // glTF reads a factor with no texture as constant emission; a composite's
+    // is only a gain (see `FlatSurface::emissiveIsGain`), and kept it exported
+    // every crate on SM_ArmorySpectreCrate glowing flat white.
+    if (surface.emissiveIsGain() && !out.emissiveTexture.present()) {
         out.emissiveFactor = Vector3f{0, 0, 0};
     }
 
@@ -563,14 +358,7 @@ u32 GltfMaterialImporter::textureRefFor(u32 textureIndex) {
     if (texture.source >= asset_.images.size()) {
         return kInvalidIndex;
     }
-    const gltf::Image& image = asset_.images[texture.source];
-    // The path is the URI when the file has one; an embedded image gets a
-    // synthesized name the app driver writes its extracted bytes under.
-    std::string path = image.uri;
-    if (path.empty()) {
-        path = !image.name.empty() ? image.name
-                                   : ("image" + std::to_string(texture.source) + ".png");
-    }
+    const std::string path = GltfConverter::ImagePath(asset_, texture.source);
     // One document texture per distinct path — two glTF textures over one
     // image (different samplers) share the file.
     for (std::size_t i = 0; i < document_.textures.size(); ++i) {

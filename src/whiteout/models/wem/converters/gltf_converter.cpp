@@ -42,6 +42,7 @@
 #include "whiteout/models/wem/geometry/render_view.h"
 #include "whiteout/models/wem/materials/gltf_core.h"
 
+#include "export_sections.h"
 #include "gltf_anim.h"
 #include "skin_skeleton.h"
 #include "gltf_bin.h"
@@ -141,141 +142,6 @@ void PermuteTriples(std::vector<f32>& values, u32 components) {
 // ============================================================================
 // Mesh export (GLTF_DESIGN §4)
 // ============================================================================
-
-/// One scalar sub-track's value at @p time — hold outside the key range, the
-/// left key for a step, a lerp for everything smoother. A visibility gate does
-/// not need the Hermite curve between an alpha of 0 and an alpha of 1.
-f32 EvalScalarTrack(const SubTrack& track, f32 time) {
-    if (track.times.empty()) {
-        return 1.0f;
-    }
-    const u32 perKey = ValuesPerKey(track.interp);
-    const f32* values = reinterpret_cast<const f32*>(track.values.data());
-    if (time <= track.times.front()) {
-        return values[0];
-    }
-    std::size_t k = 0;
-    while (k + 1 < track.times.size() && track.times[k + 1] <= time) {
-        ++k;
-    }
-    if (k + 1 >= track.times.size() || track.interp == Interpolation::Step) {
-        return values[k * perKey];
-    }
-    const f32 span = track.times[k + 1] - track.times[k];
-    const f32 u = span > 1e-9f ? (time - track.times[k]) / span : 0.0f;
-    return values[k * perKey] * (1.0f - u) + values[(k + 1) * perKey] * u;
-}
-
-/// The alpha each section and material slot shows in the model's **default
-/// look** — the first stand clip (else the first playable clip), sampled at
-/// its start and midpoint.
-///
-/// MDX keys effect geosets invisible outside their own sequence — dissipate
-/// orbs, hit flashes — through geoset and layer alpha, and core glTF cannot
-/// animate either. A static export is the default look, so what that look
-/// hides is skipped rather than shipped as permanently-visible white sheets
-/// (GLTF_DESIGN §4; Blizzard's own WC3→SC2 converter makes the same call with
-/// a 192/255 threshold).
-class DefaultLookAlpha {
-public:
-    DefaultLookAlpha(const Document& document, const Model& model, u32 modelIndex,
-                     ProfileId profile, u32 look) {
-        const Clip* clip = nullptr;
-        for (const Clip& candidate : document.clips) {
-            if (candidate.model != modelIndex ||
-                hasFlag(candidate.flags, ClipFlags::AutoPlay)) {
-                continue;
-            }
-            bool stand = candidate.name.size() >= 5;
-            for (std::size_t i = 0; stand && i < 5; ++i) {
-                const char c = candidate.name[i];
-                stand = (c | 0x20) == "stand"[i];
-            }
-            if (stand) {
-                clip = &candidate;
-                break;
-            }
-            if (clip == nullptr) {
-                clip = &candidate;
-            }
-        }
-        if (clip == nullptr) {
-            return;
-        }
-
-        // Containers flatten by priority, the same rule the animation export
-        // applies: the highest priority that keys a channel speaks for it.
-        std::vector<u32> order(clip->containers.size());
-        for (u32 i = 0; i < order.size(); ++i) {
-            order[i] = i;
-        }
-        std::stable_sort(order.begin(), order.end(), [&](u32 a, u32 b) {
-            return clip->containers[a].priority > clip->containers[b].priority;
-        });
-        std::vector<u32> seen;
-        for (const u32 containerIndex : order) {
-            for (const SubTrack& track : clip->containers[containerIndex].subTracks) {
-                if (std::find(seen.begin(), seen.end(), track.channel) != seen.end()) {
-                    continue;
-                }
-                seen.push_back(track.channel);
-                const AnimChannel* channel = model.animChannels.find(track.channel);
-                if (channel == nullptr || channel->target.channel != Channel::Alpha ||
-                    channel->valueType != geom::AttrType::F32 ||
-                    !track.wellSized(channel->valueType) || track.times.empty()) {
-                    continue;
-                }
-                // The larger of start and midpoint: a fade-in still counts as
-                // shown, a sequence-scoped zero still counts as hidden.
-                const f32 alpha = std::max(EvalScalarTrack(track, 0.0f),
-                                           EvalScalarTrack(track, clip->duration * 0.5f));
-                if (channel->target.kind == TrackTarget::Kind::Section) {
-                    note(sections_, (static_cast<u64>(channel->target.mesh) << 32) |
-                                        channel->target.sub,
-                         alpha);
-                } else if (channel->target.kind == TrackTarget::Kind::MaterialLayer &&
-                           channel->target.material.profile == profile &&
-                           channel->target.material.look == look) {
-                    // Layers stack, so the slot shows if any layer does — max
-                    // across the ordinals.
-                    note(slots_, channel->target.material.slot, alpha, true);
-                }
-            }
-        }
-    }
-
-    f32 sectionAlpha(u32 mesh, u32 section) const {
-        return lookup(sections_, (static_cast<u64>(mesh) << 32) | section);
-    }
-    f32 slotAlpha(u32 slot) const {
-        return lookup(slots_, slot);
-    }
-
-private:
-    static void note(std::vector<std::pair<u64, f32>>& map, u64 key, f32 alpha,
-                     bool takeMax = false) {
-        for (auto& entry : map) {
-            if (entry.first == key) {
-                if (takeMax) {
-                    entry.second = std::max(entry.second, alpha);
-                }
-                return;
-            }
-        }
-        map.emplace_back(key, alpha);
-    }
-    static f32 lookup(const std::vector<std::pair<u64, f32>>& map, u64 key) {
-        for (const auto& entry : map) {
-            if (entry.first == key) {
-                return entry.second;
-            }
-        }
-        return 1.0f;
-    }
-
-    std::vector<std::pair<u64, f32>> sections_;
-    std::vector<std::pair<u64, f32>> slots_;
-};
 
 struct MeshExportContext {
     gltf::Asset& asset;
@@ -546,51 +412,24 @@ u32 ExportMesh(MeshExportContext& context, const Mesh& mesh, u32 meshOrdinal) {
     // --- primitives, one per drawn section -----------------------------------
     gltf::Mesh out;
     out.name = mesh.name.empty() ? ("mesh" + std::to_string(meshOrdinal)) : mesh.name;
-    u32 undrawn = 0;
-    u32 invisible = 0;
-    u32 composited = 0;
-    u32 restHidden = 0;
+    SectionSkipCounts skipped;
     for (const geom::RenderRange& range : render.ranges) {
         if (range.indexCount == 0) {
-            continue;
-        }
-        if (range.section < mesh.sections.size() &&
-            !HasProfile(mesh.sections[range.section].profiles, context.profile)) {
-            ++undrawn;
-            continue;
-        }
-        if (range.section < mesh.sections.size() &&
-            hasFlag(mesh.sections[range.section].flags, SectionFlags::Hidden)) {
-            // An M3 cloth simulation cage, an M2 disabled submesh — data the
-            // renderer never draws either.
-            ++undrawn;
             continue;
         }
         const GltfExportedMaterial* slotMaterial =
             range.materialSlot < context.slotMaterials.size()
                 ? &context.slotMaterials[range.materialSlot]
                 : nullptr;
-        if (slotMaterial != nullptr && slotMaterial->invisible) {
-            // The surface exists and does not draw (D3's alternate bodies);
-            // exporting it would draw every alternate at once.
-            ++invisible;
-            continue;
+        SlotDrawState drawState;
+        if (slotMaterial != nullptr) {
+            drawState = SlotDrawState{slotMaterial->invisible, slotMaterial->gameComposited};
         }
-        if (slotMaterial != nullptr && slotMaterial->gameComposited) {
-            // Team colour and team glow have no pixels to export — the game
-            // composites them at run time; drawn without them this would be a
-            // flat white sheet.
-            ++composited;
-            continue;
-        }
-        if (context.defaultLook != nullptr &&
-            context.defaultLook->sectionAlpha(meshOrdinal, range.section) *
-                    context.defaultLook->slotAlpha(range.materialSlot) <
-                0.02f) {
-            // Alpha-keyed to nothing in the default look — a dissipate orb, a
-            // hit flash. glTF cannot animate it back on, so a static export
-            // shows the look, not the effect stash.
-            ++restHidden;
+        const SectionSkip skip =
+            SkipSection(mesh, meshOrdinal, range.section, range.materialSlot, context.profile,
+                        slotMaterial != nullptr ? &drawState : nullptr, context.defaultLook);
+        if (skip != SectionSkip::None) {
+            skipped.count(skip);
             continue;
         }
         gltf::Primitive primitive;
@@ -608,35 +447,7 @@ u32 ExportMesh(MeshExportContext& context, const Mesh& mesh, u32 meshOrdinal) {
         }
         out.primitives.push_back(std::move(primitive));
     }
-    if (invisible != 0) {
-        context.diagnostics.info(
-            DiagCode::SectionUndrawn,
-            "mesh '" + out.name + "': " + std::to_string(invisible) +
-                " section(s) bound to invisible materials, skipped",
-            ElementRef(ElementKind::Mesh, meshOrdinal), context.profile);
-    }
-    if (composited != 0) {
-        context.diagnostics.info(
-            DiagCode::SectionUndrawn,
-            "mesh '" + out.name + "': " + std::to_string(composited) +
-                " section(s) coloured only by game-composited textures (team colour/glow), "
-                "skipped",
-            ElementRef(ElementKind::Mesh, meshOrdinal), context.profile);
-    }
-    if (restHidden != 0) {
-        context.diagnostics.info(
-            DiagCode::SectionUndrawn,
-            "mesh '" + out.name + "': " + std::to_string(restHidden) +
-                " section(s) alpha-keyed invisible in the default look, skipped",
-            ElementRef(ElementKind::Mesh, meshOrdinal), context.profile);
-    }
-    if (undrawn != 0) {
-        context.diagnostics.info(
-            DiagCode::Unspecified,
-            "mesh '" + out.name + "': " + std::to_string(undrawn) +
-                " section(s) not drawn by profile " + ToString(context.profile) + ", skipped",
-            ElementRef(ElementKind::Mesh, meshOrdinal), context.profile);
-    }
+    skipped.report(context.diagnostics, out.name, meshOrdinal, context.profile);
     if (out.primitives.empty()) {
         return gltf::kNone;
     }
@@ -732,6 +543,18 @@ bool GltfConverter::supportsExport() const {
 
 u32 GltfConverter::defaultExportVersion() const {
     return 2;
+}
+
+std::string GltfConverter::ImagePath(const gltf::Asset& source, u32 image) {
+    if (image >= source.images.size()) {
+        return {};
+    }
+    const gltf::Image& entry = source.images[image];
+    // A `data:` URI is an embedded image too, not a path.
+    if (!entry.uri.empty() && !entry.uri.starts_with("data:")) {
+        return entry.uri;
+    }
+    return !entry.name.empty() ? entry.name : "image" + std::to_string(image) + ".png";
 }
 
 Result<Document> GltfConverter::importFromBytes(std::span<const u8> data) const {
