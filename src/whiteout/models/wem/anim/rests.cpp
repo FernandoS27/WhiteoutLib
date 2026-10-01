@@ -11,6 +11,7 @@
 #include "whiteout/models/wem/anim/track_read.h"
 #include "whiteout/models/wem/converters.h"
 #include "whiteout/models/wem/native/mdx_native.h"
+#include "whiteout/models/wem/physics/switches.h"
 
 namespace whiteout {
 namespace models {
@@ -195,6 +196,12 @@ TrackRests WarcraftRests(const Document& document, u32 model, const TrackTarget&
         return Same(AsType(type, StageStatic(source, target)));
     default:
         break;
+    }
+
+    // A physics switch rests as the switch rule reads it where no clip keys it
+    // (EDIT_MODE_PHYSICS_BAKE_DESIGN.md §9.1).
+    if (target.kind == TrackTarget::Kind::Physics) {
+        return Same(AsType(type, PhysicsSwitchRest(source, target)));
     }
 
     switch (target.kind) {

@@ -29,6 +29,7 @@
  * need nothing, since container 0 already holds the whole pose.
  */
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -266,6 +267,158 @@ struct ClipTrackSet {
     }
 };
 
+// ============================================================================
+// Physics baked into a clip (EDIT_MODE_PHYSICS_BAKE_DESIGN.md §7-§9)
+// ============================================================================
+
+/// Whether the bake runs a clip as a loop: from the clip's flag and its name
+/// (`BakeLoops`), or as the user set it.
+enum class BakePlays : u8 { FromClip, Loops, Once };
+/// What runs before a clip's frame 0 (§7.2).
+enum class BakeFrom : u8 { Auto, Itself, FirstFrame, Clip };
+/// What a once-played clip's end is matched into (§7.4).
+enum class BakeTo : u8 { Auto, Nothing, Clip };
+/// How a loop's end is matched to its start (§7.3).
+enum class LoopMatch : u8 { Crossfade, Offset, Off };
+enum class MatchWhere : u8 { End, Start, Both };
+enum class MatchEase : u8 { Smooth, Linear, EaseIn, EaseOut, Custom };
+/// The ground the bake's run stands on (§4.8).
+enum class BakeFloor : u8 { Grid, Off, FollowsRoot };
+
+/// A wind or a blast of one clip's bake (§4.7). Never exported: the bake writes
+/// what it does into keys.
+struct BakeWorldForce {
+    enum class Kind : u8 { Wind, Blast };
+    Kind kind = Kind::Wind;
+    f32 start = 0.0f; ///< Seconds; a blast's moment.
+    f32 end = 0.0f;   ///< Seconds; a wind's end.
+    f32 rampIn = 0.0f;
+    f32 rampOut = 0.0f;
+    f32 strength = 0.15f; ///< In g.
+    f32 heading = 0.0f;   ///< Wind: degrees about +Z from +X.
+    f32 rise = 0.0f;      ///< Wind: degrees up from level.
+    f32 gusts = 0.3f;     ///< Wind: the gusts' share of its strength.
+    f32 gustSpeed = 1.0f; ///< Wind: gusts a second.
+    f32 radius = 1.0f;    ///< Blast: model heights.
+    f32 height = 0.2f;    ///< Blast: how high over the model's feet it goes off, model heights.
+    /// Blast: where it goes off; the model's middle when invalid. A node
+    /// referencer.
+    u32 centreNode = kInvalidNode;
+    /// The World channels it pushes on: Wind (1 << 16) or Explosion (1 << 17)
+    /// by kind, never none.
+    u32 channels = 0;
+
+    template <class V>
+    void reflect(V& v) {
+        v.field("kind", kind);
+        v.field("start", start);
+        v.field("end", end);
+        v.field("rampIn", rampIn);
+        v.field("rampOut", rampOut);
+        v.field("strength", strength);
+        v.field("heading", heading);
+        v.field("rise", rise);
+        v.field("gusts", gusts);
+        v.field("gustSpeed", gustSpeed);
+        v.field("radius", radius);
+        v.field("height", height);
+        v.field("centreNode", centreNode);
+        v.field("channels", channels);
+    }
+};
+
+/// What a bake replaced and wrote, so it can be redone and undone (§8.4).
+struct PhysicsBake {
+    /// Per container of the clip, the sub-tracks the bake replaced or cleared,
+    /// as they were (a TCB track in its TCB form); and each one's place in
+    /// its container, container by container, so an Unbake puts it back there.
+    std::vector<SubTrackContainer> source;
+    std::vector<u32> positions;
+    /// The channels the bake wrote; and those a bake declared that it keeps,
+    /// its own before a Rebake and any it keyed again, which an Unbake drops
+    /// where nothing keys them.
+    std::vector<u32> channels;
+    std::vector<u32> appended;
+    /// What went in, to tell a clip out of date; and what came out, to tell
+    /// baked keys edited since.
+    u64 inputs = 0;
+    u64 written = 0;
+    u32 nodes = 0;       ///< Nodes written.
+    u32 keys = 0;        ///< Keys written.
+    u32 restated = 0;    ///< TCB tracks restated as Hermite.
+    f32 maxError = 0.0f; ///< Against a key every step, model units.
+    f32 seamBefore = 0.0f; ///< Degrees, the worst node's, before matching.
+    f32 seamAfter = 0.0f;
+    /// After each preheat loop, the largest change from the loop before, in
+    /// degrees (§7.5).
+    std::vector<f32> settling;
+
+    template <class V>
+    void reflect(V& v) {
+        v.field("source", source);
+        v.field("positions", positions);
+        v.field("channels", channels);
+        v.field("appended", appended);
+        v.field("inputs", inputs);
+        v.field("written", written);
+        v.field("nodes", nodes);
+        v.field("keys", keys);
+        v.field("restated", restated);
+        v.field("maxError", maxError);
+        v.field("seamBefore", seamBefore);
+        v.field("seamAfter", seamAfter);
+        v.field("settling", settling);
+    }
+};
+
+/// One clip's bake settings (§9.2): a clip is *set up* once it has them.
+struct ClipPhysics {
+    BakePlays plays = BakePlays::FromClip;
+    BakeFrom comesFrom = BakeFrom::Auto;
+    std::string comesFromClip; ///< `BakeFrom::Clip`: by name, as the games name sequences.
+    u8 preheat = 2;       ///< Loops run before frame 0, 0-20.
+    BakeTo goesTo = BakeTo::Auto;
+    std::string goesToClip;
+    LoopMatch match = LoopMatch::Crossfade;
+    MatchWhere where = MatchWhere::End;
+    f32 window = 0.25f; ///< The match's width, a share of the clip.
+    MatchEase ease = MatchEase::Smooth;
+    std::vector<Vector2f> curve; ///< `MatchEase::Custom`: 0 -> 1, both ends pinned.
+    /// The visible error the keys may leave, a share of the model's height; 0
+    /// keeps a key every step (§8.3).
+    f32 tolerance = 0.001f;
+    bool meshMeasure = false;
+    u8 keyRate = 60;  ///< Keys a second at most, with no reduction.
+    u8 stepRate = 60; ///< Simulation steps a second: 60, 120 or 240.
+    BakeFloor floor = BakeFloor::Grid;
+    bool travel = false; ///< Carried forward at the clip's move speed (§4.8).
+    std::vector<BakeWorldForce> world;
+    std::optional<PhysicsBake> baked;
+
+    template <class V>
+    void reflect(V& v) {
+        v.field("plays", plays);
+        v.field("comesFrom", comesFrom);
+        v.field("comesFromClip", comesFromClip);
+        v.field("preheat", preheat);
+        v.field("goesTo", goesTo);
+        v.field("goesToClip", goesToClip);
+        v.field("match", match);
+        v.field("where", where);
+        v.field("window", window);
+        v.field("ease", ease);
+        v.field("curve", curve);
+        v.field("tolerance", tolerance);
+        v.field("meshMeasure", meshMeasure);
+        v.field("keyRate", keyRate);
+        v.field("stepRate", stepRate);
+        v.field("floor", floor);
+        v.field("travel", travel);
+        v.field("world", world);
+        v.optional("baked", baked);
+    }
+};
+
 struct Clip;
 
 /// Whether `toMdx` writes @p clip's keys as they stand, rather than keying its
@@ -322,6 +475,10 @@ struct Clip {
     /// it is read (`DerivedReadRule`).
     ReadRule readRule = ReadRule::Wc3;
 
+    /// How its physics is simulated and baked into it; none for a clip not
+    /// set up (EDIT_MODE_PHYSICS_BAKE_DESIGN.md §9.2).
+    std::optional<ClipPhysics> physics;
+
     template <class V>
     void reflect(V& v) {
         v.field("name", name);
@@ -339,6 +496,8 @@ struct Clip {
         v.since(3).field("trackSets", trackSets);
         // v4: the read rule; derived from the markers the import left before.
         v.since(4).fieldOr("readRule", readRule, [this] { readRule = DerivedReadRule(*this); });
+        // v5: the physics bake's settings and record; none before.
+        v.since(5).optional("physics", physics);
     }
 };
 

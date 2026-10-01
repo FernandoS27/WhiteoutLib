@@ -60,6 +60,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimChannel>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimSet>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimTag>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AssetKey>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::BakeWorldForce>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Clip>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ClipEvent>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ClipTrackSet>);
@@ -162,6 +163,25 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 2 of bind_wem(), which calls the parts in order.
 void bind_wem_2(py::module_& m) {
+    py::class_<whiteout::models::wem::PhysicsBody>(m, "PhysicsBody")
+        .def(py::init<>())
+        .def_readwrite("id", &whiteout::models::wem::PhysicsBody::id)
+        .def_readwrite("node", &whiteout::models::wem::PhysicsBody::node)
+        .def_readwrite("motion", &whiteout::models::wem::PhysicsBody::motion)
+        .def_readwrite("simulates", &whiteout::models::wem::PhysicsBody::simulates, R"doc(The rest value of `Channel::PhysicsDynamic`: whether it simulates where no key says otherwise.)doc")
+        .def_readwrite("shapes", &whiteout::models::wem::PhysicsBody::shapes)
+        .def_readwrite("linear_damping", &whiteout::models::wem::PhysicsBody::linearDamping)
+        .def_readwrite("angular_damping", &whiteout::models::wem::PhysicsBody::angularDamping)
+        .def_readwrite("inertia_scale", &whiteout::models::wem::PhysicsBody::inertiaScale)
+        .def_readwrite("gravity_scale", &whiteout::models::wem::PhysicsBody::gravityScale, R"doc(StarCraft II hard-wires 1; World of Warcraft authors it.)doc")
+        .def_readwrite("inherit_dynamic", &whiteout::models::wem::PhysicsBody::inheritDynamic, R"doc(Takes the nearest bodied ancestor's current state instead of its own (StarCraft II flag 0x40).)doc")
+        .def_readwrite("exempt_from_ragdoll", &whiteout::models::wem::PhysicsBody::exemptFromRagdoll, R"doc(Stays kinematic when the model ragdolls (StarCraft II flag 0x100).)doc")
+        .def_readwrite("force_channels", &whiteout::models::wem::PhysicsBody::forceChannels, R"doc(Which force fields act on it: matched against `ForceFieldPayload::channels`. StarCraft II's `localForces | worldForces << 16`.)doc")
+        .def_readwrite("sc2", &whiteout::models::wem::PhysicsBody::sc2)
+        .def_readwrite("wow", &whiteout::models::wem::PhysicsBody::wow)
+        .def_readwrite("locked", &whiteout::models::wem::PhysicsBody::locked, R"doc(Tuned by hand: the editor's tools that run over a whole ragdoll leave its shapes alone (EDIT_MODE_PHYSICS_REDESIGN.md §8.7). Authoring state; no export reads it.)doc")
+    ;
+
     py::class_<whiteout::models::wem::JointSpring>(m, "JointSpring")
         .def(py::init<>())
         .def_readwrite("hz", &whiteout::models::wem::JointSpring::hz)
@@ -510,6 +530,7 @@ Colours are RGBA in 0..1, the channel convention; a `u16` squirt count widens to
     py::bind_vector<std::vector<whiteout::models::wem::AnimSet>>(m, "VectorWemAnimSet");
     py::bind_vector<std::vector<whiteout::models::wem::AnimTag>>(m, "VectorWemAnimTag");
     py::bind_vector<std::vector<whiteout::models::wem::AssetKey>>(m, "VectorWemAssetKey");
+    py::bind_vector<std::vector<whiteout::models::wem::BakeWorldForce>>(m, "VectorWemBakeWorldForce");
     py::bind_vector<std::vector<whiteout::models::wem::Clip>>(m, "VectorWemClip");
     py::bind_vector<std::vector<whiteout::models::wem::ClipEvent>>(m, "VectorWemClipEvent");
     py::bind_vector<std::vector<whiteout::models::wem::ClipTrackSet>>(m, "VectorWemClipTrackSet");
@@ -520,5 +541,4 @@ Colours are RGBA in 0..1, the channel convention; a `u16` squirt count widens to
     py::bind_vector<std::vector<whiteout::models::wem::CompositeLayer>>(m, "VectorWemCompositeLayer");
     py::bind_vector<std::vector<whiteout::models::wem::Diagnostic>>(m, "VectorWemDiagnostic");
     py::bind_vector<std::vector<whiteout::models::wem::Diagnostics::CodeCount>>(m, "VectorDiagnosticsCodeCount");
-    py::bind_vector<std::vector<whiteout::models::wem::Look>>(m, "VectorWemLook");
 }

@@ -60,6 +60,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimChannel>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimSet>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimTag>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AssetKey>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::BakeWorldForce>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Clip>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ClipEvent>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ClipTrackSet>);
@@ -162,6 +163,7 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 3 of bind_wem(), which calls the parts in order.
 void bind_wem_3(py::module_& m) {
+    py::bind_vector<std::vector<whiteout::models::wem::Look>>(m, "VectorWemLook");
     py::bind_vector<std::vector<whiteout::models::wem::Material>>(m, "VectorWemMaterial");
     py::bind_vector<std::vector<whiteout::models::wem::MaterialFeature>>(m, "VectorWemMaterialFeature");
     py::bind_vector<std::vector<whiteout::models::wem::Mesh>>(m, "VectorWemMesh");

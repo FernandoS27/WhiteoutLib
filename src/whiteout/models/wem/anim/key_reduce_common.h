@@ -128,10 +128,12 @@ bool NearTurn(const T& a, const T& b, f64 noise) {
 }
 
 /// Whether a channel's keys are never touched (§3.2): a squirt's, whose every
-/// key fires a burst, and a pose stage's, which the export bakes.
+/// key fires a burst; a pose stage's, which the export bakes; and a physics
+/// switch's, whose clip reads a missing track apart from its rest
+/// (EDIT_MODE_PHYSICS_BAKE_DESIGN.md §4.5).
 inline bool Untouchable(const Document& document, u32 model, const AnimChannel& channel) {
     const TrackTarget& target = channel.target;
-    if (IsStageChannel(target) || HeldByRenderer(document, model, channel)) {
+    if (IsStageChannel(target) || IsPhysicsChannel(target) || HeldByRenderer(document, model, channel)) {
         return true;
     }
     const NodeTree& tree = document.models[model].nodes;

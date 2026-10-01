@@ -466,7 +466,9 @@ add_library(whiteout_lib
     src/whiteout/models/wem/anim/channel.cpp
     src/whiteout/models/wem/anim/clip.cpp
     src/whiteout/models/wem/anim/crossing.cpp
+    src/whiteout/models/wem/anim/curve_keys.cpp
     src/whiteout/models/wem/anim/curves.cpp
+    src/whiteout/models/wem/anim/detach.cpp
     src/whiteout/models/wem/anim/key_reduce.cpp
     src/whiteout/models/wem/anim/key_reduce_tolerance.cpp
     src/whiteout/models/wem/anim/m3_math.cpp
@@ -474,6 +476,7 @@ add_library(whiteout_lib
     src/whiteout/models/wem/anim/rests.cpp
     src/whiteout/models/wem/anim/stages.cpp
     src/whiteout/models/wem/anim/track_read.cpp
+    src/whiteout/models/wem/anim/transition.cpp
     src/whiteout/models/wem/materials/texture.cpp
     src/whiteout/models/wem/materials/common.cpp
     src/whiteout/models/wem/materials/material.cpp
@@ -508,6 +511,8 @@ add_library(whiteout_lib
     src/whiteout/models/wem/converters/m2_physics.cpp
     src/whiteout/models/wem/converters/d3_physics.cpp
     src/whiteout/models/wem/physics/crossing.cpp
+    src/whiteout/models/wem/physics/switches.cpp
+    src/whiteout/models/wem/physics/bake.cpp
     src/whiteout/models/wem/converters/m3_track_sink.cpp
     src/whiteout/models/cross/mdx_m3_effects.cpp
     src/whiteout/models/cross/wc3_sc2_emitters.cpp

@@ -11,10 +11,12 @@
  * What the target cannot say is said its way where it has one, else dropped and
  * reported:
  * - **Rigs become the target's switches.** StarCraft II switches bodies by
- *   animation: an `OnDeath` rig's bodies simulate from the start of every
- *   *Death* clip and rest off elsewhere, and a model with one keeps it alone.
+ *   animation: each body rests as the switch rule says and is keyed wherever
+ *   a clip's state leaves that (`switches.h`, EDIT_MODE_PHYSICS_BAKE_DESIGN.md
+ *   §8.6), so an `OnDeath` rig's bodies simulate from the start of every
+ *   *Death* clip. A rig stays when it is the death rig or moves somewhere.
  *   World of Warcraft simulates what it builds from creation, so it keeps only
- *   the rigs that start that way.
+ *   the rigs that start that way, and reports the clips that switch bodies.
  * - **Cages over the target's particle limit are decimated**, shortest edge
  *   first and a free particle into a pinned one before anything else; what a
  *   collapsed particle drove follows the particle it collapsed into.

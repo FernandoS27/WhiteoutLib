@@ -3,8 +3,10 @@
 
 #include <whiteout/models/wem/physics/crossing.h>
 
+#include <whiteout/models/wem/anim/track_read.h>
 #include <whiteout/models/wem/geometry/ops.h>
 #include <whiteout/models/wem/physics/references.h>
+#include <whiteout/models/wem/physics/switches.h>
 
 #include <algorithm>
 #include <array>
@@ -65,49 +67,256 @@ u32 ChooseRigs(Model& model, ProfileId target, const PhysicsCaps& caps, Diagnost
     return changed;
 }
 
-/// A rig's start as the target's switches: an `OnDeath` rig's bodies on from
-/// the start of every *Death* clip of @p m, off elsewhere.
-void StartsToSwitches(Document& document, u32 m) {
-    Model& model = document.models[m];
-    const f32 on = 1.0f;
-    for (const PhysicsRig& rig : model.physics.rigs) {
+/// Every body's state in each clip of @p m, as the switch rule reads it
+/// (EDIT_MODE_PHYSICS_BAKE_DESIGN.md §4.5): at 0 and at every switch key's
+/// time, which is where a state can change, so a key keeps its time.
+struct ClipStates {
+    u32 clip = kInvalidIndex;
+    std::vector<f32> times;
+    std::vector<std::vector<BodySwitch>> states; ///< Per time, in body order.
+};
+
+std::vector<ClipStates> RuleStates(const Document& document, u32 m) {
+    const Model& model = document.models[m];
+    std::vector<ClipStates> out;
+    for (u32 c = 0; c < document.clips.size(); ++c) {
+        const Clip& clip = document.clips[c];
+        if (clip.model != m || clip.containers.empty() || IsGlobalLoop(clip)) {
+            continue;
+        }
+        ClipStates read;
+        read.clip = c;
+        read.times.push_back(0.0f);
+        for (const SubTrackContainer& container : clip.containers) {
+            for (const SubTrack& track : container.subTracks) {
+                const AnimChannel* channel = model.animChannels.find(track.channel);
+                if (channel == nullptr || channel->target.kind != TrackTarget::Kind::Physics ||
+                    (channel->target.channel != Channel::PhysicsDynamic &&
+                     channel->target.channel != Channel::PhysicsRagdoll)) {
+                    continue;
+                }
+                for (const f32 t : track.times) {
+                    if (t > 0.0f && t <= clip.duration) {
+                        read.times.push_back(t);
+                    }
+                }
+            }
+        }
+        std::sort(read.times.begin(), read.times.end());
+        read.times.erase(std::unique(read.times.begin(), read.times.end()), read.times.end());
+        const SwitchReader reader(document, m, c, SwitchScope::Clip);
+        std::vector<BodySwitch> previous;
+        for (const f32 t : read.times) {
+            std::vector<BodySwitch> now;
+            reader.read(t, previous, now);
+            read.states.push_back(now);
+            previous = std::move(now);
+        }
+        out.push_back(std::move(read));
+    }
+    return out;
+}
+
+/// For a target with switches: every rig `Keeps` keeps, and every rig with a
+/// member moving in some clip, with the joint partners of what it keeps
+/// (§8.6). An *Always* ragdoll beside an *On death* one stays: per-body
+/// switches need no single ragdoll.
+u32 ChooseSwitchedRigs(Model& model, ProfileId target, const PhysicsCaps& caps, std::span<const ClipStates> states,
+                       Diagnostics& out) {
+    PhysicsSet& physics = model.physics;
+    std::vector<u8> moving(physics.bodies.size(), 0);
+    for (const ClipStates& clip : states) {
+        for (const std::vector<BodySwitch>& row : clip.states) {
+            for (std::size_t b = 0; b < row.size() && b < moving.size(); ++b) {
+                moving[b] |= row[b].active ? 1 : 0;
+            }
+        }
+    }
+    const auto moves = [&](u32 id) {
+        for (std::size_t b = 0; b < physics.bodies.size(); ++b) {
+            if (physics.bodies[b].id == id) {
+                return moving[b] != 0;
+            }
+        }
+        return false;
+    };
+    const bool hasOnDeath = std::any_of(physics.rigs.begin(), physics.rigs.end(), [](const PhysicsRig& rig) {
+        return rig.start == RigStart::OnDeath && !rig.bodies.empty();
+    });
+    const auto keeps = [&](const PhysicsRig& rig) {
+        return Keeps(caps, rig.start, hasOnDeath) || std::any_of(rig.bodies.begin(), rig.bodies.end(), moves);
+    };
+    std::set<u32> kept;
+    for (const PhysicsRig& rig : physics.rigs) {
+        if (keeps(rig)) {
+            kept.insert(rig.bodies.begin(), rig.bodies.end());
+        }
+    }
+    // What a kept body hangs from stays with it: a cape root's spine.
+    std::set<u32> partners;
+    for (const PhysicsJoint& joint : physics.joints) {
+        if (kept.count(joint.bodyA) != 0 || kept.count(joint.bodyB) != 0) {
+            partners.insert(joint.bodyA);
+            partners.insert(joint.bodyB);
+        }
+    }
+    kept.insert(partners.begin(), partners.end());
+    u32 changed = 0;
+    std::vector<u32> gone;
+    for (const PhysicsRig& rig : physics.rigs) {
+        if (keeps(rig)) {
+            continue;
+        }
+        ++changed;
+        out.warn(DiagCode::PhysicsRigDropped,
+                 "rig '" + rig.name + "': no body of it moves in any clip, and the model's death rig is the one the "
+                 "target switches on",
+                 ElementRef(ElementKind::PhysicsRecord, rig.id), target);
         for (const u32 id : rig.bodies) {
-            PhysicsBody* body = model.physics.body(id);
-            if (body == nullptr) {
+            if (kept.count(id) == 0) {
+                gone.push_back(id);
+            }
+        }
+    }
+    if (!gone.empty()) {
+        const std::vector<u32> removed = RemovePhysicsBodies(physics, gone);
+        InvalidatePhysicsChannels(model.animChannels, removed, out);
+        DetachPoseStages(model.poseStages, removed);
+    }
+    return changed;
+}
+
+/// The rule's states as the target's switches (§8.6): each rig member's rest,
+/// and its `PhysicsDynamic` keyed in a clip wherever its state there leaves
+/// it; a rig's drop so folded into its members. An *On death* member keeps
+/// its channel, keyed or not, as the target's death rig. An *Inherit* body
+/// keeps the flag, whose ancestor rule is the target's own, and a body no rig
+/// holds keeps what it had. Blend has no target field: dropped.
+void SwitchesFromRule(Document& document, u32 m, std::span<const u32> readIds, std::span<const ClipStates> states,
+                      ProfileId target, Diagnostics& out) {
+    Model& model = document.models[m];
+    PhysicsSet& physics = model.physics;
+    std::vector<u32> order;
+    for (const PhysicsRig& rig : physics.rigs) {
+        for (const u32 id : rig.bodies) {
+            if (std::find(order.begin(), order.end(), id) == order.end()) {
+                order.push_back(id);
+            }
+        }
+    }
+    for (const u32 id : order) {
+        PhysicsBody* body = physics.body(id);
+        const auto column = std::find(readIds.begin(), readIds.end(), id);
+        if (body == nullptr || body->inheritDynamic || column == readIds.end()) {
+            continue;
+        }
+        const std::size_t at = static_cast<std::size_t>(column - readIds.begin());
+        TrackTarget rest;
+        rest.kind = TrackTarget::Kind::Physics;
+        rest.sub = id;
+        rest.channel = Channel::PhysicsDynamic;
+        body->simulates = PhysicsSwitchRest(model, rest) >= 0.5f;
+        const bool onDeath = std::any_of(physics.rigs.begin(), physics.rigs.end(), [&](const PhysicsRig& rig) {
+            return rig.start == RigStart::OnDeath && std::find(rig.bodies.begin(), rig.bodies.end(), id) != rig.bodies.end();
+        });
+        u32 channel = onDeath ? PhysicsSwitchChannel(model, id, Channel::PhysicsDynamic)
+                              : FindPhysicsChannel(model, id, Channel::PhysicsDynamic);
+        for (const ClipStates& read : states) {
+            Clip& clip = document.clips[read.clip];
+            if (channel != kInvalidIndex) {
+                for (SubTrackContainer& container : clip.containers) {
+                    std::erase_if(container.subTracks, [&](const SubTrack& track) { return track.channel == channel; });
+                }
+            }
+            const bool leaves = std::any_of(read.states.begin(), read.states.end(), [&](const std::vector<BodySwitch>& row) {
+                return at < row.size() && row[at].active != body->simulates;
+            });
+            if (!leaves) {
                 continue;
             }
-            switch (rig.start) {
-            case RigStart::Always:
-                body->simulates = true;
-                break;
-            case RigStart::Never:
-                body->simulates = false;
-                break;
-            case RigStart::OnDeath: {
-                body->simulates = false;
-                const u32 channel = PhysicsSwitchChannel(model, id, Channel::PhysicsDynamic);
-                for (Clip& clip : document.clips) {
-                    if (clip.model != m || clip.containers.empty() || !IsDeathClipName(clip.name)) {
-                        continue;
-                    }
-                    for (SubTrackContainer& container : clip.containers) {
-                        std::erase_if(container.subTracks,
-                                      [&](const SubTrack& track) { return track.channel == channel; });
-                    }
-                    SubTrack track;
-                    track.channel = channel;
-                    track.interp = Interpolation::Step;
-                    track.times.push_back(0.0f);
-                    track.values.resize(sizeof(f32));
-                    std::memcpy(track.values.data(), &on, sizeof(f32));
-                    clip.containers.front().subTracks.push_back(std::move(track));
+            if (channel == kInvalidIndex) {
+                channel = PhysicsSwitchChannel(model, id, Channel::PhysicsDynamic);
+            }
+            SubTrack track;
+            track.channel = channel;
+            track.interp = Interpolation::Step;
+            f32 last = -1.0f;
+            for (std::size_t k = 0; k < read.times.size(); ++k) {
+                const f32 on = at < read.states[k].size() && read.states[k][at].active ? 1.0f : 0.0f;
+                if (on != last) {
+                    track.times.push_back(read.times[k]);
+                    const u8* bytes = reinterpret_cast<const u8*>(&on);
+                    track.values.insert(track.values.end(), bytes, bytes + sizeof(f32));
+                    last = on;
                 }
-                break;
             }
-            case RigStart::Animated:
-            case RigStart::Count:
-                break;
+            // Held to a loop's end: StarCraft II wraps a looping track at its
+            // own last key, which would turn the last state back to the first.
+            if (clip.looping && !track.times.empty() && track.times.back() < clip.duration) {
+                track.times.push_back(clip.duration);
+                const u8* bytes = reinterpret_cast<const u8*>(&last);
+                track.values.insert(track.values.end(), bytes, bytes + sizeof(f32));
             }
+            clip.containers.front().subTracks.push_back(std::move(track));
+        }
+    }
+    // The drops are in the members' keys now; Blend has nowhere to go.
+    std::vector<u32> dropped;
+    bool blended = false;
+    for (const AnimChannel& channel : model.animChannels.channels) {
+        if (channel.target.kind != TrackTarget::Kind::Physics ||
+            (channel.target.channel != Channel::PhysicsRagdoll && channel.target.channel != Channel::PhysicsBlend)) {
+            continue;
+        }
+        dropped.push_back(channel.id);
+        if (channel.target.channel == Channel::PhysicsBlend) {
+            for (const Clip& clip : document.clips) {
+                const SubTrack* track = clip.model == m ? FindSubTrack(clip, channel.id) : nullptr;
+                blended |= track != nullptr && !track->times.empty();
+            }
+        }
+    }
+    if (dropped.empty()) {
+        return;
+    }
+    for (Clip& clip : document.clips) {
+        if (clip.model != m) {
+            continue;
+        }
+        for (SubTrackContainer& container : clip.containers) {
+            std::erase_if(container.subTracks, [&](const SubTrack& track) {
+                return std::find(dropped.begin(), dropped.end(), track.channel) != dropped.end();
+            });
+        }
+    }
+    std::erase_if(model.animChannels.channels, [&](const AnimChannel& channel) {
+        return std::find(dropped.begin(), dropped.end(), channel.id) != dropped.end();
+    });
+    if (blended) {
+        out.info(DiagCode::PhysicsUnsupported, "a body's Blend: the target hands a body back to its animation at once",
+                 ElementRef(), target);
+    }
+}
+
+/// A target that runs its bodies from creation cannot key them: each clip
+/// that switches bodies is reported (§8.6).
+void ReportUnswitched(const Document& document, u32 m, ProfileId target, Diagnostics& out) {
+    const Model& model = document.models[m];
+    for (const Clip& clip : document.clips) {
+        if (clip.model != m) {
+            continue;
+        }
+        const bool switches = std::any_of(clip.containers.begin(), clip.containers.end(), [&](const SubTrackContainer& container) {
+            return std::any_of(container.subTracks.begin(), container.subTracks.end(), [&](const SubTrack& track) {
+                const AnimChannel* channel = model.animChannels.find(track.channel);
+                return channel != nullptr && channel->target.kind == TrackTarget::Kind::Physics && !track.times.empty() &&
+                       channel->target.channel != Channel::ClothActive;
+            });
+        });
+        if (switches) {
+            out.warn(DiagCode::PhysicsUnsupported,
+                     "clip '" + clip.name + "': its physics switches cannot be said; the target runs its bodies from creation",
+                     ElementRef(), target);
         }
     }
 }
@@ -260,6 +469,14 @@ bool NeedsPhysicsFit(const Document& document, ProfileId target) {
                 return true;
             }
         }
+        // A drop or a Blend to fold, or switches a target without them reports.
+        for (const AnimChannel& channel : model.animChannels.channels) {
+            if (channel.target.kind == TrackTarget::Kind::Physics &&
+                (channel.target.channel == Channel::PhysicsRagdoll || channel.target.channel == Channel::PhysicsBlend ||
+                 (!caps.switches && channel.target.channel == Channel::PhysicsDynamic))) {
+                return true;
+            }
+        }
         for (const Cloth& cloth : model.physics.cloths) {
             if (caps.cloth && caps.maxClothParticles != 0 && cloth.cage.mesh < model.meshes.size() &&
                 CountOf(VerticesOf(model.meshes[cloth.cage.mesh], cloth.cage.section)) > caps.maxClothParticles) {
@@ -296,11 +513,22 @@ u32 FitPhysicsToProfile(Document& document, ProfileId target, Diagnostics& out) 
                          ElementRef(ElementKind::PhysicsRecord, body.id), target);
             }
         }
-        if (!model.physics.rigs.empty()) {
-            changed += ChooseRigs(model, target, caps, out);
-            if (caps.switches) {
-                StartsToSwitches(document, m);
+        if (caps.switches && !model.physics.bodies.empty()) {
+            // The rule read once, before any body goes, then written out.
+            std::vector<u32> ids;
+            for (const PhysicsBody& body : model.physics.bodies) {
+                ids.push_back(body.id);
             }
+            const std::vector<ClipStates> states = RuleStates(document, m);
+            if (!model.physics.rigs.empty()) {
+                changed += ChooseSwitchedRigs(model, target, caps, states, out);
+            }
+            SwitchesFromRule(document, m, ids, states, target, out);
+        } else if (!model.physics.rigs.empty()) {
+            changed += ChooseRigs(model, target, caps, out);
+        }
+        if (!caps.switches) {
+            ReportUnswitched(document, m, target, out);
         }
         if (!caps.cloth || caps.maxClothParticles == 0) {
             continue;

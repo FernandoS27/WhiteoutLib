@@ -25,6 +25,7 @@
 #include <whiteout/models/wem/retarget.h>
 
 #include <whiteout/models/wem/anim/pose.h>
+#include <whiteout/models/wem/nodes/remove.h>
 #include <whiteout/models/wem/physics/references.h>
 
 #include <algorithm>
@@ -775,6 +776,7 @@ void ToPivotRelative(Model& model, std::vector<Clip*>& clips, const ElementRef& 
                     event.node = remap[event.node];
                 }
             }
+            RemapClipWorldNodes(*clip, remap);
         }
         // `RemapPhysicsNodes` drops nothing here: every source node survives.
         RemapPhysicsNodes(model.physics, remap);

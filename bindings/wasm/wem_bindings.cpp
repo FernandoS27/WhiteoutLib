@@ -717,6 +717,8 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("Roll", whiteout::models::wem::Channel::Roll)
         .value("PhysicsDynamic", whiteout::models::wem::Channel::PhysicsDynamic)
         .value("ClothActive", whiteout::models::wem::Channel::ClothActive)
+        .value("PhysicsRagdoll", whiteout::models::wem::Channel::PhysicsRagdoll)
+        .value("PhysicsBlend", whiteout::models::wem::Channel::PhysicsBlend)
         .value("Count", whiteout::models::wem::Channel::Count);
 
     enum_<whiteout::models::wem::Interpolation>("WemInterpolation")
@@ -737,6 +739,44 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("Wc3", whiteout::models::wem::ReadRule::Wc3)
         .value("Sc2", whiteout::models::wem::ReadRule::Sc2)
         .value("Wow", whiteout::models::wem::ReadRule::Wow);
+
+    enum_<whiteout::models::wem::BakePlays>("WemBakePlays")
+        .value("FromClip", whiteout::models::wem::BakePlays::FromClip)
+        .value("Loops", whiteout::models::wem::BakePlays::Loops)
+        .value("Once", whiteout::models::wem::BakePlays::Once);
+
+    enum_<whiteout::models::wem::BakeFrom>("WemBakeFrom")
+        .value("Auto", whiteout::models::wem::BakeFrom::Auto)
+        .value("Itself", whiteout::models::wem::BakeFrom::Itself)
+        .value("FirstFrame", whiteout::models::wem::BakeFrom::FirstFrame)
+        .value("Clip", whiteout::models::wem::BakeFrom::Clip);
+
+    enum_<whiteout::models::wem::BakeTo>("WemBakeTo")
+        .value("Auto", whiteout::models::wem::BakeTo::Auto)
+        .value("Nothing", whiteout::models::wem::BakeTo::Nothing)
+        .value("Clip", whiteout::models::wem::BakeTo::Clip);
+
+    enum_<whiteout::models::wem::LoopMatch>("WemLoopMatch")
+        .value("Crossfade", whiteout::models::wem::LoopMatch::Crossfade)
+        .value("Offset", whiteout::models::wem::LoopMatch::Offset)
+        .value("Off", whiteout::models::wem::LoopMatch::Off);
+
+    enum_<whiteout::models::wem::MatchWhere>("WemMatchWhere")
+        .value("End", whiteout::models::wem::MatchWhere::End)
+        .value("Start", whiteout::models::wem::MatchWhere::Start)
+        .value("Both", whiteout::models::wem::MatchWhere::Both);
+
+    enum_<whiteout::models::wem::MatchEase>("WemMatchEase")
+        .value("Smooth", whiteout::models::wem::MatchEase::Smooth)
+        .value("Linear", whiteout::models::wem::MatchEase::Linear)
+        .value("EaseIn", whiteout::models::wem::MatchEase::EaseIn)
+        .value("EaseOut", whiteout::models::wem::MatchEase::EaseOut)
+        .value("Custom", whiteout::models::wem::MatchEase::Custom);
+
+    enum_<whiteout::models::wem::BakeFloor>("WemBakeFloor")
+        .value("Grid", whiteout::models::wem::BakeFloor::Grid)
+        .value("Off", whiteout::models::wem::BakeFloor::Off)
+        .value("FollowsRoot", whiteout::models::wem::BakeFloor::FollowsRoot);
 
     enum_<whiteout::models::wem::PhysicsShapeKind>("WemPhysicsShapeKind")
         .value("Box", whiteout::models::wem::PhysicsShapeKind::Box)
@@ -1750,6 +1790,63 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("priority", &whiteout::models::wem::ClipTrackSet::priority)
     ;
 
+    class_<whiteout::models::wem::BakeWorldForce>("WemBakeWorldForce")
+        .constructor<>()
+        .property("start", &whiteout::models::wem::BakeWorldForce::start)
+        .property("end", &whiteout::models::wem::BakeWorldForce::end)
+        .property("rampIn", &whiteout::models::wem::BakeWorldForce::rampIn)
+        .property("rampOut", &whiteout::models::wem::BakeWorldForce::rampOut)
+        .property("strength", &whiteout::models::wem::BakeWorldForce::strength)
+        .property("heading", &whiteout::models::wem::BakeWorldForce::heading)
+        .property("rise", &whiteout::models::wem::BakeWorldForce::rise)
+        .property("gusts", &whiteout::models::wem::BakeWorldForce::gusts)
+        .property("gustSpeed", &whiteout::models::wem::BakeWorldForce::gustSpeed)
+        .property("radius", &whiteout::models::wem::BakeWorldForce::radius)
+        .property("height", &whiteout::models::wem::BakeWorldForce::height)
+        .property("centreNode", &whiteout::models::wem::BakeWorldForce::centreNode)
+        .property("channels", &whiteout::models::wem::BakeWorldForce::channels)
+    ;
+
+    class_<whiteout::models::wem::PhysicsBake>("WemPhysicsBake")
+        .constructor<>()
+        .property("source", &whiteout::models::wem::PhysicsBake::source)
+        .property("positions", &whiteout::models::wem::PhysicsBake::positions)
+        .property("channels", &whiteout::models::wem::PhysicsBake::channels)
+        .property("appended", &whiteout::models::wem::PhysicsBake::appended)
+        .property("inputs", &whiteout::models::wem::PhysicsBake::inputs)
+        .property("written", &whiteout::models::wem::PhysicsBake::written)
+        .property("nodes", &whiteout::models::wem::PhysicsBake::nodes)
+        .property("keys", &whiteout::models::wem::PhysicsBake::keys)
+        .property("restated", &whiteout::models::wem::PhysicsBake::restated)
+        .property("maxError", &whiteout::models::wem::PhysicsBake::maxError)
+        .property("seamBefore", &whiteout::models::wem::PhysicsBake::seamBefore)
+        .property("seamAfter", &whiteout::models::wem::PhysicsBake::seamAfter)
+        .property("settling", &whiteout::models::wem::PhysicsBake::settling)
+    ;
+
+    class_<whiteout::models::wem::ClipPhysics>("WemClipPhysics")
+        .constructor<>()
+        .property("plays", &whiteout::models::wem::ClipPhysics::plays)
+        .property("comesFrom", &whiteout::models::wem::ClipPhysics::comesFrom)
+        .property("comesFromClip", &whiteout::models::wem::ClipPhysics::comesFromClip)
+        .property("preheat", &whiteout::models::wem::ClipPhysics::preheat)
+        .property("goesTo", &whiteout::models::wem::ClipPhysics::goesTo)
+        .property("goesToClip", &whiteout::models::wem::ClipPhysics::goesToClip)
+        .property("match", &whiteout::models::wem::ClipPhysics::match)
+        .property("where", &whiteout::models::wem::ClipPhysics::where)
+        .property("window", &whiteout::models::wem::ClipPhysics::window)
+        .property("ease", &whiteout::models::wem::ClipPhysics::ease)
+        .property("curve", &whiteout::models::wem::ClipPhysics::curve)
+        .property("tolerance", &whiteout::models::wem::ClipPhysics::tolerance)
+        .property("meshMeasure", &whiteout::models::wem::ClipPhysics::meshMeasure)
+        .property("keyRate", &whiteout::models::wem::ClipPhysics::keyRate)
+        .property("stepRate", &whiteout::models::wem::ClipPhysics::stepRate)
+        .property("floor", &whiteout::models::wem::ClipPhysics::floor)
+        .property("travel", &whiteout::models::wem::ClipPhysics::travel)
+        .property("world", &whiteout::models::wem::ClipPhysics::world)
+        .property("baked", &whiteout::models::wem::ClipPhysics::baked)
+    ;
+
     class_<whiteout::models::wem::Clip>("WemClip")
         .constructor<>()
         .property("name", &whiteout::models::wem::Clip::name)
@@ -1763,6 +1860,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("bounds", &whiteout::models::wem::Clip::bounds)
         .property("trackSets", &whiteout::models::wem::Clip::trackSets)
         .property("readRule", &whiteout::models::wem::Clip::readRule)
+        .property("physics", &whiteout::models::wem::Clip::physics)
     ;
 
     class_<whiteout::models::wem::AnimTag>("WemAnimTag")
@@ -2147,6 +2245,7 @@ EMSCRIPTEN_BINDINGS(wem) {
     register_vector<whiteout::models::wem::AnimSet>("VectorWemAnimSet");
     register_vector<whiteout::models::wem::AnimTag>("VectorWemAnimTag");
     register_vector<whiteout::models::wem::AssetKey>("VectorWemAssetKey");
+    register_vector<whiteout::models::wem::BakeWorldForce>("VectorWemBakeWorldForce");
     register_vector<whiteout::models::wem::Clip>("VectorWemClip");
     register_vector<whiteout::models::wem::ClipEvent>("VectorWemClipEvent");
     register_vector<whiteout::models::wem::ClipTrackSet>("VectorWemClipTrackSet");

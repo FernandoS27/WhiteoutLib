@@ -73,6 +73,13 @@ struct KeyCompanionTolerances {
     f32 relative = 0.005f;      ///< Emitter, light and other scalars: of the clip's peak.
 };
 
+/// Keys of one clip's channel a reduction must keep, by their times.
+struct KeptKeys {
+    u32 clip = kInvalidIndex;
+    u32 channel = 0; ///< An `AnimChannel::id`.
+    std::vector<f32> times;
+};
+
 struct KeyReduceOptions {
     /// ε in model units: nothing the model draws moves further. 0 means
     /// @ref heightShare of `ModelHeight`.
@@ -108,6 +115,10 @@ struct KeyReduceOptions {
 
     std::vector<u32> clips;    ///< Document clip indices; empty: every clip of the model.
     std::vector<u32> channels; ///< `AnimChannel::id`s; empty: every channel.
+    /// Keys that stay whatever they cost: a physics bake keeps the source's
+    /// keys outside what it simulated, and its splice's edges
+    /// (EDIT_MODE_PHYSICS_BAKE_DESIGN.md §8.3).
+    std::vector<KeptKeys> kept;
     KeyCompanionTolerances companions;
     /// Threads to spread the clips over; 0 picks the hardware's count.
     u32 threads = 0;

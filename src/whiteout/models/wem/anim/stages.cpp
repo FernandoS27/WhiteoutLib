@@ -297,6 +297,26 @@ Matrix44f BlendFrames(const std::vector<Matrix44f>& frames, const std::vector<f3
     return ToMatrix(out);
 }
 
+/// A host's physics stage stepped on @p pose, and the pose composed again. A
+/// force field rides its bone's animation, never the bodies the physics moved
+/// under it: a later stage reads it, and the view draws it, where the
+/// animation has it.
+void StepHost(const StageHooks& hooks, const Document& document, u32 model, const Animator& animator,
+              const PoseStage& stage, Pose& pose, f32 dt) {
+    const NodeTree& tree = document.models[model].nodes;
+    std::vector<std::pair<u32, Matrix44f>> fields;
+    for (u32 n = 0; n < tree.size() && n < pose.frame.size(); ++n) {
+        if (tree.nodes[n].kind == NodeKind::ForceField) {
+            fields.emplace_back(n, pose.frame[n]);
+        }
+    }
+    hooks.step(document, model, stage, pose, dt);
+    animator.compose(pose);
+    for (const auto& [node, frame] : fields) {
+        pose.frame[node] = frame;
+    }
+}
+
 } // namespace
 
 const char* ToString(StageKind kind) {
@@ -691,8 +711,7 @@ void StageRunner::simulate(const Animator& animator, Pose& pose, const PoseStage
     const NodeTree& tree = model_->nodes;
     if (stage.kind != StageKind::Spring) {
         if (hooks != nullptr && hooks->step) {
-            hooks->step(*document_, modelIndex_, stage, pose, dt);
-            animator.compose(pose);
+            StepHost(*hooks, *document_, modelIndex_, animator, stage, pose, dt);
         }
         return;
     }
@@ -801,8 +820,7 @@ void StageRunner::run(const Animator& animator, const Mix& mix, Pose& pose, f32 
     for (const PoseStage& stage : model_->poseStages) {
         if (stage.enabled && IsPhysicsStage(stage.kind) && stage.kind != StageKind::Spring && hooks != nullptr &&
             hooks->step) {
-            hooks->step(*document_, modelIndex_, stage, pose, 0.0f);
-            animator.compose(pose);
+            StepHost(*hooks, *document_, modelIndex_, animator, stage, pose, 0.0f);
         }
     }
     for (const PoseStage& stage : model_->poseStages) {

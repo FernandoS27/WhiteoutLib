@@ -60,6 +60,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimChannel>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimSet>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimTag>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AssetKey>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::BakeWorldForce>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Clip>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ClipEvent>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ClipTrackSet>);
@@ -850,6 +851,63 @@ Every clip also plays the "default" set — whatever no listed set claims — in
         .def_readwrite("priority", &whiteout::models::wem::ClipTrackSet::priority, R"doc(The layer's STC `animPriority`.)doc")
     ;
 
+    py::class_<whiteout::models::wem::BakeWorldForce>(m, "BakeWorldForce", R"doc(A wind or a blast of one clip's bake (§4.7). Never exported: the bake writes what it does into keys.)doc")
+        .def(py::init<>())
+        .def_readwrite("start", &whiteout::models::wem::BakeWorldForce::start, R"doc(Seconds; a blast's moment.)doc")
+        .def_readwrite("end", &whiteout::models::wem::BakeWorldForce::end, R"doc(Seconds; a wind's end.)doc")
+        .def_readwrite("ramp_in", &whiteout::models::wem::BakeWorldForce::rampIn)
+        .def_readwrite("ramp_out", &whiteout::models::wem::BakeWorldForce::rampOut)
+        .def_readwrite("strength", &whiteout::models::wem::BakeWorldForce::strength, R"doc(In g.)doc")
+        .def_readwrite("heading", &whiteout::models::wem::BakeWorldForce::heading, R"doc(Wind: degrees about +Z from +X.)doc")
+        .def_readwrite("rise", &whiteout::models::wem::BakeWorldForce::rise, R"doc(Wind: degrees up from level.)doc")
+        .def_readwrite("gusts", &whiteout::models::wem::BakeWorldForce::gusts, R"doc(Wind: the gusts' share of its strength.)doc")
+        .def_readwrite("gust_speed", &whiteout::models::wem::BakeWorldForce::gustSpeed, R"doc(Wind: gusts a second.)doc")
+        .def_readwrite("radius", &whiteout::models::wem::BakeWorldForce::radius, R"doc(Blast: model heights.)doc")
+        .def_readwrite("height", &whiteout::models::wem::BakeWorldForce::height, R"doc(Blast: how high over the model's feet it goes off, model heights.)doc")
+        .def_readwrite("centre_node", &whiteout::models::wem::BakeWorldForce::centreNode, R"doc(Blast: where it goes off; the model's middle when invalid. A node referencer.)doc")
+        .def_readwrite("channels", &whiteout::models::wem::BakeWorldForce::channels, R"doc(The World channels it pushes on: Wind (1 << 16) or Explosion (1 << 17) by kind, never none.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::PhysicsBake>(m, "PhysicsBake", R"doc(What a bake replaced and wrote, so it can be redone and undone (§8.4).)doc")
+        .def(py::init<>())
+        .def_readwrite("source", &whiteout::models::wem::PhysicsBake::source, R"doc(Per container of the clip, the sub-tracks the bake replaced or cleared, as they were (a TCB track in its TCB form); and each one's place in its container, container by container, so an Unbake puts it back there.)doc")
+        .def_readwrite("positions", &whiteout::models::wem::PhysicsBake::positions)
+        .def_readwrite("channels", &whiteout::models::wem::PhysicsBake::channels, R"doc(The channels the bake wrote; of them, those it declared, which an Unbake drops where nothing keys them.)doc")
+        .def_readwrite("appended", &whiteout::models::wem::PhysicsBake::appended)
+        .def_readwrite("inputs", &whiteout::models::wem::PhysicsBake::inputs, R"doc(What went in, to tell a clip out of date; and what came out, to tell baked keys edited since.)doc")
+        .def_readwrite("written", &whiteout::models::wem::PhysicsBake::written)
+        .def_readwrite("nodes", &whiteout::models::wem::PhysicsBake::nodes, R"doc(Nodes written.)doc")
+        .def_readwrite("keys", &whiteout::models::wem::PhysicsBake::keys, R"doc(Keys written.)doc")
+        .def_readwrite("restated", &whiteout::models::wem::PhysicsBake::restated, R"doc(TCB tracks restated as Hermite.)doc")
+        .def_readwrite("max_error", &whiteout::models::wem::PhysicsBake::maxError, R"doc(Against a key every step, model units.)doc")
+        .def_readwrite("seam_before", &whiteout::models::wem::PhysicsBake::seamBefore, R"doc(Degrees, the worst node's, before matching.)doc")
+        .def_readwrite("seam_after", &whiteout::models::wem::PhysicsBake::seamAfter)
+        .def_readwrite("settling", &whiteout::models::wem::PhysicsBake::settling, R"doc(After each preheat loop, the largest change from the loop before, in degrees (§7.5).)doc")
+    ;
+
+    py::class_<whiteout::models::wem::ClipPhysics>(m, "ClipPhysics", R"doc(One clip's bake settings (§9.2): a clip is *set up* once it has them.)doc")
+        .def(py::init<>())
+        .def_readwrite("plays", &whiteout::models::wem::ClipPhysics::plays)
+        .def_readwrite("comes_from", &whiteout::models::wem::ClipPhysics::comesFrom)
+        .def_readwrite("comes_from_clip", &whiteout::models::wem::ClipPhysics::comesFromClip, R"doc(`BakeFrom::Clip`: by name, as the games name sequences.)doc")
+        .def_readwrite("preheat", &whiteout::models::wem::ClipPhysics::preheat, R"doc(Loops run before frame 0, 0-20.)doc")
+        .def_readwrite("goes_to", &whiteout::models::wem::ClipPhysics::goesTo)
+        .def_readwrite("goes_to_clip", &whiteout::models::wem::ClipPhysics::goesToClip)
+        .def_readwrite("match", &whiteout::models::wem::ClipPhysics::match)
+        .def_readwrite("where", &whiteout::models::wem::ClipPhysics::where)
+        .def_readwrite("window", &whiteout::models::wem::ClipPhysics::window, R"doc(The match's width, a share of the clip.)doc")
+        .def_readwrite("ease", &whiteout::models::wem::ClipPhysics::ease)
+        .def_readwrite("curve", &whiteout::models::wem::ClipPhysics::curve, R"doc(`MatchEase::Custom`: 0 -> 1, both ends pinned.)doc")
+        .def_readwrite("tolerance", &whiteout::models::wem::ClipPhysics::tolerance, R"doc(The visible error the keys may leave, a share of the model's height; 0 keeps a key every step (§8.3).)doc")
+        .def_readwrite("mesh_measure", &whiteout::models::wem::ClipPhysics::meshMeasure)
+        .def_readwrite("key_rate", &whiteout::models::wem::ClipPhysics::keyRate, R"doc(Keys a second at most, with no reduction.)doc")
+        .def_readwrite("step_rate", &whiteout::models::wem::ClipPhysics::stepRate, R"doc(Simulation steps a second: 60, 120 or 240.)doc")
+        .def_readwrite("floor", &whiteout::models::wem::ClipPhysics::floor)
+        .def_readwrite("travel", &whiteout::models::wem::ClipPhysics::travel, R"doc(Carried forward at the clip's move speed (§4.8).)doc")
+        .def_readwrite("world", &whiteout::models::wem::ClipPhysics::world)
+        .def_readwrite("baked", &whiteout::models::wem::ClipPhysics::baked)
+    ;
+
     py::class_<whiteout::models::wem::Clip>(m, "Clip", R"doc(One playable animation. M3's SEQS plus its STG_.
 
 `model` exists because a document holds several models (§9.1) and a channel id is only meaningful within one model's table — a clip that did not say whose nodes its sub-tracks name would be ambiguous the moment a D3 actor brought a second model along on a hardpoint.)doc")
@@ -867,6 +925,7 @@ Every clip also plays the "default" set — whatever no listed set claims — in
 The one place WEM stores a bound it does not recompute. All four formats ship one per sequence — MDX's `Sequence::extent`, M2's `bounds`, M3's SEQS extents — and it is not derivable from the geometry: it is the union over the *posed* mesh across the clip, so recovering it means evaluating the whole skeleton at a sampling the source never recorded. A host reads it to frame a camera, and a conservative substitute (the model's own bounds) frames every clip as though it were the widest.)doc")
         .def_readwrite("track_sets", &whiteout::models::wem::Clip::trackSets, R"doc(The track sets this clip plays split out of container 0; see `LayeredContainers`.)doc")
         .def_readwrite("read_rule", &whiteout::models::wem::Clip::readRule, R"doc(How its tracks are read. A clip written before v4 derives it once, as it is read (`DerivedReadRule`).)doc")
+        .def_readwrite("physics", &whiteout::models::wem::Clip::physics, R"doc(How its physics is simulated and baked into it; none for a clip not set up (EDIT_MODE_PHYSICS_BAKE_DESIGN.md §9.2).)doc")
     ;
 
     py::class_<whiteout::models::wem::AnimTag>(m, "AnimTag", R"doc(One (tag -> clip) row. A struct rather than a `std::pair` because a pair has no `reflect()` and naming the halves is worth more than the two lines.)doc")
@@ -921,25 +980,6 @@ D3's `.ans` is the shape this exists for: 30 tag maps in one asset, one core and
         .def_readwrite("has_children", &whiteout::models::wem::WowBodyExtension::hasChildren, R"doc(A kinematic body other bodies hang off: its snap carries them.)doc")
         .def_readwrite("ragdoll_root", &whiteout::models::wem::WowBodyExtension::ragdollRoot, R"doc(The ragdoll's root: its snap carries the groups of kinematic bodies that have no children.)doc")
         .def_readwrite("parent", &whiteout::models::wem::WowBodyExtension::parent, R"doc(A dynamic body: the kinematic body it hangs off, by id. 0 writes as the first body, as the file's own zero does.)doc")
-    ;
-
-    py::class_<whiteout::models::wem::PhysicsBody>(m, "PhysicsBody")
-        .def(py::init<>())
-        .def_readwrite("id", &whiteout::models::wem::PhysicsBody::id)
-        .def_readwrite("node", &whiteout::models::wem::PhysicsBody::node)
-        .def_readwrite("motion", &whiteout::models::wem::PhysicsBody::motion)
-        .def_readwrite("simulates", &whiteout::models::wem::PhysicsBody::simulates, R"doc(The rest value of `Channel::PhysicsDynamic`: whether it simulates where no key says otherwise.)doc")
-        .def_readwrite("shapes", &whiteout::models::wem::PhysicsBody::shapes)
-        .def_readwrite("linear_damping", &whiteout::models::wem::PhysicsBody::linearDamping)
-        .def_readwrite("angular_damping", &whiteout::models::wem::PhysicsBody::angularDamping)
-        .def_readwrite("inertia_scale", &whiteout::models::wem::PhysicsBody::inertiaScale)
-        .def_readwrite("gravity_scale", &whiteout::models::wem::PhysicsBody::gravityScale, R"doc(StarCraft II hard-wires 1; World of Warcraft authors it.)doc")
-        .def_readwrite("inherit_dynamic", &whiteout::models::wem::PhysicsBody::inheritDynamic, R"doc(Takes the nearest bodied ancestor's current state instead of its own (StarCraft II flag 0x40).)doc")
-        .def_readwrite("exempt_from_ragdoll", &whiteout::models::wem::PhysicsBody::exemptFromRagdoll, R"doc(Stays kinematic when the model ragdolls (StarCraft II flag 0x100).)doc")
-        .def_readwrite("force_channels", &whiteout::models::wem::PhysicsBody::forceChannels, R"doc(Which force fields act on it: matched against `ForceFieldPayload::channels`. StarCraft II's `localForces | worldForces << 16`.)doc")
-        .def_readwrite("sc2", &whiteout::models::wem::PhysicsBody::sc2)
-        .def_readwrite("wow", &whiteout::models::wem::PhysicsBody::wow)
-        .def_readwrite("locked", &whiteout::models::wem::PhysicsBody::locked, R"doc(Tuned by hand: the editor's tools that run over a whole ragdoll leave its shapes alone (EDIT_MODE_PHYSICS_REDESIGN.md §8.7). Authoring state; no export reads it.)doc")
     ;
 
 }

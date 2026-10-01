@@ -536,14 +536,31 @@ void CheckPhysics(const Model& model, Diagnostics& out) {
         if (channel.target.kind != TrackTarget::Kind::Physics || channel.target.sub == 0) {
             continue;
         }
-        const bool found = channel.target.channel == Channel::PhysicsDynamic
-                               ? physics.body(channel.target.sub) != nullptr
-                               : channel.target.channel == Channel::ClothActive &&
-                                     physics.cloth(channel.target.sub) != nullptr;
+        // Each switch names one kind of record: a body's, a cloth's, a rig's,
+        // and a blend a rig's or a body's.
+        const u32 sub = channel.target.sub;
+        bool found = false;
+        switch (channel.target.channel) {
+        case Channel::PhysicsDynamic:
+            found = physics.body(sub) != nullptr;
+            break;
+        case Channel::ClothActive:
+            found = physics.cloth(sub) != nullptr;
+            break;
+        case Channel::PhysicsRagdoll:
+            found = physics.rig(sub) != nullptr;
+            break;
+        case Channel::PhysicsBlend:
+            found = physics.rig(sub) != nullptr || physics.body(sub) != nullptr;
+            break;
+        default:
+            break;
+        }
         if (!found) {
             out.error(DiagCode::PhysicsReferenceInvalid,
-                      "channel " + number(channel.id) + " names physics record " +
-                          number(channel.target.sub) + ", which is not there",
+                      "channel " + number(channel.id) + " names physics record " + number(sub) +
+                          (physics.hasId(sub) ? ", which is not the kind its switch belongs to"
+                                              : ", which is not there"),
                       ElementRef(ElementKind::Channel, channel.id));
         }
     }

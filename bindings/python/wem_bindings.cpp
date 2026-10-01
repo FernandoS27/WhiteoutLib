@@ -60,6 +60,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimChannel>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimSet>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimTag>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AssetKey>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::BakeWorldForce>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Clip>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ClipEvent>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ClipTrackSet>);
@@ -901,7 +902,9 @@ Closed on purpose. A source property with no entry here is **dropped with an `An
         .value("ROLL", whiteout::models::wem::Channel::Roll, R"doc(F32. Radians about the line of sight: MDX KCRL, M2 `roll`.)doc")
         .value("PHYSICS_DYNAMIC", whiteout::models::wem::Channel::PhysicsDynamic, R"doc(F32. Whether a body simulates now; M3 `PHRB.dynamicState`.)doc")
         .value("CLOTH_ACTIVE", whiteout::models::wem::Channel::ClothActive, R"doc(F32. Whether a cloth writes back; M3 `PHCL.active`.)doc")
-        .value("COUNT", whiteout::models::wem::Channel::Count)
+        .value("PHYSICS_RAGDOLL", whiteout::models::wem::Channel::PhysicsRagdoll, R"doc(F32, held. A rig's "ragdoll now": every member simulates while it is 1, but those exempt from it (EDIT_MODE_PHYSICS_BAKE_DESIGN.md §4.3). The editor's own; the `.m3` export folds it into the members' switches.)doc")
+        .value("PHYSICS_BLEND", whiteout::models::wem::Channel::PhysicsBlend, R"doc(F32 0..1, linear, on a rig or a body. Below 1 a simulated body is handed back to its animation (§4.4). The editor's own.)doc")
+        .value("COUNT", whiteout::models::wem::Channel::Count, R"doc(F32 0..1, linear, on a rig or a body. Below 1 a simulated body is handed back to its animation (§4.4). The editor's own.)doc")
     ;
 
     py::enum_<whiteout::models::wem::Interpolation>(m, "Interpolation")
@@ -928,6 +931,51 @@ Stored, because a conversion rewrites the keys for another game and the rule has
         .value("WC3", whiteout::models::wem::ReadRule::Wc3, R"doc(Warcraft III: keys inside the window, the MDX curves, the window's wrap.)doc")
         .value("SC2", whiteout::models::wem::ReadRule::Sc2, R"doc(StarCraft II: a raw quaternion lerp; a looping track wraps at its own last key.)doc")
         .value("WOW", whiteout::models::wem::ReadRule::Wow, R"doc(World of Warcraft: a quaternion nlerp without a sign flip; the ends hold.)doc")
+    ;
+
+    py::enum_<whiteout::models::wem::BakePlays>(m, "BakePlays", R"doc(Whether the bake runs a clip as a loop: from the clip's flag and its name (`BakeLoops`), or as the user set it.)doc")
+        .value("FROM_CLIP", whiteout::models::wem::BakePlays::FromClip)
+        .value("LOOPS", whiteout::models::wem::BakePlays::Loops)
+        .value("ONCE", whiteout::models::wem::BakePlays::Once)
+    ;
+
+    py::enum_<whiteout::models::wem::BakeFrom>(m, "BakeFrom", R"doc(What runs before a clip's frame 0 (§7.2).)doc")
+        .value("AUTO", whiteout::models::wem::BakeFrom::Auto)
+        .value("ITSELF", whiteout::models::wem::BakeFrom::Itself)
+        .value("FIRST_FRAME", whiteout::models::wem::BakeFrom::FirstFrame)
+        .value("CLIP", whiteout::models::wem::BakeFrom::Clip)
+    ;
+
+    py::enum_<whiteout::models::wem::BakeTo>(m, "BakeTo", R"doc(What a once-played clip's end is matched into (§7.4).)doc")
+        .value("AUTO", whiteout::models::wem::BakeTo::Auto)
+        .value("NOTHING", whiteout::models::wem::BakeTo::Nothing)
+        .value("CLIP", whiteout::models::wem::BakeTo::Clip)
+    ;
+
+    py::enum_<whiteout::models::wem::LoopMatch>(m, "LoopMatch", R"doc(How a loop's end is matched to its start (§7.3).)doc")
+        .value("CROSSFADE", whiteout::models::wem::LoopMatch::Crossfade)
+        .value("OFFSET", whiteout::models::wem::LoopMatch::Offset)
+        .value("OFF", whiteout::models::wem::LoopMatch::Off)
+    ;
+
+    py::enum_<whiteout::models::wem::MatchWhere>(m, "MatchWhere")
+        .value("END", whiteout::models::wem::MatchWhere::End)
+        .value("START", whiteout::models::wem::MatchWhere::Start)
+        .value("BOTH", whiteout::models::wem::MatchWhere::Both)
+    ;
+
+    py::enum_<whiteout::models::wem::MatchEase>(m, "MatchEase")
+        .value("SMOOTH", whiteout::models::wem::MatchEase::Smooth)
+        .value("LINEAR", whiteout::models::wem::MatchEase::Linear)
+        .value("EASE_IN", whiteout::models::wem::MatchEase::EaseIn)
+        .value("EASE_OUT", whiteout::models::wem::MatchEase::EaseOut)
+        .value("CUSTOM", whiteout::models::wem::MatchEase::Custom)
+    ;
+
+    py::enum_<whiteout::models::wem::BakeFloor>(m, "BakeFloor", R"doc(The ground the bake's run stands on (§4.8).)doc")
+        .value("GRID", whiteout::models::wem::BakeFloor::Grid)
+        .value("OFF", whiteout::models::wem::BakeFloor::Off)
+        .value("FOLLOWS_ROOT", whiteout::models::wem::BakeFloor::FollowsRoot)
     ;
 
     py::enum_<whiteout::models::wem::PhysicsShapeKind>(m, "PhysicsShapeKind", R"doc(Appended, never reordered: the value is what a `PSHP` chunk stores.)doc")

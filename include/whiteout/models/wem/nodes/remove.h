@@ -149,6 +149,11 @@ NodeRemaps CompactNodes(NodeTree& tree, NodeReferencers referencers, Diagnostics
 void RemapNodeReferencers(NodeTree& tree, std::span<const u32> remap, NodeReferencers referencers,
                           Diagnostics& out);
 
+/// @p clip's winds' and blasts' `centreNode` through @p remap: for each caller
+/// that renumbers a model's clips by hand, as its events are. A blast whose
+/// node is gone goes off at the model's middle.
+void RemapClipWorldNodes(Clip& clip, std::span<const u32> remap);
+
 /// The emitter-system payloads' node links (§10.9) against the tree: each one in
 /// range, and naming the kind its `EmitterLink` needs — a copy's source a
 /// particle emitter that is not itself a copy, a bounce's ribbon a ribbon.

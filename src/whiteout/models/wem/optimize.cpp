@@ -725,6 +725,7 @@ std::vector<u32> ReduceNodes(Document& document, u32 model, const OptimizeOption
                 event.node = remaps.nodes[event.node];
             }
         }
+        RemapClipWorldNodes(clip, remaps.nodes);
     }
     report.nodesRemoved += removed;
     return std::move(remaps.nodes);

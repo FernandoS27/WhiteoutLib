@@ -187,6 +187,10 @@ target_include_directories(wem_convert_m3_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 whiteout_add_test(wem_physics_m3_test wem_physics_m3_test.cpp)
 whiteout_add_test(wem_physics_test wem_physics_test.cpp)
 target_include_directories(wem_physics_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# Physics baked into clips (EDIT_MODE_PHYSICS_BAKE_DESIGN.md): the switch rule, the
+# played-once names, the lead-ins and the clip's settings.
+whiteout_add_test(wem_physics_bake_test wem_physics_bake_test.cpp)
+target_include_directories(wem_physics_bake_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 whiteout_add_test(wem_physics_materials_test wem_physics_materials_test.cpp)
 whiteout_add_test(wem_physics_m2_test wem_physics_m2_test.cpp)
 target_include_directories(wem_physics_m2_test PRIVATE ${CMAKE_SOURCE_DIR}/src)

@@ -947,6 +947,19 @@ ClipWork BuildClip(const Document& document, u32 model, u32 clip, const Animator
                 t.fixed[first] = t.fixed[last] = 1;
             }
             t.fixed[0] = t.fixed[n - 1] = 1;
+            for (const KeptKeys& keep : options.kept) {
+                if (keep.clip != clip || keep.channel != sub.channel) {
+                    continue;
+                }
+                for (std::size_t k2 = 0; k2 < n; ++k2) {
+                    const i32 at = t.orig[k2].source;
+                    if (at >= 0 && static_cast<std::size_t>(at) < sub.times.size() &&
+                        std::find(keep.times.begin(), keep.times.end(), sub.times[static_cast<std::size_t>(at)]) !=
+                            keep.times.end()) {
+                        t.fixed[k2] = 1;
+                    }
+                }
+            }
             t.cur = t.orig;
             t.kept.assign(n, 1);
             t.version.assign(n, 0);

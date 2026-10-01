@@ -503,10 +503,19 @@ struct ChunkTagTraits<ClipEvent> {
 /// v2 adds `Clip::bounds` (§10.8's per-clip extent).
 /// v3 `Clip::trackSets`.
 /// v4 `Clip::readRule`.
+/// v5 `Clip::physics`, the physics bake's settings (EDIT_MODE_PHYSICS_BAKE_DESIGN.md §9.2).
 template <>
 struct ChunkTagTraits<Clip> {
     static constexpr u32 value = kTag("CLIP");
-    static constexpr u32 max_version = 4;
+    static constexpr u32 max_version = 5;
+    static constexpr bool is_trivial = false;
+};
+
+/// A clip bake's wind or blast (`ClipPhysics::world`).
+template <>
+struct ChunkTagTraits<BakeWorldForce> {
+    static constexpr u32 value = kTag("CPWF");
+    static constexpr u32 max_version = 1;
     static constexpr bool is_trivial = false;
 };
 
@@ -683,6 +692,7 @@ inline constexpr u32 kKnownChunkTags[] = {
     ChunkTagTraits<SubTrackContainer>::value,
     ChunkTagTraits<ClipEvent>::value,
     ChunkTagTraits<Clip>::value,
+    ChunkTagTraits<BakeWorldForce>::value,
     ChunkTagTraits<TrackSet>::value,
     ChunkTagTraits<PoseStage>::value,
     ChunkTagTraits<StageSource>::value,

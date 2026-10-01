@@ -450,6 +450,37 @@ TEST_CASE("wem a stage that loses its driven node goes with it, and one that los
     CHECK(model.poseStages[0].sources[0].id == 2u);
 }
 
+TEST_CASE("wem a physics stage leaves a force field where the animation has it", "[wem][anim][stages]") {
+    // A field on the head, which the host's ragdoll turns a quarter turn: the
+    // field rides the head's animation, never the ragdoll.
+    Rig rig;
+    Model& model = rig.document.models[0];
+    Node made;
+    made.name = "field";
+    made.kind = NodeKind::ForceField;
+    made.resetPayloadForKind();
+    made.parent = rig.head;
+    made.pivot = Vector3f{0, 5, 10};
+    const u32 field = model.nodes.add(made);
+    rig.stage(StageKind::Ragdoll, {rig.head}, {});
+    StageHooks hooks;
+    hooks.step = [&](const Document&, u32, const PoseStage&, Pose& pose, f32) {
+        pose.local[rig.head].rotation = AboutZ(90.0f);
+        return true;
+    };
+    const Animator animator(rig.document, 0);
+    Mix mix;
+    mix.plays.push_back(Play{0, 0.5f, 1.0f, true});
+    mix.worldSeconds = 0.5f;
+    Pose pose;
+    animator.evaluate(mix, pose);
+    const std::vector<Matrix44f> animated = pose.frame;
+    StageRunner runner(rig.document, 0);
+    runner.run(animator, mix, pose, 0.5f, 0.0f, &hooks);
+    REQUIRE(Worst(pose.frame[rig.tip], animated[rig.tip]) > 1.0f);
+    CHECK(Worst(pose.frame[field], animated[field]) < 1e-4f);
+}
+
 TEST_CASE("wem Validate runs constraints before physics", "[wem][anim][stages]") {
     Rig rig;
     rig.stage(StageKind::Spring, {rig.tip}, {});

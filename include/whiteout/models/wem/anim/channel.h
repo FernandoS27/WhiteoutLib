@@ -144,6 +144,13 @@ enum class Channel : u8 {
     // held from key to key as a visibility is.
     PhysicsDynamic, ///< F32. Whether a body simulates now; M3 `PHRB.dynamicState`.
     ClothActive,    ///< F32. Whether a cloth writes back; M3 `PHCL.active`.
+    /// F32, held. A rig's "ragdoll now": every member simulates while it is 1,
+    /// but those exempt from it (EDIT_MODE_PHYSICS_BAKE_DESIGN.md §4.3). The
+    /// editor's own; the `.m3` export folds it into the members' switches.
+    PhysicsRagdoll,
+    /// F32 0..1, linear, on a rig or a body. Below 1 a simulated body is
+    /// handed back to its animation (§4.4). The editor's own.
+    PhysicsBlend,
 
     Count
 };

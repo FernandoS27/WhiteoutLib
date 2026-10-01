@@ -475,6 +475,18 @@ void RemapNodeReferencers(NodeTree& tree, std::span<const u32> remap, NodeRefere
                           "' fire at a node that no longer exists",
                       ElementRef(ElementKind::Clip, c));
         }
+        RemapClipWorldNodes(clip, remap);
+    }
+}
+
+void RemapClipWorldNodes(Clip& clip, std::span<const u32> remap) {
+    if (!clip.physics.has_value()) {
+        return;
+    }
+    for (BakeWorldForce& force : clip.physics->world) {
+        if (force.centreNode != kInvalidNode) {
+            force.centreNode = force.centreNode < remap.size() ? remap[force.centreNode] : kInvalidNode;
+        }
     }
 }
 

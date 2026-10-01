@@ -298,6 +298,10 @@ const char* ToString(Channel channel) {
         return "physicsDynamic";
     case Channel::ClothActive:
         return "clothActive";
+    case Channel::PhysicsRagdoll:
+        return "physicsRagdoll";
+    case Channel::PhysicsBlend:
+        return "physicsBlend";
     case Channel::Count:
         break;
     }
@@ -358,6 +362,8 @@ geom::AttrType DefaultValueType(Channel channel) {
     case Channel::Roll:
     case Channel::PhysicsDynamic:
     case Channel::ClothActive:
+    case Channel::PhysicsRagdoll:
+    case Channel::PhysicsBlend:
     case Channel::Count:
         break;
     }

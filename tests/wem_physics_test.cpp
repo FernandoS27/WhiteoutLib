@@ -548,10 +548,13 @@ TEST_CASE("wem a death rig comes on in the Death clips for StarCraft II", "[wem]
     Diagnostics report;
     FitPhysicsToProfile(document, ProfileId::Sc2, report);
     const PhysicsSet& physics = document.models[0].physics;
-    // The model's death rig is the one SC2 switches, alone: the other's body goes.
-    REQUIRE(physics.bodies.size() == 1);
+    // The model's death rig is the one SC2 switches. The other, whose body
+    // never moves, goes as a rig; its body stays as the arm's joint partner
+    // (EDIT_MODE_PHYSICS_BAKE_DESIGN.md §8.6). Both rest off.
+    REQUIRE(physics.bodies.size() == 2);
     CHECK(report.countOf(DiagCode::PhysicsRigDropped) == 1u);
     CHECK_FALSE(physics.bodies[0].simulates);
+    CHECK_FALSE(physics.bodies[1].simulates);
     // The arm's own switch (channel 77) is keyed on in the Death clip only.
     const auto clip = [&](const char* name) -> const Clip& {
         return *std::find_if(document.clips.begin(), document.clips.end(),
