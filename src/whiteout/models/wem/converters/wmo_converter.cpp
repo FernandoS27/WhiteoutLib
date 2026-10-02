@@ -13,9 +13,12 @@
  * has the same split, a seed with folds and an `AddAlpha` stage outside the
  * light. What no stage reads is said once per shader as `LossyKindConversion`:
  * a fold by the base map's alpha, an environment map added by it, and above all
- * a lerp by a vertex colour's alpha. That last one is decided per batch by the
- * mean over its vertices, so a wall that is mostly the second layer exports as
- * the second layer.
+ * a blend per vertex. Which side of a lerp by MOCV set 1's alpha, or which of
+ * shader 23's layers, is heavier is linear across a triangle, so the triangle
+ * is cut where it changes and each piece takes its own. Deciding it per batch
+ * drew a log's bark with its end-grain texture and a floor whose painted grime
+ * outweighed the planks as all grime; per whole triangle, it lost the stone
+ * nosings Zul'Aman's stairs paint into MOC2 row by row.
  */
 
 #include "whiteout/models/wem/wmo_converter.h"
@@ -31,6 +34,7 @@
 #include <set>
 #include <span>
 #include <string>
+#include <tuple>
 #include <utility>
 
 namespace whiteout {
@@ -73,12 +77,12 @@ constexpr auto O = CombinerOp::Opaque;
 constexpr auto P = CombinerOp::Pass;
 constexpr auto M = CombinerOp::Mod;
 
-/// One shader's chain. @p vertexA: the batch's vertices mostly carry MOCV set 1
-/// alpha of 1 or more than half, which is the first layer's side of each lerp
-/// by it. @p layer23: shader 23's heaviest MOC2 layer, 0..3.
+/// One shader's chain. @p vertexA: the piece's MOCV set 1 alpha is a half or
+/// more, the first layer's side of each lerp by it. @p layer23: the shader-23
+/// layer heavier over the piece, 0..3.
 Chain ChainFor(u32 shader, bool vertexA, u32 layer23) {
-    const char* kVertexLerp = "a layer is lerped by MOCV set 1's alpha per vertex; the batch's mean "
-                              "picked the side";
+    const char* kVertexLerp = "a layer is lerped by MOCV set 1's alpha per vertex; triangles are cut "
+                              "where it crosses a half";
     const char* kEnvMask = "the environment map is added by the base map's alpha, which no stage reads";
     switch (shader) {
     case 0:
@@ -141,19 +145,12 @@ Chain ChainFor(u32 shader, bool vertexA, u32 layer23) {
                     "a parallax blend of four layers; the base layer stands in"};
         return {{{2, kUv1, O, P}, {0, kUv0, P, P}, {1, kEnv, P, P}},
                 "a parallax blend of four layers; the third stands in"};
-    case 23: {
-        // Four layers, slots 1..4 on UV sets 0..3 as they stand, blended by
-        // MOC2's weights and their height masks.
-        Chain chain;
-        chain.stages.push_back({static_cast<u8>(layer23 + 1), {static_cast<u8>(layer23), false, kNoMatrix}, O, P});
-        for (u32 l = 0; l < 4; ++l) {
-            if (l != layer23)
-                chain.stages.push_back({static_cast<u8>(l + 1), {static_cast<u8>(l), false, kNoMatrix}, P, P});
-        }
-        chain.stages.push_back({0, kEnv, P, P});
-        chain.lost = "four layers blended by MOC2's weights per vertex; the batch's heaviest stands in";
-        return chain;
-    }
+    case 23:
+        // Slots 1..4 on UV sets 0..3 untransformed; the triangle's layer has
+        // its set moved to 0 (`fromWmo`).
+        return {{{static_cast<u8>(layer23 + 1), {0, false, kNoMatrix}, O, P}, {0, kEnv, P, P}},
+                "four layers blended per pixel by MOC2's weights and their height masks; triangles are "
+                "cut where the heaviest changes, each height taken as its mask's mean"};
     case 24:
         return {{{0, kUv0, O, P}, {1, kEnv, P, P}, {2, kUv0, P, M}}, kEnvMask};
     default:
@@ -206,6 +203,18 @@ i64 Packed(const wmo::Color& c) {
                             (static_cast<u32>(c.r) << 16) | (static_cast<u32>(c.a) << 24));
 }
 
+/// The texture a MOMT slot value names: a MOTX name, or a FileDataID.
+TextureRef TextureOf(const wmo::Root& root, u32 value) {
+    TextureRef ref;
+    if (root.textureNames) {
+        ref.path = std::string(root.textureName(value));
+        ref.key = TexturePath{ref.path};
+    } else {
+        ref.key = TextureFileDataId{value};
+    }
+    return ref;
+}
+
 /// The textures MOMT names, one entry per distinct file.
 class TextureTable {
 public:
@@ -219,13 +228,7 @@ public:
         const auto key = std::make_pair(root_.textureNames.has_value(), value);
         if (const auto it = byValue_.find(key); it != byValue_.end())
             return it->second;
-        TextureRef ref;
-        if (root_.textureNames) {
-            ref.path = std::string(root_.textureName(value));
-            ref.key = TexturePath{ref.path};
-        } else {
-            ref.key = TextureFileDataId{value};
-        }
+        TextureRef ref = TextureOf(root_, value);
         // Wrap both ways unless the first material to name it clamps (the
         // `.m2` and `.mdx` bits: 1 wraps S, 2 wraps T).
         ref.flags = (wmo::hasFlag(material.flags, wmo::MaterialFlag::ClampS) ? 0u : 1u) |
@@ -241,6 +244,125 @@ private:
     const wmo::Root& root_;
     std::map<std::pair<bool, u32>, u32> byValue_;
 };
+
+/// The mean heights shader 23 weighs its layers by, each texture read once. The
+/// height maps are not document textures: no stage samples them.
+class MeanHeights {
+public:
+    MeanHeights(const wmo::Root& root, const WmoImportOptions& options) : root_(root), read_(options.meanAlpha) {}
+
+    /// @p material's slot @p slot, or 1: no reader, no texture, or unreadable.
+    /// At least 0.004, the floor the shader gives a sampled height.
+    f32 at(const wmo::Material& material, u32 slot) {
+        if (!read_ || !wmo::hasTexture(root_, material, slot))
+            return 1.0f;
+        const u32 value = material.texture(slot);
+        auto it = means_.find(value);
+        if (it == means_.end())
+            it = means_.emplace(value, read_(TextureOf(root_, value))).first;
+        return it->second ? std::clamp(*it->second, 0.004f, 1.0f) : 1.0f;
+    }
+
+private:
+    const wmo::Root& root_;
+    const std::function<std::optional<f32>(const TextureRef&)>& read_;
+    std::map<u32, std::optional<f32>> means_;
+};
+
+/// A point of a triangle being cut: its barycentrics, and for a point on an
+/// edge (bit e: corners e and e + 1) the cut that made it, by the edge's file
+/// vertices and the two variants it divides, so a neighbour cuts it the same.
+struct CutPoint {
+    std::array<f32, 3> at{};
+    u8 edges = 0;
+    std::array<u32, 2> edge{};
+    u8 between = 0; ///< 1 + lower variant · 4 + higher; 0 for no edge cut.
+};
+
+std::vector<CutPoint> WholeTriangle() {
+    return {{{1, 0, 0}, 0b101}, {{0, 1, 0}, 0b011}, {{0, 0, 1}, 0b110}};
+}
+
+/// The part of convex @p polygon, a piece of a triangle with corner scores @p s,
+/// where variant @p keep scores at least as high as @p other; a tie goes to the
+/// lower variant. A cut on an edge is taken from the edge's own corners, lower
+/// file vertex first, so the triangle across it cuts at the same point.
+std::vector<CutPoint> CutAway(const std::vector<CutPoint>& polygon, const std::array<u32, 3>& corners,
+                              const std::array<std::array<f32, 4>, 3>& s, u8 keep, u8 other) {
+    const auto d = [&](const CutPoint& p) {
+        f32 sum = 0.0f;
+        for (u32 c = 0; c < 3; ++c)
+            sum += p.at[c] * (s[c][keep] - s[c][other]);
+        return sum;
+    };
+    const auto inside = [&](f32 x) { return keep < other ? x >= 0.0f : x > 0.0f; };
+    const u8 lo = std::min(keep, other);
+    const u8 hi = std::max(keep, other);
+    std::vector<CutPoint> out;
+    for (std::size_t i = 0; i < polygon.size(); ++i) {
+        const CutPoint& p = polygon[i];
+        const CutPoint& q = polygon[(i + 1) % polygon.size()];
+        const f32 dp = d(p);
+        const f32 dq = d(q);
+        if (inside(dp))
+            out.push_back(p);
+        if (inside(dp) == inside(dq))
+            continue;
+        CutPoint cut;
+        cut.edges = p.edges & q.edges;
+        if (cut.edges != 0) {
+            u32 a = (cut.edges & 1u) ? 0u : (cut.edges & 2u) ? 1u : 2u;
+            u32 b = (a + 1) % 3;
+            if (corners[b] < corners[a])
+                std::swap(a, b);
+            const f32 da = s[a][lo] - s[a][hi];
+            const f32 db = s[b][lo] - s[b][hi];
+            if (da != db) {
+                const f32 t = std::clamp(da / (da - db), 0.0f, 1.0f);
+                cut.at[a] = 1.0f - t;
+                cut.at[b] = t;
+                cut.edge = {corners[a], corners[b]};
+                cut.between = static_cast<u8>(1 + lo * 4 + hi);
+                out.push_back(cut);
+                continue;
+            }
+        }
+        const f32 t = dp / (dp - dq);
+        for (u32 c = 0; c < 3; ++c)
+            cut.at[c] = p.at[c] + t * (q.at[c] - p.at[c]);
+        out.push_back(cut);
+    }
+    // A cut through a corner repeats the corner.
+    std::vector<CutPoint> unique;
+    for (const CutPoint& p : out) {
+        if (unique.empty() || p.at != unique.back().at)
+            unique.push_back(p);
+    }
+    if (unique.size() > 1 && unique.front().at == unique.back().at)
+        unique.pop_back();
+    return unique;
+}
+
+/// The shaders whose chain takes a side of a lerp by MOCV set 1's alpha.
+bool LerpsByVertexAlpha(u32 shader) {
+    switch (shader) {
+    case 6:
+    case 7:
+    case 8:
+    case 9:
+    case 11:
+    case 12:
+    case 13:
+    case 15:
+    case 17:
+    case 18:
+    case 19:
+    case 22:
+        return true;
+    default:
+        return false;
+    }
+}
 
 /// The light MOCV gives a vertex of a vertex-lit batch: the interior ambient
 /// plus twice the uploaded colour set 0 (`psWmo`'s light-mode-2 add, whose
@@ -372,6 +494,7 @@ Result<Document> WmoConverter::fromWmo(const wow::wmo::Model& source, const WmoI
     set.native.set("wmoRootId", static_cast<i64>(root.header.wmoId));
 
     TextureTable textures(document, root);
+    MeanHeights heights(root, options);
     const wmo::Color ambient = wmo::ambientColors(root, sets)[0];
     std::set<u32> reported;
 
@@ -397,6 +520,15 @@ Result<Document> WmoConverter::fromWmo(const wow::wmo::Model& source, const WmoI
                 local[v] = builder.addVertex(group.positions[v]).value();
             return geom::VertexId(local[v]);
         };
+        // The vertices cuts made: by batch, edge and the variants divided, and
+        // where each lies between its triangle's corners.
+        std::map<std::tuple<u32, u32, u32, u8>, u32> cutVertex;
+        struct Cut {
+            u32 id = 0;
+            std::array<u32, 3> corners{};
+            std::array<f32, 3> at{};
+        };
+        std::vector<Cut> cuts;
         const u32 uvSets = static_cast<u32>(std::min<std::size_t>(group.uvSets.size(), 4));
         if (set0)
             builder.declareAttr(geom::Domain::Vertex, "wmo.color0", geom::AttrType::U8x4);
@@ -415,119 +547,49 @@ Result<Document> WmoConverter::fromWmo(const wow::wmo::Model& source, const WmoI
             const bool transition = b < group.header.transBatchCount;
             const bool vertexLit = set0 && (interior || transition);
 
-            // The vertex-alpha sides: MOCV set 1's mean alpha, and MOC2's
-            // heaviest layer for shader 23.
-            f64 alphaSum = 0.0;
-            std::array<f64, 4> layerSum{};
-            u32 counted = 0;
-            for (u64 i = batch.startIndex; i < end; ++i) {
-                const u32 v = group.indices[i];
-                if (v >= vertexCount)
-                    continue;
-                alphaSum += static_cast<f64>(uploaded.color1[v] >> 24) * kByte;
-                const u32 w = uploaded.color2[v];
-                const f64 x = (w & 0xFFu) * kByte, y = ((w >> 8) & 0xFFu) * kByte,
-                          z = ((w >> 16) & 0xFFu) * kByte;
-                layerSum[0] += x;
-                layerSum[1] += y;
-                layerSum[2] += z;
-                layerSum[3] += 1.0 - std::min(x + y + z, 1.0);
-                ++counted;
-            }
-            const bool vertexA = counted == 0 || alphaSum / counted >= 0.5;
-            const u32 layer23 = static_cast<u32>(std::max_element(layerSum.begin(), layerSum.end()) -
-                                                 layerSum.begin());
-
-            // --- the material ---------------------------------------------
-            const std::string name = "group_" + std::to_string(g) + "_batch_" + std::to_string(b);
-            const u32 slot = model.addSlot(name);
-            Material material;
-            material.name = name;
-            CommonMaterial& common = material.InitCommon();
-            bool exactBlend = true;
-            common.blend = BlendFor(record.blendMode, exactBlend);
-            if (!exactBlend && reported.insert(0x10000u | record.blendMode).second) {
-                diagnostics.info(DiagCode::LossyBlendMode,
-                                 "blend mode " + std::to_string(record.blendMode) + " has no WEM twin; " +
-                                     ToString(common.blend) + " stands in",
-                                 ElementRef(ElementKind::Slot, slot), ProfileId::Wow);
-            }
-            if (common.blend == BlendMode::AlphaKey)
-                common.alphaTestThreshold = 128.0f / 255.0f;
-            common.depth.write = record.blendMode <= 1;
-            if (wmo::hasFlag(record.flags, wmo::MaterialFlag::TwoSided))
-                common.cull = CullMode::None;
-            if (wmo::hasFlag(record.flags, wmo::MaterialFlag::Unlit))
-                common.flags |= MaterialFlags::Unlit;
-            if (wmo::hasFlag(record.flags, wmo::MaterialFlag::Unfogged))
-                common.flags |= MaterialFlags::Unfogged;
-
-            const Chain chain = ChainFor(shader, vertexA, layer23);
-            if (chain.lost && reported.insert(shader).second) {
-                diagnostics.info(DiagCode::LossyKindConversion,
-                                 "shader " + std::to_string(shader) + ": " + chain.lost,
-                                 ElementRef(ElementKind::Slot, slot), ProfileId::Wow);
-            }
+            // Which layer (shader 23) or side (a vertex-alpha lerp, 0 the first
+            // layer's) is heavier, per vertex: shader 23 weighs MOC2's weights
+            // by its layers' mean heights. It is linear across a triangle, so a
+            // triangle where it changes is cut along that line and each piece
+            // takes its own. The batch draws a section per one taken.
             const bool clampS = wmo::hasFlag(record.flags, wmo::MaterialFlag::ClampS);
             const bool clampT = wmo::hasFlag(record.flags, wmo::MaterialFlag::ClampT);
-            // MOUV replaces both texture matrices while it moves; shader 11's
-            // second scrolls a tile every ten seconds without it.
-            std::array<Vector2f, 2> scroll{Vector2f{0, 0}, Vector2f{0, 0}};
-            if (batch.material() < root.uvAnimations.size()) {
-                scroll[0] = root.uvAnimations[batch.material()].speed0;
-                scroll[1] = root.uvAnimations[batch.material()].speed1;
-            }
-            if (shader == 11 && scroll[0].x == 0 && scroll[0].y == 0 && scroll[1].x == 0 && scroll[1].y == 0)
-                scroll[1] = Vector2f{0.1f, 0.0f};
-
-            CombinersBody body;
-            for (const StageDesc& desc : chain.stages) {
-                CombinerStage stage;
-                stage.input.texture = textures.at(record, desc.slot);
-                if (stage.input.texture == kInvalidIndex && !body.stages.empty())
-                    continue; // a folded layer the material does not have
-                stage.input.uvSet = std::min<u32>(desc.uv.set, uvSets ? uvSets - 1 : 0);
-                stage.input.mapping = desc.uv.env ? UVMappingMode::EnvSphere : UVMappingMode::ExplicitUV;
-                stage.input.wrapU = clampS ? WrapMode::Clamp : WrapMode::Repeat;
-                stage.input.wrapV = clampT ? WrapMode::Clamp : WrapMode::Repeat;
-                stage.rgb = desc.rgb;
-                stage.alpha = desc.alpha;
-                if (desc.uv.matrix != kNoMatrix) {
-                    const Vector2f rate = scroll[desc.uv.matrix];
-                    if (rate.x != 0 || rate.y != 0) {
-                        MaterialFeature feature;
-                        feature.id = static_cast<u32>(common.features.size());
-                        feature.layer = static_cast<u32>(body.stages.size());
-                        UvAnimationFeature uv;
-                        uv.scrollRate = rate;
-                        feature.payload = uv;
-                        common.features.push_back(feature);
-                    }
+            const u8 candidates = shader == 23 ? 4 : LerpsByVertexAlpha(shader) ? 2 : 1;
+            std::array<f32, 4> height{1.0f, 1.0f, 1.0f, 1.0f};
+            std::array<bool, 4> drawn{true, true, true, true};
+            if (shader == 23) {
+                for (u32 l = 0; l < 4; ++l) {
+                    height[l] = heights.at(record, 5 + l);
+                    drawn[l] = wmo::hasTexture(root, record, 1 + l);
                 }
-                body.stages.push_back(std::move(stage));
             }
-            common.body = std::move(body);
-            set.resizeBindings(model.materialSlots.size());
-            set.slotBindings[slot].byLook[0] = static_cast<u32>(set.materials.size());
-            set.materials.push_back(std::move(material));
-
-            // --- the section and its triangles ---------------------------
-            MeshSection section;
-            section.name = "batch_" + std::to_string(b);
-            section.materialSlot = slot;
-            section.rigidNode = 0;
-            section.selectionGroup = static_cast<u16>(b);
-            section.native.set("wmoGroup", static_cast<i64>(g));
-            section.native.set("wmoBatch", static_cast<i64>(b));
-            section.native.set("wmoMaterial", static_cast<i64>(batch.material()));
-            section.native.set("wmoShader", static_cast<i64>(record.shader));
-            section.native.set("wmoBlend", static_cast<i64>(record.blendMode));
-            section.native.set("wmoMaterialFlags", static_cast<i64>(record.flags));
-            section.native.set("wmoGroupFlags", static_cast<i64>(group.header.flags));
-            if (transition)
-                section.native.set("wmoTransition", 1);
-            const u32 sectionIndex = builder.addSection(std::move(section));
-
+            const auto scoresOf = [&](u32 v) {
+                std::array<f32, 4> score{-1.0f, -1.0f, -1.0f, -1.0f};
+                if (shader == 23) {
+                    const u32 w = uploaded.color2[v];
+                    std::array<f32, 4> weight{};
+                    for (u32 k = 0; k < 3; ++k)
+                        weight[k] = static_cast<f32>((w >> (8 * k)) & 0xFFu) * kByte;
+                    weight[3] = 1.0f - std::min(weight[0] + weight[1] + weight[2], 1.0f);
+                    for (u32 l = 0; l < 4; ++l) {
+                        if (drawn[l])
+                            score[l] = weight[l] * height[l];
+                    }
+                } else if (candidates == 2) {
+                    score[0] = static_cast<f32>(uploaded.color1[v] >> 24) * kByte;
+                    score[1] = 1.0f - score[0];
+                } else {
+                    score[0] = 0.0f;
+                }
+                return score;
+            };
+            struct Piece {
+                u8 variant = 0;
+                std::array<u32, 3> corners{};
+                std::vector<CutPoint> polygon;
+            };
+            std::vector<Piece> pieces;
+            std::array<bool, 4> used{};
             for (u64 i = batch.startIndex; i + 2 < end; i += 3) {
                 const std::array<u32, 3> corners{group.indices[i], group.indices[i + 1], group.indices[i + 2]};
                 if (corners[0] >= vertexCount || corners[1] >= vertexCount || corners[2] >= vertexCount) {
@@ -536,20 +598,220 @@ Result<Document> WmoConverter::fromWmo(const wow::wmo::Model& source, const WmoI
                                      ProfileId::Wow);
                     continue;
                 }
-                const geom::FaceId face =
-                    builder.addTriangle(vertex(corners[0]), vertex(corners[1]), vertex(corners[2]), sectionIndex);
-                for (u32 c = 0; c < 3; ++c) {
-                    const u32 v = corners[c];
-                    builder.setCornerAttr(face, c, geom::names::kNormal,
-                                          v < group.normals.size() ? group.normals[v] : Vector3f{0, 0, 1});
-                    for (u32 s = 0; s < uvSets; ++s) {
-                        if (v < group.uvSets[s].size())
-                            builder.setCornerAttr(face, c, geom::names::uv(s), group.uvSets[s][v]);
+                const std::array<std::array<f32, 4>, 3> score{scoresOf(corners[0]), scoresOf(corners[1]),
+                                                             scoresOf(corners[2])};
+                const auto heaviest = [&](u32 c) {
+                    u8 best = 0;
+                    for (u8 k = 1; k < candidates; ++k) {
+                        if (score[c][k] > score[c][best])
+                            best = k;
                     }
+                    return best;
+                };
+                const u8 first = heaviest(0);
+                if (heaviest(1) == first && heaviest(2) == first) {
+                    pieces.push_back({first, corners, WholeTriangle()});
+                    used[first] = true;
+                    continue;
+                }
+                for (u8 variant = 0; variant < candidates; ++variant) {
+                    std::vector<CutPoint> polygon = WholeTriangle();
+                    for (u8 other = 0; other < candidates && polygon.size() >= 3; ++other) {
+                        if (other != variant)
+                            polygon = CutAway(polygon, corners, score, variant, other);
+                    }
+                    if (polygon.size() >= 3) {
+                        pieces.push_back({variant, corners, std::move(polygon)});
+                        used[variant] = true;
+                    }
+                }
+            }
+            const bool split = std::count(used.begin(), used.end(), true) > 1;
+
+            for (u8 variant = 0; variant < 4; ++variant) {
+                if (!used[variant])
+                    continue;
+                // Named for what split it, where something did.
+                const std::string suffix =
+                    !split ? std::string() : (shader == 23 ? "_layer" : "_side") + std::to_string(variant);
+
+                // --- the material -----------------------------------------
+                const std::string name = "group_" + std::to_string(g) + "_batch_" + std::to_string(b) + suffix;
+                const u32 slot = model.addSlot(name);
+                Material material;
+                material.name = name;
+                CommonMaterial& common = material.InitCommon();
+                bool exactBlend = true;
+                common.blend = BlendFor(record.blendMode, exactBlend);
+                if (!exactBlend && reported.insert(0x10000u | record.blendMode).second) {
+                    diagnostics.info(DiagCode::LossyBlendMode,
+                                     "blend mode " + std::to_string(record.blendMode) + " has no WEM twin; " +
+                                         ToString(common.blend) + " stands in",
+                                     ElementRef(ElementKind::Slot, slot), ProfileId::Wow);
+                }
+                if (common.blend == BlendMode::AlphaKey)
+                    common.alphaTestThreshold = 128.0f / 255.0f;
+                common.depth.write = record.blendMode <= 1;
+                if (wmo::hasFlag(record.flags, wmo::MaterialFlag::TwoSided))
+                    common.cull = CullMode::None;
+                if (wmo::hasFlag(record.flags, wmo::MaterialFlag::Unlit))
+                    common.flags |= MaterialFlags::Unlit;
+                if (wmo::hasFlag(record.flags, wmo::MaterialFlag::Unfogged))
+                    common.flags |= MaterialFlags::Unfogged;
+
+                const Chain chain = ChainFor(shader, variant == 0, variant);
+                if (chain.lost && reported.insert(shader).second) {
+                    diagnostics.info(DiagCode::LossyKindConversion,
+                                     "shader " + std::to_string(shader) + ": " + chain.lost,
+                                     ElementRef(ElementKind::Slot, slot), ProfileId::Wow);
+                }
+                // MOUV replaces both texture matrices while it moves; shader 11's
+                // second scrolls a tile every ten seconds without it.
+                std::array<Vector2f, 2> scroll{Vector2f{0, 0}, Vector2f{0, 0}};
+                if (batch.material() < root.uvAnimations.size()) {
+                    scroll[0] = root.uvAnimations[batch.material()].speed0;
+                    scroll[1] = root.uvAnimations[batch.material()].speed1;
+                }
+                if (shader == 11 && scroll[0].x == 0 && scroll[0].y == 0 && scroll[1].x == 0 && scroll[1].y == 0)
+                    scroll[1] = Vector2f{0.1f, 0.0f};
+
+                CombinersBody body;
+                for (const StageDesc& desc : chain.stages) {
+                    CombinerStage stage;
+                    stage.input.texture = textures.at(record, desc.slot);
+                    if (stage.input.texture == kInvalidIndex && !body.stages.empty())
+                        continue; // a folded layer the material does not have
+                    stage.input.uvSet = std::min<u32>(desc.uv.set, uvSets ? uvSets - 1 : 0);
+                    stage.input.mapping = desc.uv.env ? UVMappingMode::EnvSphere : UVMappingMode::ExplicitUV;
+                    stage.input.wrapU = clampS ? WrapMode::Clamp : WrapMode::Repeat;
+                    stage.input.wrapV = clampT ? WrapMode::Clamp : WrapMode::Repeat;
+                    stage.rgb = desc.rgb;
+                    stage.alpha = desc.alpha;
+                    if (desc.uv.matrix != kNoMatrix) {
+                        const Vector2f rate = scroll[desc.uv.matrix];
+                        if (rate.x != 0 || rate.y != 0) {
+                            MaterialFeature feature;
+                            feature.id = static_cast<u32>(common.features.size());
+                            feature.layer = static_cast<u32>(body.stages.size());
+                            UvAnimationFeature uv;
+                            uv.scrollRate = rate;
+                            feature.payload = uv;
+                            common.features.push_back(feature);
+                        }
+                    }
+                    body.stages.push_back(std::move(stage));
+                }
+                common.body = std::move(body);
+                set.resizeBindings(model.materialSlots.size());
+                set.slotBindings[slot].byLook[0] = static_cast<u32>(set.materials.size());
+                set.materials.push_back(std::move(material));
+
+                // --- the section and its triangles -----------------------
+                MeshSection section;
+                section.name = "batch_" + std::to_string(b) + suffix;
+                section.materialSlot = slot;
+                section.rigidNode = 0;
+                section.selectionGroup = static_cast<u16>(b);
+                section.native.set("wmoGroup", static_cast<i64>(g));
+                section.native.set("wmoBatch", static_cast<i64>(b));
+                section.native.set("wmoMaterial", static_cast<i64>(batch.material()));
+                section.native.set("wmoShader", static_cast<i64>(record.shader));
+                section.native.set("wmoBlend", static_cast<i64>(record.blendMode));
+                section.native.set("wmoMaterialFlags", static_cast<i64>(record.flags));
+                section.native.set("wmoGroupFlags", static_cast<i64>(group.header.flags));
+                if (transition)
+                    section.native.set("wmoTransition", 1);
+                const u32 sectionIndex = builder.addSection(std::move(section));
+
+                // The corners carry the sets the chain reads. Shader 23's layer
+                // reads its own, which crosses as set 0.
+                u32 uvCount = 0;
+                for (const StageDesc& desc : chain.stages)
+                    uvCount = desc.uv.env ? uvCount : std::max<u32>(uvCount, desc.uv.set + 1u);
+                uvCount = std::min(uvCount, uvSets);
+                const u32 uvFirst = shader == 23 ? std::min<u32>(variant, uvSets ? uvSets - 1 : 0) : 0;
+
+                // A piece's points: its triangle's own corners, or a vertex cut
+                // there, one per edge cut so the triangle across shares it.
+                const auto pointVertex = [&](const Piece& piece, const CutPoint& p) {
+                    for (u32 c = 0; c < 3; ++c) {
+                        if (p.at[c] == 1.0f)
+                            return vertex(piece.corners[c]);
+                    }
+                    const auto key = std::make_tuple(b, p.edge[0], p.edge[1], p.between);
+                    if (p.between != 0) {
+                        if (const auto it = cutVertex.find(key); it != cutVertex.end())
+                            return geom::VertexId(it->second);
+                    }
+                    Vector3f position{0, 0, 0};
+                    for (u32 c = 0; c < 3; ++c) {
+                        for (u32 k = 0; k < 3; ++k)
+                            position.data[k] += p.at[c] * group.positions[piece.corners[c]].data[k];
+                    }
+                    const u32 id = builder.addVertex(position).value();
+                    cuts.push_back({id, piece.corners, p.at});
+                    if (p.between != 0)
+                        cutVertex.emplace(key, id);
+                    return geom::VertexId(id);
+                };
+                const auto setCorner = [&](geom::FaceId face, u32 c, const Piece& piece, const CutPoint& p) {
+                    bool corner = false;
+                    Vector3f normal{0, 0, 0};
+                    std::array<Vector2f, 4> uv{};
+                    std::array<f32, 4> light{};
+                    for (u32 k = 0; k < 3; ++k) {
+                        if (p.at[k] == 0.0f)
+                            continue;
+                        corner = corner || p.at[k] == 1.0f;
+                        const u32 v = piece.corners[k];
+                        const Vector3f n = v < group.normals.size() ? group.normals[v] : Vector3f{0, 0, 1};
+                        for (u32 a = 0; a < 3; ++a)
+                            normal.data[a] += p.at[k] * n.data[a];
+                        for (u32 s = 0; s < uvCount; ++s) {
+                            if (v < group.uvSets[uvFirst + s].size()) {
+                                uv[s].x += p.at[k] * group.uvSets[uvFirst + s][v].x;
+                                uv[s].y += p.at[k] * group.uvSets[uvFirst + s][v].y;
+                            }
+                        }
+                        if (groupLit) {
+                            const std::array<u8, 4> lit = vertexLit
+                                                              ? VertexLight(uploaded.color0[v], ambient, transition)
+                                                              : std::array<u8, 4>{255, 255, 255, 255};
+                            for (u32 a = 0; a < 4; ++a)
+                                light[a] += p.at[k] * static_cast<f32>(lit[a]);
+                        }
+                    }
+                    if (!corner) {
+                        const f32 length = std::sqrt(normal.x * normal.x + normal.y * normal.y + normal.z * normal.z);
+                        if (length > 0.0f) {
+                            for (u32 a = 0; a < 3; ++a)
+                                normal.data[a] /= length;
+                        }
+                    }
+                    builder.setCornerAttr(face, c, geom::names::kNormal, normal);
+                    for (u32 s = 0; s < uvCount; ++s)
+                        builder.setCornerAttr(face, c, geom::names::uv(s), uv[s]);
                     if (groupLit) {
-                        builder.setCornerAttr(face, c, geom::names::color(0),
-                                              vertexLit ? VertexLight(uploaded.color0[v], ambient, transition)
-                                                        : std::array<u8, 4>{255, 255, 255, 255});
+                        std::array<u8, 4> rounded{};
+                        for (u32 a = 0; a < 4; ++a)
+                            rounded[a] = static_cast<u8>(std::lround(std::clamp(light[a], 0.0f, 255.0f)));
+                        builder.setCornerAttr(face, c, geom::names::color(0), rounded);
+                    }
+                };
+                for (const Piece& piece : pieces) {
+                    if (piece.variant != variant)
+                        continue;
+                    // A fan: the pieces are convex.
+                    for (std::size_t k = 1; k + 1 < piece.polygon.size(); ++k) {
+                        const std::array<const CutPoint*, 3> at{&piece.polygon[0], &piece.polygon[k],
+                                                                &piece.polygon[k + 1]};
+                        const std::array<geom::VertexId, 3> ids{pointVertex(piece, *at[0]), pointVertex(piece, *at[1]),
+                                                                pointVertex(piece, *at[2])};
+                        if (ids[0] == ids[1] || ids[1] == ids[2] || ids[0] == ids[2])
+                            continue;
+                        const geom::FaceId face = builder.addTriangle(ids[0], ids[1], ids[2], sectionIndex);
+                        for (u32 c = 0; c < 3; ++c)
+                            setCorner(face, c, piece, *at[c]);
                     }
                 }
             }
@@ -568,6 +830,29 @@ Result<Document> WmoConverter::fromWmo(const wow::wmo::Model& source, const WmoI
                 builder.setVertexAttr(id, "wmo.color1", Rgba((*set1)[v]));
             if (group.vertexColors2 && v < group.vertexColors2->size())
                 builder.setVertexAttr(id, "wmo.color2", Rgba((*group.vertexColors2)[v]));
+        }
+        for (const Cut& cut : cuts) {
+            const auto mix = [&](const std::vector<wmo::Color>& colors) {
+                std::array<f32, 4> sum{};
+                for (u32 c = 0; c < 3; ++c) {
+                    if (cut.corners[c] < colors.size()) {
+                        const std::array<u8, 4> rgba = Rgba(colors[cut.corners[c]]);
+                        for (u32 a = 0; a < 4; ++a)
+                            sum[a] += cut.at[c] * static_cast<f32>(rgba[a]);
+                    }
+                }
+                std::array<u8, 4> out{};
+                for (u32 a = 0; a < 4; ++a)
+                    out[a] = static_cast<u8>(std::lround(std::clamp(sum[a], 0.0f, 255.0f)));
+                return out;
+            };
+            const geom::VertexId id(cut.id);
+            if (set0)
+                builder.setVertexAttr(id, "wmo.color0", mix(*set0));
+            if (set1)
+                builder.setVertexAttr(id, "wmo.color1", mix(*set1));
+            if (group.vertexColors2)
+                builder.setVertexAttr(id, "wmo.color2", mix(*group.vertexColors2));
         }
 
         geom::MeshBuilder::BuildOutcome outcome = builder.build();

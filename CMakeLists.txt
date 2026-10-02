@@ -523,6 +523,8 @@ add_library(whiteout_lib
     src/whiteout/models/wem/retarget.cpp
     src/whiteout/models/wem/skeleton_retarget.cpp
     src/whiteout/models/wem/rescale.cpp
+    src/whiteout/models/wem/inline_models.cpp
+    src/whiteout/models/wem/scene_ops.cpp
     src/whiteout/models/wem/native_bag.cpp
     src/whiteout/models/wem/binary_read_visitor.cpp
     src/whiteout/models/wem/binary_write_visitor.cpp
@@ -548,6 +550,8 @@ add_library(whiteout_lib
     src/whiteout/models/cross/wc3_sc2_emitters.cpp
     src/whiteout/models/cross/m2_wc3_emitters.cpp
     src/whiteout/models/cross/m2_wc3_sequences.cpp
+    src/whiteout/models/cross/m2_wc3_attachments.cpp
+    src/whiteout/models/cross/m2_wc3_lights.cpp
     src/whiteout/models/wem/converters/d3_converter.cpp
     src/whiteout/models/wem/converters/d3_anim.cpp
     src/whiteout/models/wem/converters/gltf_converter.cpp

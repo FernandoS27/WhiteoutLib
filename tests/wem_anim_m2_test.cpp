@@ -20,6 +20,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <whiteout/models/cross/m2_wc3_attachments.h>
 #include <whiteout/models/cross/m2_wc3_sequences.h>
 #include <whiteout/models/m2/parser.h>
 #include <whiteout/models/wem/converters.h>
@@ -628,6 +629,57 @@ TEST_CASE("wem m2 an animation takes Warcraft III's name and whether it loops",
     CHECK(out.value->sequences[3].name == "Attack First");
     CHECK(mdx::hasFlag(out.value->sequences[3].flags, mdx::Sequence::Flag::NonLooping));
     CHECK_FALSE(mdx::hasFlag(out.value->sequences[0].flags, mdx::Sequence::Flag::NonLooping));
+}
+
+TEST_CASE("wem m2 an attachment takes Warcraft III's name and its place as its id",
+          "[wem][anim][m2][mdx]") {
+    m2::Model model = makeModel();
+    // Base before HandRight: the ids do not climb in the file.
+    for (const u32 id : {19u, 1u, 5u, 99u}) {
+        m2::Attachment attachment;
+        attachment.id = id;
+        attachment.boneId = 0;
+        model.attachments.push_back(attachment);
+    }
+
+    Document document = convert(model);
+    const models::cross::M2AttachmentReport report = models::cross::CrossM2Attachments(document);
+    CHECK(report.matched == 2u);
+    CHECK(report.kept == 2u);
+    std::vector<const Node*> attachments;
+    for (const Node& node : document.models[0].nodes.nodes) {
+        if (node.kind == NodeKind::Attachment) {
+            attachments.push_back(&node);
+        }
+    }
+    REQUIRE(attachments.size() == 4u);
+    CHECK(attachments[0]->name == "Origin Ref");
+    CHECK(attachments[1]->name == "Hand Right Ref");
+    CHECK(attachments[2]->name == "ShoulderRight Ref");
+    CHECK(attachments[3]->name == "Attachment99 Ref");
+    CHECK(attachments[0]->native.value("m2AttachmentId", -1) == 19);
+    CHECK(models::cross::M2AttachmentWords(5) == "Shoulder Right");
+
+    // Warcraft III stops reading a name at its first unknown word, so a point it
+    // has no name for must be one word, or it would answer for one it has.
+    for (u32 id = 0; id < 60; ++id) {
+        const std::string name = models::cross::M2Wc3AttachmentName(id);
+        if (name.find(' ') != name.size() - 4) {
+            CAPTURE(id, name);
+            CHECK((id == 1 || id == 2 || id == 18 || id == 19 || id == 20 || id == 34 ||
+                   id == 47 || id == 48));
+        }
+    }
+
+    REQUIRE(DeriveProfile(document, ProfileId::Wow, ProfileId::Wc3Classic).ok);
+    MdxConverter mdx;
+    Result<mdx::Model> out = mdx.toMdx(document, ProfileId::Wc3Classic);
+    REQUIRE(out.ok());
+    REQUIRE(out.value->attachments.size() == 4u);
+    CHECK(out.value->attachments[0].node.name == "Origin Ref");
+    for (u32 a = 0; a < 4; ++a) {
+        CHECK(out.value->attachments[a].attachmentId == a);
+    }
 }
 
 TEST_CASE("wem m2 each animated layer gets a texture animation of its own",

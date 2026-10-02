@@ -3,14 +3,21 @@
 
 /// `WmoConverter::fromWmo` on hand-built WMOs: which batches cross, how a material's shader becomes a
 /// combiner chain and which side of a vertex-alpha lerp it takes, the light MOCV gives a vertex-lit
-/// batch, and the doodads and lights as nodes. Then `AppendDocument`, which brings a doodad's model in.
+/// batch, and the doodads and lights as nodes. Then `AppendDocument`, which brings a doodad's model in,
+/// and what an `.mdx` export does with both: the lights in Warcraft III's terms, the doodads written in.
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <array>
+#include <cmath>
+#include <cstring>
+#include <optional>
 #include <vector>
 
+#include <whiteout/models/cross/m2_wc3_lights.h>
+#include <whiteout/models/wem/anim/track_read.h>
+#include <whiteout/models/wem/inline_models.h>
 #include <whiteout/models/wem/materials/ops.h>
 #include <whiteout/models/wem/wmo_converter.h>
 #include <whiteout/models/wow/wmo/wmo.h>
@@ -98,6 +105,48 @@ wmo::Model makeModel() {
 const Material& materialOf(const Document& document, u32 slot) {
     const ProfileMaterialSet& set = document.models[0].profileSets[0];
     return set.materials[set.slotBindings[slot].byLook[0]];
+}
+
+/// Two quads under one shader-23 batch: layers 4001..4004 over heights 5001..5004,
+/// four UV sets with set s at vertex v (s + 0.5, v), and MOC2 putting the first
+/// quad wholly on layer 0 and the second's on it by @p secondRed (layer 3 the rest).
+wmo::Model makeLayered(u8 secondRed) {
+    wmo::Model model;
+    wmo::Material& material = model.root.materials.emplace_back();
+    material.shader = 23;
+    material.texture1 = 4001;
+    material.texture2 = 4002;
+    material.textureExtra = {4003, 4004, 5001, 5002, 5003, 5004};
+    model.root.groups.resize(1);
+    model.root.groups[0].flags = 0x8;
+
+    wmo::Group group;
+    group.header.flags = 0x8;
+    addQuad(group, 0.0f);
+    addQuad(group, 2.0f);
+    group.uvSets.resize(4);
+    for (u32 s = 0; s < 4; ++s) {
+        for (u32 v = 0; v < 8; ++v)
+            group.uvSets[s].push_back({static_cast<f32>(s) + 0.5f, static_cast<f32>(v)});
+    }
+    std::vector<wmo::Color> weights(8);
+    for (u32 v = 0; v < 8; ++v)
+        weights[v].r = v < 4 ? u8{255} : secondRed;
+    group.vertexColors2 = weights;
+    group.batches = {batchOf(0, 0, 0, 7)};
+    group.batches[0].indexCount = 12;
+    model.groups = {group};
+    return model;
+}
+
+/// The face corners' UV set 0 that a converter wrote, boundary halfedges left out.
+std::vector<Vector2f> cornerUvs(const Mesh& mesh) {
+    std::vector<Vector2f> out;
+    for (const Vector2f& uv : mesh.attributes.get<Vector2f>(geom::names::uv(0), geom::Domain::Halfedge)) {
+        if (uv.x > 0.0f)
+            out.push_back(uv);
+    }
+    return out;
 }
 
 } // namespace
@@ -211,6 +260,98 @@ TEST_CASE("MOUV scrolls a stage through its texture matrix", "[wem][wmo]") {
     CHECK(uv->scrollRate.y == -0.25f);
 }
 
+TEST_CASE("a batch splits by the layer or side each triangle shows", "[wem][wmo]") {
+    // Shader 23: the first quad is layer 0, the second layer 3, each a section
+    // whose stage reads set 0, where its corners carry the layer's own set.
+    Result<Document> layered = WmoConverter{}.fromWmo(makeLayered(0));
+    REQUIRE(layered.ok());
+    const Model& model = layered->models[0];
+    REQUIRE(model.meshes.size() == 1);
+    const Mesh& mesh = model.meshes[0];
+    REQUIRE(mesh.sections.size() == 2);
+    CHECK(mesh.sections[0].name == "batch_0_layer0");
+    CHECK(mesh.sections[1].name == "batch_0_layer3");
+    CHECK(model.materialSlots[1] == "group_0_batch_0_layer3");
+    const auto seed = [&](u32 slot) {
+        const CombinerStage& stage = std::get<CombinersBody>(materialOf(*layered, slot).Common().body).stages[0];
+        CHECK(stage.input.uvSet == 0);
+        return std::get<TextureFileDataId>(layered->textures[stage.input.texture].key).value;
+    };
+    CHECK(seed(0) == 4001);
+    CHECK(seed(1) == 4004);
+    for (const Vector2f& uv : cornerUvs(mesh))
+        CHECK(uv.x == (uv.y < 4.0f ? 0.5f : 3.5f));
+    CHECK(cornerUvs(mesh).size() == 12);
+    CHECK_FALSE(mesh.attributes.has(geom::names::uv(1), geom::Domain::Halfedge));
+    // The height maps are no stage's textures.
+    CHECK(layered->textures.size() == 2);
+
+    // Red 100 leaves layer 3 the heavier weight, so it takes the second quad;
+    // with layer 3's height at 25/255 against layer 0's 1, layer 0 takes both.
+    Result<Document> byWeight = WmoConverter{}.fromWmo(makeLayered(100));
+    REQUIRE(byWeight.ok());
+    CHECK(byWeight->models[0].meshes[0].sections.size() == 2);
+    WmoImportOptions options;
+    options.meanAlpha = [](const TextureRef& ref) -> std::optional<f32> {
+        return std::get<TextureFileDataId>(ref.key).value == 5004 ? 25.0f / 255.0f : 1.0f;
+    };
+    Result<Document> byHeight = WmoConverter{}.fromWmo(makeLayered(100), options);
+    REQUIRE(byHeight.ok());
+    const Mesh& one = byHeight->models[0].meshes[0];
+    REQUIRE(one.sections.size() == 1);
+    CHECK(one.sections[0].name == "batch_0");
+    CHECK(byHeight->models[0].materialSlots[0] == "group_0_batch_0");
+
+    // Shader 13 over the second quad, MOCV set 1's alpha 255, 128, 128, 0: its
+    // first triangle averages above a half, its second below.
+    wmo::Model lerped = makeModel();
+    std::vector<wmo::Color>& set1 = lerped.groups[0]->vertexColors[1];
+    set1[4].a = 255;
+    set1[5].a = 128;
+    set1[6].a = 128;
+    set1[7].a = 0;
+    Result<Document> sides = WmoConverter{}.fromWmo(lerped);
+    REQUIRE(sides.ok());
+    const Model& sided = sides->models[0];
+    REQUIRE(sided.meshes[0].sections.size() == 4);
+    CHECK(sided.meshes[0].sections[1].name == "batch_1_side0");
+    CHECK(sided.meshes[0].sections[2].name == "batch_1_side1");
+    const auto stages = [&](u32 slot) {
+        return std::get<CombinersBody>(materialOf(*sides, slot).Common().body).stages;
+    };
+    CHECK(stages(1)[0].input.texture == 1);
+    CHECK(stages(2)[0].input.texture == 2);
+    CHECK(stages(2)[0].input.uvSet == 1);
+}
+
+TEST_CASE("a triangle is cut where its heavier layer changes", "[wem][wmo]") {
+    // One quad, layer 0 along y = 0 and layer 3 along y = 1: the two weigh the
+    // same at y = 0.5, where both triangles are cut, the diagonal once for both.
+    wmo::Model source = makeLayered(0);
+    wmo::Group& group = *source.groups[0];
+    group.indices.resize(6);
+    group.batches[0].indexCount = 6;
+    for (u32 v = 0; v < 8; ++v)
+        (*group.vertexColors2)[v].r = v < 2 ? u8{255} : u8{0};
+    Result<Document> cut = WmoConverter{}.fromWmo(source);
+    REQUIRE(cut.ok());
+    const Mesh& mesh = cut->models[0].meshes[0];
+    REQUIRE(mesh.sections.size() == 2);
+    CHECK(mesh.vertexCount() == 7);
+    CHECK(mesh.faceCount() == 6);
+    CHECK(mesh.facesOfSection(0).size() == 3);
+    CHECK(mesh.facesOfSection(1).size() == 3);
+    CHECK(mesh.sections[0].bounds.maximum.y == Catch::Approx(0.5));
+    CHECK(mesh.sections[1].bounds.minimum.y == Catch::Approx(0.5));
+    u32 onCut = 0;
+    for (const Vector3f& p : mesh.attributes.get<Vector3f>(geom::names::kPosition, geom::Domain::Vertex))
+        onCut += p.y == 0.5f ? 1u : 0u;
+    CHECK(onCut == 3);
+    // A cut corner's UVs are its edge's, interpolated: set 3's (3.5, v) on layer 3.
+    for (const Vector2f& uv : cornerUvs(mesh))
+        CHECK((uv.x == 0.5f || uv.x == 3.5f));
+}
+
 TEST_CASE("doodads become attachments at their placement, lights become nodes", "[wem][wmo]") {
     wmo::Model source = makeModel();
     wmo::Root& root = source.root;
@@ -317,4 +458,261 @@ TEST_CASE("AppendDocument re-bases what the appended models name", "[wem][wmo]")
     CHECK(moved.sync() == NativeSync::InSync);
     REQUIRE(into.clips.size() == 1);
     CHECK(into.clips[0].model == 1);
+}
+
+namespace {
+
+f32 Wc3Falls(const cross::Wc3Falloff& f, f32 d) {
+    return std::exp(-f.damping * d * d) / (1.0f + f.linear * d + f.quadratic * d * d);
+}
+
+} // namespace
+
+TEST_CASE("a WMO light falls off where 12.1's does, its colour and intensity squared", "[wem][wmo]") {
+    // Half where 12.1's square is a half, one 8-bit step at the end.
+    const auto reach = cross::Wc3FalloffFor(0.0f, 10.0f);
+    REQUIRE(reach);
+    const f32 half = 10.0f * (1.0f - std::sqrt(0.5f));
+    CHECK(Wc3Falls(*reach, half) == Catch::Approx(0.5f).margin(1e-4));
+    CHECK(Wc3Falls(*reach, 10.0f) == Catch::Approx(1.0f / 255.0f).margin(1e-5));
+    CHECK(reach->quadratic > 0.0f);
+    // Flat for most of its reach: the Gaussian through the half alone.
+    const auto plateau = cross::Wc3FalloffFor(8.0f, 10.0f);
+    REQUIRE(plateau);
+    CHECK(plateau->quadratic == 0.0f);
+    CHECK(Wc3Falls(*plateau, 8.0f + 2.0f * (1.0f - std::sqrt(0.5f))) == Catch::Approx(0.5f).margin(1e-4));
+    CHECK_FALSE(cross::Wc3FalloffFor(0.0f, 0.0f));
+
+    wmo::Model source = makeModel();
+    wmo::NewLight point;
+    point.innerColor = {0, 0, 128, 255};
+    point.attenuationEnd = 10.0f;
+    point.intensity = 2.0f;
+    wmo::NewLight spot = point;
+    spot.lightIndex = 1;
+    spot.type = 1;
+    spot.innerAngle = 1.0f;
+    spot.outerAngle = 2.0f;
+    source.root.newLights = {point, spot};
+    source.groups[0]->newLightRefs = {0, 1};
+    Result<Document> converted = WmoConverter{}.fromWmo(source);
+    REQUIRE(converted.ok());
+    Document document = std::move(*converted.value);
+
+    // And a `.m2` light, whose state is all keys.
+    Model& model = document.models[0];
+    Node bulb;
+    bulb.name = "m2 light";
+    bulb.kind = NodeKind::Light;
+    bulb.resetPayloadForKind();
+    bulb.parent = 0;
+    bulb.native.set("m2LightType", 1);
+    const u32 bulbNode = model.nodes.add(bulb);
+    const auto key = [](std::vector<f32> values) {
+        std::vector<u8> bytes(values.size() * sizeof(f32));
+        std::memcpy(bytes.data(), values.data(), bytes.size());
+        return bytes;
+    };
+    const auto channelOf = [&](u32 id, Channel what, geom::AttrType type) {
+        AnimChannel channel;
+        channel.id = id;
+        channel.target.node = bulbNode;
+        channel.target.channel = what;
+        channel.valueType = type;
+        model.animChannels.add(channel);
+    };
+    channelOf(100, Channel::Color, geom::AttrType::F32x3);
+    channelOf(101, Channel::AttenuationEnd, geom::AttrType::F32);
+    Clip stand;
+    stand.model = 0;
+    stand.containers.emplace_back();
+    SubTrack color;
+    color.channel = 100;
+    color.times = {0.0f};
+    color.values = key({0.5f, 1.0f, 0.0f});
+    SubTrack end;
+    end.channel = 101;
+    end.times = {0.0f, 1.0f};
+    end.values = key({4.0f, 6.0f});
+    stand.containers[0].subTracks = {color, end};
+    document.clips.push_back(stand);
+
+    const cross::M2LightReport report = cross::CrossM2Lights(document);
+    CHECK(report.restated == 3);
+    CHECK(report.spots == 1);
+    const NodeTree& tree = document.models[0].nodes;
+    const auto& lit = std::get<LightPayload>(tree.nodes[1].payload);
+    CHECK(lit.color.x == Catch::Approx((128.0f / 255.0f) * (128.0f / 255.0f)));
+    CHECK(lit.intensity == Catch::Approx(4.0f));
+    CHECK(Wc3Falls(cross::Wc3Falloff{lit.quadraticFalloff, lit.linearFalloff, lit.damping}, half) ==
+          Catch::Approx(0.5f).margin(1e-4));
+    // The spot, an omni light with the share of the sphere its cone lights.
+    const auto& cone = std::get<LightPayload>(tree.nodes[2].payload);
+    CHECK(cone.intensity == Catch::Approx(4.0f * 0.5f * (1.0f - std::cos(0.75f))));
+    // The `.m2` light: its colour keys squared, its reach its first key.
+    f32 squared[3];
+    std::memcpy(squared, document.clips.back().containers[0].subTracks[0].values.data(), sizeof(squared));
+    CHECK(squared[0] == Catch::Approx(0.25f));
+    CHECK(squared[1] == Catch::Approx(1.0f));
+    const auto& bulbLight = std::get<LightPayload>(tree.nodes[bulbNode].payload);
+    const f32 bulbHalf = 4.0f * (1.0f - std::sqrt(0.5f));
+    CHECK(Wc3Falls(cross::Wc3Falloff{bulbLight.quadraticFalloff, bulbLight.linearFalloff, bulbLight.damping},
+                   bulbHalf) == Catch::Approx(0.5f).margin(1e-4));
+}
+
+TEST_CASE("an attached model goes into the model where it stands, keyed on a global loop", "[wem][wmo]") {
+    // The host: a WMO with one doodad, scaled 2, a quarter turn about +Z, at (3, 4, 5).
+    wmo::Model source = makeModel();
+    wmo::DoodadSet global;
+    global.count = 1;
+    source.root.doodadSets = {global};
+    source.root.doodadFileIds = {500};
+    source.root.doodadDefs.resize(1);
+    source.root.doodadDefs[0].position = {3.0f, 4.0f, 5.0f};
+    source.root.doodadDefs[0].scale = 2.0f;
+    source.root.doodadDefs[0].rotation = {0.0f, 0.0f, 0.70710678f, 0.70710678f};
+    source.groups[0]->doodadRefs = {0};
+    Result<Document> host = WmoConverter{}.fromWmo(source);
+    REQUIRE(host.ok());
+    Document document = std::move(*host.value);
+    const Matrix44f placed = Matrix44f::scaling({2.0f, 2.0f, 2.0f}) *
+                             Matrix44f::rotation(source.root.doodadDefs[0].rotation).transpose() *
+                             Matrix44f::translation(source.root.doodadDefs[0].position);
+
+    // The doodad: another WMO's meshes on a bone pivoting at (1, 0, 0), which a
+    // clip turns and moves, and an emitter on it no key turns.
+    Result<Document> other = WmoConverter{}.fromWmo(makeModel());
+    REQUIRE(other.ok());
+    Document child = std::move(*other.value);
+    Model& doodad = child.models[0];
+    doodad.name = "brazier";
+    doodad.nodes.nodes[0].pivot = {1.0f, 0.0f, 0.0f};
+    doodad.nodes.nodes[0].local.translation = {1.0f, 0.0f, 0.0f};
+    Node emitter;
+    emitter.name = "fire";
+    emitter.kind = NodeKind::Wc3ParticleEmitter2;
+    emitter.resetPayloadForKind();
+    std::get<Wc3ParticleEmitter2Payload>(emitter.payload).speed = 10.0f;
+    std::get<Wc3ParticleEmitter2Payload>(emitter.payload).width = 4.0f;
+    std::get<Wc3ParticleEmitter2Payload>(emitter.payload).start.scaling = 3.0f;
+    emitter.parent = 0;
+    emitter.pivot = {1.0f, 0.0f, 1.0f};
+    emitter.local.translation = {0.0f, 0.0f, 1.0f};
+    const u32 fire = doodad.nodes.add(emitter);
+    AnimChannel turn;
+    turn.id = 0;
+    turn.target.node = 0;
+    turn.target.channel = Channel::Rotation;
+    turn.valueType = geom::AttrType::Quat;
+    doodad.animChannels.add(turn);
+    AnimChannel move = turn;
+    move.id = 1;
+    move.target.channel = Channel::Translation;
+    move.valueType = geom::AttrType::F32x3;
+    doodad.animChannels.add(move);
+    const Quaternion aboutX{0.38268343f, 0.0f, 0.0f, 0.92387953f}; // 45 degrees
+    const Vector3f by{0.5f, 0.0f, 0.25f};
+    Clip stand;
+    stand.name = "Stand";
+    stand.model = 0;
+    stand.duration = 2.0f;
+    stand.native.set("animationId", 0);
+    stand.containers.emplace_back();
+    SubTrack turning;
+    turning.channel = 0;
+    turning.interp = Interpolation::Slerp;
+    turning.times = {0.0f};
+    turning.values.resize(sizeof(Quaternion));
+    std::memcpy(turning.values.data(), &aboutX, sizeof(Quaternion));
+    SubTrack moving;
+    moving.channel = 1;
+    moving.times = {0.0f};
+    moving.values.resize(sizeof(Vector3f));
+    std::memcpy(moving.values.data(), &by, sizeof(Vector3f));
+    stand.containers[0].subTracks = {turning, moving};
+    child.clips.push_back(stand);
+    const u32 childNodes = doodad.nodes.size();
+    const u32 childMeshes = static_cast<u32>(doodad.meshes.size());
+    const Vector3f corner =
+        doodad.meshes[0].attributes.get<Vector3f>(geom::names::kPosition, geom::Domain::Vertex)[1];
+
+    Diagnostics diagnostics;
+    const u32 at = AppendDocument(document, std::move(child), diagnostics);
+    REQUIRE(at == 1);
+    const u32 attachment = 1;
+    REQUIRE(document.models[0].nodes.nodes[attachment].kind == NodeKind::Attachment);
+    std::get<AttachmentPayload>(document.models[0].nodes.nodes[attachment].payload).model = at;
+    const u32 hostNodes = document.models[0].nodes.size();
+    const u32 hostMeshes = static_cast<u32>(document.models[0].meshes.size());
+    const u32 hostClips = static_cast<u32>(document.clips.size());
+
+    const InlineReport report = InlineAttachedModels(document, 0);
+    CHECK(report.placements == 1);
+    CHECK(report.models == 1);
+    CHECK(report.loops == 1);
+    const Model& model = document.models[0];
+    REQUIRE(model.nodes.size() == hostNodes + childNodes);
+    REQUIRE(model.meshes.size() == hostMeshes + childMeshes);
+    CHECK(std::get<AttachmentPayload>(model.nodes.nodes[attachment].payload).model == kInvalidIndex);
+
+    // Nodes behind the attachment's name, the doodad's root under its parent.
+    const Node& bone = model.nodes.nodes[hostNodes];
+    CHECK(bone.name == "doodad_0 wmo_root");
+    CHECK(bone.parent == model.nodes.nodes[attachment].parent);
+    const auto near = [](const Vector3f& a, const Vector3f& b) {
+        CHECK(a.x == Catch::Approx(b.x).margin(1e-4));
+        CHECK(a.y == Catch::Approx(b.y).margin(1e-4));
+        CHECK(a.z == Catch::Approx(b.z).margin(1e-4));
+    };
+    near(bone.pivot, whiteout::transform_point({1.0f, 0.0f, 0.0f}, placed));
+    near(model.meshes[hostMeshes].attributes.get<Vector3f>(geom::names::kPosition, geom::Domain::Vertex)[1],
+         whiteout::transform_point(corner, placed));
+
+    // Its materials once, under slots of its own.
+    const MeshSection& section = model.meshes[hostMeshes].sections[0];
+    CHECK(model.materialSlots[section.materialSlot].rfind("brazier|", 0) == 0);
+    const ProfileMaterialSet* set = model.setFor(ProfileId::Wow);
+    REQUIRE(set != nullptr);
+    CHECK(set->slotBindings[section.materialSlot].bound(0));
+
+    // The clip it plays, a global loop of the host, whose keys move a point as
+    // placing the point the doodad moves does.
+    REQUIRE(document.clips.size() == hostClips + 1);
+    const Clip& loop = document.clips.back();
+    CHECK(loop.model == 0);
+    CHECK(IsGlobalLoop(loop));
+    CHECK(loop.duration == 2.0f);
+    Quaternion turned{0.0f, 0.0f, 0.0f, 1.0f};
+    Vector3f moved{0.0f, 0.0f, 0.0f};
+    std::optional<Quaternion> frameKey;
+    for (const SubTrack& track : loop.containers[0].subTracks) {
+        const AnimChannel* channel = model.animChannels.find(track.channel);
+        REQUIRE(channel != nullptr);
+        if (channel->target.node == hostNodes && channel->target.channel == Channel::Rotation)
+            std::memcpy(&turned, track.values.data(), sizeof(Quaternion));
+        if (channel->target.node == hostNodes && channel->target.channel == Channel::Translation)
+            std::memcpy(&moved, track.values.data(), sizeof(Vector3f));
+        if (channel->target.node == hostNodes + fire && channel->target.channel == Channel::Rotation) {
+            Quaternion q{0.0f, 0.0f, 0.0f, 1.0f};
+            std::memcpy(&q, track.values.data(), sizeof(Quaternion));
+            frameKey = q;
+        }
+    }
+    const auto pose = [](const Vector3f& x, const Vector3f& pivot, const Quaternion& q, const Vector3f& t) {
+        return whiteout::transform_point(x - pivot, Matrix44f::rotation(q).transpose()) + pivot + t;
+    };
+    const Vector3f probe{2.0f, 1.0f, -1.0f};
+    near(pose(whiteout::transform_point(probe, placed), bone.pivot, turned, moved),
+         whiteout::transform_point(pose(probe, {1.0f, 0.0f, 0.0f}, aboutX, by), placed));
+
+    // Its particles spread and fly by the placement's scale, and keep their size.
+    const auto& sprayed = std::get<Wc3ParticleEmitter2Payload>(model.nodes.nodes[hostNodes + fire].payload);
+    CHECK(sprayed.speed == Catch::Approx(20.0f));
+    CHECK(sprayed.width == Catch::Approx(8.0f));
+    CHECK(sprayed.start.scaling == Catch::Approx(3.0f));
+
+    // The emitter's frame turns with the placement, by a key of its own.
+    REQUIRE(frameKey);
+    near(whiteout::transform_point({1.0f, 0.0f, 0.0f}, Matrix44f::rotation(*frameKey).transpose()),
+         {0.0f, 1.0f, 0.0f});
 }

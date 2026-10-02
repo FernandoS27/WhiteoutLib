@@ -2402,6 +2402,10 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
         case NodeKind::Attachment: {
             mdx::Attachment attachment;
             attachment.node = buildNode(i);
+            // The game sizes its id table by the last record's id and fills it
+            // by every record's, so ids have to climb: one with none of its own
+            // takes its place in ATCH, as in Blizzard's files.
+            attachment.attachmentId = static_cast<u32>(out.attachments.size());
             if (const auto* id = node.native.find("mdxAttachmentId")) {
                 attachment.attachmentId = static_cast<u32>(id->value);
             }

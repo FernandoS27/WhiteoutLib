@@ -42,17 +42,14 @@ void scaleMatrixTranslation(Matrix44f& matrix, f32 factor) {
     matrix.data[3][2] *= factor;
 }
 
-/// The power of length a channel's values carry: 1 for a distance, 0 for
-/// everything dimensionless — a rotation, a scale, a colour, an alpha, a UV, a
-/// texture index — which survives a rescale untouched. An emitter property says
-/// for itself (`EmitterPropertyDesc::length`), which is why the node is asked.
-///
+} // namespace
+
 /// A Warcraft III light's falloff is the one negative power: it is a factor of
 /// `exp(-damping d²) / (1 + linear d + quadratic d²)`, and it falls off over the
 /// rescaled model as it did over the original only when each coefficient carries
 /// the inverse of its term's length. A camera's f-stop is the same case: the
 /// game blurs by `(1/focus - 1/depth) · focalLength² / fStop`.
-int lengthPower(const Model& model, const AnimChannel& channel) {
+int ChannelLengthPower(const Model& model, const AnimChannel& channel) {
     switch (channel.target.channel) {
     case Channel::Translation:
     case Channel::Target:
@@ -81,6 +78,8 @@ int lengthPower(const Model& model, const AnimChannel& channel) {
         return 0;
     }
 }
+
+namespace {
 
 /// @p factor raised to @p power: what a value carrying that power of length is
 /// multiplied by.
@@ -222,40 +221,43 @@ void rescaleNode(Node& node, f32 factor) {
     for (Matrix44f& matrix : node.poseMatrices) {
         scaleMatrixTranslation(matrix, factor);
     }
+    RescaleNodePayload(node.payload, factor);
+}
 
+} // namespace
+
+void RescaleNodePayload(NodePayload& payload, f32 factor) {
     // Only the payload alternatives that hold a length. An attachment's asset
     // key, an event id and a particle system reference are names, and a light's
     // colour and intensity are not distances.
-    if (auto* bone = std::get_if<BonePayload>(&node.payload)) {
+    if (auto* bone = std::get_if<BonePayload>(&payload)) {
         scale(bone->bounds, factor);
         scale(bone->sphere, factor);
-    } else if (auto* light = std::get_if<LightPayload>(&node.payload)) {
+    } else if (auto* light = std::get_if<LightPayload>(&payload)) {
         light->attenuationStart *= factor;
         light->attenuationEnd *= factor;
         light->shadowCastingStart *= factor;
         light->shadowCastingEnd *= factor;
-        // Per distance and per area (`lengthPower`).
+        // Per distance and per area (`ChannelLengthPower`).
         light->linearFalloff /= factor;
         light->quadraticFalloff /= factor * factor;
         light->damping /= factor * factor;
-    } else if (auto* camera = std::get_if<CameraPayload>(&node.payload)) {
+    } else if (auto* camera = std::get_if<CameraPayload>(&payload)) {
         // `fov` is an angle and stays; the two clip planes are distances from
         // the camera and move with the model, and the target is a point in it.
         camera->nearClip *= factor;
         camera->farClip *= factor;
         scale(camera->target, factor);
         camera->focusDistance *= factor;
-        camera->fStop /= factor; // per distance (`lengthPower`)
-    } else if (auto* collision = std::get_if<CollisionPayload>(&node.payload)) {
+        camera->fStop /= factor; // per distance (`ChannelLengthPower`)
+    } else if (auto* collision = std::get_if<CollisionPayload>(&payload)) {
         scale(collision->shape.box, factor);
         scale(collision->shape.sphere, factor);
         collision->shape.height *= factor;
     } else {
-        rescaleEmitter(node.payload, factor);
+        rescaleEmitter(payload, factor);
     }
 }
-
-} // namespace
 
 f32 RescaleFactorBetween(ProfileId from, ProfileId to) {
     if (static_cast<u32>(from) >= static_cast<u32>(ProfileId::Count) ||
@@ -324,7 +326,7 @@ RescaleResult RescaleDocument(Document& document, f32 factor) {
         RescalePhysics(model.physics, factor);
 
         for (AnimChannel& channel : model.animChannels.channels) {
-            const int power = lengthPower(model, channel);
+            const int power = ChannelLengthPower(model, channel);
             const f32 multiplier = powerOf(factor, power);
             lengthChannels[modelIndex].emplace(channel.id, multiplier);
             if (power == 0 || !isFloatType(channel.valueType)) {

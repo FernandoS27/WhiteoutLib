@@ -15,11 +15,14 @@
  * ### What 12.1 draws, and what crosses
  *
  * One mesh per LOD 0 group that draws, one section per drawn batch, every vertex
- * rigid to one root bone. A WMO material blends some layers by a vertex colour's
- * alpha (MOCV set 1, MOC2), which no combiner stage reads; the chain takes the
- * layer the batch's vertices mostly show. The file's colour sets ride beside the
- * geometry as `wmo.*` layers, which no exporter asks for, and `color0` is what
- * another format can use of them: the light MOCV gives a vertex-lit batch.
+ * rigid to one root bone. A WMO material blends some layers per vertex (by MOCV
+ * set 1's alpha, or shader 23's four by MOC2's weights and height masks), which
+ * no combiner stage reads. Which is heavier is linear across a triangle, so a
+ * triangle is cut where that changes, each piece takes its side or layer, and a
+ * batch splits into a section per one taken. Shader 23's layer reads its own UV
+ * set, which crosses as set 0: the one every target holds. The file's colour sets ride beside the geometry as `wmo.*`
+ * layers, which no exporter asks for, and `color0` is what another format can
+ * use of them: the light MOCV gives a vertex-lit batch.
  *
  * ### Doodads are `.m2` models
  *
@@ -29,6 +32,8 @@
  * (`AppendDocument`) and point the attachments at it.
  */
 
+#include <functional>
+#include <optional>
 #include <vector>
 
 #include <whiteout/common_types.h>
@@ -44,6 +49,10 @@ namespace wem {
 struct WmoImportOptions {
     /// The doodad sets on besides set 0, as `wmo::placedDoodads` takes them.
     std::vector<u16> doodadSets;
+    /// A texture's mean alpha, 0 to 1. Shader 23 weighs its layers by their
+    /// height masks (slots 5 to 8), which the cut takes as these means; without
+    /// it, or where it returns nothing, a height is 1.
+    std::function<std::optional<f32>(const TextureRef&)> meanAlpha;
 };
 
 class WmoConverter {

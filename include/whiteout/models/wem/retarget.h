@@ -170,6 +170,19 @@ RescaleResult RescaleDocument(Document& document, f32 factor);
  */
 f32 RescaleFactorBetween(ProfileId from, ProfileId to);
 
+/// The lengths @p payload holds, restated at @p factor as `RescaleDocument`
+/// restates a node's — its one table, for a caller rescaling part of a model.
+/// A model-space point among them (a camera's target, a collision shape) is
+/// scaled about the origin.
+void RescaleNodePayload(NodePayload& payload, f32 factor);
+
+/// The power of length @p channel's values carry: 1 for a distance, 0 for
+/// everything dimensionless — a rotation, a scale, a colour, an alpha, a UV, a
+/// texture index — and negative for a falloff or an f-stop. An emitter property
+/// says for itself (`EmitterPropertyDesc::length`), which is why @p model is
+/// asked.
+int ChannelLengthPower(const Model& model, const AnimChannel& channel);
+
 /**
  * @brief Brings @p imported's material sets over @p document's geometry as
  *        profile @p profile.
