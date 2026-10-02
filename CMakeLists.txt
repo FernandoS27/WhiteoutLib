@@ -455,6 +455,17 @@ add_library(whiteout_lib
     src/whiteout/models/wem/geometry/uv/layout.cpp
     src/whiteout/models/wem/geometry/uv/transfer.cpp
     src/whiteout/models/wem/geometry/uv/checks.cpp
+    src/whiteout/models/wem/geometry/retopo/quantize.cpp
+    src/whiteout/models/wem/geometry/retopo/sparse.cpp
+    src/whiteout/models/wem/geometry/retopo/surface.cpp
+    src/whiteout/models/wem/geometry/retopo/work_mesh.cpp
+    src/whiteout/models/wem/geometry/retopo/cross_field.cpp
+    src/whiteout/models/wem/geometry/retopo/layout.cpp
+    src/whiteout/models/wem/geometry/retopo/patch_map.cpp
+    src/whiteout/models/wem/geometry/retopo/extract.cpp
+    src/whiteout/models/wem/geometry/retopo/position_field.cpp
+    src/whiteout/models/wem/geometry/retopo/field_extract.cpp
+    src/whiteout/models/wem/geometry/retopo/retopology.cpp
     src/whiteout/models/wem/nodes/node.cpp
     src/whiteout/models/wem/nodes/tree.cpp
     src/whiteout/models/wem/nodes/visitor.cpp
