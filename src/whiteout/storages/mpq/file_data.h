@@ -32,6 +32,25 @@ namespace whiteout::storages::mpq {
 [[nodiscard]] u32 deriveFileKey(const std::string& filename, const BlockEntry& block);
 
 // ============================================================================
+// Re-keying (a FIX_KEY file moved to another offset)
+// ============================================================================
+
+/// The key a compressed multi-sector file was encrypted with, read off its own
+/// sector offset table, whose first entry is the table's size: how a FIX_KEY
+/// file no listfile names is moved. Nothing for a single-unit or stored file,
+/// which has no such table, or when no key decrypts it to offsets that fit.
+[[nodiscard]] std::optional<u32> detectStoredFileKey(std::span<const u8> stored, const BlockEntry& block,
+                                                     u32 sectorSize);
+
+/// @p stored — a file's bytes as the archive holds them, encrypted with
+/// @p oldKey — encrypted with @p newKey instead, sector by sector, never
+/// decompressed: the codec it was packed with does not have to be one this
+/// library writes. Nothing when its sector table does not hold.
+[[nodiscard]] std::optional<std::vector<u8>> rekeyStoredFile(std::span<const u8> stored,
+                                                             const BlockEntry& block, u32 sectorSize,
+                                                             u32 oldKey, u32 newKey);
+
+// ============================================================================
 // Extraction (Read)
 // ============================================================================
 

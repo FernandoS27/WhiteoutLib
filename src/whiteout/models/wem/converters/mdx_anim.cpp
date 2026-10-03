@@ -1600,6 +1600,13 @@ private:
             !CarriesNodeKind(profile_, model_.nodes.nodes[wemNode].kind)) {
             return;
         }
+        // A node the profile does not hold went out as a placement or not at
+        // all, which is what its mask asked for.
+        if (slot.slot == ExportContext::Slot::None ||
+            (wemNode < model_.nodes.size() &&
+             !HasProfile(model_.nodes.nodes[wemNode].profiles, profile_))) {
+            return;
+        }
         diagnostics_.warn(DiagCode::AnimTrackDropped,
                           std::string("no MDX record animates ") +
                               ToString(channel.target.channel) + " on this node",
@@ -2259,6 +2266,10 @@ private:
                     continue;
                 }
                 const ExportContext::NodeSlot& slot = context_.nodeSlots[event.node];
+                // A node the profile does not hold fires nothing in its file.
+                if (slot.slot == ExportContext::Slot::None) {
+                    continue;
+                }
                 if (slot.slot != ExportContext::Slot::EventObject ||
                     slot.index >= out_.eventObjects.size()) {
                     // The node's kind is not fixed across formats (§10.8): an

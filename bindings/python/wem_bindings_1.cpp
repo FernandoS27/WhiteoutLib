@@ -366,6 +366,8 @@ The lifetime curves are the record's fake-animation blocks: times over the parti
         .def_readwrite("alpha_mult", &whiteout::models::wem::M2ParticleEmitterPayload::alphaMult)
         .def_readwrite("alpha_cutoff_times", &whiteout::models::wem::M2ParticleEmitterPayload::alphaCutoffTimes, R"doc(The `EXP2` extension's alpha cutoff over the particle's life; empty without one.)doc")
         .def_readwrite("alpha_cutoffs", &whiteout::models::wem::M2ParticleEmitterPayload::alphaCutoffs)
+        .def_readwrite("particle_model", &whiteout::models::wem::M2ParticleEmitterPayload::particleModel, R"doc(The `.m2` each particle draws instead of a quad (GPID, or the pre-Legion `particleModelFilename`); empty for a quad emitter.)doc")
+        .def_readwrite("trail_model", &whiteout::models::wem::M2ParticleEmitterPayload::trailModel, R"doc(The `.m2` whose emitters trail every particle of this one (RPID, or `childEmittersModelFilename`); the client adopts its first four.)doc")
     ;
 
     py::class_<whiteout::models::wem::Sc2Variation>(m, "Sc2Variation", R"doc(One of the per-particle variation channels: a curve type, and the amplitude and frequency it runs at.)doc")

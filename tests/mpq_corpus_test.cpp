@@ -391,6 +391,8 @@ static ArchiveTestResult testArchive(const std::string& archivePath,
         // Re-open fresh to avoid stale overlay state from test 10.
         auto freshForRt = mpq::Storage::open(archivePath, &pool);
         bool saved = freshForRt ? freshForRt->save(tempFile.string()) : false;
+        if (!saved && freshForRt)
+            std::printf("    save refused: %s\n", freshForRt->lastError().c_str());
         if (!localExpect(saved, "save() to temp file")) {
             // cleanup
             std::error_code ec;

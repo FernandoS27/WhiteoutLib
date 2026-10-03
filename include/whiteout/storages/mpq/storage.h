@@ -145,7 +145,15 @@ public:
 
     /// Save the archive to a specific path. After saving, the new file becomes
     /// the source archive and the overlay is cleared.
+    ///
+    /// Bytes before the MPQ header (a Warcraft III map's HM3W block) are kept,
+    /// as are files no (listfile) names, and a v4 archive keeps its HET/BET
+    /// tables and MD5s. A save that cannot keep every file refuses instead:
+    /// see lastError().
     bool save(const std::string& path);
+
+    /// Why the last save() failed; empty after one that succeeded.
+    std::string lastError() const;
 
 private:
     struct Impl;

@@ -3,6 +3,7 @@
 
 #include <whiteout/models/wem/retarget.h>
 #include <whiteout/models/wem/materials/surface_flatten.h>
+#include <whiteout/models/wem/nodes/presence.h>
 
 #include <string>
 #include <unordered_map>
@@ -1156,6 +1157,10 @@ DeriveResult DeriveProfile(Document& document, ProfileId from, ProfileId to,
         model.profileSets.push_back(std::move(derived));
     }
 
+    // The new profile holds and draws what its source does: the masks are
+    // read by every writer, so a derived file left with the target's stale
+    // bits would gain or lose nodes and sections the source never had.
+    CopyProfileMasks(document, from, to);
     document.declare(to);
     result.ok = true;
     return result;

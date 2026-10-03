@@ -589,6 +589,47 @@ void cutLightTermsFromNodeChunk(std::vector<u8>& bytes, u32 lights) {
     FAIL("no NODE chunk to cut the light terms from");
 }
 
+/// The fifth: every node's profile mask (v16), the record's last field, set by
+/// the caller to `kProfilesMarker` so it can be found and cut.
+constexpr u32 kProfilesMarker = 0x7E57AB1Eu;
+
+void cutProfilesFromNodeChunk(std::vector<u8>& bytes) {
+    u8 mask[sizeof(kProfilesMarker)];
+    std::memcpy(mask, &kProfilesMarker, sizeof(mask));
+
+    WEMHeader header{};
+    std::memcpy(&header, bytes.data(), sizeof(header));
+    std::vector<IndexEntry> entries(header.indexCount);
+    std::memcpy(entries.data(), bytes.data() + header.indexOffset,
+                entries.size() * sizeof(IndexEntry));
+
+    for (const IndexEntry& entry : entries) {
+        if (entry.tag != ChunkTagTraits<Node>::value) {
+            continue;
+        }
+        u32 end = header.indexOffset > entry.offset ? header.indexOffset : u32(bytes.size());
+        for (const IndexEntry& other : entries) {
+            if (other.offset > entry.offset && other.offset < end) {
+                end = other.offset;
+            }
+        }
+        std::vector<u32> found;
+        for (u32 at = entry.offset; at + sizeof(mask) <= end; ++at) {
+            if (std::memcmp(bytes.data() + at, mask, sizeof(mask)) == 0) {
+                found.push_back(at);
+                at += static_cast<u32>(sizeof(mask)) - 1;
+            }
+        }
+        REQUIRE(found.size() == entry.count);
+        for (auto at = found.rbegin(); at != found.rend(); ++at) {
+            std::memmove(bytes.data() + *at, bytes.data() + *at + sizeof(mask), end - *at - sizeof(mask));
+        }
+        std::memset(bytes.data() + end - sizeof(mask) * found.size(), 0xAA, sizeof(mask) * found.size());
+        return;
+    }
+    FAIL("no NODE chunk to cut the profile masks from");
+}
+
 /// The fourth: every camera's depth of field (v13), its three floats set by
 /// the caller to `kLensMarker` so the run can be found and cut whole.
 constexpr f32 kLensMarker[3] = {1234.5f, 67.25f, 3.125f};
@@ -653,10 +694,14 @@ TEST_CASE("wem a v4 bone reads its gate from the MDX bag pair", "[wem][format][n
         lens.focalLength = kLensMarker[1];
         lens.fStop = kLensMarker[2];
     }
+    for (Node& node : nodes.nodes) {
+        node.profiles = kProfilesMarker;
+    }
 
     std::vector<u8> bytes = writeDocument(original);
     // A v4 record holds neither the gate (v5), the skin setup (v6), a light's
-    // 3.0 terms (v7) nor a camera's depth of field (v13).
+    // 3.0 terms (v7), a camera's depth of field (v13) nor a profile mask (v16).
+    cutProfilesFromNodeChunk(bytes);
     cutCameraLensFromNodeChunk(bytes, static_cast<u32>(nodes.ofKind(NodeKind::Camera).size()));
     cutLightTermsFromNodeChunk(bytes, static_cast<u32>(nodes.ofKind(NodeKind::Light).size()));
     cutSkinFromNodeChunk(bytes);
@@ -674,6 +719,8 @@ TEST_CASE("wem a v4 bone reads its gate from the MDX bag pair", "[wem][format][n
         CHECK(read.nodes[i].name == nodes.nodes[i].name);
         CHECK(read.nodes[i].kind == nodes.nodes[i].kind);
         CHECK(read.nodes[i].native.value("sourceIndex") == 7);
+        // A record older than the mask is in every profile.
+        CHECK(read.nodes[i].profiles == kAllProfiles);
     }
 
     const auto gateOf = [&](u32 node) { return std::get<BonePayload>(read.nodes[node].payload).gateMesh; };

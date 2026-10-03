@@ -38,6 +38,7 @@
 #include "whiteout/models/wem/geometry/builder.h"
 #include "whiteout/models/wem/geometry/render_view.h"
 #include "whiteout/models/wem/meshes/remove.h"
+#include "whiteout/models/wem/nodes/presence.h"
 #include "whiteout/models/wem/skinning/quantize.h"
 
 #include "../materials/mdx_core.h"
@@ -1032,7 +1033,8 @@ void LinkGeosetAnimations(const Model& model, const mdx_anim::ExportContext& con
             bone.geosetAnimationId = recordOf(first, true);
             continue;
         }
-        if (mesh != kInvalidIndex) {
+        // A mesh this profile does not draw gates nothing in its file.
+        if (mesh != kInvalidIndex && mesh >= context.geosetsOfMesh.size()) {
             diagnostics.warn(DiagCode::IndexOutOfRange,
                              "bone is gated by mesh " + std::to_string(mesh) +
                                  ", which does not exist; written with no gate",
@@ -1098,28 +1100,37 @@ MdxExportMap MdxExportMapOf(const Document& document, u32 model, ProfileId profi
     // then on a StarCraft II model skinned nearly every vertex to a bone three
     // places off, which is a torn skeleton, not a wrong pose.
     const auto& nodes = document.models[model].nodes;
+    // A node the profile does not hold is no chunk's (`NodePresenceIn`), and
+    // one standing in for the nodes under it ranks as the helper it becomes.
+    const std::vector<NodePresence> presence = NodePresenceIn(nodes, profile);
     map.nodeObjectId.assign(nodes.size(), kInvalidIndex);
     u32 next = 0;
     for (int rank = 0; rank <= kLastChunkRank; ++rank) {
         for (std::size_t i = 0; i < nodes.size(); ++i) {
             // A camera is not a node chunk and carries no id.
-            if (ChunkRank(WrittenKind(nodes.nodes[i].kind, profile)) == rank) {
+            if (presence[i] != NodePresence::Absent &&
+                ChunkRank(WrittenKind(PresentKind(nodes.nodes[i], presence[i]), profile)) == rank) {
                 map.nodeObjectId[i] = next++;
             }
         }
     }
     map.clipSequence = mdx_anim::ClipSequences(document, model);
 
-    // One geoset per section, in mesh order, and one for a mesh with none: the
-    // render view splits by section and always yields that many ranges.
-    // `toMdx` numbers from this, so the two cannot disagree.
+    // One geoset per section the profile draws, in mesh order, and one for a
+    // mesh with none: the render view splits by section and always yields
+    // that many ranges. `toMdx` numbers from this, so the two cannot disagree.
     const auto& meshes = document.models[model].meshes;
     map.geosetsOfMesh.resize(meshes.size());
+    map.sectionsOfMesh.resize(meshes.size());
     u32 geoset = 0;
     for (std::size_t m = 0; m < meshes.size(); ++m) {
         const std::size_t count = std::max<std::size_t>(1, meshes[m].sections.size());
         for (std::size_t k = 0; k < count; ++k) {
+            if (k < meshes[m].sections.size() && !SectionDrawnIn(meshes[m].sections[k], profile)) {
+                continue;
+            }
             map.geosetsOfMesh[m].push_back(geoset++);
+            map.sectionsOfMesh[m].push_back(static_cast<u32>(k));
         }
     }
     return map;
@@ -1601,18 +1612,45 @@ struct SkinContext {
     std::span<const Vector3f> positions; ///< The mesh's, per WEM vertex.
     bool classic = false;                ///< Groups (the Skin Quantizer), not `SKIN`.
     std::span<const u16> pins;           ///< `classicBones`, per WEM vertex; empty for none.
+    std::span<const u8> held;            ///< Per node: carries weight in this file (`HeldNodes`).
 };
+
+/// Per node of @p tree, whether it carries weight in @p profile's file: the
+/// file writes it, and the profile's mask holds it. A node the mask leaves out
+/// is written as a helper when nodes under it are in, and Warcraft III skins to
+/// bones -- so it takes no weight there either way.
+std::vector<u8> HeldNodes(const NodeTree& tree, ProfileId profile, const std::vector<u32>& objectIdOf) {
+    std::vector<u8> held(tree.size(), 0);
+    for (u32 n = 0; n < tree.size() && n < objectIdOf.size(); ++n) {
+        held[n] = objectIdOf[n] != mdx::Node::NO_PARENT && !tree.nodes[n].removed &&
+                  HasProfile(tree.nodes[n].profiles, profile);
+    }
+    return held;
+}
 
 /// A vertex's document influences on the nodes the file writes: a zero,
 /// negative or non-finite weight and a node with no object id dropped, a
 /// duplicate bone merged, heaviest first with ties by node.
+///
+/// A node the profile's mask leaves out (`HeldNodes`) hands its weight to the
+/// nearest ancestor the profile holds, as a deleted bone hands it up: dropped
+/// instead, a geoset bound to it alone would bind nothing. A node with no id at
+/// all (a camera) has no such ancestor and drops.
 std::vector<geom::Influence> WritableInfluences(std::span<const geom::Influence> influences,
-                                                const std::vector<u32>& objectIdOf) {
+                                                std::span<const u8> held,
+                                                std::span<const u32> parents) {
+    const auto written = [&](u32 node) { return node < held.size() && held[node] != 0; };
     std::vector<geom::Influence> out;
-    for (const geom::Influence& influence : influences) {
-        if (!(influence.weight > 0.0f) || !std::isfinite(influence.weight) ||
-            influence.bone >= objectIdOf.size() ||
-            objectIdOf[influence.bone] == mdx::Node::NO_PARENT) {
+    for (geom::Influence influence : influences) {
+        if (!(influence.weight > 0.0f) || !std::isfinite(influence.weight) || influence.bone >= held.size()) {
+            continue;
+        }
+        for (std::size_t steps = 0; !written(influence.bone) && influence.bone < parents.size() &&
+                                    steps < parents.size();
+             ++steps) {
+            influence.bone = parents[influence.bone];
+        }
+        if (!written(influence.bone)) {
             continue;
         }
         const auto same = std::find_if(out.begin(), out.end(), [&](const geom::Influence& kept) {
@@ -1648,11 +1686,11 @@ WrittenGeosetSkin GeosetSkin(const SkinContext& context, const MeshSection* sect
     for (std::size_t i = 0; i < vertices.size(); ++i) {
         if (rigid.has_value()) {
             const geom::Influence one{*rigid, 1.0f};
-            gathered[i] = WritableInfluences(std::span<const geom::Influence>(&one, 1),
-                                             context.objectIdOf);
+            gathered[i] = WritableInfluences(std::span<const geom::Influence>(&one, 1), context.held,
+                                             context.skeleton.parents);
         } else {
-            gathered[i] = WritableInfluences(context.mesh.skin.forVertex(vertices[i]),
-                                             context.objectIdOf);
+            gathered[i] = WritableInfluences(context.mesh.skin.forVertex(vertices[i]), context.held,
+                                             context.skeleton.parents);
         }
     }
 
@@ -1972,17 +2010,24 @@ std::vector<DrawnElements> MdxGeosetElements(const Document& document, u32 model
     if (model >= document.models.size()) {
         return out;
     }
-    // Every section is written whatever the profile draws; the profile decides
-    // only whether a second UV set can split vertices.
-    for (const Mesh& mesh : document.models[model].meshes) {
+    // The sections the profile draws, as `MdxExportMapOf` numbers them; the
+    // profile also decides whether a second UV set can split vertices.
+    const MdxExportMap map = MdxExportMapOf(document, model, profile);
+    const auto& meshes = document.models[model].meshes;
+    for (std::size_t m = 0; m < meshes.size(); ++m) {
+        const Mesh& mesh = meshes[m];
         const geom::RenderMesh render =
             geom::BuildRenderMesh(mesh, GeosetRenderDesc(SecondUvSetOf(mesh, profile, secondUvSet)));
         if (render.ranges.empty()) {
-            out.resize(out.size() + std::max<std::size_t>(1, mesh.sections.size()));
+            out.resize(out.size() + map.geosetsOfMesh[m].size());
             continue;
         }
         std::vector<u32> localOf(render.vertexCount(), kUnmappedVertex);
         for (const geom::RenderRange& range : render.ranges) {
+            if (range.section < mesh.sections.size() &&
+                !SectionDrawnIn(mesh.sections[range.section], profile)) {
+                continue;
+            }
             GeosetSlice slice = SliceRange(render, range, localOf);
             DrawnElements& drawn = out.emplace_back();
             drawn.vertices = WemVerticesOf(render, slice);
@@ -2028,25 +2073,31 @@ WrittenSkin MdxConverter::writtenSkin(const Document& document, u32 model, Profi
     }
     const Model& owner = document.models[model];
     const Mesh& target = owner.meshes[mesh];
-    const std::vector<u32> objectIdOf = MdxExportMapOf(document, model, profile).nodeObjectId;
+    const MdxExportMap map = MdxExportMapOf(document, model, profile);
+    const std::vector<u32>& objectIdOf = map.nodeObjectId;
     const geom::RenderMesh render =
         geom::BuildRenderMesh(target, GeosetRenderDesc(SecondUvSetOf(target, profile, std::nullopt)));
     if (render.ranges.empty()) {
-        result.geosets.resize(std::max<std::size_t>(1, target.sections.size()));
+        result.geosets.resize(map.geosetsOfMesh[mesh].size());
         return result;
     }
     const SkinSkeleton skeleton(owner.nodes);
+    const std::vector<u8> held = HeldNodes(owner.nodes, profile, objectIdOf);
     const SkinContext context{target,
                               objectIdOf,
                               skeleton,
                               target.attributes.get<Vector3f>(geom::names::kPosition,
                                                               geom::Domain::Vertex),
                               result.classic,
-                              ClassicPinsOf(target)};
+                              ClassicPinsOf(target),
+                              held};
     std::vector<u32> localOf(render.vertexCount(), kUnmappedVertex);
     for (const geom::RenderRange& range : render.ranges) {
         const MeshSection* section =
             range.section < target.sections.size() ? &target.sections[range.section] : nullptr;
+        if (section != nullptr && !SectionDrawnIn(*section, profile)) {
+            continue;
+        }
         result.geosets.push_back(GeosetSkin(context, section,
                                             WemVerticesOf(render, SliceRange(render, range, localOf)),
                                             result.overLimit));
@@ -2076,13 +2127,15 @@ Diagnostics MdxConverter::checkGeoset(const Document& document, u32 model, const
     out.append(render.diagnostics);
     const GeosetStreams streams(render, mesh, targetVersion, secondUvSet.has_value());
     const SkinSkeleton skeleton(owner.nodes);
+    const std::vector<u8> held = HeldNodes(owner.nodes, profile, objectIdOf);
     const SkinContext skin{mesh,
                            objectIdOf,
                            skeleton,
                            mesh.attributes.get<Vector3f>(geom::names::kPosition,
                                                          geom::Domain::Vertex),
                            targetVersion <= 800,
-                           ClassicPinsOf(mesh)};
+                           ClassicPinsOf(mesh),
+                           held};
     std::vector<u32> localOf(render.vertexCount(), kUnmappedVertex);
     u32 overLimit = 0;
     bool refused = false;
@@ -2266,6 +2319,14 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
     const MdxExportMap exportMap = MdxExportMapOf(document, 0, profile);
     const std::vector<u32>& objectIdOf = exportMap.nodeObjectId;
     animContext.clipSequence = exportMap.clipSequence;
+    // What the profile's masks leave of each node: the map numbered from the
+    // same answer.
+    const std::vector<NodePresence> presence = NodePresenceIn(model.nodes, profile);
+    u32 writtenCameras = 0;
+    for (u32 i = 0; i < model.nodes.size(); ++i) {
+        writtenCameras += presence[i] == NodePresence::Present &&
+                          model.nodes.nodes[i].kind == NodeKind::Camera;
+    }
     u32 nextObjectId = 0;
     for (const u32 id : objectIdOf) {
         if (id != kInvalidIndex) {
@@ -2281,7 +2342,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
     const bool writeBindPoses = bindEntry != kInvalidIndex && targetVersion >= 900;
     if (writeBindPoses) {
         const std::array<f32, 12> identity{1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0};
-        out.bindPoses.assign(nextObjectId + model.nodes.ofKind(NodeKind::Camera).size(), identity);
+        out.bindPoses.assign(nextObjectId + writtenCameras, identity);
     }
 
     const auto buildNode = [&](std::size_t index) {
@@ -2301,7 +2362,11 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
 
     for (std::size_t i = 0; i < model.nodes.size(); ++i) {
         const Node& node = model.nodes.nodes[i];
-        if (node.kind == NodeKind::Camera) {
+        if (presence[i] == NodePresence::Absent) {
+            continue;
+        }
+        const NodeKind kind = PresentKind(node, presence[i]);
+        if (kind == NodeKind::Camera) {
             mdx::Camera camera;
             camera.name = node.name;
             camera.position = node.local.translation;
@@ -2335,7 +2400,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
             out.bindPoses[objectIdOf[i]] =
                 MatrixToBindFrame(model.nodes.poseMatrixOf(static_cast<u32>(i), bindEntry));
         }
-        switch (WrittenKind(node.kind, profile)) {
+        switch (WrittenKind(kind, profile)) {
         case NodeKind::Bone: {
             mdx::Bone bone;
             bone.node = buildNode(i);
@@ -2647,7 +2712,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
             blankMaterial = slotCount;
         }
         for (const MeshSection& section : mesh.sections) {
-            if (unmaterialed(section)) {
+            if (unmaterialed(section) && SectionDrawnIn(section, profile)) {
                 blankMaterial = slotCount;
             }
         }
@@ -2732,6 +2797,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
     // caller previewing the classic file asks for the groups alone (§12.3).
     const bool classic = targetVersion <= 800 || skinAs == ProfileId::Wc3Classic;
     const SkinSkeleton skinSkeleton(model.nodes);
+    const std::vector<u8> heldNodes = HeldNodes(model.nodes, profile, objectIdOf);
     bool refused = false;
     // Numbered by the export map, which is what a host marks geosets through.
     animContext.geosetsOfMesh = exportMap.geosetsOfMesh;
@@ -2775,7 +2841,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
             // The render view failed and said why. The map promised this mesh
             // its geosets, so they are written empty rather than renumbering
             // every geoset after them.
-            for (std::size_t k = 0; k < animContext.geosetsOfMesh[m].size(); ++k) {
+            for (const u32 k : exportMap.sectionsOfMesh[m]) {
                 const MeshSection* section = k < mesh.sections.size() ? &mesh.sections[k] : nullptr;
                 mdx::Geoset geoset;
                 geoset.lod = mesh.lodLevel;
@@ -2783,7 +2849,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
                     section != nullptr && !section->name.empty() ? section->name : mesh.name;
                 geoset.extent = FromExtent(mesh.bounds);
                 takeSection(geoset, section);
-                animContext.sectionOfGeoset[m].push_back(static_cast<u32>(k));
+                animContext.sectionOfGeoset[m].push_back(k);
                 out.geosets.push_back(std::move(geoset));
             }
             continue;
@@ -2796,12 +2862,17 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
                                mesh.attributes.get<Vector3f>(geom::names::kPosition,
                                                              geom::Domain::Vertex),
                                classic,
-                               ClassicPinsOf(mesh)};
+                               ClassicPinsOf(mesh),
+                               heldNodes};
         std::vector<u32> localOf(render.vertexCount(), kUnmappedVertex);
         u32 overLimit = 0;
         for (const geom::RenderRange& range : render.ranges) {
             const MeshSection* section =
                 range.section < mesh.sections.size() ? &mesh.sections[range.section] : nullptr;
+            // Not this profile's (`MdxExportMapOf` gave it no number).
+            if (section != nullptr && !SectionDrawnIn(*section, profile)) {
+                continue;
+            }
             mdx::Geoset geoset =
                 BuildGeosetFromRange(mesh, static_cast<u32>(m), render, streams, range, localOf,
                                      skin, targetVersion, overLimit, refused, diagnostics);

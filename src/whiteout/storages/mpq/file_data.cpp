@@ -42,6 +42,98 @@ u32 deriveFileKey(const std::string& filename, const BlockEntry& block) {
 }
 
 // ============================================================================
+// Re-keying
+// ============================================================================
+
+namespace {
+
+/// Entries in a compressed file's sector offset table: one per sector, one
+/// for the end, one more for a sector CRC block.
+u32 sectorTableEntries(const BlockEntry& block, u32 sectorSize) {
+    u32 const sectors = (block.uncompressedSize + sectorSize - 1) / sectorSize;
+    return sectors + 1 + (block.hasSectorCrc() ? 1u : 0u);
+}
+
+/// The sector offset table of @p stored decrypted with @p tableKey, when it
+/// reads as one: starting at its own size, never going back, ending inside.
+std::optional<std::vector<u32>> openSectorTable(std::span<const u8> stored, u32 entries, u32 tableKey) {
+    if (entries == 0 || stored.size() < size_t{entries} * 4)
+        return std::nullopt;
+    std::vector<u32> table(entries);
+    std::memcpy(table.data(), stored.data(), size_t{entries} * 4);
+    decryptBlock(table.data(), table.size(), tableKey);
+    if (table[0] != entries * 4)
+        return std::nullopt;
+    for (u32 i = 1; i < entries; ++i)
+        if (table[i] < table[i - 1] || table[i] > stored.size())
+            return std::nullopt;
+    return table;
+}
+
+/// Decrypt @p length bytes at @p at with @p from and encrypt them with @p to;
+/// a tail past the last whole word is never encrypted.
+void recrypt(std::vector<u8>& data, size_t at, size_t length, u32 from, u32 to) {
+    size_t const words = length / 4;
+    if (words == 0 || at + words * 4 > data.size())
+        return;
+    std::vector<u32> buffer(words);
+    std::memcpy(buffer.data(), data.data() + at, words * 4);
+    decryptBlock(buffer.data(), words, from);
+    encryptBlock(buffer.data(), words, to);
+    std::memcpy(data.data() + at, buffer.data(), words * 4);
+}
+
+} // anonymous namespace
+
+std::optional<u32> detectStoredFileKey(std::span<const u8> stored, const BlockEntry& block, u32 sectorSize) {
+    if (block.isSingleUnit() || !block.isCompressed() || block.uncompressedSize == 0 || stored.size() < 4)
+        return std::nullopt;
+    u32 const entries = sectorTableEntries(block, sectorSize);
+    u32 encrypted0 = 0;
+    std::memcpy(&encrypted0, stored.data(), 4);
+    const u32* table = getEncryptionTable();
+    // The first word decrypts to the table's size: one candidate per low key byte.
+    for (u32 keyByte = 0; keyByte < 256; ++keyByte) {
+        u32 const seed = 0xEEEEEEEE + table[0x400 + keyByte];
+        u32 const tableKey = (encrypted0 ^ (entries * 4)) - seed;
+        if ((tableKey & 0xFF) == keyByte && openSectorTable(stored, entries, tableKey))
+            return tableKey + 1;
+    }
+    return std::nullopt;
+}
+
+std::optional<std::vector<u8>> rekeyStoredFile(std::span<const u8> stored, const BlockEntry& block, u32 sectorSize,
+                                               u32 oldKey, u32 newKey) {
+    std::vector<u8> out(stored.begin(), stored.end());
+    if (block.uncompressedSize == 0 || oldKey == newKey)
+        return out;
+    if (block.isSingleUnit()) {
+        recrypt(out, 0, out.size(), oldKey, newKey);
+        return out;
+    }
+    u32 const sectors = (block.uncompressedSize + sectorSize - 1) / sectorSize;
+    if (!block.isCompressed()) {
+        // Stored: no table, every sector its own key.
+        for (u32 i = 0; i < sectors; ++i) {
+            size_t const at = size_t{i} * sectorSize;
+            if (at >= out.size())
+                break;
+            recrypt(out, at, std::min<size_t>(sectorSize, out.size() - at), oldKey + i, newKey + i);
+        }
+        return out;
+    }
+    u32 const entries = sectorTableEntries(block, sectorSize);
+    std::optional<std::vector<u32>> table = openSectorTable(stored, entries, oldKey - 1);
+    if (!table)
+        return std::nullopt;
+    for (u32 i = 0; i < sectors; ++i)
+        recrypt(out, (*table)[i], (*table)[i + 1] - (*table)[i], oldKey + i, newKey + i);
+    encryptBlock(table->data(), table->size(), newKey - 1);
+    std::memcpy(out.data(), table->data(), table->size() * 4);
+    return out;
+}
+
+// ============================================================================
 // Extraction (Read)
 // ============================================================================
 
@@ -268,6 +360,33 @@ std::vector<u8> extractFileData(std::span<const u8> archiveData, size_t archiveO
 // Encoding (Write)
 // ============================================================================
 
+namespace {
+
+/// @p rawData as a stored (uncompressed) multi-sector file. A stored file has
+/// no sector offset table: readers take its bytes verbatim, sector by sector,
+/// so one that compressed nowhere must not keep the table it was built with.
+EncodedFile encodeStored(std::span<const u8> rawData, const EncodeOptions& opts, u32 sectorSize) {
+    EncodedFile result;
+    FileFlag flags = FileFlag::kExists;
+    result.data.assign(rawData.begin(), rawData.end());
+    if (opts.encrypt && !opts.filename.empty()) {
+        flags |= FileFlag::kEncrypted;
+        u32 const size = static_cast<u32>(rawData.size());
+        u32 const fileKey = deriveFileKey(opts.filename, BlockEntry{0, size, size, flags});
+        for (size_t at = 0, i = 0; at < rawData.size(); at += sectorSize, ++i) {
+            size_t const alignedCount = std::min<size_t>(sectorSize, rawData.size() - at) / 4;
+            if (alignedCount > 0)
+                encryptBlock(reinterpret_cast<u32*>(result.data.data() + at), alignedCount,
+                             fileKey + static_cast<u32>(i));
+        }
+    }
+    result.compressedSize = static_cast<u32>(result.data.size());
+    result.flags = flags;
+    return result;
+}
+
+} // anonymous namespace
+
 EncodedFile encodeFileData(std::span<const u8> rawData, const EncodeOptions& opts,
                            interfaces::WorkerPool* pool) {
     EncodedFile result;
@@ -367,6 +486,9 @@ EncodedFile encodeFileData(std::span<const u8> rawData, const EncodeOptions& opt
                 anyCompressed = true;
         }
     }
+
+    if (!anyCompressed)
+        return encodeStored(rawData, opts, sectorSize);
 
     // Build sector offset table from compressed sizes.
     std::vector<u32> sectorOffsets;
@@ -561,8 +683,11 @@ BatchEncodeResult encodeBatch(std::span<const std::pair<std::span<const u8>, Enc
                     break;
                 }
             }
-            if (anyCompressed)
-                flags |= FileFlag::kCompress;
+            if (!anyCompressed) {
+                result.files[i] = encodeStored(rawData, opts, opts.sectorSize);
+                return;
+            }
+            flags |= FileFlag::kCompress;
 
             // Build sector offset table.
             std::vector<u32> sectorOffsets;

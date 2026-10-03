@@ -571,6 +571,12 @@ struct Node {
     /// any of it.
     NodeRig rig;
 
+    /// Which profiles hold this node (§6), as `MeshSection::profiles` says
+    /// which draw a section. A profile outside it writes the node as a helper
+    /// when a node under it is inside, and not at all otherwise
+    /// (`NodePresenceIn`). Every profile on a `NODE` written before v16.
+    ProfileMask profiles = kAllProfiles;
+
     /**
      * @brief Transient removal marker (§10.6).
      *
@@ -690,6 +696,8 @@ struct Node {
         // an empty record is what "nobody has detected this rig" means, and the
         // editor detects one on entry.
         v.since(10).field("rig", rig);
+        // v16: the profile mask, the same way: an older chunk reads every bit.
+        v.since(16).field("profiles", profiles);
 
         if constexpr (V::kReading) {
             if (auto* bone = std::get_if<BonePayload>(&payload)) {

@@ -259,6 +259,19 @@ M2ParticleEmitterPayload ImportParticle(const m2::Model& source, std::size_t ind
             p.alphaCutoffs.push_back(static_cast<f32>(a.value) / 32767.0f);
         }
     }
+    // The models the record names: a fileDataID per emitter in GPID / RPID,
+    // else the pre-Legion inline name, which keeps its terminator.
+    const auto model = [&](const std::vector<u32>& ids, const std::string& name) {
+        AssetKey key;
+        if (index < ids.size() && ids[index] != 0) {
+            key.id = ids[index];
+            return key;
+        }
+        key.path = name.substr(0, name.find('\0'));
+        return key;
+    };
+    p.particleModel = model(source.geometryParticleModelIds, e.particleModelFilename);
+    p.trailModel = model(source.recursiveParticleModelIds, e.childEmittersModelFilename);
     return p;
 }
 

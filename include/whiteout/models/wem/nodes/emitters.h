@@ -575,6 +575,12 @@ struct M2ParticleEmitterPayload {
     /// without one.
     std::vector<f32> alphaCutoffTimes;
     std::vector<f32> alphaCutoffs;
+    /// The `.m2` each particle draws instead of a quad (GPID, or the pre-Legion
+    /// `particleModelFilename`); empty for a quad emitter.
+    AssetKey particleModel;
+    /// The `.m2` whose emitters trail every particle of this one (RPID, or
+    /// `childEmittersModelFilename`); the client adopts its first four.
+    AssetKey trailModel;
 
     template <class Self, class F>
     static void forEachTextureLink(Self& self, F&& f) {
@@ -648,6 +654,8 @@ struct M2ParticleEmitterPayload {
         v.since(11).field("alphaMult", alphaMult);
         v.since(11).field("alphaCutoffTimes", alphaCutoffTimes);
         v.since(11).field("alphaCutoffs", alphaCutoffs);
+        v.since(17).field("particleModel", particleModel);
+        v.since(17).field("trailModel", trailModel);
     }
 };
 

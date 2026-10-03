@@ -446,6 +446,9 @@ if(WHITEOUT_ENABLE_MPQ)
     whiteout_add_test(mpq_corpus_test mpq_corpus_test.cpp LINK whiteout_mpq)
     whiteout_add_test(mpq_test mpq_test.cpp LINK whiteout_mpq)
 
+    whiteout_add_test(mpq_update_test mpq_update_test.cpp LINK whiteout_mpq)
+    target_include_directories(mpq_update_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
     add_executable(mpq_codec_test mpq_codec_test.cpp)
     target_link_libraries(mpq_codec_test PRIVATE whiteout_mpq Catch2::Catch2WithMain)
     target_include_directories(mpq_codec_test PRIVATE ${CMAKE_SOURCE_DIR}/src)

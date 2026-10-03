@@ -1347,6 +1347,8 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("alphaMult", &whiteout::models::wem::M2ParticleEmitterPayload::alphaMult)
         .property("alphaCutoffTimes", &whiteout::models::wem::M2ParticleEmitterPayload::alphaCutoffTimes)
         .property("alphaCutoffs", &whiteout::models::wem::M2ParticleEmitterPayload::alphaCutoffs)
+        .property("particleModel", &whiteout::models::wem::M2ParticleEmitterPayload::particleModel)
+        .property("trailModel", &whiteout::models::wem::M2ParticleEmitterPayload::trailModel)
     ;
 
     class_<whiteout::models::wem::Sc2Variation>("WemSc2Variation")

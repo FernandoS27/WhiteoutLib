@@ -101,14 +101,18 @@ struct MaterialBlockDraft {
 /// §4.1). `toMdx` numbers from this same answer, so the two cannot disagree.
 struct MdxExportMap {
     /// Per node: the `objectId` `toMdx` gives it; `kInvalidIndex` for a node
-    /// with none (a camera).
+    /// with none (a camera, or a node the profile does not hold).
     std::vector<u32> nodeObjectId;
     /// Per `Document::clips` entry: its index in `sequences`; `kInvalidIndex`
     /// for a global loop or another model's clip.
     std::vector<u32> clipSequence;
-    /// Per mesh: the geosets `toMdx` writes for it, in order. One per section;
-    /// a mesh with no sections still writes one (EDIT_MODE_MESH_DESIGN.md §4.4).
+    /// Per mesh: the geosets `toMdx` writes for it, in order. One per section
+    /// the profile draws; a mesh with no sections still writes one
+    /// (EDIT_MODE_MESH_DESIGN.md §4.4).
     std::vector<std::vector<u32>> geosetsOfMesh;
+    /// Parallel to @ref geosetsOfMesh: the section each of those geosets is.
+    /// A section the profile does not draw has no entry in either.
+    std::vector<std::vector<u32>> sectionsOfMesh;
 };
 
 /// @ref MdxExportMap for `document.models[model]` written as @p profile,

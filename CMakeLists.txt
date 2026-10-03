@@ -470,6 +470,7 @@ add_library(whiteout_lib
     src/whiteout/models/wem/nodes/tree.cpp
     src/whiteout/models/wem/nodes/visitor.cpp
     src/whiteout/models/wem/nodes/remove.cpp
+    src/whiteout/models/wem/nodes/presence.cpp
     src/whiteout/models/wem/meshes/remove.cpp
     src/whiteout/models/wem/optimize.cpp
     src/whiteout/models/wem/geometry/bvh.cpp
@@ -881,6 +882,7 @@ if(WHITEOUT_ENABLE_MPQ)
         src/whiteout/storages/mpq/tables/header.cpp
         src/whiteout/storages/mpq/tables/hash_table.cpp
         src/whiteout/storages/mpq/tables/block_table.cpp
+        src/whiteout/storages/mpq/tables/het_bet.cpp
         src/whiteout/storages/mpq/codecs/compression.cpp
         src/whiteout/storages/mpq/codecs/pkware.cpp
         src/whiteout/storages/mpq/codecs/sparse.cpp
