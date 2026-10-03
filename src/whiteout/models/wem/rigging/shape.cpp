@@ -100,39 +100,6 @@ bool IsChainRole(RigRole role) {
     return role == RigRole::Upper || role == RigRole::Lower || role == RigRole::Hock;
 }
 
-/// Up from @p end: the joints a limb would take, passengers collected apart.
-/// Stops at a hub, at a role no limb has, or once it holds @p want joints.
-///
-/// One walk, because the chain below and the check above it have to agree on
-/// what counts as a joint: two enumerations of that would drift.
-struct Above {
-    std::vector<u32> joints;
-    std::vector<u32> passengers;
-};
-
-Above WalkAbove(Work& work, Shape& shape, u32 end, std::size_t want) {
-    Above out;
-    u32 prev = end;
-    for (u32 o = work.Parent(end); o != kInvalidNode && out.joints.size() < want;
-         o = work.Parent(o)) {
-        const NodeRig& rig = work.rig[o];
-        if (!work.Free(o) && rig.role != RigRole::Twist) {
-            if (!IsChainRole(rig.role)) {
-                break;
-            }
-            out.joints.push_back(o);
-        } else if (rig.role == RigRole::Twist || shape.Passenger(o, prev)) {
-            out.passengers.push_back(o);
-        } else if (shape.Hub(o, prev)) {
-            break;
-        } else {
-            out.joints.push_back(o);
-        }
-        prev = o;
-    }
-    return out;
-}
-
 /// A limb's two bones are comparable — a thigh and a shin, an upper arm and a
 /// forearm. An End whose OWN bone is this small a share of the one above it is
 /// not where the limb ends: it is a foot standing on the ankle.
@@ -151,6 +118,44 @@ Above WalkAbove(Work& work, Shape& shape, u32 end, std::size_t want) {
 /// ends (`leg_L0_end_jnt`), and the name tier reads that; this stays for
 /// rigs that name nothing.
 constexpr f32 kStubBoneShare = 0.25f;
+
+/// Up from @p end: the joints a limb would take, passengers collected apart.
+/// Stops at a hub, at a role no limb has, or once it holds @p want joints.
+///
+/// One walk, because the chain below and the check above it have to agree on
+/// what counts as a joint: two enumerations of that would drift.
+struct Above {
+    std::vector<u32> joints;
+    std::vector<u32> passengers;
+};
+
+Above WalkAbove(Work& work, Shape& shape, u32 end, std::size_t want) {
+    Above out;
+    u32 prev = end;
+    for (u32 o = work.Parent(end); o != kInvalidNode && out.joints.size() < want;
+         o = work.Parent(o)) {
+        const NodeRig& rig = work.rig[o];
+        // A terminator a stub below its joint sits on it, whichever way the
+        // stub points: the two-handed footman's wrist twist bone, its hand
+        // 0.24 off it at 51 degrees, is no elbow.
+        const bool carriesStub = prev == end && work.names[end].terminator &&
+                                 shape.Segment(end) < kStubBoneShare * shape.Segment(o);
+        if (!work.Free(o) && rig.role != RigRole::Twist) {
+            if (!IsChainRole(rig.role)) {
+                break;
+            }
+            out.joints.push_back(o);
+        } else if (rig.role == RigRole::Twist || carriesStub || shape.Passenger(o, prev)) {
+            out.passengers.push_back(o);
+        } else if (shape.Hub(o, prev)) {
+            break;
+        } else {
+            out.joints.push_back(o);
+        }
+        prev = o;
+    }
+    return out;
+}
 
 /// A foot and its ball, never a walk up the whole leg.
 constexpr u32 kReanchorLimit = 2;

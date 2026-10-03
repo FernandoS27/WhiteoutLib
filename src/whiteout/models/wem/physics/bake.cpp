@@ -1102,6 +1102,47 @@ BakeReport BakeClip(Document& document, const BakeRun& run, const BakeRun* goesT
     const u32 stride = settings.tolerance > 0.0f
                            ? 1
                            : std::max<u32>(1, static_cast<u32>(std::lround(1.0f / (dt * std::max<f32>(settings.keyRate, 1)))));
+    // @p made in place of @p channel's sub-track in @p home, or after its
+    // tracks when the clip keys none; every one it replaces kept, and where it was.
+    const auto place = [&](u32 channel, SubTrack made, u32 home, bool sourced) {
+        for (u32 c = 0; c < clip.containers.size(); ++c) {
+            std::vector<SubTrack>& tracks = clip.containers[c].subTracks;
+            u32 at = 0;
+            for (const SubTrack& track : tracks) {
+                if (track.channel != channel) {
+                    continue;
+                }
+                while (at < before[c].size() && before[c][at] != channel) {
+                    ++at;
+                }
+                replaced[c].emplace_back(at, track);
+                ++at;
+            }
+            if (c == home && sourced) {
+                for (SubTrack& track : tracks) {
+                    if (track.channel == channel) {
+                        track = made;
+                        break;
+                    }
+                }
+            } else {
+                std::erase_if(tracks, [&](const SubTrack& track) { return track.channel == channel; });
+            }
+        }
+        if (!sourced) {
+            clip.containers[home].subTracks.push_back(std::move(made));
+        }
+    };
+    // A channel an earlier bake declared, here or in another clip, stays the
+    // bakes' own, so the last Unbake drops it.
+    const auto own = [&](u32 channel) {
+        if (std::find(owned.begin(), owned.end(), channel) != owned.end() &&
+            std::find(appended.begin(), appended.end(), channel) == appended.end()) {
+            appended.push_back(channel);
+        }
+    };
+    // Per node the bake writes, the steps it writes it at.
+    std::map<u32, std::vector<u8>> writes;
     for (const Written& w : written) {
         if (global.count(w.node) != 0) {
             report.globalLoops.push_back(w.node);
@@ -1133,6 +1174,7 @@ BakeReport BakeClip(Document& document, const BakeRun& run, const BakeRun* goesT
             }
         }
         ++report.nodes;
+        writes[w.node] = differs;
         for (const Channel which : {Channel::Rotation, Channel::Translation}) {
             if (which == Channel::Translation && !moves) {
                 continue;
@@ -1147,9 +1189,8 @@ BakeReport BakeClip(Document& document, const BakeRun& run, const BakeRun* goesT
                 made.valueType = which == Channel::Rotation ? geom::AttrType::Quat : geom::AttrType::F32x3;
                 channel = owner.animChannels.add(made);
                 appended.push_back(channel);
-            } else if (std::find(owned.begin(), owned.end(), channel) != owned.end() &&
-                       std::find(appended.begin(), appended.end(), channel) == appended.end()) {
-                appended.push_back(channel);
+            } else {
+                own(channel);
             }
             const AnimChannel* declared = owner.animChannels.find(channel);
             const bool quat = which == Channel::Rotation && declared->valueType == geom::AttrType::Quat;
@@ -1202,35 +1243,82 @@ BakeReport BakeClip(Document& document, const BakeRun& run, const BakeRun* goesT
             }
             report.keys += static_cast<u32>(made.times.size());
             keep.push_back(KeptKeys{clipIndex, channel, std::move(keptTimes)});
-            // In place of the source, or at the end; kept, and where it was.
-            for (u32 c = 0; c < clip.containers.size(); ++c) {
-                std::vector<SubTrack>& tracks = clip.containers[c].subTracks;
-                u32 place = 0;
-                for (const SubTrack& track : tracks) {
-                    if (track.channel != channel) {
-                        continue;
-                    }
-                    while (place < before[c].size() && before[c][place] != channel) {
-                        ++place;
-                    }
-                    replaced[c].emplace_back(place, track);
-                    ++place;
+            place(channel, std::move(made), home, source != nullptr);
+        }
+    }
+    // A constraint or IK stage over a node the bake writes runs again over its
+    // keys at play, and a Link carries them a second time: off wherever the
+    // bake writes one of its nodes, as it was everywhere else, stepped.
+    std::vector<u32> weights;
+    for (const PoseStage& stage : owner.poseStages) {
+        if (!stage.enabled || IsPhysicsStage(stage.kind) || stage.driven.empty()) {
+            continue;
+        }
+        std::vector<u8> off(steps + 1, 0);
+        bool any = false;
+        for (const u32 node : stage.driven) {
+            if (const auto found = writes.find(node); found != writes.end()) {
+                for (u32 i = 0; i <= steps; ++i) {
+                    off[i] = off[i] | found->second[i];
+                    any = any || found->second[i] != 0;
                 }
-                if (c == home && source != nullptr) {
-                    for (SubTrack& track : tracks) {
-                        if (track.channel == channel) {
-                            track = made;
-                            break;
-                        }
-                    }
-                } else {
-                    std::erase_if(tracks, [&](const SubTrack& track) { return track.channel == channel; });
-                }
-            }
-            if (source == nullptr) {
-                clip.containers[home].subTracks.push_back(std::move(made));
             }
         }
+        if (!any) {
+            continue;
+        }
+        u32 channel = kInvalidIndex;
+        if (const AnimChannel* weight = StageWeightChannel(owner, stage)) {
+            channel = weight->id;
+            own(channel);
+        } else {
+            AnimChannel made;
+            made.id = owner.animChannels.nextFreeId();
+            made.target.kind = TrackTarget::Kind::Node;
+            made.target.node = stage.driven.front();
+            made.target.channel = Channel::StageWeight;
+            made.target.sub = stage.id;
+            made.valueType = geom::AttrType::F32;
+            channel = owner.animChannels.add(made);
+            appended.push_back(channel);
+        }
+        u32 home = 0;
+        const SubTrack* source = nullptr;
+        for (u32 c = 0; c < clip.containers.size() && source == nullptr; ++c) {
+            if (const SubTrack* found = clip.containers[c].find(channel); found != nullptr) {
+                home = c;
+                source = found;
+            }
+        }
+        std::vector<i32> timesMs(steps + 1);
+        for (u32 i = 0; i <= steps; ++i) {
+            timesMs[i] = static_cast<i32>(Milliseconds(static_cast<f32>(i) * dt));
+        }
+        const f32 one = 1.0f;
+        const std::vector<u8> was =
+            source != nullptr ? SampleSubTrackBatch(clip, *source, geom::AttrType::F32, timesMs,
+                                                    std::span<const u8>(reinterpret_cast<const u8*>(&one), sizeof one))
+                              : std::vector<u8>{};
+        SubTrack made;
+        made.channel = channel;
+        made.interp = Interpolation::Step;
+        f32 last = -1.0f;
+        for (u32 i = 0; i <= steps; ++i) {
+            f32 w = one;
+            if (off[i] != 0) {
+                w = 0.0f;
+            } else if ((i + 1) * sizeof(f32) <= was.size()) {
+                std::memcpy(&w, was.data() + i * sizeof(f32), sizeof(f32));
+            }
+            if (i == 0 || w != last) {
+                made.times.push_back(static_cast<f32>(i) * dt);
+                const u8* bytes = reinterpret_cast<const u8*>(&w);
+                made.values.insert(made.values.end(), bytes, bytes + sizeof(f32));
+                last = w;
+            }
+        }
+        place(channel, std::move(made), home, source != nullptr);
+        weights.push_back(channel);
     }
     // A *Full detail* cloth's drivers (cloth design §10.3): each free
     // particle's frame relative to the cloth's holder, step by step, the
@@ -1374,6 +1462,8 @@ BakeReport BakeClip(Document& document, const BakeRun& run, const BakeRun* goesT
         report.seamAfter = seamAfter;
     }
     report.seamBefore = seamBefore;
+    // After the reduction: a stepped weight is not its to thin.
+    record.channels.insert(record.channels.end(), weights.begin(), weights.end());
     record.nodes = report.nodes;
     record.keys = report.keys;
     record.restated = report.restated;

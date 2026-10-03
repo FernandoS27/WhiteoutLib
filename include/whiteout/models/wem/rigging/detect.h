@@ -75,7 +75,9 @@ struct RigDetectOptions {
 void DetectRig(Model& model, const RigDetectOptions& options = {});
 
 /// Detects only a model none of whose nodes has a record: a fresh import, or a
-/// `.wem` saved before the record existed. True when it detected.
+/// `.wem` saved before the record existed. A record with limbs and no Body
+/// gets the one detection would give it now, and nothing else. True when it
+/// wrote anything.
 bool EnsureRig(Model& model, const RigDetectOptions& options = {});
 
 /// Whether any node of @p model has a record.

@@ -234,7 +234,9 @@ struct BakeReport {
  *        undone.
  *
  * A clip baked before is restored to its source first. A clip on its MDX
- * window is detached. @p goesTo, the run of a once-played clip's *Goes to*,
+ * window is detached. A constraint or IK stage over a node it writes has its
+ * weight keyed off there, so the clip plays the recording and not the stage
+ * run over it again. @p goesTo, the run of a once-played clip's *Goes to*,
  * is what its end is cross-faded into; without it, the target's keys as they
  * stand.
  */

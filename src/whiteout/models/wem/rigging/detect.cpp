@@ -421,17 +421,12 @@ bool CarriesEnd(const Work& work, u32 node) {
     return false;
 }
 
-/// The Body (§3.4), among the figures' tops.
-///
-/// First the stages: a root named `root` whose children are bodies — every
-/// child carrying a hand or a foot is body-named or sits on one's point — is
-/// only where the figures stand, HD's `root_bind_jnt` under a pelvis and a
-/// turret. SD Arthas's `Root` is no stage: its `Bone_Chest` carries the arms,
-/// so moving the pelvis alone would tear the waist, and the Root is the Body.
-/// Then a body name off any top is spine; a top with limbs on a Body top's
-/// point joins it (the mount's spine beside its pelvis); and a rig with limbs
-/// and no Body at all moves with the top holding most of them.
-void BodyTier(Work& work) {
+/// HD's stage: a root named `root` whose children are bodies — every child
+/// carrying a hand or a foot is body-named or sits on one's point — is only
+/// where the figures stand, HD's `root_bind_jnt` under a pelvis and a turret.
+/// SD Arthas's `Root` is no stage: its `Bone_Chest` carries the arms, so
+/// moving the pelvis alone would tear the waist, and the Root is the Body.
+void FindStages(Work& work) {
     const u32 count = work.tree.size();
     const f32 near = 0.01f * work.size;
     for (u32 r = 0; r < count; ++r) {
@@ -460,6 +455,54 @@ void BodyTier(Work& work) {
         }
         work.stage[r] = stage ? 1 : 0;
     }
+}
+
+/// A rig with limbs and no Body at all moves with the top holding most of
+/// them: one nothing named, or one the names only called a trunk joint, as a
+/// Maya rig names its hips `spine_C0_0_jnt`. True when it made one.
+bool LastBody(Work& work) {
+    const u32 count = work.tree.size();
+    for (u32 n = 0; n < count; ++n) {
+        if (work.IsTop(n) && work.rig[n].role == RigRole::Body) {
+            return false;
+        }
+    }
+    u32 best = kInvalidNode;
+    u32 bestEnds = 0;
+    for (u32 n = 0; n < count; ++n) {
+        const bool trunk = Detected(work.rig[n]) && work.rig[n].role == RigRole::Spine;
+        if (!work.IsTop(n) || !(work.Free(n) || trunk)) {
+            continue;
+        }
+        u32 ends = 0;
+        for (const u32 below : work.tree.subtree(n)) {
+            ends += work.rig[below].role == RigRole::End ? 1 : 0;
+        }
+        if (ends > bestEnds) {
+            best = n;
+            bestEnds = ends;
+        }
+    }
+    if (best == kInvalidNode) {
+        return false;
+    }
+    NodeRig& rig = work.rig[best];
+    rig.role = RigRole::Body;
+    rig.side = RigSide::Centre;
+    rig.limb = RigLimb::Other;
+    rig.source = RigSource::Shape;
+    return true;
+}
+
+/// The Body (§3.4), among the figures' tops.
+///
+/// First the stages (`FindStages`). Then a body name off any top is spine; a
+/// top with limbs on a Body top's point joins it (the mount's spine beside its
+/// pelvis); and the last resort is `LastBody`.
+void BodyTier(Work& work) {
+    const u32 count = work.tree.size();
+    const f32 near = 0.01f * work.size;
+    FindStages(work);
     for (u32 n = 0; n < count; ++n) {
         NodeRig& rig = work.rig[n];
         if (rig.role != RigRole::Body || !Detected(rig)) {
@@ -496,30 +539,7 @@ void BodyTier(Work& work) {
             }
         }
     }
-    bool anyBody = !bodies.empty();
-    for (u32 n = 0; n < count && !anyBody; ++n) {
-        anyBody = work.IsTop(n) && work.rig[n].role == RigRole::Body;
-    }
-    if (!anyBody) {
-        u32 best = kInvalidNode;
-        u32 bestEnds = 0;
-        for (u32 n = 0; n < count; ++n) {
-            if (!work.IsTop(n) || !work.Free(n)) {
-                continue;
-            }
-            u32 ends = 0;
-            for (const u32 below : work.tree.subtree(n)) {
-                ends += work.rig[below].role == RigRole::End ? 1 : 0;
-            }
-            if (ends > bestEnds) {
-                best = n;
-                bestEnds = ends;
-            }
-        }
-        if (best != kInvalidNode) {
-            work.Set(best, RigRole::Body, RigSide::Centre, RigLimb::Other, RigSource::Shape);
-        }
-    }
+    LastBody(work);
 }
 
 /// Which figure each top is: Body tops on one point, of one tag, are one
@@ -860,10 +880,25 @@ void DetectRig(Model& model, const RigDetectOptions& options) {
 }
 
 bool EnsureRig(Model& model, const RigDetectOptions& options) {
-    if (HasRig(model)) {
+    if (!HasRig(model)) {
+        DetectRig(model, options);
+        return true;
+    }
+    // A record detected before the last resort took a top named a trunk joint
+    // has no Body to move its figure by: it gets that one, and nothing else.
+    NodeTree& tree = model.nodes;
+    std::vector<NodeRig> rig(tree.size());
+    for (u32 n = 0; n < tree.size(); ++n) {
+        rig[n] = tree.nodes[n].rig;
+    }
+    rig_detect::Work work(tree, rig);
+    FindStages(work);
+    if (!LastBody(work)) {
         return false;
     }
-    DetectRig(model, options);
+    for (u32 n = 0; n < tree.size(); ++n) {
+        tree.nodes[n].rig = rig[n];
+    }
     return true;
 }
 
