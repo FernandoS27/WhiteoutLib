@@ -302,6 +302,10 @@ const char* ToString(Channel channel) {
         return "physicsRagdoll";
     case Channel::PhysicsBlend:
         return "physicsBlend";
+    case Channel::ClothDriverTranslation:
+        return "clothDriverTranslation";
+    case Channel::ClothDriverRotation:
+        return "clothDriverRotation";
     case Channel::Count:
         break;
     }
@@ -334,9 +338,11 @@ geom::AttrType DefaultValueType(Channel channel) {
     case Channel::UvTranslate:
     case Channel::UvScale:
     case Channel::Target:
+    case Channel::ClothDriverTranslation:
         return geom::AttrType::F32x3;
     case Channel::Rotation:
     case Channel::UvRotate:
+    case Channel::ClothDriverRotation:
         return geom::AttrType::Quat;
     case Channel::TextureIndex:
         return geom::AttrType::U32;

@@ -39,6 +39,9 @@ struct StageHooks {
     std::function<bool(const Document&, u32 model, const PoseStage& stage, Pose& pose, f32 dt)> step;
     /// Forgets what the host simulates for @p model's @p stage.
     std::function<void(u32 model, const PoseStage& stage)> reset;
+    /// Whether `step` can run a stage of @p kind; unset, every kind. A bake
+    /// reports a stage its host cannot step rather than key it unmoved.
+    std::function<bool(StageKind kind)> steps;
 };
 
 /// 9.8 m/s² downward in @p game's own units, what a new physics stage falls

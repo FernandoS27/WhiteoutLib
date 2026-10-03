@@ -152,8 +152,28 @@ enum class Channel : u8 {
     /// handed back to its animation (§4.4). The editor's own.
     PhysicsBlend,
 
+    /// F32x3 and Quat: a *Full detail* cloth's driver, one free particle's
+    /// frame relative to the cloth's holder (EDIT_MODE_PHYSICS_CLOTH_DESIGN.md
+    /// §10.3), with `sub` `ClothDriverSub(cloth, driver)`. The editor's own: an
+    /// export makes bones of them (`ExpandClothToBones`), and no writer keys
+    /// them.
+    ClothDriverTranslation,
+    ClothDriverRotation,
+
     Count
 };
+
+/// A cloth driver channel's `sub`: the cloth's id, and the driver's index in
+/// the high 16 bits, packed as `EmitterPropertySub` packs.
+constexpr u32 ClothDriverSub(u32 cloth, u32 driver) {
+    return (cloth & 0xFFFFu) | (driver << 16);
+}
+constexpr u32 ClothOfDriverSub(u32 sub) {
+    return sub & 0xFFFFu;
+}
+constexpr u32 DriverOfSub(u32 sub) {
+    return sub >> 16;
+}
 
 const char* ToString(Channel channel);
 

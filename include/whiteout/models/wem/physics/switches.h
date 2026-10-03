@@ -124,6 +124,13 @@ public:
     /// *Never*, or a body no rig holds that some clip keys (§6).
     bool movable(u32 body) const;
 
+    /// Whether @p cloth (an index into the cloths) draws at @p seconds: its
+    /// `ClothActive` key, else its `active` (EDIT_MODE_PHYSICS_CLOTH_DESIGN.md
+    /// §9.4). In a baked clip it never does: the keys carry it.
+    bool clothActive(u32 cloth, f32 seconds) const;
+    /// Whether the clip keys @p cloth's *Active*.
+    bool keysCloth(u32 cloth) const;
+
 private:
     struct Body {
         bool still = false;   ///< Static, or held only by *Never* rigs.
@@ -135,6 +142,10 @@ private:
         const SubTrack* dynamic = nullptr;
         const SubTrack* blend = nullptr;
         bool movable = false;
+    };
+    struct ClothRow {
+        bool rest = false;
+        const SubTrack* active = nullptr;
     };
     struct Rig {
         bool never = false;
@@ -151,6 +162,7 @@ private:
     bool baked_ = false;
     std::vector<Body> bodies_;
     std::vector<Rig> rigs_;
+    std::vector<ClothRow> cloths_;
 };
 
 /// Every body's state at @p seconds of @p clip, as a `SwitchReader` answers:

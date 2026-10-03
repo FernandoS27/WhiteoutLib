@@ -144,11 +144,15 @@ PhysicsShape ImportShape(const m3::PhysicsShape& source, const PhysicsMaterial& 
     return shape;
 }
 
-ClothCollider ImportCollider(const m3::ClothCollider& source, u32 boneCount) {
+/// A `PHCC` frame is the bind pose's, model space: the client carries it onto
+/// its bone through IREF (`transform * IREF`). WEM's is the node's own.
+ClothCollider ImportCollider(const m3::ClothCollider& source, const m3::Model& model) {
     ClothCollider collider;
-    collider.node = source.bone < boneCount ? source.bone : kInvalidNode;
+    collider.node = source.bone < model.bones.size() ? source.bone : kInvalidNode;
     collider.kind = ClothColliderKind::Capsule;
-    collider.transform = RebaseFrame(source.transform);
+    collider.transform = RebaseFrame(collider.node != kInvalidNode && source.bone < model.initialReference.size()
+                                         ? source.transform * model.initialReference[source.bone].matrix
+                                         : source.transform);
     collider.radius = source.radius;
     collider.length = source.height;
     return collider;
@@ -492,7 +496,7 @@ ImportedIds Import(const m3::Model& source, Model& model, Diagnostics& out) {
         const m3::ClothPhysics& record = source.clothPhysics[c];
         std::vector<u32> colliderIds;
         for (const m3::ClothCollider& source_collider : record.colliders) {
-            ClothCollider collider = ImportCollider(source_collider, boneCount);
+            ClothCollider collider = ImportCollider(source_collider, source);
             collider.id = physics.allocateId();
             colliderIds.push_back(collider.id);
             physics.colliders.push_back(collider);
@@ -829,7 +833,11 @@ ExportRecords Export(const Model& model, ProfileId profile, const ClothEmission&
     };
     const auto colliderRecord = [&](const ClothCollider& collider, std::set<u32>& bones) {
         m3::ClothCollider record;
-        record.transform = UnrebaseFrame(collider.transform);
+        // Back to the bind pose's model space (`ImportCollider`).
+        const Matrix44f bind = collider.node < model.nodes.size()
+                                   ? Matrix44f::inverse(model.nodes.inverseBindMatrix(collider.node))
+                                   : Matrix44f::identity();
+        record.transform = UnrebaseFrame(collider.transform * bind);
         record.radius = collider.radius;
         record.height = collider.length;
         const u32 bone = collider.node == kInvalidNode ? kNoBone : boneOf(collider.node);
@@ -953,6 +961,13 @@ ExportRecords Export(const Model& model, ProfileId profile, const ClothEmission&
         record.forceVersion(m3::kCurrentClothVersion);
         records.clothRecord.emplace(cloth.id, static_cast<u32>(out.clothPhysics.size()));
         out.clothPhysics.push_back(std::move(record));
+        // The editor drapes one it made on its floor; StarCraft II's cloth is
+        // "unaware of the ground" (EDIT_MODE_PHYSICS_CLOTH_DESIGN.md §9.3).
+        if (cloth.recipe) {
+            diagnostics.info(DiagCode::PhysicsUnsupported,
+                             cloth.recipe->name + " meets the floor in the editor, not in StarCraft II",
+                             ElementRef(ElementKind::PhysicsRecord, cloth.id), profile);
+        }
     }
 
     // Colliders no cloth uses are ones this model offers another model's cloth:

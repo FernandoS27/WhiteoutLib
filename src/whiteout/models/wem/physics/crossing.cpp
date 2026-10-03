@@ -5,6 +5,8 @@
 
 #include <whiteout/models/wem/anim/track_read.h>
 #include <whiteout/models/wem/geometry/ops.h>
+#include <whiteout/models/wem/meshes/remove.h>
+#include <whiteout/models/wem/physics/cloth_cage.h>
 #include <whiteout/models/wem/physics/references.h>
 #include <whiteout/models/wem/physics/switches.h>
 
@@ -428,6 +430,83 @@ u32 DecimateCage(Mesh& mesh, u32 section, u32 limit) {
 }
 
 } // namespace
+
+bool CarriesCloth(const Document& document) {
+    return std::any_of(document.models.begin(), document.models.end(), [](const Model& model) {
+        return !model.physics.cloths.empty() || !model.physics.colliders.empty();
+    });
+}
+
+u32 DropClothForProfile(Document& document, ProfileId target, Diagnostics& out) {
+    if (Profile(target).physics.cloth) {
+        return 0;
+    }
+    u32 dropped = 0;
+    for (u32 m = 0; m < document.models.size(); ++m) {
+        Model& model = document.models[m];
+        if (model.physics.cloths.empty() && model.physics.colliders.empty()) {
+            continue;
+        }
+        std::vector<u32> ids;
+        std::vector<SectionRef> cages;
+        for (const Cloth& cloth : model.physics.cloths) {
+            ids.push_back(cloth.id);
+            if (cloth.cage.mesh < model.meshes.size() &&
+                cloth.cage.section < model.meshes[cloth.cage.mesh].sections.size()) {
+                cages.push_back(cloth.cage);
+            }
+            for (const ClothBinding& binding : cloth.bindings) {
+                if (binding.section.mesh < model.meshes.size() &&
+                    binding.section.section < model.meshes[binding.section.mesh].sections.size()) {
+                    SectionFlags& flags = model.meshes[binding.section.mesh].sections[binding.section.section].flags;
+                    flags = static_cast<SectionFlags>(static_cast<u32>(flags) &
+                                                      ~static_cast<u32>(SectionFlags::ClothInfluenced));
+                }
+            }
+            out.info(DiagCode::PhysicsUnsupported,
+                     "a cloth left out: the target runs none, so its faces keep their own skin",
+                     ElementRef(ElementKind::PhysicsRecord, cloth.id), target);
+            ++dropped;
+        }
+        // Highest section first, so the ones still to go keep their numbers.
+        std::sort(cages.begin(), cages.end(), [](const SectionRef& a, const SectionRef& b) {
+            return a.mesh != b.mesh ? a.mesh < b.mesh : a.section > b.section;
+        });
+        cages.erase(std::unique(cages.begin(), cages.end()), cages.end());
+        for (const SectionRef& cage : cages) {
+            if (!EraseSection(document, m, cage.mesh, cage.section, out)) {
+                // Its faces are the whole mesh: left as the hidden section it is.
+                out.warn(DiagCode::PhysicsUnsupported, "a cloth's cage is its whole mesh, and stays as a hidden geoset",
+                         ElementRef(ElementKind::Mesh, cage.mesh), target);
+            }
+        }
+        // The erase took the cloths whose cages went; the rest go too.
+        model.physics.cloths.clear();
+        for (const ClothCollider& collider : model.physics.colliders) {
+            ids.push_back(collider.id);
+        }
+        model.physics.colliders.clear();
+        std::vector<u32> channels;
+        for (const AnimChannel& channel : model.animChannels.channels) {
+            if (channel.target.kind == TrackTarget::Kind::Physics &&
+                (channel.target.channel == Channel::ClothActive ||
+                 channel.target.channel == Channel::ClothDriverTranslation ||
+                 channel.target.channel == Channel::ClothDriverRotation ||
+                 std::find(ids.begin(), ids.end(), channel.target.sub) != ids.end())) {
+                channels.push_back(channel.id);
+            }
+        }
+        EraseChannels(document, m, channels);
+        DetachPoseStages(model.poseStages, ids);
+        for (Mesh& mesh : model.meshes) {
+            for (const char* layer : {geom::names::kClothMovable, geom::names::kClothBindVertex,
+                                      geom::names::kClothBindWeight}) {
+                mesh.attributes.remove(layer, geom::Domain::Vertex);
+            }
+        }
+    }
+    return dropped;
+}
 
 bool IsDeathClipName(std::string_view name) {
     constexpr std::string_view kDeath = "death";

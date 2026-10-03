@@ -505,10 +505,11 @@ struct ChunkTagTraits<ClipEvent> {
 /// v3 `Clip::trackSets`.
 /// v4 `Clip::readRule`.
 /// v5 `Clip::physics`, the physics bake's settings (EDIT_MODE_PHYSICS_BAKE_DESIGN.md §9.2).
+/// v6 `PhysicsBake`'s cloths (EDIT_MODE_PHYSICS_CLOTH_DESIGN.md §10.2).
 template <>
 struct ChunkTagTraits<Clip> {
     static constexpr u32 value = kTag("CLIP");
-    static constexpr u32 max_version = 5;
+    static constexpr u32 max_version = 6;
     static constexpr bool is_trivial = false;
 };
 
@@ -569,14 +570,14 @@ struct ChunkTagTraits<PhysicsJoint> {
 template <>
 struct ChunkTagTraits<ClothCollider> {
     static constexpr u32 value = kTag("PCOL");
-    static constexpr u32 max_version = 1;
+    static constexpr u32 max_version = 2; // v2: the shape it follows
     static constexpr bool is_trivial = false;
 };
 
 template <>
 struct ChunkTagTraits<Cloth> {
     static constexpr u32 value = kTag("CLTH");
-    static constexpr u32 max_version = 1;
+    static constexpr u32 max_version = 2; // v2: the editor's recipe
     static constexpr bool is_trivial = false;
 };
 

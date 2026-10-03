@@ -348,6 +348,10 @@ struct ClothCollider {
     Matrix44f transform = Matrix44f::identity();
     f32 radius = 0.0f;
     f32 length = 0.0f; ///< Full length.
+    /// The body shape it follows (*Cloth collider*), whose node, frame, radius
+    /// and length `FollowShapes` keeps it at; `body` 0 follows none.
+    u32 body = 0;
+    u32 shape = 0;
 
     template <class V>
     void reflect(V& v) {
@@ -357,8 +361,32 @@ struct ClothCollider {
         v.field("transform", transform);
         v.field("radius", radius);
         v.field("length", length);
+        v.since(2).field("body", body);
+        v.since(2).field("shape", shape);
     }
 };
+
+struct PhysicsBody;
+struct PhysicsSet;
+
+/// Whether @p shape can be a cloth collider: a capsule, or a sphere, which
+/// `PHCC` stores as a capsule of length 0.
+bool CollidesCloth(const PhysicsShape& shape);
+
+/// The collider @p body's shape @p shape makes, following it.
+ClothCollider ColliderOfShape(const PhysicsBody& body, u32 shape);
+
+/// The collider following @p body's shape @p shape, if one does.
+const ClothCollider* ShapeCollider(const PhysicsSet& physics, u32 body, u32 shape);
+
+/// Every collider that follows a shape takes the shape's values again. One
+/// whose shape is gone, or is no longer a capsule or sphere, is removed, and
+/// from the cloths that used it. Returns whether anything changed.
+bool FollowShapes(PhysicsSet& physics);
+
+/// @p body's shape @p shape was erased: the colliders above it follow theirs
+/// down a place, and the one on it is left for `FollowShapes` to remove.
+void ShapeErased(PhysicsSet& physics, u32 body, u32 shape);
 
 /// A section the cloth drives. Which cage vertices move each of its vertices,
 /// and how much, are the `cloth.bind.*` layers of the mesh.
@@ -405,6 +433,56 @@ struct Sc2ClothParams {
     }
 };
 
+/// The simulation mesh the editor builds (EDIT_MODE_PHYSICS_CLOTH_DESIGN.md
+/// §5.2): picked by *Auto*, the faces themselves, a grid flowing from the
+/// pinned edge, a strip down a chain, an edge collapse, or faces of the
+/// user's own.
+enum class ClothCageKind : u8 { Auto, AsModelled, Grid, Strip, Reduced, FromFaces, Count };
+
+const char* ToString(ClothCageKind kind);
+
+/// Where a bake writes a cloth's motion (§10.1): keys on its cloth bones, or
+/// a driver track per free particle that only an export makes bones of.
+enum class ClothBakeInto : u8 { Bones, FullDetail, Count };
+
+/// How the editor made a cloth, so a remake builds it the same way (§11).
+/// Authoring state, like `RagdollRecipe`: no export reads it.
+struct ClothRecipe {
+    std::string name;       ///< "Cloth01"; also the prefix of the bones an export makes.
+    std::vector<u32> bones; ///< The cloth bones, Blizzard's *Skin Bones*: node indices.
+    /// The share of a point's skin on `bones` from which it simulates; below
+    /// it, the point is pinned. In (0, 1].
+    f32 threshold = 0.2f;
+    ClothCageKind cage = ClothCageKind::Auto;
+    u32 particles = 64;
+    /// How far a drawn point may be from the cage and still follow it, as a
+    /// share of the cloth's size (Blizzard's *Max Influence Distance*).
+    f32 reach = 0.05f;
+    /// Painted pins win over the rule when the cloth is remade.
+    bool pinsByHand = false;
+    ClothBakeInto bakeInto = ClothBakeInto::Bones;
+    /// Each bound section's section of origin, in `Cloth::bindings` order:
+    /// where *Delete cloth* merges its faces back.
+    std::vector<u32> from;
+    /// *From other faces*: the section the cage's faces came from, where they
+    /// go back; `kInvalidIndex` for a cage the editor built.
+    u32 cageFrom = kInvalidIndex;
+
+    template <class V>
+    void reflect(V& v) {
+        v.field("name", name);
+        v.field("bones", bones);
+        v.field("threshold", threshold);
+        v.field("cage", cage);
+        v.field("particles", particles);
+        v.field("reach", reach);
+        v.field("pinsByHand", pinsByHand);
+        v.field("bakeInto", bakeInto);
+        v.field("from", from);
+        v.field("cageFrom", cageFrom);
+    }
+};
+
 /**
  * @brief One cloth: its cage, what it drives, what it collides with.
  *
@@ -430,6 +508,8 @@ struct Cloth {
     f32 gravityScale = 1.0f; ///< On the host's gravity.
     Vector3f wind{0, 0, 0};  ///< Model space.
     std::optional<Sc2ClothParams> sc2;
+    /// Set when the editor made it; an imported cloth has none.
+    std::optional<ClothRecipe> recipe;
 
     template <class V>
     void reflect(V& v) {
@@ -446,6 +526,7 @@ struct Cloth {
         v.field("gravityScale", gravityScale);
         v.field("wind", wind);
         v.optional("sc2", sc2);
+        v.since(2).optional("recipe", recipe);
     }
 };
 

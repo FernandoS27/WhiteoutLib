@@ -352,6 +352,11 @@ struct PhysicsBake {
     /// After each preheat loop, the largest change from the loop before, in
     /// degrees (§7.5).
     std::vector<f32> settling;
+    /// Each cloth the bake carried (EDIT_MODE_PHYSICS_CLOTH_DESIGN.md §10.2):
+    /// its id, how far its bones missed it (0 in full detail), and its size.
+    std::vector<u32> clothIds;
+    std::vector<f32> clothFits;
+    std::vector<f32> clothSizes;
 
     template <class V>
     void reflect(V& v) {
@@ -368,6 +373,9 @@ struct PhysicsBake {
         v.field("seamBefore", seamBefore);
         v.field("seamAfter", seamAfter);
         v.field("settling", settling);
+        v.since(6).field("clothIds", clothIds);
+        v.since(6).field("clothFits", clothFits);
+        v.since(6).field("clothSizes", clothSizes);
     }
 };
 

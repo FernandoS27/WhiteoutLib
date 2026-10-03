@@ -255,6 +255,59 @@ TEST_CASE("wem physics a small model's records cross both ways", "[wem][physics]
     CHECK(out.forces[0].localChannels == 0x4u);
 }
 
+TEST_CASE("wem physics a cloth collider rides its bone through IREF", "[wem][physics][m3]") {
+    // PHCC is the bind pose's, model space; the arm is bound turned a quarter
+    // about Z and lifted, so a frame read as the node's own lands elsewhere.
+    m3::Model source = PhysicsFixture();
+    Matrix44f bind = Matrix44f::identity();
+    bind.data[0][0] = 0.0f;
+    bind.data[0][1] = 1.0f;
+    bind.data[1][0] = -1.0f;
+    bind.data[1][1] = 0.0f;
+    bind.data[3][0] = 0.25f;
+    bind.data[3][2] = 1.5f;
+    source.initialReference[1].matrix = Matrix44f::inverse(bind);
+    m3::ClothCollider capsule;
+    capsule.transform = Matrix44f::identity();
+    capsule.transform.data[3][0] = 0.5f;
+    capsule.transform.data[3][1] = -0.25f;
+    capsule.transform.data[3][2] = 1.75f;
+    capsule.radius = 0.2f;
+    capsule.height = 0.6f;
+    capsule.bone = 1;
+    m3::ClothPhysics offered;
+    offered.colliders.push_back(capsule);
+    source.clothPhysics.push_back(offered);
+
+    M3Converter converter;
+    const Result<Document> imported = converter.fromM3(source, ProfileId::Sc2);
+    REQUIRE(imported.ok());
+    const Model& model = imported->models.front();
+    REQUIRE(model.physics.colliders.size() == 1);
+    const ClothCollider& collider = model.physics.colliders[0];
+    CHECK(collider.node == 1);
+    const Matrix44f placed =
+        collider.transform * Matrix44f::inverse(model.nodes.inverseBindMatrix(collider.node));
+    const Matrix44f want = m3_physics::RebaseFrame(capsule.transform);
+    for (int r = 0; r < 4; ++r) {
+        for (int c = 0; c < 3; ++c) {
+            CHECK(placed.data[r][c] == Approx(want.data[r][c]).margin(1e-5));
+        }
+    }
+
+    const Result<m3::Model> exported = converter.toM3(*imported, ProfileId::Sc2);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->clothPhysics.size() == 1);
+    REQUIRE(exported->clothPhysics[0].colliders.size() == 1);
+    const m3::ClothCollider& back = exported->clothPhysics[0].colliders[0];
+    CHECK(back.bone == 1u);
+    for (int r = 0; r < 4; ++r) {
+        for (int c = 0; c < 3; ++c) {
+            CHECK(back.transform.data[r][c] == Approx(capsule.transform.data[r][c]).margin(1e-5));
+        }
+    }
+}
+
 TEST_CASE("wem physics a turned force field keeps its frame through the .m3", "[wem][physics][m3]") {
     M3Converter converter;
     Result<Document> imported = converter.fromM3(PhysicsFixture(), ProfileId::Sc2);
@@ -513,9 +566,22 @@ void CompareJoints(const m3::Model& a, const m3::Model& b, const fs::path& path,
     }
 }
 
+// A PHCC frame crosses through its bone's bind (`ImportCollider`), so it comes
+// back to within the product's rounding rather than bit for bit.
+bool NearFrame(const Matrix44f& a, const Matrix44f& b) {
+    for (int r = 0; r < 4; ++r) {
+        for (int c = 0; c < 4; ++c) {
+            if (std::fabs(a.data[r][c] - b.data[r][c]) > 1e-5f * std::max(1.0f, std::fabs(a.data[r][c]))) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 void CompareColliders(const m3::ClothCollider& x, const m3::ClothCollider& y, const fs::path& path,
                       Tally& tally) {
-    if (!SameBits(x.transform, y.transform) || !SameBits(x.radius, y.radius) ||
+    if (!NearFrame(x.transform, y.transform) || !SameBits(x.radius, y.radius) ||
         !SameBits(x.height, y.height) || x.bone != y.bone) {
         tally.fail("PHCC", path);
     }

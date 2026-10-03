@@ -40,6 +40,20 @@ bool NeedsPhysicsFit(const Document& document, ProfileId target);
 /// cages it changed.
 u32 FitPhysicsToProfile(Document& document, ProfileId target, Diagnostics& out);
 
+/// Whether @p document holds a cloth, or a collider for one.
+bool CarriesCloth(const Document& document);
+
+/**
+ * @brief A file for @p target, which runs no cloth, written without it
+ *        (EDIT_MODE_PHYSICS_CLOTH_DESIGN.md §10.6): each cage section goes with
+ *        its faces, the cloths, their colliders, layers and `ClothActive`
+ *        channels go, and the faces they drove keep their own skin.
+ *
+ * Only on a file's copy, never on what draws the viewport: the geosets of the
+ * edit actor are numbered one per section. Returns how many cloths went.
+ */
+u32 DropClothForProfile(Document& document, ProfileId target, Diagnostics& out);
+
 /// "Death", or "Death" and then a space: a clip StarCraft II plays as one.
 bool IsDeathClipName(std::string_view name);
 

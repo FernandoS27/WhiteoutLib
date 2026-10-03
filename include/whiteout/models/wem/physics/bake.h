@@ -54,6 +54,23 @@ struct BakeStep {
     Vector3f upper{0, 0, 0};
 };
 
+/// One cloth particle where a step left it, model space: 28 bytes
+/// (EDIT_MODE_PHYSICS_CLOTH_DESIGN.md §9.5). Its rotation turns its rest
+/// frame onto its live one.
+struct ClothParticleFrame {
+    Vector3f position{0, 0, 0};
+    Quaternion rotation{0, 0, 0, 1};
+};
+
+/// What the host's cloths did over one step: each by id, and every one's
+/// particles, cloth after cloth.
+struct BakeClothStep {
+    std::vector<u32> cloths;
+    std::vector<u32> particles; ///< Per cloth, how many.
+    std::vector<u32> vertices;  ///< Per particle, its cage vertex.
+    std::vector<ClothParticleFrame> frames;
+};
+
 /// The host's physics for a bake, as `StageHooks` is for the pose stages.
 struct BakeHooks {
     /// Forget what the host simulates for @p model; the next step builds it
@@ -64,6 +81,12 @@ struct BakeHooks {
     /// the step's switches hand the simulation are written back into its
     /// `local`s, T and R, and its frames composed again.
     std::function<void(const Document& document, u32 model, const BakeStep& step, Pose& pose)> step;
+    /// The cloths stepped on @p pose, after `step` wrote the bodies back, so a
+    /// cape follows its ragdoll; built where the first pose stands after a
+    /// `reset`. Optional: without it, no cloth is recorded.
+    std::function<void(const Document& document, u32 model, const BakeStep& step, const Pose& pose,
+                       BakeClothStep& out)>
+        cloth;
 };
 
 /// A clip's run, recorded (§6): every step of its lead-in, the clip and any
@@ -95,6 +118,23 @@ struct BakeRun {
     /// After each preheat loop, the largest turn any recorded node made from
     /// the loop before at the same time, degrees (§7.5).
     std::vector<f32> settling;
+    /// The cloths recorded, by id, and how many particles each has; per
+    /// recorded step, every particle's frame, cloth after cloth.
+    std::vector<u32> cloths;
+    std::vector<u32> clothParticles;
+    std::vector<u32> clothVertices; ///< Per particle, its cage vertex.
+    u32 particles = 0;
+    std::vector<ClothParticleFrame> clothFrames;
+    /// Per recorded step, whether each recorded cloth draws (its *Active*).
+    std::vector<u8> clothActive;
+    /// Per recorded cloth that bakes into its bones (cloth design §10.2): the
+    /// bones its fit moves, which `nodes` records; the largest distance the fit
+    /// left between a drawn point and where the cloth put it, over the clip's
+    /// own steps where it is active; and its drawn faces' size. No bones and 0
+    /// for one that does not.
+    std::vector<std::vector<u32>> clothBones;
+    std::vector<f32> clothFit;
+    std::vector<f32> clothSize;
     /// What went in (`BakeInputs`); whether the run reached its end.
     u64 inputs = 0;
     bool complete = false;
@@ -109,6 +149,14 @@ struct BakeRun {
     }
     const BodySwitch* switchesAt(u32 step) const {
         return step < recorded() ? switches.data() + static_cast<std::size_t>(step) * bodies : nullptr;
+    }
+    bool clothActiveAt(u32 step, u32 cloth) const {
+        const std::size_t at = static_cast<std::size_t>(step) * cloths.size() + cloth;
+        return cloth < cloths.size() && at < clothActive.size() && clothActive[at] != 0;
+    }
+    const ClothParticleFrame* clothFramesAt(u32 step) const {
+        return step < recorded() && particles != 0 ? clothFrames.data() + static_cast<std::size_t>(step) * particles
+                                                   : nullptr;
     }
     /// The clip @p step played: the clip's own, or a lead-in's.
     u32 clipAt(u32 step) const {
@@ -168,6 +216,15 @@ struct BakeReport {
     std::vector<u32> globalLoops;
     /// A loop with no preheat cannot cross-fade its end: it was offset.
     bool offsetInstead = false;
+    /// Per cloth baked into its bones (cloth design §10.2): its id, how many
+    /// bones, and the fit's error against its size.
+    struct ClothLine {
+        u32 cloth = 0;
+        u32 bones = 0;
+        f32 fit = 0.0f;
+        f32 size = 0.0f;
+    };
+    std::vector<ClothLine> cloths;
     Diagnostics diagnostics;
 };
 

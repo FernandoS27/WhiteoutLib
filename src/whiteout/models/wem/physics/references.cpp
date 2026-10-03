@@ -3,6 +3,8 @@
 
 #include <whiteout/models/wem/physics/references.h>
 
+#include <whiteout/models/wem/physics/cloth_bake.h>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -170,6 +172,16 @@ std::vector<u32> RemapPhysicsNodes(PhysicsSet& physics, std::span<const u32> rem
         }
         return false;
     });
+    // A cloth bone that is gone leaves the cloth's list; the cloth stays.
+    for (Cloth& cloth : physics.cloths) {
+        if (!cloth.recipe) {
+            continue;
+        }
+        for (u32& bone : cloth.recipe->bones) {
+            bone = Remapped(remap, bone, kInvalidNode);
+        }
+        std::erase(cloth.recipe->bones, kInvalidNode);
+    }
     Sweep(physics, gone, removed);
     return removed;
 }
@@ -208,15 +220,31 @@ std::vector<u32> RemapPhysicsMeshes(PhysicsSet& physics, std::span<const u32> me
 std::vector<u32> RemapPhysicsSections(PhysicsSet& physics, u32 mesh, std::span<const u32> sectionRemap) {
     std::vector<u32> removed;
     std::erase_if(physics.cloths, [&](Cloth& cloth) {
-        std::erase_if(cloth.bindings, [&](ClothBinding& binding) {
+        // The recipe's sections of origin run beside the bindings, and go with them.
+        std::vector<u32>* from = cloth.recipe && cloth.recipe->from.size() == cloth.bindings.size()
+                                     ? &cloth.recipe->from
+                                     : nullptr;
+        for (std::size_t b = cloth.bindings.size(); b-- > 0;) {
+            ClothBinding& binding = cloth.bindings[b];
             if (binding.section.mesh != mesh) {
-                return false;
+                continue;
             }
             binding.section.section = Remapped(sectionRemap, binding.section.section, kInvalidIndex);
-            return binding.section.section == kInvalidIndex;
-        });
+            if (from != nullptr) {
+                (*from)[b] = Remapped(sectionRemap, (*from)[b], kInvalidIndex);
+            }
+            if (binding.section.section == kInvalidIndex) {
+                cloth.bindings.erase(cloth.bindings.begin() + static_cast<std::ptrdiff_t>(b));
+                if (from != nullptr) {
+                    from->erase(from->begin() + static_cast<std::ptrdiff_t>(b));
+                }
+            }
+        }
         if (cloth.cage.mesh != mesh) {
             return false;
+        }
+        if (cloth.recipe && cloth.recipe->cageFrom != kInvalidIndex) {
+            cloth.recipe->cageFrom = Remapped(sectionRemap, cloth.recipe->cageFrom, kInvalidIndex);
         }
         cloth.cage.section = Remapped(sectionRemap, cloth.cage.section, kInvalidIndex);
         if (cloth.cage.section == kInvalidIndex) {
@@ -492,6 +520,16 @@ void CheckPhysics(const Model& model, Diagnostics& out) {
                 out.error(DiagCode::PhysicsReferenceInvalid, "a cloth names a missing collider", where);
             }
         }
+        if (cloth.recipe) {
+            for (const u32 bone : cloth.recipe->bones) {
+                if (bone >= model.nodes.size()) {
+                    out.error(DiagCode::PhysicsReferenceInvalid, "a cloth bone is no node of the model", where);
+                }
+            }
+            if (!(cloth.recipe->threshold > 0.0f && cloth.recipe->threshold <= 1.0f)) {
+                out.error(DiagCode::PhysicsReferenceInvalid, "a cloth's threshold is outside (0, 1]", where);
+            }
+        }
         const bool cageOk = cloth.cage.mesh < model.meshes.size() &&
                             cloth.cage.section < model.meshes[cloth.cage.mesh].sections.size();
         if (!cageOk) {
@@ -552,6 +590,13 @@ void CheckPhysics(const Model& model, Diagnostics& out) {
             break;
         case Channel::PhysicsBlend:
             found = physics.rig(sub) != nullptr || physics.body(sub) != nullptr;
+            break;
+        case Channel::ClothDriverTranslation:
+        case Channel::ClothDriverRotation:
+            // A driver of a cloth there, within its free particles.
+            if (const Cloth* cloth = physics.cloth(ClothOfDriverSub(sub))) {
+                found = DriverOfSub(sub) < ClothDriversOf(model, *cloth).vertices.size();
+            }
             break;
         default:
             break;

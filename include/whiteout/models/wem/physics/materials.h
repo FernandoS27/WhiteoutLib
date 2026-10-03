@@ -50,6 +50,30 @@ std::optional<u32> MatchSc2Preset(const PhysicsBody& body);
 /// Flesh: what a ragdoll's bodies are made of (D2).
 inline constexpr u32 kSc2Flesh = 4;
 
+/// A cloth's solver parameters, as a preset sets them
+/// (EDIT_MODE_PHYSICS_CLOTH_DESIGN.md §8): the middles of the clusters a
+/// census of the shipped StarCraft II and Heroes cloths found.
+struct ClothPreset {
+    const char* name = ""; ///< Its catalog key's last part, `physics.cloth.preset.<name>`.
+    f32 density = 0.0f;
+    f32 damping = 0.0f;
+    f32 friction = 0.0f;
+    f32 stretchStiffness = 0.0f;
+    f32 bendStiffness = 0.0f;
+    f32 gravityScale = 1.0f;
+    Sc2ClothParams sc2;
+};
+
+/// The presets, *Medium* (`kClothMedium`) the one a new cloth takes.
+std::span<const ClothPreset> Sc2ClothPresets();
+inline constexpr u32 kClothMedium = 1;
+
+/// @p preset's values onto @p cloth; everything else it holds stays.
+void ApplyClothPreset(Cloth& cloth, const ClothPreset& preset);
+
+/// The preset @p cloth's parameters equal within 1e-4, or none: *Custom*.
+std::optional<u32> MatchClothPreset(const Cloth& cloth);
+
 } // namespace wem
 } // namespace models
 } // namespace whiteout

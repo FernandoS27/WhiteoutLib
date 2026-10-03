@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <numbers>
 
 namespace whiteout {
@@ -60,6 +61,26 @@ const char* ToString(JointKind kind) {
     case JointKind::Distance:
         return "distance";
     case JointKind::Count:
+        break;
+    }
+    return "invalid";
+}
+
+const char* ToString(ClothCageKind kind) {
+    switch (kind) {
+    case ClothCageKind::Auto:
+        return "auto";
+    case ClothCageKind::AsModelled:
+        return "as_modelled";
+    case ClothCageKind::Grid:
+        return "grid";
+    case ClothCageKind::Strip:
+        return "strip";
+    case ClothCageKind::Reduced:
+        return "reduced";
+    case ClothCageKind::FromFaces:
+        return "from_faces";
+    case ClothCageKind::Count:
         break;
     }
     return "invalid";
@@ -177,6 +198,97 @@ Matrix44f CapsuleFrame(const Vector3f& a, const Vector3f& b, f32& length) {
     m.data[3][1] = static_cast<f32>((static_cast<f64>(a.y) + b.y) * 0.5);
     m.data[3][2] = static_cast<f32>((static_cast<f64>(a.z) + b.z) * 0.5);
     return m;
+}
+
+bool CollidesCloth(const PhysicsShape& shape) {
+    return shape.kind == PhysicsShapeKind::Capsule || shape.kind == PhysicsShapeKind::Sphere;
+}
+
+namespace {
+
+/// @p collider made @p shape's: centred on its ends, as `PHCC` states one, and
+/// as wide as the shape's matrix makes it across.
+void TakeShape(ClothCollider& collider, const PhysicsBody& body, const PhysicsShape& shape) {
+    collider.node = body.node;
+    collider.kind = ClothColliderKind::Capsule;
+    const Vector3f x = Row(shape.transform, 0), y = Row(shape.transform, 1);
+    collider.radius = shape.radius * std::max(std::sqrt(x.x * x.x + x.y * x.y + x.z * x.z),
+                                              std::sqrt(y.x * y.x + y.y * y.y + y.z * y.z));
+    if (shape.kind == PhysicsShapeKind::Capsule) {
+        const auto [a, b] = CapsuleEnds(shape);
+        collider.transform = CapsuleFrame(a, b, collider.length);
+    } else {
+        collider.transform = Matrix44f::identity();
+        for (int c = 0; c < 3; ++c) {
+            collider.transform.data[3][c] = shape.transform.data[3][c];
+        }
+        collider.length = 0.0f;
+    }
+}
+
+} // namespace
+
+ClothCollider ColliderOfShape(const PhysicsBody& body, u32 shape) {
+    ClothCollider collider;
+    collider.body = body.id;
+    collider.shape = shape;
+    if (shape < body.shapes.size()) {
+        TakeShape(collider, body, body.shapes[shape]);
+    }
+    return collider;
+}
+
+const ClothCollider* ShapeCollider(const PhysicsSet& physics, u32 body, u32 shape) {
+    for (const ClothCollider& collider : physics.colliders) {
+        if (body != 0 && collider.body == body && collider.shape == shape) {
+            return &collider;
+        }
+    }
+    return nullptr;
+}
+
+bool FollowShapes(PhysicsSet& physics) {
+    bool changed = false;
+    std::vector<u32> gone;
+    for (ClothCollider& collider : physics.colliders) {
+        if (collider.body == 0) {
+            continue;
+        }
+        const PhysicsBody* body = physics.body(collider.body);
+        if (body == nullptr || collider.shape >= body->shapes.size() || !CollidesCloth(body->shapes[collider.shape])) {
+            gone.push_back(collider.id);
+            continue;
+        }
+        ClothCollider followed = collider;
+        TakeShape(followed, *body, body->shapes[collider.shape]);
+        if (followed.node != collider.node || followed.radius != collider.radius ||
+            followed.length != collider.length || std::memcmp(&followed.transform, &collider.transform, sizeof(Matrix44f)) != 0) {
+            collider = followed;
+            changed = true;
+        }
+    }
+    if (gone.empty()) {
+        return changed;
+    }
+    const auto isGone = [&](u32 id) { return std::find(gone.begin(), gone.end(), id) != gone.end(); };
+    std::erase_if(physics.colliders, [&](const ClothCollider& collider) { return isGone(collider.id); });
+    for (Cloth& cloth : physics.cloths) {
+        std::erase_if(cloth.colliders, isGone);
+    }
+    return true;
+}
+
+void ShapeErased(PhysicsSet& physics, u32 body, u32 shape) {
+    for (ClothCollider& collider : physics.colliders) {
+        if (body == 0 || collider.body != body) {
+            continue;
+        }
+        if (collider.shape == shape) {
+            collider.shape = kInvalidIndex;
+        } else if (collider.shape > shape && collider.shape != kInvalidIndex) {
+            --collider.shape;
+        }
+    }
 }
 
 namespace {

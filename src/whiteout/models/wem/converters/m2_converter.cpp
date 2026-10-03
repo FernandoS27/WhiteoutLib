@@ -939,6 +939,12 @@ Result<m2::Model> M2Converter::toM2(const Document& document, ProfileId profile,
             }
 
             for (const geom::RenderRange& range : render.ranges) {
+                // A cloth's cage is the simulation's, never drawn, and World
+                // of Warcraft runs no cloth.
+                if (range.section < mesh.sections.size() &&
+                    hasFlag(mesh.sections[range.section].flags, SectionFlags::ClothSimulated)) {
+                    continue;
+                }
                 m2::SkinSection submesh;
                 // The split form: low word in `indexStart`, high word in `level`.
                 const std::size_t start = skin.indices.size();

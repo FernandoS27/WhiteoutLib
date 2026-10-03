@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 #include <whiteout/models/wem/physics/bake.h>
+#include <whiteout/models/wem/physics/cloth_bake.h>
 
 #include <whiteout/models/wem/anim/clip.h>
 #include <whiteout/models/wem/anim/curve_keys.h>
@@ -15,6 +16,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <map>
+#include <memory>
 #include <set>
 
 namespace whiteout {
@@ -59,6 +62,50 @@ void RestoreSource(Clip& clip) {
             const u32 place = at < baked.positions.size() ? baked.positions[at] : static_cast<u32>(tracks.size());
             ++at;
             tracks.insert(tracks.begin() + std::min<std::size_t>(place, tracks.size()), track);
+        }
+    }
+}
+
+/// A driver's samples thinned to the keys that keep every step within
+/// @p tolerance, every step when it is 0: its translations, or its rotations
+/// measured as a turn in radians over the same share.
+void ThinDriver(const std::vector<Vector3f>& moves, const std::vector<Quaternion>& turns, bool move, f32 tolerance,
+                std::vector<u32>& kept) {
+    kept.clear();
+    const std::size_t count = move ? moves.size() : turns.size();
+    std::vector<u8> keep(count, tolerance > 0.0f ? 0 : 1);
+    if (count == 0) {
+        return;
+    }
+    keep.front() = keep.back() = 1;
+    std::vector<std::pair<std::size_t, std::size_t>> spans;
+    if (tolerance > 0.0f && count > 2) {
+        spans.emplace_back(0, count - 1);
+    }
+    while (!spans.empty()) {
+        const auto [a, b] = spans.back();
+        spans.pop_back();
+        f32 worst = 0.0f;
+        std::size_t at = a;
+        for (std::size_t i = a + 1; i < b; ++i) {
+            const f32 u = static_cast<f32>(i - a) / static_cast<f32>(b - a);
+            const f32 e = move ? (moves[a] + (moves[b] - moves[a]) * u - moves[i]).length()
+                               : 2.0f * std::acos(std::min(1.0f, std::abs(Quaternion::slerp(turns[a], turns[b], u)
+                                                                                .dot(turns[i]))));
+            if (e > worst) {
+                worst = e;
+                at = i;
+            }
+        }
+        if (worst > tolerance) {
+            keep[at] = 1;
+            spans.emplace_back(a, at);
+            spans.emplace_back(at, b);
+        }
+    }
+    for (std::size_t i = 0; i < count; ++i) {
+        if (keep[i] != 0) {
+            kept.push_back(static_cast<u32>(i));
         }
     }
 }
@@ -198,6 +245,17 @@ u64 BakeInputs(const Document& document, u32 clip) {
     const Model& model = document.models[owner];
     Hash(hash, ReflectBytes(model.nodes));
     Hash(hash, ReflectBytes(model.physics));
+    // A cloth's cage, pins, anchors and bindings are its mesh's (cloth design
+    // §10.5).
+    std::set<u32> clothMeshes;
+    for (const Cloth& cloth : model.physics.cloths) {
+        clothMeshes.insert(cloth.cage.mesh);
+    }
+    for (const u32 m : clothMeshes) {
+        if (m < model.meshes.size()) {
+            Hash(hash, ReflectBytes(model.meshes[m]));
+        }
+    }
     // The channels some clip's source keys: one only a bake keys was written,
     // not read, and whether it is still declared after an Unbake reads nothing.
     std::set<u32> keyed;
@@ -356,8 +414,20 @@ BakeRun SimulateClip(const Document& given, u32 clip, const BakeHooks& hooks, co
             nodes.insert(owner.physics.bodies[b].node);
         }
     }
+    // A cloth that bakes into its bones records them as a body's node is
+    // (cloth design §10.2).
+    for (const Cloth& cloth : owner.physics.cloths) {
+        if (hooks.cloth && cloth.recipe && cloth.recipe->bakeInto == ClothBakeInto::Bones) {
+            for (const u32 bone : cloth.recipe->bones) {
+                if (bone < owner.nodes.size()) {
+                    nodes.insert(bone);
+                }
+            }
+        }
+    }
     run.nodes.assign(nodes.begin(), nodes.end());
     hooks.reset(document, model, movable);
+    std::vector<std::unique_ptr<ClothBoneFit>> fits;
 
     const Animator animator(document, model);
     const StageRunner stages(document, model);
@@ -380,6 +450,7 @@ BakeRun SimulateClip(const Document& given, u32 clip, const BakeHooks& hooks, co
     Vector3f travel{0, 0, 0};
     Vector3f lower{0, 0, 0}, upper{0, 0, 0};
     std::vector<BodySwitch> previous, now;
+    BakeClothStep cloth;
     if (progress != nullptr) {
         progress->steps = at;
         progress->step = 0;
@@ -441,6 +512,60 @@ BakeRun SimulateClip(const Document& given, u32 clip, const BakeHooks& hooks, co
             step.lower = lower;
             step.upper = upper;
             hooks.step(document, model, step, pose);
+            if (hooks.cloth) {
+                cloth.cloths.clear();
+                cloth.particles.clear();
+                cloth.vertices.clear();
+                cloth.frames.clear();
+                hooks.cloth(document, model, step, pose, cloth);
+                // The first step sets what is recorded; a step that answers
+                // otherwise records every particle at rest.
+                if (run.times.empty()) {
+                    run.cloths = cloth.cloths;
+                    run.clothParticles = cloth.particles;
+                    run.particles = static_cast<u32>(cloth.frames.size());
+                    run.clothVertices = cloth.vertices;
+                    run.clothBones.assign(run.cloths.size(), {});
+                    run.clothFit.assign(run.cloths.size(), 0.0f);
+                    run.clothSize.assign(run.cloths.size(), 0.0f);
+                    fits.resize(run.cloths.size());
+                    for (std::size_t c = 0, first = 0; c < run.cloths.size(); first += run.clothParticles[c], ++c) {
+                        const Cloth* record = owner.physics.cloth(run.cloths[c]);
+                        if (record == nullptr || !record->recipe || record->recipe->bakeInto != ClothBakeInto::Bones ||
+                            first + run.clothParticles[c] > run.clothVertices.size()) {
+                            continue;
+                        }
+                        fits[c] = std::make_unique<ClothBoneFit>(
+                            document, model, *record,
+                            std::span<const u32>(run.clothVertices).subspan(first, run.clothParticles[c]));
+                        run.clothBones[c].assign(fits[c]->bones().begin(), fits[c]->bones().end());
+                        run.clothSize[c] = fits[c]->size();
+                    }
+                }
+                if (cloth.frames.size() == run.particles && cloth.cloths == run.cloths) {
+                    run.clothFrames.insert(run.clothFrames.end(), cloth.frames.begin(), cloth.frames.end());
+                } else {
+                    run.clothFrames.resize(run.clothFrames.size() + run.particles);
+                }
+                // Each cloth's *Active*, and its bones fitted where it draws.
+                const ClothParticleFrame* frames = run.clothFrames.data() + run.clothFrames.size() - run.particles;
+                for (std::size_t c = 0, first = 0; c < run.cloths.size(); first += run.clothParticles[c], ++c) {
+                    u32 index = 0;
+                    while (index < owner.physics.cloths.size() && owner.physics.cloths[index].id != run.cloths[c]) {
+                        ++index;
+                    }
+                    const bool active = readers[p].clothActive(index, local);
+                    run.clothActive.push_back(active ? 1 : 0);
+                    if (!active || !fits[c] || !fits[c]->fits()) {
+                        continue;
+                    }
+                    const f32 missed =
+                        fits[c]->fit(std::span<const ClothParticleFrame>(frames + first, run.clothParticles[c]), pose);
+                    if (piece.step + k >= run.first && piece.step + k <= run.first + run.steps) {
+                        run.clothFit[c] = std::max(run.clothFit[c], missed);
+                    }
+                }
+            }
             for (const u32 n : run.nodes) {
                 run.locals.push_back(n < pose.local.size() ? pose.local[n] : Transform{});
             }
@@ -841,15 +966,29 @@ BakeReport BakeClip(Document& document, const BakeRun& run, const BakeRun* goesT
         const i64 at = std::clamp<i64>(static_cast<i64>(run.first) + step, 0, static_cast<i64>(run.recorded()) - 1);
         return run.localsAt(static_cast<u32>(at))[n];
     };
+    // The recorded cloths that bake into each node, by the run's cloth index.
+    std::map<u32, std::vector<u32>> clothsOn;
+    for (u32 c = 0; c < run.clothBones.size(); ++c) {
+        for (const u32 bone : run.clothBones[c]) {
+            clothsOn[bone].push_back(c);
+        }
+    }
     for (std::size_t n = 0; n < run.nodes.size(); ++n) {
         Written w;
         w.node = run.nodes[n];
         w.samples.resize(steps + 1);
         w.active.assign(steps + 1, 0);
+        const auto on = clothsOn.find(w.node);
         for (u32 i = 0; i <= steps; ++i) {
             const BodySwitch* switches = run.switchesAt(run.first + i);
             for (u32 b = 0; b < run.bodies && switches != nullptr; ++b) {
                 if (b < owner.physics.bodies.size() && owner.physics.bodies[b].node == w.node && switches[b].active) {
+                    w.active[i] = 1;
+                }
+            }
+            // A cloth bone, where its cloth draws (cloth design §10.2).
+            for (std::size_t c = 0; on != clothsOn.end() && c < on->second.size(); ++c) {
+                if (run.clothActiveAt(run.first + i, on->second[c])) {
                     w.active[i] = 1;
                 }
             }
@@ -1093,6 +1232,94 @@ BakeReport BakeClip(Document& document, const BakeRun& run, const BakeRun* goesT
             }
         }
     }
+    // A *Full detail* cloth's drivers (cloth design §10.3): each free
+    // particle's frame relative to the cloth's holder, step by step, the
+    // recording's where the cloth is on and its anchors' where it is off, on
+    // the cloth's own channels, which an Unbake takes away.
+    for (u32 c = 0; c < run.cloths.size() && c < run.clothParticles.size(); ++c) {
+        const Cloth* cloth = owner.physics.cloth(run.cloths[c]);
+        if (cloth == nullptr || !cloth->recipe || cloth->recipe->bakeInto != ClothBakeInto::FullDetail ||
+            cloth->cage.mesh >= owner.meshes.size()) {
+            continue;
+        }
+        const ClothDrivers drivers = ClothDriversOf(owner, *cloth);
+        u32 first = 0;
+        for (u32 k = 0; k < c; ++k) {
+            first += run.clothParticles[k];
+        }
+        std::vector<u32> particle(drivers.vertices.size(), kInvalidIndex);
+        for (u32 k = 0; k < run.clothParticles[c] && first + k < run.clothVertices.size(); ++k) {
+            const auto at =
+                std::lower_bound(drivers.vertices.begin(), drivers.vertices.end(), run.clothVertices[first + k]);
+            if (at != drivers.vertices.end() && *at == run.clothVertices[first + k]) {
+                particle[static_cast<std::size_t>(at - drivers.vertices.begin())] = first + k;
+            }
+        }
+        const Mesh& mesh = owner.meshes[cloth->cage.mesh];
+        std::vector<std::vector<Vector3f>> moves(drivers.vertices.size());
+        std::vector<std::vector<Quaternion>> turns(drivers.vertices.size());
+        const Animator animator(document, model);
+        for (u32 i = 0; i <= steps; ++i) {
+            const u32 at = run.first + i;
+            Mix mix;
+            mix.plays.push_back(Play{clipIndex, static_cast<f32>(i) * dt, 1.0f, false});
+            mix.globals = false;
+            Pose pose;
+            animator.evaluate(mix, pose);
+            RecordedPose(document, run, at, pose);
+            const Matrix44f holder =
+                drivers.holder < pose.frame.size() ? pose.frame[drivers.holder] : Matrix44f::identity();
+            const Matrix44f back = Matrix44f::inverse(holder);
+            const ClothParticleFrame* recorded = run.clothFramesAt(at);
+            const bool active = run.clothActiveAt(at, c);
+            for (u32 d = 0; d < drivers.vertices.size(); ++d) {
+                Matrix44f frame;
+                if (active && recorded != nullptr && particle[d] != kInvalidIndex) {
+                    const ClothParticleFrame& p = recorded[particle[d]];
+                    frame = ToMatrix(Transform{p.position, p.rotation, Vector3f{1, 1, 1}});
+                } else {
+                    frame = AnchoredFrame(mesh, drivers.vertices[d], pose);
+                }
+                const Transform local = FromMatrix(frame * back);
+                Quaternion q = local.rotation;
+                if (!turns[d].empty() && q.dot(turns[d].back()) < 0.0f) {
+                    q = q * -1.0f;
+                }
+                moves[d].push_back(local.translation);
+                turns[d].push_back(q);
+            }
+        }
+        if (clip.containers.empty()) {
+            clip.containers.emplace_back();
+        }
+        const f32 tolerance = settings.tolerance * height;
+        std::vector<u32> keys;
+        for (u32 d = 0; d < drivers.vertices.size(); ++d) {
+            for (const Channel which : {Channel::ClothDriverTranslation, Channel::ClothDriverRotation}) {
+                const bool move = which == Channel::ClothDriverTranslation;
+                if (FindClothDriverChannel(owner, cloth->id, d, which) == kInvalidIndex) {
+                    appended.push_back(ClothDriverChannel(owner, cloth->id, d, which));
+                }
+                const u32 channel = ClothDriverChannel(owner, cloth->id, d, which);
+                record.channels.push_back(channel);
+                ThinDriver(moves[d], turns[d], move, tolerance, keys);
+                SubTrack made;
+                made.channel = channel;
+                made.interp = move ? Interpolation::Linear : Interpolation::Slerp;
+                for (const u32 i : keys) {
+                    made.times.push_back(static_cast<f32>(i) * dt);
+                    const u8* bytes = move ? reinterpret_cast<const u8*>(&moves[d][i])
+                                           : reinterpret_cast<const u8*>(&turns[d][i]);
+                    made.values.insert(made.values.end(), bytes,
+                                       bytes + (move ? sizeof(Vector3f) : sizeof(Quaternion)));
+                }
+                report.keys += static_cast<u32>(made.times.size());
+                clip.containers.front().subTracks.push_back(std::move(made));
+            }
+        }
+        report.cloths.push_back({cloth->id, static_cast<u32>(drivers.vertices.size()), 0.0f,
+                                 c < run.clothSize.size() ? run.clothSize[c] : 0.0f});
+    }
     // Container by container, in the order they stood: an Unbake puts each
     // back in turn.
     for (u32 c = 0; c < replaced.size(); ++c) {
@@ -1154,6 +1381,18 @@ BakeReport BakeClip(Document& document, const BakeRun& run, const BakeRun* goesT
     record.seamBefore = report.seamBefore;
     record.seamAfter = report.seamAfter;
     record.appended = std::move(appended);
+    for (u32 c = 0; c < run.clothBones.size() && c < run.cloths.size(); ++c) {
+        if (!run.clothBones[c].empty()) {
+            report.cloths.push_back({run.cloths[c], static_cast<u32>(run.clothBones[c].size()),
+                                     c < run.clothFit.size() ? run.clothFit[c] : 0.0f,
+                                     c < run.clothSize.size() ? run.clothSize[c] : 0.0f});
+        }
+    }
+    for (const BakeReport::ClothLine& line : report.cloths) {
+        record.clothIds.push_back(line.cloth);
+        record.clothFits.push_back(line.fit);
+        record.clothSizes.push_back(line.size);
+    }
     record.written = WrittenHash(document.clips[clipIndex], record);
     Clip& out = document.clips[clipIndex];
     if (!out.physics.has_value()) {

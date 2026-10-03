@@ -546,6 +546,8 @@ add_library(whiteout_lib
     src/whiteout/models/wem/physics/crossing.cpp
     src/whiteout/models/wem/physics/switches.cpp
     src/whiteout/models/wem/physics/bake.cpp
+    src/whiteout/models/wem/physics/cloth_bake.cpp
+    src/whiteout/models/wem/physics/cloth_cage.cpp
     src/whiteout/models/wem/converters/m3_track_sink.cpp
     src/whiteout/models/cross/mdx_m3_effects.cpp
     src/whiteout/models/cross/wc3_sc2_emitters.cpp

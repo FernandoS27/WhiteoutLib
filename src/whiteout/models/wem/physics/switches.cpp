@@ -197,6 +197,12 @@ SwitchReader::SwitchReader(const Document& document, u32 model, u32 clip, Switch
         }
     }
 
+    cloths_.resize(physics.cloths.size());
+    for (u32 c = 0; c < physics.cloths.size(); ++c) {
+        cloths_[c].rest = physics.cloths[c].active;
+        cloths_[c].active = Keyed(clip_, FindPhysicsChannel(owner, physics.cloths[c].id, Channel::ClothActive));
+    }
+
     // Which bodies some clip keys: a loose one moves only there.
     const auto keyedSomewhere = [&](u32 channel) {
         return channel != kInvalidIndex && std::any_of(document.clips.begin(), document.clips.end(), [&](const Clip& c) {
@@ -277,6 +283,18 @@ bool SwitchReader::keysRig(u32 rig) const {
 
 bool SwitchReader::movable(u32 body) const {
     return body < bodies_.size() && bodies_[body].movable;
+}
+
+bool SwitchReader::clothActive(u32 cloth, f32 seconds) const {
+    if (cloth >= cloths_.size() || baked_) {
+        return false;
+    }
+    const ClothRow& row = cloths_[cloth];
+    return sample(row.active, seconds, row.rest ? 1.0f : 0.0f, true) >= 0.5f;
+}
+
+bool SwitchReader::keysCloth(u32 cloth) const {
+    return cloth < cloths_.size() && cloths_[cloth].active != nullptr;
 }
 
 void SwitchReader::read(f32 seconds, std::span<const BodySwitch> previous, std::vector<BodySwitch>& out) const {

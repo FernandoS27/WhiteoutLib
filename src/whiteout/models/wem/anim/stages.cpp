@@ -1049,9 +1049,12 @@ u32 BakeStages(Document& document, ProfileId target, const StageHooks* hooks, Di
         }
         // What can be baked here: every enabled stage but a host's physics
         // with no host to run it.
-        const bool hosted = hooks != nullptr && static_cast<bool>(hooks->step);
+        const auto hosted = [&](StageKind kind) {
+            return hooks != nullptr && static_cast<bool>(hooks->step) && (!hooks->steps || hooks->steps(kind));
+        };
         for (PoseStage& stage : document.models[m].poseStages) {
-            if (stage.enabled && (stage.kind == StageKind::Ragdoll || stage.kind == StageKind::Cloth) && !hosted) {
+            if (stage.enabled && (stage.kind == StageKind::Ragdoll || stage.kind == StageKind::Cloth) &&
+                !hosted(stage.kind)) {
                 diagnostics.error(DiagCode::AnimStageNotBaked,
                                   "stage '" + stage.name + "' needs the host's physics, which this export does not have",
                                   ElementRef(ElementKind::Node, stage.driven.empty() ? kInvalidNode : stage.driven.front()));
