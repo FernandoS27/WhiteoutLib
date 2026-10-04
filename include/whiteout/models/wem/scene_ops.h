@@ -68,6 +68,21 @@ struct SceneRescaleResult {
 /// own frame by @p factor, so its effect grows with the model.
 SceneRescaleResult RescaleScene(Document& document, f32 factor);
 
+/// What `TurnFrame` wrote.
+struct FrameCounts {
+    u32 keysRewritten = 0;
+    u32 keysAdded = 0;
+};
+
+/**
+ * Lays @p turn and @p scale onto @p node's own frame: each key of its rotation
+ * becomes `turn * key`, each of its scale `scale * key`, and its rest value the
+ * same. A channel a global loop keys is then right everywhere. One no clip keys
+ * gets a one-key track on the frame loop; one only some animations key gets one
+ * in each animation that leaves it at rest, holding the turned rest.
+ */
+void TurnFrame(Document& document, u32 model, u32 node, const Quaternion& turn, f32 scale, FrameCounts& counts);
+
 /// Every node in the subtrees of @p roots, once each, ascending.
 std::vector<u32> SubtreeNodes(const NodeTree& tree, std::span<const u32> roots);
 
@@ -102,6 +117,13 @@ struct PlaceResult {
  */
 PlaceResult PlaceNodes(Document& document, u32 model, std::span<const u32> roots, const Placement& placement);
 
+/// What a merge does with one of the donor's nodes.
+enum class MergeNodeAction : u8 {
+    Add,  ///< A node of ours of its own, under the group.
+    Into, ///< Dissolved into a node of ours: what named it names ours.
+    Skip, ///< Left out: its children and its skin go to its nearest kept parent.
+};
+
 struct MergeOptions {
     /// The helper every merged root hangs from, and the prefix of every name
     /// merged; made unique in the model.
@@ -110,6 +132,39 @@ struct MergeOptions {
     /// (`RescaleFactorBetween` of the donor's default profile).
     bool matchUnits = true;
     ProfileId profile = ProfileId::Wc3Reforged;
+
+    // The choices (EDIT_MODE_SCENE_MERGER_DESIGN.md §10.1), each per donor
+    // element by its index in the donor. An empty one keeps the behaviour above.
+
+    /// Per donor node.
+    std::vector<MergeNodeAction> nodes;
+    /// Per donor node: the node of ours an `Into` node becomes.
+    std::vector<u32> into;
+    /// Per donor node: the node of ours it hangs from instead, or `kInvalidNode`
+    /// to keep its own parent (the group, for a root).
+    std::vector<u32> parent;
+    /// Per donor node: keeps its own name, without the group's in front — an
+    /// attachment the game finds by name, an event whose name is its code.
+    std::vector<u8> keepName;
+    /// Per `Into` node: its channels land on our node's (a pair). Otherwise
+    /// they stay behind and our node keeps its own motion.
+    std::vector<u8> pair;
+    /// Per donor node: made a helper. Once given, a camera is made one only
+    /// where this says so; a kind no profile of ours carries always is.
+    std::vector<u8> asHelper;
+    /// Per donor mesh: brought.
+    std::vector<u8> meshes;
+    /// Per donor material slot: the slot of ours its sections draw with, or
+    /// `kInvalidIndex` to bring its own.
+    std::vector<u32> slots;
+    /// Per donor clip (document index): brought. Empty brings its global loops
+    /// and none of its animations.
+    std::vector<u8> clips;
+    /// Per donor clip: the name an animation takes in ours; empty keeps its
+    /// own. A loop is always named after the group.
+    std::vector<std::string> clipNames;
+    /// The node of ours the group's helper hangs from; `kInvalidNode` for a root.
+    u32 groupParent = kInvalidNode;
 };
 
 struct MergeResult {
@@ -121,7 +176,9 @@ struct MergeResult {
     u32 slots = 0;
     u32 textures = 0;
     u32 loops = 0;
-    /// The donor's animations, which a merge does not bring.
+    /// The donor's animations brought (`MergeOptions::clips`).
+    u32 clips = 0;
+    /// The donor's animations left behind.
     u32 clipsLeft = 0;
     /// Nodes of a kind no profile of the model carries, and cameras, made helpers.
     u32 nodesDemoted = 0;
@@ -129,6 +186,12 @@ struct MergeResult {
     u32 setsDerived = 0;
     /// What the merged model was restated at (`MergeOptions::matchUnits`).
     f32 unitScale = 1.0f;
+    /// Per donor node, mesh and clip (document index): where it landed in
+    /// ours, or `kInvalidNode` / `kInvalidIndex` for one not brought. An `Into`
+    /// node maps to the node of ours it became.
+    std::vector<u32> nodeOf;
+    std::vector<u32> meshOf;
+    std::vector<u32> clipOf;
     Diagnostics diagnostics;
 };
 
@@ -143,6 +206,12 @@ struct MergeResult {
  * node a profile of the model does not run, a camera, its physics and pose
  * stages stay out (a node as a helper). A mesh bound to nothing rides the
  * group's helper.
+ *
+ * @p options' choices say otherwise per element. Once any is given, an
+ * animation brought comes as a new clip of the model off the timeline, its
+ * events on the nodes they became; a slot, a material and a channel only what
+ * is left behind used stay behind; and an event's global loop, numbered by the
+ * donor, is dropped.
  *
  * Both models must be pivot rigs.
  */

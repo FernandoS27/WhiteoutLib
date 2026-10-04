@@ -3,6 +3,7 @@
 
 #include <whiteout/models/wem/scene_ops.h>
 
+#include <whiteout/models/wem/anim/detach.h>
 #include <whiteout/models/wem/anim/track_read.h>
 #include <whiteout/models/wem/materials/ops.h>
 #include <whiteout/models/wem/nodes/remove.h>
@@ -14,6 +15,7 @@
 #include <numeric>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -161,11 +163,6 @@ u32 FrameLoop(Document& document, u32 model) {
     return static_cast<u32>(document.clips.size() - 1);
 }
 
-struct FrameCounts {
-    u32 keysRewritten = 0;
-    u32 keysAdded = 0;
-};
-
 /// Whether @p track keys @p clip inside its own span: an `.mdx` import keeps
 /// the neighbouring windows' bracket keys beside a clip's own, outside it.
 bool KeysWithin(const Clip& clip, const SubTrack& track) {
@@ -196,13 +193,8 @@ void KeyAtStart(SubTrack& track, const std::vector<u8>& rest, bool derivative) {
     }
 }
 
-/**
- * Lays @p turn and @p scale onto @p node's own frame: each key of its rotation
- * becomes `turn * key`, each of its scale `scale * key`, and its rest value the
- * same. A channel a global loop keys is then right everywhere. One no clip keys
- * gets a one-key track on the frame loop; one only some animations key gets one
- * in each animation that leaves it at rest, holding the turned rest.
- */
+} // namespace
+
 void TurnFrame(Document& document, u32 model, u32 node, const Quaternion& turn, f32 scale, FrameCounts& counts) {
     for (const Channel what : {Channel::Rotation, Channel::Scale}) {
         const bool rotation = what == Channel::Rotation;
@@ -290,6 +282,8 @@ void TurnFrame(Document& document, u32 model, u32 node, const Quaternion& turn, 
         }
     }
 }
+
+namespace {
 
 void GrowBox(Extent& box, const Placement& placement) {
     if (!box.valid()) {
@@ -685,6 +679,57 @@ PlaceResult PlaceNodes(Document& document, u32 model, std::span<const u32> roots
     return result;
 }
 
+namespace {
+
+template <class T>
+T OptionAt(const std::vector<T>& values, u32 index, T fallback) {
+    return index < values.size() ? values[index] : fallback;
+}
+
+/// @p model's meshes less the ones @p keep refuses, every index that named one
+/// renumbered — a section channel's, a bone's gate. Per old mesh, its new
+/// index or `kInvalidIndex`.
+std::vector<u32> KeepMeshes(Model& model, const std::vector<u8>& keep) {
+    std::vector<u32> remap(model.meshes.size(), kInvalidIndex);
+    std::vector<Mesh> kept;
+    for (u32 m = 0; m < model.meshes.size(); ++m) {
+        if (m < keep.size() && keep[m] == 0) {
+            continue;
+        }
+        remap[m] = static_cast<u32>(kept.size());
+        kept.push_back(std::move(model.meshes[m]));
+    }
+    model.meshes = std::move(kept);
+    std::erase_if(model.animChannels.channels, [&](const AnimChannel& channel) {
+        return channel.target.kind == TrackTarget::Kind::Section && channel.target.mesh < remap.size() &&
+               remap[channel.target.mesh] == kInvalidIndex;
+    });
+    for (AnimChannel& channel : model.animChannels.channels) {
+        if (channel.target.kind == TrackTarget::Kind::Section && channel.target.mesh < remap.size()) {
+            channel.target.mesh = remap[channel.target.mesh];
+        }
+    }
+    for (Node& node : model.nodes.nodes) {
+        if (auto* bone = std::get_if<BonePayload>(&node.payload); bone != nullptr && bone->gateMesh < remap.size()) {
+            bone->gateMesh = remap[bone->gateMesh];
+        }
+    }
+    return remap;
+}
+
+/// The channel of @p table on @p target's node, sub and channel, or null.
+const AnimChannel* NodeChannel(const AnimChannelTable& table, const TrackTarget& target) {
+    for (const AnimChannel& channel : table.channels) {
+        if (channel.target.kind == TrackTarget::Kind::Node && channel.target.node == target.node &&
+            channel.target.sub == target.sub && channel.target.channel == target.channel) {
+            return &channel;
+        }
+    }
+    return nullptr;
+}
+
+} // namespace
+
 MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, const MergeOptions& options) {
     MergeResult result;
     if (model >= into.models.size() || from >= donor.models.size()) {
@@ -696,21 +741,34 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
         result.diagnostics.error(DiagCode::OperationUnsupported, "a merge joins two pivot rigs only");
         return result;
     }
+    // Any choice at all: what is left behind takes what only it used along.
+    const bool choosing = !options.nodes.empty() || !options.meshes.empty() || !options.slots.empty() ||
+                          !options.clips.empty() || !options.asHelper.empty();
+    result.nodeOf.assign(donor.models[from].nodes.size(), kInvalidNode);
+    result.meshOf.assign(donor.models[from].meshes.size(), kInvalidIndex);
+    result.clipOf.assign(donor.clips.size(), kInvalidIndex);
 
-    // 1. The one model, alone, with its global loops and nothing that named the rest.
+    // 1. The one model, alone, with the clips it brings and nothing that named the rest.
+    std::vector<u32> clipOrigin;
     {
         Model kept = std::move(donor.models[from]);
-        std::vector<Clip> loops;
-        for (Clip& clip : donor.clips) {
+        std::vector<Clip> brought;
+        for (u32 c = 0; c < donor.clips.size(); ++c) {
+            Clip& clip = donor.clips[c];
             if (clip.model != from) {
                 continue;
             }
-            if (!IsGlobalLoop(clip)) {
-                ++result.clipsLeft;
+            const bool loop = IsGlobalLoop(clip);
+            const bool bring = options.clips.empty() ? loop : OptionAt<u8>(options.clips, c, 0) != 0;
+            if (!bring) {
+                if (!loop) {
+                    ++result.clipsLeft;
+                }
                 continue;
             }
             clip.model = 0;
-            loops.push_back(std::move(clip));
+            brought.push_back(std::move(clip));
+            clipOrigin.push_back(c);
         }
         if (!kept.physics.empty() || !kept.poseStages.empty()) {
             result.diagnostics.info(DiagCode::FeatureDropped,
@@ -734,8 +792,65 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
         }
         donor.models.clear();
         donor.models.push_back(std::move(kept));
-        donor.clips = std::move(loops);
+        donor.clips = std::move(brought);
         donor.animSets.clear();
+    }
+
+    // 1b. The meshes it brings, then the nodes it leaves out: their children
+    // and their skin go to the nearest node kept, their events with them.
+    std::vector<u32> meshOrigin;
+    {
+        Model& kept = donor.models.front();
+        const std::vector<u32> meshes = KeepMeshes(kept, options.meshes);
+        for (u32 m = 0; m < meshes.size(); ++m) {
+            if (meshes[m] != kInvalidIndex) {
+                meshOrigin.push_back(m);
+            }
+        }
+    }
+    std::vector<u32> nodeOrigin(donor.models.front().nodes.size());
+    std::iota(nodeOrigin.begin(), nodeOrigin.end(), 0u);
+    {
+        Model& kept = donor.models.front();
+        NodeTree& tree = kept.nodes;
+        std::vector<u8> skipped(tree.size(), 0);
+        bool any = false;
+        for (u32 n = 0; n < tree.size(); ++n) {
+            if (OptionAt(options.nodes, n, MergeNodeAction::Add) == MergeNodeAction::Skip) {
+                skipped[n] = 1;
+                any = true;
+            }
+        }
+        if (any) {
+            // Their channels and events stay behind with them.
+            for (Clip& clip : donor.clips) {
+                std::erase_if(clip.events, [&](const ClipEvent& event) {
+                    return event.node < skipped.size() && skipped[event.node] != 0;
+                });
+            }
+            std::erase_if(kept.animChannels.channels, [&](const AnimChannel& channel) {
+                return channel.target.kind == TrackTarget::Kind::Node && channel.target.node < skipped.size() &&
+                       skipped[channel.target.node] != 0;
+            });
+            NodeReferencers referencers;
+            referencers.meshes = kept.meshes;
+            referencers.channels = &kept.animChannels;
+            referencers.clips = donor.clips;
+            for (u32 n = tree.size(); n-- > 0;) {
+                if (skipped[n] != 0) {
+                    RemoveNode(tree, n, RemovePolicy::ReparentChildren, SkinPolicy::ReassignToParent,
+                               /*preserveWorld=*/true, referencers);
+                }
+            }
+            const NodeRemaps remaps = CompactNodes(tree, referencers, result.diagnostics);
+            std::vector<u32> origin(remaps.newCount, kInvalidNode);
+            for (u32 n = 0; n < remaps.nodes.size(); ++n) {
+                if (remaps.nodes[n] < origin.size()) {
+                    origin[remaps.nodes[n]] = n;
+                }
+            }
+            nodeOrigin = std::move(origin);
+        }
     }
 
     // 2. Its units.
@@ -805,7 +920,8 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
     }
 
     // 4. What no profile of the model runs becomes a helper; so does a camera,
-    // the merged model's portrait camera and not this one's.
+    // the merged model's portrait camera and not this one's — unless the
+    // choices name which become helpers.
     std::vector<u8> demoted(donor.models.front().nodes.size(), 0);
     for (u32 n = 0; n < demoted.size(); ++n) {
         Node& node = donor.models.front().nodes.nodes[n];
@@ -813,7 +929,9 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
         for (const ProfileId profile : into.profiles) {
             carried = carried || CarriesNodeKind(profile, node.kind);
         }
-        if (carried && node.kind != NodeKind::Camera) {
+        const bool asked = OptionAt<u8>(options.asHelper, nodeOrigin[n], 0) != 0;
+        const bool cameraStays = !options.asHelper.empty() || node.kind != NodeKind::Camera;
+        if (carried && !asked && cameraStays) {
             continue;
         }
         node.kind = NodeKind::Helper;
@@ -845,58 +963,156 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
         Node helper;
         helper.name = group;
         helper.kind = NodeKind::Helper;
+        if (options.groupParent < host.nodes.size() && !host.nodes.nodes[options.groupParent].removed) {
+            helper.parent = options.groupParent;
+        }
         result.group = host.nodes.add(std::move(helper));
     }
     const u32 base = host.nodes.size();
     const u32 meshBase = static_cast<u32>(host.meshes.size());
 
-    std::vector<u32> slots;
-    for (const std::string& slot : source.materialSlots) {
-        std::string name = group + "|" + slot;
-        while (host.slotIndex(name) != kInvalidIndex) {
-            name += "'";
+    // Where each node goes: a node of its own, or the one of ours it becomes.
+    NodeTree nodes = source.nodes;
+    const u32 count = nodes.size();
+    std::vector<u32> remap(count, kInvalidNode);
+    std::vector<u8> becomes(count, 0);
+    {
+        u32 next = base;
+        for (u32 i = 0; i < count; ++i) {
+            const u32 origin = nodeOrigin[i];
+            const u32 target = OptionAt(options.into, origin, kInvalidNode);
+            if (OptionAt(options.nodes, origin, MergeNodeAction::Add) == MergeNodeAction::Into) {
+                if (target < result.group && !host.nodes.nodes[target].removed) {
+                    remap[i] = target;
+                    becomes[i] = 1;
+                    continue;
+                }
+                result.diagnostics.warn(DiagCode::OperationUnsupported,
+                                        "'" + nodes.nodes[i].name + "' had no node of ours to become; it is added",
+                                        ElementRef(ElementKind::Node, origin));
+            }
+            remap[i] = next++;
         }
-        slots.push_back(host.addSlot(name));
     }
-    result.slots = static_cast<u32>(slots.size());
+
+    std::vector<u32> slots(source.materialSlots.size(), kInvalidIndex);
+    std::vector<u8> slotBrought(source.materialSlots.size(), 0);
+    {
+        std::vector<u8> used(source.materialSlots.size(), choosing ? 0 : 1);
+        if (choosing) {
+            for (const Mesh& mesh : source.meshes) {
+                for (const MeshSection& section : mesh.sections) {
+                    if (section.materialSlot < used.size()) {
+                        used[section.materialSlot] = 1;
+                    }
+                }
+            }
+            for (u32 i = 0; i < count; ++i) {
+                if (becomes[i] != 0) {
+                    continue;
+                }
+                NodePayload payload = nodes.nodes[i].payload;
+                ForEachMaterialLink(payload, [&](u32& slot) {
+                    if (slot < used.size()) {
+                        used[slot] = 1;
+                    }
+                });
+            }
+        }
+        for (u32 s = 0; s < source.materialSlots.size(); ++s) {
+            const u32 ourSlot = choosing ? OptionAt(options.slots, s, kInvalidIndex) : kInvalidIndex;
+            if (ourSlot < host.materialSlots.size()) {
+                slots[s] = ourSlot;
+                continue;
+            }
+            if (used[s] == 0) {
+                continue;
+            }
+            std::string name = group + "|" + source.materialSlots[s];
+            while (host.slotIndex(name) != kInvalidIndex) {
+                name += "'";
+            }
+            slots[s] = host.addSlot(name);
+            slotBrought[s] = 1;
+            ++result.slots;
+        }
+    }
     const auto slotOf = [&](u32 slot) { return slot < slots.size() ? slots[slot] : slot; };
     for (ProfileMaterialSet& set : host.profileSets) {
         set.resizeBindings(host.materialSlots.size());
         const ProfileMaterialSet* own = source.setFor(set.profile);
         if (own == nullptr) {
-            if (!slots.empty()) {
+            if (result.slots != 0) {
                 result.diagnostics.warn(DiagCode::OperationUnsupported,
                                         std::string("the merged model has no ") + ToString(set.profile) +
                                             " materials; its slots are unbound there");
             }
             continue;
         }
-        const u32 materialBase = static_cast<u32>(set.materials.size());
-        set.materials.insert(set.materials.end(), own->materials.begin(), own->materials.end());
+        if (!choosing) {
+            const u32 materialBase = static_cast<u32>(set.materials.size());
+            set.materials.insert(set.materials.end(), own->materials.begin(), own->materials.end());
+            for (u32 s = 0; s < slots.size() && s < own->slotBindings.size(); ++s) {
+                if (!own->slotBindings[s].bound(own->defaultLook)) {
+                    continue;
+                }
+                for (u32& material : set.slotBindings[slots[s]].byLook) {
+                    material = materialBase + own->slotBindings[s].byLook[own->defaultLook];
+                }
+            }
+            continue;
+        }
+        // Only the materials a slot brought draws with.
+        std::vector<u32> materialOf(own->materials.size(), kInvalidIndex);
         for (u32 s = 0; s < slots.size() && s < own->slotBindings.size(); ++s) {
-            if (!own->slotBindings[s].bound(own->defaultLook)) {
+            if (slotBrought[s] == 0 || !own->slotBindings[s].bound(own->defaultLook)) {
                 continue;
             }
-            for (u32& material : set.slotBindings[slots[s]].byLook) {
-                material = materialBase + own->slotBindings[s].byLook[own->defaultLook];
+            const u32 material = own->slotBindings[s].byLook[own->defaultLook];
+            if (material >= materialOf.size()) {
+                continue;
+            }
+            if (materialOf[material] == kInvalidIndex) {
+                materialOf[material] = static_cast<u32>(set.materials.size());
+                set.materials.push_back(own->materials[material]);
+            }
+            for (u32& bound : set.slotBindings[slots[s]].byLook) {
+                bound = materialOf[material];
             }
         }
     }
 
-    NodeTree nodes = source.nodes;
     std::vector<Mesh> meshes = source.meshes;
     AnimChannelTable channels = source.animChannels;
-    std::vector<u32> remap(nodes.size());
-    std::iota(remap.begin(), remap.end(), base);
+    // A node that becomes ours brings its channels only as a pair.
+    std::erase_if(channels.channels, [&](const AnimChannel& channel) {
+        const TrackTarget& target = channel.target;
+        return target.kind == TrackTarget::Kind::Node && target.node < count && becomes[target.node] != 0 &&
+               OptionAt<u8>(options.pair, nodeOrigin[target.node], 0) == 0;
+    });
+    const u32 clipCount = static_cast<u32>(into.clips.size()) - clipBase;
     NodeReferencers referencers;
     referencers.meshes = meshes;
     referencers.channels = &channels;
+    referencers.clips = std::span<Clip>(into.clips.data() + clipBase, clipCount);
     RemapNodeReferencers(nodes, remap, referencers, result.diagnostics);
-    for (u32 i = 0; i < nodes.size(); ++i) {
+    u32 eventLoops = 0;
+    for (u32 i = 0; i < count; ++i) {
+        result.nodeOf[nodeOrigin[i]] = remap[i];
+        if (becomes[i] != 0) {
+            continue;
+        }
+        const u32 origin = nodeOrigin[i];
         Node node = std::move(nodes.nodes[i]);
-        const bool root = node.parent >= nodes.size() || node.parent == i;
-        node.parent = root ? result.group : base + node.parent;
-        node.name = Behind(group, node.name);
+        const bool root = node.parent >= count || node.parent == i;
+        node.parent = root ? result.group : remap[node.parent];
+        const u32 hangFrom = OptionAt(options.parent, origin, kInvalidNode);
+        if (hangFrom < result.group && !host.nodes.nodes[hangFrom].removed) {
+            node.parent = hangFrom;
+        }
+        if (OptionAt<u8>(options.keepName, origin, 0) == 0) {
+            node.name = Behind(group, node.name);
+        }
         if (auto* attached = std::get_if<AttachmentPayload>(&node.payload)) {
             // Its id would break the climb `toMdx` gives ours.
             attached->model = kInvalidIndex;
@@ -906,13 +1122,24 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
             if (bone->gateMesh != kInvalidIndex) {
                 bone->gateMesh += meshBase;
             }
+        } else if (auto* event = std::get_if<EventPayload>(&node.payload); event != nullptr && choosing) {
+            // The donor numbered its loops, and ours number them afresh.
+            if (event->id != 0xFFFFFFFFu) {
+                event->id = 0xFFFFFFFFu;
+                ++eventLoops;
+            }
         }
         ForEachMaterialLink(node.payload, [&](u32& slot) { slot = slotOf(slot); });
         host.nodes.add(std::move(node));
+        ++result.nodes;
     }
-    result.nodes = static_cast<u32>(nodes.size());
+    if (eventLoops != 0) {
+        result.diagnostics.info(DiagCode::FeatureDropped,
+                                std::to_string(eventLoops) + " events fire in the animations, not on the merged loops");
+    }
 
-    for (Mesh& mesh : meshes) {
+    for (u32 m = 0; m < meshes.size(); ++m) {
+        Mesh& mesh = meshes[m];
         mesh.name = Behind(group, mesh.name);
         const std::vector<u32> owners = VertexOwners(mesh);
         const bool bound = std::any_of(owners.begin(), owners.end(), [](u32 n) { return n != kInvalidNode; });
@@ -931,13 +1158,30 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
             GrowExtent(host.bounds, mesh.bounds.minimum);
             GrowExtent(host.bounds, mesh.bounds.maximum);
         }
+        if (m < meshOrigin.size()) {
+            result.meshOf[meshOrigin[m]] = static_cast<u32>(host.meshes.size());
+        }
         host.meshes.push_back(std::move(mesh));
     }
     FinishExtent(host.bounds);
     result.meshes = static_cast<u32>(meshes.size());
 
+    // A channel nothing brought keys, and which holds no value of its own,
+    // stays behind with what keyed it.
+    std::unordered_set<u32> keyed;
+    if (choosing) {
+        for (u32 c = clipBase; c < clipBase + clipCount; ++c) {
+            for (const SubTrackContainer& container : into.clips[c].containers) {
+                for (const SubTrack& track : container.subTracks) {
+                    if (!track.times.empty()) {
+                        keyed.insert(track.channel);
+                    }
+                }
+            }
+        }
+    }
     std::unordered_map<u32, u32> ids;
-    u32 next = host.animChannels.nextFreeId();
+    u32 nextId = host.animChannels.nextFreeId();
     for (AnimChannel channel : channels.channels) {
         TrackTarget& target = channel.target;
         if (target.kind == TrackTarget::Kind::Physics) {
@@ -946,29 +1190,54 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
         if (target.kind == TrackTarget::Kind::Node && target.node >= host.nodes.size()) {
             continue;
         }
+        if (choosing && !channel.hasInitValue() && keyed.find(channel.id) == keyed.end()) {
+            continue;
+        }
         if (target.kind == TrackTarget::Kind::Section) {
             target.mesh += meshBase;
         } else if (IsMaterialTarget(target.kind)) {
-            target.material.slot = slotOf(target.material.slot);
+            const u32 slot = target.material.slot;
+            if (choosing && (slot >= slotBrought.size() || slotBrought[slot] == 0)) {
+                continue;
+            }
+            target.material.slot = slotOf(slot);
             target.material.look = 0;
         }
-        ids[channel.id] = next;
-        channel.id = next++;
+        // A pair's channel lands on our node's own, where it has one.
+        if (target.kind == TrackTarget::Kind::Node && target.node < result.group) {
+            if (const AnimChannel* own = NodeChannel(host.animChannels, target)) {
+                ids[channel.id] = own->id;
+                continue;
+            }
+        }
+        ids[channel.id] = nextId;
+        channel.id = nextId++;
         host.animChannels.add(channel);
     }
 
-    const u32 donorClips = static_cast<u32>(into.clips.size()) - clipBase;
-    for (u32 c = clipBase; c < clipBase + donorClips; ++c) {
-        Clip loop = into.clips[c];
-        loop.model = model;
-        loop.name = Behind(group, loop.name);
-        // The loop's number is ours to hand out: the merged one may be taken.
-        std::erase_if(loop.native.entries,
-                      [](const NativeBag::Entry& entry) { return entry.name == "globalSequenceId"; });
-        loop.events.clear();
-        loop.trackSets.clear();
-        loop.physics.reset();
-        for (SubTrackContainer& container : loop.containers) {
+    for (u32 c = clipBase; c < clipBase + clipCount; ++c) {
+        Clip clip = into.clips[c];
+        const u32 origin = clipOrigin[c - clipBase];
+        const bool loop = IsGlobalLoop(clip);
+        clip.model = model;
+        clip.trackSets.clear();
+        clip.physics.reset();
+        if (loop) {
+            clip.name = Behind(group, clip.name);
+            // The loop's number is ours to hand out: the merged one may be taken.
+            std::erase_if(clip.native.entries,
+                          [](const NativeBag::Entry& entry) { return entry.name == "globalSequenceId"; });
+            clip.events.clear();
+        } else {
+            const std::string named = OptionAt(options.clipNames, origin, std::string());
+            if (!named.empty()) {
+                clip.name = named;
+            }
+            std::erase_if(clip.events, [&](const ClipEvent& event) {
+                return event.node != kInvalidNode && event.node >= host.nodes.size();
+            });
+        }
+        for (SubTrackContainer& container : clip.containers) {
             std::vector<SubTrack> kept;
             for (SubTrack& track : container.subTracks) {
                 const auto it = ids.find(track.channel);
@@ -980,12 +1249,19 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
             }
             container.subTracks = std::move(kept);
         }
-        into.clips.push_back(std::move(loop));
-        ++result.loops;
+        if (!loop) {
+            // Off the donor's timeline: the export lays it after ours.
+            DetachClip(host.animChannels, clip);
+            ++result.clips;
+        } else {
+            ++result.loops;
+        }
+        result.clipOf[origin] = static_cast<u32>(into.clips.size()) - clipCount;
+        into.clips.push_back(std::move(clip));
     }
 
     // 7. The model it came in as, and its own clips, go again.
-    into.clips.erase(into.clips.begin() + clipBase, into.clips.begin() + clipBase + donorClips);
+    into.clips.erase(into.clips.begin() + clipBase, into.clips.begin() + clipBase + clipCount);
     into.models.erase(into.models.begin() + appended);
 
     // 8. The textures only a set it left behind named.
