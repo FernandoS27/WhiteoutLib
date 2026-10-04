@@ -479,11 +479,11 @@ ModelPlan PlanHingeBorder(Mesh& mesh, const PointTable& points, const ElementSet
 // Chamfer (§3.9)
 // ============================================================================
 
-/// Chamfer's parameters (§3.9). The first phase cuts one segment with a flat
-/// profile, so the other two are refused until they are built.
+/// Chamfer's parameters (§3.9). `open` is refused until it is built.
 struct ChamferParams {
-    u32 segments = 1; ///< Past 1: `NotBuiltYet`.
-    bool open = false; ///< True: `NotBuiltYet`.
+    u32 segments = 1;   ///< Strips across each edge, 1 to 64; past 1 they follow `profile`.
+    f32 profile = 0.5f; ///< The strips' curve, the square of its middle's height: 0.25 flat, 0.5 round, toward 1 square.
+    bool open = false;  ///< True: `NotBuiltYet`.
 };
 
 /**
@@ -508,6 +508,12 @@ struct ChamferParams {
  * Edge and miter points carry `Resample`s, since their distance moves with the
  * amount; a strip's corners come from its own side faces, and across a `seam`
  * from one of them, so the seam stays crisp on the strip's far edge.
+ *
+ * Past one segment each strip end is a chain across `profile`, a superellipse
+ * in the parallelogram its two points span with the old vertex. Strips that
+ * end on the same two points share the chain; a face that held both points
+ * takes it into its border, and a patch becomes a fan of triangles round the
+ * mean of its ring and chains.
  *
  * A selected border edge is refused (`BorderEdgeChamfer`) while `open` is not
  * built: the rules assume a face on each side.

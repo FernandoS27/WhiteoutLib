@@ -244,6 +244,129 @@ Mesh MakeSphere(const PrimitiveParams& params) {
     return finish(build, /*sharp=*/false);
 }
 
+Mesh MakeLathe(const LatheParams& params) {
+    // The profile without its repeated points, its radii off the negative side.
+    std::vector<Vector2f> profile;
+    f32 reach = 1.0f;
+    for (const Vector2f& p : params.profile) {
+        const Vector2f at{std::max(0.0f, p.x), p.y};
+        reach = std::max({reach, std::abs(at.x), std::abs(at.y)});
+        if (profile.empty() || std::abs(at.x - profile.back().x) + std::abs(at.y - profile.back().y) > 1e-6f) {
+            profile.push_back(at);
+        }
+    }
+    const f32 onAxis = 1e-5f * reach;
+    const bool loop = profile.size() >= 4 &&
+                      std::abs(profile.front().x - profile.back().x) + std::abs(profile.front().y - profile.back().y) <=
+                          1e-5f * reach;
+    if (loop) {
+        profile.pop_back(); // the last ring is the first
+    }
+    if (profile.size() < 2) {
+        return Mesh{};
+    }
+    for (std::size_t i = 0; i < profile.size(); ++i) {
+        const bool end = !loop && (i == 0 || i + 1 == profile.size());
+        if (!end && profile[i].x <= onAxis) {
+            return Mesh{}; // a pinch on the axis is no surface
+        }
+    }
+    const bool full = params.angle >= kTau - 1e-4f;
+    const f32 sweep = full ? kTau : params.angle;
+    if (sweep <= 1e-4f) {
+        return Mesh{};
+    }
+    const u32 sides = std::max(3u, params.sides);
+    const u32 columns = full ? sides : sides + 1;
+    const std::size_t spans = loop ? profile.size() : profile.size() - 1;
+    // Which way it runs: the sign of the volume it sweeps.
+    f32 volume = 0.0f;
+    for (std::size_t i = 0; i < spans; ++i) {
+        const Vector2f& a = profile[i];
+        const Vector2f& b = profile[(i + 1) % profile.size()];
+        volume += (a.x * a.x + a.x * b.x + b.x * b.x) * (b.y - a.y);
+    }
+    Build build;
+    std::vector<std::vector<u32>> rings;
+    for (const Vector2f& p : profile) {
+        std::vector<u32> ring;
+        if (p.x <= onAxis) {
+            ring.assign(columns, build.place({0.0f, 0.0f, p.y}));
+        } else {
+            for (u32 c = 0; c < columns; ++c) {
+                const f32 angle = sweep * static_cast<f32>(c) / static_cast<f32>(sides);
+                ring.push_back(build.place({std::cos(angle) * p.x, std::sin(angle) * p.x, p.y}));
+            }
+        }
+        rings.push_back(std::move(ring));
+    }
+    // V runs along the profile by length, U round the sweep.
+    std::vector<f32> v(spans + 1, 0.0f);
+    for (std::size_t i = 0; i < spans; ++i) {
+        const Vector2f d = profile[(i + 1) % profile.size()] - profile[i];
+        v[i + 1] = v[i] + std::sqrt(d.x * d.x + d.y * d.y);
+    }
+    for (f32& t : v) {
+        t = v.back() > 0.0f ? t / v.back() : 0.0f;
+    }
+    const auto u = [&](u32 c) { return static_cast<f32>(c) / static_cast<f32>(sides); };
+    for (std::size_t j = 0; j < spans; ++j) {
+        const std::vector<u32>& here = rings[j];
+        const std::vector<u32>& there = rings[(j + 1) % rings.size()];
+        for (u32 c = 0; c < sides; ++c) {
+            const u32 next = (c + 1) % columns;
+            const f32 mid = (u(c) + u(c + 1)) * 0.5f;
+            if (here[c] == here[next] && there[c] == there[next]) {
+                continue; // both on the axis: a line, not a face
+            }
+            if (here[c] == here[next]) {
+                build.face({here[c], there[next], there[c]}, {{mid, v[j]}, {u(c + 1), v[j + 1]}, {u(c), v[j + 1]}});
+            } else if (there[c] == there[next]) {
+                build.face({here[c], here[next], there[c]}, {{u(c), v[j]}, {u(c + 1), v[j]}, {mid, v[j + 1]}});
+            } else {
+                build.face({here[c], here[next], there[next], there[c]},
+                           {{u(c), v[j]}, {u(c + 1), v[j]}, {u(c + 1), v[j + 1]}, {u(c), v[j + 1]}});
+            }
+        }
+    }
+    if (full && params.caps && !loop) {
+        // Against the strip at each end, as a cylinder's are.
+        const auto disc = [&](u32 c) {
+            const f32 angle = kTau * static_cast<f32>(c) / static_cast<f32>(sides);
+            return Vector2f{0.5f + 0.5f * std::cos(angle), 0.5f + 0.5f * std::sin(angle)};
+        };
+        if (profile.front().x > onAxis) {
+            std::vector<u32> lower;
+            std::vector<Vector2f> lowerUv;
+            for (u32 i = 0; i < sides; ++i) {
+                lower.push_back(rings.front()[sides - 1 - i]);
+                lowerUv.push_back(disc(sides - 1 - i));
+            }
+            build.face(lower, lowerUv);
+        }
+        if (profile.back().x > onAxis) {
+            std::vector<u32> upper;
+            std::vector<Vector2f> upperUv;
+            for (u32 i = 0; i < sides; ++i) {
+                upper.push_back(rings.back()[i]);
+                upperUv.push_back(disc(i));
+            }
+            build.face(upper, upperUv);
+        }
+    }
+    if (build.faces.empty()) {
+        return Mesh{};
+    }
+    if (volume < 0.0f) {
+        // Run downward: every face turned, so the outside is out.
+        for (std::size_t f = 0; f < build.faces.size(); ++f) {
+            std::reverse(build.faces[f].begin(), build.faces[f].end());
+            std::reverse(build.uvs[f].begin(), build.uvs[f].end());
+        }
+    }
+    return finish(build, /*sharp=*/false);
+}
+
 } // namespace geom
 } // namespace wem
 } // namespace models

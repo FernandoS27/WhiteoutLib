@@ -449,6 +449,7 @@ add_library(whiteout_lib
     src/whiteout/models/wem/geometry/hull.cpp
     src/whiteout/models/wem/geometry/fit.cpp
     src/whiteout/models/wem/geometry/primitives.cpp
+    src/whiteout/models/wem/geometry/refine.cpp
     src/whiteout/models/wem/geometry/uv/islands.cpp
     src/whiteout/models/wem/geometry/uv/seams.cpp
     src/whiteout/models/wem/geometry/uv/flatten.cpp

@@ -4566,6 +4566,41 @@ std::vector<HalfedgeId> fanOf(const Topology& topology, VertexId vertex, bool& b
     return out;
 }
 
+/// A strip end's interior points, per unit of amount, from @p from to @p to:
+/// the superellipse whose middle's height squared is @p profile, inside the
+/// parallelogram the two directions span with the old vertex at its corner,
+/// spaced evenly along the curve.
+std::vector<Vector3f> profileOf(const Vector3f& from, const Vector3f& to, u32 segments, f32 profile) {
+    // x = cos^k, y = sin^k: k = 1 a quarter circle, 2 the straight line.
+    const f32 power = -std::log2(std::clamp(profile, 0.05f, 0.95f));
+    const auto point = [&](f32 theta) {
+        const f32 x = std::pow(std::max(0.0f, std::cos(theta)), power);
+        const f32 y = std::pow(std::max(0.0f, std::sin(theta)), power);
+        return from * (1.0f - y) + to * (1.0f - x);
+    };
+    const u32 samples = 32 * segments;
+    std::vector<Vector3f> curve(samples + 1);
+    std::vector<f32> length(samples + 1, 0.0f);
+    for (u32 s = 0; s <= samples; ++s) {
+        curve[s] = point(1.5707963f * static_cast<f32>(s) / static_cast<f32>(samples));
+        if (s > 0) {
+            length[s] = length[s - 1] + (curve[s] - curve[s - 1]).length();
+        }
+    }
+    std::vector<Vector3f> out;
+    u32 s = 1;
+    for (u32 k = 1; k < segments; ++k) {
+        const f32 wanted = length[samples] * static_cast<f32>(k) / static_cast<f32>(segments);
+        while (s < samples && length[s] < wanted) {
+            ++s;
+        }
+        const f32 span = length[s] - length[s - 1];
+        const f32 t = span > 0.0f ? std::clamp((wanted - length[s - 1]) / span, 0.0f, 1.0f) : 0.0f;
+        out.push_back(curve[s - 1] + (curve[s] - curve[s - 1]) * t);
+    }
+    return out;
+}
+
 /// One point the chamfer places: where it starts, how fast it leaves, and the
 /// vertex it became.
 struct Placed {
@@ -4580,10 +4615,11 @@ ModelPlan PlanChamferEdges(Mesh& mesh, const PointTable& points, const ElementSe
                            const ChamferParams& params) {
     ModelPlan plan;
     (void)points;
-    if (params.segments != 1 || params.open) {
-        plan.refusal = ModelRefusal::NotBuiltYet; // one flat segment, for now
+    if (params.open) {
+        plan.refusal = ModelRefusal::NotBuiltYet;
         return plan;
     }
+    const u32 segments = std::clamp(params.segments, 1u, 64u);
     if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
         plan.refusal = ModelRefusal::NotBuiltYet;
         return plan;
@@ -4619,6 +4655,20 @@ ModelPlan PlanChamferEdges(Mesh& mesh, const PointTable& points, const ElementSe
     std::unordered_map<u64, u32> pointOfEdge; // vertex << 32 | edge
     std::unordered_map<u64, u32> pointInFace; // vertex << 32 | face (miter or face point)
     std::unordered_map<u32, std::vector<u32>> ringOfVertex;
+    // Past one segment: the profile's interior points between two points of
+    // one ring, keyed low << 32 | high and stored from low to high.
+    std::unordered_map<u64, std::vector<u32>> chainOf;
+    const auto chainBetween = [&](u32 from, u32 to) {
+        std::vector<u32> out;
+        const auto found = chainOf.find((static_cast<u64>(std::min(from, to)) << 32) | std::max(from, to));
+        if (found != chainOf.end()) {
+            out = found->second;
+            if (from > to) {
+                std::reverse(out.begin(), out.end());
+            }
+        }
+        return out;
+    };
     std::vector<u8> touched(topology.vertexCount(), 0);
     for (u32 e = 0; e < topology.edgeCount(); ++e) {
         if (chosen[e] == 0) {
@@ -4733,6 +4783,42 @@ ModelPlan PlanChamferEdges(Mesh& mesh, const PointTable& points, const ElementSe
                     place(v, first ? fromFirst : fromSecond);
             }
         }
+        // Each selected edge's strip end, past one segment: a chain from what
+        // the face before it put to what the face after it did.
+        for (std::size_t i = 0; segments > 1 && i < n; ++i) {
+            if (chosen[edgeAt(i)] == 0) {
+                continue;
+            }
+            const auto beside = [&](std::size_t face, std::size_t otherEdge) {
+                const u64 key = static_cast<u64>(v) << 32;
+                if (const FaceId f = faceAt(face); f.valid()) {
+                    if (const auto inner = pointInFace.find(key | f.value()); inner != pointInFace.end()) {
+                        return inner->second;
+                    }
+                }
+                const auto edgePoint = pointOfEdge.find(key | edgeAt(otherEdge));
+                return edgePoint == pointOfEdge.end() ? kInvalidId : edgePoint->second;
+            };
+            const u32 before = beside((i + n - 1) % n, (i + n - 1) % n);
+            const u32 after = beside(i, (i + 1) % n);
+            if (before == kInvalidId || after == kInvalidId || before == after) {
+                continue; // the strip below refuses
+            }
+            const u32 low = std::min(before, after);
+            const u32 high = std::max(before, after);
+            const u64 pair = (static_cast<u64>(low) << 32) | high;
+            if (chainOf.count(pair) != 0) {
+                continue; // a strip meeting this one put it
+            }
+            const std::vector<Vector3f> profile = profileOf(placed[low - firstPlaced].direction,
+                                                            placed[high - firstPlaced].direction, segments,
+                                                            params.profile);
+            std::vector<u32> chain;
+            for (const Vector3f& direction : profile) {
+                chain.push_back(place(v, direction));
+            }
+            chainOf[pair] = std::move(chain);
+        }
         // The ring: the points round v in fan order, each edge's then the face
         // after it.
         std::vector<u32> ring;
@@ -4782,25 +4868,37 @@ ModelPlan PlanChamferEdges(Mesh& mesh, const PointTable& points, const ElementSe
             const auto fromArriving = pointOfEdge.find(key | arriving);
             const auto fromLeaving = pointOfEdge.find(key | leaving);
             const bool both = chosen[leaving] != 0 && chosen[arriving] != 0;
+            u32 held[3];
+            u32 heldCount = 0;
+            if (both) {
+                if (inner != pointInFace.end()) {
+                    held[heldCount++] = inner->second;
+                }
+            } else {
+                if (fromArriving != pointOfEdge.end()) {
+                    held[heldCount++] = fromArriving->second;
+                }
+                if (inner != pointInFace.end()) {
+                    held[heldCount++] = inner->second;
+                }
+                if (fromLeaving != pointOfEdge.end()) {
+                    held[heldCount++] = fromLeaving->second;
+                }
+            }
             const auto take = [&](u32 id) {
                 cornerVertex.push_back(id);
                 cornerSource.push_back(source);
                 ++valence;
             };
-            if (both) {
-                if (inner != pointInFace.end()) {
-                    take(inner->second);
+            for (u32 j = 0; j < heldCount; ++j) {
+                take(held[j]);
+                // Two of a strip end's points in one face: the end's chain is
+                // this face's border between them.
+                if (j + 1 < heldCount) {
+                    for (const u32 id : chainBetween(held[j], held[j + 1])) {
+                        take(id);
+                    }
                 }
-                continue;
-            }
-            if (fromArriving != pointOfEdge.end()) {
-                take(fromArriving->second);
-            }
-            if (inner != pointInFace.end()) {
-                take(inner->second);
-            }
-            if (fromLeaving != pointOfEdge.end()) {
-                take(fromLeaving->second);
             }
         }
         if (valence < 3) {
@@ -4820,10 +4918,9 @@ ModelPlan PlanChamferEdges(Mesh& mesh, const PointTable& points, const ElementSe
     const std::span<const u8> seams = mesh.attributes.get<const u8>(names::kSeam, Domain::Edge);
     std::vector<u32> strips;
     struct SeamStrip {
-        u32 strip;  ///< The strip's slot.
-        u32 source; ///< The face all four of its corners read.
-        u32 first;  ///< Its two corners on the far side of the seam.
-        u32 second;
+        u32 strip;              ///< The strip's slot.
+        u32 source;             ///< The face all four of its corners read.
+        std::vector<u32> moved; ///< Its corners off the seam's near side.
     };
     std::vector<SeamStrip> seamStrips;
     for (u32 e = 0; e < topology.edgeCount(); ++e) {
@@ -4853,31 +4950,61 @@ ModelPlan PlanChamferEdges(Mesh& mesh, const PointTable& points, const ElementSe
         };
         const u32 loop[4] = {put(w, leftFace, left), put(v, leftFace, left), put(v, rightFace, right),
                              put(w, rightFace, right)};
-        // A seam's strip samples one face on both sides, so the seam ends up on
-        // its far long edge and stays crisp (§3.9). Its far corners are not in
-        // that face's fan, so they are re-sampled from it by hand below.
-        const bool seam = e < seams.size() && seams[e] != 0;
-        const HalfedgeId sources[4] = {topology.next(left), left, seam ? left : right,
-                                       seam ? topology.next(left) : topology.next(right)};
-        if (seam) {
-            seamStrips.push_back({static_cast<u32>(faceValence.size()), std::min(leftFace, rightFace),
-                                  loop[2], loop[3]});
-        }
         for (u32 i = 0; i < 4; ++i) {
             if (loop[i] == kInvalidId) {
                 plan.refusal = ModelRefusal::WouldFold; // a side put no point there
                 return plan;
             }
         }
-        faceValence.push_back(4);
-        for (u32 i = 0; i < 4; ++i) {
-            cornerVertex.push_back(loop[i]);
-            const auto ordinal = ordinalOf.find(static_cast<u32>(sources[i].index()));
-            cornerSource.push_back(ordinal == ordinalOf.end() ? kInvalidId : ordinal->second);
+        // Each end from the left side to the right, through its chain past one
+        // segment; the strip is cut across into one quad per segment.
+        std::vector<u32> atW{loop[0]};
+        std::vector<u32> atV{loop[1]};
+        for (const u32 id : chainBetween(loop[0], loop[3])) {
+            atW.push_back(id);
         }
-        faceSource.push_back(std::min(leftFace, rightFace));
-        strips.push_back(static_cast<u32>(faceValence.size() - 1));
-        plan.changedFaces.push_back(strips.back());
+        for (const u32 id : chainBetween(loop[1], loop[2])) {
+            atV.push_back(id);
+        }
+        atW.push_back(loop[3]);
+        atV.push_back(loop[2]);
+        if (atW.size() != segments + 1 || atV.size() != segments + 1) {
+            plan.refusal = ModelRefusal::WouldFold; // an end put no chain
+            return plan;
+        }
+        // A seam's strip samples one face on both sides, so the seam ends up on
+        // its far long edge and stays crisp (§3.9). Its other corners are not in
+        // that face's fan, so they are re-sampled from it by hand below.
+        const bool seam = e < seams.size() && seams[e] != 0;
+        const auto sourceAt = [&](u32 j, bool atEndW) {
+            const bool leftSide = seam || j * 2 <= segments;
+            const HalfedgeId h = leftSide ? (atEndW ? topology.next(left) : left)
+                                          : (atEndW ? topology.next(right) : right);
+            const auto ordinal = ordinalOf.find(static_cast<u32>(h.index()));
+            return ordinal == ordinalOf.end() ? kInvalidId : ordinal->second;
+        };
+        for (u32 k = 0; k < segments; ++k) {
+            if (seam) {
+                SeamStrip strip{static_cast<u32>(faceValence.size()), std::min(leftFace, rightFace),
+                                {atV[k + 1], atW[k + 1]}};
+                if (k > 0) {
+                    strip.moved.push_back(atV[k]);
+                    strip.moved.push_back(atW[k]);
+                }
+                seamStrips.push_back(std::move(strip));
+            }
+            faceValence.push_back(4);
+            const u32 quad[4] = {atW[k], atV[k], atV[k + 1], atW[k + 1]};
+            const u32 sources[4] = {sourceAt(k, true), sourceAt(k, false), sourceAt(k + 1, false),
+                                    sourceAt(k + 1, true)};
+            for (u32 i = 0; i < 4; ++i) {
+                cornerVertex.push_back(quad[i]);
+                cornerSource.push_back(sources[i]);
+            }
+            faceSource.push_back(std::min(leftFace, rightFace));
+            strips.push_back(static_cast<u32>(faceValence.size() - 1));
+            plan.changedFaces.push_back(strips.back());
+        }
     }
     // One patch per ring of three or more, wound with the faces around it.
     std::vector<u32> ringed;
@@ -4900,15 +5027,22 @@ ModelPlan PlanChamferEdges(Mesh& mesh, const PointTable& points, const ElementSe
                 lowest = std::min(lowest, face.value());
             }
         }
-        // The ring's own places, at the amount the plan is sampled at: at 0
+        // The ring with each strip end's chain between its two points.
+        std::vector<u32> loop;
+        for (std::size_t i = 0; i < ring.size(); ++i) {
+            loop.push_back(ring[i]);
+            for (const u32 id : chainBetween(ring[i], ring[(i + 1) % ring.size()])) {
+                loop.push_back(id);
+            }
+        }
+        // The loop's own places, at the amount the plan is sampled at: at 0
         // they all sit on the vertex and say nothing about which way round it
         // goes.
         std::vector<Vector3f> shape;
-        for (const u32 id : ring) {
+        for (const u32 id : loop) {
             const Placed& point = placed[id - firstPlaced];
             shape.push_back(at(point.from) + point.direction);
         }
-        std::vector<u32> loop(ring.begin(), ring.end());
         {
             Vector3f normal{0.0f, 0.0f, 0.0f};
             for (std::size_t i = 0; i < shape.size(); ++i) {
@@ -4918,24 +5052,40 @@ ModelPlan PlanChamferEdges(Mesh& mesh, const PointTable& points, const ElementSe
                 std::reverse(loop.begin(), loop.end());
             }
         }
-        faceValence.push_back(static_cast<u32>(loop.size()));
-        for (const u32 id : loop) {
-            cornerVertex.push_back(id);
-            // The patch samples the lowest-numbered face around the vertex,
-            // extrapolated where it must (§3.9).
-            u32 source = kInvalidId;
-            if (lowest != kInvalidId) {
-                for (const HalfedgeId h : topology.fh(FaceId(lowest))) {
-                    if (topology.from(h).value() == vertex) {
-                        const auto ordinal = ordinalOf.find(static_cast<u32>(h.index()));
-                        source = ordinal == ordinalOf.end() ? kInvalidId : ordinal->second;
-                    }
+        // The patch samples the lowest-numbered face around the vertex,
+        // extrapolated where it must (§3.9).
+        u32 source = kInvalidId;
+        if (lowest != kInvalidId) {
+            for (const HalfedgeId h : topology.fh(FaceId(lowest))) {
+                if (topology.from(h).value() == vertex) {
+                    const auto ordinal = ordinalOf.find(static_cast<u32>(h.index()));
+                    source = ordinal == ordinalOf.end() ? kInvalidId : ordinal->second;
                 }
             }
-            cornerSource.push_back(source);
         }
-        faceSource.push_back(lowest == kInvalidId ? 0u : lowest);
-        plan.changedFaces.push_back(static_cast<u32>(faceValence.size() - 1));
+        const auto patch = [&](const std::vector<u32>& corners) {
+            faceValence.push_back(static_cast<u32>(corners.size()));
+            for (const u32 id : corners) {
+                cornerVertex.push_back(id);
+                cornerSource.push_back(source);
+            }
+            faceSource.push_back(lowest == kInvalidId ? 0u : lowest);
+            plan.changedFaces.push_back(static_cast<u32>(faceValence.size() - 1));
+        };
+        if (loop.size() == ring.size()) {
+            patch(loop);
+            continue;
+        }
+        // Chains in it: a fan round the loop's mean, since a flat profile lines
+        // its points up along each side and no single face cuts that cleanly.
+        Vector3f middle{0.0f, 0.0f, 0.0f};
+        for (const u32 id : loop) {
+            middle = middle + placed[id - firstPlaced].direction;
+        }
+        const u32 centre = place(vertex, middle * (1.0f / static_cast<f32>(loop.size())));
+        for (std::size_t i = 0; i < loop.size(); ++i) {
+            patch({loop[i], loop[(i + 1) % loop.size()], centre});
+        }
     }
     mapping.faces.faceValence = std::move(faceValence);
     mapping.faces.cornerVertex = std::move(cornerVertex);
@@ -4987,7 +5137,7 @@ ModelPlan PlanChamferEdges(Mesh& mesh, const PointTable& points, const ElementSe
         resample.source = CapturePolygon(mesh, FaceId(seam.source));
         for (const HalfedgeId h : built.fh(FaceId(seam.strip))) {
             const u32 vertex = built.from(h).value();
-            if (vertex == seam.first || vertex == seam.second) {
+            if (std::find(seam.moved.begin(), seam.moved.end(), vertex) != seam.moved.end()) {
                 resample.targetCorners.push_back(h);
             }
         }

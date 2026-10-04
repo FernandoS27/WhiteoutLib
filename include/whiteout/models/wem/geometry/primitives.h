@@ -20,6 +20,8 @@
 #include <whiteout/common_types.h>
 #include <whiteout/vector_types.h>
 
+#include <vector>
+
 #include "mesh.h"
 
 namespace whiteout {
@@ -53,6 +55,21 @@ Mesh MakeCone(const PrimitiveParams& params);
 /// A sphere of radius `size.x`: `sides` round, `segments` bands of latitude
 /// (at least two), quads between them and a fan of triangles at each pole.
 Mesh MakeSphere(const PrimitiveParams& params);
+
+/// What a lathe turns: a profile of (radius, height) points about Z.
+struct LatheParams {
+    std::vector<Vector2f> profile; ///< In order; a radius of 0 sits on the axis.
+    u32 sides = 12;                ///< Steps over the sweep.
+    f32 angle = 6.28318530718f;    ///< The sweep in radians; a full turn closes on itself.
+    bool caps = true;              ///< A full turn's ends that stop off the axis get an n-gon each.
+};
+
+/// The profile turned about Z, wound outward whichever way it runs: a pole
+/// where it touches the axis, quads between, and the caps. A profile whose last
+/// point is its first is a closed loop (a torus). A partial sweep stays open.
+/// Empty when fewer than two points are left, or the profile touches the axis
+/// anywhere but at an end.
+Mesh MakeLathe(const LatheParams& params);
 
 } // namespace geom
 } // namespace wem

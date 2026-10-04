@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-/// G25: the tools (EDIT_MODE_MODELLING_DESIGN.md §3). Every result is re-checked
+/// G25: the tools (EDIT_MODE_MODELLING_DESIGN.md Â§3). Every result is re-checked
 /// Structural- and Manifold-clean and canonical, and every refusal is produced
 /// by a fixture built to need exactly it. ML2's eight: To Quads, To Polygons,
 /// Turn, Edit Triangulation, Retriangulate, Triangulate, Target Weld, Weld.
@@ -725,7 +725,7 @@ std::vector<std::array<f32, 24>> exported(const mdx::Model& model) {
 
 enum class CorpusSet { ShippedSd, ShippedHd, Community };
 
-/// R§1.2's three sets, as its probe drew them.
+/// RÂ§1.2's three sets, as its probe drew them.
 std::vector<std::filesystem::path> corpusSet(CorpusSet set) {
     std::vector<std::filesystem::path> out;
     u32 hdSeen = 0;
@@ -868,7 +868,7 @@ TEST_CASE("wem tools to quads on the HD footman exports the file's triangles",
 }
 
 // ============================================================================
-// Collapse, Remove, Delete, Cap, Flip, Hard and Soft (§3.7, §3.10)
+// Collapse, Remove, Delete, Cap, Flip, Hard and Soft (Â§3.7, Â§3.10)
 // ============================================================================
 
 namespace {
@@ -1111,7 +1111,7 @@ TEST_CASE("wem tools cap closes a loop and copies its rim", "[wem][geometry][too
     const auto p = mesh.attributes.get<const Vector3f>(geom::names::kPosition, Domain::Vertex);
     const FaceId cap(plan.selection.faces.front());
     // And the finish materialised its row: a quad the file must draw as two
-    // triangles, not left to whatever reads it next (§2.3).
+    // triangles, not left to whatever reads it next (Â§2.3).
     CHECK(mesh.triangulation.row(cap.value()).size() == 6u);
     for (const HalfedgeId h : mesh.topology().fh(cap)) {
         const Vector3f& at = p[mesh.topology().from(h).value()];
@@ -1188,7 +1188,7 @@ TEST_CASE("wem tools hard and soft set the flag and nothing else", "[wem][geomet
 }
 
 // ============================================================================
-// Extrude, Border Extrude and Inset (§3.8)
+// Extrude, Border Extrude and Inset (Â§3.8)
 // ============================================================================
 
 namespace {
@@ -1259,7 +1259,7 @@ TEST_CASE("wem tools extrude lifts a region and walls it", "[wem][geometry][tool
         CHECK(vertexAt(mesh, x, y, 1.0f).valid());
         CHECK(vertexAt(mesh, x, y, 0.0f).valid());
     }
-    // §3.12's crease rule: a wall meets the ground and the lifted face at a
+    // Â§3.12's crease rule: a wall meets the ground and the lifted face at a
     // right angle, so both edges shade hard at the 60 degree default.
     CHECK(sharpAt(mesh, vertexAt(mesh, 1, 1, 0), vertexAt(mesh, 2, 1, 0)) == 1);
     CHECK(sharpAt(mesh, vertexAt(mesh, 1, 1, 1), vertexAt(mesh, 2, 1, 1)) == 1);
@@ -1286,7 +1286,7 @@ TEST_CASE("wem tools extrude group falls back where its normals cancel", "[wem][
 TEST_CASE("wem tools extrude group falls back on a flat wall", "[wem][geometry][tools]") {
     // The box's top and two opposite sides: the mean points up, and the
     // vertical edges of those sides lie along it, so a wall would have no area
-    // at any height (§3.8).
+    // at any height (Â§3.8).
     Mesh mesh = box();
     ElementSet three;
     for (const Vector3f& at : {Vector3f{0.5f, 0.5f, 1.0f}, Vector3f{1.0f, 0.5f, 0.5f},
@@ -1341,7 +1341,7 @@ TEST_CASE("wem tools extrude local normal averages the faces at a vertex", "[wem
 
 TEST_CASE("wem tools hinge swings a face about its edge and keeps the hinge attached",
           "[wem][geometry][tools]") {
-    // One quad hinged on its bottom edge (§3.8): the hinge's two vertices are
+    // One quad hinged on its bottom edge (Â§3.8): the hinge's two vertices are
     // pinned, the hinge edge grows no wall, its two neighbours are triangles,
     // the top edge's wall is a quad, and a quarter turn stands the face up
     // along its normal -- the far corners at z = 1, the hinge's untouched.
@@ -1571,7 +1571,7 @@ TEST_CASE("wem tools inset rings a face and offsets it evenly", "[wem][geometry]
         CHECK(at.x == Catch::Approx(x).margin(1e-4));
         CHECK(at.y == Catch::Approx(y).margin(1e-4));
     }
-    // §2.4: the inner corners were re-sampled from the face they moved inside,
+    // Â§2.4: the inner corners were re-sampled from the face they moved inside,
     // so the texture stayed where it was on the surface.
     const auto uv = mesh.attributes.get<const Vector2f>(geom::names::uv(0), Domain::Halfedge);
     const auto places = mesh.attributes.get<const Vector3f>(geom::names::kPosition, Domain::Vertex);
@@ -1617,7 +1617,7 @@ TEST_CASE("wem tools inset clamps at a notch's split event", "[wem][geometry][to
     CHECK(fastest == Catch::Approx(12.04f).margin(0.05));
     // And the clamp is where it meets the inner edge across from it: the tip
     // sits 0.6 above the bottom edge and closes on it at 12 + 1 per unit, so
-    // 0.046 — a twentieth of the amount at which this face's own area would
+    // 0.046 â€” a twentieth of the amount at which this face's own area would
     // run out.
     CHECK(plan.amountMax == Catch::Approx(0.6f / 13.04f).margin(2e-3));
     std::printf("inset notch: fastest %.2f x, clamp %.4f\n", static_cast<double>(fastest),
@@ -1662,7 +1662,7 @@ TEST_CASE("wem tools extrude keeps a region that touches itself manifold", "[wem
     CHECK(places[corner].z == 0.0f);
 }
 // ============================================================================
-// Chamfer (§3.9)
+// Chamfer (Â§3.9)
 // ============================================================================
 
 TEST_CASE("wem tools chamfer refuses what it has not built", "[wem][geometry][tools]") {
@@ -1670,10 +1670,6 @@ TEST_CASE("wem tools chamfer refuses what it has not built", "[wem][geometry][to
     ElementSet one;
     one.edges = {edgeBetween(mesh, vertexAt(mesh, 0, 0, 0), vertexAt(mesh, 1, 0, 0)).value()};
     geom::ChamferParams params;
-    params.segments = 2;
-    CHECK(geom::PlanChamferEdges(mesh, pointsOf(mesh), one, params).refusal ==
-          ModelRefusal::NotBuiltYet);
-    params.segments = 1;
     params.open = true;
     CHECK(geom::PlanChamferEdges(mesh, pointsOf(mesh), one, params).refusal ==
           ModelRefusal::NotBuiltYet);
@@ -1811,8 +1807,174 @@ TEST_CASE("wem tools chamfer of a loop leaves no patch", "[wem][geometry][tools]
     CHECK(liveFaces(mesh) == 12u);
     CHECK(errors(mesh) == "");
 }
+namespace {
+
+/// The volume @p mesh's drawn triangles enclose: positive when wound outward.
+f32 signedVolume(const Mesh& mesh) {
+    f32 volume = 0.0f;
+    for (const Triangle& t : drawn(mesh)) {
+        const Vector3f a{t[0][0], t[0][1], t[0][2]};
+        const Vector3f b{t[1][0], t[1][1], t[1][2]};
+        const Vector3f c{t[2][0], t[2][1], t[2][2]};
+        volume += a.dot(cross(b, c)) / 6.0f;
+    }
+    return volume;
+}
+
+u32 borderEdges(const Mesh& mesh) {
+    u32 border = 0;
+    for (u32 e = 0; e < mesh.topology().edgeCount(); ++e) {
+        if (!mesh.topology().isDeleted(EdgeId(e)) && mesh.topology().isBoundary(EdgeId(e))) {
+            ++border;
+        }
+    }
+    return border;
+}
+
+/// Every live corner's UV is a number.
+bool uvsFinite(const Mesh& mesh) {
+    const auto uv = mesh.attributes.get<const Vector2f>(geom::names::uv(0), Domain::Halfedge);
+    if (uv.empty()) {
+        return false;
+    }
+    for (u32 f = 0; f < mesh.topology().faceCount(); ++f) {
+        if (mesh.topology().isDeleted(FaceId(f))) {
+            continue;
+        }
+        for (const HalfedgeId h : mesh.topology().fh(FaceId(f))) {
+            if (!std::isfinite(uv[h.index()].x) || !std::isfinite(uv[h.index()].y)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+} // namespace
+
+TEST_CASE("wem tools chamfer with segments rounds one cube edge", "[wem][geometry][tools]") {
+    // Three segments, round: each end's two points and two between them on the
+    // quarter circle that touches both faces, so the strip is three quads and
+    // each end face takes the arc into its border.
+    Mesh mesh = box();
+    mapUvs(mesh);
+    const f32 before = signedVolume(mesh);
+    ElementSet one;
+    one.edges = {edgeBetween(mesh, vertexAt(mesh, 0, 0, 0), vertexAt(mesh, 1, 0, 0)).value()};
+    geom::ChamferParams params;
+    params.segments = 3;
+    ModelPlan plan = geom::PlanChamferEdges(mesh, pointsOf(mesh), one, params);
+    INFO("refusal " << geom::ToString(plan.refusal));
+    REQUIRE_FALSE(plan.refused());
+    CHECK(plan.motions.size() == 8u); // four points at each end
+    geom::ApplyAmount(mesh, plan, 0.25f);
+    finish(mesh, plan);
+    CHECK(liveFaces(mesh) == 9u);      // six and three strips
+    CHECK(mesh.vertexCount() == 14u);  // eight, less the two ends, and eight points
+    CHECK(plan.selection.faces.size() == 3u);
+    CHECK(borderEdges(mesh) == 0u);
+    CHECK(uvsFinite(mesh));
+    // Wound outward still, and a little smaller than the cube.
+    const f32 after = signedVolume(mesh);
+    CHECK(after > 0.0f);
+    CHECK(after < before);
+    // Every point at the edge's ends sits a quarter from the rounding's centre,
+    // the line (y, z) = (0.25, 0.25).
+    const auto places = mesh.attributes.get<const Vector3f>(geom::names::kPosition, Domain::Vertex);
+    u32 onArc = 0;
+    for (u32 v = 0; v < places.size(); ++v) {
+        const Vector3f& p = places[v];
+        if (mesh.topology().isDeleted(VertexId(v)) || p.y > 0.26f || p.z > 0.26f) {
+            continue;
+        }
+        const f32 r = std::sqrt((p.y - 0.25f) * (p.y - 0.25f) + (p.z - 0.25f) * (p.z - 0.25f));
+        CHECK(r == Catch::Approx(0.25f).margin(1e-4));
+        ++onArc;
+    }
+    CHECK(onArc == 8u);
+}
+
+TEST_CASE("wem tools chamfer with segments closes a corner and every edge", "[wem][geometry][tools]") {
+    // Three edges at one corner, two segments: each strip two quads, the patch
+    // a fan over the three miters and the chain point between each pair, and
+    // each far end's face takes its chain point.
+    {
+        Mesh mesh = box();
+        mapUvs(mesh);
+        const VertexId corner = vertexAt(mesh, 0, 0, 0);
+        ElementSet three;
+        for (const auto& to : {Vector3f{1, 0, 0}, Vector3f{0, 1, 0}, Vector3f{0, 0, 1}}) {
+            three.edges.push_back(edgeBetween(mesh, corner, vertexAt(mesh, to.x, to.y, to.z)).value());
+        }
+        geom::ChamferParams params;
+        params.segments = 2;
+        ModelPlan plan = geom::PlanChamferEdges(mesh, pointsOf(mesh), three, params);
+        INFO("refusal " << geom::ToString(plan.refusal));
+        REQUIRE_FALSE(plan.refused());
+        geom::ApplyAmount(mesh, plan, 0.3f);
+        finish(mesh, plan);
+        CHECK(liveFaces(mesh) == 18u); // six, three strips of two, the fan of six
+        CHECK(borderEdges(mesh) == 0u);
+        CHECK(signedVolume(mesh) > 0.0f);
+        CHECK(uvsFinite(mesh));
+        u32 hexagons = 0;
+        for (u32 f = 0; f < mesh.topology().faceCount(); ++f) {
+            if (mesh.topology().isDeleted(FaceId(f))) {
+                continue;
+            }
+            u32 valence = 0;
+            for (const HalfedgeId h : mesh.topology().fh(FaceId(f))) {
+                (void)h;
+                ++valence;
+            }
+            hexagons += valence == 6 ? 1 : 0;
+        }
+        CHECK(hexagons == 3u); // the far ends' faces, a corner each turned into three
+    }
+    // Every edge, four segments, flat: twelve strips of four and eight fans of
+    // twelve.
+    {
+        Mesh mesh = box();
+        mapUvs(mesh);
+        geom::ChamferParams params;
+        params.segments = 4;
+        params.profile = 0.25f;
+        ModelPlan plan = geom::PlanChamferEdges(mesh, pointsOf(mesh), allEdges(mesh), params);
+        INFO("refusal " << geom::ToString(plan.refusal));
+        REQUIRE_FALSE(plan.refused());
+        geom::ApplyAmount(mesh, plan, 0.2f);
+        finish(mesh, plan);
+        CHECK(liveFaces(mesh) == 6u + 48u + 96u);
+        CHECK(borderEdges(mesh) == 0u);
+        CHECK(signedVolume(mesh) > 0.0f);
+        CHECK(uvsFinite(mesh));
+    }
+}
+
+TEST_CASE("wem tools chamfer with segments shares the chain where strips meet", "[wem][geometry][tools]") {
+    // The run through (2,1) of a quad grid: the two strips end on the same two
+    // points there, so they share one chain and the grid stays one surface.
+    Mesh mesh = grid(3, 3, /*quads=*/true);
+    ElementSet loop;
+    loop.edges = {edgeBetween(mesh, vertexAt(mesh, 1, 1), vertexAt(mesh, 2, 1)).value(),
+                  edgeBetween(mesh, vertexAt(mesh, 2, 1), vertexAt(mesh, 3, 1)).value()};
+    geom::ChamferParams params;
+    params.segments = 3;
+    ModelPlan plan = geom::PlanChamferEdges(mesh, pointsOf(mesh), loop, params);
+    INFO("refusal " << geom::ToString(plan.refusal));
+    REQUIRE_FALSE(plan.refused());
+    geom::ApplyAmount(mesh, plan, 0.2f);
+    finish(mesh, plan);
+    // Nine, two strips of three, and the inner end's fan: its three points and
+    // a chain of two.
+    CHECK(liveFaces(mesh) == 9u + 6u + 5u);
+    // The far end is on the grid's border: its chain is three edges where the
+    // two through the corner were.
+    CHECK(borderEdges(mesh) == 12u + 3u);
+}
+
 TEST_CASE("wem tools chamfer gives a straight corner a face point", "[wem][geometry][tools]") {
-    // A T-vertex (§3.3): the big face holds it as a straight corner. Chamfering
+    // A T-vertex (Â§3.3): the big face holds it as a straight corner. Chamfering
     // the edge that arrives there leaves that face no angle to offset along, so
     // it puts a face point square to the edge instead, and the edge running on
     // past the T keeps its own point at the plain amount.
@@ -1909,7 +2071,7 @@ TEST_CASE("wem tools chamfer closes a border ring only when it has three",
 TEST_CASE("wem tools chamfer keeps a seam on the strip's far edge", "[wem][geometry][tools]") {
     // The chamfered edge is a seam: the strip samples one side for all four of
     // its corners, so it is continuous with that side and the seam ends up on
-    // its far long edge (§3.9).
+    // its far long edge (Â§3.9).
     Mesh mesh = grid(2, 1, /*quads=*/true);
     mapUvs(mesh, /*shiftedFaces=*/{1});
     const EdgeId middle = edgeBetween(mesh, vertexAt(mesh, 1, 0), vertexAt(mesh, 1, 1));
@@ -1937,7 +2099,7 @@ TEST_CASE("wem tools chamfer blends an edge point's skin", "[wem][geometry][tool
     // A 2 x 1 grid bound to two bones, one column each. Chamfering the edge
     // between them puts each point a quarter along an edge whose ends are
     // bound differently, so its skin is the blend at that place, not a copy of
-    // either end (§2.4).
+    // either end (Â§2.4).
     Mesh mesh = grid(2, 1, /*quads=*/true);
     bindMesh(mesh, {vertexAt(mesh, 2, 0).value(), vertexAt(mesh, 2, 1).value()});
     ElementSet one;
@@ -1965,7 +2127,7 @@ TEST_CASE("wem tools chamfer blends an edge point's skin", "[wem][geometry][tool
     CHECK(near[0].bone == 0u);
 }
 // ============================================================================
-// Adding topology by hand (§3.14)
+// Adding topology by hand (Â§3.14)
 // ============================================================================
 
 TEST_CASE("wem tools insert vertex splits where it was clicked", "[wem][geometry][tools]") {
@@ -2308,7 +2470,7 @@ TEST_CASE("wem tools cut takes the plane it is given", "[wem][geometry][tools]")
     CHECK(run(Vector3f{0.9f, -0.4f, 0.0f}) >= 2u);
 }
 // ============================================================================
-// Parts (§3.16)
+// Parts (Â§3.16)
 // ============================================================================
 
 TEST_CASE("wem tools duplicate copies a shell of its own", "[wem][geometry][tools]") {
@@ -2509,8 +2671,49 @@ TEST_CASE("wem primitives are born finished", "[wem][geometry][tools]") {
     }
     CHECK(made[2].mesh.attributes.get<const u8>(geom::names::kSharp, Domain::Edge).empty());
 }
+
+TEST_CASE("wem lathe turns a profile into a closed shell", "[wem][geometry][tools]") {
+    // A vase from the axis up and back: a pole below, three rings, a cap on top.
+    geom::LatheParams params;
+    params.profile = {{0.0f, 0.0f}, {1.0f, 0.0f}, {1.5f, 1.0f}, {0.8f, 2.0f}};
+    params.sides = 8;
+    Mesh vase = geom::MakeLathe(params);
+    CHECK(geom::IsModelled(vase));
+    CHECK(geom::IsCanonical(vase));
+    CHECK(errors(vase) == "");
+    CHECK(liveFaces(vase) == 8u + 16u + 1u); // the fan, two bands of quads, the cap
+    CHECK(borderEdges(vase) == 0u);
+    CHECK(uvsFinite(vase));
+    const f32 volume = signedVolume(vase);
+    CHECK(volume > 0.0f);
+    // Run the other way it is the same shell, still wound outward.
+    std::reverse(params.profile.begin(), params.profile.end());
+    Mesh down = geom::MakeLathe(params);
+    CHECK(signedVolume(down) == Catch::Approx(volume).epsilon(1e-4));
+    CHECK(errors(down) == "");
+    // A closed loop off the axis is a torus: no caps, no border.
+    geom::LatheParams ring;
+    ring.sides = 12;
+    for (u32 i = 0; i <= 8; ++i) {
+        const f32 a = 6.28318530718f * static_cast<f32>(i % 8) / 8.0f;
+        ring.profile.push_back({2.0f + 0.5f * std::cos(a), 0.5f * std::sin(a)});
+    }
+    Mesh torus = geom::MakeLathe(ring);
+    CHECK(errors(torus) == "");
+    CHECK(liveFaces(torus) == 96u);
+    CHECK(borderEdges(torus) == 0u);
+    CHECK(signedVolume(torus) > 0.0f);
+    // A half turn is open, and a pinch on the axis is refused.
+    params.angle = 3.14159265f;
+    Mesh half = geom::MakeLathe(params);
+    CHECK(errors(half) == "");
+    CHECK(borderEdges(half) > 0u);
+    geom::LatheParams pinch;
+    pinch.profile = {{1.0f, 0.0f}, {0.0f, 1.0f}, {1.0f, 2.0f}};
+    CHECK(geom::MakeLathe(pinch).faceCount() == 0u);
+}
 // ============================================================================
-// Symmetry and moving well (§3.15, §3.17)
+// Symmetry and moving well (Â§3.15, Â§3.17)
 // ============================================================================
 
 TEST_CASE("wem tools symmetrize mirrors one side onto the other", "[wem][geometry][tools]") {
@@ -2603,7 +2806,7 @@ TEST_CASE("wem tools symmetrize maps the copy's bones", "[wem][geometry][tools]"
 }
 
 TEST_CASE("wem tools bridge joins two faces", "[wem][geometry][tools]") {
-    // §3.16's Polygon form: two faces replaced by a band of quads between their
+    // Â§3.16's Polygon form: two faces replaced by a band of quads between their
     // rims. Two squares facing each other and a third off on its own, so the
     // "every face but those two" half of the rebuild is exercised too.
     const std::vector<Vector3f> places = {
@@ -2827,7 +3030,7 @@ TEST_CASE("wem tools make planar takes a plane it is given", "[wem][geometry][to
 TEST_CASE("wem tools to quads and to polygons say which edges went", "[wem][geometry][tools]") {
     // A count says how many edges a join takes; `dissolvedEdges` says which, in
     // the numbering the mesh came in with, so a preview planned on a copy can
-    // light exactly the edges the press would take away (UX §7.5).
+    // light exactly the edges the press would take away (UX Â§7.5).
     Mesh triangles = grid(3, 3);
     ModelPlan joined = geom::PlanJoinTriangles(triangles, pointsOf(triangles), allFaces(triangles));
     INFO("refusal " << geom::ToString(joined.refusal));

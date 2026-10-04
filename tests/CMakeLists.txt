@@ -125,6 +125,7 @@ whiteout_add_test(wem_uv_transfer_test wem_uv_transfer_test.cpp)
 # What is wrong with a layout (EDIT_MODE_UV_REDESIGN_PLAN.md R3).
 whiteout_add_test(wem_uv_checks_test wem_uv_checks_test.cpp)
 whiteout_add_test(wem_modelling_tools_test wem_modelling_tools_test.cpp)
+whiteout_add_test(wem_refine_test wem_refine_test.cpp)
 whiteout_add_test(wem_render_identity_test wem_render_identity_test.cpp)
 whiteout_add_test(wem_material_kind_test wem_material_kind_test.cpp)
 whiteout_add_test(wem_material_ops_test wem_material_ops_test.cpp)
