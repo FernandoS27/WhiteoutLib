@@ -54,6 +54,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::f32>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::string>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u8>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u32>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u16>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Vector2f>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Vector3f>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimChannel>);
@@ -163,18 +164,6 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 1 of bind_wem(), which calls the parts in order.
 void bind_wem_1(py::module_& m) {
-    py::class_<whiteout::models::wem::MeshSection>(m, "MeshSection", R"doc(Metadata only; one per draw section. The faces that belong to it are the ones whose `section` attribute names it.)doc")
-        .def(py::init<>())
-        .def_readwrite("name", &whiteout::models::wem::MeshSection::name)
-        .def_readwrite("material_slot", &whiteout::models::wem::MeshSection::materialSlot, R"doc(-> `Model::materialSlots[]`, or `kInvalidIndex` for NO MATERIAL: a section made by an editor before one has been chosen for it. The sentinel is the emitter links' (§10.9), so one rule covers both, and every profile draws such a section as plain white (`toMdx` writes it a blank SD material; a profile that cannot say "none" must write one).)doc")
-        .def_readwrite("profiles", &whiteout::models::wem::MeshSection::profiles, R"doc(Which profiles draw this section (§6).)doc")
-        .def_readwrite("rigid_node", &whiteout::models::wem::MeshSection::rigidNode, R"doc(Set: every vertex binds here at weight 1 (§5.6).)doc")
-        .def_readwrite("selection_group", &whiteout::models::wem::MeshSection::selectionGroup, R"doc(MDX geoset group / M2 skinSectionId.)doc")
-        .def_readwrite("flags", &whiteout::models::wem::MeshSection::flags)
-        .def_readwrite("bounds", &whiteout::models::wem::MeshSection::bounds, R"doc(Derived, recomputed.)doc")
-        .def_readwrite("native", &whiteout::models::wem::MeshSection::native)
-    ;
-
     py::class_<whiteout::models::wem::Mesh>(m, "Mesh")
         .def(py::init<>())
         .def_readwrite("name", &whiteout::models::wem::Mesh::name)
@@ -722,6 +711,7 @@ Both halves are optional and independent. `asset` is what the source named — a
         .def_readwrite("uniform_scale_only", &whiteout::models::wem::Node::uniformScaleOnly, R"doc(D3 stores ONE scale float per bone; export asserts on this rather than silently writing the x component of a non-uniform scale.)doc")
         .def_readwrite("poses", &whiteout::models::wem::Node::poses, R"doc(Values for `NodeTree::poseSchema` — sized to it for Bone nodes, empty for kinds that carry none (§10.5).)doc")
         .def_readwrite("native", &whiteout::models::wem::Node::native)
+        .def_readwrite("profiles", &whiteout::models::wem::Node::profiles, R"doc(Which profiles hold this node (§6), as `MeshSection::profiles` says which draw a section. A profile outside it writes the node as a helper when a node under it is inside, and not at all otherwise (`NodePresenceIn`). Every profile on a `NODE` written before v16.)doc")
         .def_readwrite("removed", &whiteout::models::wem::Node::removed, R"doc(Transient removal marker (§10.6).
 
 `RemoveNode` marks; `CompactNodes` collects. It lives on the node rather than in a parallel status array for the same reason the poses do: removing or copying a node has to move everything that is about it. Never serialized — a written document is always compacted first.)doc")
@@ -874,7 +864,7 @@ Every clip also plays the "default" set — whatever no listed set claims — in
         .def(py::init<>())
         .def_readwrite("source", &whiteout::models::wem::PhysicsBake::source, R"doc(Per container of the clip, the sub-tracks the bake replaced or cleared, as they were (a TCB track in its TCB form); and each one's place in its container, container by container, so an Unbake puts it back there.)doc")
         .def_readwrite("positions", &whiteout::models::wem::PhysicsBake::positions)
-        .def_readwrite("channels", &whiteout::models::wem::PhysicsBake::channels, R"doc(The channels the bake wrote; of them, those it declared, which an Unbake drops where nothing keys them.)doc")
+        .def_readwrite("channels", &whiteout::models::wem::PhysicsBake::channels, R"doc(The channels the bake wrote; and those a bake declared that it keeps, its own before a Rebake and any it keyed again, which an Unbake drops where nothing keys them.)doc")
         .def_readwrite("appended", &whiteout::models::wem::PhysicsBake::appended)
         .def_readwrite("inputs", &whiteout::models::wem::PhysicsBake::inputs, R"doc(What went in, to tell a clip out of date; and what came out, to tell baked keys edited since.)doc")
         .def_readwrite("written", &whiteout::models::wem::PhysicsBake::written)
@@ -885,6 +875,9 @@ Every clip also plays the "default" set — whatever no listed set claims — in
         .def_readwrite("seam_before", &whiteout::models::wem::PhysicsBake::seamBefore, R"doc(Degrees, the worst node's, before matching.)doc")
         .def_readwrite("seam_after", &whiteout::models::wem::PhysicsBake::seamAfter)
         .def_readwrite("settling", &whiteout::models::wem::PhysicsBake::settling, R"doc(After each preheat loop, the largest change from the loop before, in degrees (§7.5).)doc")
+        .def_readwrite("cloth_ids", &whiteout::models::wem::PhysicsBake::clothIds, R"doc(Each cloth the bake carried (EDIT_MODE_PHYSICS_CLOTH_DESIGN.md §10.2): its id, how far its bones missed it (0 in full detail), and its size.)doc")
+        .def_readwrite("cloth_fits", &whiteout::models::wem::PhysicsBake::clothFits)
+        .def_readwrite("cloth_sizes", &whiteout::models::wem::PhysicsBake::clothSizes)
     ;
 
     py::class_<whiteout::models::wem::ClipPhysics>(m, "ClipPhysics", R"doc(One clip's bake settings (§9.2): a clip is *set up* once it has them.)doc")
@@ -982,6 +975,31 @@ D3's `.ans` is the shape this exists for: 30 tag maps in one asset, one core and
         .def_readwrite("has_children", &whiteout::models::wem::WowBodyExtension::hasChildren, R"doc(A kinematic body other bodies hang off: its snap carries them.)doc")
         .def_readwrite("ragdoll_root", &whiteout::models::wem::WowBodyExtension::ragdollRoot, R"doc(The ragdoll's root: its snap carries the groups of kinematic bodies that have no children.)doc")
         .def_readwrite("parent", &whiteout::models::wem::WowBodyExtension::parent, R"doc(A dynamic body: the kinematic body it hangs off, by id. 0 writes as the first body, as the file's own zero does.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::PhysicsBody>(m, "PhysicsBody")
+        .def(py::init<>())
+        .def_readwrite("id", &whiteout::models::wem::PhysicsBody::id)
+        .def_readwrite("node", &whiteout::models::wem::PhysicsBody::node)
+        .def_readwrite("motion", &whiteout::models::wem::PhysicsBody::motion)
+        .def_readwrite("simulates", &whiteout::models::wem::PhysicsBody::simulates, R"doc(The rest value of `Channel::PhysicsDynamic`: whether it simulates where no key says otherwise.)doc")
+        .def_readwrite("shapes", &whiteout::models::wem::PhysicsBody::shapes)
+        .def_readwrite("linear_damping", &whiteout::models::wem::PhysicsBody::linearDamping)
+        .def_readwrite("angular_damping", &whiteout::models::wem::PhysicsBody::angularDamping)
+        .def_readwrite("inertia_scale", &whiteout::models::wem::PhysicsBody::inertiaScale)
+        .def_readwrite("gravity_scale", &whiteout::models::wem::PhysicsBody::gravityScale, R"doc(StarCraft II hard-wires 1; World of Warcraft authors it.)doc")
+        .def_readwrite("inherit_dynamic", &whiteout::models::wem::PhysicsBody::inheritDynamic, R"doc(Takes the nearest bodied ancestor's current state instead of its own (StarCraft II flag 0x40).)doc")
+        .def_readwrite("exempt_from_ragdoll", &whiteout::models::wem::PhysicsBody::exemptFromRagdoll, R"doc(Stays kinematic when the model ragdolls (StarCraft II flag 0x100).)doc")
+        .def_readwrite("force_channels", &whiteout::models::wem::PhysicsBody::forceChannels, R"doc(Which force fields act on it: matched against `ForceFieldPayload::channels`. StarCraft II's `localForces | worldForces << 16`.)doc")
+        .def_readwrite("sc2", &whiteout::models::wem::PhysicsBody::sc2)
+        .def_readwrite("wow", &whiteout::models::wem::PhysicsBody::wow)
+        .def_readwrite("locked", &whiteout::models::wem::PhysicsBody::locked, R"doc(Tuned by hand: the editor's tools that run over a whole ragdoll leave its shapes alone (EDIT_MODE_PHYSICS_REDESIGN.md §8.7). Authoring state; no export reads it.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::JointSpring>(m, "JointSpring")
+        .def(py::init<>())
+        .def_readwrite("hz", &whiteout::models::wem::JointSpring::hz)
+        .def_readwrite("damping", &whiteout::models::wem::JointSpring::damping)
     ;
 
 }

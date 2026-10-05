@@ -182,6 +182,17 @@ std::vector<u32> RemapPhysicsNodes(PhysicsSet& physics, std::span<const u32> rem
         }
         std::erase(cloth.recipe->bones, kInvalidNode);
     }
+    // A fracture's skin nodes keep their places: its layers name them by index.
+    for (PhysicsRig& rig : physics.rigs) {
+        if (!rig.fracture) {
+            continue;
+        }
+        rig.fracture->helper = Remapped(remap, rig.fracture->helper, kInvalidNode);
+        rig.fracture->field = Remapped(remap, rig.fracture->field, kInvalidNode);
+        for (u32& node : rig.fracture->skinNodes) {
+            node = Remapped(remap, node, kInvalidNode);
+        }
+    }
     Sweep(physics, gone, removed);
     return removed;
 }
@@ -202,6 +213,17 @@ std::vector<u32> RemovePhysicsBodies(PhysicsSet& physics, std::span<const u32> i
 
 std::vector<u32> RemapPhysicsMeshes(PhysicsSet& physics, std::span<const u32> meshRemap) {
     std::vector<u32> removed;
+    for (PhysicsRig& rig : physics.rigs) {
+        if (!rig.fracture) {
+            continue;
+        }
+        for (u32& mesh : rig.fracture->sources) {
+            mesh = Remapped(meshRemap, mesh, kInvalidIndex);
+        }
+        for (u32& mesh : rig.fracture->made) {
+            mesh = Remapped(meshRemap, mesh, kInvalidIndex);
+        }
+    }
     std::erase_if(physics.cloths, [&](Cloth& cloth) {
         cloth.cage.mesh = Remapped(meshRemap, cloth.cage.mesh, kInvalidIndex);
         std::erase_if(cloth.bindings, [&](ClothBinding& binding) {
@@ -500,6 +522,22 @@ void CheckPhysics(const Model& model, Diagnostics& out) {
         if (std::any_of(rig.bodies.begin(), rig.bodies.end(), [&](u32 id) { return physics.body(id) == nullptr; })) {
             out.error(DiagCode::PhysicsReferenceInvalid, "a rig names a missing body",
                       ElementRef(ElementKind::PhysicsRecord, rig.id));
+        }
+        if (rig.fracture) {
+            const FractureRecipe& recipe = *rig.fracture;
+            const auto mesh = [&](u32 m) { return m == kInvalidIndex || m < model.meshes.size(); };
+            const auto node = [&](u32 n) { return n == kInvalidNode || n < model.nodes.size(); };
+            const bool ok = std::all_of(recipe.sources.begin(), recipe.sources.end(), mesh) &&
+                            std::all_of(recipe.made.begin(), recipe.made.end(), mesh) &&
+                            std::all_of(recipe.skinNodes.begin(), recipe.skinNodes.end(), node) &&
+                            node(recipe.helper) && node(recipe.field) &&
+                            recipe.sources.size() == recipe.pieces.size() &&
+                            recipe.made.size() == 2 * recipe.pieces.size();
+            if (!ok) {
+                out.error(DiagCode::PhysicsReferenceInvalid,
+                          "rig '" + rig.name + "': its fracture names a mesh or node the model lacks",
+                          ElementRef(ElementKind::PhysicsRecord, rig.id));
+            }
         }
     }
     for (const PoseStage& stage : model.poseStages) {

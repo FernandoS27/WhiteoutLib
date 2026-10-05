@@ -159,6 +159,24 @@ inline constexpr const char* kClothBindWeight = "cloth.bind.weight";
 /// The prefix of a saved selection's layer, `selection.<name>` (§3.7).
 inline constexpr const char* kSelectionPrefix = "selection.";
 
+// The Fracture's way back to the whole mesh (EDIT_MODE_FRACTURE_DESIGN.md
+// §6.4). Authoring state, like the Skin workspace's. Indices are stored + 1,
+// because a layer grows zero-filled and a face or point added later must read
+// as none.
+/// Face / U32: the source face a piece's face was cut from, + 1.
+inline constexpr const char* kFractureSource = "fracture.source";
+/// Face / Bool: an inside face, or a face *Thicken* added.
+inline constexpr const char* kFractureMade = "fracture.made";
+/// Vertex / Bool: a point a cut made.
+inline constexpr const char* kFractureCut = "fracture.cut";
+/// Vertex / U32: the point's merge group in the source, + 1.
+inline constexpr const char* kFractureWeld = "fracture.weld";
+/// Vertex / U32x4: the source skin's nodes, as indices + 1 into the recipe's
+/// `skinNodes`.
+inline constexpr const char* kFractureSkinNode = "fracture.skin.node";
+/// Vertex / F32x4: those nodes' weights.
+inline constexpr const char* kFractureSkinWeight = "fracture.skin.weight";
+
 /// "uv0", "uv1", … Valid for @p index < 8; the string is built, not interned.
 std::string uv(u32 index);
 /// "color0", "color1", …

@@ -629,6 +629,66 @@ struct RagdollRecipe {
     }
 };
 
+/// How the Workshop's Fracture broke its meshes (EDIT_MODE_FRACTURE_DESIGN.md
+/// §13), so it can break them again, or put them back. Authoring state; no
+/// export reads it.
+struct FractureRecipe {
+    bool keepWhole = true; ///< *Keep the whole meshes* (D1); off, Update and Remove rejoin.
+    /// Per target, its whole mesh, hidden and kept by no profile; `kInvalidIndex`
+    /// with `keepWhole` off, or once deleted by hand.
+    std::vector<u32> sources;
+    std::vector<u32> made;      ///< Per target, two: its outside, then its inside or none.
+    std::vector<u16> pieces;    ///< Per target, the pieces asked for; 1 is Whole.
+    std::vector<u32> skinNodes; ///< The nodes `fracture.skin.node` names, by index + 1.
+    u32 seed = 1;
+    f32 nearBlast = 0.4f; ///< *Smaller near the blast*.
+    f32 even = 0.5f;
+    u8 grain = 0;         ///< None, X, Y, Z.
+    f32 stretch = 3.0f;
+    f32 smallest = 0.1f;  ///< A share of the average piece.
+    u8 openParts = 0;     ///< Solid where enclosed, Thicken.
+    f32 thickness = 0.0f; ///< Model units; 0 is 2 % of the source's size.
+    u32 inside = kInvalidIndex; ///< A material slot; none is the outside's.
+    f32 uvScale = 1.0f;
+    u8 hullPoints = 16;
+    bool splitHollow = true;
+    u32 material = 3;           ///< A StarCraft II preset (`materials.h`): Rock.
+    u32 helper = kInvalidNode;  ///< Between the pieces and their parent, or none.
+    u32 field = kInvalidNode;   ///< The blast's node.
+    u8 channel = 0;             ///< The Local channel bit its field and pieces share.
+    /// Every piece's seed, model space, so a re-break stays the same across
+    /// library versions; and the static pieces' seeds (§7.3).
+    std::vector<Vector3f> seeds;
+    std::vector<Vector3f> statics;
+
+    template <class V>
+    void reflect(V& v) {
+        v.field("keepWhole", keepWhole);
+        v.field("sources", sources);
+        v.field("made", made);
+        v.field("pieces", pieces);
+        v.field("skinNodes", skinNodes);
+        v.field("seed", seed);
+        v.field("nearBlast", nearBlast);
+        v.field("even", even);
+        v.field("grain", grain);
+        v.field("stretch", stretch);
+        v.field("smallest", smallest);
+        v.field("openParts", openParts);
+        v.field("thickness", thickness);
+        v.field("inside", inside);
+        v.field("uvScale", uvScale);
+        v.field("hullPoints", hullPoints);
+        v.field("splitHollow", splitHollow);
+        v.field("material", material);
+        v.field("helper", helper);
+        v.field("field", field);
+        v.field("channel", channel);
+        v.field("seeds", seeds);
+        v.field("statics", statics);
+    }
+};
+
 /// A named subset of bodies a game switches on at once (World of Warcraft,
 /// Diablo III). StarCraft II has none: its import makes none and its export
 /// ignores them.
@@ -640,6 +700,8 @@ struct PhysicsRig {
     std::optional<WowRigExtension> wow;
     /// Set when the editor built it as a ragdoll; none reads as the defaults.
     std::optional<RagdollRecipe> recipe;
+    /// Set when the Workshop's Fracture made it.
+    std::optional<FractureRecipe> fracture;
 
     template <class V>
     void reflect(V& v) {
@@ -649,6 +711,7 @@ struct PhysicsRig {
         v.field("bodies", bodies);
         v.since(2).optional("wow", wow);
         v.since(3).optional("recipe", recipe);
+        v.since(4).optional("fracture", fracture);
     }
 };
 

@@ -719,6 +719,8 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("ClothActive", whiteout::models::wem::Channel::ClothActive)
         .value("PhysicsRagdoll", whiteout::models::wem::Channel::PhysicsRagdoll)
         .value("PhysicsBlend", whiteout::models::wem::Channel::PhysicsBlend)
+        .value("ClothDriverTranslation", whiteout::models::wem::Channel::ClothDriverTranslation)
+        .value("ClothDriverRotation", whiteout::models::wem::Channel::ClothDriverRotation)
         .value("Count", whiteout::models::wem::Channel::Count);
 
     enum_<whiteout::models::wem::Interpolation>("WemInterpolation")
@@ -818,6 +820,20 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("Capsule", whiteout::models::wem::ClothColliderKind::Capsule)
         .value("Plane", whiteout::models::wem::ClothColliderKind::Plane)
         .value("Count", whiteout::models::wem::ClothColliderKind::Count);
+
+    enum_<whiteout::models::wem::ClothCageKind>("WemClothCageKind")
+        .value("Auto", whiteout::models::wem::ClothCageKind::Auto)
+        .value("AsModelled", whiteout::models::wem::ClothCageKind::AsModelled)
+        .value("Grid", whiteout::models::wem::ClothCageKind::Grid)
+        .value("Strip", whiteout::models::wem::ClothCageKind::Strip)
+        .value("Reduced", whiteout::models::wem::ClothCageKind::Reduced)
+        .value("FromFaces", whiteout::models::wem::ClothCageKind::FromFaces)
+        .value("Count", whiteout::models::wem::ClothCageKind::Count);
+
+    enum_<whiteout::models::wem::ClothBakeInto>("WemClothBakeInto")
+        .value("Bones", whiteout::models::wem::ClothBakeInto::Bones)
+        .value("FullDetail", whiteout::models::wem::ClothBakeInto::FullDetail)
+        .value("Count", whiteout::models::wem::ClothBakeInto::Count);
 
     enum_<whiteout::models::wem::RigStart>("WemRigStart")
         .value("Animated", whiteout::models::wem::RigStart::Animated)
@@ -1691,6 +1707,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("uniformScaleOnly", &whiteout::models::wem::Node::uniformScaleOnly)
         .property("poses", &whiteout::models::wem::Node::poses)
         .property("native", &whiteout::models::wem::Node::native)
+        .property("profiles", &whiteout::models::wem::Node::profiles)
         .property("removed", &whiteout::models::wem::Node::removed)
     ;
 
@@ -1824,6 +1841,9 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("seamBefore", &whiteout::models::wem::PhysicsBake::seamBefore)
         .property("seamAfter", &whiteout::models::wem::PhysicsBake::seamAfter)
         .property("settling", &whiteout::models::wem::PhysicsBake::settling)
+        .property("clothIds", &whiteout::models::wem::PhysicsBake::clothIds)
+        .property("clothFits", &whiteout::models::wem::PhysicsBake::clothFits)
+        .property("clothSizes", &whiteout::models::wem::PhysicsBake::clothSizes)
     ;
 
     class_<whiteout::models::wem::ClipPhysics>("WemClipPhysics")
@@ -1980,6 +2000,8 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("kind", &whiteout::models::wem::ClothCollider::kind)
         .property("radius", &whiteout::models::wem::ClothCollider::radius)
         .property("length", &whiteout::models::wem::ClothCollider::length)
+        .property("body", &whiteout::models::wem::ClothCollider::body)
+        .property("shape", &whiteout::models::wem::ClothCollider::shape)
     ;
 
     class_<whiteout::models::wem::ClothBinding>("WemClothBinding")
@@ -2004,6 +2026,20 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("skinStiffness", &whiteout::models::wem::Sc2ClothParams::skinStiffness)
     ;
 
+    class_<whiteout::models::wem::ClothRecipe>("WemClothRecipe")
+        .constructor<>()
+        .property("name", &whiteout::models::wem::ClothRecipe::name)
+        .property("bones", &whiteout::models::wem::ClothRecipe::bones)
+        .property("threshold", &whiteout::models::wem::ClothRecipe::threshold)
+        .property("cage", &whiteout::models::wem::ClothRecipe::cage)
+        .property("particles", &whiteout::models::wem::ClothRecipe::particles)
+        .property("reach", &whiteout::models::wem::ClothRecipe::reach)
+        .property("pinsByHand", &whiteout::models::wem::ClothRecipe::pinsByHand)
+        .property("bakeInto", &whiteout::models::wem::ClothRecipe::bakeInto)
+        .property("from", &whiteout::models::wem::ClothRecipe::from)
+        .property("cageFrom", &whiteout::models::wem::ClothRecipe::cageFrom)
+    ;
+
     class_<whiteout::models::wem::Cloth>("WemCloth")
         .constructor<>()
         .property("id", &whiteout::models::wem::Cloth::id)
@@ -2019,6 +2055,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("gravityScale", &whiteout::models::wem::Cloth::gravityScale)
         .property("wind", &whiteout::models::wem::Cloth::wind)
         .property("sc2", &whiteout::models::wem::Cloth::sc2)
+        .property("recipe", &whiteout::models::wem::Cloth::recipe)
     ;
 
     class_<whiteout::models::wem::WowVegetation>("WemWowVegetation")
@@ -2057,6 +2094,33 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("angularDamping", &whiteout::models::wem::RagdollRecipe::angularDamping)
     ;
 
+    class_<whiteout::models::wem::FractureRecipe>("WemFractureRecipe")
+        .constructor<>()
+        .property("keepWhole", &whiteout::models::wem::FractureRecipe::keepWhole)
+        .property("sources", &whiteout::models::wem::FractureRecipe::sources)
+        .property("made", &whiteout::models::wem::FractureRecipe::made)
+        .property("pieces", &whiteout::models::wem::FractureRecipe::pieces)
+        .property("skinNodes", &whiteout::models::wem::FractureRecipe::skinNodes)
+        .property("seed", &whiteout::models::wem::FractureRecipe::seed)
+        .property("nearBlast", &whiteout::models::wem::FractureRecipe::nearBlast)
+        .property("even", &whiteout::models::wem::FractureRecipe::even)
+        .property("grain", &whiteout::models::wem::FractureRecipe::grain)
+        .property("stretch", &whiteout::models::wem::FractureRecipe::stretch)
+        .property("smallest", &whiteout::models::wem::FractureRecipe::smallest)
+        .property("openParts", &whiteout::models::wem::FractureRecipe::openParts)
+        .property("thickness", &whiteout::models::wem::FractureRecipe::thickness)
+        .property("inside", &whiteout::models::wem::FractureRecipe::inside)
+        .property("uvScale", &whiteout::models::wem::FractureRecipe::uvScale)
+        .property("hullPoints", &whiteout::models::wem::FractureRecipe::hullPoints)
+        .property("splitHollow", &whiteout::models::wem::FractureRecipe::splitHollow)
+        .property("material", &whiteout::models::wem::FractureRecipe::material)
+        .property("helper", &whiteout::models::wem::FractureRecipe::helper)
+        .property("field", &whiteout::models::wem::FractureRecipe::field)
+        .property("channel", &whiteout::models::wem::FractureRecipe::channel)
+        .property("seeds", &whiteout::models::wem::FractureRecipe::seeds)
+        .property("statics", &whiteout::models::wem::FractureRecipe::statics)
+    ;
+
     class_<whiteout::models::wem::PhysicsRig>("WemPhysicsRig")
         .constructor<>()
         .property("id", &whiteout::models::wem::PhysicsRig::id)
@@ -2065,6 +2129,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("bodies", &whiteout::models::wem::PhysicsRig::bodies)
         .property("wow", &whiteout::models::wem::PhysicsRig::wow)
         .property("recipe", &whiteout::models::wem::PhysicsRig::recipe)
+        .property("fracture", &whiteout::models::wem::PhysicsRig::fracture)
     ;
 
     class_<whiteout::models::wem::PhysicsSet>("WemPhysicsSet")
@@ -2088,6 +2153,17 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("snapAngular", &whiteout::models::wem::PhysicsHost::snapAngular)
         .property("releaseLinear", &whiteout::models::wem::PhysicsHost::releaseLinear)
         .property("releaseAngular", &whiteout::models::wem::PhysicsHost::releaseAngular)
+    ;
+
+    class_<whiteout::models::wem::ClothPreset>("WemClothPreset")
+        .constructor<>()
+        .property("density", &whiteout::models::wem::ClothPreset::density)
+        .property("damping", &whiteout::models::wem::ClothPreset::damping)
+        .property("friction", &whiteout::models::wem::ClothPreset::friction)
+        .property("stretchStiffness", &whiteout::models::wem::ClothPreset::stretchStiffness)
+        .property("bendStiffness", &whiteout::models::wem::ClothPreset::bendStiffness)
+        .property("gravityScale", &whiteout::models::wem::ClothPreset::gravityScale)
+        .property("sc2", &whiteout::models::wem::ClothPreset::sc2)
     ;
 
     class_<whiteout::models::wem::SlotBinding>("WemSlotBinding")

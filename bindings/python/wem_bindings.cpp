@@ -54,6 +54,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::f32>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::string>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u8>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u32>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u16>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Vector2f>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Vector3f>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimChannel>);
@@ -904,7 +905,9 @@ Closed on purpose. A source property with no entry here is **dropped with an `An
         .value("CLOTH_ACTIVE", whiteout::models::wem::Channel::ClothActive, R"doc(F32. Whether a cloth writes back; M3 `PHCL.active`.)doc")
         .value("PHYSICS_RAGDOLL", whiteout::models::wem::Channel::PhysicsRagdoll, R"doc(F32, held. A rig's "ragdoll now": every member simulates while it is 1, but those exempt from it (EDIT_MODE_PHYSICS_BAKE_DESIGN.md §4.3). The editor's own; the `.m3` export folds it into the members' switches.)doc")
         .value("PHYSICS_BLEND", whiteout::models::wem::Channel::PhysicsBlend, R"doc(F32 0..1, linear, on a rig or a body. Below 1 a simulated body is handed back to its animation (§4.4). The editor's own.)doc")
-        .value("COUNT", whiteout::models::wem::Channel::Count, R"doc(F32 0..1, linear, on a rig or a body. Below 1 a simulated body is handed back to its animation (§4.4). The editor's own.)doc")
+        .value("CLOTH_DRIVER_TRANSLATION", whiteout::models::wem::Channel::ClothDriverTranslation, R"doc(F32x3 and Quat: a *Full detail* cloth's driver, one free particle's frame relative to the cloth's holder (EDIT_MODE_PHYSICS_CLOTH_DESIGN.md §10.3), with `sub` `ClothDriverSub(cloth, driver)`. The editor's own: an export makes bones of them (`ExpandClothToBones`), and no writer keys them.)doc")
+        .value("CLOTH_DRIVER_ROTATION", whiteout::models::wem::Channel::ClothDriverRotation, R"doc(F32x3 and Quat: a *Full detail* cloth's driver, one free particle's frame relative to the cloth's holder (EDIT_MODE_PHYSICS_CLOTH_DESIGN.md §10.3), with `sub` `ClothDriverSub(cloth, driver)`. The editor's own: an export makes bones of them (`ExpandClothToBones`), and no writer keys them.)doc")
+        .value("COUNT", whiteout::models::wem::Channel::Count, R"doc(F32x3 and Quat: a *Full detail* cloth's driver, one free particle's frame relative to the cloth's holder (EDIT_MODE_PHYSICS_CLOTH_DESIGN.md §10.3), with `sub` `ClothDriverSub(cloth, driver)`. The editor's own: an export makes bones of them (`ExpandClothToBones`), and no writer keys them.)doc")
     ;
 
     py::enum_<whiteout::models::wem::Interpolation>(m, "Interpolation")
@@ -1023,6 +1026,22 @@ Stored, because a conversion rewrites the keys for another game and the rule has
         .value("CAPSULE", whiteout::models::wem::ClothColliderKind::Capsule)
         .value("PLANE", whiteout::models::wem::ClothColliderKind::Plane)
         .value("COUNT", whiteout::models::wem::ClothColliderKind::Count)
+    ;
+
+    py::enum_<whiteout::models::wem::ClothCageKind>(m, "ClothCageKind", R"doc(The simulation mesh the editor builds (EDIT_MODE_PHYSICS_CLOTH_DESIGN.md §5.2): picked by *Auto*, the faces themselves, a grid flowing from the pinned edge, a strip down a chain, an edge collapse, or faces of the user's own.)doc")
+        .value("AUTO", whiteout::models::wem::ClothCageKind::Auto)
+        .value("AS_MODELLED", whiteout::models::wem::ClothCageKind::AsModelled)
+        .value("GRID", whiteout::models::wem::ClothCageKind::Grid)
+        .value("STRIP", whiteout::models::wem::ClothCageKind::Strip)
+        .value("REDUCED", whiteout::models::wem::ClothCageKind::Reduced)
+        .value("FROM_FACES", whiteout::models::wem::ClothCageKind::FromFaces)
+        .value("COUNT", whiteout::models::wem::ClothCageKind::Count)
+    ;
+
+    py::enum_<whiteout::models::wem::ClothBakeInto>(m, "ClothBakeInto", R"doc(Where a bake writes a cloth's motion (§10.1): keys on its cloth bones, or a driver track per free particle that only an export makes bones of.)doc")
+        .value("BONES", whiteout::models::wem::ClothBakeInto::Bones)
+        .value("FULL_DETAIL", whiteout::models::wem::ClothBakeInto::FullDetail)
+        .value("COUNT", whiteout::models::wem::ClothBakeInto::Count)
     ;
 
     py::enum_<whiteout::models::wem::RigStart>(m, "RigStart", R"doc(When a rig starts simulating.)doc")
@@ -1385,6 +1404,18 @@ The vertex is left sorted heaviest first, with ties by bone, which is the order 
         .def("normalize", &whiteout::models::wem::geom::SkinBinding::normalize, R"doc(Scales each vertex's weights to sum to 1. Vertices with no influence, or with a total of zero, are left alone.)doc")
         .def("is_normalized", &whiteout::models::wem::geom::SkinBinding::isNormalized, py::arg("tolerance") = whiteout::f32{}, R"doc(True when every skinned vertex's weights sum to 1 within @p tolerance.)doc")
         .def("sort_by_weight", &whiteout::models::wem::geom::SkinBinding::sortByWeight, R"doc(Sorts each vertex's influences by descending weight — the documented order, which import must establish and edits must preserve.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::MeshSection>(m, "MeshSection", R"doc(Metadata only; one per draw section. The faces that belong to it are the ones whose `section` attribute names it.)doc")
+        .def(py::init<>())
+        .def_readwrite("name", &whiteout::models::wem::MeshSection::name)
+        .def_readwrite("material_slot", &whiteout::models::wem::MeshSection::materialSlot, R"doc(-> `Model::materialSlots[]`, or `kInvalidIndex` for NO MATERIAL: a section made by an editor before one has been chosen for it. The sentinel is the emitter links' (§10.9), so one rule covers both, and every profile draws such a section as plain white (`toMdx` writes it a blank SD material; a profile that cannot say "none" must write one).)doc")
+        .def_readwrite("profiles", &whiteout::models::wem::MeshSection::profiles, R"doc(Which profiles draw this section (§6).)doc")
+        .def_readwrite("rigid_node", &whiteout::models::wem::MeshSection::rigidNode, R"doc(Set: every vertex binds here at weight 1 (§5.6).)doc")
+        .def_readwrite("selection_group", &whiteout::models::wem::MeshSection::selectionGroup, R"doc(MDX geoset group / M2 skinSectionId.)doc")
+        .def_readwrite("flags", &whiteout::models::wem::MeshSection::flags)
+        .def_readwrite("bounds", &whiteout::models::wem::MeshSection::bounds, R"doc(Derived, recomputed.)doc")
+        .def_readwrite("native", &whiteout::models::wem::MeshSection::native)
     ;
 
     bind_wem_1(m);

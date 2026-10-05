@@ -768,7 +768,7 @@ TEST_CASE("wem a physics chunk from before the locks reads unlocked, with no rec
         if (entry.tag != ChunkTagTraits<PhysicsBody>::value && entry.tag != ChunkTagTraits<PhysicsJoint>::value &&
             entry.tag != ChunkTagTraits<PhysicsRig>::value)
             continue;
-        CHECK(entry.version == 3u);
+        CHECK(entry.version == (entry.tag == ChunkTagTraits<PhysicsRig>::value ? 4u : 3u));
         entry.version = 2;
         std::memcpy(bytes.data() + at, &entry, sizeof(entry));
         ++stamped;
@@ -881,4 +881,151 @@ TEST_CASE("wem validation names a shape with no size and a flat hull", "[wem][ph
     hull.points.push_back(Vector3f{0.5f, 0.5f, 1.0f});
     flat.models[0].physics.bodies[0].shapes.back() = hull;
     CHECK(degenerate(flat) == base);
+}
+
+// ---- The Fracture's recipe (EDIT_MODE_FRACTURE_DESIGN.md §13.1) ---------------
+
+namespace {
+
+/// The authored document with a fracture's rig: its recipe off its defaults.
+Document Fractured() {
+    Document document = Authored();
+    Model& model = document.models[0];
+    PhysicsRig rig;
+    rig.id = model.physics.allocateId();
+    rig.name = "Barrel";
+    rig.start = RigStart::Animated;
+    rig.bodies = {model.physics.bodies[0].id};
+    FractureRecipe recipe;
+    recipe.keepWhole = false;
+    recipe.sources = {kInvalidIndex};
+    recipe.made = {0, kInvalidIndex};
+    recipe.pieces = {24};
+    recipe.skinNodes = {0, 1};
+    recipe.seed = 4127;
+    recipe.nearBlast = 0.25f;
+    recipe.grain = 3;
+    recipe.openParts = 1;
+    recipe.thickness = 0.5f;
+    recipe.inside = 2;
+    recipe.hullPoints = 24;
+    recipe.splitHollow = false;
+    recipe.material = 7;
+    recipe.helper = 0;
+    recipe.field = 1;
+    recipe.channel = 2;
+    recipe.seeds = {Vector3f(1, 2, 3), Vector3f(-1, 0, 4)};
+    recipe.statics = {Vector3f(-1, 0, 4)};
+    rig.fracture = recipe;
+    model.physics.rigs.push_back(rig);
+    return document;
+}
+
+} // namespace
+
+TEST_CASE("wem physics carries a fracture's recipe", "[wem][physics][fracture]") {
+    const Document document = Fractured();
+    Writer writer;
+    const std::vector<u8> bytes = writer.write(document);
+    Parser parser;
+    const std::optional<Document> read = parser.parse(std::span<const u8>(bytes));
+    REQUIRE(read.has_value());
+    const PhysicsSet& back = read->models[0].physics;
+    REQUIRE(back.rigs.size() == 2u);
+    CHECK_FALSE(back.rigs[0].fracture.has_value());
+    REQUIRE(back.rigs[1].fracture.has_value());
+    const FractureRecipe& recipe = *back.rigs[1].fracture;
+    CHECK_FALSE(recipe.keepWhole);
+    CHECK(recipe.sources == std::vector<u32>{kInvalidIndex});
+    CHECK(recipe.made == std::vector<u32>{0, kInvalidIndex});
+    CHECK(recipe.pieces == std::vector<u16>{24});
+    CHECK(recipe.skinNodes == std::vector<u32>{0, 1});
+    CHECK(recipe.seed == 4127u);
+    CHECK(recipe.nearBlast == 0.25f);
+    CHECK(recipe.grain == 3);
+    CHECK(recipe.openParts == 1);
+    CHECK(recipe.thickness == 0.5f);
+    CHECK(recipe.inside == 2u);
+    CHECK(recipe.hullPoints == 24);
+    CHECK_FALSE(recipe.splitHollow);
+    CHECK(recipe.material == 7u);
+    CHECK(recipe.helper == 0u);
+    CHECK(recipe.field == 1u);
+    CHECK(recipe.channel == 2);
+    REQUIRE(recipe.seeds.size() == 2u);
+    CHECK(recipe.seeds[1].z == 4.0f);
+    REQUIRE(recipe.statics.size() == 1u);
+}
+
+TEST_CASE("wem a rig from before the fracture reads with none", "[wem][physics][fracture]") {
+    // What a v3 writer left: the rig chunks stamped v3 stop before the recipe.
+    Document document = Fractured();
+    document.models[0].physics.rigs.erase(document.models[0].physics.rigs.begin());
+    Writer writer;
+    std::vector<u8> bytes = writer.write(document);
+    WEMHeader header{};
+    std::memcpy(&header, bytes.data(), sizeof(header));
+    u32 stamped = 0;
+    for (u32 i = 0; i < header.indexCount; ++i) {
+        IndexEntry entry{};
+        const std::size_t at = header.indexOffset + i * sizeof(IndexEntry);
+        std::memcpy(&entry, bytes.data() + at, sizeof(entry));
+        if (entry.tag != ChunkTagTraits<PhysicsRig>::value)
+            continue;
+        CHECK(entry.version == 4u);
+        entry.version = 3;
+        std::memcpy(bytes.data() + at, &entry, sizeof(entry));
+        ++stamped;
+    }
+    REQUIRE(stamped == 1u);
+    Parser parser;
+    const std::optional<Document> read = parser.parse(std::span<const u8>(bytes));
+    REQUIRE(read.has_value());
+    REQUIRE(read->models[0].physics.rigs.size() == 1u);
+    CHECK(read->models[0].physics.rigs[0].name == "Barrel");
+    CHECK_FALSE(read->models[0].physics.rigs[0].fracture.has_value());
+}
+
+TEST_CASE("wem a fracture's recipe follows the mesh and node tables", "[wem][physics][fracture]") {
+    Document document = Fractured();
+    PhysicsSet& physics = document.models[0].physics;
+    FractureRecipe& recipe = *physics.rigs[1].fracture;
+    // Node 0 goes: what named it is cleared, and the skin nodes keep their places.
+    const std::vector<u32> nodeRemap = {kInvalidNode, 0};
+    RemapPhysicsNodes(physics, nodeRemap);
+    CHECK(recipe.helper == kInvalidNode);
+    CHECK(recipe.field == 0u);
+    CHECK(recipe.skinNodes == std::vector<u32>{kInvalidNode, 0});
+    // Mesh 0 goes.
+    const std::vector<u32> meshRemap = {kInvalidIndex};
+    RemapPhysicsMeshes(physics, meshRemap);
+    CHECK(recipe.made == std::vector<u32>{kInvalidIndex, kInvalidIndex});
+    CHECK(recipe.sources == std::vector<u32>{kInvalidIndex});
+}
+
+TEST_CASE("wem Validate names a fracture's index out of range", "[wem][physics][fracture]") {
+    Document document = Fractured();
+    CHECK(Validate(document, ValidateLevel::Structural).byCode(DiagCode::PhysicsReferenceInvalid).empty());
+    document.models[0].physics.rigs[1].fracture->made = {0, 99};
+    CHECK_FALSE(Validate(document, ValidateLevel::Structural).byCode(DiagCode::PhysicsReferenceInvalid).empty());
+}
+
+TEST_CASE("wem WoW drops a fracture's rig, and says to bake it", "[wem][physics][fracture]") {
+    Document document = Fractured();
+    document.models[0].physics.rigs.erase(document.models[0].physics.rigs.begin());
+    const u32 body = document.models[0].physics.rigs[0].bodies[0];
+    Diagnostics out;
+    FitPhysicsToProfile(document, ProfileId::Wow, out);
+    REQUIRE(document.models[0].physics.rigs.size() == 1u);
+    CHECK(document.models[0].physics.rigs[0].bodies.empty());
+    CHECK(document.models[0].physics.body(body) == nullptr);
+    const std::vector<Diagnostic> dropped = out.byCode(DiagCode::PhysicsRigDropped);
+    REQUIRE(dropped.size() == 1u);
+    CHECK(dropped[0].message.find("bake") != std::string::npos);
+    // StarCraft II keeps it: its members move in some clip, or it is Animated.
+    Document sc2 = Fractured();
+    sc2.models[0].physics.rigs.erase(sc2.models[0].physics.rigs.begin());
+    Diagnostics kept;
+    FitPhysicsToProfile(sc2, ProfileId::Sc2, kept);
+    CHECK(kept.byCode(DiagCode::PhysicsRigDropped).empty());
 }

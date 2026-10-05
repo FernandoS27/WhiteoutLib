@@ -39,6 +39,13 @@ constexpr ReservedRow kReserved[] = {
     {names::kClothMovable, Domain::Vertex, AttrType::Bool},
     {names::kClothBindVertex, Domain::Vertex, AttrType::U32x4},
     {names::kClothBindWeight, Domain::Vertex, AttrType::F32x4},
+    // The Fracture's (EDIT_MODE_FRACTURE_DESIGN.md §6.4).
+    {names::kFractureSource, Domain::Face, AttrType::U32},
+    {names::kFractureMade, Domain::Face, AttrType::Bool},
+    {names::kFractureCut, Domain::Vertex, AttrType::Bool},
+    {names::kFractureWeld, Domain::Vertex, AttrType::U32},
+    {names::kFractureSkinNode, Domain::Vertex, AttrType::U32x4},
+    {names::kFractureSkinWeight, Domain::Vertex, AttrType::F32x4},
 };
 
 /// True when @p name is @p prefix followed by one or more decimal digits.

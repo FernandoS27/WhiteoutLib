@@ -54,6 +54,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::f32>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::string>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u8>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u32>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u16>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Vector2f>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Vector3f>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimChannel>);
@@ -163,31 +164,6 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 2 of bind_wem(), which calls the parts in order.
 void bind_wem_2(py::module_& m) {
-    py::class_<whiteout::models::wem::PhysicsBody>(m, "PhysicsBody")
-        .def(py::init<>())
-        .def_readwrite("id", &whiteout::models::wem::PhysicsBody::id)
-        .def_readwrite("node", &whiteout::models::wem::PhysicsBody::node)
-        .def_readwrite("motion", &whiteout::models::wem::PhysicsBody::motion)
-        .def_readwrite("simulates", &whiteout::models::wem::PhysicsBody::simulates, R"doc(The rest value of `Channel::PhysicsDynamic`: whether it simulates where no key says otherwise.)doc")
-        .def_readwrite("shapes", &whiteout::models::wem::PhysicsBody::shapes)
-        .def_readwrite("linear_damping", &whiteout::models::wem::PhysicsBody::linearDamping)
-        .def_readwrite("angular_damping", &whiteout::models::wem::PhysicsBody::angularDamping)
-        .def_readwrite("inertia_scale", &whiteout::models::wem::PhysicsBody::inertiaScale)
-        .def_readwrite("gravity_scale", &whiteout::models::wem::PhysicsBody::gravityScale, R"doc(StarCraft II hard-wires 1; World of Warcraft authors it.)doc")
-        .def_readwrite("inherit_dynamic", &whiteout::models::wem::PhysicsBody::inheritDynamic, R"doc(Takes the nearest bodied ancestor's current state instead of its own (StarCraft II flag 0x40).)doc")
-        .def_readwrite("exempt_from_ragdoll", &whiteout::models::wem::PhysicsBody::exemptFromRagdoll, R"doc(Stays kinematic when the model ragdolls (StarCraft II flag 0x100).)doc")
-        .def_readwrite("force_channels", &whiteout::models::wem::PhysicsBody::forceChannels, R"doc(Which force fields act on it: matched against `ForceFieldPayload::channels`. StarCraft II's `localForces | worldForces << 16`.)doc")
-        .def_readwrite("sc2", &whiteout::models::wem::PhysicsBody::sc2)
-        .def_readwrite("wow", &whiteout::models::wem::PhysicsBody::wow)
-        .def_readwrite("locked", &whiteout::models::wem::PhysicsBody::locked, R"doc(Tuned by hand: the editor's tools that run over a whole ragdoll leave its shapes alone (EDIT_MODE_PHYSICS_REDESIGN.md §8.7). Authoring state; no export reads it.)doc")
-    ;
-
-    py::class_<whiteout::models::wem::JointSpring>(m, "JointSpring")
-        .def(py::init<>())
-        .def_readwrite("hz", &whiteout::models::wem::JointSpring::hz)
-        .def_readwrite("damping", &whiteout::models::wem::JointSpring::damping)
-    ;
-
     py::class_<whiteout::models::wem::PhysicsJoint>(m, "PhysicsJoint")
         .def(py::init<>())
         .def_readwrite("id", &whiteout::models::wem::PhysicsJoint::id)
@@ -226,6 +202,8 @@ void bind_wem_2(py::module_& m) {
         .def_readwrite("kind", &whiteout::models::wem::ClothCollider::kind)
         .def_readwrite("radius", &whiteout::models::wem::ClothCollider::radius)
         .def_readwrite("length", &whiteout::models::wem::ClothCollider::length, R"doc(Full length.)doc")
+        .def_readwrite("body", &whiteout::models::wem::ClothCollider::body, R"doc(The body shape it follows (*Cloth collider*), whose node, frame, radius and length `FollowShapes` keeps it at; `body` 0 follows none.)doc")
+        .def_readwrite("shape", &whiteout::models::wem::ClothCollider::shape)
     ;
 
     py::class_<whiteout::models::wem::ClothBinding>(m, "ClothBinding", R"doc(A section the cloth drives. Which cage vertices move each of its vertices, and how much, are the `cloth.bind.*` layers of the mesh.)doc")
@@ -250,6 +228,20 @@ void bind_wem_2(py::module_& m) {
         .def_readwrite("skin_stiffness", &whiteout::models::wem::Sc2ClothParams::skinStiffness)
     ;
 
+    py::class_<whiteout::models::wem::ClothRecipe>(m, "ClothRecipe", R"doc(How the editor made a cloth, so a remake builds it the same way (§11). Authoring state, like `RagdollRecipe`: no export reads it.)doc")
+        .def(py::init<>())
+        .def_readwrite("name", &whiteout::models::wem::ClothRecipe::name, R"doc("Cloth01"; also the prefix of the bones an export makes.)doc")
+        .def_readwrite("bones", &whiteout::models::wem::ClothRecipe::bones, R"doc(The cloth bones, Blizzard's *Skin Bones*: node indices.)doc")
+        .def_readwrite("threshold", &whiteout::models::wem::ClothRecipe::threshold, R"doc(The share of a point's skin on `bones` from which it simulates; below it, the point is pinned. In (0, 1].)doc")
+        .def_readwrite("cage", &whiteout::models::wem::ClothRecipe::cage)
+        .def_readwrite("particles", &whiteout::models::wem::ClothRecipe::particles)
+        .def_readwrite("reach", &whiteout::models::wem::ClothRecipe::reach, R"doc(How far a drawn point may be from the cage and still follow it, as a share of the cloth's size (Blizzard's *Max Influence Distance*).)doc")
+        .def_readwrite("pins_by_hand", &whiteout::models::wem::ClothRecipe::pinsByHand, R"doc(Painted pins win over the rule when the cloth is remade.)doc")
+        .def_readwrite("bake_into", &whiteout::models::wem::ClothRecipe::bakeInto)
+        .def_readwrite("from", &whiteout::models::wem::ClothRecipe::from, R"doc(Each bound section's section of origin, in `Cloth::bindings` order: where *Delete cloth* merges its faces back.)doc")
+        .def_readwrite("cage_from", &whiteout::models::wem::ClothRecipe::cageFrom, R"doc(*From other faces*: the section the cage's faces came from, where they go back; `kInvalidIndex` for a cage the editor built.)doc")
+    ;
+
     py::class_<whiteout::models::wem::Cloth>(m, "Cloth", R"doc(One cloth: its cage, what it drives, what it collides with.
 
 **Topology is mesh data.** The cage is a section flagged `ClothSimulated` and each particle is one of its vertices; the cage's own skin is the particles' anchors, and `geom::names::kClothMovable` says which may move. A bound section is flagged `ClothInfluenced` and lives in the cage's mesh.)doc")
@@ -267,6 +259,7 @@ void bind_wem_2(py::module_& m) {
         .def_readwrite("gravity_scale", &whiteout::models::wem::Cloth::gravityScale, R"doc(On the host's gravity.)doc")
         .def_readwrite("wind", &whiteout::models::wem::Cloth::wind, R"doc(Model space.)doc")
         .def_readwrite("sc2", &whiteout::models::wem::Cloth::sc2)
+        .def_readwrite("recipe", &whiteout::models::wem::Cloth::recipe, R"doc(Set when the editor made it; an imported cloth has none.)doc")
     ;
 
     py::class_<whiteout::models::wem::WowVegetation>(m, "WowVegetation", R"doc(`PHYV`: the six `physVeg*` values a vegetation phantom is pushed by, in yards (`PHYS_FORMAT.md` §3.9).)doc")
@@ -305,6 +298,33 @@ void bind_wem_2(py::module_& m) {
         .def_readwrite("angular_damping", &whiteout::models::wem::RagdollRecipe::angularDamping)
     ;
 
+    py::class_<whiteout::models::wem::FractureRecipe>(m, "FractureRecipe", R"doc(How the Workshop's Fracture broke its meshes (EDIT_MODE_FRACTURE_DESIGN.md §13), so it can break them again, or put them back. Authoring state; no export reads it.)doc")
+        .def(py::init<>())
+        .def_readwrite("keep_whole", &whiteout::models::wem::FractureRecipe::keepWhole, R"doc(*Keep the whole meshes* (D1); off, Update and Remove rejoin.)doc")
+        .def_readwrite("sources", &whiteout::models::wem::FractureRecipe::sources, R"doc(Per target, its whole mesh, hidden and kept by no profile; `kInvalidIndex` with `keepWhole` off, or once deleted by hand.)doc")
+        .def_readwrite("made", &whiteout::models::wem::FractureRecipe::made, R"doc(Per target, two: its outside, then its inside or none.)doc")
+        .def_readwrite("pieces", &whiteout::models::wem::FractureRecipe::pieces, R"doc(Per target, the pieces asked for; 1 is Whole.)doc")
+        .def_readwrite("skin_nodes", &whiteout::models::wem::FractureRecipe::skinNodes, R"doc(The nodes `fracture.skin.node` names, by index + 1.)doc")
+        .def_readwrite("seed", &whiteout::models::wem::FractureRecipe::seed)
+        .def_readwrite("near_blast", &whiteout::models::wem::FractureRecipe::nearBlast, R"doc(*Smaller near the blast*.)doc")
+        .def_readwrite("even", &whiteout::models::wem::FractureRecipe::even)
+        .def_readwrite("grain", &whiteout::models::wem::FractureRecipe::grain, R"doc(None, X, Y, Z.)doc")
+        .def_readwrite("stretch", &whiteout::models::wem::FractureRecipe::stretch)
+        .def_readwrite("smallest", &whiteout::models::wem::FractureRecipe::smallest, R"doc(A share of the average piece.)doc")
+        .def_readwrite("open_parts", &whiteout::models::wem::FractureRecipe::openParts, R"doc(Solid where enclosed, Thicken.)doc")
+        .def_readwrite("thickness", &whiteout::models::wem::FractureRecipe::thickness, R"doc(Model units; 0 is 2 % of the source's size.)doc")
+        .def_readwrite("inside", &whiteout::models::wem::FractureRecipe::inside, R"doc(A material slot; none is the outside's.)doc")
+        .def_readwrite("uv_scale", &whiteout::models::wem::FractureRecipe::uvScale)
+        .def_readwrite("hull_points", &whiteout::models::wem::FractureRecipe::hullPoints)
+        .def_readwrite("split_hollow", &whiteout::models::wem::FractureRecipe::splitHollow)
+        .def_readwrite("material", &whiteout::models::wem::FractureRecipe::material, R"doc(A StarCraft II preset (`materials.h`): Rock.)doc")
+        .def_readwrite("helper", &whiteout::models::wem::FractureRecipe::helper, R"doc(Between the pieces and their parent, or none.)doc")
+        .def_readwrite("field", &whiteout::models::wem::FractureRecipe::field, R"doc(The blast's node.)doc")
+        .def_readwrite("channel", &whiteout::models::wem::FractureRecipe::channel, R"doc(The Local channel bit its field and pieces share.)doc")
+        .def_readwrite("seeds", &whiteout::models::wem::FractureRecipe::seeds, R"doc(Every piece's seed, model space, so a re-break stays the same across library versions; and the static pieces' seeds (§7.3).)doc")
+        .def_readwrite("statics", &whiteout::models::wem::FractureRecipe::statics)
+    ;
+
     py::class_<whiteout::models::wem::PhysicsRig>(m, "PhysicsRig", R"doc(A named subset of bodies a game switches on at once (World of Warcraft, Diablo III). StarCraft II has none: its import makes none and its export ignores them.)doc")
         .def(py::init<>())
         .def_readwrite("id", &whiteout::models::wem::PhysicsRig::id)
@@ -313,6 +333,7 @@ void bind_wem_2(py::module_& m) {
         .def_readwrite("bodies", &whiteout::models::wem::PhysicsRig::bodies, R"doc(Body ids.)doc")
         .def_readwrite("wow", &whiteout::models::wem::PhysicsRig::wow)
         .def_readwrite("recipe", &whiteout::models::wem::PhysicsRig::recipe, R"doc(Set when the editor built it as a ragdoll; none reads as the defaults.)doc")
+        .def_readwrite("fracture", &whiteout::models::wem::PhysicsRig::fracture, R"doc(Set when the Workshop's Fracture made it.)doc")
     ;
 
     py::class_<whiteout::models::wem::PhysicsSet>(m, "PhysicsSet")
@@ -336,6 +357,17 @@ void bind_wem_2(py::module_& m) {
         .def_readwrite("snap_angular", &whiteout::models::wem::PhysicsHost::snapAngular)
         .def_readwrite("release_linear", &whiteout::models::wem::PhysicsHost::releaseLinear)
         .def_readwrite("release_angular", &whiteout::models::wem::PhysicsHost::releaseAngular)
+    ;
+
+    py::class_<whiteout::models::wem::ClothPreset>(m, "ClothPreset", R"doc(A cloth's solver parameters, as a preset sets them (EDIT_MODE_PHYSICS_CLOTH_DESIGN.md §8): the middles of the clusters a census of the shipped StarCraft II and Heroes cloths found.)doc")
+        .def(py::init<>())
+        .def_readwrite("density", &whiteout::models::wem::ClothPreset::density)
+        .def_readwrite("damping", &whiteout::models::wem::ClothPreset::damping)
+        .def_readwrite("friction", &whiteout::models::wem::ClothPreset::friction)
+        .def_readwrite("stretch_stiffness", &whiteout::models::wem::ClothPreset::stretchStiffness)
+        .def_readwrite("bend_stiffness", &whiteout::models::wem::ClothPreset::bendStiffness)
+        .def_readwrite("gravity_scale", &whiteout::models::wem::ClothPreset::gravityScale)
+        .def_readwrite("sc2", &whiteout::models::wem::ClothPreset::sc2)
     ;
 
     py::class_<whiteout::models::wem::SlotBinding>(m, "SlotBinding", R"doc(Which material each look picks, for one slot.

@@ -467,6 +467,12 @@ add_library(whiteout_lib
     src/whiteout/models/wem/geometry/retopo/position_field.cpp
     src/whiteout/models/wem/geometry/retopo/field_extract.cpp
     src/whiteout/models/wem/geometry/retopo/retopology.cpp
+    src/whiteout/models/wem/geometry/cdt.cpp
+    src/whiteout/models/wem/geometry/fracture/seeds.cpp
+    src/whiteout/models/wem/geometry/fracture/cells.cpp
+    src/whiteout/models/wem/geometry/fracture/winding.cpp
+    src/whiteout/models/wem/geometry/fracture/cut.cpp
+    src/whiteout/models/wem/geometry/fracture/fracture.cpp
     src/whiteout/models/wem/nodes/node.cpp
     src/whiteout/models/wem/nodes/tree.cpp
     src/whiteout/models/wem/nodes/visitor.cpp

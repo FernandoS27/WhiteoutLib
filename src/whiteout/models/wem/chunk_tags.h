@@ -591,7 +591,7 @@ struct ChunkTagTraits<ClothBinding> {
 template <>
 struct ChunkTagTraits<PhysicsRig> {
     static constexpr u32 value = kTag("PRIG");
-    static constexpr u32 max_version = 3; // v2: the `wow` extension; v3: the ragdoll's recipe
+    static constexpr u32 max_version = 4; // v2: the `wow` extension; v3: the ragdoll's recipe; v4: the fracture's
     static constexpr bool is_trivial = false;
 };
 

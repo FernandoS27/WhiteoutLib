@@ -31,6 +31,16 @@ bool Keeps(const PhysicsCaps& caps, RigStart start, bool hasOnDeath) {
     return start == RigStart::Always || start == RigStart::Animated;
 }
 
+/// A fracture's rig holds its pieces until its blast. A target that simulates
+/// every body from creation would drop them at spawn: its clip is baked instead
+/// (EDIT_MODE_FRACTURE_DESIGN.md §12).
+bool Keeps(const PhysicsCaps& caps, const PhysicsRig& rig, bool hasOnDeath) {
+    if (rig.fracture && !caps.switches) {
+        return false;
+    }
+    return Keeps(caps, rig.start, hasOnDeath);
+}
+
 /// Leaves only the rigs @p caps keeps, dropping the bodies no kept rig holds.
 u32 ChooseRigs(Model& model, ProfileId target, const PhysicsCaps& caps, Diagnostics& out) {
     PhysicsSet& physics = model.physics;
@@ -39,21 +49,21 @@ u32 ChooseRigs(Model& model, ProfileId target, const PhysicsCaps& caps, Diagnost
     });
     std::set<u32> kept;
     for (const PhysicsRig& rig : physics.rigs) {
-        if (Keeps(caps, rig.start, hasOnDeath)) {
+        if (Keeps(caps, rig, hasOnDeath)) {
             kept.insert(rig.bodies.begin(), rig.bodies.end());
         }
     }
     u32 changed = 0;
     std::vector<u32> gone;
     for (const PhysicsRig& rig : physics.rigs) {
-        if (Keeps(caps, rig.start, hasOnDeath)) {
+        if (Keeps(caps, rig, hasOnDeath)) {
             continue;
         }
         ++changed;
-        out.warn(DiagCode::PhysicsRigDropped,
-                 "rig '" + rig.name + "': " +
-                     (caps.switches ? "the model's death rig is the one the target switches on"
-                                    : "the target simulates from creation and cannot start it later"),
+        const char* why = rig.fracture ? "a fracture's pieces would fall at spawn: bake its clip"
+                          : caps.switches ? "the model's death rig is the one the target switches on"
+                                          : "the target simulates from creation and cannot start it later";
+        out.warn(DiagCode::PhysicsRigDropped, "rig '" + rig.name + "': " + why,
                  ElementRef(ElementKind::PhysicsRecord, rig.id), target);
         for (const u32 id : rig.bodies) {
             if (kept.count(id) == 0) {
