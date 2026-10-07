@@ -176,6 +176,9 @@ inline constexpr const char* kFractureWeld = "fracture.weld";
 inline constexpr const char* kFractureSkinNode = "fracture.skin.node";
 /// Vertex / F32x4: those nodes' weights.
 inline constexpr const char* kFractureSkinWeight = "fracture.skin.weight";
+/// Face / U32: the section the face was in, + 1, before its own was made for
+/// a file's 16-bit indices (`FractureSpec::mostVertices`).
+inline constexpr const char* kFractureSection = "fracture.section";
 
 /// "uv0", "uv1", … Valid for @p index < 8; the string is built, not interned.
 std::string uv(u32 index);

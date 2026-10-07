@@ -634,8 +634,9 @@ struct RagdollRecipe {
 /// export reads it.
 struct FractureRecipe {
     bool keepWhole = true; ///< *Keep the whole meshes* (D1); off, Update and Remove rejoin.
-    /// Per target, its whole mesh, hidden and kept by no profile; `kInvalidIndex`
-    /// with `keepWhole` off, or once deleted by hand.
+    /// Per target, its whole mesh, kept by no profile unless it draws before
+    /// the start (`wholeGate`); `kInvalidIndex` with `keepWhole` off, or once
+    /// deleted by hand.
     std::vector<u32> sources;
     std::vector<u32> made;      ///< Per target, two: its outside, then its inside or none.
     std::vector<u16> pieces;    ///< Per target, the pieces asked for; 1 is Whole.
@@ -657,9 +658,67 @@ struct FractureRecipe {
     u32 field = kInvalidNode;   ///< The blast's node.
     u8 channel = 0;             ///< The Local channel bit its field and pieces share.
     /// Every piece's seed, model space, so a re-break stays the same across
-    /// library versions; and the static pieces' seeds (§7.3).
+    /// library versions; and the static pieces' seeds (§7.3). A *Slices*
+    /// fracture keeps each region's middle as its seed.
     std::vector<Vector3f> seeds;
     std::vector<Vector3f> statics;
+    // The next round's (EDIT_MODE_FRACTURE_NEXT_DESIGN.md §6); PRIG v5.
+    u8 method = 0;  ///< Fracture, Slices.
+    u16 total = 0;  ///< *Pieces*: what the unpinned targets shared. 0: each has its own.
+    std::vector<u8> pinned; ///< Per target, 1 when `pieces` is its own count, not a share.
+    /// *Slices*' plane sets (§3.1), an entry each: along X, Y, Z or, 3, its
+    /// direction; how many planes; jitter, 0..1 of half a gap; tilt, radians;
+    /// and shift, model units along the direction.
+    std::vector<u8> sliceAlong;
+    std::vector<Vector3f> sliceDirections;
+    std::vector<u16> sliceCounts;
+    std::vector<f32> sliceJitters;
+    std::vector<f32> sliceTilts;
+    std::vector<f32> sliceShifts;
+    /// The planes cut along (normal · x = offset), kept as the seeds are.
+    std::vector<Vector3f> planeNormals;
+    std::vector<f32> planeOffsets;
+    u8 push = 0;    ///< Blast, Implode, None.
+    u8 release = 0; ///< All at once, Bottom up, Top down, Outward.
+    f32 over = 0.0f; ///< A staggered release's time, seconds.
+    /// *Loosen*: how much smaller each piece's hull is than the piece, as a
+    /// share of its size. Above 0 a stacked mass slumps under gravity alone.
+    f32 loosen = 0.0f;
+    /// The start's centre and reach, model space: a *None* push leaves no field
+    /// to read them from. A radius of 0 is an older recipe, read from its field.
+    Vector3f centre{0, 0, 0};
+    f32 radius = 0.0f;
+    f32 strength = 10.0f; ///< In g.
+    f32 length = 0.1f;    ///< The push's, seconds.
+    f32 at = 0.0f;        ///< Seconds into the clip.
+    u8 fillingUvs = 0;    ///< Tiled, One square.
+    u32 mapSize = 1024;
+    bool fillingMade = false; ///< The fracture made the `inside` material; Remove takes it out.
+    // What draws before the start (EDIT_MODE_FRACTURE_NEXT_DESIGN.md §11); PRIG v6.
+    /// 0 Auto, 1 the whole mesh, 2 the pieces. An older recipe drew the pieces.
+    u8 before = 2;
+    /// The swap's gates (`kSectionVisibilityNode`): the whole meshes are drawn
+    /// while `wholeGate` is visible and the pieces while `piecesGate` is. None
+    /// when the pieces draw in every clip.
+    u32 wholeGate = kInvalidNode;
+    u32 piecesGate = kInvalidNode;
+    // Planes placed one by one, and the skeleton cut
+    // (EDIT_MODE_FRACTURE_NEXT_DESIGN.md §12); PRIG v7.
+    /// Per plane of `planeNormals`, where it cuts: a rectangle about its
+    /// centre, a half width along `planeAlongs` and a half height across. A
+    /// size of 0, and every plane of an older recipe, cuts everywhere.
+    std::vector<Vector3f> planeCentres;
+    std::vector<Vector3f> planeAlongs;
+    std::vector<f32> planeWidths;
+    std::vector<f32> planeHeights;
+    /// The pieces keep their skin, on copies of the bones they rode.
+    bool cutSkeleton = false;
+    /// The copies the skeleton cut made, besides the pieces' own bones.
+    std::vector<u32> bones;
+    /// The ragdoll cut with the skeleton (§12.5); PRIG v8. The bodies the
+    /// model had on the bones cut are stated again on each piece's copies,
+    /// members of this rig, with the joints no cut parted.
+    bool cutRagdoll = false;
 
     template <class V>
     void reflect(V& v) {
@@ -686,6 +745,39 @@ struct FractureRecipe {
         v.field("channel", channel);
         v.field("seeds", seeds);
         v.field("statics", statics);
+        v.since(5).field("method", method);
+        v.since(5).field("total", total);
+        v.since(5).field("pinned", pinned);
+        v.since(5).field("sliceAlong", sliceAlong);
+        v.since(5).field("sliceDirections", sliceDirections);
+        v.since(5).field("sliceCounts", sliceCounts);
+        v.since(5).field("sliceJitters", sliceJitters);
+        v.since(5).field("sliceTilts", sliceTilts);
+        v.since(5).field("sliceShifts", sliceShifts);
+        v.since(5).field("planeNormals", planeNormals);
+        v.since(5).field("planeOffsets", planeOffsets);
+        v.since(5).field("push", push);
+        v.since(5).field("release", release);
+        v.since(5).field("over", over);
+        v.since(5).field("loosen", loosen);
+        v.since(5).field("centre", centre);
+        v.since(5).field("radius", radius);
+        v.since(5).field("strength", strength);
+        v.since(5).field("length", length);
+        v.since(5).field("at", at);
+        v.since(5).field("fillingUvs", fillingUvs);
+        v.since(5).field("mapSize", mapSize);
+        v.since(5).field("fillingMade", fillingMade);
+        v.since(6).field("before", before);
+        v.since(6).field("wholeGate", wholeGate);
+        v.since(6).field("piecesGate", piecesGate);
+        v.since(7).field("planeCentres", planeCentres);
+        v.since(7).field("planeAlongs", planeAlongs);
+        v.since(7).field("planeWidths", planeWidths);
+        v.since(7).field("planeHeights", planeHeights);
+        v.since(7).field("cutSkeleton", cutSkeleton);
+        v.since(7).field("bones", bones);
+        v.since(8).field("cutRagdoll", cutRagdoll);
     }
 };
 

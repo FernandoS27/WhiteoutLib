@@ -860,6 +860,7 @@ Cdt2d ConstrainedTriangulation2d(std::span<const Vector2<f64>> points,
             same[i] = root(i);
         }
     }
+    out.same = same;
     const i64 g = static_cast<i64>(kGrid);
     grid[count] = Point{-4 * g, -4 * g};
     grid[count + 1] = Point{9 * g, -4 * g};

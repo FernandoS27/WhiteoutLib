@@ -768,7 +768,7 @@ TEST_CASE("wem a physics chunk from before the locks reads unlocked, with no rec
         if (entry.tag != ChunkTagTraits<PhysicsBody>::value && entry.tag != ChunkTagTraits<PhysicsJoint>::value &&
             entry.tag != ChunkTagTraits<PhysicsRig>::value)
             continue;
-        CHECK(entry.version == (entry.tag == ChunkTagTraits<PhysicsRig>::value ? 4u : 3u));
+        CHECK(entry.version == (entry.tag == ChunkTagTraits<PhysicsRig>::value ? 8u : 3u));
         entry.version = 2;
         std::memcpy(bytes.data() + at, &entry, sizeof(entry));
         ++stamped;
@@ -916,6 +916,39 @@ Document Fractured() {
     recipe.channel = 2;
     recipe.seeds = {Vector3f(1, 2, 3), Vector3f(-1, 0, 4)};
     recipe.statics = {Vector3f(-1, 0, 4)};
+    recipe.method = 1;
+    recipe.total = 40;
+    recipe.pinned = {1};
+    recipe.sliceAlong = {3};
+    recipe.sliceDirections = {Vector3f(1, 1, 0)};
+    recipe.sliceCounts = {5};
+    recipe.sliceJitters = {0.25f};
+    recipe.sliceTilts = {0.1f};
+    recipe.sliceShifts = {-2.0f};
+    recipe.planeNormals = {Vector3f(0, 0, 1)};
+    recipe.planeOffsets = {1.5f};
+    recipe.push = 2;
+    recipe.release = 1;
+    recipe.over = 1.5f;
+    recipe.loosen = 0.2f;
+    recipe.centre = Vector3f(4, 5, 6);
+    recipe.radius = 80.0f;
+    recipe.strength = 3.0f;
+    recipe.length = 0.2f;
+    recipe.at = 0.4f;
+    recipe.fillingUvs = 1;
+    recipe.mapSize = 2048;
+    recipe.fillingMade = true;
+    recipe.before = 1;
+    recipe.wholeGate = 1;
+    recipe.piecesGate = 0;
+    recipe.planeCentres = {Vector3f(7, 8, 9)};
+    recipe.planeAlongs = {Vector3f(0, 1, 0)};
+    recipe.planeWidths = {12.0f};
+    recipe.planeHeights = {3.0f};
+    recipe.cutSkeleton = true;
+    recipe.bones = {1, 0};
+    recipe.cutRagdoll = true;
     rig.fracture = recipe;
     model.physics.rigs.push_back(rig);
     return document;
@@ -955,6 +988,134 @@ TEST_CASE("wem physics carries a fracture's recipe", "[wem][physics][fracture]")
     REQUIRE(recipe.seeds.size() == 2u);
     CHECK(recipe.seeds[1].z == 4.0f);
     REQUIRE(recipe.statics.size() == 1u);
+    // The next round's fields (PRIG v5).
+    CHECK(recipe.method == 1);
+    CHECK(recipe.total == 40);
+    CHECK(recipe.pinned == std::vector<u8>{1});
+    CHECK(recipe.sliceAlong == std::vector<u8>{3});
+    REQUIRE(recipe.sliceDirections.size() == 1u);
+    CHECK(recipe.sliceDirections[0].y == 1.0f);
+    CHECK(recipe.sliceCounts == std::vector<u16>{5});
+    CHECK(recipe.sliceJitters == std::vector<f32>{0.25f});
+    CHECK(recipe.sliceTilts == std::vector<f32>{0.1f});
+    CHECK(recipe.sliceShifts == std::vector<f32>{-2.0f});
+    REQUIRE(recipe.planeNormals.size() == 1u);
+    CHECK(recipe.planeNormals[0].z == 1.0f);
+    CHECK(recipe.planeOffsets == std::vector<f32>{1.5f});
+    CHECK(recipe.push == 2);
+    CHECK(recipe.release == 1);
+    CHECK(recipe.over == 1.5f);
+    CHECK(recipe.loosen == 0.2f);
+    CHECK(recipe.centre.y == 5.0f);
+    CHECK(recipe.radius == 80.0f);
+    CHECK(recipe.strength == 3.0f);
+    CHECK(recipe.length == 0.2f);
+    CHECK(recipe.at == 0.4f);
+    CHECK(recipe.fillingUvs == 1);
+    CHECK(recipe.mapSize == 2048u);
+    CHECK(recipe.fillingMade);
+    // What draws before the start (PRIG v6).
+    CHECK(recipe.before == 1);
+    CHECK(recipe.wholeGate == 1u);
+    CHECK(recipe.piecesGate == 0u);
+    CHECK(recipe.planeCentres == std::vector<Vector3f>{Vector3f(7, 8, 9)});
+    CHECK(recipe.planeAlongs == std::vector<Vector3f>{Vector3f(0, 1, 0)});
+    CHECK(recipe.planeWidths == std::vector<f32>{12.0f});
+    CHECK(recipe.planeHeights == std::vector<f32>{3.0f});
+    CHECK(recipe.cutSkeleton);
+    CHECK(recipe.bones == std::vector<u32>{1, 0});
+    CHECK(recipe.cutRagdoll);
+}
+
+TEST_CASE("wem a fracture's recipe from before the next round reads with its defaults", "[wem][physics][fracture]") {
+    // What a v4 writer left: the rig chunk stops after the static seeds.
+    Writer writer;
+    std::vector<u8> bytes = writer.write(Fractured());
+    WEMHeader header{};
+    std::memcpy(&header, bytes.data(), sizeof(header));
+    for (u32 i = 0; i < header.indexCount; ++i) {
+        IndexEntry entry{};
+        const std::size_t at = header.indexOffset + i * sizeof(IndexEntry);
+        std::memcpy(&entry, bytes.data() + at, sizeof(entry));
+        if (entry.tag != ChunkTagTraits<PhysicsRig>::value)
+            continue;
+        entry.version = 4;
+        std::memcpy(bytes.data() + at, &entry, sizeof(entry));
+    }
+    Parser parser;
+    const std::optional<Document> read = parser.parse(std::span<const u8>(bytes));
+    REQUIRE(read.has_value());
+    REQUIRE(read->models[0].physics.rigs.size() == 2u);
+    REQUIRE(read->models[0].physics.rigs[1].fracture.has_value());
+    const FractureRecipe& recipe = *read->models[0].physics.rigs[1].fracture;
+    CHECK(recipe.seed == 4127u);
+    REQUIRE(recipe.statics.size() == 1u);
+    CHECK(recipe.method == 0);
+    CHECK(recipe.total == 0);
+    CHECK(recipe.pinned.empty());
+    CHECK(recipe.sliceCounts.empty());
+    CHECK(recipe.push == 0);
+    CHECK(recipe.release == 0);
+    CHECK(recipe.radius == 0.0f);
+    CHECK_FALSE(recipe.fillingMade);
+}
+
+TEST_CASE("wem a fracture's recipe from before the swap drew its pieces", "[wem][physics][fracture]") {
+    // What a v5 writer left: the rig chunk stops after the filling.
+    Writer writer;
+    std::vector<u8> bytes = writer.write(Fractured());
+    WEMHeader header{};
+    std::memcpy(&header, bytes.data(), sizeof(header));
+    for (u32 i = 0; i < header.indexCount; ++i) {
+        IndexEntry entry{};
+        const std::size_t at = header.indexOffset + i * sizeof(IndexEntry);
+        std::memcpy(&entry, bytes.data() + at, sizeof(entry));
+        if (entry.tag != ChunkTagTraits<PhysicsRig>::value)
+            continue;
+        entry.version = 5;
+        std::memcpy(bytes.data() + at, &entry, sizeof(entry));
+    }
+    Parser parser;
+    const std::optional<Document> read = parser.parse(std::span<const u8>(bytes));
+    REQUIRE(read.has_value());
+    REQUIRE(read->models[0].physics.rigs.size() == 2u);
+    REQUIRE(read->models[0].physics.rigs[1].fracture.has_value());
+    const FractureRecipe& recipe = *read->models[0].physics.rigs[1].fracture;
+    CHECK(recipe.fillingMade);
+    CHECK(recipe.mapSize == 2048u);
+    CHECK(recipe.before == 2);
+    CHECK(recipe.wholeGate == kInvalidNode);
+    CHECK(recipe.piecesGate == kInvalidNode);
+}
+
+TEST_CASE("wem a fracture's recipe from before its planes had a reach cuts everywhere", "[wem][physics][fracture]") {
+    // What a v6 writer left: the rig chunk stops after the swap's gates.
+    Writer writer;
+    std::vector<u8> bytes = writer.write(Fractured());
+    WEMHeader header{};
+    std::memcpy(&header, bytes.data(), sizeof(header));
+    for (u32 i = 0; i < header.indexCount; ++i) {
+        IndexEntry entry{};
+        const std::size_t at = header.indexOffset + i * sizeof(IndexEntry);
+        std::memcpy(&entry, bytes.data() + at, sizeof(entry));
+        if (entry.tag != ChunkTagTraits<PhysicsRig>::value)
+            continue;
+        entry.version = 6;
+        std::memcpy(bytes.data() + at, &entry, sizeof(entry));
+    }
+    Parser parser;
+    const std::optional<Document> read = parser.parse(std::span<const u8>(bytes));
+    REQUIRE(read.has_value());
+    REQUIRE(read->models[0].physics.rigs.size() == 2u);
+    REQUIRE(read->models[0].physics.rigs[1].fracture.has_value());
+    const FractureRecipe& recipe = *read->models[0].physics.rigs[1].fracture;
+    CHECK(recipe.before == 1);
+    CHECK(recipe.planeNormals.size() == 1u);
+    CHECK(recipe.planeCentres.empty());
+    CHECK(recipe.planeWidths.empty());
+    CHECK_FALSE(recipe.cutSkeleton);
+    CHECK(recipe.bones.empty());
+    CHECK_FALSE(recipe.cutRagdoll);
 }
 
 TEST_CASE("wem a rig from before the fracture reads with none", "[wem][physics][fracture]") {
@@ -972,7 +1133,7 @@ TEST_CASE("wem a rig from before the fracture reads with none", "[wem][physics][
         std::memcpy(&entry, bytes.data() + at, sizeof(entry));
         if (entry.tag != ChunkTagTraits<PhysicsRig>::value)
             continue;
-        CHECK(entry.version == 4u);
+        CHECK(entry.version == 8u);
         entry.version = 3;
         std::memcpy(bytes.data() + at, &entry, sizeof(entry));
         ++stamped;
@@ -996,6 +1157,8 @@ TEST_CASE("wem a fracture's recipe follows the mesh and node tables", "[wem][phy
     CHECK(recipe.helper == kInvalidNode);
     CHECK(recipe.field == 0u);
     CHECK(recipe.skinNodes == std::vector<u32>{kInvalidNode, 0});
+    // A copy the skeleton cut made that went is no longer listed.
+    CHECK(recipe.bones == std::vector<u32>{0});
     // Mesh 0 goes.
     const std::vector<u32> meshRemap = {kInvalidIndex};
     RemapPhysicsMeshes(physics, meshRemap);

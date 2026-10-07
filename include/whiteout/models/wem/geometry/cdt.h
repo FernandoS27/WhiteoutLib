@@ -43,6 +43,9 @@ struct Cdt2d {
     /// what closed segments enclose is returned.
     std::vector<u32> regions;
     u32 regionCount = 0;
+    /// Per point the snap saw, the input's first: the earliest point within
+    /// the snap of it, itself when it is no other's.
+    std::vector<u32> same;
     /// Segments that could not be forced in. Their regions may have leaked.
     u32 droppedSegments = 0;
 

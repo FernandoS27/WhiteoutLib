@@ -189,6 +189,12 @@ std::vector<u32> RemapPhysicsNodes(PhysicsSet& physics, std::span<const u32> rem
         }
         rig.fracture->helper = Remapped(remap, rig.fracture->helper, kInvalidNode);
         rig.fracture->field = Remapped(remap, rig.fracture->field, kInvalidNode);
+        rig.fracture->wholeGate = Remapped(remap, rig.fracture->wholeGate, kInvalidNode);
+        rig.fracture->piecesGate = Remapped(remap, rig.fracture->piecesGate, kInvalidNode);
+        for (u32& node : rig.fracture->bones) {
+            node = Remapped(remap, node, kInvalidNode);
+        }
+        std::erase(rig.fracture->bones, kInvalidNode);
         for (u32& node : rig.fracture->skinNodes) {
             node = Remapped(remap, node, kInvalidNode);
         }
@@ -530,7 +536,8 @@ void CheckPhysics(const Model& model, Diagnostics& out) {
             const bool ok = std::all_of(recipe.sources.begin(), recipe.sources.end(), mesh) &&
                             std::all_of(recipe.made.begin(), recipe.made.end(), mesh) &&
                             std::all_of(recipe.skinNodes.begin(), recipe.skinNodes.end(), node) &&
-                            node(recipe.helper) && node(recipe.field) &&
+                            node(recipe.helper) && node(recipe.field) && node(recipe.wholeGate) &&
+                            node(recipe.piecesGate) && std::all_of(recipe.bones.begin(), recipe.bones.end(), node) &&
                             recipe.sources.size() == recipe.pieces.size() &&
                             recipe.made.size() == 2 * recipe.pieces.size();
             if (!ok) {

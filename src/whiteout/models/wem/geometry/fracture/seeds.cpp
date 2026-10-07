@@ -148,6 +148,86 @@ std::vector<Vector3d> FractureSeeds(std::span<const SeedTarget> targets,
     return seeds;
 }
 
+std::vector<f64> TargetMeasures(std::span<const SeedTarget> targets, u32 seed, u32 threads) {
+    constexpr u32 kProbes = 512;
+    // Past the seeds' own draws and the break's orientation probes.
+    constexpr u64 kStream = 1ull << 41;
+    std::vector<f64> measures(targets.size(), 0.0);
+    for (u32 ti = 0; ti < targets.size(); ++ti) {
+        const SeedTarget& target = targets[ti];
+        if (target.winding == nullptr || !target.winding->bounds.valid()) {
+            continue;
+        }
+        const Extent& box = target.winding->bounds;
+        const Vector3d low(box.minimum.x, box.minimum.y, box.minimum.z);
+        const Vector3d size(box.maximum.x - low.x, box.maximum.y - low.y, box.maximum.z - low.z);
+        const f64 band = 0.01 * std::sqrt(Dot(size, size));
+        std::vector<u8> kept(kProbes, 0);
+        Parallel(kProbes, threads, [&](std::size_t i) {
+            const u64 index = kStream + 3 * i;
+            const Vector3d p(low.x + HashUnit(FractureHash(seed, ti, index)) * size.x,
+                             low.y + HashUnit(FractureHash(seed, ti, index + 1)) * size.y,
+                             low.z + HashUnit(FractureHash(seed, ti, index + 2)) * size.z);
+            if (target.surface != nullptr && !target.surface->empty() &&
+                target.surface
+                    ->closestPoint(Vector3f(static_cast<f32>(p.x), static_cast<f32>(p.y), static_cast<f32>(p.z)),
+                                   static_cast<f32>(band))
+                    .hit()) {
+                kept[i] = 1;
+                return;
+            }
+            kept[i] = WindingNumber(*target.winding, p) >= 0.5 ? 1 : 0;
+        });
+        u32 hits = 0;
+        for (u8 k : kept) {
+            hits += k;
+        }
+        // A flat box still has the band's thickness.
+        measures[ti] = std::max(size.x, band) * std::max(size.y, band) * std::max(size.z, band) *
+                       static_cast<f64>(hits) / kProbes;
+    }
+    return measures;
+}
+
+std::vector<u16> SharePieces(std::span<const u16> pieces, std::span<const f64> measures, u32 total) {
+    std::vector<u16> out(pieces.begin(), pieces.end());
+    u32 taken = 0;
+    u32 open = 0;
+    f64 sum = 0.0;
+    for (std::size_t i = 0; i < pieces.size(); ++i) {
+        if (pieces[i] != 0) {
+            taken += pieces[i];
+        } else {
+            sum += i < measures.size() ? std::max(measures[i], 0.0) : 0.0;
+            ++open;
+        }
+    }
+    if (open == 0) {
+        return out;
+    }
+    const u32 left = total > taken ? total - taken : 0;
+    // Whole shares first, then what flooring left over, largest remainder first.
+    std::vector<std::pair<f64, u32>> rest;
+    u32 given = 0;
+    for (u32 i = 0; i < pieces.size(); ++i) {
+        if (pieces[i] != 0) {
+            continue;
+        }
+        const f64 measure = i < measures.size() ? std::max(measures[i], 0.0) : 0.0;
+        const f64 exact = sum > 0.0 ? left * measure / sum : static_cast<f64>(left) / open;
+        const u32 whole = static_cast<u32>(std::floor(exact));
+        out[i] = static_cast<u16>(std::clamp<u32>(whole, 2, 0xFFFF));
+        given += out[i];
+        rest.emplace_back(-(exact - whole), i);
+    }
+    std::sort(rest.begin(), rest.end());
+    for (std::size_t k = 0; k < rest.size() && given < left; ++k) {
+        ++out[rest[k].second];
+        ++given;
+    }
+    return out;
+}
+
 } // namespace fracture
 } // namespace geom
 } // namespace wem

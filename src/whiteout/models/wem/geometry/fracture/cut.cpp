@@ -53,6 +53,41 @@ bool PositionLess(const Vector3d& a, const Vector3d& b) {
     return a.z < b.z;
 }
 
+struct PositionKey {
+    u64 x;
+    u64 y;
+    u64 z;
+    bool operator==(const PositionKey& o) const {
+        return x == o.x && y == o.y && z == o.z;
+    }
+};
+
+/// SplitMix64's finalizer: a widened f32 has 29 zero bits at the bottom, and
+/// the tables index by the bottom bits, so every bit is mixed into them.
+u64 Mix(u64 z) {
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
+    return z ^ (z >> 31);
+}
+
+struct PositionHash {
+    std::size_t operator()(const PositionKey& k) const {
+        return static_cast<std::size_t>(Mix(Mix(Mix(k.x) ^ k.y) ^ k.z));
+    }
+};
+
+PositionKey PositionBits(const Vector3d& p) {
+    PositionKey k{};
+    // +0.0 for -0.0, so the two compare equal as bits too.
+    const f64 x = p.x + 0.0;
+    const f64 y = p.y + 0.0;
+    const f64 z = p.z + 0.0;
+    std::memcpy(&k.x, &x, 8);
+    std::memcpy(&k.y, &y, 8);
+    std::memcpy(&k.z, &z, 8);
+    return k;
+}
+
 // ============================================================================
 // Point keys (cut.h, "Shared points")
 // ============================================================================
@@ -89,13 +124,36 @@ Key CornerKey(const std::array<u32, 4>& sites) {
     return {kCornerKey, sites[0], sites[1], sites[2], sites[3], 0};
 }
 
-Key CrossingKey(u64 plane, u32 index) {
-    return {kCrossingKey, static_cast<u32>(plane >> 32), static_cast<u32>(plane), index, 0, 0};
+/// @p owner tells apart the cell faces one slice plane holds, each with
+/// crossings of its own: its low cell + 1, or 0 where the plane is one face's.
+Key CrossingKey(u64 plane, u32 index, u32 owner) {
+    return {kCrossingKey, static_cast<u32>(plane >> 32), static_cast<u32>(plane), index, owner, 0};
 }
 
-/// The key of the plane two sites of a cell edge share: a box site's own face.
+/// The key of the plane two sites of a cell edge share: a fixed site's own face.
 u64 PairPlane(u32 low, u32 high) {
-    return IsBoxSite(high) ? PlaneKey(high, high) : PlaneKey(low, high);
+    return IsFixedSite(high) ? PlaneKey(high, high) : PlaneKey(low, high);
+}
+
+/// The two planes whose line is the cell edge of @p sites (ascending), from
+/// the sites alone, so every cell round the edge names the same two. Seeds
+/// come first: a Voronoi edge is its lowest seed's planes to the other two
+/// sites, a slice edge its two lowest planes. False when there are too few.
+bool EdgePlanes(const std::array<u32, 3>& sites, u64& first, u64& second) {
+    if (IsFixedSite(sites[0])) {
+        if (sites[1] == kNoSite) {
+            return false;
+        }
+        first = PlaneKey(sites[0], sites[0]);
+        second = PlaneKey(sites[1], sites[1]);
+        return true;
+    }
+    if (sites[2] == kNoSite) {
+        return false;
+    }
+    first = PairPlane(sites[0], sites[1]);
+    second = PairPlane(sites[0], sites[2]);
+    return true;
 }
 
 // ============================================================================
@@ -123,9 +181,13 @@ struct Target {
     u32 realTriangles = 0;
     std::vector<Vector3d> fillLow;
     std::vector<Vector3d> fillHigh;
+    /// `Parts::Touch`: per vertex, the bones it rides, ascending; and those
+    /// with their parents.
+    std::vector<std::vector<u32>> rides;
+    std::vector<std::vector<u32>> ridesWide;
 };
 
-void Prepare(Target& t, const CutTarget& input) {
+void Prepare(Target& t, const CutTarget& input, const CutOptions& options) {
     t.whole = input.whole;
     t.winding = input.winding;
     if (input.mesh == nullptr) {
@@ -222,6 +284,28 @@ void Prepare(Target& t, const CutTarget& input) {
     for (u32 v = 0; v < vertexCount; ++v) {
         t.merge[v] = v < groups.size() ? groups[v] : v;
     }
+    if (options.parts == Parts::Touch) {
+        // A tenth of a point's weight is a bone it rides.
+        t.rides.resize(vertexCount);
+        t.ridesWide.resize(vertexCount);
+        for (u32 v = 0; v < vertexCount; ++v) {
+            for (const Influence& influence : t.skin[v]) {
+                if (influence.weight < 0.1f) {
+                    continue;
+                }
+                t.rides[v].push_back(influence.bone);
+                t.ridesWide[v].push_back(influence.bone);
+                if (influence.bone < options.parents.size() &&
+                    options.parents[influence.bone] < options.parents.size()) {
+                    t.ridesWide[v].push_back(options.parents[influence.bone]);
+                }
+            }
+            for (std::vector<u32>* list : {&t.rides[v], &t.ridesWide[v]}) {
+                std::sort(list->begin(), list->end());
+                list->erase(std::unique(list->begin(), list->end()), list->end());
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -291,15 +375,47 @@ struct Cell {
 
 class Clipper {
 public:
-    Clipper(const VoronoiDiagram& diagram, std::vector<Target>& targets, u32 site, Cell& cell)
+    Clipper(const CellComplex& diagram, std::vector<Target>& targets, u32 site, Cell& cell)
         : diagram_(diagram), targets_(targets), site_(site), cell_(cell) {
         const ConvexCell& convex = diagram.cells[site];
         for (const CellFace& face : convex.faces) {
             CellPlane plane;
             plane.key = face.plane;
             plane.canonical = diagram.plane(face.plane);
-            plane.low = IsBoxSite(face.other) || site < face.other;
+            plane.low = face.low;
             planes_.push_back(plane);
+        }
+        // A region of slice planes has no seed to key its edges by: each is
+        // keyed by every plane through it, which its two ends share.
+        if (diagram.sliced) {
+            // Every region clips by its planes in one order. Where two planes'
+            // line runs through a mesh edge, which triangle it pierces is a
+            // tie the first plane's cut point decides, and the regions round
+            // the line must all decide it the same way.
+            std::sort(planes_.begin(), planes_.end(),
+                      [](const CellPlane& l, const CellPlane& r) { return l.key < r.key; });
+            std::map<std::pair<u32, u32>, u64> faceOf;
+            for (const CellFace& face : convex.faces) {
+                const std::size_t n = face.loop.size();
+                for (std::size_t k = 0; k < n; ++k) {
+                    const u32 a = face.loop[k];
+                    const u32 b = face.loop[(k + 1) % n];
+                    const auto [at, fresh] = faceOf.emplace(std::minmax(a, b), face.plane);
+                    if (fresh) {
+                        continue;
+                    }
+                    std::array<u32, 3> shared{kNoSite, kNoSite, kNoSite};
+                    u32 count = 0;
+                    for (u32 s : convex.sites[a]) {
+                        if (s != kNoSite && count < 3 &&
+                            std::find(convex.sites[b].begin(), convex.sites[b].end(), s) !=
+                                convex.sites[b].end()) {
+                            shared[count++] = s;
+                        }
+                    }
+                    edges_.emplace(std::minmax(at->second, face.plane), shared);
+                }
+            }
         }
         low_ = convex.vertices.front();
         high_ = low_;
@@ -439,14 +555,20 @@ private:
                 all[count++] = s;
             }
         };
-        addSite(site_);
+        if (!diagram_.sliced) {
+            addSite(site_);
+        }
         addSite(PlaneLow(p));
         addSite(PlaneHigh(p));
         addSite(PlaneLow(q));
         addSite(PlaneHigh(q));
         std::sort(all.begin(), all.begin() + count);
-        const std::array<u32, 3> sites{all[0], count > 1 ? all[1] : kNoSite,
-                                       count > 2 ? all[2] : kNoSite};
+        std::array<u32, 3> sites{all[0], count > 1 ? all[1] : kNoSite, count > 2 ? all[2] : kNoSite};
+        // A region's edge, by every plane through it.
+        const auto edge = edges_.find(std::minmax(p, q));
+        if (edge != edges_.end()) {
+            sites = edge->second;
+        }
         const Key key = FaceKey(ti, triangle, sites);
         const auto found = cell_.index.find(key);
         if (found != cell_.index.end()) {
@@ -456,9 +578,11 @@ private:
         const u32* tv = &t.tri[3 * triangle];
         Vector3d position;
         bool placed = false;
-        if (sites[2] != kNoSite) {
-            const HalfSpace a = diagram_.plane(PairPlane(sites[0], sites[1]));
-            const HalfSpace b = diagram_.plane(PairPlane(sites[0], sites[2]));
+        u64 first = 0;
+        u64 second = 0;
+        if (EdgePlanes(sites, first, second)) {
+            const HalfSpace a = diagram_.plane(first);
+            const HalfSpace b = diagram_.plane(second);
             // The chord of a across the triangle, from its corners in position order.
             std::array<u32, 3> order{tv[0], tv[1], tv[2]};
             std::sort(order.begin(), order.end(), [&](u32 l, u32 r) {
@@ -637,16 +761,45 @@ private:
                     Segment{c.plane, fragment.points[i], fragment.points[(i + 1) % n]});
             }
         }
-        if (!fill) {
-            cell_.fragments.push_back(std::move(fragment));
+        if (fill) {
+            return;
         }
+        // A plane through the mesh's own points cuts an edge at its end: the
+        // cut point and the source point are one place. A fragment left with
+        // no area there has given its segment, and is no face.
+        if (diagram_.sliced) {
+            for (std::size_t i = 0; fragment.points.size() >= 3 && i < fragment.points.size();) {
+                const std::size_t j = (i + 1) % fragment.points.size();
+                const Point& a = cell_.points[fragment.points[i]];
+                const Point& b = cell_.points[fragment.points[j]];
+                if (!(PositionBits(a.position) == PositionBits(b.position))) {
+                    ++i;
+                    continue;
+                }
+                // The source point stays, with the edge that leaves the place.
+                if (a.key[0] == kSourceKey && b.key[0] != kSourceKey) {
+                    fragment.points[j] = fragment.points[i];
+                    fragment.weights[j] = fragment.weights[i];
+                }
+                fragment.points.erase(fragment.points.begin() + static_cast<std::ptrdiff_t>(i));
+                fragment.weights.erase(fragment.weights.begin() + static_cast<std::ptrdiff_t>(i));
+                fragment.carriers.erase(fragment.carriers.begin() + static_cast<std::ptrdiff_t>(i));
+                i = 0;
+            }
+            if (fragment.points.size() < 3) {
+                return;
+            }
+        }
+        cell_.fragments.push_back(std::move(fragment));
     }
 
-    const VoronoiDiagram& diagram_;
+    const CellComplex& diagram_;
     std::vector<Target>& targets_;
     u32 site_;
     Cell& cell_;
     std::vector<CellPlane> planes_;
+    /// Slices: per pair of the cell's planes that share an edge, its sites.
+    std::map<std::pair<u64, u64>, std::array<u32, 3>> edges_;
     Vector3d low_{0, 0, 0};
     Vector3d high_{0, 0, 0};
 };
@@ -670,10 +823,16 @@ struct InsideSet {
     std::vector<u32> triangles; ///< Counter-clockwise about `normal`.
     std::vector<u32> owner;     ///< Per triangle, its target.
     std::vector<f64> area;      ///< Per triangle.
+    /// Per triangle, 1 where its plane does not reach: the pieces either side
+    /// are one there.
+    std::vector<u8> open;
+    /// Points the triangulation took for one: a point, then the earlier one
+    /// it is.
+    std::vector<std::array<u32, 2>> merged;
     bool failed = false;
 };
 
-void BuildInside(InsideSet& set, const VoronoiDiagram& diagram, const Cell& work,
+void BuildInside(InsideSet& set, const CellComplex& diagram, const Cell& work,
                  std::span<const Target> targets) {
     const ConvexCell& convex = diagram.cells[set.low];
     const CellFace& face = convex.faces[set.face];
@@ -780,8 +939,13 @@ void BuildInside(InsideSet& set, const VoronoiDiagram& diagram, const Cell& work
     }
     for (u32 i = inputCount; i < cdt.points.size(); ++i) {
         const Vector2<f64>& p = cdt.points[i];
-        set.points.push_back(InsidePoint{CrossingKey(set.plane, i - inputCount),
+        set.points.push_back(InsidePoint{CrossingKey(set.plane, i - inputCount, diagram.sliced ? set.low + 1 : 0),
                                          origin + Times(u, p.x) + Times(v, p.y)});
+    }
+    for (u32 i = 0; i < inputCount && i < cdt.same.size(); ++i) {
+        if (cdt.same[i] != i && cdt.same[i] < inputCount) {
+            set.merged.push_back({i, cdt.same[i]});
+        }
     }
 
     // Each region by the winding at the middle of its largest triangle.
@@ -828,11 +992,37 @@ void BuildInside(InsideSet& set, const VoronoiDiagram& diagram, const Cell& work
             }
         }
     }
+    // A plane cuts within its reach alone: a region not wholly inside one of
+    // its rectangles joins the pieces either side of it again.
+    std::vector<u8> reached(cdt.regionCount, 1);
+    const u32 site = PlaneLow(set.plane);
+    if (IsPlaneSite(site) && site - kPlaneSite < diagram.reach.size() &&
+        !diagram.reach[site - kPlaneSite].empty()) {
+        const std::vector<SliceReach>& reach = diagram.reach[site - kPlaneSite];
+        std::vector<u8> within(static_cast<std::size_t>(cdt.regionCount) * reach.size(), 1);
+        for (std::size_t t = 0; t < triCount; ++t) {
+            for (u32 k = 0; k < 3; ++k) {
+                const Vector3d& p = set.points[cdt.triangles[3 * t + k]].position;
+                for (std::size_t q = 0; q < reach.size(); ++q) {
+                    if (!reach[q].holds(p)) {
+                        within[cdt.regions[t] * reach.size() + q] = 0;
+                    }
+                }
+            }
+        }
+        for (u32 r = 0; r < cdt.regionCount; ++r) {
+            reached[r] = 0;
+            for (std::size_t q = 0; q < reach.size(); ++q) {
+                reached[r] = reached[r] != 0 || within[r * reach.size() + q] != 0 ? 1 : 0;
+            }
+        }
+    }
     for (std::size_t t = 0; t < triCount; ++t) {
         const u32 o = owner[cdt.regions[t]];
         if (o == kNone) {
             continue;
         }
+        set.open.push_back(reached[cdt.regions[t]] != 0 ? 0 : 1);
         // A target wound inward gets its inside faces wound inward too.
         const bool inward = targets[o].winding->sign < 0.0;
         set.triangles.insert(set.triangles.end(),
@@ -888,44 +1078,75 @@ struct UnionFind {
     }
 };
 
-struct PositionKey {
-    u64 x;
-    u64 y;
-    u64 z;
-    bool operator==(const PositionKey& o) const {
-        return x == o.x && y == o.y && z == o.z;
-    }
+/// An outside face of a part, for `Parts::Touch`: its box, and the source
+/// points whose bones it rides.
+struct Shard {
+    Vector3d low{0, 0, 0};
+    Vector3d high{0, 0, 0};
+    u32 target = 0;
+    std::span<const u32> vertices;
 };
 
-/// SplitMix64's finalizer: a widened f32 has 29 zero bits at the bottom, and
-/// the tables index by the bottom bits, so every bit is mixed into them.
-u64 Mix(u64 z) {
-    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
-    z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
-    return z ^ (z >> 31);
+bool Shares(const std::vector<u32>& a, const std::vector<u32>& b) {
+    std::size_t i = 0;
+    std::size_t j = 0;
+    while (i < a.size() && j < b.size()) {
+        if (a[i] == b[j]) {
+            return true;
+        }
+        a[i] < b[j] ? ++i : ++j;
+    }
+    return false;
 }
 
-struct PositionHash {
-    std::size_t operator()(const PositionKey& k) const {
-        return static_cast<std::size_t>(Mix(Mix(Mix(k.x) ^ k.y) ^ k.z));
+/// Whether two faces ride together: a point of each on one bone, or on a bone
+/// and its parent. A point bound to nothing rides with anything.
+bool Rides(const Shard& a, const Shard& b, std::span<const Target> targets) {
+    const Target& ta = targets[a.target];
+    const Target& tb = targets[b.target];
+    for (const u32 va : a.vertices) {
+        if (va >= ta.rides.size() || ta.rides[va].empty()) {
+            return true;
+        }
+        for (const u32 vb : b.vertices) {
+            if (vb >= tb.rides.size() || tb.rides[vb].empty() || Shares(ta.rides[va], tb.ridesWide[vb]) ||
+                Shares(ta.ridesWide[va], tb.rides[vb])) {
+                return true;
+            }
+        }
     }
-};
+    return false;
+}
 
-PositionKey PositionBits(const Vector3d& p) {
-    PositionKey k{};
-    // +0.0 for -0.0, so the two compare equal as bits too.
-    const f64 x = p.x + 0.0;
-    const f64 y = p.y + 0.0;
-    const f64 z = p.z + 0.0;
-    std::memcpy(&k.x, &x, 8);
-    std::memcpy(&k.y, &y, 8);
-    std::memcpy(&k.z, &z, 8);
-    return k;
+/// `Parts::Touch`: whether parts with faces @p a and @p b (by `low.x`) are
+/// one piece. Faces within @p reach of each other touch; the parts are one
+/// when at least half of the touching pairs ride together.
+bool Together(const std::vector<Shard>& a, const std::vector<Shard>& b, f64 reach, std::span<const Target> targets) {
+    constexpr u32 kEnough = 4096;
+    u32 pairs = 0;
+    u32 riding = 0;
+    for (const Shard& s : a) {
+        const auto end = std::upper_bound(b.begin(), b.end(), s.high.x + reach,
+                                          [](f64 x, const Shard& other) { return x < other.low.x; });
+        for (auto other = b.begin(); other != end; ++other) {
+            if (other->high.x < s.low.x - reach || other->low.y > s.high.y + reach || other->high.y < s.low.y - reach ||
+                other->low.z > s.high.z + reach || other->high.z < s.low.z - reach) {
+                continue;
+            }
+            ++pairs;
+            riding += Rides(s, *other, targets) ? 1 : 0;
+        }
+        if (pairs >= kEnough) {
+            break;
+        }
+    }
+    return pairs > 0 && 2 * riding >= pairs;
 }
 
 void CellPieces(u32 c, const Cell& work, const std::vector<InsideSet>& sets,
                 const std::vector<std::vector<u32>>& setsOf, std::vector<PieceWork>& out,
-                const Vector3d& cellLow, const Vector3d& cellHigh) {
+                const Vector3d& cellLow, const Vector3d& cellHigh, std::span<const Target> targets,
+                const CutOptions& options) {
     std::vector<FaceRef> faces;
     for (u32 i = 0; i < work.fragments.size(); ++i) {
         faces.push_back(FaceRef{c, false, i, 0, false});
@@ -1050,6 +1271,42 @@ void CellPieces(u32 c, const Cell& work, const std::vector<InsideSet>& sets,
     for (std::size_t i = 0; i < parts.size(); ++i) {
         joined.add();
     }
+    // `Parts::Touch`: each part's outside faces, made when first asked for.
+    std::vector<std::vector<Shard>> shards(parts.size());
+    std::vector<u8> listed(parts.size(), 0);
+    const auto shardsOf = [&](std::size_t part) -> const std::vector<Shard>& {
+        if (listed[part] != 0) {
+            return shards[part];
+        }
+        listed[part] = 1;
+        for (const u32 f : parts[part].faces) {
+            const FaceRef& ref = faces[f];
+            if (ref.inside) {
+                continue;
+            }
+            const Fragment& fragment = work.fragments[ref.index];
+            const Target& t = targets[fragment.target];
+            Shard shard;
+            shard.target = fragment.target;
+            shard.vertices = fragment.triangle != kNone
+                                 ? std::span<const u32>(&t.tri[3 * fragment.triangle], 3)
+                                 : std::span<const u32>(&t.loopVertex[t.loopOffset[fragment.face]],
+                                                        t.loopOffset[fragment.face + 1] - t.loopOffset[fragment.face]);
+            shard.low = work.points[fragment.points[0]].position;
+            shard.high = shard.low;
+            for (const u32 p : fragment.points) {
+                const Vector3d& at = work.points[p].position;
+                shard.low = Vector3d(std::min(shard.low.x, at.x), std::min(shard.low.y, at.y),
+                                     std::min(shard.low.z, at.z));
+                shard.high = Vector3d(std::max(shard.high.x, at.x), std::max(shard.high.y, at.y),
+                                      std::max(shard.high.z, at.z));
+            }
+            shards[part].push_back(shard);
+        }
+        std::sort(shards[part].begin(), shards[part].end(),
+                  [](const Shard& l, const Shard& r) { return l.low.x < r.low.x; });
+        return shards[part];
+    };
     for (std::size_t i = 0; i < parts.size(); ++i) {
         for (std::size_t j = i + 1; j < parts.size(); ++j) {
             const Part& a = parts[i];
@@ -1057,9 +1314,16 @@ void CellPieces(u32 c, const Cell& work, const std::vector<InsideSet>& sets,
             const bool apart = a.low.x > b.high.x + reach || b.low.x > a.high.x + reach ||
                                a.low.y > b.high.y + reach || b.low.y > a.high.y + reach ||
                                a.low.z > b.high.z + reach || b.low.z > a.high.z + reach;
-            if (!apart) {
-                joined.join(static_cast<u32>(i), static_cast<u32>(j));
+            if (apart) {
+                continue;
             }
+            if (options.parts == Parts::Touch) {
+                if (joined.find(static_cast<u32>(i)) == joined.find(static_cast<u32>(j)) ||
+                    !Together(shardsOf(i), shardsOf(j), reach, targets)) {
+                    continue;
+                }
+            }
+            joined.join(static_cast<u32>(i), static_cast<u32>(j));
         }
     }
     std::map<u32, PieceWork> pieces;
@@ -1628,18 +1892,476 @@ Mesh Assemble(const Target& t, std::vector<OutVertex>& vertices, std::vector<Out
     return mesh;
 }
 
+/**
+ * @brief Points the triangulation took for one, made one everywhere.
+ *
+ * Slices put planes along a mesh's own symmetry: two planes' line through a
+ * mesh edge, where the edge's two cut points and the line's own come out a
+ * hair apart. A cell face's triangulation snaps such points together, so its
+ * inside faces would part from the outside there. Every point of a key the
+ * snap joined takes one place, in every cell and on every face, and a
+ * fragment or triangle left with no area goes.
+ */
+void UniteClosePoints(std::vector<Cell>& cells, std::vector<InsideSet>& sets) {
+    std::unordered_map<Key, u32, KeyHash> ids;
+    std::vector<Vector3d> at;
+    UnionFind classes;
+    const auto id = [&](const InsidePoint& p) {
+        const auto [found, fresh] = ids.emplace(p.key, static_cast<u32>(at.size()));
+        if (fresh) {
+            at.push_back(p.position);
+            classes.add();
+        }
+        return found->second;
+    };
+    for (const InsideSet& set : sets) {
+        for (const std::array<u32, 2>& pair : set.merged) {
+            const u32 a = id(set.points[pair[0]]);
+            const u32 b = id(set.points[pair[1]]);
+            classes.join(a, b);
+        }
+    }
+    if (ids.empty()) {
+        return;
+    }
+    const auto move = [&](const Key& key, Vector3d& position) {
+        const auto found = ids.find(key);
+        if (found != ids.end()) {
+            position = at[classes.find(found->second)];
+        }
+    };
+    const auto same = [](const Vector3d& a, const Vector3d& b) { return PositionBits(a) == PositionBits(b); };
+    for (Cell& cell : cells) {
+        for (Point& p : cell.points) {
+            move(p.key, p.position);
+        }
+        std::vector<Fragment> kept;
+        for (Fragment& f : cell.fragments) {
+            for (std::size_t i = 0; f.points.size() >= 3 && i < f.points.size();) {
+                const std::size_t j = (i + 1) % f.points.size();
+                if (!same(cell.points[f.points[i]].position, cell.points[f.points[j]].position)) {
+                    ++i;
+                    continue;
+                }
+                const auto offset = static_cast<std::ptrdiff_t>(i);
+                f.points.erase(f.points.begin() + offset);
+                f.carriers.erase(f.carriers.begin() + offset);
+                if (!f.weights.empty()) {
+                    f.weights.erase(f.weights.begin() + offset);
+                }
+                i = 0;
+            }
+            if (f.points.size() >= 3) {
+                kept.push_back(std::move(f));
+            }
+        }
+        cell.fragments = std::move(kept);
+    }
+    for (InsideSet& set : sets) {
+        for (InsidePoint& p : set.points) {
+            move(p.key, p.position);
+        }
+        std::vector<u32> triangles;
+        std::vector<u32> owner;
+        std::vector<f64> area;
+        std::vector<u8> open;
+        for (std::size_t t = 0; t < set.owner.size(); ++t) {
+            const Vector3d& a = set.points[set.triangles[3 * t]].position;
+            const Vector3d& b = set.points[set.triangles[3 * t + 1]].position;
+            const Vector3d& c = set.points[set.triangles[3 * t + 2]].position;
+            if (same(a, b) || same(b, c) || same(c, a)) {
+                continue;
+            }
+            triangles.insert(triangles.end(), {set.triangles[3 * t], set.triangles[3 * t + 1], set.triangles[3 * t + 2]});
+            owner.push_back(set.owner[t]);
+            area.push_back(set.area[t]);
+            open.push_back(t < set.open.size() ? set.open[t] : 0);
+        }
+        set.triangles = std::move(triangles);
+        set.owner = std::move(owner);
+        set.area = std::move(area);
+        set.open = std::move(open);
+    }
+}
+
+/**
+ * @brief The pieces either side of where a plane does not reach, made one.
+ *
+ * Every inside triangle its plane does not reach joins the two pieces that
+ * hold its sides. Then the inside faces between a piece and itself go: the
+ * unreached ones, and those of a cut that ends inside the solid, which parts
+ * nothing. Returns how many pieces fewer there are.
+ */
+u32 JoinUnreached(std::vector<PieceWork>& pieces, const std::vector<InsideSet>& sets) {
+    std::vector<std::vector<u32>> side(sets.size());
+    for (std::size_t s = 0; s < sets.size(); ++s) {
+        side[s].assign(2 * sets[s].owner.size(), kNone);
+    }
+    for (u32 p = 0; p < pieces.size(); ++p) {
+        for (const FaceRef& ref : pieces[p].faces) {
+            if (ref.inside) {
+                side[ref.set][2 * ref.index + (ref.reversed ? 1 : 0)] = p;
+            }
+        }
+    }
+    UnionFind one;
+    for (std::size_t p = 0; p < pieces.size(); ++p) {
+        one.add();
+    }
+    for (std::size_t s = 0; s < sets.size(); ++s) {
+        for (std::size_t t = 0; t < sets[s].open.size(); ++t) {
+            const u32 a = side[s][2 * t];
+            const u32 b = side[s][2 * t + 1];
+            if (sets[s].open[t] != 0 && a != kNone && b != kNone) {
+                one.join(a, b);
+            }
+        }
+    }
+    // A class's lowest piece is its root, and comes first.
+    std::vector<PieceWork> kept;
+    std::vector<u32> place(pieces.size(), kNone);
+    for (u32 p = 0; p < pieces.size(); ++p) {
+        const u32 root = one.find(p);
+        if (root == p) {
+            place[p] = static_cast<u32>(kept.size());
+            kept.push_back(std::move(pieces[p]));
+            continue;
+        }
+        PieceWork& into = kept[place[root]];
+        PieceWork& gone = pieces[p];
+        into.faces.insert(into.faces.end(), gone.faces.begin(), gone.faces.end());
+        for (const u32 c : gone.cells) {
+            if (std::find(into.cells.begin(), into.cells.end(), c) == into.cells.end()) {
+                into.cells.push_back(c);
+            }
+        }
+        into.rank = std::min(into.rank, gone.rank);
+    }
+    for (PieceWork& piece : kept) {
+        std::erase_if(piece.faces, [&](const FaceRef& ref) {
+            if (!ref.inside) {
+                return false;
+            }
+            if (ref.index < sets[ref.set].open.size() && sets[ref.set].open[ref.index] != 0) {
+                return true;
+            }
+            const u32 a = side[ref.set][2 * ref.index];
+            const u32 b = side[ref.set][2 * ref.index + 1];
+            return a != kNone && b != kNone && one.find(a) == one.find(b);
+        });
+    }
+    const u32 joined = static_cast<u32>(pieces.size() - kept.size());
+    pieces = std::move(kept);
+    return joined;
+}
+
+/**
+ * @brief What a join left in fragments, made whole again.
+ *
+ * The regions are the whole planes', so a plane cuts every face it crosses,
+ * also where it does not reach and its two sides are one piece. Each source
+ * triangle's fragments in one piece are made one face again: their union's
+ * outline, less the cut points no other piece holds. Such a point lies on a
+ * source edge, between its neighbours, and every face round it drops it. A
+ * union that is not one loop (a hole cut out of a triangle) stays in its
+ * fragments, and keeps their points in the faces beside it. A face left with
+ * each of its triangles whole is the source face again.
+ *
+ * The faces it makes go in a cell of their own, past @p cells'.
+ */
+void HealJoined(std::vector<PieceWork>& pieces, const std::vector<bool>& alive, std::vector<Cell>& cells,
+                std::span<const Target> targets) {
+    constexpr u32 kMany = 0xFFFFFFFEu;
+    // Where the points of more than one piece stand: the cracks.
+    std::unordered_map<PositionKey, u32, PositionHash> holder;
+    for (u32 p = 0; p < pieces.size(); ++p) {
+        if (!alive[p]) {
+            continue;
+        }
+        for (const FaceRef& ref : pieces[p].faces) {
+            if (ref.inside) {
+                continue;
+            }
+            const Cell& cell = cells[ref.cell];
+            for (const u32 point : cell.fragments[ref.index].points) {
+                const auto [found, fresh] = holder.emplace(PositionBits(cell.points[point].position), p);
+                if (!fresh && found->second != p) {
+                    found->second = kMany;
+                }
+            }
+        }
+    }
+
+    struct Corner {
+        Point point;
+        std::array<f64, 3> weight{0, 0, 0};
+        Carrier carrier; ///< Of the edge that leaves it.
+    };
+    struct Group {
+        u32 target = 0;
+        u32 triangle = 0;
+        u32 face = 0;
+        std::vector<u32> refs; ///< Into the piece's faces.
+        std::vector<Corner> loop;
+        bool single = false;
+    };
+    const auto isSource = [](const Point& point) { return point.key[0] == kSourceKey; };
+    std::vector<std::vector<Group>> groupsOf(pieces.size());
+    std::unordered_map<PositionKey, u8, PositionHash> pinned;
+    for (u32 p = 0; p < pieces.size(); ++p) {
+        if (!alive[p]) {
+            continue;
+        }
+        std::map<std::pair<u32, u32>, std::size_t> index;
+        std::vector<Group>& groups = groupsOf[p];
+        for (u32 r = 0; r < pieces[p].faces.size(); ++r) {
+            const FaceRef& ref = pieces[p].faces[r];
+            if (ref.inside) {
+                continue;
+            }
+            const Fragment& fragment = cells[ref.cell].fragments[ref.index];
+            if (fragment.triangle == kNone) {
+                continue;
+            }
+            const auto [at, fresh] = index.emplace(std::make_pair(fragment.target, fragment.triangle), groups.size());
+            if (fresh) {
+                groups.emplace_back();
+                groups.back().target = fragment.target;
+                groups.back().triangle = fragment.triangle;
+                groups.back().face = fragment.face;
+            }
+            groups[at->second].refs.push_back(r);
+        }
+        for (Group& group : groups) {
+            // The fragments' points by place, a source point standing for its place.
+            std::unordered_map<PositionKey, u32, PositionHash> local;
+            std::vector<Corner> points;
+            struct Edge {
+                u32 from;
+                u32 to;
+                Carrier carrier;
+            };
+            std::vector<Edge> edges;
+            std::map<std::pair<u32, u32>, i32> count;
+            std::vector<u32> ids;
+            for (const u32 r : group.refs) {
+                const FaceRef& ref = pieces[p].faces[r];
+                const Cell& cell = cells[ref.cell];
+                const Fragment& fragment = cell.fragments[ref.index];
+                const std::size_t n = fragment.points.size();
+                ids.resize(n);
+                for (std::size_t k = 0; k < n; ++k) {
+                    const Point& at = cell.points[fragment.points[k]];
+                    const auto [found, fresh] = local.emplace(PositionBits(at.position), static_cast<u32>(points.size()));
+                    if (fresh) {
+                        points.push_back(Corner{at, fragment.weights[k], Carrier{}});
+                    } else if (isSource(at) && !isSource(points[found->second].point)) {
+                        points[found->second] = Corner{at, fragment.weights[k], Carrier{}};
+                    }
+                    ids[k] = found->second;
+                }
+                for (std::size_t k = 0; k < n; ++k) {
+                    const u32 a = ids[k];
+                    const u32 b = ids[(k + 1) % n];
+                    if (a != b) {
+                        edges.push_back(Edge{a, b, fragment.carriers[k]});
+                        ++count[{a, b}];
+                    }
+                }
+            }
+            // Their union's outline: each edge its reverse does not cancel.
+            std::map<u32, std::vector<u32>> leaving;
+            std::map<std::pair<u32, u32>, i32> used;
+            for (u32 e = 0; e < edges.size(); ++e) {
+                const auto key = std::make_pair(edges[e].from, edges[e].to);
+                const auto back = count.find({edges[e].to, edges[e].from});
+                const i32 net = count[key] - (back == count.end() ? 0 : back->second);
+                if (net > 0 && used[key] < net) {
+                    ++used[key];
+                    leaving[edges[e].from].push_back(e);
+                }
+            }
+            bool single = !leaving.empty();
+            for (const auto& [from, list] : leaving) {
+                single = single && list.size() == 1;
+            }
+            std::vector<u32> walk;
+            if (single) {
+                u32 e = leaving.begin()->second.front();
+                const u32 start = edges[e].from;
+                for (std::size_t guard = 0; guard <= leaving.size(); ++guard) {
+                    walk.push_back(e);
+                    const auto next = leaving.find(edges[e].to);
+                    if (next == leaving.end()) {
+                        single = false;
+                        break;
+                    }
+                    e = next->second.front();
+                    if (edges[e].from == start) {
+                        break;
+                    }
+                }
+                single = single && walk.size() == leaving.size() && walk.size() >= 3;
+            }
+            group.single = single;
+            if (!single) {
+                for (const Corner& corner : points) {
+                    pinned.emplace(PositionBits(corner.point.position), u8{1});
+                }
+                continue;
+            }
+            for (const u32 e : walk) {
+                Corner corner = points[edges[e].from];
+                corner.carrier = edges[e].carrier;
+                group.loop.push_back(std::move(corner));
+            }
+        }
+    }
+
+    Cell healed;
+    const u32 healedCell = static_cast<u32>(cells.size());
+    for (u32 p = 0; p < pieces.size(); ++p) {
+        if (!alive[p] || groupsOf[p].empty()) {
+            continue;
+        }
+        // Each source triangle's face in this piece now: a fragment it had, or
+        // one made here.
+        struct Now {
+            u32 target = 0;
+            u32 face = 0;
+            bool whole = false; ///< The triangle itself.
+            bool made = false;
+            Fragment fragment;       ///< When made.
+            std::vector<u32> refs;   ///< When not: the fragments it stays in.
+        };
+        std::vector<Now> now;
+        std::vector<u8> consumed(pieces[p].faces.size(), 0);
+        for (const Group& group : groupsOf[p]) {
+            Now entry;
+            entry.target = group.target;
+            entry.face = group.face;
+            std::vector<Corner> loop;
+            if (group.single) {
+                for (const Corner& corner : group.loop) {
+                    const PositionKey at = PositionBits(corner.point.position);
+                    const auto held = holder.find(at);
+                    if (isSource(corner.point) || (held != holder.end() && held->second == kMany) ||
+                        pinned.find(at) != pinned.end()) {
+                        loop.push_back(corner);
+                    }
+                }
+            }
+            const bool changed = group.single && loop.size() >= 3 &&
+                                 (group.refs.size() > 1 || loop.size() != group.loop.size());
+            if (!changed) {
+                entry.refs = group.refs;
+                if (group.refs.size() == 1) {
+                    const FaceRef& ref = pieces[p].faces[group.refs[0]];
+                    const Cell& cell = cells[ref.cell];
+                    const Fragment& fragment = cell.fragments[ref.index];
+                    entry.whole = fragment.points.size() == 3 &&
+                                  std::all_of(fragment.points.begin(), fragment.points.end(),
+                                              [&](u32 point) { return isSource(cell.points[point]); });
+                }
+                now.push_back(std::move(entry));
+                continue;
+            }
+            for (const u32 r : group.refs) {
+                consumed[r] = 1;
+            }
+            entry.made = true;
+            entry.fragment.target = group.target;
+            entry.fragment.face = group.face;
+            entry.fragment.triangle = group.triangle;
+            entry.fragment.rank = group.triangle;
+            entry.whole = loop.size() == 3;
+            for (const Corner& corner : loop) {
+                entry.whole = entry.whole && isSource(corner.point);
+                entry.fragment.points.push_back(healed.add(corner.point));
+                entry.fragment.weights.push_back(corner.weight);
+                entry.fragment.carriers.push_back(corner.carrier);
+            }
+            now.push_back(std::move(entry));
+        }
+        // A face whose every triangle is whole here is the source face again.
+        std::map<std::pair<u32, u32>, std::vector<std::size_t>> byFace;
+        for (std::size_t i = 0; i < now.size(); ++i) {
+            byFace[{now[i].target, now[i].face}].push_back(i);
+        }
+        std::vector<FaceRef> made;
+        for (const auto& [key, list] : byFace) {
+            const Target& t = targets[key.first];
+            const u32 f = key.second;
+            const bool whole = list.size() == t.triFirst[f + 1] - t.triFirst[f] &&
+                               std::all_of(list.begin(), list.end(), [&](std::size_t i) { return now[i].whole; });
+            if (whole) {
+                Fragment fragment;
+                fragment.target = key.first;
+                fragment.face = f;
+                fragment.rank = t.triFirst[f];
+                for (u32 c = t.loopOffset[f]; c < t.loopOffset[f + 1]; ++c) {
+                    const u32 v = t.loopVertex[c];
+                    Point point;
+                    point.key = SourceKey(key.first, v);
+                    point.position = t.positions[v];
+                    point.target = key.first;
+                    point.from = {v, kNone, kNone};
+                    point.weight = {1.0, 0.0, 0.0};
+                    fragment.points.push_back(healed.add(point));
+                    Carrier carrier;
+                    carrier.u = v;
+                    carrier.v = t.loopVertex[c + 1 < t.loopOffset[f + 1] ? c + 1 : t.loopOffset[f]];
+                    fragment.carriers.push_back(carrier);
+                }
+                for (const std::size_t i : list) {
+                    for (const u32 r : now[i].refs) {
+                        consumed[r] = 1;
+                    }
+                }
+                made.push_back(FaceRef{healedCell, false, static_cast<u32>(healed.fragments.size()), 0, false});
+                healed.fragments.push_back(std::move(fragment));
+                continue;
+            }
+            for (const std::size_t i : list) {
+                if (now[i].made) {
+                    made.push_back(FaceRef{healedCell, false, static_cast<u32>(healed.fragments.size()), 0, false});
+                    healed.fragments.push_back(std::move(now[i].fragment));
+                }
+            }
+        }
+        if (made.empty()) {
+            continue;
+        }
+        // The outside it keeps, what was made, then the inside.
+        std::vector<FaceRef> faces;
+        for (u32 r = 0; r < pieces[p].faces.size(); ++r) {
+            if (!pieces[p].faces[r].inside && consumed[r] == 0) {
+                faces.push_back(pieces[p].faces[r]);
+            }
+        }
+        faces.insert(faces.end(), made.begin(), made.end());
+        for (const FaceRef& ref : pieces[p].faces) {
+            if (ref.inside) {
+                faces.push_back(ref);
+            }
+        }
+        pieces[p].faces = std::move(faces);
+    }
+    cells.push_back(std::move(healed));
+}
+
 } // namespace
 
 // ============================================================================
 // CutPieces
 // ============================================================================
 
-CutResult CutPieces(std::span<const CutTarget> inputs, const VoronoiDiagram& diagram,
+CutResult CutPieces(std::span<const CutTarget> inputs, const CellComplex& diagram,
                     const CutOptions& options) {
     CutResult result;
     std::vector<Target> targets(inputs.size());
     for (std::size_t i = 0; i < inputs.size(); ++i) {
-        Prepare(targets[i], inputs[i]);
+        Prepare(targets[i], inputs[i], options);
         if (targets[i].usable && !targets[i].whole) {
             FillHoles(targets[i]);
         }
@@ -1661,7 +2383,8 @@ CutResult CutPieces(std::span<const CutTarget> inputs, const VoronoiDiagram& dia
         const ConvexCell& convex = diagram.cells[c];
         for (u32 k = 0; k < convex.faces.size(); ++k) {
             const CellFace& face = convex.faces[k];
-            if (IsBoxSite(face.other) || face.other < c || face.other >= cellCount ||
+            // Once per pair, from the side the canonical plane faces out of.
+            if (IsBoxSite(face.other) || !face.low || face.other >= cellCount ||
                 diagram.cells[face.other].empty()) {
                 continue;
             }
@@ -1676,6 +2399,9 @@ CutResult CutPieces(std::span<const CutTarget> inputs, const VoronoiDiagram& dia
     Parallel(sets.size(), options.threads, [&](std::size_t i) {
         BuildInside(sets[i], diagram, cells[sets[i].low], targets);
     });
+    if (diagram.sliced) {
+        UniteClosePoints(cells, sets);
+    }
     std::vector<std::vector<u32>> setsOf(cellCount);
     for (u32 s = 0; s < sets.size(); ++s) {
         if (sets[s].failed) {
@@ -1698,10 +2424,18 @@ CutResult CutPieces(std::span<const CutTarget> inputs, const VoronoiDiagram& dia
             low = Vector3d(std::min(low.x, v.x), std::min(low.y, v.y), std::min(low.z, v.z));
             high = Vector3d(std::max(high.x, v.x), std::max(high.y, v.y), std::max(high.z, v.z));
         }
-        CellPieces(static_cast<u32>(i), cells[i], sets, setsOf, perCell[i], low, high);
+        CellPieces(static_cast<u32>(i), cells[i], sets, setsOf, perCell[i], low, high, targets, options);
     });
     std::vector<PieceWork> pieces;
-    for (auto& list : perCell) {
+    for (std::size_t c = 0; c < perCell.size(); ++c) {
+        std::vector<PieceWork>& list = perCell[c];
+        // A cell through parts that do not touch makes a piece of each; one
+        // that holds nothing makes none.
+        if (list.empty()) {
+            ++result.empty;
+        } else {
+            result.split += static_cast<u32>(list.size() - 1);
+        }
         for (PieceWork& piece : list) {
             pieces.push_back(std::move(piece));
         }
@@ -1741,6 +2475,11 @@ CutResult CutPieces(std::span<const CutTarget> inputs, const VoronoiDiagram& dia
         }
         cells.push_back(std::move(cell));
         pieces.push_back(std::move(piece));
+    }
+    // A plane parts the pieces only where it reaches.
+    const bool bounded = diagram.bounded();
+    if (bounded) {
+        result.joined = JoinUnreached(pieces, sets);
     }
 
     // --- phase 4: Smallest ---
@@ -1898,6 +2637,11 @@ CutResult CutPieces(std::span<const CutTarget> inputs, const VoronoiDiagram& dia
             link.insideArea = area;
             result.links.push_back(link);
         }
+    }
+
+    // After the measures: a healed face need not be convex, and they fan.
+    if (bounded) {
+        HealJoined(pieces, alive, cells, targets);
     }
 
     // --- phase 5 ---

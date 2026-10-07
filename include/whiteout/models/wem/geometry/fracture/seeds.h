@@ -61,6 +61,17 @@ struct SeedOptions {
 /// keeps that many candidates, fewer when it cannot.
 std::vector<Vector3d> FractureSeeds(std::span<const SeedTarget> targets, const SeedOptions& options);
 
+/// How much of each target a seed can be drawn in, in model units cubed: its
+/// box times the share of hashed probes the draw would keep, so a solid
+/// measures its volume and a sheet its area times the band. What a total is
+/// shared by (EDIT_MODE_FRACTURE_NEXT_DESIGN.md §2.2).
+std::vector<f64> TargetMeasures(std::span<const SeedTarget> targets, u32 seed, u32 threads = 0);
+
+/// @p total pieces shared among the targets whose count in @p pieces is 0, in
+/// proportion to @p measures and each at least 2. A target with a count of
+/// its own keeps it, and it comes out of the total first.
+std::vector<u16> SharePieces(std::span<const u16> pieces, std::span<const f64> measures, u32 total);
+
 } // namespace fracture
 } // namespace geom
 } // namespace wem

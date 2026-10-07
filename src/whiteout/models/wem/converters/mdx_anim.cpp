@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstring>
 #include <deque>
+#include <map>
 #include <optional>
 #include <string>
 #include <utility>
@@ -1930,7 +1931,8 @@ private:
 
         for (const u32 geoset : gate.geosets) {
             if (geoset < out_.geosets.size()) {
-                Emit(stepped, geosetAnimationFor(geoset).alphaTracks);
+                Emit(stepped, geosetAlphas_[geoset].gate);
+                writeGeosetAlpha(geoset);
             }
         }
     }
@@ -1979,6 +1981,140 @@ private:
         return out_.geosetAnimations.back();
     }
 
+    /// A geoset's alpha has two sources and the file one track for both: its
+    /// section's own alpha, and the gate its section is drawn behind.
+    struct GeosetAlpha {
+        mdx::Track<f32> own;
+        mdx::Track<f32> gate; ///< Stepped (`emitGate`).
+    };
+
+    /// What geoset @p geoset's record plays: the one track it has, or with
+    /// both its own alpha while the gate is open and 0 while it is shut.
+    /// Whichever was written last used to stand, so a fracture's pieces, hidden
+    /// until they break, lost the fade their mesh had.
+    void writeGeosetAlpha(u32 geoset) {
+        const GeosetAlpha& alpha = geosetAlphas_[geoset];
+        mdx::Track<f32>& written = geosetAnimationFor(geoset).alphaTracks;
+        if (alpha.own.isUsed && alpha.gate.isUsed) {
+            written = gated(alpha.own, alpha.gate, geoset);
+        } else {
+            written = alpha.gate.isUsed ? alpha.gate : alpha.own;
+        }
+    }
+
+    /// @p own while @p gate is open and 0 while it is shut, sequence by
+    /// sequence. The gate steps, so @p own's curve is cut where it opens or
+    /// shuts: a curve that ramps takes a key a millisecond before each cut and
+    /// one at the sequence's end, and a tangent stream is written as the ramp
+    /// between its values. A sequence @p own does not key plays 1, as Warcraft
+    /// III plays an alpha another sequence keys.
+    mdx::Track<f32> gated(const mdx::Track<f32>& own, const mdx::Track<f32>& gate, u32 geoset) {
+        // A global sequence is a clock of its own, which the other's keys
+        // cannot cut: the gate alone says whether the geoset draws.
+        if (own.globalSequenceId != kNoGlobalSequence || gate.globalSequenceId != kNoGlobalSequence) {
+            diagnostics_.warn(DiagCode::AnimTrackApproximated,
+                              "geoset " + std::to_string(geoset) +
+                                  " keys its alpha and its gate on different clocks; the gate is written",
+                              ElementRef(ElementKind::Mesh, geoset), profile_);
+            return gate;
+        }
+        const bool stepped = own.interpolationType == mdx::InterpolationType::None;
+        if (mdx::isSmoothInterpolation(own.interpolationType)) {
+            diagnostics_.warn(DiagCode::AnimTrackApproximated,
+                              "geoset " + std::to_string(geoset) +
+                                  " keys its alpha with tangents behind a gate; written as Linear",
+                              ElementRef(ElementKind::Mesh, geoset), profile_);
+        }
+        // The keys of a track inside a window, and one's value: each key's
+        // first float, tangents left out.
+        const auto span = [](const mdx::Track<f32>& track, u32 start, u32 end) {
+            const auto first = std::lower_bound(track.timestamps.begin(), track.timestamps.end(), start);
+            const auto last = std::upper_bound(first, track.timestamps.end(), end);
+            return std::pair<std::size_t, std::size_t>(first - track.timestamps.begin(),
+                                                       last - track.timestamps.begin());
+        };
+        const auto valueOf = [](const mdx::Track<f32>& track, std::size_t key) {
+            const std::size_t width =
+                track.timestamps.empty() ? 1 : std::max<std::size_t>(track.keys_data.size() / track.timestamps.size(), 1);
+            return key * width < track.keys_data.size() ? track.keys_data[key * width] : 0.0f;
+        };
+
+        std::map<u32, f32> keys;
+        for (const Window& window : windows_) {
+            if (window.globalSequenceId != kNoGlobalSequence) {
+                continue;
+            }
+            const auto [ownFirst, ownLast] = span(own, window.start, window.end);
+            const auto [gateFirst, gateLast] = span(gate, window.start, window.end);
+            // Held before its first key and past its last, as the engine holds it.
+            const auto ownAt = [&](u32 time) {
+                if (ownFirst == ownLast) {
+                    return 1.0f;
+                }
+                std::size_t after = ownFirst;
+                while (after < ownLast && own.timestamps[after] <= time) {
+                    ++after;
+                }
+                if (after == ownFirst) {
+                    return valueOf(own, ownFirst);
+                }
+                const std::size_t before = after - 1;
+                if (after == ownLast || stepped) {
+                    return valueOf(own, before);
+                }
+                const f32 length = static_cast<f32>(own.timestamps[after] - own.timestamps[before]);
+                const f32 along = length > 0.0f ? static_cast<f32>(time - own.timestamps[before]) / length : 0.0f;
+                return valueOf(own, before) + (valueOf(own, after) - valueOf(own, before)) * along;
+            };
+            // The gate's runs: where it opens and shuts, from the window's start.
+            std::vector<std::pair<u32, bool>> runs;
+            for (std::size_t g = gateFirst; g < gateLast; ++g) {
+                const bool open = valueOf(gate, g) >= 0.5f;
+                if (runs.empty()) {
+                    runs.emplace_back(window.start, open);
+                } else if (runs.back().second != open) {
+                    runs.emplace_back(gate.timestamps[g], open);
+                }
+            }
+            if (runs.empty()) {
+                runs.emplace_back(window.start, true);
+            }
+            for (std::size_t r = 0; r < runs.size(); ++r) {
+                const u32 from = runs[r].first;
+                const bool open = runs[r].second;
+                const bool last = r + 1 == runs.size();
+                const u32 until = last ? window.end : runs[r + 1].first; // The next run's first key.
+                keys.emplace(from, open ? ownAt(from) : 0.0f);
+                if (open) {
+                    for (std::size_t k = ownFirst; k < ownLast; ++k) {
+                        const u32 time = own.timestamps[k];
+                        if (time > from && (last ? time <= until : time < until)) {
+                            keys.emplace(time, valueOf(own, k));
+                        }
+                    }
+                }
+                if (stepped) {
+                    continue;
+                }
+                // A ramp would run on into the cut, or on to the next sequence.
+                if (!last && until - 1 > from) {
+                    keys.emplace(until - 1, open ? ownAt(until - 1) : 0.0f);
+                } else if (last && until > from) {
+                    keys.emplace(until, open ? ownAt(until) : 0.0f);
+                }
+            }
+        }
+        mdx::Track<f32> out;
+        out.isUsed = !keys.empty();
+        out.interpolationType = stepped ? mdx::InterpolationType::None : mdx::InterpolationType::Linear;
+        for (const auto& [time, value] : keys) {
+            out.timestamps.push_back(time);
+            out.keys_data.push_back(value);
+        }
+        out.keyCount = out.timestamps.size();
+        return out;
+    }
+
     /// A section channel names a MESH, and a mesh is now several geosets — so
     /// the curve is written onto each of them. Equal on a document that came
     /// from `.mdx`, where a mesh is one geoset by construction.
@@ -1993,7 +2129,8 @@ private:
             mdx::GeosetAnimation& animation = geosetAnimationFor(geoset);
             switch (channel.target.channel) {
             case Channel::Alpha:
-                Emit(merged, animation.alphaTracks);
+                Emit(merged, geosetAlphas_[geoset].own);
+                writeGeosetAlpha(geoset);
                 break;
             case Channel::Color:
                 Emit(merged, animation.colorTracks);
@@ -2305,6 +2442,7 @@ private:
     Diagnostics& diagnostics_;
     std::vector<Window> windows_;
     std::vector<VisibilityGate> gates_;
+    std::map<u32, GeosetAlpha> geosetAlphas_; ///< By geoset.
 };
 
 } // namespace

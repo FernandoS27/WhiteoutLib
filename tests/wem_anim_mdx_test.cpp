@@ -704,6 +704,129 @@ TEST_CASE("wem mdx a gate that rests visible writes nothing", "[wem][anim][mdx]"
     CHECK(exported->geosetAnimations.empty());
 }
 
+// A gate and the section's own alpha are both a geoset's alpha, and the file
+// has one track for it. Whichever was written last used to stand.
+namespace {
+
+/// @p channel keyed in the clip named @p clip: F32 keys at @p times, seconds.
+void keyFloats(Document& document, const std::string& clip, u32 channel, Interpolation interp,
+               std::vector<f32> times, const std::vector<f32>& values) {
+    for (Clip& each : document.clips) {
+        if (each.name != clip) {
+            continue;
+        }
+        SubTrack track;
+        track.channel = channel;
+        track.interp = interp;
+        track.times = std::move(times);
+        track.values.resize(values.size() * sizeof(f32));
+        std::memcpy(track.values.data(), values.data(), track.values.size());
+        if (each.containers.empty()) {
+            each.containers.emplace_back();
+        }
+        each.containers.front().subTracks.push_back(std::move(track));
+        return;
+    }
+    FAIL("no clip named " << clip);
+}
+
+/// A geoset alpha channel on @p document's one mesh.
+u32 addSectionAlpha(Document& document) {
+    AnimChannel alpha;
+    alpha.id = 901;
+    alpha.target.kind = TrackTarget::Kind::Section;
+    alpha.target.mesh = 0;
+    alpha.target.channel = Channel::Alpha;
+    alpha.valueType = geom::AttrType::F32;
+    document.models[0].animChannels.add(alpha);
+    return alpha.id;
+}
+
+} // namespace
+
+TEST_CASE("wem mdx a gate cuts the section's own alpha where it opens", "[wem][anim][mdx]") {
+    // Hidden at rest, open half way through "Stand", over a fade that runs the
+    // whole of it. "Walk" keys neither.
+    u32 gate = 0;
+    Document document = makeGatedDocument(0.0f, &gate);
+    const u32 alpha = addSectionAlpha(document);
+    keyFloats(document, "Stand", gate, Interpolation::Step, {0.0f, 0.5f}, {0.0f, 1.0f});
+    keyFloats(document, "Stand", alpha, Interpolation::Linear, {0.0f, 1.0f}, {1.0f, 0.0f});
+
+    const Result<mdx::Model> exported = MdxConverter().toMdx(document, ProfileId::Wc3Classic);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->geosetAnimations.size() == 1u);
+    const mdx::Track<f32>& track = exported->geosetAnimations[0].alphaTracks;
+    REQUIRE(track.isUsed);
+    CHECK(track.interpolationType == mdx::InterpolationType::Linear);
+    CHECK(track.globalSequenceId == mdx::Track<f32>::kNoGlobalSequence);
+    // Shut to the millisecond before it opens, then the fade from where it is,
+    // and "Walk" shut from end to end.
+    const std::vector<u32> times = {0u, 499u, 500u, 1000u, 2000u, 3000u};
+    const std::vector<f32> values = {0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f};
+    REQUIRE(track.timestamps == times);
+    REQUIRE(track.keyCount == times.size());
+    REQUIRE(track.keys_data.size() == values.size());
+    for (std::size_t k = 0; k < values.size(); ++k) {
+        CHECK(track.keys_data[k] == Catch::Approx(values[k]).margin(1e-6));
+    }
+}
+
+TEST_CASE("wem mdx a gate that shuts ends a stepped alpha there", "[wem][anim][mdx]") {
+    // Visible at rest, shut at 0.3 s of "Stand", whose alpha steps down later.
+    u32 gate = 0;
+    Document document = makeGatedDocument(1.0f, &gate);
+    const u32 alpha = addSectionAlpha(document);
+    keyFloats(document, "Stand", gate, Interpolation::Step, {0.0f, 0.3f}, {1.0f, 0.0f});
+    keyFloats(document, "Stand", alpha, Interpolation::Step, {0.0f, 0.6f}, {0.75f, 0.25f});
+
+    const Result<mdx::Model> exported = MdxConverter().toMdx(document, ProfileId::Wc3Classic);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->geosetAnimations.size() == 1u);
+    const mdx::Track<f32>& track = exported->geosetAnimations[0].alphaTracks;
+    REQUIRE(track.isUsed);
+    CHECK(track.interpolationType == mdx::InterpolationType::None);
+    // Its own alpha while open; "Walk", which keys neither, plays the gate's
+    // rest over the 1 an alpha keyed elsewhere plays.
+    const std::vector<u32> times = {0u, 300u, 2000u};
+    const std::vector<f32> values = {0.75f, 0.0f, 1.0f};
+    REQUIRE(track.timestamps == times);
+    REQUIRE(track.keys_data.size() == values.size());
+    for (std::size_t k = 0; k < values.size(); ++k) {
+        CHECK(track.keys_data[k] == Catch::Approx(values[k]).margin(1e-6));
+    }
+}
+
+TEST_CASE("wem mdx an alpha with no gate, and a gate with no alpha, are written as they were",
+          "[wem][anim][mdx]") {
+    // The alpha alone.
+    {
+        Document document = convert(makeModel());
+        const u32 alpha = addSectionAlpha(document);
+        keyFloats(document, "Stand", alpha, Interpolation::Linear, {0.0f, 1.0f}, {1.0f, 0.0f});
+        const Result<mdx::Model> exported = MdxConverter().toMdx(document, ProfileId::Wc3Classic);
+        REQUIRE(exported.ok());
+        REQUIRE(exported->geosetAnimations.size() == 1u);
+        const mdx::Track<f32>& track = exported->geosetAnimations[0].alphaTracks;
+        CHECK(track.interpolationType == mdx::InterpolationType::Linear);
+        CHECK(track.timestamps == std::vector<u32>{0u, 1000u});
+        CHECK(track.keys_data == std::vector<f32>{1.0f, 0.0f});
+    }
+    // The gate alone.
+    {
+        u32 gate = 0;
+        Document document = makeGatedDocument(0.0f, &gate);
+        keyFloats(document, "Stand", gate, Interpolation::Step, {0.0f, 0.5f}, {0.0f, 1.0f});
+        const Result<mdx::Model> exported = MdxConverter().toMdx(document, ProfileId::Wc3Classic);
+        REQUIRE(exported.ok());
+        REQUIRE(exported->geosetAnimations.size() == 1u);
+        const mdx::Track<f32>& track = exported->geosetAnimations[0].alphaTracks;
+        CHECK(track.interpolationType == mdx::InterpolationType::None);
+        CHECK(track.timestamps == std::vector<u32>{0u, 500u, 2000u});
+        CHECK(track.keys_data == std::vector<f32>{0.0f, 1.0f, 0.0f});
+    }
+}
+
 TEST_CASE("wem mdx a sequence's own extent survives the round trip", "[wem][anim][mdx]") {
     // A per-sequence bound is the one bound WEM stores rather than recomputes:
     // it is the union over the *posed* model across the clip, so recovering it

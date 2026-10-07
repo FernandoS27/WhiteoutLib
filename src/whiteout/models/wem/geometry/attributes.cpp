@@ -46,6 +46,7 @@ constexpr ReservedRow kReserved[] = {
     {names::kFractureWeld, Domain::Vertex, AttrType::U32},
     {names::kFractureSkinNode, Domain::Vertex, AttrType::U32x4},
     {names::kFractureSkinWeight, Domain::Vertex, AttrType::F32x4},
+    {names::kFractureSection, Domain::Face, AttrType::U32},
 };
 
 /// True when @p name is @p prefix followed by one or more decimal digits.
