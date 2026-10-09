@@ -440,6 +440,7 @@ add_library(whiteout_lib
     src/whiteout/models/wem/geometry/builder.cpp
     src/whiteout/models/wem/geometry/checks.cpp
     src/whiteout/models/wem/geometry/ops.cpp
+    src/whiteout/models/wem/geometry/shading.cpp
     src/whiteout/models/wem/geometry/render_view.cpp
     src/whiteout/models/wem/geometry/interpolate.cpp
     src/whiteout/models/wem/geometry/modelling.cpp

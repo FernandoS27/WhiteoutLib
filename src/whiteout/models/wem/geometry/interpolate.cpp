@@ -118,6 +118,15 @@ void blendValue(const std::string& name, AttrType type, const u8* values, u32 co
     default:
         // Discrete values do not blend: the heaviest corner's.
         std::memcpy(out, values + stride * top, stride);
+        // But a normal is custom only when every corner it was blended from
+        // is: mixed with an automatic one, it is no longer what anyone set.
+        if (type == AttrType::Bool && name == names::kNormalCustom) {
+            bool every = true;
+            for (u32 i = 0; i < count; ++i) {
+                every = every && (weights[i] <= 0.0f || values[stride * i] != 0);
+            }
+            out[0] = every ? 1 : 0;
+        }
         break;
     }
 }

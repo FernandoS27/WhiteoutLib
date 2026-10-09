@@ -2663,13 +2663,22 @@ TEST_CASE("wem primitives are born finished", "[wem][geometry][tools]") {
         }
         CHECK(border == (std::string(one.name) == "plane" ? 8u : 0u));
     }
-    // A box's edges are its shape; the round ones shade smooth.
+    // A box's edges are its shape; the round ones shade smooth, and say where
+    // they do not: a modelled mesh shades by its flags alone, so a rim that was
+    // only an angle would be gone at the first re-shade (NORMALS_PLAN P2).
     const auto sharp = made[0].mesh.attributes.get<const u8>(geom::names::kSharp, Domain::Edge);
     REQUIRE(sharp.size() == made[0].mesh.topology().edgeCount());
     for (const u8 flag : sharp) {
         CHECK(flag == 1u);
     }
-    CHECK(made[2].mesh.attributes.get<const u8>(geom::names::kSharp, Domain::Edge).empty());
+    const auto hard = [&](std::size_t which) {
+        const auto flags = made[which].mesh.attributes.get<const u8>(geom::names::kSharp, Domain::Edge);
+        return static_cast<u32>(std::count(flags.begin(), flags.end(), u8{1}));
+    };
+    CHECK(hard(1) == 0u);               // a plane
+    CHECK(hard(2) == 2u * params.sides); // a cylinder's two rims
+    CHECK(hard(3) == params.sides);      // a cone's base
+    CHECK(hard(4) == 0u);               // a sphere
 }
 
 TEST_CASE("wem lathe turns a profile into a closed shell", "[wem][geometry][tools]") {

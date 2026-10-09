@@ -1632,7 +1632,10 @@ TEST_CASE("Fracture divides a section a file could not index", "[fracture][writt
         geom::fracture::FractureSpec spec;
         spec.targets.push_back({0, 24});
         spec.keepWhole = keepWhole;
-        spec.mostVertices = 2500; // Past the largest piece, which stays whole.
+        // Past the largest piece, which stays whole, and a third of what the
+        // file writes (4,614: one vertex a point where the sphere shades smooth,
+        // which is why this is not the 2,500 it was while every corner had one).
+        spec.mostVertices = 1500;
         const auto result = geom::fracture::BreakModel(document, 0, spec);
         REQUIRE(result.ok());
         REQUIRE(result.sections >= 2);

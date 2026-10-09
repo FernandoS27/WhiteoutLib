@@ -292,11 +292,9 @@ bool BakeRigidNode(Mesh& mesh, u32 section);
  */
 void RecomputeNormals(Mesh& mesh, f32 angleThreshold = 1.047197551f);
 
-/// Rewrites the `tangent` Halfedge layer (F32x4, w = handedness) from @p uvSet.
-/// `w` is -1 where the UV-derived bitangent opposes `cross(normal, tangent)` —
-/// a mirrored island — so `bitangent = w * cross(normal, tangent)` everywhere.
-/// A polygon's face tangent is the UV-area-weighted mean over the triangles it
-/// is drawn as. Does nothing when the mesh has no such UV layer.
+/// Rewrites the `tangent` Halfedge layer from @p uvSet: the face-set form below
+/// over every face, so the two never disagree. Does nothing when the mesh has
+/// no such UV layer.
 void RecomputeTangents(Mesh& mesh, u32 uvSet = 0);
 
 // ---- The face-set re-shade (EDIT_MODE_MODELLING_DESIGN.md §2.7.10) ----------
@@ -314,14 +312,38 @@ f32 ShadingAngle(const Mesh& mesh);
 void RecomputeNormals(Mesh& mesh, std::span<const FaceId> faces, f32 angleThreshold);
 
 /**
+ * @brief States a smoothing angle as `sharp` flags: an edge between two faces
+ *        goes hard where they meet at more than @p angle (radians), and soft
+ *        elsewhere unless @p keepHard.
+ *
+ * How an angle is applied to a `modelled` mesh, whose shading reads the flags
+ * alone (`ShadingAngle`): shaded by an angle with no flag written, the crease
+ * would be forgotten at the next re-shade. Two faces exactly at the angle are
+ * soft. A border edge is left as it is.
+ *
+ * @return the number of flags that changed.
+ */
+u32 MarkSharpByAngle(Mesh& mesh, std::span<const EdgeId> edges, f32 angle, bool keepHard = false);
+
+/// `MarkSharpByAngle` over every edge.
+u32 MarkSharpByAngle(Mesh& mesh, f32 angle, bool keepHard = false);
+
+/**
  * @brief Rewrites the tangents of the corners at the vertices of @p faces.
  *
- * Corners are grouped inside the normal groups (`ShadingAngle`), then split
- * where their UVs or their face's handedness differ, so a UV seam or a mirror
- * line keeps two tangents at one vertex and a crease smoothed into one normal
- * gets one tangent. A face whose UV map has no area contributes nothing; a group
- * left with nothing takes a tangent along its face's first edge, orthogonal to
- * its normal.
+ * MikkTSpace's rule, which Warcraft III's files follow and the bake tools use.
+ * Each triangle a face is drawn as gives its corners its unit dP/du, laid into
+ * the corner's normal plane and weighted by the corner's angle. The corners at
+ * a vertex that share a normal, a UV and a UV winding share the sum, so a UV
+ * seam or a mirror line keeps two tangents at one vertex and a crease smoothed
+ * into one normal gets one. It reads the `normal` layer: re-shade first.
+ *
+ * `w` is the side `names::kTangent` states: +1 where the UVs wind against the
+ * face, so `w * cross(normal, tangent)` runs toward decreasing v.
+ *
+ * A triangle whose UV map has no area contributes nothing; corners left with
+ * nothing take a tangent along their face's first edge, orthogonal to their
+ * normal, and `w` +1.
  */
 void RecomputeTangents(Mesh& mesh, std::span<const FaceId> faces, u32 uvSet);
 

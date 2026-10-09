@@ -784,7 +784,7 @@ std::vector<u8> LayoutSignature(const Mesh& mesh) {
         }
         if (layer.name.rfind(geom::names::kSelectionPrefix, 0) == 0 ||
             layer.name == geom::names::kMergeGroup || layer.name == geom::names::kSkinLocked ||
-            layer.name == geom::names::kModelled) {
+            layer.name == geom::names::kModelled || geom::names::IsCornerMark(layer.name)) {
             continue;
         }
         layers.push_back(layer.name + '\0' + static_cast<char>(layer.domain) +

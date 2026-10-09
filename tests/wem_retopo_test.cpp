@@ -219,14 +219,19 @@ TEST_CASE("retopo: a seam that leaves the surface whole still parts the UVs", "[
         mesh.attributes.get<const Vector3f>(geom::names::kPosition, geom::Domain::Vertex);
     REQUIRE(!uv.empty());
     u32 side = 0;
+    u32 acrossRim = 0;
     f32 widest = 0.0f;
     for (u32 f = 0; f < topology.faceCount(); ++f) {
         f32 height = 0.0f;
         f32 low = 1.0f;
         f32 high = 0.0f;
         u32 corners = 0;
+        bool onCap = false;
         for (const geom::HalfedgeId h : topology.fh(geom::FaceId(f))) {
-            height += positions[topology.from(h).index()].z;
+            const Vector3f& p = positions[topology.from(h).index()];
+            height += p.z;
+            // Inside a rim, not on it: a corner of a cap.
+            onCap = onCap || (std::abs(p.z) > 0.999f && p.x * p.x + p.y * p.y < 0.9f * 0.9f);
             low = std::min(low, uv[h.index()].x);
             high = std::max(high, uv[h.index()].x);
             ++corners;
@@ -234,11 +239,20 @@ TEST_CASE("retopo: a seam that leaves the surface whole still parts the UVs", "[
         if (std::abs(height / static_cast<f32>(corners)) > 0.9f) {
             continue; // a cap's
         }
+        if (onCap) {
+            ++acrossRim; // a quad laid over the rim: the cap's island and the side's
+            continue;
+        }
         ++side;
         widest = std::max(widest, high - low);
     }
     CHECK(side > 50);
     CHECK(widest < 0.25f);
+    // Not this case's subject, and bounded so it cannot grow unseen: on a
+    // cylinder that shades smooth, the field method lays four quads across a
+    // rim. It laid none while every primitive shaded flat, which is how the
+    // source read until EDIT_MODE_NORMALS_PLAN.md N0; the layout method lays none.
+    CHECK(acrossRim <= (method == RetopoMethod::Field ? 4u : 0u));
 }
 
 TEST_CASE("retopo: the skin comes across as the source's blend at each vertex", "[retopo]") {

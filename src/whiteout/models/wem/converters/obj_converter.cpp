@@ -23,6 +23,7 @@
 #include "whiteout/models/obj/writer.h"
 #include "whiteout/models/wem/geometry/builder.h"
 #include "whiteout/models/wem/geometry/ops.h"
+#include "whiteout/models/wem/geometry/shading.h"
 #include "whiteout/models/wem/geometry/triangulation.h"
 #include "whiteout/models/wem/materials/surface_flatten.h"
 #include "whiteout/models/wem/skinning/deform.h"
@@ -552,8 +553,19 @@ void ExportModel(ExportState& state, u32 modelIndex, const Matrix44f* placement,
                 ? mesh.attributes.get<std::array<u8, 4>>(geom::names::color(0),
                                                          geom::Domain::Halfedge)
                 : std::span<const std::array<u8, 4>>();
-        const std::span<const u32> smoothing =
+        std::span<const u32> smoothing =
             mesh.attributes.get<u32>(geom::names::kSmoothGroup, geom::Domain::Face);
+        // Without the layer, the groups are what the hard edges enclose,
+        // numbered here; a polygon alone is `s off`
+        // (EDIT_MODE_NORMALS_DESIGN.md §5.5). A mesh with neither is one group.
+        std::vector<u32> enclosed;
+        if (smoothing.empty() && mesh.attributes.has(geom::names::kSharp, geom::Domain::Edge)) {
+            Mesh copy = mesh;
+            Mesh* one[] = {&copy};
+            const geom::shading::Surface surface(one);
+            enclosed = geom::shading::GroupsOf(surface).groupOf[0];
+            smoothing = enclosed;
+        }
         const std::span<const u32> sectionOf = mesh.faceSections();
 
         // Vertices: every one, in WEM order; colours averaged over corners.

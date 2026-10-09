@@ -464,8 +464,10 @@ TEST_CASE("wem MergeMeshesInto gives an absorbed mesh the primary's tangent fram
         const geom::VertexId b = builder.addVertex(Vector3f{x + 1, 0, 0});
         const geom::VertexId c = builder.addVertex(Vector3f{x + 1, 1, 0});
         const geom::VertexId d = builder.addVertex(Vector3f{x, 1, 0});
+        // As a file maps it: v runs down the image as y goes up, so the plain
+        // island's w is +1 (`names::kTangent`) and the mirrored one's -1.
         const f32 s = mirrored ? -1.0f : 1.0f;
-        const Vector2f uv[] = {{0, 0}, {s, 0}, {s, 1}, {0, 1}};
+        const Vector2f uv[] = {{0, 1}, {s, 1}, {s, 0}, {0, 0}};
         const u32 uvAbc[] = {0, 1, 2};
         const u32 uvAcd[] = {0, 2, 3};
         const geom::FaceId f0 = builder.addTriangle(a, b, c, 0);

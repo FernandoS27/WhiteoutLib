@@ -351,6 +351,54 @@ TEST_CASE("wem prepare a hard edge is sharp and not seam", "[wem][geometry][prep
     CHECK(errors(mesh) == "");
 }
 
+TEST_CASE("wem prepare flags a hard edge that is already interior", "[wem][geometry][prepare]") {
+    // A cube as OBJ and FBX write one: eight shared points and a normal per
+    // face. Nothing welds, and its twelve edges are hard all the same; left
+    // unflagged, the first re-shade would round it (EDIT_MODE_NORMALS_PLAN.md C2b).
+    Fixture f;
+    for (u32 i = 0; i < 8; ++i) {
+        f.positions.push_back(Vector3f{(i & 1) ? 1.0f : -1.0f, (i & 2) ? 1.0f : -1.0f, (i & 4) ? 1.0f : -1.0f});
+    }
+    f.add({0, 2, 3, 1}, {}, {0, 0, -1});
+    f.add({4, 5, 7, 6}, {}, {0, 0, 1});
+    f.add({0, 1, 5, 4}, {}, {0, -1, 0});
+    f.add({2, 6, 7, 3}, {}, {0, 1, 0});
+    f.add({0, 4, 6, 2}, {}, {-1, 0, 0});
+    f.add({1, 3, 7, 5}, {}, {1, 0, 0});
+    Mesh mesh = meshOf(f);
+    const geom::PrepareReport report = geom::PrepareForModelling(mesh);
+    CHECK(report.verticesWelded == 0u);
+    CHECK(report.sharpMarked == 12u);
+    CHECK(flagged(mesh, geom::names::kSharp).size() == 12u);
+    CHECK(flagged(mesh, geom::names::kSeam).empty());
+    CHECK(errors(mesh) == "");
+
+    // So a re-shade leaves it a cube: every corner its face's normal.
+    REQUIRE(mesh.ensureConnectivity().ok());
+    std::vector<FaceId> faces;
+    for (u32 face = 0; face < 6; ++face) {
+        faces.push_back(FaceId(face));
+    }
+    geom::RecomputeNormals(mesh, faces, geom::ShadingAngle(mesh));
+    const Mesh& shaded = mesh;
+    const std::span<const Vector3f> normals =
+        shaded.attributes.get<const Vector3f>(geom::names::kNormal, Domain::Halfedge);
+    const std::span<const Vector3f> positions =
+        shaded.attributes.get<const Vector3f>(geom::names::kPosition, Domain::Vertex);
+    for (u32 face = 0; face < 6; ++face) {
+        Vector3f centre{0, 0, 0};
+        for (const VertexId v : shaded.topology().fv(FaceId(face))) {
+            centre.x += positions[v.index()].x * 0.25f;
+            centre.y += positions[v.index()].y * 0.25f;
+            centre.z += positions[v.index()].z * 0.25f;
+        }
+        for (const HalfedgeId h : shaded.topology().fh(FaceId(face))) {
+            const Vector3f& n = normals[h.index()];
+            CHECK(std::abs(n.x - centre.x) + std::abs(n.y - centre.y) + std::abs(n.z - centre.z) < 1e-5f);
+        }
+    }
+}
+
 TEST_CASE("wem prepare a mirrored-UV line is a seam", "[wem][geometry][prepare]") {
     // The same UVs and normals either side; only the tangent's w flips.
     Fixture f = twoColumns();
@@ -571,16 +619,19 @@ TEST_CASE("wem prepare snaps a kept-apart member of a chain too", "[wem][geometr
     checkPointsAgree(original, mesh, report);
 }
 
-TEST_CASE("wem prepare leaves an edge that was already interior alone", "[wem][geometry][prepare]") {
-    // The seam fixture, with the left strip's first diagonal already shared and
-    // its two sides' normals apart: no weld closed it, so it is not marked.
+TEST_CASE("wem prepare marks an edge that was already interior where its normals break",
+          "[wem][geometry][prepare]") {
+    // The seam fixture, with the left strip's second triangle given normals of
+    // its own: its two shared edges were interior before any weld, and they are
+    // hard all the same. This case pinned the opposite while every re-shade was
+    // flat and a missing flag cost nothing (EDIT_MODE_NORMALS_PLAN.md C2b).
     Fixture f = twoColumns();
     addStrips(f, Vector2f{0.1f, 0.0f}, {0, 0, 1}, {0, 0, 1}, 1.0f, 1.0f);
     f.normals[1] = std::vector<Vector3f>(3, Vector3f{0, 1, 0});
     Mesh mesh = meshOf(f);
     const geom::PrepareReport report = geom::PrepareForModelling(mesh);
-    CHECK(report.sharpMarked == 0u);
-    CHECK(flagged(mesh, geom::names::kSharp).empty());
+    CHECK(report.sharpMarked == 2u);
+    CHECK(flagged(mesh, geom::names::kSharp).size() == 2u);
 }
 
 // ============================================================================

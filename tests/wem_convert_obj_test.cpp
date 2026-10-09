@@ -19,6 +19,7 @@
 #include <whiteout/models/obj/parser.h>
 #include <whiteout/models/obj/writer.h>
 #include <whiteout/models/wem/geometry/builder.h>
+#include <whiteout/models/wem/geometry/primitives.h>
 #include <whiteout/models/wem/obj_converter.h>
 
 using namespace whiteout;
@@ -311,6 +312,30 @@ TEST_CASE("mtl crosses to Legacy and PBR bodies", "[obj][wem]") {
     }
     CHECK(sawPrefixed);
     CHECK(imported.diagnostics.byCode(DiagCode::SlotNotBound).size() == 1);
+}
+
+TEST_CASE("obj export numbers smoothing groups from the hard edges", "[obj][wem]") {
+    // A mesh with no `smoothGroup` layer but with hard edges: a group is what
+    // they enclose (EDIT_MODE_NORMALS_DESIGN.md §5.5). A cylinder's side is
+    // one, and each cap, a polygon alone, is `s off`.
+    Document source = makeQuadDocument();
+    Mesh can = geom::MakeCylinder(geom::PrimitiveParams{});
+    can.sections[0] = source.models[0].meshes[0].sections[0];
+    source.models[0].meshes[0] = can;
+    Result<ObjExport> exported = ObjConverter{}.toObj(source, ProfileId::Generic);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->asset.faces.size() == 14);
+    u32 off = 0;
+    u32 side = 0;
+    for (const obj::Face& face : exported->asset.faces) {
+        off += face.smoothing == 0 ? 1 : 0;
+        if (face.smoothing != 0) {
+            CHECK((side == 0 || face.smoothing == side));
+            side = face.smoothing;
+        }
+    }
+    CHECK(off == 2);
+    CHECK(side != 0);
 }
 
 TEST_CASE("obj export round-trips polygons, UVs and materials", "[obj][wem]") {

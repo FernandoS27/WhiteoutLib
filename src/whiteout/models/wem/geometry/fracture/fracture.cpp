@@ -574,7 +574,8 @@ std::vector<std::pair<u32, u32>> DivideSections(Mesh& mesh, u32 most, std::span<
     std::span<u32> sectionOf = mesh.faceSections();
     std::vector<const AttrLayer*> layers;
     for (const AttrLayer& layer : std::as_const(mesh).attributes.layers()) {
-        if (layer.domain == Domain::Halfedge) {
+        // A mark is not a value: it parts no vertex in any file.
+        if (layer.domain == Domain::Halfedge && !names::IsCornerMark(layer.name)) {
             layers.push_back(&layer);
         }
     }
@@ -1657,16 +1658,17 @@ RejoinReport RejoinPieces(Mesh& mesh, std::span<const u32> skinNodes) {
             const u8* a = layer->data.data() + static_cast<std::size_t>(p.value()) * stride;
             const u8* b = layer->data.data() + static_cast<std::size_t>(x.value()) * stride;
             const u8* c = layer->data.data() + static_cast<std::size_t>(n.value()) * stride;
-            for (u32 k = 0; k < components; ++k) {
+            f64 held[4] = {0.0, 0.0, 0.0, 0.0};
+            f64 blend[4] = {0.0, 0.0, 0.0, 0.0};
+            f64 slack[4] = {0.0, 0.0, 0.0, 0.0};
+            for (u32 k = 0; k < components && k < 4; ++k) {
                 f64 va;
-                f64 vb;
                 f64 vc;
-                f64 slack;
                 if (layer->type == AttrType::U8x4) {
                     va = a[k];
-                    vb = b[k];
+                    held[k] = b[k];
                     vc = c[k];
-                    slack = 1.5;
+                    slack[k] = 1.5;
                 } else {
                     f32 fa;
                     f32 fb;
@@ -1675,11 +1677,28 @@ RejoinReport RejoinPieces(Mesh& mesh, std::span<const u32> skinNodes) {
                     std::memcpy(&fb, b + 4 * k, 4);
                     std::memcpy(&fc, c + 4 * k, 4);
                     va = fa;
-                    vb = fb;
+                    held[k] = fb;
                     vc = fc;
-                    slack = 1e-3 * (1.0 + std::fabs(va) + std::fabs(vc));
+                    slack[k] = 1e-3 * (1.0 + std::fabs(va) + std::fabs(vc));
                 }
-                if (std::fabs(vb - (va + t * (vc - va))) > slack) {
+                blend[k] = va + t * (vc - va);
+            }
+            // A direction is blended and then brought back to unit length
+            // (`BlendCorners`), so that is what a cut point across a smooth
+            // surface holds: against the bare line it would never dissolve.
+            if (layer->type != AttrType::U8x4 && components >= 3 &&
+                (layer->name == names::kNormal || layer->name == names::kBinormal ||
+                 layer->name == names::kTangent)) {
+                const f64 length =
+                    std::sqrt(blend[0] * blend[0] + blend[1] * blend[1] + blend[2] * blend[2]);
+                if (length > 1e-20) {
+                    blend[0] /= length;
+                    blend[1] /= length;
+                    blend[2] /= length;
+                }
+            }
+            for (u32 k = 0; k < components && k < 4; ++k) {
+                if (std::fabs(held[k] - blend[k]) > slack[k]) {
                     return false;
                 }
             }
@@ -1761,6 +1780,19 @@ RejoinReport RejoinPieces(Mesh& mesh, std::span<const u32> skinNodes) {
             continue;
         }
         // Dissolve the cut points left on a straight, linear edge.
+        const auto between = [&](const Edge& p, const Edge& x, const Edge& n) {
+            const Vector3d pp = D(positions[p.vertex]);
+            const Vector3d px = D(positions[x.vertex]);
+            const Vector3d pn = D(positions[n.vertex]);
+            const Vector3d along = pn - pp;
+            const f64 length2 = Dot(along, along);
+            if (!(length2 > 0.0)) {
+                return false;
+            }
+            const f64 t = Dot(px - pp, along) / length2;
+            const f64 off = Length(cross(px - pp, along)) / std::sqrt(length2);
+            return t > 0.0 && t < 1.0 && off <= tolerance && linearAt(p.halfedge, x.halfedge, n.halfedge, t);
+        };
         bool changed = true;
         while (changed && walk.size() > 3) {
             changed = false;
@@ -1769,22 +1801,25 @@ RejoinReport RejoinPieces(Mesh& mesh, std::span<const u32> skinNodes) {
                 if (!isCut(x.vertex)) {
                     continue;
                 }
-                const Edge& p = edges[walk[(i + walk.size() - 1) % walk.size()]];
-                const Edge& n = edges[walk[(i + 1) % walk.size()]];
-                const Vector3d pp = D(positions[p.vertex]);
-                const Vector3d px = D(positions[x.vertex]);
-                const Vector3d pn = D(positions[n.vertex]);
-                const Vector3d along = pn - pp;
-                const f64 length2 = Dot(along, along);
-                if (!(length2 > 0.0)) {
-                    continue;
+                const std::size_t size = walk.size();
+                std::size_t before = (i + size - 1) % size;
+                std::size_t after = (i + 1) % size;
+                bool straight = between(edges[walk[before]], x, edges[walk[after]]);
+                if (!straight) {
+                    // Then between the ends of the source edge it was cut on,
+                    // whose blend is what it holds. Small pieces put several
+                    // cuts on one edge, and a direction blended from two of
+                    // them is not the direction blended from the ends.
+                    while (before != i && isCut(edges[walk[before]].vertex)) {
+                        before = (before + size - 1) % size;
+                    }
+                    while (after != i && isCut(edges[walk[after]].vertex)) {
+                        after = (after + 1) % size;
+                    }
+                    straight = before != i && after != i && before != after &&
+                               between(edges[walk[before]], x, edges[walk[after]]);
                 }
-                const f64 t = Dot(px - pp, along) / length2;
-                const f64 off = Length(cross(px - pp, along)) / std::sqrt(length2);
-                if (t <= 0.0 || t >= 1.0 || off > tolerance) {
-                    continue;
-                }
-                if (!linearAt(p.halfedge, x.halfedge, n.halfedge, t)) {
+                if (!straight) {
                     continue;
                 }
                 walk.erase(walk.begin() + static_cast<std::ptrdiff_t>(i));

@@ -55,7 +55,7 @@ struct PrepareReport {
     u32 keptBinding = 0;         ///< Coincident vertices left apart: their bindings differ.
     u32 keptFaceCorners = 0;     ///< Left apart: they are two corners of one face.
     u32 seamsMarked = 0;         ///< Edges the weld closed where an authored corner value differs.
-    u32 sharpMarked = 0;         ///< ... where the corner normals differ.
+    u32 sharpMarked = 0;         ///< Edges whose two sides' normals break, closed by the weld or not.
     std::vector<u32> vertexOf;   ///< Old vertex -> new. Identity when nothing welded.
     std::vector<u32> faceOf;     ///< Old face -> new. The weld drops no face (rules 2 and 3).
     std::vector<u32> cornerOf;   ///< Old corner -> new, flattened in face-set order.
@@ -184,6 +184,12 @@ struct ModelPlan {
     /// exactly what a preview planning on a copy holds. That is what it is for:
     /// a count says how many edges go, and this says which.
     std::vector<u32> dissolvedEdges;
+    /// The custom normals of the faces the motions touch, as they stood before
+    /// any amount moved them. `ApplyAmount` holds them at its first call and
+    /// turns each from here, so a drag through many amounts ends where one
+    /// apply of the last does (EDIT_MODE_NORMALS_DESIGN.md §5.3).
+    mutable std::vector<std::pair<u32, Vector3f>> customNormals;
+    mutable bool customNormalsHeld = false;
     bool renumbers = true;          ///< False for the row-only tools: no element moved id.
     bool fellBack = false;          ///< Extrude's Group fell back to Local Normal (§3.8).
     u32 kept = 0;                   ///< What the tool left as it was, for the result line.

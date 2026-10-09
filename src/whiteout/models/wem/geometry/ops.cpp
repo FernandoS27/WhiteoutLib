@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 #include <whiteout/models/wem/geometry/ops.h>
+#include <whiteout/models/wem/geometry/shading.h>
 
 #include "rebuild.h"
 
@@ -195,18 +196,17 @@ std::vector<std::vector<HalfedgeId>> cornerGroups(const Mesh& mesh,
         return {};
     }
 
-    // `voh` steps h -> opposite(prev(h)), so the edge shared by consecutive
-    // corners h and step(h) is edge(prev(h)).
+    // `voh` steps h -> opposite(prev(h)), so the edge between a corner and the
+    // one before it is the corner's own: edge(current) == edge(prev(previous)).
     breakBefore.assign(ring.size(), false);
     for (std::size_t i = 0; i < ring.size(); ++i) {
         const HalfedgeId current = ring[i];
         const HalfedgeId previous = ring[(i + ring.size() - 1) % ring.size()];
-        const HalfedgeId shared = topology.prev(current);
         bool split = false;
-        if (topology.opposite(shared) != previous && ring.size() > 1) {
+        if (topology.prev(previous) != topology.opposite(current) && ring.size() > 1) {
             split = true; // a boundary gap sits between them
         }
-        const std::size_t edgeIndex = Topology::edge(shared).index();
+        const std::size_t edgeIndex = Topology::edge(current).index();
         if (edgeIndex < sharp.size() && sharp[edgeIndex] != 0) {
             split = true;
         }
@@ -267,6 +267,45 @@ std::vector<Vector3f> allFaceNormals(const Mesh& mesh) {
     }
     return normals;
 }
+
+/// How one fan's normal is made and who takes it: the mesh's weighting
+/// (`shading`), and every corner but the ones marked custom, whose faces still
+/// count in the sum (EDIT_MODE_NORMALS_DESIGN.md §5.1, §5.3).
+struct ShadingRule {
+    explicit ShadingRule(const Mesh& mesh)
+        : weighting(shading::WeightingOf(mesh)),
+          custom(mesh.attributes.get<const u8>(names::kNormalCustom, Domain::Halfedge)) {}
+
+    void write(const Mesh& mesh, std::span<const Vector3f> faceNormals, std::span<const HalfedgeId> fan,
+               std::span<Vector3f> normals) const {
+        const Topology& topology = mesh.topology();
+        Vector3f sum{0.0f, 0.0f, 0.0f};
+        for (const HalfedgeId h : fan) {
+            if (weighting == shading::Weighting::Even) {
+                const std::size_t f = topology.face(h).index();
+                if (f < faceNormals.size()) {
+                    sum.x += faceNormals[f].x;
+                    sum.y += faceNormals[f].y;
+                    sum.z += faceNormals[f].z;
+                }
+            } else {
+                const Vector3f part = detail::WeightedFaceNormal(mesh, faceNormals, h, weighting);
+                sum.x += part.x;
+                sum.y += part.y;
+                sum.z += part.z;
+            }
+        }
+        const Vector3f value = normalized(sum);
+        for (const HalfedgeId h : fan) {
+            if (h.index() < normals.size() && !(h.index() < custom.size() && custom[h.index()] != 0)) {
+                normals[h.index()] = value;
+            }
+        }
+    }
+
+    shading::Weighting weighting;
+    std::span<const u8> custom;
+};
 
 } // namespace
 
@@ -2393,27 +2432,14 @@ void RecomputeNormals(Mesh& mesh, f32 angleThreshold) {
     }
     const f32 cosThreshold = std::cos(angleThreshold);
     const Topology& topology = mesh.topology();
+    const ShadingRule rule(mesh);
     for (u32 v = 0; v < topology.vertexCount(); ++v) {
         if (topology.isDeleted(VertexId(v))) {
             continue;
         }
         for (const std::vector<HalfedgeId>& group :
              cornerGroups(mesh, faceNormals, VertexId(v), cosThreshold)) {
-            Vector3f sum{0.0f, 0.0f, 0.0f};
-            for (HalfedgeId h : group) {
-                const std::size_t f = topology.face(h).index();
-                if (f < faceNormals.size()) {
-                    sum.x += faceNormals[f].x;
-                    sum.y += faceNormals[f].y;
-                    sum.z += faceNormals[f].z;
-                }
-            }
-            const Vector3f value = normalized(sum);
-            for (HalfedgeId h : group) {
-                if (h.index() < normals.size()) {
-                    normals[h.index()] = value;
-                }
-            }
+            rule.write(mesh, faceNormals, group, normals);
         }
     }
 }
@@ -2422,122 +2448,16 @@ void RecomputeTangents(Mesh& mesh, u32 uvSet) {
     if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
         return;
     }
-    const std::span<const Vector2f> uvs =
-        mesh.attributes.get<const Vector2f>(names::uv(uvSet), Domain::Halfedge);
-    const std::span<const Vector3f> positions =
-        mesh.attributes.get<const Vector3f>(names::kPosition, Domain::Vertex);
-    if (uvs.empty() || positions.empty()) {
-        return;
-    }
-    const std::vector<Vector3f> faceNormals = allFaceNormals(mesh);
-    const Topology& topology = mesh.topology();
-
-    // Per-face tangent, then averaged over the same smoothing groups the normals
-    // use — so a UV seam keeps two tangents at one vertex, which is the point.
-    std::vector<Vector3f> faceTangents(topology.faceCount(), Vector3f{1.0f, 0.0f, 0.0f});
-    // The UV-derived bitangent, kept only for its side: a mirrored island's
-    // points against cross(normal, tangent), and that is the handedness.
-    std::vector<Vector3f> faceBitangents(topology.faceCount(), Vector3f{0.0f, 0.0f, 0.0f});
-    // A triangle's is its own; a polygon's the UV-area-weighted mean over the
-    // triangles it is drawn as, never a fan that can cross a reflex corner.
+    // One rule, so a whole mesh and a face set of it never disagree.
+    const Topology& topology = std::as_const(mesh).topology();
+    std::vector<FaceId> faces;
+    faces.reserve(topology.faceCount());
     for (u32 f = 0; f < topology.faceCount(); ++f) {
-        if (topology.isDeleted(FaceId(f))) {
-            continue;
-        }
-        const std::vector<HalfedgeId> corners = drawnCorners(mesh, positions, FaceId(f));
-        const bool triangle = corners.size() == 3;
-        Vector3f tangent{0.0f, 0.0f, 0.0f};
-        Vector3f bitangent{0.0f, 0.0f, 0.0f};
-        f32 weight = 0.0f;
-        for (std::size_t t = 0; t + 2 < corners.size(); t += 3) {
-            const HalfedgeId h0 = corners[t];
-            const HalfedgeId h1 = corners[t + 1];
-            const HalfedgeId h2 = corners[t + 2];
-            const std::size_t i0 = topology.from(h0).index();
-            const std::size_t i1 = topology.from(h1).index();
-            const std::size_t i2 = topology.from(h2).index();
-            if (i0 >= positions.size() || i1 >= positions.size() || i2 >= positions.size() ||
-                h0.index() >= uvs.size() || h1.index() >= uvs.size() || h2.index() >= uvs.size()) {
-                continue;
-            }
-            const Vector3f e1{positions[i1].x - positions[i0].x, positions[i1].y - positions[i0].y,
-                              positions[i1].z - positions[i0].z};
-            const Vector3f e2{positions[i2].x - positions[i0].x, positions[i2].y - positions[i0].y,
-                              positions[i2].z - positions[i0].z};
-            const f32 du1 = uvs[h1.index()].x - uvs[h0.index()].x;
-            const f32 dv1 = uvs[h1.index()].y - uvs[h0.index()].y;
-            const f32 du2 = uvs[h2.index()].x - uvs[h0.index()].x;
-            const f32 dv2 = uvs[h2.index()].y - uvs[h0.index()].y;
-            const f32 determinant = du1 * dv2 - du2 * dv1;
-            if (std::fabs(determinant) < 1e-20f) {
-                continue;
-            }
-            // T/det per triangle, weighted by |det|: T·sign summed, over Σ|det|.
-            const f32 scale = triangle ? 1.0f / determinant : (determinant < 0.0f ? -1.0f : 1.0f);
-            tangent.x += (e1.x * dv2 - e2.x * dv1) * scale;
-            tangent.y += (e1.y * dv2 - e2.y * dv1) * scale;
-            tangent.z += (e1.z * dv2 - e2.z * dv1) * scale;
-            bitangent.x += (e2.x * du1 - e1.x * du2) * scale;
-            bitangent.y += (e2.y * du1 - e1.y * du2) * scale;
-            bitangent.z += (e2.z * du1 - e1.z * du2) * scale;
-            weight += triangle ? 1.0f : std::fabs(determinant);
-        }
-        if (weight <= 0.0f) {
-            continue;
-        }
-        const f32 inverse = triangle ? 1.0f : 1.0f / weight;
-        faceTangents[f] = Vector3f{tangent.x * inverse, tangent.y * inverse, tangent.z * inverse};
-        faceBitangents[f] =
-            Vector3f{bitangent.x * inverse, bitangent.y * inverse, bitangent.z * inverse};
-    }
-
-    const std::span<const Vector3f> normals =
-        mesh.attributes.get<const Vector3f>(names::kNormal, Domain::Halfedge);
-    const std::span<Vector4f> tangents =
-        mesh.attributes.getOrCreate<Vector4f>(names::kTangent, Domain::Halfedge, AttrType::F32x4);
-    const f32 cosThreshold = std::cos(1.047197551f);
-    for (u32 v = 0; v < topology.vertexCount(); ++v) {
-        if (topology.isDeleted(VertexId(v))) {
-            continue;
-        }
-        for (const std::vector<HalfedgeId>& group :
-             cornerGroups(mesh, faceNormals, VertexId(v), cosThreshold)) {
-            Vector3f sum{0.0f, 0.0f, 0.0f};
-            Vector3f bitangent{0.0f, 0.0f, 0.0f};
-            for (HalfedgeId h : group) {
-                const std::size_t f = topology.face(h).index();
-                if (f < faceTangents.size()) {
-                    sum.x += faceTangents[f].x;
-                    sum.y += faceTangents[f].y;
-                    sum.z += faceTangents[f].z;
-                    bitangent.x += faceBitangents[f].x;
-                    bitangent.y += faceBitangents[f].y;
-                    bitangent.z += faceBitangents[f].z;
-                }
-            }
-            for (HalfedgeId h : group) {
-                if (h.index() >= tangents.size()) {
-                    continue;
-                }
-                Vector3f normal{0.0f, 0.0f, 1.0f};
-                if (h.index() < normals.size()) {
-                    normal = normals[h.index()];
-                } else {
-                    const std::size_t f = topology.face(h).index();
-                    if (f < faceNormals.size()) {
-                        normal = faceNormals[f];
-                    }
-                }
-                const f32 dot = sum.x * normal.x + sum.y * normal.y + sum.z * normal.z;
-                const Vector3f orthogonal = normalized(Vector3f{
-                    sum.x - normal.x * dot, sum.y - normal.y * dot, sum.z - normal.z * dot});
-                const Vector3f nxt = whiteout::cross(normal, orthogonal);
-                const f32 side = nxt.x * bitangent.x + nxt.y * bitangent.y + nxt.z * bitangent.z;
-                tangents[h.index()] =
-                    Vector4f{orthogonal.x, orthogonal.y, orthogonal.z, side < 0.0f ? -1.0f : 1.0f};
-            }
+        if (!topology.isDeleted(FaceId(f))) {
+            faces.push_back(FaceId(f));
         }
     }
+    RecomputeTangents(mesh, faces, uvSet);
 }
 
 // ============================================================================
@@ -2574,6 +2494,84 @@ f32 ShadingAngle(const Mesh& mesh) {
     return !modelled.empty() && modelled[0] != 0 ? 3.14159265358979f : kDefaultShadingAngle;
 }
 
+namespace detail {
+
+std::vector<Vector3f> FaceNormals(const Mesh& mesh) {
+    return allFaceNormals(mesh);
+}
+
+std::vector<std::vector<HalfedgeId>> RingFans(const Mesh& mesh, std::span<const Vector3f> faceNormals,
+                                              VertexId v, f32 cosThreshold) {
+    return cornerGroups(mesh, faceNormals, v, cosThreshold);
+}
+
+bool HardAtAngle(const Vector3f& a, const Vector3f& b, f32 cosAngle) {
+    // A hair under the angle's cosine, so two faces exactly at it read soft
+    // whichever way they round: a six-sided cylinder's sides meet at 60 degrees.
+    return dot3(a, b) < cosAngle - 1e-5f;
+}
+
+} // namespace detail
+
+namespace {
+
+u32 markSharpByAngle(Mesh& mesh, std::span<const EdgeId> edges, bool every, f32 angle,
+                     bool keepHard) {
+    if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
+        return 0;
+    }
+    const std::vector<Vector3f> faceNormals = allFaceNormals(mesh);
+    const Topology& topology = std::as_const(mesh).topology();
+    const f32 cosAngle = std::cos(angle);
+    // Made only when there is a hard edge to hold: a sphere gains no layer.
+    std::span<u8> sharp = mesh.attributes.get<u8>(names::kSharp, Domain::Edge);
+    u32 changed = 0;
+    const auto mark = [&](u32 e) {
+        if (e >= topology.edgeCount() || topology.isDeleted(EdgeId(e))) {
+            return;
+        }
+        const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
+        const FaceId a = topology.face(h);
+        const FaceId b = topology.face(Topology::opposite(h));
+        if (!a.valid() || !b.valid()) {
+            return; // a border: nothing to shade across
+        }
+        const bool was = e < sharp.size() && sharp[e] != 0;
+        const bool hard =
+            detail::HardAtAngle(faceNormals[a.index()], faceNormals[b.index()], cosAngle) || (keepHard && was);
+        if (hard == was) {
+            return;
+        }
+        if (sharp.empty()) {
+            sharp = mesh.attributes.getOrCreate<u8>(names::kSharp, Domain::Edge, AttrType::Bool);
+        }
+        if (e < sharp.size()) {
+            sharp[e] = hard ? 1 : 0;
+            ++changed;
+        }
+    };
+    if (every) {
+        for (u32 e = 0; e < topology.edgeCount(); ++e) {
+            mark(e);
+        }
+    } else {
+        for (const EdgeId e : edges) {
+            mark(static_cast<u32>(e.index()));
+        }
+    }
+    return changed;
+}
+
+} // namespace
+
+u32 MarkSharpByAngle(Mesh& mesh, std::span<const EdgeId> edges, f32 angle, bool keepHard) {
+    return markSharpByAngle(mesh, edges, false, angle, keepHard);
+}
+
+u32 MarkSharpByAngle(Mesh& mesh, f32 angle, bool keepHard) {
+    return markSharpByAngle(mesh, {}, true, angle, keepHard);
+}
+
 void RecomputeNormals(Mesh& mesh, std::span<const FaceId> faces, f32 angleThreshold) {
     if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
         return;
@@ -2586,31 +2584,20 @@ void RecomputeNormals(Mesh& mesh, std::span<const FaceId> faces, f32 angleThresh
     }
     const f32 cosThreshold = std::cos(angleThreshold);
     const Topology& topology = std::as_const(mesh).topology();
+    const ShadingRule rule(mesh);
     for (const VertexId v : verticesOf(topology, faces)) {
         for (const std::vector<HalfedgeId>& group : cornerGroups(mesh, faceNormals, v, cosThreshold)) {
-            Vector3f sum{0.0f, 0.0f, 0.0f};
-            for (const HalfedgeId h : group) {
-                const std::size_t f = topology.face(h).index();
-                if (f < faceNormals.size()) {
-                    sum.x += faceNormals[f].x;
-                    sum.y += faceNormals[f].y;
-                    sum.z += faceNormals[f].z;
-                }
-            }
-            const Vector3f value = normalized(sum);
-            for (const HalfedgeId h : group) {
-                if (h.index() < normals.size()) {
-                    normals[h.index()] = value;
-                }
-            }
+            rule.write(mesh, faceNormals, group, normals);
         }
     }
 }
 
-void RecomputeTangents(Mesh& mesh, std::span<const FaceId> faces, u32 uvSet) {
-    if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
-        return;
-    }
+namespace {
+
+/// The one tangent rule (`RecomputeTangents`' words), over the corners at
+/// @p vertices. With @p only, a corner is written when its entry is set; the
+/// others are read, as members of its class, and left as they are.
+void recomputeTangents(Mesh& mesh, std::span<const VertexId> vertices, std::span<const u8> only, u32 uvSet) {
     const Mesh& readable = mesh;
     const std::span<const Vector2f> uvs =
         readable.attributes.get<const Vector2f>(names::uv(uvSet), Domain::Halfedge);
@@ -2621,131 +2608,179 @@ void RecomputeTangents(Mesh& mesh, std::span<const FaceId> faces, u32 uvSet) {
     }
     const Topology& topology = readable.topology();
     const std::vector<Vector3f> faceNormals = allFaceNormals(readable);
-
-    // Per face: its UV-space tangent and bitangent over the triangles it is
-    // drawn as, area-weighted, and whether its UV map has any area at all.
-    const u32 faceCount = topology.faceCount();
-    std::vector<Vector3f> faceTangents(faceCount, Vector3f{0.0f, 0.0f, 0.0f});
-    std::vector<Vector3f> faceBitangents(faceCount, Vector3f{0.0f, 0.0f, 0.0f});
-    std::vector<u8> mapped(faceCount, 0);
-    for (u32 f = 0; f < faceCount; ++f) {
-        if (topology.isDeleted(FaceId(f))) {
-            continue;
-        }
-        const std::vector<HalfedgeId> corners = drawnCorners(readable, positions, FaceId(f));
-        for (std::size_t t = 0; t + 2 < corners.size(); t += 3) {
-            const HalfedgeId h0 = corners[t];
-            const HalfedgeId h1 = corners[t + 1];
-            const HalfedgeId h2 = corners[t + 2];
-            const std::size_t i0 = topology.from(h0).index();
-            const std::size_t i1 = topology.from(h1).index();
-            const std::size_t i2 = topology.from(h2).index();
-            if (i0 >= positions.size() || i1 >= positions.size() || i2 >= positions.size() ||
-                h2.index() >= uvs.size() || h1.index() >= uvs.size() || h0.index() >= uvs.size()) {
-                continue;
-            }
-            const Vector3f e1{positions[i1].x - positions[i0].x, positions[i1].y - positions[i0].y,
-                              positions[i1].z - positions[i0].z};
-            const Vector3f e2{positions[i2].x - positions[i0].x, positions[i2].y - positions[i0].y,
-                              positions[i2].z - positions[i0].z};
-            const f32 du1 = uvs[h1.index()].x - uvs[h0.index()].x;
-            const f32 dv1 = uvs[h1.index()].y - uvs[h0.index()].y;
-            const f32 du2 = uvs[h2.index()].x - uvs[h0.index()].x;
-            const f32 dv2 = uvs[h2.index()].y - uvs[h0.index()].y;
-            const f32 determinant = du1 * dv2 - du2 * dv1;
-            if (std::fabs(determinant) < 1e-20f) {
-                continue;
-            }
-            // Weighted by the triangle's UV area, the determinant's own size.
-            const f32 sign = determinant < 0.0f ? -1.0f : 1.0f;
-            faceTangents[f].x += (e1.x * dv2 - e2.x * dv1) * sign;
-            faceTangents[f].y += (e1.y * dv2 - e2.y * dv1) * sign;
-            faceTangents[f].z += (e1.z * dv2 - e2.z * dv1) * sign;
-            faceBitangents[f].x += (e2.x * du1 - e1.x * du2) * sign;
-            faceBitangents[f].y += (e2.y * du1 - e1.y * du2) * sign;
-            faceBitangents[f].z += (e2.z * du1 - e1.z * du2) * sign;
-            mapped[f] = 1;
-        }
-    }
-    // A face's handedness: its UV bitangent against cross(normal, tangent).
-    const auto handedness = [&](u32 f) -> f32 {
-        const Vector3f nxt = whiteout::cross(faceNormals[f], faceTangents[f]);
-        return dot3(nxt, faceBitangents[f]) < 0.0f ? -1.0f : 1.0f;
-    };
-
     const std::span<const Vector3f> normals =
         readable.attributes.get<const Vector3f>(names::kNormal, Domain::Halfedge);
-    const std::span<Vector4f> tangents =
-        mesh.attributes.getOrCreate<Vector4f>(names::kTangent, Domain::Halfedge, AttrType::F32x4);
-    const f32 cosThreshold = std::cos(ShadingAngle(readable));
-    for (const VertexId v : verticesOf(topology, faces)) {
-        for (const std::vector<HalfedgeId>& normalGroup :
-             cornerGroups(readable, faceNormals, v, cosThreshold)) {
-            // Inside the normal group, one tangent per (UV, handedness) class.
-            std::vector<u8> done(normalGroup.size(), 0);
-            for (std::size_t i = 0; i < normalGroup.size(); ++i) {
-                if (done[i] != 0) {
+    const auto normalAt = [&](HalfedgeId h) {
+        return h.index() < normals.size() ? normals[h.index()]
+                                          : faceNormals[topology.face(h).index()];
+    };
+    // @p v laid into the plane across @p n, at unit length; false when nothing is left.
+    const auto intoPlane = [](Vector3f& v, const Vector3f& n) {
+        const f32 d = dot3(v, n);
+        v = Vector3f{v.x - n.x * d, v.y - n.y * d, v.z - n.z * d};
+        const f32 length = std::sqrt(dot3(v, v));
+        if (length <= 1e-20f) {
+            return false;
+        }
+        v = Vector3f{v.x / length, v.y / length, v.z / length};
+        return true;
+    };
+
+    // MikkTSpace's rule, which the files follow and the bake tools use. Per
+    // corner, what the triangles it is drawn in give it: each one's unit dP/du,
+    // laid into the corner's normal plane and weighted by the corner's angle
+    // there. Per face, which way its UVs wind; 0 where the map has no area.
+    std::vector<Vector3f> given(topology.halfedgeCount(), Vector3f{0.0f, 0.0f, 0.0f});
+    std::vector<f32> winding(topology.faceCount(), 0.0f);
+    std::vector<u8> measured(topology.faceCount(), 0);
+    const auto measure = [&](u32 f) {
+        if (measured[f] != 0) {
+            return;
+        }
+        measured[f] = 1;
+        const std::vector<HalfedgeId> corners = drawnCorners(readable, positions, FaceId(f));
+        f32 area = 0.0f;
+        for (std::size_t t = 0; t + 2 < corners.size(); t += 3) {
+            const HalfedgeId h[3] = {corners[t], corners[t + 1], corners[t + 2]};
+            const std::size_t i[3] = {topology.from(h[0]).index(), topology.from(h[1]).index(),
+                                      topology.from(h[2]).index()};
+            if (i[0] >= positions.size() || i[1] >= positions.size() || i[2] >= positions.size() ||
+                h[0].index() >= uvs.size() || h[1].index() >= uvs.size() || h[2].index() >= uvs.size()) {
+                continue;
+            }
+            const Vector3f p[3] = {positions[i[0]], positions[i[1]], positions[i[2]]};
+            const Vector3f e1{p[1].x - p[0].x, p[1].y - p[0].y, p[1].z - p[0].z};
+            const Vector3f e2{p[2].x - p[0].x, p[2].y - p[0].y, p[2].z - p[0].z};
+            const f32 dv1 = uvs[h[1].index()].y - uvs[h[0].index()].y;
+            const f32 dv2 = uvs[h[2].index()].y - uvs[h[0].index()].y;
+            const f32 determinant = (uvs[h[1].index()].x - uvs[h[0].index()].x) * dv2 -
+                                    (uvs[h[2].index()].x - uvs[h[0].index()].x) * dv1;
+            if (std::fabs(determinant) < 1e-20f) {
+                continue; // no UV area: it says nothing
+            }
+            area += determinant;
+            const f32 sign = determinant < 0.0f ? -1.0f : 1.0f;
+            const Vector3f along{(e1.x * dv2 - e2.x * dv1) * sign, (e1.y * dv2 - e2.y * dv1) * sign,
+                                 (e1.z * dv2 - e2.z * dv1) * sign};
+            for (u32 k = 0; k < 3; ++k) {
+                const Vector3f normal = normalAt(h[k]);
+                const Vector3f& a = p[(k + 1) % 3];
+                const Vector3f& b = p[(k + 2) % 3];
+                Vector3f toNext{a.x - p[k].x, a.y - p[k].y, a.z - p[k].z};
+                Vector3f toPrevious{b.x - p[k].x, b.y - p[k].y, b.z - p[k].z};
+                Vector3f tangent = along;
+                if (!intoPlane(toNext, normal) || !intoPlane(toPrevious, normal) ||
+                    !intoPlane(tangent, normal)) {
                     continue;
                 }
-                const HalfedgeId lead = normalGroup[i];
-                const u32 leadFace = static_cast<u32>(topology.face(lead).index());
-                const Vector2f leadUv = lead.index() < uvs.size() ? uvs[lead.index()] : Vector2f{};
-                const f32 leadSide = mapped[leadFace] != 0 ? handedness(leadFace) : 0.0f;
-                std::vector<HalfedgeId> members;
-                for (std::size_t j = i; j < normalGroup.size(); ++j) {
-                    const HalfedgeId h = normalGroup[j];
-                    const u32 f = static_cast<u32>(topology.face(h).index());
-                    const Vector2f uv = h.index() < uvs.size() ? uvs[h.index()] : Vector2f{};
-                    const f32 side = mapped[f] != 0 ? handedness(f) : 0.0f;
-                    // An unmapped face's corner joins whatever shares its UV.
-                    const bool sameSide = side == 0.0f || leadSide == 0.0f || side == leadSide;
-                    if (done[j] == 0 && uv.x == leadUv.x && uv.y == leadUv.y && sameSide) {
-                        done[j] = 1;
-                        members.push_back(h);
-                    }
+                const f32 angle = std::acos(std::clamp(dot3(toNext, toPrevious), -1.0f, 1.0f));
+                Vector3f& sum = given[h[k].index()];
+                sum = Vector3f{sum.x + tangent.x * angle, sum.y + tangent.y * angle,
+                               sum.z + tangent.z * angle};
+            }
+        }
+        winding[f] = area > 0.0f ? 1.0f : (area < 0.0f ? -1.0f : 0.0f);
+    };
+
+    const std::span<Vector4f> tangents =
+        mesh.attributes.getOrCreate<Vector4f>(names::kTangent, Domain::Halfedge, AttrType::F32x4);
+    std::vector<HalfedgeId> ring;
+    std::vector<HalfedgeId> members;
+    std::vector<u8> done;
+    for (const VertexId v : vertices) {
+        ring.clear();
+        for (const HalfedgeId h : topology.voh(v)) {
+            if (!topology.isBoundary(h)) {
+                ring.push_back(h);
+                measure(static_cast<u32>(topology.face(h).index()));
+            }
+        }
+        // One tangent for the corners here that share a normal, a UV and a
+        // winding: a UV seam or a mirror line keeps two at one vertex, and a
+        // crease smoothed into one normal gets one.
+        done.assign(ring.size(), 0);
+        for (std::size_t i = 0; i < ring.size(); ++i) {
+            if (done[i] != 0) {
+                continue;
+            }
+            const Vector3f leadNormal = normalAt(ring[i]);
+            const Vector2f leadUv = ring[i].index() < uvs.size() ? uvs[ring[i].index()] : Vector2f{};
+            f32 side = winding[topology.face(ring[i]).index()];
+            members.clear();
+            Vector3f sum{0.0f, 0.0f, 0.0f};
+            for (std::size_t j = i; j < ring.size(); ++j) {
+                const HalfedgeId h = ring[j];
+                const Vector3f normal = normalAt(h);
+                const Vector2f uv = h.index() < uvs.size() ? uvs[h.index()] : Vector2f{};
+                const f32 own = winding[topology.face(h).index()];
+                // An unmapped face's corner joins whatever shares its UV.
+                if (done[j] != 0 || uv.x != leadUv.x || uv.y != leadUv.y ||
+                    normal.x != leadNormal.x || normal.y != leadNormal.y ||
+                    normal.z != leadNormal.z || (side != 0.0f && own != 0.0f && own != side)) {
+                    continue;
                 }
-                Vector3f sum{0.0f, 0.0f, 0.0f};
-                Vector3f bitangent{0.0f, 0.0f, 0.0f};
-                for (const HalfedgeId h : members) {
-                    const u32 f = static_cast<u32>(topology.face(h).index());
-                    if (mapped[f] == 0) {
-                        continue;
-                    }
-                    sum.x += faceTangents[f].x;
-                    sum.y += faceTangents[f].y;
-                    sum.z += faceTangents[f].z;
-                    bitangent.x += faceBitangents[f].x;
-                    bitangent.y += faceBitangents[f].y;
-                    bitangent.z += faceBitangents[f].z;
+                side = side != 0.0f ? side : own;
+                done[j] = 1;
+                members.push_back(h);
+                const Vector3f& part = given[h.index()];
+                sum = Vector3f{sum.x + part.x, sum.y + part.y, sum.z + part.z};
+            }
+            for (const HalfedgeId h : members) {
+                if (h.index() >= tangents.size() || (!only.empty() && (h.index() >= only.size() || only[h.index()] == 0))) {
+                    continue;
                 }
-                for (const HalfedgeId h : members) {
-                    if (h.index() >= tangents.size()) {
-                        continue;
-                    }
-                    const u32 f = static_cast<u32>(topology.face(h).index());
-                    const Vector3f normal = h.index() < normals.size() ? normals[h.index()]
-                                                                       : faceNormals[f];
-                    Vector3f along = sum;
-                    f32 w = 1.0f;
-                    if (dot3(along, along) <= 1e-30f) {
-                        // Nothing mapped here: along the face's first edge.
-                        const HalfedgeId first = topology.halfedge(FaceId(f));
-                        const Vector3f& a = positions[topology.from(first).index()];
-                        const Vector3f& b = positions[topology.to(first).index()];
-                        along = Vector3f{b.x - a.x, b.y - a.y, b.z - a.z};
-                    } else {
-                        const Vector3f nxt = whiteout::cross(normal, normalized(along));
-                        w = dot3(nxt, bitangent) < 0.0f ? -1.0f : 1.0f;
-                    }
-                    const f32 d = dot3(along, normal);
-                    const Vector3f orthogonal = normalized(Vector3f{
-                        along.x - normal.x * d, along.y - normal.y * d, along.z - normal.z * d});
-                    tangents[h.index()] = Vector4f{orthogonal.x, orthogonal.y, orthogonal.z, w};
+                const Vector3f normal = normalAt(h);
+                Vector3f along = sum;
+                // The files' side (`names::kTangent`): +1 where the UVs wind
+                // against the face.
+                f32 w = side > 0.0f ? -1.0f : 1.0f;
+                if (dot3(along, along) <= 1e-30f) {
+                    // Nothing mapped here: along the face's first edge.
+                    const HalfedgeId first = topology.halfedge(topology.face(h));
+                    const Vector3f& a = positions[topology.from(first).index()];
+                    const Vector3f& b = positions[topology.to(first).index()];
+                    along = Vector3f{b.x - a.x, b.y - a.y, b.z - a.z};
+                    w = 1.0f;
                 }
+                const f32 d = dot3(along, normal);
+                const Vector3f orthogonal = normalized(Vector3f{
+                    along.x - normal.x * d, along.y - normal.y * d, along.z - normal.z * d});
+                tangents[h.index()] = Vector4f{orthogonal.x, orthogonal.y, orthogonal.z, w};
             }
         }
     }
 }
+
+} // namespace
+
+void RecomputeTangents(Mesh& mesh, std::span<const FaceId> faces, u32 uvSet) {
+    if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
+        return;
+    }
+    recomputeTangents(mesh, verticesOf(std::as_const(mesh).topology(), faces), {}, uvSet);
+}
+
+namespace detail {
+
+void RecomputeTangentsAt(Mesh& mesh, std::span<const HalfedgeId> corners, u32 uvSet) {
+    if (corners.empty() || (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok())) {
+        return;
+    }
+    const Topology& topology = std::as_const(mesh).topology();
+    std::vector<u8> only(topology.halfedgeCount(), 0);
+    std::vector<VertexId> vertices;
+    for (const HalfedgeId h : corners) {
+        if (h.index() < only.size() && topology.face(h).valid()) {
+            only[h.index()] = 1;
+            vertices.push_back(topology.from(h));
+        }
+    }
+    std::sort(vertices.begin(), vertices.end());
+    vertices.erase(std::unique(vertices.begin(), vertices.end()), vertices.end());
+    recomputeTangents(mesh, vertices, only, uvSet);
+}
+
+} // namespace detail
 
 } // namespace geom
 } // namespace wem

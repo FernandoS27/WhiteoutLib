@@ -78,7 +78,12 @@ Mesh finish(const Build& build, bool sharp) {
         std::fill(flags.begin(), flags.end(), static_cast<u8>(1));
     }
     mesh.attributes.getOrCreate<u8>(names::kModelled, Domain::Mesh, AttrType::Bool)[0] = 1;
-    RecomputeNormals(mesh);
+    if (!sharp) {
+        // A modelled mesh shades by its flags alone, so a round one states its
+        // creases as flags: a cylinder's rims, a cone's base.
+        MarkSharpByAngle(mesh, kDefaultShadingAngle);
+    }
+    RecomputeNormals(mesh, ShadingAngle(mesh));
     Canonicalize(mesh);
     MaterialiseRows(mesh);
     mesh.recomputeBounds();

@@ -130,13 +130,23 @@ namespace names {
 inline constexpr const char* kPosition = "position";       ///< Vertex / F32x3, required.
 inline constexpr const char* kMergeGroup = "mergeGroup";   ///< Vertex / U32, §5.3.
 inline constexpr const char* kNormal = "normal";           ///< Halfedge / F32x3.
-inline constexpr const char* kTangent = "tangent";         ///< Halfedge / F32x4, w = sign.
+/// Halfedge / F32x4. `w` is the side the files store, whatever the format: +1
+/// where `cross(normal, tangent)` runs toward decreasing v, so the bitangent is
+/// `w * cross(normal, tangent)` and points up the texture.
+inline constexpr const char* kTangent = "tangent";
 inline constexpr const char* kBinormal = "binormal";       ///< Halfedge / F32x3, D3 authors it.
 inline constexpr const char* kCrease = "crease";           ///< Edge / F32.
 inline constexpr const char* kSharp = "sharp";             ///< Edge / Bool.
 inline constexpr const char* kSeam = "seam";               ///< Edge / Bool.
 inline constexpr const char* kSection = "section";         ///< Face / U32, authoritative (§5.5).
 inline constexpr const char* kSmoothGroup = "smoothGroup"; ///< Face / U32.
+/// Halfedge / Bool: this corner's normal was set by hand, and no recompute
+/// writes it until it is reset (EDIT_MODE_NORMALS_DESIGN.md §5.3).
+inline constexpr const char* kNormalCustom = "normalCustom";
+/// Mesh / U16: how a fan's faces are weighted into its normal
+/// (`shading::Weighting`). Present once the Normals workspace has written the
+/// mesh, absent before.
+inline constexpr const char* kShading = "shading";
 
 // The Skin workspace's per-vertex setup (EDIT_MODE_SKIN_DESIGN.md §13.4). They
 // are layers rather than side tables because a layer is what a merge carries
@@ -205,6 +215,12 @@ std::string uvFileSeam(u32 index);
 /// True for any `uvPinN`. The one predicate the prepare's two corner tests skip
 /// a layer through, so a pin can never split a weld or mark a seam (§3).
 bool IsUvPin(const std::string& name);
+
+/// True for a layer that is authoring state on one corner and not a value the
+/// surface holds there: a `uvPinN`, or `normalCustom`. Every place that reads
+/// "do these two corners hold the same thing" skips a layer through this, so
+/// a mark never makes a seam, splits a weld, parts a vertex or stops a merge.
+bool IsCornerMark(const std::string& name);
 } // namespace names
 
 /// What a reserved name requires. `domain`/`type` are `Count` for a free name.

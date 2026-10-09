@@ -30,6 +30,9 @@ constexpr ReservedRow kReserved[] = {
     {names::kSeam, Domain::Edge, AttrType::Bool},
     {names::kSection, Domain::Face, AttrType::U32},
     {names::kSmoothGroup, Domain::Face, AttrType::U32},
+    // The Normals workspace's (EDIT_MODE_NORMALS_DESIGN.md §5).
+    {names::kNormalCustom, Domain::Halfedge, AttrType::Bool},
+    {names::kShading, Domain::Mesh, AttrType::U16},
     // The Skin workspace's (EDIT_MODE_SKIN_DESIGN.md §13.4).
     {names::kSkinLocked, Domain::Vertex, AttrType::Bool},
     {names::kClassicBones, Domain::Vertex, AttrType::U16},
@@ -214,6 +217,10 @@ std::string uvFileSeam(u32 index) {
 
 bool IsUvPin(const std::string& name) {
     return isIndexedFamily(name, "uvPin");
+}
+
+bool IsCornerMark(const std::string& name) {
+    return IsUvPin(name) || name == kNormalCustom;
 }
 
 } // namespace names

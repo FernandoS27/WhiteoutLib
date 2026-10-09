@@ -8,16 +8,28 @@
 /// a corrupt `next` chain looks correct to every assertion except that one.
 
 #include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstring>
+#include <fstream>
+#include <iterator>
 #include <span>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <whiteout/models/fbx/fbx.h>
+#include <whiteout/models/fbx/scene.h>
+#include <whiteout/models/gltf/parser.h>
+#include <whiteout/models/wem/converters.h>
+#include <whiteout/models/wem/fbx_converter.h>
 #include <whiteout/models/wem/geometry/builder.h>
 #include <whiteout/models/wem/geometry/checks.h>
 #include <whiteout/models/wem/geometry/ops.h>
+#include <whiteout/models/wem/geometry/primitives.h>
 #include <whiteout/models/wem/geometry/triangulation.h>
 
 using namespace whiteout;
@@ -551,6 +563,265 @@ TEST_CASE("WEM RecomputeNormals keeps a sharp edge sharp", "[wem][geometry][ops]
     CHECK(std::abs(dot) < 0.5f); // two normals at one vertex, which is the point
 }
 
+// ---- Fans of three or more faces that do not lie in one plane ---------------
+// What the two cases above cannot see (EDIT_MODE_NORMALS_DESIGN.md §1.1): a
+// planar grid shades the same flat or smooth, and a fold's ring has two faces.
+
+namespace {
+
+Mesh trianglesOf(const std::vector<Vector3f>& points,
+                 const std::vector<std::array<u32, 3>>& faces) {
+    geom::MeshBuilder builder;
+    builder.addSection(MeshSection{});
+    for (const Vector3f& p : points) {
+        builder.addVertex(p);
+    }
+    for (const std::array<u32, 3>& f : faces) {
+        builder.addTriangle(geom::VertexId(f[0]), geom::VertexId(f[1]), geom::VertexId(f[2]), 0);
+    }
+    return std::move(builder.build().mesh);
+}
+
+/// Every vertex radial by symmetry, and its faces 41.8 degrees apart: under any
+/// smoothing angle in use.
+Mesh icosahedron() {
+    const f32 t = (1.0f + std::sqrt(5.0f)) * 0.5f;
+    return trianglesOf(
+        {{-1, t, 0}, {1, t, 0}, {-1, -t, 0}, {1, -t, 0}, {0, -1, t},  {0, 1, t},
+         {0, -1, -t}, {0, 1, -t}, {t, 0, -1}, {t, 0, 1},  {-t, 0, -1}, {-t, 0, 1}},
+        {{0, 11, 5}, {0, 5, 1},  {0, 1, 7},   {0, 7, 10}, {0, 10, 11}, {1, 5, 9}, {5, 11, 4},
+         {11, 10, 2}, {10, 7, 6}, {7, 1, 8},  {3, 9, 4},  {3, 4, 2},   {3, 2, 6}, {3, 6, 8},
+         {3, 8, 9},  {4, 9, 5},  {2, 4, 11},  {6, 2, 10}, {8, 6, 7},   {9, 8, 1}});
+}
+
+Vector3f unit(const Vector3f& v) {
+    const f32 length = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+    return Vector3f{v.x / length, v.y / length, v.z / length};
+}
+
+f32 apart(const Vector3f& a, const Vector3f& b) {
+    return std::sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y) +
+                     (a.z - b.z) * (a.z - b.z));
+}
+
+/// The normal of @p v's corner in @p face.
+Vector3f cornerNormal(const Mesh& mesh, u32 face, u32 v) {
+    const auto normals =
+        mesh.attributes.get<const Vector3f>(geom::names::kNormal, geom::Domain::Halfedge);
+    for (const geom::HalfedgeId h : mesh.topology().fh(geom::FaceId(face))) {
+        if (mesh.topology().from(h).index() == v) {
+            return normals[h.index()];
+        }
+    }
+    FAIL("the face has no such corner");
+    return {};
+}
+
+void markSharp(Mesh& mesh, u32 a, u32 b) {
+    const geom::HalfedgeId h =
+        std::as_const(mesh).topology().findHalfedge(geom::VertexId(a), geom::VertexId(b));
+    REQUIRE(h.valid());
+    mesh.attributes.getOrCreate<u8>(geom::names::kSharp, geom::Domain::Edge,
+                                    geom::AttrType::Bool)[geom::Topology::edge(h).index()] = 1;
+}
+
+std::vector<geom::FaceId> everyFace(const Mesh& mesh) {
+    std::vector<geom::FaceId> faces;
+    for (u32 f = 0; f < mesh.topology().faceCount(); ++f) {
+        faces.push_back(geom::FaceId(f));
+    }
+    return faces;
+}
+
+} // namespace
+
+TEST_CASE("WEM RecomputeNormals shades an icosahedron smooth", "[wem][geometry][ops][normals]") {
+    for (const bool faceSet : {false, true}) {
+        Mesh mesh = icosahedron();
+        if (faceSet) {
+            const std::vector<geom::FaceId> faces = everyFace(mesh);
+            geom::RecomputeNormals(mesh, faces, geom::kDefaultShadingAngle);
+        } else {
+            geom::RecomputeNormals(mesh);
+        }
+        const Mesh& made = mesh;
+        const auto positions =
+            made.attributes.get<const Vector3f>(geom::names::kPosition, geom::Domain::Vertex);
+        const auto normals =
+            made.attributes.get<const Vector3f>(geom::names::kNormal, geom::Domain::Halfedge);
+        REQUIRE(made.vertexCount() == 12);
+        for (u32 v = 0; v < 12; ++v) {
+            const Vector3f radial = unit(positions[v]);
+            u32 corners = 0;
+            for (const geom::HalfedgeId h : made.topology().voh(geom::VertexId(v))) {
+                if (made.topology().isBoundary(h)) {
+                    continue;
+                }
+                ++corners;
+                CHECK(apart(normals[h.index()], radial) < 1e-5f);
+            }
+            CHECK(corners == 5);
+        }
+    }
+}
+
+TEST_CASE("WEM RecomputeNormals breaks a ring at its hard edges, and only there",
+          "[wem][geometry][ops][normals]") {
+    // A pyramid's four sides round its apex. A ring of two faces cannot tell the
+    // edge before a corner from the edge after it; a ring of four can.
+    Mesh mesh = trianglesOf({{1, 0, 0}, {0, 1, 0}, {-1, 0, 0}, {0, -1, 0}, {0, 0, 1}},
+                            {{0, 1, 4}, {1, 2, 4}, {2, 3, 4}, {3, 0, 4}});
+    markSharp(mesh, 4, 0);
+    markSharp(mesh, 4, 2);
+    geom::RecomputeNormals(mesh, 3.14159265f); // only the flags break a fan
+    const f32 s = std::sqrt(0.5f);
+    CHECK(apart(cornerNormal(mesh, 0, 4), Vector3f{0, s, s}) < 1e-5f);
+    CHECK(apart(cornerNormal(mesh, 1, 4), Vector3f{0, s, s}) < 1e-5f);
+    CHECK(apart(cornerNormal(mesh, 2, 4), Vector3f{0, -s, s}) < 1e-5f);
+    CHECK(apart(cornerNormal(mesh, 3, 4), Vector3f{0, -s, s}) < 1e-5f);
+}
+
+TEST_CASE("WEM RecomputeNormals makes one fan of a border vertex's faces",
+          "[wem][geometry][ops][normals]") {
+    // Three faces round vertex 0, open between the last and the first: the gap
+    // is where the ring wraps, and nowhere else.
+    Mesh mesh = trianglesOf(
+        {{0, 0, 0}, {1, 0, 0}, {0.5f, 1, 0.4f}, {-0.5f, 1, -0.3f}, {-1, 0, 0.5f}},
+        {{0, 1, 2}, {0, 2, 3}, {0, 3, 4}});
+    geom::RecomputeNormals(mesh, 3.14159265f);
+    const Vector3f first = cornerNormal(mesh, 0, 0);
+    CHECK(apart(cornerNormal(mesh, 1, 0), first) < 1e-6f);
+    CHECK(apart(cornerNormal(mesh, 2, 0), first) < 1e-6f);
+    // And it is none of the three faces' own.
+    CHECK(apart(first, cornerNormal(mesh, 0, 1)) > 1e-2f);
+}
+
+TEST_CASE("WEM RecomputeNormals shades a box flat when every edge is hard",
+          "[wem][geometry][ops][normals]") {
+    Mesh mesh = geom::MakeBox(geom::PrimitiveParams{});
+    geom::RecomputeNormals(mesh, geom::ShadingAngle(mesh));
+    const Mesh& made = mesh;
+    const auto normals =
+        made.attributes.get<const Vector3f>(geom::names::kNormal, geom::Domain::Halfedge);
+    const auto positions =
+        made.attributes.get<const Vector3f>(geom::names::kPosition, geom::Domain::Vertex);
+    u32 corners = 0;
+    for (u32 f = 0; f < made.topology().faceCount(); ++f) {
+        // A box's face is planar and axis-aligned: its normal is its centre's direction.
+        Vector3f centre{0, 0, 0};
+        for (const geom::VertexId v : made.topology().fv(geom::FaceId(f))) {
+            centre.x += positions[v.index()].x;
+            centre.y += positions[v.index()].y;
+            centre.z += positions[v.index()].z;
+        }
+        const Vector3f outward = unit(centre);
+        for (const geom::HalfedgeId h : made.topology().fh(geom::FaceId(f))) {
+            ++corners;
+            CHECK(apart(normals[h.index()], outward) < 1e-5f);
+        }
+    }
+    CHECK(corners == 24);
+}
+
+// ---- An angle on a modelled mesh is stated as flags -------------------------
+// (EDIT_MODE_NORMALS_PLAN.md P2). A modelled mesh shades by `sharp` alone, so a
+// crease that was only ever an angle is gone at the next re-shade.
+
+namespace {
+
+u32 hardEdges(const Mesh& mesh) {
+    u32 count = 0;
+    for (const u8 flag : mesh.attributes.get<const u8>(geom::names::kSharp, geom::Domain::Edge)) {
+        count += flag != 0 ? 1 : 0;
+    }
+    return count;
+}
+
+bool hardBetween(const Mesh& mesh, u32 a, u32 b) {
+    const geom::HalfedgeId h = mesh.topology().findHalfedge(geom::VertexId(a), geom::VertexId(b));
+    REQUIRE(h.valid());
+    const auto sharp = mesh.attributes.get<const u8>(geom::names::kSharp, geom::Domain::Edge);
+    const std::size_t e = geom::Topology::edge(h).index();
+    return e < sharp.size() && sharp[e] != 0;
+}
+
+/// How many different normals the corners at @p v hold.
+u32 normalsAt(const Mesh& mesh, u32 v) {
+    const auto normals =
+        mesh.attributes.get<const Vector3f>(geom::names::kNormal, geom::Domain::Halfedge);
+    std::vector<Vector3f> seen;
+    for (const geom::HalfedgeId h : mesh.topology().voh(geom::VertexId(v))) {
+        if (mesh.topology().isBoundary(h)) {
+            continue;
+        }
+        const Vector3f& n = normals[h.index()];
+        if (std::none_of(seen.begin(), seen.end(),
+                         [&](const Vector3f& s) { return apart(s, n) < 1e-5f; })) {
+            seen.push_back(n);
+        }
+    }
+    return static_cast<u32>(seen.size());
+}
+
+} // namespace
+
+TEST_CASE("WEM MarkSharpByAngle states an angle as flags", "[wem][geometry][ops][normals]") {
+    // The pyramid's sides meet at 70.5 degrees.
+    Mesh mesh = trianglesOf({{1, 0, 0}, {0, 1, 0}, {-1, 0, 0}, {0, -1, 0}, {0, 0, 1}},
+                            {{0, 1, 4}, {1, 2, 4}, {2, 3, 4}, {3, 0, 4}});
+    CHECK(geom::MarkSharpByAngle(mesh, 1.396263402f) == 0); // 80 degrees: none is that far
+    CHECK(!mesh.attributes.has(geom::names::kSharp, geom::Domain::Edge)); // and no layer for it
+    CHECK(geom::MarkSharpByAngle(mesh, 1.047197551f) == 4); // 60: the four sides' edges
+    CHECK(hardEdges(mesh) == 4);
+    CHECK(!hardBetween(mesh, 0, 1)); // a border has no flag to state
+    CHECK(geom::MarkSharpByAngle(mesh, 1.396263402f, true) == 0); // keepHard only adds
+    CHECK(hardEdges(mesh) == 4);
+    const geom::EdgeId one[] = {
+        geom::Topology::edge(std::as_const(mesh).topology().findHalfedge(geom::VertexId(4), geom::VertexId(0)))};
+    CHECK(geom::MarkSharpByAngle(mesh, one, 1.396263402f) == 1); // just the one asked for
+    CHECK(hardEdges(mesh) == 3);
+    CHECK(geom::MarkSharpByAngle(mesh, 1.396263402f) == 3);
+    CHECK(hardEdges(mesh) == 0);
+}
+
+TEST_CASE("WEM a round primitive carries its creases as flags", "[wem][geometry][ops][normals]") {
+    geom::PrimitiveParams params;
+    params.sides = 12;
+    SECTION("a cylinder: its two rims, and nothing along its side") {
+        Mesh mesh = geom::MakeCylinder(params);
+        CHECK(hardEdges(mesh) == 24);
+        const Mesh& made = mesh;
+        u32 two = 0;
+        for (u32 v = 0; v < made.vertexCount(); ++v) {
+            two += normalsAt(made, v) == 2 ? 1 : 0; // the side's, and the cap's
+        }
+        CHECK(two == made.vertexCount());
+
+        // The move a Mesh edit makes: the rim stays hard and the side smooth.
+        auto positions = mesh.attributes.get<Vector3f>(geom::names::kPosition, geom::Domain::Vertex);
+        positions[0].z += 0.25f;
+        const std::vector<geom::FaceId> faces = everyFace(mesh);
+        geom::RecomputeNormals(mesh, faces, geom::ShadingAngle(mesh));
+        for (u32 v = 0; v < made.vertexCount(); ++v) {
+            CHECK(normalsAt(made, v) == 2);
+        }
+    }
+    SECTION("six sides meet exactly at the angle, and read soft every one") {
+        params.sides = 6;
+        CHECK(hardEdges(geom::MakeCylinder(params)) == 12);
+    }
+    SECTION("a sphere has none, and one normal a vertex") {
+        params.sides = 16;
+        params.segments = 8;
+        Mesh mesh = geom::MakeSphere(params);
+        CHECK(hardEdges(mesh) == 0);
+        const Mesh& made = mesh;
+        for (u32 v = 0; v < made.vertexCount(); ++v) {
+            CHECK(normalsAt(made, v) == 1);
+        }
+    }
+}
+
 TEST_CASE("WEM RecomputeTangents writes an orthogonal frame", "[wem][geometry][ops]") {
     Mesh mesh = buildMesh(4, {{0, 1, 3}, {0, 3, 2}});
     // The fixture's UVs are (vertexIndex, 0.5) — degenerate in v, so give the
@@ -579,6 +850,303 @@ TEST_CASE("WEM RecomputeTangents writes an orthogonal frame", "[wem][geometry][o
             CHECK(std::abs(t.x * n.x + t.y * n.y + t.z * n.z) < 1e-4f);
             CHECK(std::abs(std::sqrt(t.x * t.x + t.y * t.y + t.z * t.z) - 1.0f) < 1e-4f);
         }
+    }
+}
+
+// ---- One tangent rule, with the files' side for w ----------------------------
+// (EDIT_MODE_NORMALS_PLAN.md P3). UVs here are the files': v runs down the image.
+
+namespace {
+
+/// One corner of a test triangle: its vertex and the UV it has there.
+struct Corner {
+    u32 vertex;
+    Vector2f uv;
+};
+
+/// Triangles with a UV per corner, shaded and then given tangents.
+Mesh mapped(const std::vector<Vector3f>& points, const std::vector<std::array<Corner, 3>>& faces) {
+    geom::MeshBuilder builder;
+    builder.addSection(MeshSection{});
+    for (const Vector3f& p : points) {
+        builder.addVertex(p);
+    }
+    for (const std::array<Corner, 3>& f : faces) {
+        const geom::FaceId face = builder.addTriangle(
+            geom::VertexId(f[0].vertex), geom::VertexId(f[1].vertex), geom::VertexId(f[2].vertex), 0);
+        for (u32 c = 0; c < 3; ++c) {
+            builder.setCornerAttr(face, c, geom::names::uv(0), f[c].uv);
+        }
+    }
+    Mesh mesh = std::move(builder.build().mesh);
+    geom::RecomputeNormals(mesh, 3.14159265f);
+    geom::RecomputeTangents(mesh, 0);
+    return mesh;
+}
+
+Vector4f cornerTangent(const Mesh& mesh, u32 face, u32 v) {
+    const auto tangents =
+        mesh.attributes.get<const Vector4f>(geom::names::kTangent, geom::Domain::Halfedge);
+    for (const geom::HalfedgeId h : mesh.topology().fh(geom::FaceId(face))) {
+        if (mesh.topology().from(h).index() == v) {
+            return tangents[h.index()];
+        }
+    }
+    FAIL("the face has no such corner");
+    return {};
+}
+
+Vector3f xyz(const Vector4f& t) {
+    return Vector3f{t.x, t.y, t.z};
+}
+
+f32 degreesApart(const Vector3f& a, const Vector3f& b) {
+    const f32 d = (a.x * b.x + a.y * b.y + a.z * b.z) /
+                  std::sqrt((a.x * a.x + a.y * a.y + a.z * a.z) * (b.x * b.x + b.y * b.y + b.z * b.z));
+    return std::acos(std::clamp(d, -1.0f, 1.0f)) * 57.29577951f;
+}
+
+const std::vector<Vector3f> kQuad = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}};
+
+std::vector<u8> fileBytes(const char* path) {
+    std::ifstream in(path, std::ios::binary);
+    return std::vector<u8>(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+}
+
+/// How many corners of @p mesh keep the `w` they had after a rebuild, of how many.
+std::pair<u32, u32> sidesKept(Mesh mesh) {
+    REQUIRE(mesh.ensureConnectivity().ok());
+    const auto stored =
+        std::as_const(mesh).attributes.get<const Vector4f>(geom::names::kTangent, geom::Domain::Halfedge);
+    const std::vector<Vector4f> before(stored.begin(), stored.end());
+    geom::RecomputeTangents(mesh, 0);
+    const auto after =
+        std::as_const(mesh).attributes.get<const Vector4f>(geom::names::kTangent, geom::Domain::Halfedge);
+    std::pair<u32, u32> kept{0, 0};
+    for (u32 f = 0; f < mesh.faceCount(); ++f) {
+        for (const geom::HalfedgeId h : std::as_const(mesh).topology().fh(geom::FaceId(f))) {
+            if (h.index() < before.size() && h.index() < after.size()) {
+                ++kept.second;
+                kept.first += (before[h.index()].w < 0.0f) == (after[h.index()].w < 0.0f) ? 1 : 0;
+            }
+        }
+    }
+    return kept;
+}
+
+} // namespace
+
+TEST_CASE("WEM RecomputeTangents runs along u, and w has the files' side",
+          "[wem][geometry][ops][tangents]") {
+    // The usual map: u with x, v down the image as y goes up. cross(n, t) is +y,
+    // toward decreasing v, so w is +1.
+    const auto uv = [](const Vector3f& p) { return Vector2f{p.x, 1.0f - p.y}; };
+    const Mesh mesh = mapped(kQuad, {{{{0, uv(kQuad[0])}, {1, uv(kQuad[1])}, {2, uv(kQuad[2])}}},
+                                     {{{0, uv(kQuad[0])}, {2, uv(kQuad[2])}, {3, uv(kQuad[3])}}}});
+    for (u32 f = 0; f < 2; ++f) {
+        for (const geom::VertexId v : mesh.topology().fv(geom::FaceId(f))) {
+            const Vector4f t = cornerTangent(mesh, f, static_cast<u32>(v.index()));
+            CHECK(apart(xyz(t), Vector3f{1, 0, 0}) < 1e-5f);
+            CHECK(t.w == 1.0f);
+        }
+    }
+}
+
+TEST_CASE("WEM RecomputeTangents flips w on a mirrored map", "[wem][geometry][ops][tangents]") {
+    // u against x: the tangent turns round and the side with it.
+    const auto uv = [](const Vector3f& p) { return Vector2f{1.0f - p.x, 1.0f - p.y}; };
+    const Mesh mesh = mapped(kQuad, {{{{0, uv(kQuad[0])}, {1, uv(kQuad[1])}, {2, uv(kQuad[2])}}},
+                                     {{{0, uv(kQuad[0])}, {2, uv(kQuad[2])}, {3, uv(kQuad[3])}}}});
+    const Vector4f t = cornerTangent(mesh, 0, 0);
+    CHECK(apart(xyz(t), Vector3f{-1, 0, 0}) < 1e-5f);
+    CHECK(t.w == -1.0f);
+}
+
+TEST_CASE("WEM RecomputeTangents keeps two tangents across a UV seam in a smooth fan",
+          "[wem][geometry][ops][tangents]") {
+    // One flat quad, one normal a vertex. Its first triangle maps u along x and
+    // its second u along y: the diagonal is a seam, and its two vertices hold a
+    // tangent for each side.
+    const Mesh mesh = mapped(kQuad, {{{{0, {0, 1}}, {1, {1, 1}}, {2, {1, 0}}}},
+                                     {{{0, {0, 0}}, {2, {1, -1}}, {3, {1, 0}}}}});
+    CHECK(apart(xyz(cornerTangent(mesh, 0, 0)), Vector3f{1, 0, 0}) < 1e-5f);
+    CHECK(apart(xyz(cornerTangent(mesh, 1, 0)), Vector3f{0, 1, 0}) < 1e-5f);
+    CHECK(apart(xyz(cornerTangent(mesh, 0, 2)), Vector3f{1, 0, 0}) < 1e-5f);
+    CHECK(apart(xyz(cornerTangent(mesh, 1, 2)), Vector3f{0, 1, 0}) < 1e-5f);
+}
+
+TEST_CASE("WEM RecomputeTangents weights a corner by its angle", "[wem][geometry][ops][tangents]") {
+    // Two flat triangles at vertex 0 with one UV there: 90 degrees of a map
+    // along x and 45 of a map along y. By angle that is (2, 1); by UV area,
+    // which is equal, it would be (1, 1).
+    const Mesh mesh = mapped({{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {-1, 1, 0}},
+                             {{{{0, {0, 0}}, {1, {1, 0}}, {2, {0, -1}}}},
+                              {{{0, {0, 0}}, {2, {1, 0}}, {3, {1, -1}}}}});
+    const Vector3f expected = unit(Vector3f{2, 1, 0});
+    CHECK(apart(xyz(cornerTangent(mesh, 0, 0)), expected) < 1e-5f);
+    CHECK(apart(xyz(cornerTangent(mesh, 1, 0)), expected) < 1e-5f);
+    CHECK(cornerTangent(mesh, 0, 0).w == 1.0f);
+}
+
+TEST_CASE("WEM RecomputeTangents is one rule for a mesh and a face set of it",
+          "[wem][geometry][ops][tangents]") {
+    geom::PrimitiveParams params;
+    params.sides = 16;
+    params.segments = 8;
+    Mesh whole = geom::MakeSphere(params);
+    Mesh bySet = whole;
+    geom::RecomputeTangents(whole, 0);
+    const std::vector<geom::FaceId> faces = everyFace(bySet);
+    geom::RecomputeTangents(bySet, faces, 0);
+    const auto a =
+        std::as_const(whole).attributes.get<const Vector4f>(geom::names::kTangent, geom::Domain::Halfedge);
+    const auto b =
+        std::as_const(bySet).attributes.get<const Vector4f>(geom::names::kTangent, geom::Domain::Halfedge);
+    const auto normals =
+        std::as_const(whole).attributes.get<const Vector3f>(geom::names::kNormal, geom::Domain::Halfedge);
+    REQUIRE(!a.empty());
+    REQUIRE(a.size() == b.size());
+    CHECK(std::memcmp(a.data(), b.data(), a.size_bytes()) == 0);
+    for (u32 f = 0; f < whole.faceCount(); ++f) {
+        for (const geom::HalfedgeId h : std::as_const(whole).topology().fh(geom::FaceId(f))) {
+            const Vector3f t = xyz(a[h.index()]);
+            const Vector3f& n = normals[h.index()];
+            CHECK(std::abs(t.x * n.x + t.y * n.y + t.z * n.z) < 1e-4f);
+            CHECK(std::abs(std::sqrt(t.x * t.x + t.y * t.y + t.z * t.z) - 1.0f) < 1e-4f);
+            CHECK(std::abs(a[h.index()].w) == 1.0f);
+        }
+    }
+}
+
+TEST_CASE("WEM RecomputeTangents answers as Blender's MikkTSpace does",
+          "[wem][geometry][ops][tangents]") {
+    // tests/data/wem/tangent_oracle.txt, written by scripts/oracle/tangent_oracle.py
+    // in WhiteoutFlakes: three meshes, with the normals and the tangents Blender
+    // gave every corner. Its UVs have v up, ours down; its sign is then our w.
+    std::ifstream in("tests/data/wem/tangent_oracle.txt");
+    REQUIRE(in.good());
+    struct Loop {
+        u32 vertex;
+        Vector2f uv;
+        Vector3f normal;
+        Vector3f tangent;
+        f32 sign;
+    };
+    struct Source {
+        std::string name;
+        std::vector<Vector3f> points;
+        std::vector<Loop> loops;
+    };
+    std::vector<Source> sources;
+    std::string line;
+    while (std::getline(in, line)) {
+        std::istringstream row(line);
+        char kind = 0;
+        row >> kind;
+        if (kind == 'm') {
+            sources.emplace_back();
+            row >> sources.back().name;
+        } else if (kind == 'v') {
+            Vector3f p{};
+            row >> p.x >> p.y >> p.z;
+            sources.back().points.push_back(p);
+        } else if (kind == 'c') {
+            Loop c{};
+            row >> c.vertex >> c.uv.x >> c.uv.y >> c.normal.x >> c.normal.y >> c.normal.z >>
+                c.tangent.x >> c.tangent.y >> c.tangent.z >> c.sign;
+            sources.back().loops.push_back(c);
+        }
+    }
+    REQUIRE(sources.size() == 3);
+    u32 corners = 0;
+    u32 close = 0;
+    u32 sameSide = 0;
+    f32 worst = 0.0f;
+    for (const Source& source : sources) {
+        geom::MeshBuilder builder;
+        builder.addSection(MeshSection{});
+        for (const Vector3f& p : source.points) {
+            builder.addVertex(p);
+        }
+        REQUIRE(source.loops.size() % 3 == 0);
+        for (std::size_t t = 0; t + 2 < source.loops.size(); t += 3) {
+            const geom::FaceId face = builder.addTriangle(geom::VertexId(source.loops[t].vertex),
+                                                          geom::VertexId(source.loops[t + 1].vertex),
+                                                          geom::VertexId(source.loops[t + 2].vertex), 0);
+            for (u32 c = 0; c < 3; ++c) {
+                const Loop& loop = source.loops[t + c];
+                builder.setCornerAttr(face, c, geom::names::uv(0), Vector2f{loop.uv.x, 1.0f - loop.uv.y});
+                builder.setCornerAttr(face, c, geom::names::kNormal, loop.normal);
+            }
+        }
+        Mesh mesh = std::move(builder.build().mesh);
+        REQUIRE(mesh.faceCount() == source.loops.size() / 3);
+        geom::RecomputeTangents(mesh, 0);
+        const Mesh& made = mesh;
+        for (u32 f = 0; f < made.faceCount(); ++f) {
+            for (u32 c = 0; c < 3; ++c) {
+                const Loop& loop = source.loops[f * 3 + c];
+                const Vector4f ours = cornerTangent(made, f, loop.vertex);
+                const f32 off = degreesApart(xyz(ours), loop.tangent);
+                ++corners;
+                close += off < 0.1f ? 1 : 0;
+                sameSide += ours.w == loop.sign ? 1 : 0;
+                worst = std::max(worst, off);
+            }
+        }
+    }
+    INFO("corners " << corners << ", within 0.1 degrees " << close << ", same side " << sameSide
+                    << ", worst " << worst << " degrees");
+    CHECK(corners == 528);
+    CHECK(sameSide == corners);
+    CHECK(close * 1000 >= corners * 999);
+}
+
+TEST_CASE("WEM an imported file keeps the side its tangents had after a rebuild",
+          "[wem][geometry][ops][tangents]") {
+    // The same three meshes as Blender exports them. A format that stored the
+    // other side for w would have every one of these turn over.
+    SECTION("glTF") {
+        const std::vector<u8> bytes = fileBytes("tests/data/wem/tangent_oracle.glb");
+        REQUIRE(!bytes.empty());
+        models::gltf::ParseOutcome parsed = models::gltf::Parser::FromBytes(bytes);
+        REQUIRE(parsed.asset.has_value());
+        const Result<Document> document = GltfConverter().fromGltf(*parsed.asset);
+        REQUIRE(document.ok());
+        u32 meshes = 0;
+        for (const Model& model : document->models) {
+            for (const Mesh& mesh : model.meshes) {
+                REQUIRE(mesh.attributes.has(geom::names::kTangent, geom::Domain::Halfedge));
+                const std::pair<u32, u32> kept = sidesKept(mesh);
+                INFO(mesh.name << ": " << kept.first << " of " << kept.second);
+                CHECK(kept.second > 0);
+                CHECK(kept.first == kept.second);
+                ++meshes;
+            }
+        }
+        CHECK(meshes == 3);
+    }
+    SECTION("FBX") {
+        const std::vector<u8> bytes = fileBytes("tests/data/wem/tangent_oracle.fbx");
+        REQUIRE(!bytes.empty());
+        models::fbx::ReadOutcome read = models::fbx::Read(bytes);
+        REQUIRE(read.file.has_value());
+        models::fbx::SceneOutcome scene = models::fbx::Scene::Build(std::move(*read.file));
+        REQUIRE(scene.scene.has_value());
+        const Result<FbxImport> imported = FbxConverter().fromFbx(*scene.scene);
+        REQUIRE(imported.ok());
+        u32 meshes = 0;
+        for (const Model& model : imported->document.models) {
+            for (const Mesh& mesh : model.meshes) {
+                REQUIRE(mesh.attributes.has(geom::names::kTangent, geom::Domain::Halfedge));
+                const std::pair<u32, u32> kept = sidesKept(mesh);
+                INFO(mesh.name << ": " << kept.first << " of " << kept.second);
+                CHECK(kept.second > 0);
+                CHECK(kept.first == kept.second);
+                ++meshes;
+            }
+        }
+        CHECK(meshes == 3);
     }
 }
 

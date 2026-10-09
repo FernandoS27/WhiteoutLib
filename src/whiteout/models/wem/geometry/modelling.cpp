@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 #include <whiteout/models/wem/geometry/modelling.h>
+#include <whiteout/models/wem/geometry/shading.h>
 
 #include "rebuild.h"
 
@@ -187,8 +188,8 @@ bool sameCorner(const Mesh& mesh, HalfedgeId a, HalfedgeId b) {
         // A pin says "hold this corner where it is", which is a thing about one
         // corner and never a reason to keep two apart: two corners that agree in
         // everything else are one corner, pinned or not
-        // (EDIT_MODE_UV_DESIGN.md §3).
-        if (names::IsUvPin(layer.name)) {
+        // (EDIT_MODE_UV_DESIGN.md §3). A custom-normal mark is the same.
+        if (names::IsCornerMark(layer.name)) {
             continue;
         }
         const std::size_t stride = AttrTypeSize(layer.type);
@@ -326,7 +327,7 @@ bool SeamBetween(const Mesh& mesh, HalfedgeId h) {
         // surface holds there: pinning one side of an edge must not mark it
         // (EDIT_MODE_UV_DESIGN.md §3).
         if (layer.domain != Domain::Halfedge || layer.name == names::kNormal ||
-            layer.name == names::kBinormal || names::IsUvPin(layer.name)) {
+            layer.name == names::kBinormal || names::IsCornerMark(layer.name)) {
             continue;
         }
         const std::size_t stride = AttrTypeSize(layer.type);
@@ -839,6 +840,35 @@ bool mergesAny(const Partition& partition) {
     return false;
 }
 
+/// `sharp` on every edge whose two sides' normals break (the weld's test),
+/// whether the weld closed it or it was interior already: an OBJ or FBX cube
+/// shares its points and holds a normal per face. A modelled mesh shades by
+/// its flags alone, so an edge left unflagged here is smooth at the next
+/// re-shade. Returns how many it set.
+u32 markNormalBreaks(Mesh& mesh) {
+    if (!mesh.hasConnectivity()) {
+        return 0;
+    }
+    const Topology& topology = std::as_const(mesh).topology();
+    const std::span<const u8> flagged = std::as_const(mesh).attributes.get<const u8>(names::kSharp, Domain::Edge);
+    std::vector<u32> sharps;
+    for (u32 e = 0; e < topology.edgeCount(); ++e) {
+        if (topology.isDeleted(EdgeId(e)) || (e < flagged.size() && flagged[e] != 0)) {
+            continue;
+        }
+        if (NormalsBreakAcross(mesh, Topology::halfedge(EdgeId(e), 0), kWeldSharpAngle)) {
+            sharps.push_back(e);
+        }
+    }
+    if (!sharps.empty()) {
+        const std::span<u8> sharp = mesh.attributes.getOrCreate<u8>(names::kSharp, Domain::Edge, AttrType::Bool);
+        for (const u32 e : sharps) {
+            sharp[e] = 1;
+        }
+    }
+    return static_cast<u32>(sharps.size());
+}
+
 } // namespace
 
 // ============================================================================
@@ -949,6 +979,7 @@ PrepareReport PrepareForModelling(Mesh& mesh) {
         // modelled mesh runs `Unrepair`.
         mesh.repairLog = {};
         identityReport(mesh, report);
+        report.sharpMarked = markNormalBreaks(mesh);
         setMarker(mesh);
         return report;
     }
@@ -957,26 +988,14 @@ PrepareReport PrepareForModelling(Mesh& mesh) {
         commit(mesh, settled, static_cast<u32>(set.faceCount()), &report);
     report.verticesWelded = vertexCount - std::as_const(mesh).vertexCount();
 
-    // Edges the weld closed: seam where an authored corner value differs,
-    // sharp where the normals break. An edge already interior keeps its flags.
+    // Edges the weld closed: seam where an authored corner value differs. An
+    // edge already interior keeps its seam flag. Sharp is every edge whose
+    // normals break, closed here or not.
     if (rebuilt.ok && mesh.hasConnectivity()) {
-        std::vector<u32> sharps;
-        for (const u32 e : rebuilt.closedEdges) {
-            const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
-            if (NormalsBreakAcross(mesh, h, kWeldSharpAngle)) {
-                sharps.push_back(e);
-            }
-        }
         // `seam` has one writer, so the weld and a UV commit mark by the same
         // rule and neither can drift from the other (EDIT_MODE_UV_PLAN.md P1).
         report.seamsMarked = uv::MarkDelimitSeams(mesh, rebuilt.closedEdges);
-        if (!sharps.empty()) {
-            const std::span<u8> sharp = mesh.attributes.getOrCreate<u8>(names::kSharp, Domain::Edge, AttrType::Bool);
-            for (const u32 e : sharps) {
-                sharp[e] = 1;
-            }
-        }
-        report.sharpMarked = static_cast<u32>(sharps.size());
+        report.sharpMarked = markNormalBreaks(mesh);
     }
     setMarker(mesh);
     mesh.recomputeBounds();
@@ -1092,6 +1111,49 @@ std::vector<u32> facesAround(const Mesh& mesh, std::span<const u32> vertices) {
         }
     }
     return sortedUnique(std::move(out));
+}
+
+/// A custom normal turns with its face: each one @p plan's motions reach is
+/// put back as it began and turned from the motions' bases to where the
+/// vertices are now.
+void turnCustomNormals(Mesh& mesh, const ModelPlan& plan, const std::vector<u32>& faces) {
+    const std::span<const u8> custom = std::as_const(mesh).attributes.get<const u8>(names::kNormalCustom, Domain::Halfedge);
+    const std::span<Vector3f> normals = mesh.attributes.get<Vector3f>(names::kNormal, Domain::Halfedge);
+    if (custom.empty() || normals.empty() || faces.empty()) {
+        return;
+    }
+    const Topology& topology = std::as_const(mesh).topology();
+    if (!plan.customNormalsHeld) {
+        plan.customNormalsHeld = true;
+        for (const u32 f : faces) {
+            for (const HalfedgeId h : topology.fh(FaceId(f))) {
+                if (h.index() < custom.size() && custom[h.index()] != 0 && h.index() < normals.size()) {
+                    plan.customNormals.emplace_back(h.value(), normals[h.index()]);
+                }
+            }
+        }
+    }
+    if (plan.customNormals.empty()) {
+        return;
+    }
+    for (const auto& [h, normal] : plan.customNormals) {
+        if (h < normals.size()) {
+            normals[h] = normal;
+        }
+    }
+    const std::span<const Vector3f> now = positionsOf(mesh);
+    std::vector<Vector3f> before(now.begin(), now.end());
+    for (const VertexMotion& m : plan.motions) {
+        if (m.vertex < before.size()) {
+            before[m.vertex] = m.base;
+        }
+    }
+    std::vector<FaceId> ids;
+    ids.reserve(faces.size());
+    for (const u32 f : faces) {
+        ids.push_back(FaceId(f));
+    }
+    shading::TurnCustomNormals(mesh, ids, before);
 }
 
 void reshade(Mesh& mesh, const std::vector<u32>& faces) {
@@ -1292,7 +1354,9 @@ void ApplyAmount(Mesh& mesh, const ModelPlan& plan, f32 amount) {
     for (const VertexMotion& m : plan.motions) {
         movers.push_back(m.vertex);
     }
-    reshade(mesh, facesAround(mesh, movers));
+    const std::vector<u32> around = facesAround(mesh, movers);
+    turnCustomNormals(mesh, plan, around);
+    reshade(mesh, around);
 }
 
 void FinishTool(Mesh& mesh, ModelPlan& plan, f32 creaseAngle) {
