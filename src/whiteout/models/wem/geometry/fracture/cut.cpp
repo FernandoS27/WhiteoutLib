@@ -1254,8 +1254,8 @@ void CellPieces(u32 c, const Cell& work, const std::vector<InsideSet>& sets,
             for (u32 k = 0; k < 3; ++k) {
                 grow(part, set.points[set.triangles[3 * ref.index + k]].position);
             }
-            part.rank = std::min(part.rank, (1ull << 63) | (static_cast<u64>(ref.set) << 24) |
-                                                ref.index);
+            const u64 rank = (u64{1} << 63) | (static_cast<u64>(ref.set) << 24) | ref.index;
+            part.rank = std::min(part.rank, rank);
         }
         if (std::find(part.targets.begin(), part.targets.end(), target) == part.targets.end()) {
             part.targets.push_back(target);
