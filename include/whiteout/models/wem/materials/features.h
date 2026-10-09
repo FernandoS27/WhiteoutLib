@@ -91,8 +91,11 @@ struct FresnelFeature {
  * `textureTransformCombos` — leave the rates zero and put sub-tracks on the
  * feature's `UvTranslate`/`UvRotate`/`UvScale` channels (§10.8).
  *
- * Both forms compose with `TextureInput::uvTransform`, which stays the static
- * part.
+ * `TextureInput::uvTransform` stays the static part. A rate moves on from it.
+ * A keyed component REPLACES the static one, and the other components stay as
+ * the static part has them: an `.m3` layer's keyed offset plays under its
+ * fixed tiling, and every importer writes its keys as whole values, not as
+ * offsets from the static part.
  */
 struct UvAnimationFeature {
     Vector2f scrollRate{0, 0}; ///< UV units per second.

@@ -1198,6 +1198,35 @@ MdxExportMap MdxExportMapOf(const Document& document, u32 model, ProfileId profi
     return map;
 }
 
+MdxLayerMap MdxLayerMapOf(const Document& document, u32 model, ProfileId profile,
+                          u32 targetVersion) {
+    MdxLayerMap map;
+    if (model >= document.models.size()) {
+        return map;
+    }
+    const Model& source = document.models[model];
+    // The numbering reads the version (an HD material is one layer from v1100
+    // and six below it) and nothing else of the context: no texture id decides
+    // which layer an ordinal becomes.
+    mdx_core::Context context;
+    context.modelVersion = targetVersion != 0 ? targetVersion : MdxFileVersion(profile);
+    Diagnostics unread;
+    map.layerOfOrdinal.resize(source.materialSlots.size());
+    map.layerCount.assign(source.materialSlots.size(), 0);
+    if (source.setFor(profile) == nullptr) {
+        return map;
+    }
+    for (std::size_t slot = 0; slot < source.materialSlots.size(); ++slot) {
+        if (const Material* material = Resolve(source, static_cast<u32>(slot), profile)) {
+            map.layerCount[slot] = static_cast<u32>(
+                mdx_core::ExportMaterial(*material, profile, context, unread,
+                                         &map.layerOfOrdinal[slot])
+                    .layers.size());
+        }
+    }
+    return map;
+}
+
 // ============================================================================
 // A geoset's static colour and alpha
 // ============================================================================

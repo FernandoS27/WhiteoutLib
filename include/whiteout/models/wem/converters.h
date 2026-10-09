@@ -120,6 +120,29 @@ struct MdxExportMap {
 /// computed without exporting. Empty when the document has no such model.
 MdxExportMap MdxExportMapOf(const Document& document, u32 model, ProfileId profile);
 
+/// Where `toMdx` puts a material's ordinals, for a caller that has to find a
+/// layer of the `.mdx` it built from what the document names: a `UvAnimation`
+/// feature and a layer track both name an ORDINAL.
+///
+/// It is the identity on a material with an MDX block and not otherwise. A
+/// Reforged material's maps are ordinals of their own and all become one HD
+/// layer; a chain drops a stage that draws nothing. A material's index in the
+/// file is its slot. Apart from @ref MdxExportMap because it costs a material
+/// export per slot, and because it depends on the version written.
+struct MdxLayerMap {
+    /// Per slot, per ordinal: the layer it becomes; `kInvalidIndex` for one
+    /// the file does not draw. Empty for a slot the profile binds nothing to.
+    std::vector<std::vector<u32>> layerOfOrdinal;
+    /// Per slot: how many layers its material has in the file.
+    std::vector<u32> layerCount;
+};
+
+/// @ref MdxLayerMap for `document.models[model]` written as @p profile at
+/// @p targetVersion (0: the profile's own, as `toMdx` reads it), computed by
+/// the function the export numbers with (`mdx_core::ExportMaterial`).
+MdxLayerMap MdxLayerMapOf(const Document& document, u32 model, ProfileId profile,
+                          u32 targetVersion = 0);
+
 /// One geoset `toMdx` writes, by the WEM elements it came from
 /// (EDIT_MODE_MODELLING_DESIGN.md §2.3): what a host needs to reach a drawn
 /// vertex or triangle from the WEM, and back.

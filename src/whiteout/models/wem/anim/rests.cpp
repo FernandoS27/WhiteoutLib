@@ -8,6 +8,7 @@
 #include <optional>
 #include <variant>
 
+#include "whiteout/models/wem/anim/mdx_uv.h"
 #include "whiteout/models/wem/anim/track_read.h"
 #include "whiteout/models/wem/converters.h"
 #include "whiteout/models/wem/native/mdx_native.h"
@@ -168,8 +169,33 @@ TrackRests Pair(std::vector<u8> unkeyed, std::vector<u8> keyedElsewhere) {
     return rests;
 }
 
+/// The component of a layer's fixed UV transform that @p target's texture
+/// animation track plays where nothing keys it, as one key of @p type
+/// (EDIT_MODE_TVANIM_DESIGN.md §1.6). `toMdx` writes the same value wherever
+/// the document has no key, so it is one rest and not two. Nothing for the
+/// identity, which is every layer of a material with an MDX block, and for a
+/// shear, which has no MDX form and is dropped on the way out.
+std::optional<std::vector<u8>> FixedUvRest(const Model& model, const TrackTarget& target,
+                                           geom::AttrType type) {
+    if (target.kind != TrackTarget::Kind::MaterialFeature)
+        return std::nullopt;
+    const std::optional<u32> ordinal = FeatureLayer(model, target);
+    const Material* material =
+        Resolve(model, target.material.slot, target.material.profile, target.material.look);
+    const TextureInput* input = ordinal && material ? material->Common().inputAt(*ordinal) : nullptr;
+    if (!input || input->uvTransform.isIdentity())
+        return std::nullopt;
+    const std::optional<mdx_uv::UvValues> fixed = mdx_uv::FixedValues(input->uvTransform);
+    if (!fixed)
+        return std::nullopt;
+    return mdx_uv::EncodeKey(target.channel, type, mdx_uv::ComponentOf(target.channel, *fixed));
+}
+
+/// @p fixedUv: read a texture animation's rest from its layer's fixed UV
+/// transform, which is Warcraft III's own reading of that transform and no
+/// other game's.
 TrackRests WarcraftRests(const Document& document, u32 model, const TrackTarget& target,
-                         geom::AttrType type) {
+                         geom::AttrType type, bool fixedUv = true) {
     const std::size_t size = geom::AttrTypeSize(type);
     const TrackRests none = Same(std::vector<u8>(size, 0));
     if (model >= document.models.size())
@@ -177,7 +203,14 @@ TrackRests WarcraftRests(const Document& document, u32 model, const TrackTarget&
     const Model& source = document.models[model];
     const Channel channel = target.channel;
 
-    // A transform, and a texture animation: the identity offset either way.
+    if (fixedUv && (channel == Channel::UvTranslate || channel == Channel::UvRotate ||
+                    channel == Channel::UvScale)) {
+        if (std::optional<std::vector<u8>> fixed = FixedUvRest(source, target, type))
+            return Same(std::move(*fixed));
+    }
+
+    // A transform, and a texture animation over no fixed transform: the
+    // identity offset either way.
     switch (channel) {
     case Channel::Translation:
     case Channel::UvTranslate:
@@ -377,7 +410,7 @@ TrackRests StarCraftRests(const Document& document, u32 model, const TrackTarget
     // and from the static field where it does not.
     if (initValue != nullptr)
         return Same(*initValue);
-    return Same(WarcraftRests(document, model, target, type).unkeyed);
+    return Same(WarcraftRests(document, model, target, type, false).unkeyed);
 }
 
 } // namespace

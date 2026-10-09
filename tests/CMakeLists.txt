@@ -141,6 +141,8 @@ whiteout_add_test(wem_texture_ops_test wem_texture_ops_test.cpp)
 whiteout_add_test(wem_document_test wem_document_test.cpp)
 whiteout_add_test(wem_anim_test wem_anim_test.cpp)
 whiteout_add_test(wem_anim_mdx_test wem_anim_mdx_test.cpp)
+# A layer's fixed UV transform and constant rate on the way to an `.mdx`.
+whiteout_add_test(wem_mdx_uv_test wem_mdx_uv_test.cpp)
 whiteout_add_test(wem_anim_tcb_test wem_anim_tcb_test.cpp)
 target_include_directories(wem_anim_tcb_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 whiteout_add_test(wem_anim_m2_test wem_anim_m2_test.cpp)

@@ -509,6 +509,7 @@ add_library(whiteout_lib
     src/whiteout/models/wem/anim/key_reduce.cpp
     src/whiteout/models/wem/anim/key_reduce_tolerance.cpp
     src/whiteout/models/wem/anim/m3_math.cpp
+    src/whiteout/models/wem/anim/mdx_uv.cpp
     src/whiteout/models/wem/anim/pose.cpp
     src/whiteout/models/wem/anim/rests.cpp
     src/whiteout/models/wem/anim/stages.cpp

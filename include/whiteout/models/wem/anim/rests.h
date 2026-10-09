@@ -32,9 +32,12 @@ namespace wem {
 /// 1 for a visibility, an alpha or an emissive gain, white for a fresnel
 /// colour, and 0 for a light's, an emitter's and a ribbon's values, a fresnel's
 /// opacity and team colour and a geoset's colour — but 1 for a PopcornFX
-/// emitter's multipliers, whose alpha is 1 even unkeyed. A transform and a
-/// texture animation rest at the identity offset either way, and a flipbook at
-/// its layer's texture. One element of @p type each.
+/// emitter's multipliers, whose alpha is 1 even unkeyed. A transform rests at
+/// the identity offset either way, and a flipbook at its layer's texture. A
+/// texture animation rests at its layer's fixed UV transform either way
+/// (`TextureInput::uvTransform` as MDX's three values, `mdx_uv::FixedValues`):
+/// the identity on a material with an MDX block, and elsewhere a value `toMdx`
+/// keys wherever the document does not. One element of @p type each.
 ///
 /// StarCraft II has one rest: an STC that does not key a channel falls back to
 /// the AnimRef's `initValue`, which `toM3` writes from the bone's `local` (on
