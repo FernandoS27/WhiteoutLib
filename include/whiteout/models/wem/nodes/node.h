@@ -133,6 +133,7 @@ enum class NodeKind : u8 {
     M2ParticleEmitter,   ///< M2 `M2Particle`. `NODE` v8.
     ForceField,          ///< M3 `FOR_` (WEM_PHYSICS_DESIGN.md §3.8). `NODE` v14.
     VertexWarp,          ///< M3 `WRP_`. `NODE` v14.
+    Wc3FaceFx,           ///< MDX `FAFX`: the FaceFX actor a model names (Reforged). `NODE` v18.
     Count
 };
 
@@ -162,6 +163,10 @@ inline constexpr NodeKindMask kSharedNodeKinds =
 inline constexpr NodeKindMask kWc3NodeKinds =
     NodeKindBit(NodeKind::Wc3ParticleEmitter1) | NodeKindBit(NodeKind::Wc3ParticleEmitter2) |
     NodeKindBit(NodeKind::Wc3RibbonEmitter) | NodeKindBit(NodeKind::Wc3CornEmitter);
+
+/// Warcraft III's FaceFX actor — `Wc3Classic` and `Wc3Reforged`. Not an
+/// emitter system, but carried by the same two profiles alone.
+inline constexpr NodeKindMask kWc3FaceKinds = NodeKindBit(NodeKind::Wc3FaceFx);
 
 /// StarCraft II's two — `Sc2` and `Heroes`.
 inline constexpr NodeKindMask kSc2NodeKinds =
@@ -381,6 +386,26 @@ struct CameraPayload {
     }
 };
 
+/**
+ * @brief `FAFX`: the FaceFX actor Warcraft III 3.0 plays on the model.
+ *
+ * In the file it is a model-level entry — a name and the actor's path, with no
+ * transform and no object id. It is a node here so that it is made, named,
+ * removed and masked by profile the way everything else a model carries is;
+ * where it stands means nothing to the game, as a camera's parent does not. The
+ * entry's name is the node's (every shipped one is "Node"), and the game opens
+ * the first entry alone (`ProcessFacialAnimation`): the first such node in tree
+ * order.
+ */
+struct Wc3FaceFxPayload {
+    AssetKey actor; ///< The actor, by path as the `.mdx` stores it — a `.facefx`.
+
+    template <class V>
+    void reflect(V& v) {
+        v.field("actor", actor);
+    }
+};
+
 struct ParticlePayload {
     AssetKey system; ///< WHAT runs here, never how (§18).
 
@@ -439,7 +464,7 @@ using NodePayload =
                  ParticlePayload, RibbonPayload, EventPayload, CollisionPayload,
                  Wc3ParticleEmitter1Payload, Wc3ParticleEmitter2Payload, Wc3RibbonEmitterPayload,
                  Sc2ParticleEmitterPayload, Sc2RibbonEmitterPayload, Wc3CornEmitterPayload,
-                 M2ParticleEmitterPayload, ForceFieldPayload, VertexWarpPayload>;
+                 M2ParticleEmitterPayload, ForceFieldPayload, VertexWarpPayload, Wc3FaceFxPayload>;
 
 /// Every node index @p payload holds, as `f(u32& node, EmitterLink what)` — the
 /// §10.6 referencer row the emitter systems add. @p payload may be const.
@@ -682,6 +707,10 @@ struct Node {
             break;
         case NodeKind::VertexWarp:
             v.field("vertexWarp", VariantAs<VertexWarpPayload>(payload));
+            break;
+        // v18, the same way.
+        case NodeKind::Wc3FaceFx:
+            v.field("wc3FaceFx", VariantAs<Wc3FaceFxPayload>(payload));
             break;
         case NodeKind::Count:
             break;

@@ -101,7 +101,8 @@ struct MaterialBlockDraft {
 /// §4.1). `toMdx` numbers from this same answer, so the two cannot disagree.
 struct MdxExportMap {
     /// Per node: the `objectId` `toMdx` gives it; `kInvalidIndex` for a node
-    /// with none (a camera, or a node the profile does not hold).
+    /// with none (a camera, a FaceFX actor, or a node the profile does not
+    /// hold).
     std::vector<u32> nodeObjectId;
     /// Per `Document::clips` entry: its index in `sequences`; `kInvalidIndex`
     /// for a global loop or another model's clip.
@@ -190,9 +191,11 @@ struct WrittenSkin {
     Diagnostics diagnostics;
 };
 
-/// The FaceFX actor @p model names, as its `.mdx` stored the path: the first
-/// `FAFX` entry of the first set that kept one, which is the only one Warcraft
-/// III opens (`ProcessFacialAnimation`). Empty for a model that names none.
+/// The FaceFX actor @p model names, as its `.mdx` stores the path: its first
+/// `Wc3FaceFx` node's, which is the first `FAFX` entry and the only one
+/// Warcraft III opens (`ProcessFacialAnimation`). A model with no such node
+/// answers from the bag a `.wem` older than the kind kept the list in. Empty
+/// for a model that names none.
 /// The game moves such a model's bones by name from that file, so its `.mdx` is
 /// not the whole of its animation.
 std::string FaceFxActorPath(const Model& model);

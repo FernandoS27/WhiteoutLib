@@ -826,6 +826,22 @@ TEST_CASE("wem mdx keeps a model's FaceFX list", "[wem][convert][mdx]") {
     Result<Document> imported = converter.fromMdx(source);
     REQUIRE(imported.ok());
 
+    // Each entry is a node of its own kind, in the file's order, and the model
+    // names the first one's actor.
+    const NodeTree& nodes = imported->models[0].nodes;
+    const auto faces = nodes.ofKind(NodeKind::Wc3FaceFx);
+    REQUIRE(faces.size() == 2u);
+    CHECK(nodes.nodes[faces[0]].name == "Node");
+    CHECK(nodes.nodes[faces[0]].parent == kInvalidNode);
+    CHECK(std::get<Wc3FaceFxPayload>(nodes.nodes[faces[0]].payload).actor.path ==
+          "Units/Creeps/Assassin/Assassin.facefx");
+    CHECK(nodes.nodes[faces[1]].name == "Second");
+    CHECK(FaceFxActorPath(imported->models[0]) == "Units/Creeps/Assassin/Assassin.facefx");
+    // Neither takes an object id: `FAFX` is no node chunk.
+    const MdxExportMap map = MdxExportMapOf(*imported, 0, imported->models[0].profileSets[0].profile);
+    CHECK(map.nodeObjectId[faces[0]] == kInvalidIndex);
+    CHECK(map.nodeObjectId[faces[1]] == kInvalidIndex);
+
     // Through the file, then across a derive to the other WC3 profile.
     Writer writer;
     const std::vector<u8> bytes = writer.write(*imported);
@@ -852,6 +868,47 @@ TEST_CASE("wem mdx keeps a model's FaceFX list", "[wem][convert][mdx]") {
     Result<mdx::Model> classic = converter.toMdx(*reread, ProfileId::Wc3Classic, 800);
     REQUIRE(classic.ok());
     CHECK(classic->faceEffects.empty());
+}
+
+TEST_CASE("wem mdx still writes the FaceFX list a document older than the kind holds",
+          "[wem][convert][mdx]") {
+    // Before `NODE` v18 the list rode in the set's bag: a count and a text
+    // entry per field. Such a document names its actor and writes it still.
+    mdx::Model source = makeModel();
+    source.version = 1800;
+    const MdxConverter converter;
+    Result<Document> imported = converter.fromMdx(source);
+    REQUIRE(imported.ok());
+    Model& model = imported->models[0];
+    REQUIRE(model.nodes.ofKind(NodeKind::Wc3FaceFx).empty());
+    CHECK(FaceFxActorPath(model).empty());
+
+    NativeBag& bag = model.profileSets[0].native;
+    bag.set("faceFxCount", 1);
+    bag.setText("faceFxName0", "Node");
+    bag.setText("faceFxPath0", "Units/Human/Footman/Footman.facefx");
+    CHECK(FaceFxActorPath(model) == "Units/Human/Footman/Footman.facefx");
+
+    const ProfileId profile = model.profileSets[0].profile;
+    Result<mdx::Model> exported = converter.toMdx(*imported, profile, 1800);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->faceEffects.size() == 1u);
+    CHECK(exported->faceEffects[0].name == "Node");
+    CHECK(exported->faceEffects[0].path == "Units/Human/Footman/Footman.facefx");
+
+    // A node, once the model has one, is the list: the bag is not read again.
+    Node face;
+    face.name = "Face";
+    face.kind = NodeKind::Wc3FaceFx;
+    face.resetPayloadForKind();
+    std::get<Wc3FaceFxPayload>(face.payload).actor.path = "war3mapImported/hero.facefx";
+    model.nodes.add(std::move(face));
+    CHECK(FaceFxActorPath(model) == "war3mapImported/hero.facefx");
+    exported = converter.toMdx(*imported, profile, 1800);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->faceEffects.size() == 1u);
+    CHECK(exported->faceEffects[0].name == "Face");
+    CHECK(exported->faceEffects[0].path == "war3mapImported/hero.facefx");
 }
 
 TEST_CASE("wem mdx a file is written at its profile's version, and Reforged's is 3.0's",

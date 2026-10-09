@@ -459,7 +459,7 @@ TEST_CASE("wem emitter systems are gated by the profile registry", "[wem][node][
             const NodeKind kind = static_cast<NodeKind>(k);
             INFO(ToString(kind));
             const bool expected = HasNodeKind(kSharedNodeKinds, kind) ||
-                                  (warcraft && HasNodeKind(kWc3NodeKinds, kind)) ||
+                                  (warcraft && HasNodeKind(kWc3NodeKinds | kWc3FaceKinds, kind)) ||
                                   (starcraft && HasNodeKind(kSc2NodeKinds | kSc2FieldKinds, kind)) ||
                                   (wow && HasNodeKind(kWowNodeKinds, kind));
             CHECK(CarriesNodeKind(profile, kind) == expected);
@@ -473,6 +473,10 @@ TEST_CASE("wem emitter systems are gated by the profile registry", "[wem][node][
     CHECK_FALSE(CarriesNodeKind(ProfileId::Generic, NodeKind::Sc2ParticleEmitter));
     CHECK(IsEmitterSystemKind(NodeKind::Wc3RibbonEmitter));
     CHECK_FALSE(IsEmitterSystemKind(NodeKind::RibbonEmitter));
+    // Warcraft III's alone, and no emitter system.
+    CHECK(ProfilesCarryingNodeKind(NodeKind::Wc3FaceFx) ==
+          (ProfileBit(ProfileId::Wc3Classic) | ProfileBit(ProfileId::Wc3Reforged)));
+    CHECK_FALSE(IsEmitterSystemKind(NodeKind::Wc3FaceFx));
     CHECK(IsRibbonEmitterKind(NodeKind::Sc2RibbonEmitter));
     CHECK(IsParticleEmitterKind(NodeKind::Wc3ParticleEmitter1));
     CHECK(ProfilesCarryingNodeKind(NodeKind::M2ParticleEmitter) == ProfileBit(ProfileId::Wow));

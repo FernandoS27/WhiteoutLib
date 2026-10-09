@@ -67,13 +67,13 @@ constexpr std::span<const BlendMode> modes(const BlendMode (&a)[N]) {
 }
 
 /// §10.9: the nine shared kinds everywhere, and each emitter system in its own
-/// game alone. Both Warcraft III profiles read the one `.mdx` emitter set, and
-/// StarCraft II and Heroes the one `.m3` set.
+/// game alone. Both Warcraft III profiles read the one `.mdx` emitter set and
+/// its FaceFX list, and StarCraft II and Heroes the one `.m3` set.
 NodeKindMask nodeKindsOf(ProfileId id) {
     switch (id) {
     case ProfileId::Wc3Classic:
     case ProfileId::Wc3Reforged:
-        return kSharedNodeKinds | kWc3NodeKinds;
+        return kSharedNodeKinds | kWc3NodeKinds | kWc3FaceKinds;
     case ProfileId::Sc2:
     case ProfileId::Heroes:
         return kSharedNodeKinds | kSc2NodeKinds | kSc2FieldKinds;

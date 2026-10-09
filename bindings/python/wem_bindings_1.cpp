@@ -164,18 +164,6 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 1 of bind_wem(), which calls the parts in order.
 void bind_wem_1(py::module_& m) {
-    py::class_<whiteout::models::wem::MeshSection>(m, "MeshSection", R"doc(Metadata only; one per draw section. The faces that belong to it are the ones whose `section` attribute names it.)doc")
-        .def(py::init<>())
-        .def_readwrite("name", &whiteout::models::wem::MeshSection::name)
-        .def_readwrite("material_slot", &whiteout::models::wem::MeshSection::materialSlot, R"doc(-> `Model::materialSlots[]`, or `kInvalidIndex` for NO MATERIAL: a section made by an editor before one has been chosen for it. The sentinel is the emitter links' (§10.9), so one rule covers both, and every profile draws such a section as plain white (`toMdx` writes it a blank SD material; a profile that cannot say "none" must write one).)doc")
-        .def_readwrite("profiles", &whiteout::models::wem::MeshSection::profiles, R"doc(Which profiles draw this section (§6).)doc")
-        .def_readwrite("rigid_node", &whiteout::models::wem::MeshSection::rigidNode, R"doc(Set: every vertex binds here at weight 1 (§5.6).)doc")
-        .def_readwrite("selection_group", &whiteout::models::wem::MeshSection::selectionGroup, R"doc(MDX geoset group / M2 skinSectionId.)doc")
-        .def_readwrite("flags", &whiteout::models::wem::MeshSection::flags)
-        .def_readwrite("bounds", &whiteout::models::wem::MeshSection::bounds, R"doc(Derived, recomputed.)doc")
-        .def_readwrite("native", &whiteout::models::wem::MeshSection::native)
-    ;
-
     py::class_<whiteout::models::wem::Mesh>(m, "Mesh")
         .def(py::init<>())
         .def_readwrite("name", &whiteout::models::wem::Mesh::name)
@@ -682,6 +670,13 @@ Both halves are optional and independent. `asset` is what the source named — a
         .def_readwrite("focus_distance", &whiteout::models::wem::CameraPayload::focusDistance, R"doc(Warcraft III 3.0's depth of field; 0 is unset. The game blurs only where all three have a value (`AnimateCamera`), and MDX stores no rests for them, only the IDUF/ELAF/PTSF keys.)doc")
         .def_readwrite("focal_length", &whiteout::models::wem::CameraPayload::focalLength, R"doc(Millimetres.)doc")
         .def_readwrite("f_stop", &whiteout::models::wem::CameraPayload::fStop)
+    ;
+
+    py::class_<whiteout::models::wem::Wc3FaceFxPayload>(m, "Wc3FaceFxPayload", R"doc(`FAFX`: the FaceFX actor Warcraft III 3.0 plays on the model.
+
+In the file it is a model-level entry — a name and the actor's path, with no transform and no object id. It is a node here so that it is made, named, removed and masked by profile the way everything else a model carries is; where it stands means nothing to the game, as a camera's parent does not. The entry's name is the node's (every shipped one is "Node"), and the game opens the first entry alone (`ProcessFacialAnimation`): the first such node in tree order.)doc")
+        .def(py::init<>())
+        .def_readwrite("actor", &whiteout::models::wem::Wc3FaceFxPayload::actor, R"doc(The actor, by path as the `.mdx` stores it — a `.facefx`.)doc")
     ;
 
     py::class_<whiteout::models::wem::ParticlePayload>(m, "ParticlePayload")

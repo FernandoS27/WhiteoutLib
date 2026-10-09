@@ -45,6 +45,7 @@ bool FrameMatters(NodeKind kind) {
     case NodeKind::Light:
     case NodeKind::Camera:
     case NodeKind::Event:
+    case NodeKind::Wc3FaceFx:
         return false;
     default:
         return true;

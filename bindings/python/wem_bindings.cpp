@@ -819,6 +819,7 @@ Deliberate: Reforged HD is the only shipped PBR content among the six games, so 
         .value("M2_PARTICLE_EMITTER", whiteout::models::wem::NodeKind::M2ParticleEmitter, R"doc(M2 `M2Particle`. `NODE` v8.)doc")
         .value("FORCE_FIELD", whiteout::models::wem::NodeKind::ForceField, R"doc(M3 `FOR_` (WEM_PHYSICS_DESIGN.md §3.8). `NODE` v14.)doc")
         .value("VERTEX_WARP", whiteout::models::wem::NodeKind::VertexWarp, R"doc(M3 `WRP_`. `NODE` v14.)doc")
+        .value("WC3_FACE_FX", whiteout::models::wem::NodeKind::Wc3FaceFx, R"doc(MDX `FAFX`: the FaceFX actor a model names (Reforged). `NODE` v18.)doc")
         .value("COUNT", whiteout::models::wem::NodeKind::Count)
     ;
 
@@ -1409,6 +1410,18 @@ The vertex is left sorted heaviest first, with ties by bone, which is the order 
         .def("normalize", &whiteout::models::wem::geom::SkinBinding::normalize, R"doc(Scales each vertex's weights to sum to 1. Vertices with no influence, or with a total of zero, are left alone.)doc")
         .def("is_normalized", &whiteout::models::wem::geom::SkinBinding::isNormalized, py::arg("tolerance") = whiteout::f32{}, R"doc(True when every skinned vertex's weights sum to 1 within @p tolerance.)doc")
         .def("sort_by_weight", &whiteout::models::wem::geom::SkinBinding::sortByWeight, R"doc(Sorts each vertex's influences by descending weight — the documented order, which import must establish and edits must preserve.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::MeshSection>(m, "MeshSection", R"doc(Metadata only; one per draw section. The faces that belong to it are the ones whose `section` attribute names it.)doc")
+        .def(py::init<>())
+        .def_readwrite("name", &whiteout::models::wem::MeshSection::name)
+        .def_readwrite("material_slot", &whiteout::models::wem::MeshSection::materialSlot, R"doc(-> `Model::materialSlots[]`, or `kInvalidIndex` for NO MATERIAL: a section made by an editor before one has been chosen for it. The sentinel is the emitter links' (§10.9), so one rule covers both, and every profile draws such a section as plain white (`toMdx` writes it a blank SD material; a profile that cannot say "none" must write one).)doc")
+        .def_readwrite("profiles", &whiteout::models::wem::MeshSection::profiles, R"doc(Which profiles draw this section (§6).)doc")
+        .def_readwrite("rigid_node", &whiteout::models::wem::MeshSection::rigidNode, R"doc(Set: every vertex binds here at weight 1 (§5.6).)doc")
+        .def_readwrite("selection_group", &whiteout::models::wem::MeshSection::selectionGroup, R"doc(MDX geoset group / M2 skinSectionId.)doc")
+        .def_readwrite("flags", &whiteout::models::wem::MeshSection::flags)
+        .def_readwrite("bounds", &whiteout::models::wem::MeshSection::bounds, R"doc(Derived, recomputed.)doc")
+        .def_readwrite("native", &whiteout::models::wem::MeshSection::native)
     ;
 
     bind_wem_1(m);

@@ -649,6 +649,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("M2ParticleEmitter", whiteout::models::wem::NodeKind::M2ParticleEmitter)
         .value("ForceField", whiteout::models::wem::NodeKind::ForceField)
         .value("VertexWarp", whiteout::models::wem::NodeKind::VertexWarp)
+        .value("Wc3FaceFx", whiteout::models::wem::NodeKind::Wc3FaceFx)
         .value("Count", whiteout::models::wem::NodeKind::Count);
 
     enum_<whiteout::models::wem::NodeFlags>("WemNodeFlags")
@@ -1671,6 +1672,11 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("focusDistance", &whiteout::models::wem::CameraPayload::focusDistance)
         .property("focalLength", &whiteout::models::wem::CameraPayload::focalLength)
         .property("fStop", &whiteout::models::wem::CameraPayload::fStop)
+    ;
+
+    class_<whiteout::models::wem::Wc3FaceFxPayload>("WemWc3FaceFxPayload")
+        .constructor<>()
+        .property("actor", &whiteout::models::wem::Wc3FaceFxPayload::actor)
     ;
 
     class_<whiteout::models::wem::ParticlePayload>("WemParticlePayload")

@@ -136,6 +136,8 @@ const char* ToString(NodeKind kind) {
         return "force_field";
     case NodeKind::VertexWarp:
         return "vertex_warp";
+    case NodeKind::Wc3FaceFx:
+        return "wc3_face_fx";
     case NodeKind::Count:
         break;
     }
@@ -235,6 +237,9 @@ void Node::resetPayloadForKind() {
         break;
     case NodeKind::VertexWarp:
         payload = VertexWarpPayload{};
+        break;
+    case NodeKind::Wc3FaceFx:
+        payload = Wc3FaceFxPayload{};
         break;
     case NodeKind::Count:
         break;

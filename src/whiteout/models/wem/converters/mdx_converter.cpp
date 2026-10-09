@@ -559,6 +559,26 @@ struct NodeImport {
     }
 };
 
+/// Where an imported `FAFX` node is stood: the model's head by name -- the
+/// bone Warcraft III 3.0 hangs a head from, `bone_head`, else a node called
+/// "head", else the "Head" attachment point -- or the origin.
+Vector3f FaceAnchor(const NodeTree& tree) {
+    u32 found = kInvalidNode;
+    int best = 0;
+    for (u32 n = 0; n < tree.size(); ++n) {
+        std::string name = tree.nodes[n].name;
+        for (char& c : name) {
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+        const int rank = name == "bone_head" ? 3 : name == "head" ? 2 : name.rfind("head ref", 0) == 0 ? 1 : 0;
+        if (rank > best) {
+            best = rank;
+            found = n;
+        }
+    }
+    return found != kInvalidNode ? tree.worldBind(found).translation : Vector3f{0, 0, 0};
+}
+
 NodeImport ImportNodes(const mdx::Model& source) {
     NodeImport out;
     const std::vector<PendingNode> pending = CollectNodes(source);
@@ -663,6 +683,23 @@ NodeImport ImportNodes(const mdx::Model& source) {
         out.tree.add(std::move(node));
     }
 
+    // `FAFX` entries are not node chunks either -- a name and an actor's path --
+    // so each becomes a parentless node after the cameras. It stands at the
+    // head where the model names one: a place to find it by, and nothing the
+    // file keeps.
+    const Vector3f face = FaceAnchor(out.tree);
+    for (const mdx::FaceEffect& effect : source.faceEffects) {
+        Node node;
+        node.name = effect.name;
+        node.kind = NodeKind::Wc3FaceFx;
+        node.resetPayloadForKind();
+        std::get<Wc3FaceFxPayload>(node.payload).actor.path = effect.path;
+        node.pivot = face;
+        node.local.translation = face;
+        node.poses.push_back(node.local);
+        out.tree.add(std::move(node));
+    }
+
     return out;
 }
 
@@ -673,9 +710,10 @@ NodeImport ImportNodes(const mdx::Model& source) {
 /// Where a node kind's chunk sits in the order MDX assigns object ids in —
 /// BONE, LITE, HELP, ATCH, PREM, PRE2, CORN, RIBB, EVTS, CLID. CORN is where
 /// Reforged's own files number it, between PRE2 and RIBB, which is also where
-/// 3.0's chunk table reads it. `Camera` has no node chunk and so no id, and
-/// answers -1. @p kind is what the node is WRITTEN as (`WrittenKind`), so a
-/// system the profile does not carry ranks as the helper it becomes.
+/// 3.0's chunk table reads it. `Camera` and `Wc3FaceFx` have no node chunk and
+/// so no id, and answer -1. @p kind is what the node is WRITTEN as
+/// (`WrittenKind`), so a system the profile does not carry ranks as the helper
+/// it becomes.
 int ChunkRank(NodeKind kind) {
     switch (kind) {
     case NodeKind::Bone:
@@ -701,6 +739,7 @@ int ChunkRank(NodeKind kind) {
     case NodeKind::CollisionShape:
         return 9;
     case NodeKind::Camera:
+    case NodeKind::Wc3FaceFx:
     case NodeKind::Sc2ParticleEmitter:
     case NodeKind::Sc2RibbonEmitter:
     case NodeKind::M2ParticleEmitter: // crossed to a PRE2 before export, or a helper
@@ -1046,23 +1085,13 @@ void LinkGeosetAnimations(const Model& model, const mdx_anim::ExportContext& con
 }
 
 // `FAFX` is a model-level list of (FaceFX actor name, `.facefx` path) pairs the
-// portrait's lip sync plays. WEM has no element for it, so it rides in the
-// set's bag: a count and one text entry per field.
+// portrait's lip sync plays: a `Wc3FaceFx` node each (`ImportNodes`). A `.wem`
+// written before the kind (`NODE` v18) kept the list in the set's bag instead,
+// a count and one text entry per field, which is all these read.
 constexpr const char* kFaceFxCount = "faceFxCount";
 
 std::string FaceFxKey(const char* field, std::size_t index) {
     return std::string("faceFx") + field + std::to_string(index);
-}
-
-void StoreFaceEffects(const std::vector<mdx::FaceEffect>& effects, NativeBag& bag) {
-    if (effects.empty()) {
-        return;
-    }
-    bag.set(kFaceFxCount, static_cast<i64>(effects.size()));
-    for (std::size_t i = 0; i < effects.size(); ++i) {
-        bag.setText(FaceFxKey("Name", i), effects[i].name);
-        bag.setText(FaceFxKey("Path", i), effects[i].path);
-    }
 }
 
 std::vector<mdx::FaceEffect> LoadFaceEffects(const NativeBag& bag) {
@@ -1074,9 +1103,26 @@ std::vector<mdx::FaceEffect> LoadFaceEffects(const NativeBag& bag) {
     return effects;
 }
 
+/// Whether @p tree holds a FaceFX node at all: the nodes are then the list,
+/// and an old bag is not read.
+bool HasFaceFxNodes(const NodeTree& tree) {
+    for (const Node& node : tree.nodes) {
+        if (node.kind == NodeKind::Wc3FaceFx && !node.removed) {
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace
 
 std::string FaceFxActorPath(const Model& model) {
+    for (const Node& node : model.nodes.nodes) {
+        const auto* face = std::get_if<Wc3FaceFxPayload>(&node.payload);
+        if (face != nullptr && node.kind == NodeKind::Wc3FaceFx && !node.removed) {
+            return face->actor.path;
+        }
+    }
     for (const ProfileMaterialSet& set : model.profileSets) {
         if (set.native.value(kFaceFxCount, 0) > 0) {
             return set.native.text(FaceFxKey("Path", 0));
@@ -1450,7 +1496,6 @@ Result<Document> MdxConverter::fromMdx(const mdx::Model& source) const {
             set.materials.back().name = SlotName(m);
             set.slotBindings[m].byLook[0] = index;
         }
-        StoreFaceEffects(source.faceEffects, set.native);
         model.profileSets.push_back(std::move(set));
         animContext.layerOrdinals.push_back(std::move(layers));
     }
@@ -2260,8 +2305,11 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
     out.version = targetVersion;
     out.modelName = document.name.empty() ? model.name : document.name;
     out.modelExtent = FromExtent(model.bounds);
-    // Classic's reader has no FAFX; 3.0 reads it at any version.
-    if (set != nullptr && targetVersion > 800) {
+    // Classic's reader has no FAFX; 3.0 reads it at any version. The entries
+    // are the model's `Wc3FaceFx` nodes, written with the others below; a
+    // document from before the kind still holds them in its set's bag.
+    const bool writeFaceFx = targetVersion > 800;
+    if (set != nullptr && writeFaceFx && !HasFaceFxNodes(model.nodes)) {
         out.faceEffects = LoadFaceEffects(set->native);
     }
 
@@ -2391,6 +2439,15 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
             }
             claim(i, mdx_anim::ExportContext::Slot::Camera, out.cameras.size());
             out.cameras.push_back(std::move(camera));
+            continue;
+        }
+        // Nor is a FaceFX actor: an entry of `FAFX`, in node order, so the
+        // first node is the one the game opens.
+        if (kind == NodeKind::Wc3FaceFx) {
+            const auto* payload = std::get_if<Wc3FaceFxPayload>(&node.payload);
+            if (writeFaceFx && payload != nullptr) {
+                out.faceEffects.push_back({node.name, payload->actor.path});
+            }
             continue;
         }
 
