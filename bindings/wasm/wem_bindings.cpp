@@ -670,6 +670,17 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("Spot", whiteout::models::wem::LightKind::Spot)
         .value("Ambient", whiteout::models::wem::LightKind::Ambient);
 
+    enum_<whiteout::models::wem::EventCategory>("WemEventCategory")
+        .value("None", whiteout::models::wem::EventCategory::None)
+        .value("Sound", whiteout::models::wem::EventCategory::Sound)
+        .value("Splat", whiteout::models::wem::EventCategory::Splat)
+        .value("Footprint", whiteout::models::wem::EventCategory::Footprint)
+        .value("UberSplat", whiteout::models::wem::EventCategory::UberSplat)
+        .value("SpawnModel", whiteout::models::wem::EventCategory::SpawnModel)
+        .value("MorphShow", whiteout::models::wem::EventCategory::MorphShow)
+        .value("MorphHide", whiteout::models::wem::EventCategory::MorphHide)
+        .value("Count", whiteout::models::wem::EventCategory::Count);
+
     enum_<whiteout::models::wem::CollisionShapeKind>("WemCollisionShapeKind")
         .value("Box", whiteout::models::wem::CollisionShapeKind::Box)
         .value("Sphere", whiteout::models::wem::CollisionShapeKind::Sphere)
@@ -1692,6 +1703,14 @@ EMSCRIPTEN_BINDINGS(wem) {
     class_<whiteout::models::wem::EventPayload>("WemEventPayload")
         .constructor<>()
         .property("id", &whiteout::models::wem::EventPayload::id)
+        .property("category", &whiteout::models::wem::EventPayload::category)
+        .property("code", &whiteout::models::wem::EventPayload::code)
+    ;
+
+    class_<whiteout::models::wem::EventName>("WemEventName")
+        .constructor<>()
+        .property("category", &whiteout::models::wem::EventName::category)
+        .property("code", &whiteout::models::wem::EventName::code)
     ;
 
     class_<whiteout::models::wem::CollisionShapeDesc>("WemCollisionShapeDesc")

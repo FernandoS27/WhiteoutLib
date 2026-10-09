@@ -692,6 +692,14 @@ In the file it is a model-level entry — a name and the actor's path, with no t
     py::class_<whiteout::models::wem::EventPayload>(m, "EventPayload")
         .def(py::init<>())
         .def_readwrite("id", &whiteout::models::wem::EventPayload::id)
+        .def_readwrite("category", &whiteout::models::wem::EventPayload::category, R"doc(What the event does and which row of that table it names (`NODE` v19), so the node's name is free to say what the event is FOR. With `None` the name is the whole event, as an imported object's was before v19.)doc")
+        .def_readwrite("code", &whiteout::models::wem::EventPayload::code)
+    ;
+
+    py::class_<whiteout::models::wem::EventName>(m, "EventName", R"doc(A Warcraft III event object's name, read: `SNDxAHEA` is `Sound`, `AHEA`. `None` and no code for a name the game does nothing with.)doc")
+        .def(py::init<>())
+        .def_readwrite("category", &whiteout::models::wem::EventName::category)
+        .def_readwrite("code", &whiteout::models::wem::EventName::code)
     ;
 
     py::class_<whiteout::models::wem::CollisionShapeDesc>(m, "CollisionShapeDesc")

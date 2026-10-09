@@ -450,6 +450,43 @@ TEST_CASE("wem a bone gate survives write and read", "[wem][format][nodes]") {
     CHECK(dump(original) == dump(reread));
 }
 
+TEST_CASE("wem an event's category and code survive write and read", "[wem][format][nodes]") {
+    Document original = makeDocument();
+    NodeTree& nodes = original.models.front().nodes;
+    REQUIRE_FALSE(nodes.ofKind(NodeKind::Event).empty());
+    const u32 event = nodes.ofKind(NodeKind::Event)[0];
+    auto& payload = std::get<EventPayload>(nodes.nodes[event].payload);
+    payload.category = EventCategory::Splat;
+    payload.code = "HBL2";
+
+    std::vector<std::string> issues;
+    const Document reread = readDocument(writeDocument(original), issues);
+    CHECK(issues.empty());
+    const Node& node = reread.models.front().nodes.nodes[event];
+    REQUIRE(node.kind == NodeKind::Event);
+    // The name stays the node's own: it is not where the event is kept.
+    CHECK(node.name == "hit");
+    CHECK(std::get<EventPayload>(node.payload).category == EventCategory::Splat);
+    CHECK(std::get<EventPayload>(node.payload).code == "HBL2");
+    CHECK(dump(original) == dump(reread));
+}
+
+TEST_CASE("wem an event that says no category is read out of its name", "[wem][format][nodes]") {
+    // What a `NODE` before v19 held: the event in the name alone.
+    Document original = makeDocument();
+    NodeTree& nodes = original.models.front().nodes;
+    const u32 event = nodes.ofKind(NodeKind::Event)[0];
+    nodes.nodes[event].name = "SNDyAHEA";
+
+    std::vector<std::string> issues;
+    const Document reread = readDocument(writeDocument(original), issues);
+    CHECK(issues.empty());
+    const Node& node = reread.models.front().nodes.nodes[event];
+    CHECK(node.name == "SNDyAHEA");
+    CHECK(std::get<EventPayload>(node.payload).category == EventCategory::Sound);
+    CHECK(std::get<EventPayload>(node.payload).code == "AHEA");
+}
+
 namespace {
 
 /// Turns a v5 file into the v4 file an older writer produced: the four bytes of

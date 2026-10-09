@@ -845,6 +845,20 @@ The inherit bits and the billboard family are MDX's vocabulary, and M3's `BoneFl
         .value("AMBIENT", whiteout::models::wem::LightKind::Ambient)
     ;
 
+    py::enum_<whiteout::models::wem::EventCategory>(m, "EventCategory", R"doc(What a Warcraft III event object does where it fires.
+
+The game reads it off the object's name (`EventCallback`, 3.0): the first three letters are one of these seven, the fourth is any character — it only tells two objects of one event apart — and the rest names a row of the category's table. No other prefix does anything.)doc")
+        .value("NONE", whiteout::models::wem::EventCategory::None, R"doc(Not said: the node's name is the event, as its file spells it.)doc")
+        .value("SOUND", whiteout::models::wem::EventCategory::Sound, R"doc(`SND`: a row of the animation sound tables, by `AnimationEventCode`.)doc")
+        .value("SPLAT", whiteout::models::wem::EventCategory::Splat, R"doc(`SPL`: a row of `SplatData.slk`.)doc")
+        .value("FOOTPRINT", whiteout::models::wem::EventCategory::Footprint, R"doc(`FPT`: the same rows, left only where the ground takes a print.)doc")
+        .value("UBER_SPLAT", whiteout::models::wem::EventCategory::UberSplat, R"doc(`UBR`: a row of `UberSplatData.slk`.)doc")
+        .value("SPAWN_MODEL", whiteout::models::wem::EventCategory::SpawnModel, R"doc(`SPN`: a row of `SpawnData.slk`.)doc")
+        .value("MORPH_SHOW", whiteout::models::wem::EventCategory::MorphShow, R"doc(`MRF`: the numbered cape morph of the Arthas and Illidan duel.)doc")
+        .value("MORPH_HIDE", whiteout::models::wem::EventCategory::MorphHide, R"doc(`MRD`: that morph taken away.)doc")
+        .value("COUNT", whiteout::models::wem::EventCategory::Count)
+    ;
+
     py::enum_<whiteout::models::wem::CollisionShapeKind>(m, "CollisionShapeKind")
         .value("BOX", whiteout::models::wem::CollisionShapeKind::Box)
         .value("SPHERE", whiteout::models::wem::CollisionShapeKind::Sphere)

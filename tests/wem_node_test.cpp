@@ -192,6 +192,49 @@ TEST_CASE("wem node payload matches its kind", "[wem][nodes]") {
     CHECK(std::get_if<CameraPayload>(&tree.nodes[4].payload) != nullptr);
 }
 
+TEST_CASE("wem an event object's name reads as Warcraft III reads it", "[wem][nodes]") {
+    // Three letters, one the game skips, then the code (`EventCallback`).
+    CHECK(ParseEventObjectName("SNDxAHEA") == EventName{EventCategory::Sound, "AHEA"});
+    CHECK(ParseEventObjectName("SPLyHBL2") == EventName{EventCategory::Splat, "HBL2"});
+    CHECK(ParseEventObjectName("FPT1FBL0") == EventName{EventCategory::Footprint, "FBL0"});
+    CHECK(ParseEventObjectName("UBRxUSC0") == EventName{EventCategory::UberSplat, "USC0"});
+    CHECK(ParseEventObjectName("SPNxHBS0") == EventName{EventCategory::SpawnModel, "HBS0"});
+    CHECK(ParseEventObjectName("MRFX0003") == EventName{EventCategory::MorphShow, "0003"});
+    CHECK(ParseEventObjectName("MRDX0003") == EventName{EventCategory::MorphHide, "0003"});
+    // Shipped names pad some codes with a space no table has.
+    CHECK(ParseEventObjectName("SNDXACYB ") == EventName{EventCategory::Sound, "ACYB"});
+    // The game matches the three bytes as they are, and nothing else is one.
+    CHECK(ParseEventObjectName("sndxAHEA").category == EventCategory::None);
+    CHECK(ParseEventObjectName("BuildingDeathPoint01").category == EventCategory::None);
+    CHECK(ParseEventObjectName("SND").category == EventCategory::None);
+    CHECK(ParseEventObjectName("").category == EventCategory::None);
+
+    CHECK(EventCategoryTag(EventCategory::UberSplat) == "UBR");
+    CHECK(EventCategoryTag(EventCategory::None).empty());
+}
+
+TEST_CASE("wem an event is written under the name its payload spells", "[wem][nodes]") {
+    Node node = makeNode("Left foot", NodeKind::Event, kInvalidNode, Vector3f{0, 0, 0});
+    auto& event = std::get<EventPayload>(node.payload);
+
+    // No category: the name is the event, whatever it is.
+    CHECK(EventObjectName(node) == "Left foot");
+
+    event.category = EventCategory::Footprint;
+    event.code = "FBL0";
+    CHECK(EventObjectName(node) == "FPTxFBL0");
+
+    // A name that already spells the event is kept, fourth letter and all.
+    node.name = "FPTyFBL0";
+    CHECK(EventObjectName(node) == "FPTyFBL0");
+    // One that spells another is not.
+    event.code = "FBR0";
+    CHECK(EventObjectName(node) == "FPTxFBR0");
+
+    // And a node that is no event is its name.
+    CHECK(EventObjectName(makeNode("SNDxAHEA", NodeKind::Bone, kInvalidNode, Vector3f{0, 0, 0})) == "SNDxAHEA");
+}
+
 TEST_CASE("wem node visitation dispatches per kind", "[wem][nodes]") {
     NodeTree tree = makeRig();
 

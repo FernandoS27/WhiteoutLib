@@ -34,6 +34,7 @@
  */
 
 #include <string>
+#include <string_view>
 #include <variant>
 #include <vector>
 
@@ -424,14 +425,55 @@ struct RibbonPayload {
     }
 };
 
+/**
+ * @brief What a Warcraft III event object does where it fires.
+ *
+ * The game reads it off the object's name (`EventCallback`, 3.0): the first
+ * three letters are one of these seven, the fourth is any character — it only
+ * tells two objects of one event apart — and the rest names a row of the
+ * category's table. No other prefix does anything.
+ */
+enum class EventCategory : u8 {
+    None,       ///< Not said: the node's name is the event, as its file spells it.
+    Sound,      ///< `SND`: a row of the animation sound tables, by `AnimationEventCode`.
+    Splat,      ///< `SPL`: a row of `SplatData.slk`.
+    Footprint,  ///< `FPT`: the same rows, left only where the ground takes a print.
+    UberSplat,  ///< `UBR`: a row of `UberSplatData.slk`.
+    SpawnModel, ///< `SPN`: a row of `SpawnData.slk`.
+    MorphShow,  ///< `MRF`: the numbered cape morph of the Arthas and Illidan duel.
+    MorphHide,  ///< `MRD`: that morph taken away.
+    Count
+};
+
+/// The three letters Warcraft III names @p category by; empty for `None`.
+std::string_view EventCategoryTag(EventCategory category);
+
 struct EventPayload {
     u32 id = 0;
+
+    /// What the event does and which row of that table it names (`NODE` v19),
+    /// so the node's name is free to say what the event is FOR. With `None`
+    /// the name is the whole event, as an imported object's was before v19.
+    EventCategory category = EventCategory::None;
+    std::string code;
 
     template <class V>
     void reflect(V& v) {
         v.field("id", id);
+        v.since(19).field("category", category);
+        v.since(19).field("code", code);
     }
 };
+
+/// A Warcraft III event object's name, read: `SNDxAHEA` is `Sound`, `AHEA`.
+/// `None` and no code for a name the game does nothing with.
+struct EventName {
+    EventCategory category = EventCategory::None;
+    std::string code;
+
+    bool operator==(const EventName&) const = default;
+};
+EventName ParseEventObjectName(std::string_view name);
 
 enum class CollisionShapeKind : u8 { Box, Sphere, Capsule, Plane, Cylinder, Hull };
 
@@ -731,11 +773,25 @@ struct Node {
         if constexpr (V::kReading) {
             if (auto* bone = std::get_if<BonePayload>(&payload)) {
                 migrateBoneGate(*bone);
+            } else if (auto* event = std::get_if<EventPayload>(&payload)) {
+                migrateEventName(*event);
             }
         }
     }
 
 private:
+    /// A `NODE` written before v19 said what its event does in its name alone.
+    /// Reading the name is the same event, so a newer chunk that left the
+    /// category unsaid is read the same way.
+    void migrateEventName(EventPayload& event) {
+        if (event.category != EventCategory::None) {
+            return;
+        }
+        EventName read = ParseEventObjectName(name);
+        event.category = read.category;
+        event.code = std::move(read.code);
+    }
+
     /// A `NODE` written before v5 carried the MDX link as the file's two raw
     /// indices in `native`. The geoset-animation table they index is not in the
     /// document, so this trusts `geosetId` — right for every shipped bone but
@@ -760,6 +816,12 @@ private:
         });
     }
 };
+
+/// The name Warcraft III reads @p node's event from. The node's own where it
+/// already spells that event, so an imported object keeps its fourth letter;
+/// else the category's three letters, an `x` and the code. The node's name
+/// as it stands for an event of no category, or a node that is not one.
+std::string EventObjectName(const Node& node);
 
 } // namespace wem
 } // namespace models

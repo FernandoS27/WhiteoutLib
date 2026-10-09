@@ -4,6 +4,7 @@
 #include <whiteout/models/wem/nodes/node.h>
 
 #include <cmath>
+#include <iterator>
 
 namespace whiteout {
 namespace models {
@@ -96,6 +97,53 @@ Transform FromMatrix(const Matrix44f& matrix) {
     }
     out.rotation = pure.extract_rotation();
     return out;
+}
+
+namespace {
+
+/// In `EventCategory` order. The game matches the three bytes as they are.
+constexpr std::string_view kEventTags[] = {"", "SND", "SPL", "FPT", "UBR", "SPN", "MRF", "MRD"};
+static_assert(std::size(kEventTags) == static_cast<std::size_t>(EventCategory::Count));
+
+} // namespace
+
+std::string_view EventCategoryTag(EventCategory category) {
+    const auto index = static_cast<std::size_t>(category);
+    return index < std::size(kEventTags) ? kEventTags[index] : std::string_view();
+}
+
+EventName ParseEventObjectName(std::string_view name) {
+    // Three letters and the one the game skips; the code may be empty.
+    if (name.size() < 4) {
+        return {};
+    }
+    for (std::size_t c = 1; c < std::size(kEventTags); ++c) {
+        if (name.substr(0, 3) != kEventTags[c]) {
+            continue;
+        }
+        // Shipped names pad some codes with a space the tables do not have.
+        std::string_view code = name.substr(4);
+        while (!code.empty() && (code.back() == ' ' || code.back() == '\0')) {
+            code.remove_suffix(1);
+        }
+        return {static_cast<EventCategory>(c), std::string(code)};
+    }
+    return {};
+}
+
+std::string EventObjectName(const Node& node) {
+    const auto* event = std::get_if<EventPayload>(&node.payload);
+    if (event == nullptr || event->category == EventCategory::None) {
+        return node.name;
+    }
+    const EventName spelled = ParseEventObjectName(node.name);
+    if (spelled.category == event->category && spelled.code == event->code) {
+        return node.name;
+    }
+    std::string name(EventCategoryTag(event->category));
+    name += 'x';
+    name += event->code;
+    return name;
 }
 
 const char* ToString(NodeKind kind) {

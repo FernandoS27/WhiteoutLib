@@ -53,7 +53,9 @@
 #include <cmath>
 #include <map>
 #include <string>
+#include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace whiteout {
 namespace models {
@@ -461,7 +463,12 @@ void FillPayload(const mdx::Model& source, const PendingNode& pending, Node& nod
     }
     case Origin::Event: {
         const mdx::EventObject& event = source.eventObjects[pending.sourceIndex];
-        std::get<EventPayload>(node.payload).id = event.globalSequenceId;
+        auto& payload = std::get<EventPayload>(node.payload);
+        payload.id = event.globalSequenceId;
+        // The name keeps the file's spelling; what it says is the payload's.
+        EventName read = ParseEventObjectName(node.name);
+        payload.category = read.category;
+        payload.code = std::move(read.code);
         break;
     }
     case Origin::Collision: {
@@ -2417,6 +2424,26 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
         return out_node;
     };
 
+    // What the game reads an event from (`EventObjectName`). No shipped model
+    // names two event objects alike, and the fourth letter, which the game
+    // skips, is what tells two of one event apart: it moves on where a name
+    // is already written.
+    std::unordered_set<std::string> eventNames;
+    const auto eventName = [&eventNames](const Node& node) {
+        std::string name = EventObjectName(node);
+        const auto* event = std::get_if<EventPayload>(&node.payload);
+        if (event != nullptr && event->category != EventCategory::None && name.size() >= 4) {
+            for (const char mark : std::string_view("xyzabcdefghijklmnopqrstuvw0123456789")) {
+                if (!eventNames.contains(name)) {
+                    break;
+                }
+                name[3] = mark;
+            }
+        }
+        eventNames.insert(name);
+        return name;
+    };
+
     for (std::size_t i = 0; i < model.nodes.size(); ++i) {
         const Node& node = model.nodes.nodes[i];
         if (presence[i] == NodePresence::Absent) {
@@ -2698,6 +2725,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
         case NodeKind::Event: {
             mdx::EventObject event;
             event.node = buildNode(i);
+            event.node.name = eventName(node);
             if (const auto* payload = std::get_if<EventPayload>(&node.payload)) {
                 event.globalSequenceId = payload->id;
             }

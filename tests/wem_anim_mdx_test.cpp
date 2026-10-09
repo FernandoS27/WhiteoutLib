@@ -362,6 +362,53 @@ TEST_CASE("wem mdx an event object's times become clip events", "[wem][anim][mdx
     CHECK(stand->events.size() + walk->events.size() == 2u);
 }
 
+TEST_CASE("wem mdx an event object's name is its category and code", "[wem][nodes][mdx]") {
+    mdx::Model model = makeModel();
+    mdx::EventObject foot;
+    foot.node = makeNode("FPTyFBL0", 1, 0);
+    model.eventObjects.push_back(foot);
+    mdx::EventObject stray;
+    stray.node = makeNode("BuildingDeathPoint01", 2, 0);
+    model.eventObjects.push_back(stray);
+
+    Document document = convert(model);
+    NodeTree& nodes = document.models[0].nodes;
+    REQUIRE(nodes.ofKind(NodeKind::Event).size() == 2u);
+    const u32 first = nodes.ofKind(NodeKind::Event)[0];
+    const u32 second = nodes.ofKind(NodeKind::Event)[1];
+    {
+        const Node& node = nodes.nodes[first];
+        CHECK(node.name == "FPTyFBL0");
+        CHECK(std::get<EventPayload>(node.payload).category == EventCategory::Footprint);
+        CHECK(std::get<EventPayload>(node.payload).code == "FBL0");
+        // A name the game does nothing with says no category.
+        CHECK(std::get<EventPayload>(nodes.nodes[second].payload).category == EventCategory::None);
+    }
+
+    // An untouched import writes the names it read, fourth letter and all.
+    MdxConverter converter;
+    {
+        const Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic);
+        REQUIRE(exported.ok());
+        REQUIRE(exported->eventObjects.size() == 2u);
+        CHECK(exported->eventObjects[0].node.name == "FPTyFBL0");
+        CHECK(exported->eventObjects[1].node.name == "BuildingDeathPoint01");
+    }
+
+    // Named by the user and picked from the tables, an event is written as the
+    // game needs it; a second of the same event moves the letter the game skips.
+    nodes.nodes[first].name = "Left foot";
+    Node& other = nodes.nodes[second];
+    other.name = "Right foot";
+    std::get<EventPayload>(other.payload).category = EventCategory::Footprint;
+    std::get<EventPayload>(other.payload).code = "FBL0";
+    const Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->eventObjects.size() == 2u);
+    CHECK(exported->eventObjects[0].node.name == "FPTxFBL0");
+    CHECK(exported->eventObjects[1].node.name == "FPTyFBL0");
+}
+
 TEST_CASE("wem mdx an emitter keys its own properties beside its visibility",
           "[wem][anim][mdx]") {
     // §10.9: a PRE2 is a node of its own kind whose payload is the system, so
