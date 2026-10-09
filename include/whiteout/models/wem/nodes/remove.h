@@ -21,11 +21,17 @@
  * | Referencer | Field |
  * |---|---|
  * | `SkinBinding` | `Influence::bone` |
- * | `MeshSection` | `rigidNode` |
+ * | `MeshSection` | `rigidNode`, and its visibility gate (`kSectionVisibilityNode`) |
  * | `AnimChannel` | `target.node` |
+ * | `PoseStage` | `driven`, `targets`, `sources[].node`, `upNode` |
  * | `ClipEvent` | `node` |
- * | An emitter-system payload | its node links — `ForEachNodeLink` (§10.9) |
+ * | `BakeWorldForce` | `centreNode` |
+ * | A node | its links — `ForEachNodeLink` (§10.9, §13.4) |
  * | `PhysicsBody`, `ClothCollider` | `node` — `RemapPhysicsNodes` (physics/references.h) |
+ * | `ClothRecipe`, `FractureRecipe` | their bones, gates, helper and field |
+ *
+ * The table is code: `nodes/references.h` walks every row, and both the
+ * renumbering here and anything that asks what names a node go through it.
  *
  * P6 settled that there is no `Actor` row: an attach point's child model rides
  * the node's own payload (§10.2), so removing the node takes it along and there
@@ -48,6 +54,7 @@
 #include "../physics/physics.h"
 #include "../diagnostics.h"
 #include "../geometry/mesh.h"
+#include "references.h"
 #include "tree.h"
 
 namespace whiteout {
@@ -149,9 +156,22 @@ NodeRemaps CompactNodes(NodeTree& tree, NodeReferencers referencers, Diagnostics
 void RemapNodeReferencers(NodeTree& tree, std::span<const u32> remap, NodeReferencers referencers,
                           Diagnostics& out);
 
-/// @p clip's winds' and blasts' `centreNode` through @p remap: for each caller
-/// that renumbers a model's clips by hand, as its events are. A blast whose
-/// node is gone goes off at the model's middle.
+/// Every row of the table @p referencers holds, and @p tree's own links, as
+/// `nodes/references.h` walks them.
+template <class F>
+void ForEachNodeReference(NodeTree& tree, NodeReferencers referencers, F&& f) {
+    ForEachNodeReference(tree, referencers.meshes, referencers.channels, referencers.stages,
+                         referencers.physics, referencers.clips, f);
+}
+
+/// @p clip's rows through @p remap, for a caller that renumbers a model's
+/// clips itself: its events' nodes and its winds' and blasts' centres. Returns
+/// how many events were left firing at no node; a blast whose node is gone
+/// goes off at the model's middle.
+u32 RemapClipNodes(Clip& clip, std::span<const u32> remap);
+
+/// @p clip's winds' and blasts' `centreNode` alone, for a caller that has
+/// already renumbered its events.
 void RemapClipWorldNodes(Clip& clip, std::span<const u32> remap);
 
 /// The emitter-system payloads' node links (§10.9) against the tree: each one in

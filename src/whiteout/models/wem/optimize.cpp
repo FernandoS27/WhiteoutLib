@@ -6,6 +6,7 @@
 #include <whiteout/models/wem/anim/key_reduce.h>
 #include <whiteout/models/wem/converters.h>
 #include <whiteout/models/wem/geometry/render_view.h>
+#include <whiteout/models/wem/materials/draw_order.h>
 #include <whiteout/models/wem/materials/ops.h>
 #include <whiteout/models/wem/meshes/remove.h>
 #include <whiteout/models/wem/nodes/remove.h>
@@ -392,14 +393,25 @@ NodeFacts FactsOf(const Document& document, u32 model) {
         }
     };
 
+    // Everything that holds a node's index names it, but for the three rows
+    // the pass moves itself: weights go to the parent, and a node's channels
+    // go with it. The walk is the renumbering's own (`nodes/references.h`), so
+    // nothing it would clear goes unnamed.
+    const auto reference = [&](NodeReference row, const u32& node, u32, u32) {
+        if (row != NodeReference::Influence && row != NodeReference::RigidNode &&
+            row != NodeReference::Channel) {
+            name(node);
+        }
+    };
+    ForEachNodeReference(tree, std::span<const Mesh>(owner.meshes), &owner.animChannels,
+                         &owner.poseStages, &owner.physics, std::span<const Clip>(), reference);
+
     std::set<u32> keyedChannels;
     for (const Clip& clip : document.clips) {
         if (clip.model != model) {
             continue;
         }
-        for (const ClipEvent& event : clip.events) {
-            name(event.node);
-        }
+        ForEachClipNodeReference(clip, 0, reference);
         for (const SubTrackContainer& container : clip.containers) {
             for (const SubTrack& track : container.subTracks) {
                 if (track.keyCount() != 0) {
@@ -420,37 +432,6 @@ NodeFacts FactsOf(const Document& document, u32 model) {
         }
     }
 
-    for (const PoseStage& stage : owner.poseStages) {
-        for (const u32 node : stage.driven) {
-            name(node);
-        }
-        for (const u32 node : stage.targets) {
-            name(node);
-        }
-        for (const StageSource& source : stage.sources) {
-            name(source.node);
-        }
-        name(stage.upNode);
-    }
-    for (const Node& node : tree.nodes) {
-        ForEachNodeLink(node, [&](const u32& link, EmitterLink) { name(link); });
-    }
-    // A body or a cloth collider rides its node: reducing it away would take
-    // the physics along.
-    for (const PhysicsBody& body : owner.physics.bodies) {
-        name(body.node);
-    }
-    for (const ClothCollider& collider : owner.physics.colliders) {
-        name(collider.node);
-    }
-    for (const Mesh& mesh : owner.meshes) {
-        for (const MeshSection& section : mesh.sections) {
-            const i64 gate = section.native.value(kSectionVisibilityNode, -1);
-            if (gate >= 0 && gate != kSectionAlwaysDrawn) {
-                name(static_cast<u32>(gate));
-            }
-        }
-    }
     for (u32 n = 0; n < count; ++n) {
         const Node& node = tree.nodes[n];
         facts.engine[n] =
@@ -586,6 +567,46 @@ std::vector<u32> ReduceNodes(Document& document, u32 model, const OptimizeOption
             }
         }
     }
+
+    // §4.4: an actor moves bones by name from outside the file, and plays
+    // nothing once one of them is missing. Each stays, and so does the node
+    // above it: the actor's transform is in that node's frame.
+    std::vector<u8> bound(tree.size(), 0);
+    if (const std::string actor = FaceFxActorPath(owner); !actor.empty()) {
+        ModelOptimizeReport& said = report.models[model];
+        const std::optional<std::vector<std::string>> names =
+            options.boundBones ? options.boundBones(document, model) : std::nullopt;
+        if (!names) {
+            said.nodesKeptForActor = true;
+            report.diagnostics.info(DiagCode::Unspecified,
+                                    "'" + owner.name + "' names the FaceFX actor '" + actor +
+                                        "', whose bones are not known: its nodes are left as they are");
+            return {};
+        }
+        u32 missing = 0;
+        for (const std::string& name : *names) {
+            bool found = false;
+            for (u32 n = 0; n < tree.size(); ++n) {
+                if (tree.nodes[n].name != name) {
+                    continue;
+                }
+                found = true;
+                said.boundNodes += bound[n] == 0 ? 1u : 0u;
+                bound[n] = 1;
+                kept[n] = 1;
+                if (tree.nodes[n].parent < kept.size()) {
+                    kept[tree.nodes[n].parent] = 1;
+                }
+            }
+            missing += found ? 0u : 1u;
+        }
+        if (missing != 0) {
+            report.diagnostics.info(DiagCode::Unspecified,
+                                    "the FaceFX actor '" + actor + "' binds " + number(missing) +
+                                        " bone(s) '" + owner.name +
+                                        "' lacks: the game plays no FaceFX on it");
+        }
+    }
     const bool classic = document.carries(ProfileId::Wc3Classic);
     const bool pivot = tree.rig == RigConvention::PivotRelative;
 
@@ -650,6 +671,30 @@ std::vector<u32> ReduceNodes(Document& document, u32 model, const OptimizeOption
         const bool weighted = HoldsWeight(owner, n);
         if (parent == kInvalidNode && weighted) {
             continue;
+        }
+        if (weighted) {
+            // Its weights land on the parent, which has to be able to carry
+            // them: a bone, or a helper made one below.
+            const NodeKind above = tree.nodes[parent].kind;
+            if (above != NodeKind::Bone && above != NodeKind::Helper) {
+                continue;
+            }
+            // An actor writes the bones it binds and no other, so a bone under
+            // one does not move with it, and its vertices must not either.
+            if (bound[parent] != 0) {
+                continue;
+            }
+            // The parent has to be written wherever this bone is: a profile
+            // that holds the bone and not its parent would be left weighing
+            // its vertices on a node it does not have.
+            const bool covered = std::all_of(
+                document.profiles.begin(), document.profiles.end(), [&](ProfileId profile) {
+                    return !HasProfile(node.profiles, profile) ||
+                           HasProfile(tree.nodes[parent].profiles, profile);
+                });
+            if (!covered) {
+                continue;
+            }
         }
         const std::vector<u32> children = LiveChildren(tree, n);
         if (std::any_of(children.begin(), children.end(),
@@ -717,15 +762,9 @@ std::vector<u32> ReduceNodes(Document& document, u32 model, const OptimizeOption
     keepErrors(report.diagnostics, compacted);
     // `CompactNodes` takes a clip span, and this model's clips are not one.
     for (Clip& clip : document.clips) {
-        if (clip.model != model) {
-            continue;
+        if (clip.model == model) {
+            RemapClipNodes(clip, remaps.nodes);
         }
-        for (ClipEvent& event : clip.events) {
-            if (event.node < remaps.nodes.size()) {
-                event.node = remaps.nodes[event.node];
-            }
-        }
-        RemapClipWorldNodes(clip, remaps.nodes);
     }
     report.nodesRemoved += removed;
     return std::move(remaps.nodes);
@@ -768,26 +807,6 @@ std::vector<ProfileId> DrawnIn(const Document& document, const MeshSection& sect
         }
     }
     return out;
-}
-
-/// No material it can draw with reads the scene (§3.3).
-bool OrderFree(const Document& document, const Model& model, const MeshSection& section) {
-    for (const ProfileId profile : DrawnIn(document, section)) {
-        const ProfileMaterialSet* set = model.setFor(profile);
-        const u32 looks = set != nullptr ? static_cast<u32>(set->looks.size()) : 0u;
-        for (u32 look = 0; look < std::max(looks, 1u); ++look) {
-            const Material* material = Resolve(model, section.materialSlot, profile, look);
-            if (material == nullptr) {
-                continue;
-            }
-            const BlendMode blend = material->Common().blend;
-            if (blend != BlendMode::Opaque && blend != BlendMode::AlphaKey &&
-                blend != BlendMode::Transparent) {
-                return false;
-            }
-        }
-    }
-    return true;
 }
 
 std::vector<u8> MergeKey(const Document& document, u32 model, u32 mesh) {
@@ -998,7 +1017,7 @@ void MergeMeshes(Document& document, u32 model, const OptimizeOptions& options,
         if (mesh.sections.size() != 1 || mesh.faceCount() == 0) {
             continue;
         }
-        if (!options.mergeBlended && !OrderFree(document, owner, mesh.sections[0])) {
+        if (!options.mergeBlended && !DrawsOrderFree(document, model, m)) {
             continue;
         }
         groups[MergeKey(document, model, m)].push_back(m);
@@ -1135,6 +1154,7 @@ OptimizeReport OptimizeDocument(Document& document, const OptimizeOptions& optio
         report.keysRemoved += keys.keysRemoved;
         report.subTracksDropped += keys.subTracksDropped;
         report.tracksCollapsed += keys.tracksCollapsed;
+        report.channelsDropped += keys.channelsDropped;
     }
 
     if (options.mergeMaterials && MaterialsAudited(document)) {

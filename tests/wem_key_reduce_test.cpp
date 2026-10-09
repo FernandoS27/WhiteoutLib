@@ -20,6 +20,7 @@
 #include <whiteout/models/wem/anim/track_read.h>
 #include <whiteout/models/wem/converters.h>
 #include <whiteout/models/wem/nodes/emitters.h>
+#include <whiteout/models/wem/reflect_bytes.h>
 #include <whiteout/utils/os_file_system.h>
 
 #include "wem_corpus_files.h"
@@ -245,7 +246,9 @@ bool Same(geom::AttrType type, const u8* a, const u8* b, f32 magnitude) {
             f32 y = 0;
             std::memcpy(&x, a + i * 4, 4);
             std::memcpy(&y, b + i * 4, 4);
-            if (std::isnan(x) && std::isnan(y)) {
+            // A source that keys NaN or an infinity reads it either way: the
+            // same value, which a difference cannot say.
+            if ((std::isnan(x) && std::isnan(y)) || x == sign * y) {
                 continue;
             }
             if (!(std::fabs(x - sign * y) <= 1e-5f * std::max(1.0f, magnitude))) {
@@ -633,6 +636,7 @@ struct Sweep {
     u64 keysAfter = 0;
     u64 compared = 0;
     u64 comparedWritten = 0;
+    u32 channelsDropped = 0;
     u32 failures = 0;
     std::vector<std::string> failing;
 
@@ -645,8 +649,8 @@ struct Sweep {
 
     void report(const char* label) const {
         std::cout << "[keys exact " << label << "] " << files << " file(s); keys " << keysBefore << " -> "
-                  << keysAfter << "; " << compared << " reads compared, " << comparedWritten
-                  << " through the written file\n";
+                  << keysAfter << "; " << channelsDropped << " declaration(s) nothing keys dropped; "
+                  << compared << " reads compared, " << comparedWritten << " through the written file\n";
         for (const std::string& line : failing) {
             std::cout << "  " << line << "\n";
         }
@@ -654,12 +658,12 @@ struct Sweep {
 };
 
 /// Tier 1 on @p before, read against it directly and through @p write, a
-/// writer and reader round trip.
+/// writer and reader round trip. Returns the reduced document.
 template <class Write>
-void SweepOne(const Document& before, const std::string& label, Sweep& sweep, Write write) {
+Document SweepOne(const Document& before, const std::string& label, Sweep& sweep, Write write) {
     Document after = before;
     for (u32 m = 0; m < after.models.size(); ++m) {
-        ReduceKeysExactly(after, m);
+        sweep.channelsDropped += ReduceKeysExactly(after, m).channelsDropped;
     }
     ++sweep.files;
     sweep.keysBefore += CountKeys(before, 0);
@@ -673,16 +677,17 @@ void SweepOne(const Document& before, const std::string& label, Sweep& sweep, Wr
     const std::optional<Document> writtenAfter = write(after);
     if (writtenBefore.has_value() != writtenAfter.has_value()) {
         sweep.fail(label + ": writes before or after only");
-        return;
+        return after;
     }
     if (!writtenBefore) {
-        return;
+        return after;
     }
     const Reads written = CompareReads(*writtenBefore, *writtenAfter, true);
     sweep.comparedWritten += written.compared;
     if (written.differing != 0) {
         sweep.fail(label + " (written): " + written.first);
     }
+    return after;
 }
 
 } // namespace
@@ -706,16 +711,35 @@ TEST_CASE("exact sweep: every corpus mdx reads the same, and so does its file",
         if (!imported.ok() || imported->models.empty() || imported->clips.empty()) {
             continue;
         }
-        SweepOne(*imported, test::pathText(files[i].filename()), sweep,
-                 [&](const Document& document) -> std::optional<Document> {
-                     const ProfileId profile = document.defaultProfile;
-                     Result<mdx::Model> written = converter.toMdx(document, profile, MdxFileVersion(profile));
-                     if (!written.ok()) {
-                         return std::nullopt;
-                     }
-                     Result<Document> back = converter.fromMdx(*written);
-                     return back.ok() ? std::optional<Document>(std::move(*back)) : std::nullopt;
-                 });
+        const std::string label = test::pathText(files[i].filename());
+        const Document reduced = SweepOne(
+            *imported, label, sweep, [&](const Document& document) -> std::optional<Document> {
+                const ProfileId profile = document.defaultProfile;
+                Result<mdx::Model> written = converter.toMdx(document, profile, MdxFileVersion(profile));
+                if (!written.ok()) {
+                    return std::nullopt;
+                }
+                Result<Document> back = converter.fromMdx(*written);
+                return back.ok() ? std::optional<Document>(std::move(*back)) : std::nullopt;
+            });
+        // The last step alone: a declaration nothing keys, and that states no
+        // rest, writes nothing. The file with them put back is the same file.
+        Document declared = reduced;
+        AnimChannelTable& table = declared.models[0].animChannels;
+        for (const AnimChannel& channel : imported->models[0].animChannels.channels) {
+            if (table.find(channel.id) == nullptr) {
+                table.channels.push_back(channel);
+            }
+        }
+        if (table.channels.size() != reduced.models[0].animChannels.channels.size()) {
+            for (const ProfileId profile : reduced.profiles) {
+                const Result<std::vector<u8>> without = converter.exportToBytes(reduced, profile);
+                const Result<std::vector<u8>> with = converter.exportToBytes(declared, profile);
+                if (without.ok() != with.ok() || (without.ok() && *without != *with)) {
+                    sweep.fail(label + ": a declaration nothing keys changes the written file");
+                }
+            }
+        }
     }
     sweep.report("mdx");
     CHECK(sweep.files > 0);
@@ -1072,11 +1096,38 @@ struct ToleranceSweep {
     u32 kept = 0;
     f32 worstShare = 0.0f;
     std::vector<std::string> failing;
+    /// Every reduced clip's keys, folded into one number: the same keys, the
+    /// same number, whichever build and however many threads made them.
+    u64 digest = 14695981039346656037ull;
+    u32 threadsDiffer = 0; ///< Files one thread and many reduced differently.
+    u32 keyedChanged = 0;  ///< Channels keyed before and not after, or the reverse.
 
     void add(const Document& imported, const std::string& label) {
         Document reduced = imported;
         const KeyReduceReport report = ReduceKeys(reduced, 0);
         const KeyReduceReport measured = MeasureKeyError(imported, reduced, 0);
+        // Each worker reduces one clip and reads no other, so how many there
+        // are cannot show in what comes out.
+        Document alone = imported;
+        KeyReduceOptions oneThread;
+        oneThread.threads = 1;
+        ReduceKeys(alone, 0, oneThread);
+        bool same = alone.clips.size() == reduced.clips.size();
+        for (std::size_t c = 0; same && c < reduced.clips.size(); ++c) {
+            same = ReflectBytes(alone.clips[c].containers) == ReflectBytes(reduced.clips[c].containers);
+        }
+        threadsDiffer += same ? 0u : 1u;
+        for (const Clip& clip : reduced.clips) {
+            for (const u8 byte : ReflectBytes(clip.containers)) {
+                digest = (digest ^ byte) * 1099511628211ull;
+            }
+        }
+        // The rests a worker plays were settled before any clip was reduced,
+        // which holds only while no channel starts or stops being keyed.
+        for (const AnimChannel& channel : imported.models[0].animChannels.channels) {
+            keyedChanged +=
+                KeyedAnywhere(imported, 0, channel.id) != KeyedAnywhere(reduced, 0, channel.id) ? 1u : 0u;
+        }
         ++swept;
         before += measured.keysBefore;
         after += measured.keysAfter;
@@ -1096,13 +1147,15 @@ struct ToleranceSweep {
     void finish(const char* format) const {
         std::cout << "[keys tolerance " << format << "] " << swept << " file(s); keys " << before << " -> "
                   << after << "; worst " << worstShare << " of ε; " << repaired << " clip(s) repaired, "
-                  << kept << " kept\n";
+                  << kept << " kept; digest " << std::hex << digest << std::dec << "\n";
         for (const std::string& line : failing) {
             std::cout << "  " << line << "\n";
         }
         CHECK(swept > 0);
         CHECK(after < before);
         CHECK(failing.empty());
+        CHECK(threadsDiffer == 0);
+        CHECK(keyedChanged == 0);
     }
 };
 

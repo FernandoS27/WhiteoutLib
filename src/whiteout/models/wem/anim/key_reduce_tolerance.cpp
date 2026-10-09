@@ -1015,8 +1015,7 @@ ClipWork BuildClip(const Document& document, u32 model, u32 clip, const Animator
     return w;
 }
 
-void WriteBack(Document& document, const ClipWork& w) {
-    Clip& clip = document.clips[w.clip];
+void WriteBack(Clip& clip, const ClipWork& w) {
     for (const Track& t : w.tracks) {
         SubTrack& sub = clip.containers[t.container].subTracks[t.index];
         std::vector<u8> keep(sub.times.size(), 1);
@@ -1303,9 +1302,12 @@ void Parallel(std::size_t count, u32 threads, F&& work) {
 }
 
 /// Reduces one clip at @p epsilon; its keys only, from the document as it is.
-void ReduceClip(Document& document, u32 model, u32 clip, const Skeleton& sk, f64 epsilon,
+/// @p own is that clip, and the one thing of @p document this writes: the
+/// clips are reduced side by side, each by a thread that reads no other.
+void ReduceClip(const Document& document, Clip& own, u32 model, u32 clip,
+                const Animator::Rests& rests, const Skeleton& sk, f64 epsilon,
                 const std::set<u32>& agreeing, const KeyReduceOptions& options) {
-    const Animator animator(document, model);
+    const Animator animator(document, model, rests);
     ClipWork w = BuildClip(document, model, clip, animator, agreeing, options);
     Context ctx;
     ctx.sk = &sk;
@@ -1320,7 +1322,71 @@ void ReduceClip(Document& document, u32 model, u32 clip, const Skeleton& sk, f64
     } else {
         Balanced(w, ctx);
     }
-    WriteBack(document, w);
+    WriteBack(own, w);
+}
+
+/// What every clip's reduction reads and none writes.
+struct Shared {
+    const Document& document;
+    u32 model;
+    const Animator::Rests& rests;
+    const std::vector<MeshData>& meshes;
+    u32 nodes;
+    const Skeleton& sk;
+    f64 epsilon;
+    f64 height;
+    const std::set<u32>& agreeing;
+    const KeyReduceOptions& options;
+};
+
+struct ClipOutcome {
+    Measured measured;
+    bool repaired = false;
+    bool kept = false;
+};
+
+/// One clip, reduced and checked against the mesh, on whichever thread took
+/// it. @p own is clip @p c of the document and the only thing written: the
+/// signature is what keeps a thread off the clips the others are reducing.
+ClipOutcome ReduceCheckedClip(const Shared& shared, Clip& own, u32 c) {
+    const KeyReduceOptions& options = shared.options;
+    ClipOutcome out;
+    const std::vector<i32> dense = DenseTimes(own);
+    const auto palettes = [&] {
+        const Animator animator(shared.document, shared.model, shared.rests);
+        return Palettes(animator, c, dense);
+    };
+    const std::vector<std::vector<Matrix44f>> was = palettes();
+    const std::vector<SubTrackContainer> original = own.containers;
+    const auto measure = [&] { return Compare(shared.meshes, shared.nodes, was, palettes()); };
+    const f64 slack = shared.epsilon * (1.0 + 1e-3) + 1e-6 * shared.height;
+    ReduceClip(shared.document, own, shared.model, c, shared.rests, shared.sk, shared.epsilon,
+               shared.agreeing, options);
+    out.measured = measure();
+    // Again from the clip's own keys: the Mesh measure's sampled vertices
+    // missed one, so the bound over all of them; then the bound missed a
+    // stretch between its check times, so half the room.
+    KeyReduceOptions retry = options;
+    retry.measure = KeyReduceOptions::Measure::Skeleton;
+    for (const f64 share : {options.measure == KeyReduceOptions::Measure::Mesh ? 1.0 : 0.5, 0.5}) {
+        if (out.measured.maxError <= slack) {
+            break;
+        }
+        own.containers = original;
+        ReduceClip(shared.document, own, shared.model, c, shared.rests, shared.sk,
+                   shared.epsilon * share, shared.agreeing, retry);
+        out.measured = measure();
+        out.repaired = true;
+        if (share == 0.5) {
+            break;
+        }
+    }
+    if (out.measured.maxError > slack) {
+        own.containers = original;
+        out.measured = measure();
+        out.kept = true;
+    }
+    return out;
 }
 
 } // namespace
@@ -1354,6 +1420,12 @@ KeyReduceReport ReduceKeys(Document& document, u32 model, const KeyReduceOptions
     const Animator shape(document, model);
     const Skeleton sk = SkeletonOf(document, model, shape, height, options);
     const u32 nodes = owner.nodes.size();
+    // A rest is which of two a channel plays, by whether any clip keys it:
+    // found on demand it would read every clip, the ones being reduced on
+    // other threads among them. The reduction never changes the answer -- it
+    // empties no sub-track -- so it is found once, here.
+    const Animator::Rests rests = shape.resolveRests();
+    const Shared shared{document, model, rests, meshes, nodes, sk, epsilon, height, agreeing, options};
 
     std::vector<Measured> measured(clips.size());
     std::vector<u8> repaired(clips.size(), 0);
@@ -1361,47 +1433,14 @@ KeyReduceReport ReduceKeys(Document& document, u32 model, const KeyReduceOptions
     std::mutex progressLock;
     u32 done = 0;
     Parallel(clips.size(), options.threads, [&](std::size_t i) {
-        const u32 c = clips[i];
         if (options.cancelled && options.cancelled()) {
             kept[i] = 1;
             return;
         }
-        const std::vector<i32> dense = DenseTimes(document.clips[c]);
-        std::vector<std::vector<Matrix44f>> was;
-        {
-            const Animator animator(document, model);
-            was = Palettes(animator, c, dense);
-        }
-        const std::vector<SubTrackContainer> original = document.clips[c].containers;
-        const auto measure = [&] {
-            const Animator animator(document, model);
-            return Compare(meshes, nodes, was, Palettes(animator, c, dense));
-        };
-        const f64 slack = epsilon * (1.0 + 1e-3) + 1e-6 * height;
-        ReduceClip(document, model, c, sk, epsilon, agreeing, options);
-        measured[i] = measure();
-        // Again from the clip's own keys: the Mesh measure's sampled vertices
-        // missed one, so the bound over all of them; then the bound missed a
-        // stretch between its check times, so half the room.
-        KeyReduceOptions retry = options;
-        retry.measure = KeyReduceOptions::Measure::Skeleton;
-        for (const f64 share : {options.measure == KeyReduceOptions::Measure::Mesh ? 1.0 : 0.5, 0.5}) {
-            if (measured[i].maxError <= slack) {
-                break;
-            }
-            document.clips[c].containers = original;
-            ReduceClip(document, model, c, sk, epsilon * share, agreeing, retry);
-            measured[i] = measure();
-            repaired[i] = 1;
-            if (share == 0.5) {
-                break;
-            }
-        }
-        if (measured[i].maxError > slack) {
-            document.clips[c].containers = original;
-            measured[i] = measure();
-            kept[i] = 1;
-        }
+        ClipOutcome outcome = ReduceCheckedClip(shared, document.clips[clips[i]], clips[i]);
+        measured[i] = std::move(outcome.measured);
+        repaired[i] = outcome.repaired ? 1 : 0;
+        kept[i] = outcome.kept ? 1 : 0;
         if (options.progress) {
             const std::lock_guard<std::mutex> lock(progressLock);
             options.progress(++done, static_cast<u32>(clips.size()));

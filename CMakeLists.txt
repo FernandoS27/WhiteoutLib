@@ -517,6 +517,7 @@ add_library(whiteout_lib
     src/whiteout/models/wem/materials/common.cpp
     src/whiteout/models/wem/materials/material.cpp
     src/whiteout/models/wem/materials/ops.cpp
+    src/whiteout/models/wem/materials/draw_order.cpp
     src/whiteout/models/wem/materials/mdx_core.cpp
     src/whiteout/models/wem/materials/m2_shader_table.cpp
     src/whiteout/models/wem/materials/m2_core.cpp

@@ -169,6 +169,20 @@ Animator::Animator(const Document& document, u32 model, Game storage) {
     }
 }
 
+Animator::Animator(const Document& document, u32 model, Rests rests) : Animator(document, model) {
+    if (rests.size() == rests_.size()) {
+        rests_ = std::move(rests);
+        restKnown_.assign(rests_.size(), 1);
+    }
+}
+
+Animator::Rests Animator::resolveRests() const {
+    for (std::size_t c = 0; c < rests_.size(); ++c) {
+        restOf(c);
+    }
+    return rests_;
+}
+
 const std::vector<u8>& Animator::restOf(std::size_t c) const {
     if (restKnown_[c] != 0) {
         return rests_[c];

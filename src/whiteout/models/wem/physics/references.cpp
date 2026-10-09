@@ -3,6 +3,7 @@
 
 #include <whiteout/models/wem/physics/references.h>
 
+#include <whiteout/models/wem/nodes/references.h>
 #include <whiteout/models/wem/physics/cloth_bake.h>
 
 #include <algorithm>
@@ -10,6 +11,7 @@
 #include <cmath>
 #include <set>
 #include <string>
+#include <unordered_set>
 
 namespace whiteout {
 namespace models {
@@ -145,58 +147,45 @@ bool Flat(const std::vector<Vector3f>& points) {
 } // namespace
 
 std::vector<u32> RemapPhysicsNodes(PhysicsSet& physics, std::span<const u32> remap) {
+    // A body or a collider on no node -- the root is none -- stays as it is;
+    // one whose node is gone goes with it.
+    std::unordered_set<const u32*> orphaned;
+    ForEachPhysicsNodeReference(physics, [&](NodeReference row, u32& node, u32, u32) {
+        const bool rode = node != kInvalidNode;
+        node = Remapped(remap, node, kInvalidNode);
+        if (rode && node == kInvalidNode &&
+            (row == NodeReference::PhysicsBody || row == NodeReference::ClothCollider)) {
+            orphaned.insert(&node);
+        }
+    });
     std::vector<u32> removed;
     std::set<u32> gone;
-    std::erase_if(physics.bodies, [&](PhysicsBody& body) {
-        if (body.node == kInvalidNode) {
+    std::erase_if(physics.bodies, [&](const PhysicsBody& body) {
+        if (orphaned.count(&body.node) == 0) {
             return false;
         }
-        body.node = Remapped(remap, body.node, kInvalidNode);
-        if (body.node == kInvalidNode) {
-            gone.insert(body.id);
-            removed.push_back(body.id);
-            return true;
-        }
-        return false;
+        gone.insert(body.id);
+        removed.push_back(body.id);
+        return true;
     });
-    std::erase_if(physics.colliders, [&](ClothCollider& collider) {
-        // The root is no node, and stays the root.
-        if (collider.node == kInvalidNode) {
+    std::erase_if(physics.colliders, [&](const ClothCollider& collider) {
+        if (orphaned.count(&collider.node) == 0) {
             return false;
         }
-        collider.node = Remapped(remap, collider.node, kInvalidNode);
-        if (collider.node == kInvalidNode) {
-            gone.insert(collider.id);
-            removed.push_back(collider.id);
-            return true;
-        }
-        return false;
+        gone.insert(collider.id);
+        removed.push_back(collider.id);
+        return true;
     });
-    // A cloth bone that is gone leaves the cloth's list; the cloth stays.
-    for (Cloth& cloth : physics.cloths) {
-        if (!cloth.recipe) {
-            continue;
-        }
-        for (u32& bone : cloth.recipe->bones) {
-            bone = Remapped(remap, bone, kInvalidNode);
-        }
-        std::erase(cloth.recipe->bones, kInvalidNode);
-    }
+    // A cloth or fracture bone that is gone leaves its list; the record stays.
     // A fracture's skin nodes keep their places: its layers name them by index.
+    for (Cloth& cloth : physics.cloths) {
+        if (cloth.recipe) {
+            std::erase(cloth.recipe->bones, kInvalidNode);
+        }
+    }
     for (PhysicsRig& rig : physics.rigs) {
-        if (!rig.fracture) {
-            continue;
-        }
-        rig.fracture->helper = Remapped(remap, rig.fracture->helper, kInvalidNode);
-        rig.fracture->field = Remapped(remap, rig.fracture->field, kInvalidNode);
-        rig.fracture->wholeGate = Remapped(remap, rig.fracture->wholeGate, kInvalidNode);
-        rig.fracture->piecesGate = Remapped(remap, rig.fracture->piecesGate, kInvalidNode);
-        for (u32& node : rig.fracture->bones) {
-            node = Remapped(remap, node, kInvalidNode);
-        }
-        std::erase(rig.fracture->bones, kInvalidNode);
-        for (u32& node : rig.fracture->skinNodes) {
-            node = Remapped(remap, node, kInvalidNode);
+        if (rig.fracture) {
+            std::erase(rig.fracture->bones, kInvalidNode);
         }
     }
     Sweep(physics, gone, removed);

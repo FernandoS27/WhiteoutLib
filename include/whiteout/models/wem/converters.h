@@ -190,6 +190,13 @@ struct WrittenSkin {
     Diagnostics diagnostics;
 };
 
+/// The FaceFX actor @p model names, as its `.mdx` stored the path: the first
+/// `FAFX` entry of the first set that kept one, which is the only one Warcraft
+/// III opens (`ProcessFacialAnimation`). Empty for a model that names none.
+/// The game moves such a model's bones by name from that file, so its `.mdx` is
+/// not the whole of its animation.
+std::string FaceFxActorPath(const Model& model);
+
 /// The `.mdx` version a file for @p profile is written at: 800 for classic, and
 /// for Reforged 1800 — Warcraft III 3.0's, the version every file it ships is
 /// at — and never older, since v1300 and v1600 hold a light's shadow range and

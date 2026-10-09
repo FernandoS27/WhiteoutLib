@@ -5,6 +5,7 @@
 #include <whiteout/models/wem/physics/references.h>
 
 #include <algorithm>
+#include <unordered_set>
 
 namespace whiteout {
 namespace models {
@@ -281,92 +282,70 @@ NodeRemaps CompactNodes(NodeTree& tree, NodeReferencers referencers, Diagnostics
 
 void RemapNodeReferencers(NodeTree& tree, std::span<const u32> remap, NodeReferencers referencers,
                           Diagnostics& out) {
-    // --- the §10.6 referencer table ------------------------------------------------
-    //
-    // One block per row. A later phase adds a block, not a mechanism.
+    // The §10.6 table, walked by `nodes/references.h`. What is here is each
+    // row's answer to a reference whose node is gone; where the references
+    // are is the walk's to say.
+    const auto renumbered = [&](u32 node) { return node < remap.size() ? remap[node] : kInvalidNode; };
 
     for (u32 m = 0; m < referencers.meshes.size(); ++m) {
         Mesh& mesh = referencers.meshes[m];
-
-        // SkinBinding::Influence::bone
         u32 dangling = 0;
-        for (geom::Influence& influence : mesh.skin.influences) {
-            if (influence.bone >= remap.size()) {
-                ++dangling;
-                continue;
+        // Said after the skin's own line, as the rows stand in the table.
+        Diagnostics sections;
+        ForEachMeshNodeReference(mesh, m, [&](NodeReference row, u32& node, u32, u32 section) {
+            const u32 fresh = renumbered(node);
+            switch (row) {
+            case NodeReference::Influence:
+                // Left naming what it named: which bone was meant is not a
+                // question this layer can answer.
+                if (fresh == kInvalidNode) {
+                    ++dangling;
+                } else {
+                    node = fresh;
+                }
+                break;
+            case NodeReference::VisibilityGate:
+                // A gate whose node is gone becomes the source's own "always
+                // drawn": the geoset it names still exists, and drawing it is
+                // the answer that loses least.
+                if (fresh == kInvalidNode) {
+                    sections.info(DiagCode::DanglingNodeReference,
+                                  "a section's visibility gate names a node that no longer exists; "
+                                  "the section is drawn unconditionally",
+                                  ElementRef(ElementKind::Section, section));
+                }
+                node = fresh;
+                break;
+            case NodeReference::RigidNode:
+                if (fresh == kInvalidNode) {
+                    sections.error(DiagCode::DanglingNodeReference,
+                                   "rigidNode names a node that no longer exists",
+                                   ElementRef(ElementKind::Section, section));
+                }
+                node = fresh;
+                break;
+            default:
+                break;
             }
-            const u32 fresh = remap[influence.bone];
-            if (fresh == kInvalidNode) {
-                ++dangling;
-            } else {
-                influence.bone = fresh;
-            }
-        }
+        });
         if (dangling != 0) {
             out.error(DiagCode::DanglingNodeReference,
                       number(dangling) + " influences on mesh '" + mesh.name +
                           "' name a node that no longer exists",
                       ElementRef(ElementKind::Mesh, m));
         }
-
-        // The section's visibility gate, which is a node index in the shared
-        // bag rather than a field (`kSectionVisibilityNode`). A gate whose node
-        // is gone becomes the source's own "always drawn": the geoset it names
-        // still exists, and drawing it is the answer that loses least.
-        for (u32 s = 0; s < mesh.sections.size(); ++s) {
-            MeshSection& section = mesh.sections[s];
-            const i64 gate = section.native.value(kSectionVisibilityNode, -1);
-            if (gate < 0 || gate == kSectionAlwaysDrawn) {
-                continue;
-            }
-            const u32 fresh = static_cast<std::size_t>(gate) < remap.size()
-                                  ? remap[static_cast<std::size_t>(gate)]
-                                  : kInvalidNode;
-            if (fresh == kInvalidNode) {
-                out.info(DiagCode::DanglingNodeReference,
-                         "a section's visibility gate names a node that no longer exists; "
-                         "the section is drawn unconditionally",
-                         ElementRef(ElementKind::Section, s));
-                section.native.set(kSectionVisibilityNode, kSectionAlwaysDrawn);
-            } else {
-                section.native.set(kSectionVisibilityNode, static_cast<i64>(fresh));
-            }
-        }
-
-        // MeshSection::rigidNode
-        for (u32 s = 0; s < mesh.sections.size(); ++s) {
-            MeshSection& section = mesh.sections[s];
-            if (!section.rigidNode.has_value()) {
-                continue;
-            }
-            const u32 old = *section.rigidNode;
-            const u32 fresh = old < remap.size() ? remap[old] : kInvalidNode;
-            if (fresh == kInvalidNode) {
-                out.error(DiagCode::DanglingNodeReference,
-                          "rigidNode names a node that no longer exists",
-                          ElementRef(ElementKind::Section, s));
-                section.rigidNode.reset();
-            } else {
-                section.rigidNode = fresh;
-            }
-        }
+        out.append(sections);
     }
 
-    // AnimChannel::target.node
     if (referencers.channels != nullptr) {
         u32 dangling = 0;
-        for (AnimChannel& channel : referencers.channels->channels) {
-            if (channel.target.kind != TrackTarget::Kind::Node ||
-                channel.target.node == kInvalidNode) {
-                continue;
+        ForEachChannelNodeReference(*referencers.channels, [&](NodeReference, u32& node, u32, u32) {
+            if (node == kInvalidNode) {
+                return;
             }
-            const u32 old = channel.target.node;
-            const u32 fresh = old < remap.size() ? remap[old] : kInvalidNode;
-            channel.target.node = fresh;
-            if (fresh == kInvalidNode) {
-                ++dangling;
-            }
-        }
+            node = renumbered(node);
+            dangling += node == kInvalidNode ? 1u : 0u;
+        });
         if (dangling != 0) {
             out.warn(DiagCode::AnimChannelInvalidated,
                      number(dangling) + " channels named a node that no longer exists",
@@ -374,48 +353,55 @@ void RemapNodeReferencers(NodeTree& tree, std::span<const u32> remap, NodeRefere
         }
     }
 
-    // PoseStage::driven, ::targets, ::sources and ::upNode. A constraint that
-    // loses a source keeps the rest, the source's channel left as it is; a
-    // lost up node is world up again.
+    // A stage that loses a driven or target node goes: nothing joins on it. A
+    // constraint that loses a source keeps the rest, the source's channel left
+    // as it is; a lost up node is world up again.
     if (referencers.stages != nullptr) {
-        std::vector<u32> gone;
-        for (PoseStage& stage : *referencers.stages) {
-            bool lost = false;
-            for (std::vector<u32>* nodes : {&stage.driven, &stage.targets}) {
-                for (u32& node : *nodes) {
-                    node = node < remap.size() ? remap[node] : kInvalidNode;
-                    lost = lost || node == kInvalidNode;
-                }
-            }
-            std::erase_if(stage.sources, [&](StageSource& source) {
+        std::vector<PoseStage>& stages = *referencers.stages;
+        std::vector<u8> gone(stages.size(), 0);
+        std::unordered_set<const u32*> lostSources;
+        ForEachStageNodeReference(stages, [&](NodeReference row, u32& node, u32 stage, u32) {
+            switch (row) {
+            case NodeReference::StageDriven:
+            case NodeReference::StageTarget:
+                node = renumbered(node);
+                gone[stage] = gone[stage] != 0 || node == kInvalidNode ? 1 : 0;
+                break;
+            case NodeReference::StageSource:
                 // A Link's world source names no node, and keeps naming none.
-                if (source.node == kInvalidNode) {
-                    return false;
+                if (node != kInvalidNode) {
+                    node = renumbered(node);
+                    if (node == kInvalidNode) {
+                        lostSources.insert(&node);
+                    }
                 }
-                source.node = source.node < remap.size() ? remap[source.node] : kInvalidNode;
-                return source.node == kInvalidNode;
+                break;
+            default:
+                if (node != kInvalidNode) {
+                    node = renumbered(node);
+                }
+                break;
+            }
+        });
+        for (PoseStage& stage : stages) {
+            std::erase_if(stage.sources, [&](const StageSource& source) {
+                return lostSources.count(&source.node) != 0;
             });
-            if (stage.upNode != kInvalidNode) {
-                stage.upNode = stage.upNode < remap.size() ? remap[stage.upNode] : kInvalidNode;
-            }
-            if (lost) {
-                gone.push_back(stage.id);
-            }
         }
-        const auto isGone = [&](u32 id) { return std::find(gone.begin(), gone.end(), id) != gone.end(); };
-        if (!gone.empty()) {
+        const u32 lost = static_cast<u32>(std::count(gone.begin(), gone.end(), u8{1}));
+        if (lost != 0) {
             // Its weight channels stay, invalidated like any channel whose
             // node went: an id is never reused, and a caller's undo puts the
             // table back by position.
-            std::erase_if(*referencers.stages, [&](const PoseStage& stage) { return isGone(stage.id); });
+            std::erase_if(stages, [&](const PoseStage& stage) { return gone[&stage - stages.data()] != 0; });
             out.warn(DiagCode::DanglingNodeReference,
-                     number(static_cast<u32>(gone.size())) +
-                         " pose stages named a node that no longer exists, and went with it",
+                     number(lost) + " pose stages named a node that no longer exists, and went with it",
                      ElementRef());
         }
     }
 
-    // PhysicsBody::node and ClothCollider::node (WEM_PHYSICS_DESIGN.md §3.10).
+    // A body or a collider whose node is gone goes with it, and so its rows
+    // are the physics' own to renumber (WEM_PHYSICS_DESIGN.md §3.10).
     if (referencers.physics != nullptr) {
         const std::vector<u32> gone = RemapPhysicsNodes(*referencers.physics, remap);
         if (!gone.empty()) {
@@ -429,24 +415,18 @@ void RemapNodeReferencers(NodeTree& tree, std::span<const u32> remap, NodeRefere
         }
     }
 
-    // The node links: the emitter payloads' own (§10.9) and the skin setup's
-    // mirror override (§13.4). A link whose node died names none afterwards --
-    // which for a trail or a bounce is "no trail", the format's own answer, and
-    // for a mirror override "no override", and is still worth a line.
+    // A link whose node died names none afterwards -- which for a trail or a
+    // bounce is "no trail", the format's own answer, and for a mirror override
+    // "no override", and is still worth a line.
     {
         u32 dangling = 0;
-        for (Node& node : tree.nodes) {
-            ForEachNodeLink(node, [&](u32& link, EmitterLink) {
-                if (link == kInvalidNode) {
-                    return;
-                }
-                const u32 fresh = link < remap.size() ? remap[link] : kInvalidNode;
-                link = fresh;
-                if (fresh == kInvalidNode) {
-                    ++dangling;
-                }
-            });
-        }
+        ForEachLinkNodeReference(tree, [&](NodeReference, u32& link, u32, u32) {
+            if (link == kInvalidNode) {
+                return;
+            }
+            link = renumbered(link);
+            dangling += link == kInvalidNode ? 1u : 0u;
+        });
         if (dangling != 0) {
             out.warn(DiagCode::DanglingNodeReference,
                      number(dangling) + " node links named a node that no longer exists",
@@ -454,40 +434,36 @@ void RemapNodeReferencers(NodeTree& tree, std::span<const u32> remap, NodeRefere
         }
     }
 
-    // ClipEvent::node
     for (u32 c = 0; c < referencers.clips.size(); ++c) {
         Clip& clip = referencers.clips[c];
-        u32 dangling = 0;
-        for (ClipEvent& event : clip.events) {
-            if (event.node == kInvalidNode) {
-                continue;
-            }
-            const u32 fresh =
-                event.node < remap.size() ? remap[event.node] : kInvalidNode;
-            event.node = fresh;
-            if (fresh == kInvalidNode) {
-                ++dangling;
-            }
-        }
+        const u32 dangling = RemapClipNodes(clip, remap);
         if (dangling != 0) {
             out.error(DiagCode::DanglingNodeReference,
                       number(dangling) + " events in clip '" + clip.name +
                           "' fire at a node that no longer exists",
                       ElementRef(ElementKind::Clip, c));
         }
-        RemapClipWorldNodes(clip, remap);
     }
 }
 
-void RemapClipWorldNodes(Clip& clip, std::span<const u32> remap) {
-    if (!clip.physics.has_value()) {
-        return;
-    }
-    for (BakeWorldForce& force : clip.physics->world) {
-        if (force.centreNode != kInvalidNode) {
-            force.centreNode = force.centreNode < remap.size() ? remap[force.centreNode] : kInvalidNode;
+u32 RemapClipNodes(Clip& clip, std::span<const u32> remap) {
+    u32 dangling = 0;
+    ForEachClipNodeReference(clip, 0, [&](NodeReference row, u32& node, u32, u32) {
+        if (node == kInvalidNode) {
+            return;
         }
-    }
+        node = node < remap.size() ? remap[node] : kInvalidNode;
+        dangling += row == NodeReference::ClipEvent && node == kInvalidNode ? 1u : 0u;
+    });
+    return dangling;
+}
+
+void RemapClipWorldNodes(Clip& clip, std::span<const u32> remap) {
+    ForEachClipNodeReference(clip, 0, [&](NodeReference row, u32& node, u32, u32) {
+        if (row == NodeReference::ClipWorldCentre && node != kInvalidNode) {
+            node = node < remap.size() ? remap[node] : kInvalidNode;
+        }
+    });
 }
 
 void CheckEmitterLinks(const NodeTree& tree, Diagnostics& out) {

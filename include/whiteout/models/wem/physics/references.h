@@ -13,6 +13,9 @@
  * | `PhysicsBody` | `node` | the body goes, and every joint on it |
  * | `WowBodyExtension` | `parent` (a body id) | cleared; the body stays |
  * | `ClothCollider` | `node` (`kInvalidNode` = the root) | the collider goes, and leaves every cloth's list |
+ * | `ClothRecipe` | `bones` | the bone leaves the list; the cloth stays |
+ * | `FractureRecipe` | `bones` | the bone leaves the list |
+ * | `FractureRecipe` | `helper`, `field`, `wholeGate`, `piecesGate`, `skinNodes` | names none; a skin node keeps its place |
  * | `Cloth` | `cage` | the cloth goes |
  * | `ClothBinding` | `section` | the binding goes |
  * | `AnimChannel` of kind `Physics` | `target.sub` | invalidated (`sub` 0), as a removed node's channel is |
@@ -21,7 +24,8 @@
  *
  * The node and mesh tables call in here (`RemapNodeReferencers`,
  * `RemapMeshReferencers`), so a removal anywhere carries the physics along
- * without a second list to keep in step.
+ * without a second list to keep in step. Where the node indices are is
+ * `nodes/references.h`'s to say (`ForEachPhysicsNodeReference`).
  */
 
 #include <span>

@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 #include <whiteout/models/wem/anim/key_reduce.h>
+#include <whiteout/models/wem/meshes/remove.h>
 
 #include <map>
 #include <optional>
@@ -396,6 +397,45 @@ void DropReproduced(Document& document, u32 model, ExactKeyReport& report) {
     }
 }
 
+// ---- Step 5: declarations that say nothing ---------------------------------------------
+
+/// Erases the channels of @p model that no clip holds a sub-track for and that
+/// declare no rest: a target and a type, with nothing to play. The steps above
+/// leave one behind each time a channel's last sub-track goes, and two geosets
+/// or materials that play alike then still differ by it.
+void DropUnkeyed(Document& document, u32 model, ExactKeyReport& report) {
+    std::set<u32> held;
+    for (const Clip& clip : document.clips) {
+        if (clip.model != model) {
+            continue;
+        }
+        for (const SubTrackContainer& container : clip.containers) {
+            for (const SubTrack& track : container.subTracks) {
+                // Empty or not: an empty sub-track of an opaque layer is a
+                // statement of its own (it plays the rest).
+                held.insert(track.channel);
+            }
+        }
+    }
+    const Model& owner = document.models[model];
+    std::vector<u32> dead;
+    for (const AnimChannel& channel : owner.animChannels.channels) {
+        // A declared rest is some format's static value (StarCraft II's
+        // AnimRef default, the visibility `toM3` writes), so it stays.
+        if (held.count(channel.id) != 0 || !channel.initValue.empty() ||
+            Untouchable(document, model, channel)) {
+            continue;
+        }
+        const bool grouped = std::any_of(owner.trackSets.begin(), owner.trackSets.end(),
+                                         [&](const TrackSet& set) { return set.contains(channel.id); });
+        if (!grouped) {
+            dead.push_back(channel.id);
+        }
+    }
+    EraseChannels(document, model, dead);
+    report.channelsDropped += static_cast<u32>(dead.size());
+}
+
 } // namespace
 
 ExactKeyReport ReduceKeysExactly(Document& document, u32 model) {
@@ -412,6 +452,7 @@ ExactKeyReport ReduceKeysExactly(Document& document, u32 model) {
     }
     CollapseConstants(document, model, {}, {}, report);
     DropReproduced(document, model, report);
+    DropUnkeyed(document, model, report);
     return report;
 }
 

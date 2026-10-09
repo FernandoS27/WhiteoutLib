@@ -37,6 +37,7 @@ struct ExactKeyReport {
     u32 keysRemoved = 0;      ///< Every key that went, dropped sub-tracks' included.
     u32 subTracksDropped = 0; ///< Sub-tracks that read nothing or played the rest.
     u32 tracksCollapsed = 0;  ///< Constant sub-tracks cut to their one key.
+    u32 channelsDropped = 0;  ///< Declarations no clip keys and that state no rest.
 };
 
 /**
@@ -48,7 +49,9 @@ struct ExactKeyReport {
  *           storage);
  *        3. constant sub-tracks, down to one key;
  *        4. keys the game's own curve reproduces between their neighbours,
- *           on a channel whose clips agree on the interpolation.
+ *           on a channel whose clips agree on the interpolation;
+ *        5. and, of the model, the channels left with no sub-track in any clip
+ *           and no declared rest: a target and a type, with nothing to play.
  *
  * Never touched (§3.2): trigger channels (a squirt), stage channels, sub-tracks
  * with TCB parameters, a sub-track's presence in a transparent layer, an empty

@@ -87,6 +87,19 @@ public:
     /// Rests under @p storage's: what a conversion to another game compares.
     Animator(const Document& document, u32 model, Game storage);
 
+    /// Each channel's rest, by its place in the model's table.
+    using Rests = std::vector<std::vector<u8>>;
+
+    /// Every channel's rest, found now. Which rest a channel plays depends on
+    /// whether any clip keys it, so finding one walks every clip of the model.
+    Rests resolveRests() const;
+
+    /// With the rests given (`resolveRests`, of an animator over the same
+    /// document and model): it then reads no clip but the ones it is asked to
+    /// play. For a caller that edits one clip per thread, where a rest found
+    /// on demand would read the clips the other threads are writing.
+    Animator(const Document& document, u32 model, Rests rests);
+
     /// No such model.
     bool empty() const {
         return model_ == nullptr;

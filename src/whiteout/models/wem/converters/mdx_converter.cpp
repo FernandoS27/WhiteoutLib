@@ -1076,6 +1076,15 @@ std::vector<mdx::FaceEffect> LoadFaceEffects(const NativeBag& bag) {
 
 } // namespace
 
+std::string FaceFxActorPath(const Model& model) {
+    for (const ProfileMaterialSet& set : model.profileSets) {
+        if (set.native.value(kFaceFxCount, 0) > 0) {
+            return set.native.text(FaceFxKey("Path", 0));
+        }
+    }
+    return {};
+}
+
 // ============================================================================
 // MdxExportMapOf
 // ============================================================================

@@ -19,6 +19,8 @@
  */
 
 #include <functional>
+#include <optional>
+#include <string>
 #include <vector>
 
 #include <whiteout/common_types.h>
@@ -49,6 +51,14 @@ struct OptimizeOptions {
     /// per model before its nodes are reduced: what the caller still reads the
     /// document by. Unset keeps none.
     std::function<std::vector<u32>(const Document& document, u32 model)> keepNodes;
+    /// The bones an animation outside the file binds by name, spelled as the
+    /// game looks them up, for a model that names one (`FaceFxActorPath`).
+    /// Asked once per such model. The pass then keeps each of them, the node
+    /// above it, and the weights of anything under it where they are (§4.4).
+    /// Unset, or no answer, keeps every node of that model: the actor's bones
+    /// are not known, and losing one turns the whole actor off.
+    std::function<std::optional<std::vector<std::string>>(const Document& document, u32 model)>
+        boundBones;
     /// Merge duplicate textures and material slots, and drop unused ones.
     bool mergeMaterials = true;
     /// Remove the keys no frame can tell apart (`ReduceKeysExactly`), first,
@@ -64,6 +74,11 @@ struct ModelOptimizeReport {
     /// Input node -> final node, `kInvalidNode` for one that went. Empty when
     /// no node changed.
     std::vector<u32> nodeRemap;
+    /// The model names an actor (§4.4) and `boundBones` did not say what it
+    /// binds, so the node pass left it alone.
+    bool nodesKeptForActor = false;
+    /// The nodes an actor binds, by `boundBones`' answer: kept.
+    u32 boundNodes = 0;
 };
 
 struct OptimizeReport {
@@ -79,6 +94,7 @@ struct OptimizeReport {
     u32 keysRemoved = 0;      ///< Keys no frame can tell apart.
     u32 subTracksDropped = 0; ///< Sub-tracks that read nothing or played the rest.
     u32 tracksCollapsed = 0;  ///< Constant sub-tracks cut to one key.
+    u32 channelsDropped = 0;  ///< Channel declarations nothing keys, and that state no rest.
     std::vector<ModelOptimizeReport> models; ///< Parallel to `Document::models`.
     /// An error means a step went wrong and was stopped; the document still
     /// validates.
@@ -86,7 +102,7 @@ struct OptimizeReport {
 
     bool changed() const {
         return meshesMerged + meshesRemoved + nodesRemoved + slotsMerged + slotsRemoved +
-                   texturesMerged + texturesRemoved + keysRemoved !=
+                   texturesMerged + texturesRemoved + keysRemoved + channelsDropped !=
                0;
     }
 };
