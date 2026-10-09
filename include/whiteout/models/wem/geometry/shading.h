@@ -212,7 +212,7 @@ ShadingChange Sharpen(Surface& surface, std::span<const ElementSet> picked, Leve
 ShadingChange Group(Surface& surface, std::span<const ElementSet> picked, Level level);
 
 struct AutoSmoothOptions {
-    f32 angle = 1.396263402f;   ///< 80 degrees (§2.2).
+    f32 angle = 1.047197551f;   ///< 60 degrees, `kDefaultShadingAngle`: what the primitives mark at.
     bool keepHard = false;      ///< Only adds: an edge already hard stays.
     bool hardAtUvSeams = false; ///< A `seam` edge goes hard whatever its angle.
 };
