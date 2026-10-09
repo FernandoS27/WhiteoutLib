@@ -24,6 +24,7 @@
 #include <whiteout/models/mdx/parser.h>
 #include <whiteout/models/mdx/writer.h>
 #include <whiteout/models/wem/converters.h>
+#include <whiteout/models/wem/materials/ops.h>
 #include <whiteout/models/wem/validate.h>
 
 #include "wem_corpus_files.h"
@@ -1438,12 +1439,18 @@ TEST_CASE("wem mdx a flipbook crosses from where each version keeps it", "[wem][
     }
 }
 
-TEST_CASE("wem mdx a flipbook on another HD slot is reported, not silently dropped",
+TEST_CASE("wem mdx an HD layer's other slots flipbook on channels of their own",
           "[wem][anim][mdx]") {
-    // A `MaterialLayer` target names a layer and has no field for a slot, so an
-    // HD layer's normal-map flipbook has nowhere to go yet. Slot 0 still does.
+    // From v1100 every sub-texture keys its own KMTF. Slot 0 is the layer's
+    // `TextureIndex`; each of the five past it has a channel of its own
+    // (`LayerTextureChannel`), which is what tells them apart on one layer.
     mdx::Model model = makeModel();
     model.version = 1200;
+    for (const char* file : {"textures/frame1.blp", "textures/frame2.blp"}) {
+        mdx::Texture texture;
+        texture.fileName = file;
+        model.textures.push_back(texture);
+    }
     mdx::Layer layer;
     layer.filterMode = mdx::Layer::FilterMode::None;
     layer.shader = mdx::Layer::ShaderType::HD;
@@ -1456,14 +1463,60 @@ TEST_CASE("wem mdx a flipbook on another HD slot is reported, not silently dropp
         layer.subTextures.push_back(sub);
     }
     layer.subTextures[0].tracks = flipbookTrack();
-    layer.subTextures[2].tracks = flipbookTrack();
+    layer.subTextures[2].tracks = makeTrack<u32>(mdx::InterpolationType::None, {0, 500}, {1u, 2u});
     model.materials[0].layers[0] = layer;
 
     MdxConverter converter;
-    const Result<Document> result = converter.fromMdx(model);
+    Result<Document> result = converter.fromMdx(model);
     REQUIRE(result.ok());
-    CHECK(countChannels(*result.value, Channel::TextureIndex) == 1u);
-    CHECK(result.diagnostics.countOf(DiagCode::AnimTrackDropped) == 1u);
+    CHECK(result.diagnostics.countOf(DiagCode::AnimTrackDropped) == 0u);
+    Document& document = *result.value;
+    CHECK(countChannels(document, Channel::TextureIndex) == 1u);
+    CHECK(countChannels(document, Channel::OrmTextureIndex) == 1u);
+    CHECK(countChannels(document, Channel::NormalTextureIndex) == 0u);
+    for (const AnimChannel& declared : document.models[0].animChannels.channels) {
+        if (declared.target.channel != Channel::OrmTextureIndex) {
+            continue;
+        }
+        CHECK(declared.target.kind == TrackTarget::Kind::MaterialLayer);
+        CHECK(declared.target.material.profile == ProfileId::Wc3Reforged);
+        CHECK(declared.target.sub == 0u);
+        CHECK(declared.valueType == geom::AttrType::U32);
+        CHECK(LayerTextureSlot(declared.target.channel) == 2u);
+    }
+    CHECK(LayerTextureChannel(2) == Channel::OrmTextureIndex);
+    CHECK(LayerTextureChannel(0) == Channel::TextureIndex);
+    CHECK(LayerTextureChannel(6) == Channel::Count);
+    CHECK(LayerTextureSlot(Channel::Alpha) == kInvalidIndex);
+
+    // Each goes back to the sub-texture it came from, through the bytes.
+    const auto written = [&](const Document& from) {
+        const Result<mdx::Model> exported = converter.toMdx(from, ProfileId::Wc3Reforged, 1200);
+        REQUIRE(exported.ok());
+        mdx::Writer writer;
+        const std::vector<u8> bytes = writer.write(*exported);
+        mdx::Parser parser;
+        mdx::Model reread = parser.parse(std::span<const u8>(bytes.data(), bytes.size()));
+        REQUIRE_FALSE(reread.materials.empty());
+        REQUIRE_FALSE(reread.materials[0].layers.empty());
+        REQUIRE(reread.materials[0].layers[0].subTextures.size() == 6u);
+        return reread.materials[0].layers[0];
+    };
+    const mdx::Layer back = written(document);
+    REQUIRE(back.subTextures[0].tracks.isUsed);
+    CHECK(back.subTextures[0].tracks.keys_data == std::vector<u32>{0u, 1u});
+    CHECK_FALSE(back.subTextures[1].tracks.isUsed);
+    REQUIRE(back.subTextures[2].tracks.isUsed);
+    CHECK(back.subTextures[2].tracks.timestamps == std::vector<u32>{0u, 500u});
+    CHECK(back.subTextures[2].tracks.keys_data == std::vector<u32>{1u, 2u});
+
+    // A slot's keys are texture references as the colour map's are: removing
+    // frame1 for frame2 leaves both of the ORM slot's keys naming frame2.
+    REQUIRE(RemoveTexture(document, 1, 2).removed);
+    const mdx::Layer renumbered = written(document);
+    REQUIRE(renumbered.subTextures[2].tracks.isUsed);
+    CHECK(renumbered.subTextures[2].tracks.keys_data == std::vector<u32>{1u, 1u});
+    CHECK(renumbered.subTextures[0].tracks.keys_data == std::vector<u32>{0u, 1u});
 }
 
 TEST_CASE("wem mdx export gives each layer back its own texture animation",

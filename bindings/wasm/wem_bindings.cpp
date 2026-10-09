@@ -721,6 +721,11 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("PhysicsBlend", whiteout::models::wem::Channel::PhysicsBlend)
         .value("ClothDriverTranslation", whiteout::models::wem::Channel::ClothDriverTranslation)
         .value("ClothDriverRotation", whiteout::models::wem::Channel::ClothDriverRotation)
+        .value("NormalTextureIndex", whiteout::models::wem::Channel::NormalTextureIndex)
+        .value("OrmTextureIndex", whiteout::models::wem::Channel::OrmTextureIndex)
+        .value("EmissiveTextureIndex", whiteout::models::wem::Channel::EmissiveTextureIndex)
+        .value("TeamColorTextureIndex", whiteout::models::wem::Channel::TeamColorTextureIndex)
+        .value("EnvironmentTextureIndex", whiteout::models::wem::Channel::EnvironmentTextureIndex)
         .value("Count", whiteout::models::wem::Channel::Count);
 
     enum_<whiteout::models::wem::Interpolation>("WemInterpolation")

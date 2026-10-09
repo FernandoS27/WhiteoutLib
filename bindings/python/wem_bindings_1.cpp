@@ -164,6 +164,18 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 1 of bind_wem(), which calls the parts in order.
 void bind_wem_1(py::module_& m) {
+    py::class_<whiteout::models::wem::MeshSection>(m, "MeshSection", R"doc(Metadata only; one per draw section. The faces that belong to it are the ones whose `section` attribute names it.)doc")
+        .def(py::init<>())
+        .def_readwrite("name", &whiteout::models::wem::MeshSection::name)
+        .def_readwrite("material_slot", &whiteout::models::wem::MeshSection::materialSlot, R"doc(-> `Model::materialSlots[]`, or `kInvalidIndex` for NO MATERIAL: a section made by an editor before one has been chosen for it. The sentinel is the emitter links' (§10.9), so one rule covers both, and every profile draws such a section as plain white (`toMdx` writes it a blank SD material; a profile that cannot say "none" must write one).)doc")
+        .def_readwrite("profiles", &whiteout::models::wem::MeshSection::profiles, R"doc(Which profiles draw this section (§6).)doc")
+        .def_readwrite("rigid_node", &whiteout::models::wem::MeshSection::rigidNode, R"doc(Set: every vertex binds here at weight 1 (§5.6).)doc")
+        .def_readwrite("selection_group", &whiteout::models::wem::MeshSection::selectionGroup, R"doc(MDX geoset group / M2 skinSectionId.)doc")
+        .def_readwrite("flags", &whiteout::models::wem::MeshSection::flags)
+        .def_readwrite("bounds", &whiteout::models::wem::MeshSection::bounds, R"doc(Derived, recomputed.)doc")
+        .def_readwrite("native", &whiteout::models::wem::MeshSection::native)
+    ;
+
     py::class_<whiteout::models::wem::Mesh>(m, "Mesh")
         .def(py::init<>())
         .def_readwrite("name", &whiteout::models::wem::Mesh::name)

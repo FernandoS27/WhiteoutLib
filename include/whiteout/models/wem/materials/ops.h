@@ -37,7 +37,7 @@
  * | common `TextureInput` | `texture` | one per ordinal of every material (`inputAt`) |
  * | `native::MdxMaterial` | `layers[].subTextures[].textureId`, and `layers[].textureId` of a layer with no sub-textures | document indices by the identity `fromMdx` builds; a layer with sub-textures keeps its map there and `textureId` is a zeroed leftover |
  * | node payload | `ForEachTextureLink` | a Warcraft III particle emitter's `texture` |
- * | `AnimChannel` on a Warcraft III material, `MaterialLayer` target, `Channel::TextureIndex` | every key value of every sub-track joining it, and `initValue` | MDX `KMTF`: a flipbook's frames are texture indices |
+ * | `AnimChannel` on a Warcraft III material, `MaterialLayer` target, `Channel::TextureIndex` or a slot's (`LayerTextureSlot`) | every key value of every sub-track joining it, and `initValue` | MDX `KMTF`: a flipbook's frames are texture indices |
  *
  * **Not** a `Node` target's `TextureIndex`: that is a Warcraft III ribbon's
  * `KRTX`, a cell of the ribbon's own flipbook grid, not a texture. **Nor** an

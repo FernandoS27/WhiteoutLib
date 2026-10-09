@@ -102,6 +102,11 @@ Kind KindOf(const AnimChannel& channel, bool layered) {
         return Kind::UvTurn;
     case Channel::Visibility:
     case Channel::TextureIndex:
+    case Channel::NormalTextureIndex:
+    case Channel::OrmTextureIndex:
+    case Channel::EmissiveTextureIndex:
+    case Channel::TeamColorTextureIndex:
+    case Channel::EnvironmentTextureIndex:
     case Channel::StageWeight:
     case Channel::StageSourceWeight:
     case Channel::StageSourceEnabled:

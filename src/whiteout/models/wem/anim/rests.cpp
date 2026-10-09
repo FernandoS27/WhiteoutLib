@@ -309,6 +309,9 @@ TrackRests WarcraftRests(const Document& document, u32 model, const TrackTarget&
             return Same(Bytes(texture));
         }
         default:
+            // The same of a slot past the colour map, where the layer has it.
+            if (const u32 slot = LayerTextureSlot(channel); slot != kInvalidIndex && slot < layer->subTextures.size())
+                return Same(Bytes(layer->subTextures[slot].textureId));
             return none;
         }
     }

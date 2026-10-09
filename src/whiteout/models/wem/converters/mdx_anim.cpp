@@ -420,7 +420,7 @@ private:
             addTrack(layer.alphaTracks, target);
             target.channel = Channel::TextureIndex;
             addTrack(FlipbookOf(layer), target);
-            reportSlotFlipbooks(layer, profile, slot, ordinal);
+            addSlotFlipbooks(layer, target);
             target.channel = Channel::Emissive;
             addTrack(layer.emissiveGainTracks, target);
 
@@ -441,20 +441,28 @@ private:
     }
 
     /// An HD layer can flipbook its other slots too (normal, ORM, emissive,
-    /// team colour, reflections). A `MaterialLayer` target has no field for a
-    /// slot, so those are reported rather than dropped without a word.
-    void reportSlotFlipbooks(const mdx::Layer& layer, ProfileId profile, u32 slot, u32 ordinal) {
-        std::string slots;
+    /// team colour, reflections), each on its own channel
+    /// (`LayerTextureChannel`). The slots are read by position, as the
+    /// renderer reads them; one past the sixth has no channel and is reported.
+    void addSlotFlipbooks(const mdx::Layer& layer, TrackTarget target) {
+        std::string dropped;
         for (std::size_t s = 1; s < layer.subTextures.size(); ++s) {
-            if (layer.subTextures[s].tracks.isUsed) {
-                slots += (slots.empty() ? "" : ", ") + std::to_string(s);
+            if (!layer.subTextures[s].tracks.isUsed) {
+                continue;
             }
+            target.channel = LayerTextureChannel(static_cast<u32>(s));
+            if (target.channel == Channel::Count) {
+                dropped += (dropped.empty() ? "" : ", ") + std::to_string(s);
+                continue;
+            }
+            addTrack(layer.subTextures[s].tracks, target);
         }
-        if (!slots.empty()) {
+        if (!dropped.empty()) {
             out_.warn(DiagCode::AnimTrackDropped,
-                      "layer " + std::to_string(ordinal) + " flipbooks texture slot(s) " + slots +
-                          ", and a layer track can name only its colour map",
-                      ElementRef(ElementKind::Slot, slot), profile);
+                      "layer " + std::to_string(target.sub) + " flipbooks texture slot(s) " +
+                          dropped + ", which no layer track names",
+                      ElementRef(ElementKind::Slot, target.material.slot),
+                      target.material.profile);
         }
     }
 
@@ -1720,6 +1728,13 @@ private:
             return;
         default:
             break;
+        }
+        // A slot past the colour map: on the sub-texture, where the layer the
+        // export wrote has one and the version written keeps a track there.
+        if (const u32 slot = LayerTextureSlot(channel.target.channel);
+            slot != kInvalidIndex && out_.version >= 1100 && slot < layer->subTextures.size()) {
+            Emit(merged, layer->subTextures[slot].tracks);
+            return;
         }
         diagnostics_.warn(DiagCode::AnimTrackDropped,
                           std::string("an MDX layer has no ") + ToString(channel.target.channel) +

@@ -306,6 +306,16 @@ const char* ToString(Channel channel) {
         return "clothDriverTranslation";
     case Channel::ClothDriverRotation:
         return "clothDriverRotation";
+    case Channel::NormalTextureIndex:
+        return "normalTextureIndex";
+    case Channel::OrmTextureIndex:
+        return "ormTextureIndex";
+    case Channel::EmissiveTextureIndex:
+        return "emissiveTextureIndex";
+    case Channel::TeamColorTextureIndex:
+        return "teamColorTextureIndex";
+    case Channel::EnvironmentTextureIndex:
+        return "environmentTextureIndex";
     case Channel::Count:
         break;
     }
@@ -345,6 +355,11 @@ geom::AttrType DefaultValueType(Channel channel) {
     case Channel::ClothDriverRotation:
         return geom::AttrType::Quat;
     case Channel::TextureIndex:
+    case Channel::NormalTextureIndex:
+    case Channel::OrmTextureIndex:
+    case Channel::EmissiveTextureIndex:
+    case Channel::TeamColorTextureIndex:
+    case Channel::EnvironmentTextureIndex:
         return geom::AttrType::U32;
     case Channel::Visibility:
     case Channel::Alpha:

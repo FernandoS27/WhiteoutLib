@@ -626,14 +626,15 @@ void forEachTextureReferencer(DocumentT& document, F&& f) {
                                              ElementRef(ElementKind::Node, static_cast<u32>(n))});
             });
         }
-        // KMTF: a Warcraft III flipbook's keys are texture indices. A ribbon's
+        // KMTF: a Warcraft III flipbook's keys are texture indices, on the
+        // colour map and on each of an HD layer's other slots. A ribbon's
         // KRTX is a Node target and a cell of its own grid, and an `.m3`
         // layer's `TextureIndex` is its `currentFrame` — a frame of that
         // layer's own atlas. Both stay out.
         for (auto& channel : model.animChannels.channels) {
             const ProfileId profile = channel.target.material.profile;
             if (channel.target.kind != TrackTarget::Kind::MaterialLayer ||
-                channel.target.channel != Channel::TextureIndex ||
+                LayerTextureSlot(channel.target.channel) == kInvalidIndex ||
                 (profile != ProfileId::Wc3Classic && profile != ProfileId::Wc3Reforged) ||
                 channel.valueType != geom::AttrType::U32) {
                 continue;

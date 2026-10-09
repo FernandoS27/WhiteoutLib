@@ -160,8 +160,44 @@ enum class Channel : u8 {
     ClothDriverTranslation,
     ClothDriverRotation,
 
+    // A Warcraft III HD layer's five texture slots past its colour map, each a
+    // flipbook of its own as `TextureIndex` is the colour map's: MDX KMTF on a
+    // sub-texture (v1100). U32, a document texture. Only MDX keys them, and
+    // `LayerTextureChannel` / `LayerTextureSlot` say which slot each is.
+    NormalTextureIndex,      ///< U32. Sub-texture 1, the normal map.
+    OrmTextureIndex,         ///< U32. Sub-texture 2, occlusion-roughness-metalness.
+    EmissiveTextureIndex,    ///< U32. Sub-texture 3.
+    TeamColorTextureIndex,   ///< U32. Sub-texture 4, the team colour's.
+    EnvironmentTextureIndex, ///< U32. Sub-texture 5, the reflection.
+
     Count
 };
+
+/// How many texture slots a Warcraft III HD layer has (`native::MdxSlotType`).
+inline constexpr u32 kLayerTextureSlots = 6;
+
+/// The flipbook channel of a layer's texture slot @p slot, by position:
+/// `TextureIndex` for 0, the colour map, and `Count` for a slot no layer has.
+constexpr Channel LayerTextureChannel(u32 slot) {
+    if (slot == 0) {
+        return Channel::TextureIndex;
+    }
+    return slot < kLayerTextureSlots
+               ? static_cast<Channel>(static_cast<u32>(Channel::NormalTextureIndex) + slot - 1)
+               : Channel::Count;
+}
+
+/// The texture slot @p channel flipbooks on a `MaterialLayer` target, or
+/// `kInvalidIndex` for any other channel. A node's `TextureIndex` is a
+/// ribbon's cell, which is the target's to tell apart.
+constexpr u32 LayerTextureSlot(Channel channel) {
+    if (channel == Channel::TextureIndex) {
+        return 0;
+    }
+    return channel >= Channel::NormalTextureIndex && channel <= Channel::EnvironmentTextureIndex
+               ? static_cast<u32>(channel) - static_cast<u32>(Channel::NormalTextureIndex) + 1
+               : kInvalidIndex;
+}
 
 /// A cloth driver channel's `sub`: the cloth's id, and the driver's index in
 /// the high 16 bits, packed as `EmitterPropertySub` packs.
@@ -235,7 +271,9 @@ struct TrackTarget {
         Node,            ///< `node` + `sub`.
         MaterialLayer,   ///< `material` + `sub` as a layer/stage/slot **ordinal** (§7.5),
                          ///< or `kWholeMaterial` for a track that multiplies all of
-                         ///< them — a WoW `M2Color` is the case that needs it.
+                         ///< them — a WoW `M2Color` is the case that needs it. Which
+                         ///< of an HD layer's textures a flipbook steps is the
+                         ///< channel's to say (`LayerTextureSlot`), not `sub`'s.
         MaterialFeature, ///< `material` + `sub` as a `MaterialFeature::id` (§7.2.5).
         Section,         ///< `mesh` + `sub` as the section within it (§5.5).
         Physics,         ///< `sub` as a `PhysicsSet` record id (WEM_PHYSICS_DESIGN.md §3.6).
