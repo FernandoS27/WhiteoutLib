@@ -53,6 +53,9 @@ struct Mix {
     /// Whether the model's global loops (`IsGlobalLoop`) play under the host
     /// plays, as they always do in game.
     bool globals = true;
+    /// The world clock stands still on a global loop's timeline: a loop it is
+    /// at the end of reads its end (`ClipWindow`'s `holdEnd`).
+    bool holdLoopEnds = false;
 };
 
 /// One model's pose.

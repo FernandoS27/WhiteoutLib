@@ -33,12 +33,14 @@ std::optional<std::vector<u8>> ReadTyped(const Clip& clip, const SubTrack& track
 
 template <class T>
 std::vector<u8> ReadBatch(const Clip& clip, const SubTrack& track, bool quat,
-                          std::span<const i32> timesMs, const T& fallback, bool held) {
+                          std::span<const i32> timesMs, const T& fallback, bool held,
+                          bool holdEnd) {
     const PreparedTrack<T> prepared = Prepare<T>(clip, track, quat);
     std::vector<u8> out(timesMs.size() * sizeof(T));
     for (std::size_t i = 0; i < timesMs.size(); ++i) {
         const T value =
-            Evaluate(prepared, ClipWindow(clip, static_cast<u32>(std::max(timesMs[i], 0)), -1),
+            Evaluate(prepared,
+                     ClipWindow(clip, static_cast<u32>(std::max(timesMs[i], 0)), -1, holdEnd),
                      held)
                 .value_or(fallback);
         std::memcpy(out.data() + i * sizeof(T), &value, sizeof(T));
@@ -76,7 +78,7 @@ const SubTrack* FindSubTrack(const Clip& clip, u32 channelId) {
     return empty;
 }
 
-SampleWindow ClipWindow(const Clip& clip, u32 ms, i32 globalMs) {
+SampleWindow ClipWindow(const Clip& clip, u32 ms, i32 globalMs, bool holdEnd) {
     SampleWindow window;
     window.loop = clip.looping;
     if (IsGlobalLoop(clip)) {
@@ -93,6 +95,9 @@ SampleWindow ClipWindow(const Clip& clip, u32 ms, i32 globalMs) {
                             ? clock
                             : static_cast<i32>(std::fmod(static_cast<f32>(clock),
                                                          static_cast<f32>(duration)));
+        if (holdEnd && clip.readRule != ReadRule::Sc2 && clock > 0 && window.timeMs == 0) {
+            window.timeMs = window.endMs;
+        }
         return window;
     }
     // The sequence's window: the stored one, or the one the export gives it.
@@ -137,26 +142,28 @@ std::vector<u8> SampleSubTrack(const Clip& clip, const SubTrack& track, geom::At
 
 std::vector<u8> SampleSubTrackBatch(const Clip& clip, const SubTrack& track,
                                     geom::AttrType valueType, std::span<const i32> timesMs,
-                                    std::span<const u8> fallback, bool held) {
+                                    std::span<const u8> fallback, bool held, bool holdEnd) {
     if (fallback.size() != geom::AttrTypeSize(valueType))
         return {};
     switch (valueType) {
     case geom::AttrType::F32:
-        return ReadBatch<f32>(clip, track, false, timesMs, Load<f32>(fallback.data()), held);
+        return ReadBatch<f32>(clip, track, false, timesMs, Load<f32>(fallback.data()), held,
+                              holdEnd);
     case geom::AttrType::F32x2:
         return ReadBatch<Vector2f>(clip, track, false, timesMs, Load<Vector2f>(fallback.data()),
-                                   held);
+                                   held, holdEnd);
     case geom::AttrType::F32x3:
         return ReadBatch<Vector3f>(clip, track, false, timesMs, Load<Vector3f>(fallback.data()),
-                                   held);
+                                   held, holdEnd);
     case geom::AttrType::F32x4:
         return ReadBatch<Vector4f>(clip, track, false, timesMs, Load<Vector4f>(fallback.data()),
-                                   held);
+                                   held, holdEnd);
     case geom::AttrType::Quat:
         return ReadBatch<Quaternion>(clip, track, true, timesMs, Load<Quaternion>(fallback.data()),
-                                     held);
+                                     held, holdEnd);
     case geom::AttrType::U32:
-        return ReadBatch<u32>(clip, track, false, timesMs, Load<u32>(fallback.data()), held);
+        return ReadBatch<u32>(clip, track, false, timesMs, Load<u32>(fallback.data()), held,
+                              holdEnd);
     default: {
         std::vector<u8> out;
         for (std::size_t i = 0; i < timesMs.size(); ++i)

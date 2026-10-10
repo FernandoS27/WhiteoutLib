@@ -56,7 +56,12 @@ struct SampleWindow {
 /// clock unwrapped for `Sc2`, which wraps per track), and an unbounded window
 /// at 0 for a loop of no length — `MdxHierarchy`'s `effTime`. A negative
 /// @p globalMs reads a global loop at @p ms.
-SampleWindow ClipWindow(const Clip& clip, u32 ms, i32 globalMs);
+///
+/// With @p holdEnd, a global loop the clock stands at the end of (a whole
+/// number of its lengths past 0) is read at its end, where the modulo reads
+/// its start: an editor's still clock on a loop's last frame. A `Sc2` loop
+/// wraps per track and is read as before.
+SampleWindow ClipWindow(const Clip& clip, u32 ms, i32 globalMs, bool holdEnd = false);
 
 /// One element of @p valueType: @p track read by @p clip's rule at @p window,
 /// or nothing where the rule reads no key — under `Wc3` no key inside the
@@ -74,10 +79,12 @@ std::vector<u8> SampleSubTrack(const Clip& clip, const SubTrack& track, geom::At
 /// @p track's value at each of @p timesMs, read as `SampleSubTrack` reads one
 /// in the window `ClipWindow` gives each time with no global clock — a global
 /// loop at the times themselves — and the keys prepared once for the batch.
-/// One element of @p valueType per time, back to back.
+/// One element of @p valueType per time, back to back. @p holdEnd is
+/// `ClipWindow`'s: a global loop's own timeline, its last frame included.
 std::vector<u8> SampleSubTrackBatch(const Clip& clip, const SubTrack& track,
                                     geom::AttrType valueType, std::span<const i32> timesMs,
-                                    std::span<const u8> fallback, bool held = false);
+                                    std::span<const u8> fallback, bool held = false,
+                                    bool holdEnd = false);
 
 Vector3f SampleVec3(const Clip& clip, const SubTrack& track, const SampleWindow& window,
                     const Vector3f& fallback);

@@ -252,7 +252,8 @@ std::vector<Animator::Layer> Animator::layersFor(const Mix& mix) const {
             // A concurrent global starts at init and so sits ahead of every
             // host play of its priority; one that is not is the model's own
             // animation and sits behind them (`ClipPlaylist`).
-            Entry entry{c, ClipWindow(clip, 0, static_cast<i32>(worldMs)), 1.0f};
+            Entry entry{c, ClipWindow(clip, 0, static_cast<i32>(worldMs), mix.holdLoopEnds),
+                        1.0f};
             (Concurrent(clip) ? overlays : under).push_back(entry);
         }
     }
