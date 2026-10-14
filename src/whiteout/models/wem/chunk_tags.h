@@ -285,7 +285,8 @@ struct ChunkTagTraits<Matrix44f> {
 /// force field's own frame; v16 the node's profile mask; v17 a World of
 /// Warcraft particle's model and trail model (GPID / RPID); v18 Warcraft III's
 /// `Wc3FaceFx` kind (MDX `FAFX`); v19 an event's category and code, read out
-/// of the name an older chunk kept them in.
+/// of the name an older chunk kept them in; v20 the display record
+/// (EDIT_MODE_RIGGING_DESIGN.md §2); v21 a helper's gizmo in it (§8).
 /// An older chunk holds none of them, so it reads unchanged. A NEWER one does
 /// not: records sit back to back, and nothing checks a chunk's version against
 /// this, so a build older than a field misreads every node after the first
@@ -293,7 +294,7 @@ struct ChunkTagTraits<Matrix44f> {
 template <>
 struct ChunkTagTraits<Node> {
     static constexpr u32 value = kTag("NODE");
-    static constexpr u32 max_version = 19;
+    static constexpr u32 max_version = 21;
     static constexpr bool is_trivial = false;
 };
 

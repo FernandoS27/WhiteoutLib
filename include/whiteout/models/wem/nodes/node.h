@@ -49,6 +49,7 @@
 #include "../skinning/setup.h"
 #include "../profile.h"
 #include "../rigging/record.h"
+#include "display.h"
 #include "emitters.h"
 #include "fields.h"
 
@@ -647,6 +648,12 @@ struct Node {
     /// (`NodePresenceIn`). Every profile on a `NODE` written before v16.
     ProfileMask profiles = kAllProfiles;
 
+    /// How an editor draws the node (EDIT_MODE_RIGGING_DESIGN.md §2): its
+    /// shape, size, colour and link. Read off the skin when a model enters
+    /// the editor, empty on a `NODE` written before v20. No file carries any
+    /// of it.
+    NodeDisplay display;
+
     /**
      * @brief Transient removal marker (§10.6).
      *
@@ -772,6 +779,9 @@ struct Node {
         v.since(10).field("rig", rig);
         // v16: the profile mask, the same way: an older chunk reads every bit.
         v.since(16).field("profiles", profiles);
+        // v20: the display record, the same way: an older chunk reads one
+        // never set, which the editor fills on entry.
+        v.since(20).field("display", display);
 
         if constexpr (V::kReading) {
             if (auto* bone = std::get_if<BonePayload>(&payload)) {
