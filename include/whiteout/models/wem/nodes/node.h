@@ -206,6 +206,14 @@ constexpr bool IsEmitterKind(NodeKind kind) {
     return IsParticleEmitterKind(kind) || IsRibbonEmitterKind(kind);
 }
 
+/// A kind whose bind frame (`BPOS`) the game never reads: every numbered kind
+/// but a bone and a helper (EDIT_MODE_BIND_ORIENTATION_DESIGN.md §8.1). Its
+/// orientation reaches an `.mdx` as keys, and only so.
+constexpr bool IsBindFrameCarrier(NodeKind kind) {
+    return kind != NodeKind::Bone && kind != NodeKind::Helper && kind != NodeKind::Camera &&
+           kind != NodeKind::Wc3FaceFx;
+}
+
 /// A kind whose payload is a game's whole emitter system — the gated seven.
 constexpr bool IsEmitterSystemKind(NodeKind kind) {
     return HasNodeKind(kWc3NodeKinds | kSc2NodeKinds | kWowNodeKinds, kind);

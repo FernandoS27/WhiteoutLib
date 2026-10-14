@@ -1892,6 +1892,8 @@ EMSCRIPTEN_BINDINGS(wem) {
         .function("conformPoses", &whiteout::models::wem::NodeTree::conformPoses)
         .function("inverseBindMatrix", &whiteout::models::wem::NodeTree::inverseBindMatrix)
         .function("inferredRig", &whiteout::models::wem::NodeTree::inferredRig)
+        .function("bindFrameEntry", &whiteout::models::wem::NodeTree::bindFrameEntry)
+        .function("bindFrame", &whiteout::models::wem::NodeTree::bindFrame)
     ;
 
     class_<whiteout::models::wem::MaterialChannelRef>("WemMaterialChannelRef")
@@ -2005,6 +2007,11 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("softChannels", &whiteout::models::wem::PhysicsBake::softChannels)
         .property("softSource", &whiteout::models::wem::PhysicsBake::softSource)
         .property("madeSettings", &whiteout::models::wem::PhysicsBake::madeSettings)
+        .property("stretchChannels", &whiteout::models::wem::PhysicsBake::stretchChannels)
+        .property("stretchCounts", &whiteout::models::wem::PhysicsBake::stretchCounts)
+        .property("stretchTimes", &whiteout::models::wem::PhysicsBake::stretchTimes)
+        .property("stretchOutside", &whiteout::models::wem::PhysicsBake::stretchOutside)
+        .property("stretchInside", &whiteout::models::wem::PhysicsBake::stretchInside)
     ;
 
     class_<whiteout::models::wem::ClipPhysics>("WemClipPhysics")
@@ -2719,6 +2726,11 @@ EMSCRIPTEN_BINDINGS(wem) {
     register_optional<whiteout::models::wem::Document>();
 
     // ── Vector containers ────────────────────────────────────────────────
+    register_vector<whiteout::u64>("VectorU64")
+        .function("view",
+                  optional_override([](std::vector<whiteout::u64>& self) {
+                      return val(typed_memory_view(self.size(), self.data()));
+                  }));
     register_vector<whiteout::models::wem::AnimChannel>("VectorWemAnimChannel");
     register_vector<whiteout::models::wem::AnimSet>("VectorWemAnimSet");
     register_vector<whiteout::models::wem::AnimTag>("VectorWemAnimTag");

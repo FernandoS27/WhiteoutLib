@@ -337,6 +337,12 @@ struct SkeletonRetargetResult {
 
 /// Restates every model's rig in @p to's convention. A model already in it is
 /// left alone, and that is a success with one `Info`.
+/// Whether a model of @p document is a pivot rig whose bind frames
+/// (`kBindFrameRow`) turn any node: an orientation only an explicit bind can
+/// carry into a format that reads one, which is what FBX and glTF export
+/// restate it as (EDIT_MODE_BIND_ORIENTATION_PLAN.md BO8).
+bool HoldsBindTurns(const Document& document);
+
 SkeletonRetargetResult RetargetSkeleton(Document& document, ProfileId to,
                                         const SkeletonRetargetOptions& options = {});
 

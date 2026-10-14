@@ -327,6 +327,86 @@ Matrix44f NodeTree::inverseBindMatrix(u32 node) const {
     return Matrix44f::inverse(ToMatrix(worldBind(node)));
 }
 
+u32 NodeTree::bindFrameEntry() const {
+    for (u32 i = 0; i < poseSchema.size(); ++i) {
+        if (poseSchema[i].name == kBindFrameRow) {
+            return i;
+        }
+    }
+    return kInvalidIndex;
+}
+
+Matrix44f NodeTree::bindFrame(u32 node) const {
+    if (node >= size()) {
+        return Matrix44f::identity();
+    }
+    if (rig != RigConvention::PivotRelative) {
+        return ToMatrix(worldBind(node));
+    }
+    const Node& current = nodes[node];
+    const u32 entry = bindFrameEntry();
+    Matrix44f frame = entry < current.poses.size() ? poseMatrixOf(node, entry)
+                                                   : Matrix44f::identity();
+    frame.data[3][0] = current.pivot.x;
+    frame.data[3][1] = current.pivot.y;
+    frame.data[3][2] = current.pivot.z;
+    return frame;
+}
+
+void SeedBindFrames(NodeTree& tree) {
+    if (tree.rig != RigConvention::PivotRelative) {
+        return;
+    }
+    if (tree.bindFrameEntry() == kInvalidIndex) {
+        tree.poseSchema.push_back(
+            PoseSchema{kBindFrameRow, PoseSpace::Model, false, PoseStorage::Trs});
+    }
+    // Fills only what is missing, from `worldBind` for a model-space row: the
+    // frame a node with no value was read as.
+    tree.conformPoses();
+}
+
+void FoldPivotRotations(NodeTree& tree) {
+    if (tree.rig != RigConvention::PivotRelative) {
+        return;
+    }
+    const Quaternion identity{0, 0, 0, 1};
+    // A node's own turn moves only what hangs under it, so the nodes to solve
+    // again are those with a turned ancestor; parents precede children.
+    std::vector<u8> under(tree.size(), 0);
+    bool any = false;
+    for (u32 i = 0; i < tree.size(); ++i) {
+        const u32 parent = tree.nodes[i].parent;
+        if (parent < i) {
+            under[i] = under[parent] != 0 || tree.nodes[parent].local.rotation != identity;
+        }
+        any = any || tree.nodes[i].local.rotation != identity;
+    }
+    if (!any) {
+        return;
+    }
+    for (Node& node : tree.nodes) {
+        node.local.rotation = identity;
+    }
+    for (u32 i = 0; i < tree.size(); ++i) {
+        Node& node = tree.nodes[i];
+        if (under[i] == 0 || hasFlag(node.flags, NodeFlags::ModelSpace)) {
+            continue;
+        }
+        Transform parent = tree.worldBind(node.parent);
+        if (hasFlag(node.flags, NodeFlags::DontInheritTranslation)) {
+            parent.translation = Vector3f{0, 0, 0};
+        }
+        if (hasFlag(node.flags, NodeFlags::DontInheritScale)) {
+            parent.scale = Vector3f{1, 1, 1};
+        }
+        // Every rotation above is the identity now, so the inverse is exact
+        // under a per-axis scale too.
+        parent.rotation = identity;
+        node.local.translation = TransformPoint(Inverse(parent), node.pivot);
+    }
+}
+
 void NodeTree::conformPoses() {
     const std::size_t wanted = poseSchema.size();
     for (u32 i = 0; i < size(); ++i) {

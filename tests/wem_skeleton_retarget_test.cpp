@@ -581,3 +581,72 @@ TEST_CASE("skeleton retarget writes new tracks that carry no TCB") {
         }
     }
 }
+
+TEST_CASE("a pivot rig's bind frames become its explicit binds and come back", "[bind]") {
+    // EDIT_MODE_BIND_ORIENTATION_PLAN.md BO8: a pivot rig keeps its bones'
+    // orientation only in its bind frames (`BPOS`); an explicit bind binds at
+    // them, and the way back writes them again.
+    Document before = MakePivotRig();
+    NodeTree& tree = before.models[0].nodes;
+    SeedBindFrames(tree);
+    const u32 row = tree.bindFrameEntry();
+    REQUIRE(row != kInvalidIndex);
+    const Quaternion turns[4] = {Quaternion::from_axis_angle(Vector3f{0, 0, 1}, 0.6f),
+                                 Quaternion::from_axis_angle(Vector3f{1, 1, 0}.normalized(), -0.9f),
+                                 Quaternion::from_axis_angle(Vector3f{0, 1, 0}, 1.3f),
+                                 Quaternion::from_axis_angle(Vector3f{1, 0, 0}, 0.4f)};
+    for (u32 n = 0; n < 4; ++n) {
+        tree.nodes[n].poses[row].rotation = turns[n];
+    }
+    // A per-axis scale under a turn has no TRS (and is said so): uniform here.
+    // And the swing's key as a unit quaternion, which the fixture's rounded
+    // one is not to 5e-5: a turn carries the rounding into a different axis.
+    const AnimChannel* scale = FindChannel(before.models[0].animChannels, 3, Channel::Scale);
+    const AnimChannel* swing = FindChannel(before.models[0].animChannels, 1, Channel::Rotation);
+    for (SubTrack& track : before.clips[0].containers[0].subTracks) {
+        f32* values = reinterpret_cast<f32*>(track.values.data());
+        if (scale != nullptr && track.channel == scale->id) {
+            values[4] = values[5] = values[3];
+        }
+        if (swing != nullptr && track.channel == swing->id) {
+            const f32 length = std::sqrt(values[4] * values[4] + values[7] * values[7]);
+            values[4] /= length;
+            values[7] /= length;
+        }
+    }
+    REQUIRE(HoldsBindTurns(before));
+
+    Document explicitRig = before;
+    REQUIRE(RetargetSkeleton(explicitRig, ProfileId::Sc2).ok);
+    CHECK_FALSE(HoldsBindTurns(explicitRig));
+    // The skin is what it was, and each bind is the frame: `B = R . T(p)`.
+    CHECK(WorstSkinError(before, explicitRig, kProbeTimes) < 1e-5f);
+    const NodeTree& bound = explicitRig.models[0].nodes;
+    for (u32 n = 0; n < 4; ++n) {
+        Transform frame;
+        frame.translation = tree.nodes[n].pivot;
+        frame.rotation = turns[n];
+        const Matrix44f want = ToMatrix(frame);
+        const Matrix44f got = ToMatrix(bound.worldBind(n));
+        for (int r = 0; r < 4; ++r) {
+            for (int c = 0; c < 3; ++c) {
+                CHECK(got.data[r][c] == Catch::Approx(want.data[r][c]).margin(1e-5f));
+            }
+        }
+    }
+
+    // Back to a pivot rig: the frames are the rows again.
+    Document round = explicitRig;
+    REQUIRE(RetargetSkeleton(round, ProfileId::Wc3Classic).ok);
+    CHECK(WorstSkinError(before, round, kProbeTimes) < 1e-3f);
+    const NodeTree& again = round.models[0].nodes;
+    const u32 back = again.bindFrameEntry();
+    REQUIRE(back != kInvalidIndex);
+    for (u32 n = 0; n < 4; ++n) {
+        INFO(n);
+        const Quaternion q = again.nodes[n].poses[back].rotation;
+        const f32 dot = q.x * turns[n].x + q.y * turns[n].y + q.z * turns[n].z + q.w * turns[n].w;
+        CHECK(std::fabs(dot) > 0.9999f);
+        CHECK(Distance(again.nodes[n].poses[back].translation, tree.nodes[n].pivot) < 1e-4f);
+    }
+}

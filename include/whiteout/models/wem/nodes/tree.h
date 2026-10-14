@@ -253,6 +253,20 @@ public:
     /// an inverse or matrix pose entry exists only to carry an explicit bind.
     RigConvention inferredRig() const;
 
+    /// Which schema entry is the bind frame row (`kBindFrameRow`), or
+    /// `kInvalidIndex` when the tree carries none.
+    u32 bindFrameEntry() const;
+
+    /**
+     * @brief @p node's bind frame: the axes its joint is oriented to, standing
+     *        at its rest (EDIT_MODE_BIND_ORIENTATION_DESIGN.md §4).
+     *
+     * On a pivot rig, the row's 3x3 as stored (a uniform scale kept) at the
+     * pivot, and the identity at the pivot where the node has no value; on an
+     * explicit bind, `worldBind`, whose rotation the rest already holds.
+     */
+    Matrix44f bindFrame(u32 node) const;
+
 private:
     void buildHierarchy() const;
 
@@ -266,6 +280,22 @@ private:
     mutable std::vector<std::vector<u32>> byKind_;
     mutable bool hierarchyValid_ = false;
 };
+
+/// The bind frame row's name in `NodeTree::poseSchema`: MDX's `BPOS`, one
+/// model-space frame per node, a `Trs` that is neither inverse nor the
+/// authoritative bind (EDIT_MODE_TPOSE_PLAN.md P2).
+inline constexpr const char* kBindFrameRow = "mdxBindPose";
+
+/// Gives a pivot rig the bind frame row, and every node with no value in it
+/// the frame `poseMatrixOf` answers for one today, `worldBind`, so a rest turn
+/// held in `local.rotation` is kept. A no-op on an explicit bind.
+void SeedBindFrames(NodeTree& tree);
+
+/// Takes a pivot rig's rest turns out of `local.rotation`, which no pivot rig
+/// writer reads, leaving every pivot where it stands: a node under a turned
+/// one has its local translation solved again under the parent the identity
+/// leaves it. Scale is left as it is. Seed first, or the turn is lost.
+void FoldPivotRotations(NodeTree& tree);
 
 } // namespace wem
 } // namespace models

@@ -184,9 +184,12 @@ Matrix44f columnTranslation(const Vector3f& t) {
 }
 
 Matrix44f columnRotation(const Quaternion& q) {
-    // `Matrix44f::rotation` composes row-vector; its transpose is the
-    // column-vector matrix glTF composes with.
-    return Matrix44f::rotation(q).transpose();
+    // `Matrix44f::rotation` is already the column-vector matrix glTF composes
+    // with (node.h's `ToMatrix` transposes it for WEM's row vectors). Every
+    // rest the sweeps exported was unturned until a pivot rig's bind frames
+    // crossed (EDIT_MODE_BIND_ORIENTATION_PLAN.md BO8), so the transpose that
+    // stood here inverted nothing anyone saw.
+    return Matrix44f::rotation(q);
 }
 
 Matrix44f columnScale(const Vector3f& s) {
@@ -418,6 +421,18 @@ TEST_CASE("gltf export writes a skin whose binds invert", "[wem][gltf]") {
 
     // Gate 4, from the written bytes: IBM × world bind == identity.
     CHECK(skinIdentityFailures(asset, 1e-4f) == 0);
+
+    // And with a turned rest, which is what the transpose trap turns on.
+    Document turned = makeFixture();
+    turned.models[0].nodes.nodes[0].local.rotation =
+        Quaternion::from_axis_angle(Vector3f{1, 2, 3}.normalized(), 0.7f);
+    turned.models[0].nodes.nodes[1].local.rotation =
+        Quaternion::from_axis_angle(Vector3f{0, 0, 1}, -1.1f);
+    Result<gltf::Asset> rotated = converter.toGltf(turned, ProfileId::Generic);
+    REQUIRE(rotated.ok());
+    gltf::ParseOutcome back = gltf::Parser::FromBytes(gltf::Writer::ToGlb(*rotated));
+    REQUIRE(back.ok());
+    CHECK(skinIdentityFailures(*back.asset, 1e-4f) == 0);
 }
 
 TEST_CASE("gltf export crosses the animation clock-for-clock", "[wem][gltf]") {

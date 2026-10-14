@@ -20,6 +20,7 @@
  */
 
 #include "whiteout/models/wem/fbx_converter.h"
+#include "whiteout/models/wem/retarget.h"
 
 #include <algorithm>
 #include <array>
@@ -1302,6 +1303,18 @@ bool EmbedFbxMedia(fbx::File& file, std::string_view name, std::span<const u8> b
 
 Result<FbxExport> FbxConverter::toFbx(const Document& document, ProfileId profile,
                                       const FbxWriteOptions& options) const {
+    // A pivot rig's bones are oriented only in their bind frames, which an FBX
+    // keeps in its rests and its clusters' binds: written from the tree
+    // restated as an explicit bind, which is exact (BO8).
+    if (HoldsBindTurns(document)) {
+        Document restated = document;
+        const SkeletonRetargetResult rig = RetargetSkeleton(restated, ProfileId::Generic);
+        Result<FbxExport> written = toFbx(restated, profile, options);
+        for (const Diagnostic& said : rig.diagnostics.bySeverity(Severity::Warning)) {
+            written.diagnostics.add(said.severity, said.code, said.message, said.where, said.profile);
+        }
+        return written;
+    }
     Result<FbxExport> result;
     // Any carried profile, as glTF: FBX serves `Generic` only on the way in.
     if (!document.carries(profile)) {

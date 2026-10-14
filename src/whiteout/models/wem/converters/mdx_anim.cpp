@@ -1005,6 +1005,7 @@ public:
         }
         emitStandingVisibilityGates();
         emitStandingUvTransforms();
+        emitBindOrientations();
         emitEvents();
     }
 
@@ -2381,6 +2382,179 @@ private:
                                    key, key + perKey);
         }
         track.keyCount = track.timestamps.size();
+    }
+
+    // ---- Bind orientations (EDIT_MODE_BIND_ORIENTATION_DESIGN.md §3) ----------
+
+    /// A record the game reads no `BPOS` frame of (§8.1): an attachment, an
+    /// emitter, a light, an event or a collision shape.
+    static bool CarrierSlot(ExportContext::Slot slot) {
+        switch (slot) {
+        case ExportContext::Slot::Light:
+        case ExportContext::Slot::Attachment:
+        case ExportContext::Slot::ParticleEmitter:
+        case ExportContext::Slot::ParticleEmitter2:
+        case ExportContext::Slot::RibbonEmitter:
+        case ExportContext::Slot::CornEmitter:
+        case ExportContext::Slot::EventObject:
+        case ExportContext::Slot::CollisionShape:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    template <class F>
+    void forEachRecord(F&& visit) {
+        const auto all = [&](auto& records) {
+            for (auto& record : records) {
+                visit(record.node);
+            }
+        };
+        all(out_.bones);
+        all(out_.helpers);
+        all(out_.lights);
+        all(out_.attachments);
+        all(out_.particleEmitters);
+        all(out_.particleEmitters2);
+        all(out_.ribbonEmitters);
+        all(out_.cornEmitters);
+        all(out_.eventObjects);
+        all(out_.collisionShapes);
+    }
+
+    Vector3f pivotOf(const mdx::Node& record) const {
+        return record.objectId < out_.pivotPoints.size() ? out_.pivotPoints[record.objectId]
+                                                         : Vector3f{0, 0, 0};
+    }
+
+    /// @p map applied to every key and tangent of a rotation track: a key's
+    /// tangents are quaternions a fixed turn on either side carries as it
+    /// carries the key, since a slerp is. A window the animations' clock keys
+    /// nothing in plays the identity, so it holds the identity mapped; a node
+    /// with no track holds it on a global sequence.
+    template <class Map>
+    void turnTrack(mdx::Track<Quaternion>& track, Map&& map) {
+        const Quaternion hold = map(Quaternion{0, 0, 0, 1});
+        if (!track.isUsed) {
+            holdOn(track, heldClock(), hold);
+            return;
+        }
+        for (Quaternion& q : track.keys_data) {
+            q = map(q);
+        }
+        holdWhereUnkeyed(track, hold, true);
+    }
+
+    /// `t -> t.T + offset` on a translation track, `T` the turn by @p turn:
+    /// keys and Bezier control points take all of it, a Hermite derivative
+    /// only the turn. Unkeyed, the offset is held.
+    void moveTrack(mdx::Track<Vector3f>& track, const Quaternion& turn, const Vector3f& offset) {
+        if (!track.isUsed) {
+            if (offset.length() > 1e-6f) {
+                holdOn(track, heldClock(), offset);
+            }
+            return;
+        }
+        const bool smooth = track.interpolationType == mdx::InterpolationType::Hermite ||
+                            track.interpolationType == mdx::InterpolationType::Bezier;
+        const bool derivative = track.interpolationType == mdx::InterpolationType::Hermite;
+        for (std::size_t k = 0; k < track.keys_data.size(); ++k) {
+            Vector3f& v = track.keys_data[k];
+            v = turn.rotate_vector(v);
+            if (!(smooth && derivative && k % 3 != 0)) {
+                v = v + offset;
+            }
+        }
+        holdWhereUnkeyed(track, offset, false);
+    }
+
+    /// A carrier's bind turn `O`, as keys: in a rotation key `M(r)` it is
+    /// applied first, `M(r') = O . M(r)`, which for `M(q) = R(q)^T` (the
+    /// matrix `ComposeNode` turns by, and WEM's `ToMatrix`) is `r' = r * o`.
+    /// Each node hung under it keeps its frame: writing `R` for the turn by
+    /// `O^-1` about the carrier's pivot, its rotation keys take `O^-1` on the
+    /// other side, `o^-1 * r`, and its translation keys `t -> t.O^-1 +
+    /// (p_d.R - p_d)`. Exact; a child that is a carrier too composes its own
+    /// turn on the far side, and the two commute.
+    void emitBindOrientations() {
+        const NodeTree& tree = model_.nodes;
+        if (tree.rig != RigConvention::PivotRelative || tree.bindFrameEntry() == kInvalidIndex) {
+            return;
+        }
+        constexpr u32 kBillboards = static_cast<u32>(mdx::Node::NodeFlag::Billboarded) |
+                                    static_cast<u32>(mdx::Node::NodeFlag::BillboardedLockX) |
+                                    static_cast<u32>(mdx::Node::NodeFlag::BillboardedLockY) |
+                                    static_cast<u32>(mdx::Node::NodeFlag::BillboardedLockZ) |
+                                    static_cast<u32>(mdx::Node::NodeFlag::CameraAnchored);
+        for (u32 c = 0; c < tree.size() && c < context_.nodeSlots.size(); ++c) {
+            if (!CarrierSlot(context_.nodeSlots[c].slot)) {
+                continue;
+            }
+            mdx::Node* record = nodeRecord(c);
+            if (record == nullptr) {
+                continue;
+            }
+            const Matrix44f frame = tree.bindFrame(c);
+            bool turned = false;
+            for (u32 r = 0; r < 3; ++r) {
+                for (u32 k = 0; k < 3; ++k) {
+                    turned = turned || std::fabs(frame.data[r][k] - (r == k ? 1.0f : 0.0f)) > 1e-6f;
+                }
+            }
+            if (!turned) {
+                continue;
+            }
+            const ElementRef where(ElementKind::Node, c);
+            if ((static_cast<u32>(record->flags) & kBillboards) != 0) {
+                diagnostics_.warn(DiagCode::FeatureDropped,
+                                  "the game turns a billboarded node to the camera; its bind turn "
+                                  "is not written",
+                                  where, profile_);
+                continue;
+            }
+            const Quaternion o = FromMatrix(frame).rotation;
+            const Quaternion back = o.inverse();
+            turnTrack(record->rotationTracks, [&](const Quaternion& r) { return r * o; });
+
+            const mdx::Track<Vector3f>& scaling = record->scalingTracks;
+            const bool smoothScale = scaling.interpolationType == mdx::InterpolationType::Hermite ||
+                                     scaling.interpolationType == mdx::InterpolationType::Bezier;
+            for (std::size_t k = 0; scaling.isUsed && k < scaling.keys_data.size(); ++k) {
+                const Vector3f& s = scaling.keys_data[k];
+                if ((!smoothScale || k % 3 == 0) &&
+                    (std::fabs(s.x - s.y) > 1e-4f || std::fabs(s.y - s.z) > 1e-4f)) {
+                    diagnostics_.warn(DiagCode::AnimTrackApproximated,
+                                      "a bind turn under a non-uniform scale track is played "
+                                      "after the scale",
+                                      where, profile_);
+                    break;
+                }
+            }
+
+            const Vector3f carrierPivot = pivotOf(*record);
+            const u32 id = record->objectId;
+            forEachRecord([&](mdx::Node& child) {
+                if (child.parentId != id || &child == record) {
+                    return;
+                }
+                const u32 flags = static_cast<u32>(child.flags);
+                if ((flags & static_cast<u32>(mdx::Node::NodeFlag::DontInheritTranslation)) != 0) {
+                    diagnostics_.warn(DiagCode::AnimTrackApproximated,
+                                      "a node that does not inherit its parent's translation "
+                                      "keeps no exact place under a turned carrier",
+                                      where, profile_);
+                    return;
+                }
+                // A node that does not inherit the turn has nothing to undo
+                // in its own; its place still rides the turned frame.
+                if ((flags & static_cast<u32>(mdx::Node::NodeFlag::DontInheritRotation)) == 0) {
+                    turnTrack(child.rotationTracks, [&](const Quaternion& r) { return back * r; });
+                }
+                const Vector3f delta = pivotOf(child) - carrierPivot;
+                moveTrack(child.translationTracks, back, back.rotate_vector(delta) - delta);
+            });
+        }
     }
 
     void emitStandingUvTransforms() {

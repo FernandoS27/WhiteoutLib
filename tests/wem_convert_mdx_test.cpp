@@ -11,6 +11,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
+
 #include <whiteout/models/mdx/parser.h>
 #include <whiteout/models/wem/converters.h>
 #include <whiteout/models/wem/geometry/builder.h>
@@ -31,6 +33,22 @@ mdx::Node makeNode(const std::string& name, u32 objectId, u32 parentId) {
     node.objectId = objectId;
     node.parentId = parentId;
     return node;
+}
+
+/// A model that names a FaceFX actor carries `BPOS`, one frame per object id
+/// and then one per camera: the game reads a bound node's frame when the face
+/// plays, and a missing chunk is a null read there
+/// (EDIT_MODE_BIND_ORIENTATION_DESIGN.md §8.2). Made up, they are the
+/// identity at each node's pivot.
+void CheckIdentityBindFrames(const mdx::Model& model) {
+    REQUIRE(model.bindPoses.size() == model.pivotPoints.size() + model.cameras.size());
+    for (std::size_t i = 0; i < model.bindPoses.size(); ++i) {
+        const Vector3f at = i < model.pivotPoints.size()
+                                ? model.pivotPoints[i]
+                                : model.cameras[i - model.pivotPoints.size()].position;
+        const std::array<f32, 12> expected{1, 0, 0, 0, 1, 0, 0, 0, 1, at.x, at.y, at.z};
+        CHECK(model.bindPoses[i] == expected);
+    }
 }
 
 mdx::Layer makeLayer(mdx::Layer::FilterMode mode, bool hd, u32 textureId) {
@@ -977,6 +995,10 @@ TEST_CASE("wem mdx keeps a model's FaceFX list", "[wem][convert][mdx]") {
     source.version = 1800;
     source.faceEffects.push_back({"Node", "Units/Creeps/Assassin/Assassin.facefx"});
     source.faceEffects.push_back({"Second", ""});
+    mdx::Camera camera;
+    camera.name = "Portrait";
+    camera.position = Vector3f{120, -40, 90};
+    source.cameras.push_back(camera);
 
     const MdxConverter converter;
     Result<Document> imported = converter.fromMdx(source);
@@ -1018,12 +1040,15 @@ TEST_CASE("wem mdx keeps a model's FaceFX list", "[wem][convert][mdx]") {
         CHECK(exported->faceEffects[0].path == "Units/Creeps/Assassin/Assassin.facefx");
         CHECK(exported->faceEffects[1].name == "Second");
         CHECK(exported->faceEffects[1].path.empty());
+        // The source had no `BPOS`, so the frames are made up.
+        CheckIdentityBindFrames(*exported);
     }
 
-    // Classic's reader has no FAFX.
+    // Classic's reader has no FAFX, and so needs no frames either.
     Result<mdx::Model> classic = converter.toMdx(*reread, ProfileId::Wc3Classic, 800);
     REQUIRE(classic.ok());
     CHECK(classic->faceEffects.empty());
+    CHECK(classic->bindPoses.empty());
 }
 
 TEST_CASE("wem mdx still writes the FaceFX list a document older than the kind holds",
@@ -1051,6 +1076,7 @@ TEST_CASE("wem mdx still writes the FaceFX list a document older than the kind h
     REQUIRE(exported->faceEffects.size() == 1u);
     CHECK(exported->faceEffects[0].name == "Node");
     CHECK(exported->faceEffects[0].path == "Units/Human/Footman/Footman.facefx");
+    CheckIdentityBindFrames(*exported);
 
     // A node, once the model has one, is the list: the bag is not read again.
     Node face;

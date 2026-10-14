@@ -55,6 +55,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::f32>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::string>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u8>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u32>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u64>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u16>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Vector2f>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Vector3f>);
@@ -169,26 +170,6 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 1 of bind_wem(), which calls the parts in order.
 void bind_wem_1(py::module_& m) {
-    py::class_<whiteout::models::wem::Wc3ParticleEmitter1Payload>(m, "Wc3ParticleEmitter1Payload", R"doc(`PREM`: every particle is a copy of `spawnModel`, flung from the node.)doc")
-        .def(py::init<>())
-        .def_readwrite("emission_rate", &whiteout::models::wem::Wc3ParticleEmitter1Payload::emissionRate, R"doc(Particles a second.)doc")
-        .def_readwrite("gravity", &whiteout::models::wem::Wc3ParticleEmitter1Payload::gravity)
-        .def_readwrite("longitude", &whiteout::models::wem::Wc3ParticleEmitter1Payload::longitude, R"doc(Radians.)doc")
-        .def_readwrite("latitude", &whiteout::models::wem::Wc3ParticleEmitter1Payload::latitude, R"doc(Radians.)doc")
-        .def_readwrite("lifespan", &whiteout::models::wem::Wc3ParticleEmitter1Payload::lifespan, R"doc(Seconds.)doc")
-        .def_readwrite("speed", &whiteout::models::wem::Wc3ParticleEmitter1Payload::speed, R"doc(`initialVelocity`.)doc")
-        .def_readwrite("spawn_model", &whiteout::models::wem::Wc3ParticleEmitter1Payload::spawnModel, R"doc(The model each particle is, by path.)doc")
-        .def_readwrite("uses_mdl", &whiteout::models::wem::Wc3ParticleEmitter1Payload::usesMdl, R"doc(Node flag 0x8000.)doc")
-        .def_readwrite("uses_tga", &whiteout::models::wem::Wc3ParticleEmitter1Payload::usesTga, R"doc(Node flag 0x10000.)doc")
-    ;
-
-    py::class_<whiteout::models::wem::Wc3ParticleSegment>(m, "Wc3ParticleSegment", R"doc(A particle's look at one of its three lifetime points: birth, `time`, death.)doc")
-        .def(py::init<>())
-        .def_readwrite("color", &whiteout::models::wem::Wc3ParticleSegment::color, R"doc(RGB, red first — the static-colour order.)doc")
-        .def_readwrite("alpha", &whiteout::models::wem::Wc3ParticleSegment::alpha)
-        .def_readwrite("scaling", &whiteout::models::wem::Wc3ParticleSegment::scaling, R"doc(The quad's size, in model units.)doc")
-    ;
-
     py::class_<whiteout::models::wem::Wc3ParticleInterval>(m, "Wc3ParticleInterval", R"doc(A flipbook run: cells `start..end`, `repeat` times over the span.)doc")
         .def(py::init<>())
         .def_readwrite("start", &whiteout::models::wem::Wc3ParticleInterval::start)
@@ -672,7 +653,7 @@ In the file it is a model-level entry — a name and the actor's path, with no t
 
     py::class_<whiteout::models::wem::EventPayload>(m, "EventPayload")
         .def(py::init<>())
-        .def_readwrite("id", &whiteout::models::wem::EventPayload::id)
+        .def_readwrite("id", &whiteout::models::wem::EventPayload::id, R"doc(World of Warcraft's event identifier. From a Warcraft III file, the global sequence it named, as read: the one written is the global loop the event's times are keyed in.)doc")
         .def_readwrite("category", &whiteout::models::wem::EventPayload::category, R"doc(What the event does and which row of that table it names (`NODE` v19), so the node's name is free to say what the event is FOR. With `None` the name is the whole event, as an imported object's was before v19.)doc")
         .def_readwrite("code", &whiteout::models::wem::EventPayload::code)
     ;
@@ -755,6 +736,10 @@ A `PoseStorage::Matrix` entry answers with the *decomposition* of the stored mat
 
 The one question every exporter and every evaluator actually has, and the only place `rig` needs to be read to answer it: an `ExplicitBind` tree answers with the shipped `IREF`/`tTransform4`, and a `PivotRelative` one with the inverse of the composed rest chain — identity in the animation's own terms, but the pivot chain is what `local` holds there, so the inverse of `worldBind` is what makes the two agree at the bind pose.)doc")
         .def("inferred_rig", &whiteout::models::wem::NodeTree::inferredRig, R"doc(The convention `poseSchema` implies, for a tree that never recorded one: an inverse or matrix pose entry exists only to carry an explicit bind.)doc")
+        .def("bind_frame_entry", &whiteout::models::wem::NodeTree::bindFrameEntry, R"doc(Which schema entry is the bind frame row (`kBindFrameRow`), or `kInvalidIndex` when the tree carries none.)doc")
+        .def("bind_frame", &whiteout::models::wem::NodeTree::bindFrame, py::arg("node"), R"doc(@p node's bind frame: the axes its joint is oriented to, standing at its rest (EDIT_MODE_BIND_ORIENTATION_DESIGN.md §4).
+
+On a pivot rig, the row's 3x3 as stored (a uniform scale kept) at the pivot, and the identity at the pivot where the node has no value; on an explicit bind, `worldBind`, whose rotation the rest already holds.)doc")
     ;
 
     py::class_<whiteout::models::wem::MaterialChannelRef>(m, "MaterialChannelRef", R"doc(Which material a channel drives, along the profile and look axes.
@@ -874,7 +859,7 @@ Every clip also plays the "default" set — whatever no listed set claims — in
         .def_readwrite("cloth_ids", &whiteout::models::wem::PhysicsBake::clothIds, R"doc(Each cloth the bake carried (EDIT_MODE_PHYSICS_CLOTH_DESIGN.md §10.2): its id, how far its bones missed it (0 in full detail), and its size.)doc")
         .def_readwrite("cloth_fits", &whiteout::models::wem::PhysicsBake::clothFits)
         .def_readwrite("cloth_sizes", &whiteout::models::wem::PhysicsBake::clothSizes)
-        .def_readwrite("soft_ids", &whiteout::models::wem::PhysicsBake::softIds, R"doc(Each soft body the bake carried (EDIT_MODE_SOFTBODY_DESIGN.md §11.2): its id, how many of its lumps got keys and how many keys, how far its points are from where a key every step had them (model units), and *follows within* over the clip (§6.6).)doc")
+        .def_readwrite("soft_ids", &whiteout::models::wem::PhysicsBake::softIds, R"doc(Each soft body the bake carried (EDIT_MODE_SOFTBODY_DESIGN.md §11.2): its id, how many of its lumps got keys and how many keys, how far its points are from where a key every step had them (model units), and *follows within* over the clip (§6.6): the mean miss over the largest move. (The worst point's, in a file baked before the mean was what is said.))doc")
         .def_readwrite("soft_lumps", &whiteout::models::wem::PhysicsBake::softLumps)
         .def_readwrite("soft_keys", &whiteout::models::wem::PhysicsBake::softKeys)
         .def_readwrite("soft_within", &whiteout::models::wem::PhysicsBake::softWithin)
@@ -884,6 +869,11 @@ Every clip also plays the "default" set — whatever no listed set claims — in
         .def_readwrite("soft_channels", &whiteout::models::wem::PhysicsBake::softChannels, R"doc(The node channels the soft bodies keyed in place, for their bones used as they are: what `source` holds of them is the pose the soft bodies were stepped on (`SoftSourcePose`).)doc")
         .def_readwrite("soft_source", &whiteout::models::wem::PhysicsBake::softSource, R"doc(For one of those that a rigid body's bake had keyed first: the keys it left, which the soft bodies were stepped on and wrote over. `source` holds what the clip had before either.)doc")
         .def_readwrite("made_settings", &whiteout::models::wem::PhysicsBake::madeSettings, R"doc(The bake added the clip's settings to hold this record: the clip was not set up (`IsSetUp`), and an Unbake leaves it so.)doc")
+        .def_readwrite("stretch_channels", &whiteout::models::wem::PhysicsBake::stretchChannels, R"doc(Where the bake keyed a node's own channels and a stage's weight (§8.4): for each of `stretchChannels`, `stretchCounts` stretches of the clip, each three of `stretchTimes`: where its keys begin, where the simulation takes over, where they end. A key outside them is the clip's own animation, which a Rebake and an Unbake keep as it stands. `stretchOutside` is each channel's such keys as the bake left them, hashed (0 for a channel listed with no stretch: its keys were taken away, and the track is the clip's own), and `stretchInside` what it wrote, hashed: 0 in a record made before the stretches were kept.)doc")
+        .def_readwrite("stretch_counts", &whiteout::models::wem::PhysicsBake::stretchCounts)
+        .def_readwrite("stretch_times", &whiteout::models::wem::PhysicsBake::stretchTimes)
+        .def_readwrite("stretch_outside", &whiteout::models::wem::PhysicsBake::stretchOutside)
+        .def_readwrite("stretch_inside", &whiteout::models::wem::PhysicsBake::stretchInside)
     ;
 
     py::class_<whiteout::models::wem::ClipPhysics>(m, "ClipPhysics", R"doc(One clip's bake settings (§9.2): a clip is *set up* once it has them.)doc")
@@ -1147,6 +1137,26 @@ D3's `.ans` is the shape this exists for: 30 tag maps in one asset, one core and
         .def_readwrite("colliders", &whiteout::models::wem::SoftBody::colliders, R"doc(`ClothCollider::id`s.)doc")
         .def_readwrite("drips", &whiteout::models::wem::SoftBody::drips, R"doc(The mesh Drip added, or none.)doc")
         .def_readwrite("next_effect", &whiteout::models::wem::SoftBody::nextEffect, R"doc(The next effect id: never reused.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::PhysicsMaterial>(m, "PhysicsMaterial")
+        .def(py::init<>())
+        .def_readwrite("density", &whiteout::models::wem::PhysicsMaterial::density, R"doc(The StarCraft II upgrade's default.)doc")
+        .def_readwrite("friction", &whiteout::models::wem::PhysicsMaterial::friction)
+        .def_readwrite("restitution", &whiteout::models::wem::PhysicsMaterial::restitution)
+    ;
+
+    py::class_<whiteout::models::wem::PhysicsShape>(m, "PhysicsShape")
+        .def(py::init<>())
+        .def_readwrite("kind", &whiteout::models::wem::PhysicsShape::kind)
+        .def_readwrite("half_extents", &whiteout::models::wem::PhysicsShape::halfExtents, R"doc(Box.)doc")
+        .def_readwrite("radius", &whiteout::models::wem::PhysicsShape::radius, R"doc(Sphere, capsule, cylinder.)doc")
+        .def_readwrite("length", &whiteout::models::wem::PhysicsShape::length, R"doc(Along own +Z, centred: a cylinder's whole, and a capsule's between its cap centres when it does not state them in `points`.)doc")
+        .def_readwrite("points", &whiteout::models::wem::PhysicsShape::points, R"doc(Own frame. A convex hull's vertex set; a capsule's two cap centres when the source states its ends (World of Warcraft, Diablo III), which a centred frame cannot hold to the bit.)doc")
+        .def_readwrite("vertices", &whiteout::models::wem::PhysicsShape::vertices, R"doc(Triangle mesh, own frame.)doc")
+        .def_readwrite("triangles", &whiteout::models::wem::PhysicsShape::triangles, R"doc(Triangle mesh, three per face.)doc")
+        .def_readwrite("material", &whiteout::models::wem::PhysicsShape::material)
+        .def_readwrite("game_flags", &whiteout::models::wem::PhysicsShape::gameFlags, R"doc(Domino's fixture `gameFlags`, for a game's contact callbacks. World of Warcraft authors it (0 in every shipped shape).)doc")
     ;
 
 }

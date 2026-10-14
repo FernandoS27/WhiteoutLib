@@ -42,6 +42,7 @@
 #include "whiteout/models/wem/meshes/remove.h"
 #include "whiteout/models/wem/nodes/presence.h"
 #include "whiteout/models/wem/nodes/remove.h"
+#include "whiteout/models/wem/optimize.h"
 #include "whiteout/models/wem/skinning/quantize.h"
 
 #include "../materials/mdx_core.h"
@@ -513,9 +514,6 @@ void FillPayload(const mdx::Model& source, const PendingNode& pending, Node& nod
     }
 }
 
-/// `BPOS`'s name in `NodeTree::poseSchema`.
-constexpr const char* kMdxBindPose = "mdxBindPose";
-
 /// A `BPOS` frame is twelve floats: a **row-major 3x3** and then a position,
 /// not three rows of four (EDIT_MODE_TPOSE_DESIGN.md §3.3, read off
 /// `MDL::ReadBinBindPose`, which refuses any size but 48 bytes a frame and
@@ -545,17 +543,6 @@ std::array<f32, 12> MatrixToBindFrame(const Matrix44f& matrix) {
     frame[10] = matrix.data[3][1];
     frame[11] = matrix.data[3][2];
     return frame;
-}
-
-/// Which schema entry holds `BPOS`, or `kInvalidIndex` when the tree came from
-/// a file that had none.
-u32 MdxBindPoseEntry(const NodeTree& tree) {
-    for (u32 i = 0; i < tree.poseSchema.size(); ++i) {
-        if (tree.poseSchema[i].name == kMdxBindPose) {
-            return i;
-        }
-    }
-    return kInvalidIndex;
 }
 
 /// The node tree, plus the `objectId` -> node index map every other importer
@@ -616,7 +603,7 @@ NodeImport ImportNodes(const mdx::Model& source) {
     const bool bindPose = !source.bindPoses.empty();
     if (bindPose) {
         out.tree.poseSchema.push_back(
-            PoseSchema{kMdxBindPose, PoseSpace::Model, false, PoseStorage::Trs});
+            PoseSchema{kBindFrameRow, PoseSpace::Model, false, PoseStorage::Trs});
     }
 
     for (std::size_t i = 0; i < pending.size(); ++i) {
@@ -666,8 +653,18 @@ NodeImport ImportNodes(const mdx::Model& source) {
                      node.pivot.z - parentPivot.z};
         node.poses.push_back(node.local);
         if (bindPose && mdxNode.objectId < source.bindPoses.size()) {
-            node.poses.push_back(
-                FromMatrix(BindFrameToMatrix(source.bindPoses[mdxNode.objectId])));
+            const std::array<f32, 12>& frame = source.bindPoses[mdxNode.objectId];
+            if (IsBindFrameCarrier(node.kind)) {
+                // The game never reads a carrier's frame (an attachment, an
+                // emitter, a light, an event, a collision shape:
+                // EDIT_MODE_BIND_ORIENTATION_DESIGN.md §8.1), so its turn
+                // drew nothing and is not kept; the position bytes are.
+                Transform place;
+                place.translation = Vector3f{frame[9], frame[10], frame[11]};
+                node.poses.push_back(place);
+            } else {
+                node.poses.push_back(FromMatrix(BindFrameToMatrix(frame)));
+            }
         }
         out.tree.add(std::move(node));
     }
@@ -2699,12 +2696,29 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
     // `BPOS` goes back the way it came in (`ImportNodes`): one frame per object
     // id, then one per camera. A tree that never carried the entry writes none,
     // and neither does a file older than the chunk.
-    const u32 bindEntry = MdxBindPoseEntry(model.nodes);
+    const u32 bindEntry = model.nodes.bindFrameEntry();
     const bool writeBindPoses = bindEntry != kInvalidIndex && targetVersion >= 900;
     if (writeBindPoses) {
         const std::array<f32, 12> identity{1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0};
         out.bindPoses.assign(nextObjectId + writtenCameras, identity);
     }
+    // A node with a value writes it as stored. One with none (made after the
+    // file was read) writes `ReadBinBindPose`'s own fill, the identity, at its
+    // place @p at: a rest turn composed into `worldBind` is nothing the game
+    // was given. A carrier's turn is its keys' (`mdx_anim`'s bind
+    // orientations), and its frame the identity where the value stands.
+    const auto bindFrameOf = [&](u32 node, const Vector3f& at, bool carrier) {
+        std::array<f32, 12> frame{1, 0, 0, 0, 1, 0, 0, 0, 1, at.x, at.y, at.z};
+        if (bindEntry < model.nodes.nodes[node].poses.size()) {
+            const std::array<f32, 12> stored =
+                MatrixToBindFrame(model.nodes.poseMatrixOf(node, bindEntry));
+            if (!carrier) {
+                return stored;
+            }
+            std::copy(stored.begin() + 9, stored.end(), frame.begin() + 9);
+        }
+        return frame;
+    };
 
     const auto buildNode = [&](std::size_t index) {
         const Node& node = model.nodes.nodes[index];
@@ -2759,7 +2773,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
             }
             if (writeBindPoses) {
                 out.bindPoses[nextObjectId + out.cameras.size()] =
-                    MatrixToBindFrame(model.nodes.poseMatrixOf(static_cast<u32>(i), bindEntry));
+                    bindFrameOf(static_cast<u32>(i), camera.position, false);
             }
             claim(i, mdx_anim::ExportContext::Slot::Camera, out.cameras.size());
             out.cameras.push_back(std::move(camera));
@@ -2786,10 +2800,6 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
             model.nodes.rig == RigConvention::PivotRelative
                 ? node.pivot
                 : model.nodes.worldBind(static_cast<u32>(i)).translation;
-        if (writeBindPoses) {
-            out.bindPoses[objectIdOf[i]] =
-                MatrixToBindFrame(model.nodes.poseMatrixOf(static_cast<u32>(i), bindEntry));
-        }
         switch (WrittenKind(kind, profile)) {
         case NodeKind::Bone: {
             mdx::Bone bone;
@@ -3084,6 +3094,66 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
             break;
         }
         }
+        // After the record, whose kind decides whether the frame is read: a
+        // bone's and a helper's are; a carrier's turn goes to its keys.
+        if (writeBindPoses) {
+            const mdx_anim::ExportContext::Slot slot = animContext.nodeSlots[i].slot;
+            out.bindPoses[objectIdOf[i]] =
+                bindFrameOf(static_cast<u32>(i), out.pivotPoints[objectIdOf[i]],
+                            slot != mdx_anim::ExportContext::Slot::Bone &&
+                                slot != mdx_anim::ExportContext::Slot::Helper);
+        }
+    }
+
+    // A bone the game aims looks along its bind +X (the turret turns about its
+    // +Z): its frame's turn moves where it looks in the game, and Classic,
+    // which writes no frames, aims model +X whatever the editor shows
+    // (EDIT_MODE_BIND_ORIENTATION_DESIGN.md §4.1).
+    if (bindEntry != kInvalidIndex) {
+        for (u32 i = 0; i < model.nodes.size(); ++i) {
+            const mdx_anim::ExportContext::Slot slot = animContext.nodeSlots[i].slot;
+            const Node& node = model.nodes.nodes[i];
+            if ((slot != mdx_anim::ExportContext::Slot::Bone &&
+                 slot != mdx_anim::ExportContext::Slot::Helper) ||
+                bindEntry >= node.poses.size() || !IsWarcraftLookAtBoneName(node.name)) {
+                continue;
+            }
+            const Quaternion turn = FromMatrix(model.nodes.poseMatrixOf(i, bindEntry)).rotation;
+            const f32 angle = 2.0f * std::acos(std::min(1.0f, std::fabs(turn.w)));
+            if (angle <= 1.0f * 3.14159265f / 180.0f) {
+                continue;
+            }
+            const ElementRef where(ElementKind::Node, i);
+            if (targetVersion < 900) {
+                diagnostics.warn(DiagCode::FeatureDropped,
+                                 "'" + node.name +
+                                     "' is turned, and Classic aims model +X: the turn is lost",
+                                 where, profile);
+            } else {
+                diagnostics.info(DiagCode::Unspecified,
+                                 "'" + node.name + "' is turned: the game aims this bone's +X",
+                                 where, profile);
+            }
+        }
+    }
+
+    // A model that names a FaceFX actor carries `BPOS` whatever its tree held:
+    // the game reads each bound node's frame when the face plays, and with no
+    // chunk that read is a null pointer (EDIT_MODE_BIND_ORIENTATION_DESIGN.md
+    // §8.2). `ReadBinBindPose`'s own fill, the identity, at each pivot, in the
+    // order and length the row path writes.
+    if (writeFaceFx && !out.faceEffects.empty() && out.bindPoses.empty()) {
+        out.bindPoses.reserve(out.pivotPoints.size() + out.cameras.size());
+        for (const Vector3f& at : out.pivotPoints) {
+            out.bindPoses.push_back({1, 0, 0, 0, 1, 0, 0, 0, 1, at.x, at.y, at.z});
+        }
+        for (const mdx::Camera& camera : out.cameras) {
+            const Vector3f& at = camera.position;
+            out.bindPoses.push_back({1, 0, 0, 0, 1, 0, 0, 0, 1, at.x, at.y, at.z});
+        }
+        diagnostics.info(DiagCode::Unspecified,
+                         "identity bind frames written: the model names a FaceFX actor and had none",
+                         ElementRef(ElementKind::Document, 0), profile);
     }
 
     // --- materials ----------------------------------------------------------

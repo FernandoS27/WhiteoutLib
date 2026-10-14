@@ -28,6 +28,7 @@
 #include <whiteout/models/fbx/scene.h>
 #include <whiteout/models/wem/anim/pose.h>
 #include <whiteout/models/wem/converters.h>
+#include <whiteout/models/wem/retarget.h>
 #include <whiteout/models/wem/fbx_converter.h>
 #include <whiteout/models/wem/geometry/builder.h>
 #include <whiteout/models/wem/skinning/deform.h>
@@ -664,6 +665,91 @@ TEST_CASE("fbx export corpus sweep: mdx", "[fbx][wem][corpus]") {
     std::cout << "[fbx<-mdx] exported " << exported << " file(s), " << failing.size() << " failing\n";
     CHECK(exported > 0);
     CHECK(failing.empty());
+}
+
+TEST_CASE("fbx export turns a pivot rig's bones by their bind frames", "[fbx][wem][corpus][bind]") {
+    // EDIT_MODE_BIND_ORIENTATION_PLAN.md BO8: a Warcraft III bone is oriented
+    // only in its bind frame (`BPOS`); an FBX keeps it in its bones' rests and
+    // binds, and the skin plays as it did. The HD footman rig, as the corpus
+    // keeps it.
+    fs::path rig;
+    for (const fs::path& file : test::gather("WEM_MDX_CORPUS_DIR", ".mdx", {"MDL", "Wc3Mdx"})) {
+        if (file.filename() == "footman_two_handed_sword.mdx") {
+            rig = file;
+        }
+    }
+    if (rig.empty()) {
+        SKIP("no HD footman rig in the corpus");
+    }
+    const std::vector<u8> bytes = test::readCorpusFile(rig);
+    const MdxConverter mdx;
+    Result<Document> source = mdx.importFromBytes(std::span<const u8>(bytes.data(), bytes.size()));
+    REQUIRE(source.ok());
+    REQUIRE(HoldsBindTurns(*source));
+    const FbxConverter converter;
+    Result<std::vector<u8>> written = converter.exportToBytes(*source, source->defaultProfile);
+    REQUIRE(written.ok());
+    Result<Document> back = converter.importFromBytes(*written);
+    REQUIRE(back.ok());
+
+    const Model& before = source->models[0];
+    const Model& after = back->models[0];
+    const u32 row = before.nodes.bindFrameEntry();
+    REQUIRE(row != kInvalidIndex);
+    u32 bones = 0, aimed = 0;
+    for (u32 n = 0; n < before.nodes.size(); ++n) {
+        const Node& node = before.nodes.nodes[n];
+        if (node.kind != NodeKind::Bone || row >= node.poses.size()) {
+            continue;
+        }
+        const u32 b = NodeNamed(after, node.name);
+        REQUIRE(b != kInvalidNode);
+        ++bones;
+        const Quaternion want = FromMatrix(before.nodes.poseMatrixOf(n, row)).rotation.normalized();
+        const Quaternion got =
+            FromMatrix(Matrix44f::inverse(after.nodes.inverseBindMatrix(b))).rotation.normalized();
+        const f32 dot = want.x * got.x + want.y * got.y + want.z * got.z + want.w * got.w;
+        aimed += std::fabs(dot) >= 0.999f;
+    }
+    std::cout << "[fbx bind] footman rig: " << bones << " bones, " << aimed << " bound at their BPOS turn\n";
+    REQUIRE(bones > 20);
+    CHECK(aimed == bones);
+
+    // And the skin plays as the file did, sampled through two animations.
+    f32 worst = 0.0f;
+    u32 compared = 0;
+    for (u32 c = 0; c < source->clips.size() && compared < 2; ++c) {
+        u32 match = kInvalidIndex;
+        for (u32 d = 0; d < back->clips.size(); ++d) {
+            if (back->clips[d].name == source->clips[c].name) {
+                match = d;
+            }
+        }
+        if (match == kInvalidIndex || source->clips[c].duration <= 0.0f) {
+            continue;
+        }
+        ++compared;
+        const ClipPose was(*source, 0, c);
+        const ClipPose now(*back, 0, match);
+        for (const f32 share : {0.0f, 0.35f, 0.7f}) {
+            const f32 t = share * source->clips[c].duration;
+            for (u32 n = 0; n < before.nodes.size(); ++n) {
+                if (before.nodes.nodes[n].kind != NodeKind::Bone) {
+                    continue;
+                }
+                const u32 b = NodeNamed(after, before.nodes.nodes[n].name);
+                const Matrix44f a = was.skinning(n, t);
+                const Matrix44f z = now.skinning(b, t);
+                const Vector3f pivot = before.nodes.nodes[n].pivot;
+                for (const Vector3f probe : {pivot, pivot + Vector3f{10, 0, 0}, pivot + Vector3f{0, 0, 10}}) {
+                    worst = std::max(worst, (transform_point(probe, a) - transform_point(probe, z)).length());
+                }
+            }
+        }
+    }
+    std::cout << "[fbx bind] skin through " << compared << " animations: worst " << worst << " units\n";
+    CHECK(compared > 0);
+    CHECK(worst < 0.05f);
 }
 
 // The export half of the referee: each model WEM_FBX_EXPORT_IN lists (`;`

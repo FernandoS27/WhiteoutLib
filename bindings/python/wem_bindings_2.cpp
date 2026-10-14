@@ -55,6 +55,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::f32>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::string>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u8>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u32>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u64>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u16>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Vector2f>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Vector3f>);
@@ -169,26 +170,6 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 2 of bind_wem(), which calls the parts in order.
 void bind_wem_2(py::module_& m) {
-    py::class_<whiteout::models::wem::PhysicsMaterial>(m, "PhysicsMaterial")
-        .def(py::init<>())
-        .def_readwrite("density", &whiteout::models::wem::PhysicsMaterial::density, R"doc(The StarCraft II upgrade's default.)doc")
-        .def_readwrite("friction", &whiteout::models::wem::PhysicsMaterial::friction)
-        .def_readwrite("restitution", &whiteout::models::wem::PhysicsMaterial::restitution)
-    ;
-
-    py::class_<whiteout::models::wem::PhysicsShape>(m, "PhysicsShape")
-        .def(py::init<>())
-        .def_readwrite("kind", &whiteout::models::wem::PhysicsShape::kind)
-        .def_readwrite("half_extents", &whiteout::models::wem::PhysicsShape::halfExtents, R"doc(Box.)doc")
-        .def_readwrite("radius", &whiteout::models::wem::PhysicsShape::radius, R"doc(Sphere, capsule, cylinder.)doc")
-        .def_readwrite("length", &whiteout::models::wem::PhysicsShape::length, R"doc(Along own +Z, centred: a cylinder's whole, and a capsule's between its cap centres when it does not state them in `points`.)doc")
-        .def_readwrite("points", &whiteout::models::wem::PhysicsShape::points, R"doc(Own frame. A convex hull's vertex set; a capsule's two cap centres when the source states its ends (World of Warcraft, Diablo III), which a centred frame cannot hold to the bit.)doc")
-        .def_readwrite("vertices", &whiteout::models::wem::PhysicsShape::vertices, R"doc(Triangle mesh, own frame.)doc")
-        .def_readwrite("triangles", &whiteout::models::wem::PhysicsShape::triangles, R"doc(Triangle mesh, three per face.)doc")
-        .def_readwrite("material", &whiteout::models::wem::PhysicsShape::material)
-        .def_readwrite("game_flags", &whiteout::models::wem::PhysicsShape::gameFlags, R"doc(Domino's fixture `gameFlags`, for a game's contact callbacks. World of Warcraft authors it (0 in every shipped shape).)doc")
-    ;
-
     py::class_<whiteout::models::wem::Sc2BodyExtension>(m, "Sc2BodyExtension", R"doc(What only StarCraft II means by a body.)doc")
         .def(py::init<>())
         .def_readwrite("physics_material", &whiteout::models::wem::Sc2BodyExtension::physicsMaterial, R"doc(`physicsType`: a material id game data may override.)doc")
@@ -661,6 +642,7 @@ Colours are RGBA in 0..1, the channel convention; a `u16` squirt count widens to
         .def_readwrite("null_value", &whiteout::models::wem::Sc2Property<whiteout::Vector2f>::nullValue)
     ;
 
+    py::bind_vector<std::vector<whiteout::u64>>(m, "VectorU64", py::buffer_protocol());
     py::bind_vector<std::vector<whiteout::models::wem::AnimChannel>>(m, "VectorWemAnimChannel");
     py::bind_vector<std::vector<whiteout::models::wem::AnimSet>>(m, "VectorWemAnimSet");
     py::bind_vector<std::vector<whiteout::models::wem::AnimTag>>(m, "VectorWemAnimTag");

@@ -30,6 +30,7 @@
  */
 
 #include "whiteout/models/wem/converters.h"
+#include "whiteout/models/wem/retarget.h"
 
 #include <algorithm>
 #include <array>
@@ -1185,6 +1186,18 @@ Result<Document> GltfConverter::fromGltf(const gltf::Asset& source) const {
 
 Result<gltf::Asset> GltfConverter::toGltf(const Document& document, ProfileId profile,
                                           const GltfWriteOptions& options) const {
+    // A pivot rig's bones are oriented only in their bind frames, which glTF
+    // keeps in its rests and inverse binds: written from the tree restated as
+    // an explicit bind, which is exact (EDIT_MODE_BIND_ORIENTATION_PLAN.md BO8).
+    if (HoldsBindTurns(document)) {
+        Document restated = document;
+        const SkeletonRetargetResult rig = RetargetSkeleton(restated, ProfileId::Generic);
+        Result<gltf::Asset> written = toGltf(restated, profile, options);
+        for (const Diagnostic& said : rig.diagnostics.bySeverity(Severity::Warning)) {
+            written.diagnostics.add(said.severity, said.code, said.message, said.where, said.profile);
+        }
+        return written;
+    }
     Result<gltf::Asset> result;
     // Not `checkExportProfile`: that also requires @p profile to be one this
     // converter *serves*, and glTF serves only `Generic` on the import side.

@@ -55,6 +55,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::f32>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::string>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u8>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u32>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u64>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u16>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Vector2f>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Vector3f>);
@@ -1031,7 +1032,7 @@ Stored, because a conversion rewrites the keys for another game and the rule has
         .value("COUNT", whiteout::models::wem::SoftLumpKind::Count)
     ;
 
-    py::enum_<whiteout::models::wem::SoftAlong>(m, "SoftAlong", R"doc(The direction an effect moves a point in (§8.1): along the surface's normal, or away from the bones, which is every lump scaling about its pivot.)doc")
+    py::enum_<whiteout::models::wem::SoftAlong>(m, "SoftAlong", R"doc(The direction an effect moves a point in (§8.1): along the surface's normal, or away from the bones, which is every lump scaling about its pivot. (Under a Ripple a lump of the surface moves out with the wave instead, §8.9.))doc")
         .value("SURFACE", whiteout::models::wem::SoftAlong::Surface)
         .value("BONES", whiteout::models::wem::SoftAlong::Bones)
         .value("COUNT", whiteout::models::wem::SoftAlong::Count)
@@ -1601,6 +1602,26 @@ Deterministic and idempotent. Fails only on a non-manifold face set, which `Mesh
         .def("face_sections", py::overload_cast<>(&whiteout::models::wem::Mesh::faceSections, py::const_))
         .def("faces_of_section", &whiteout::models::wem::Mesh::facesOfSection, py::arg("section"), R"doc(Faces belonging to @p section, in face order. A bucket pass at the point of use, which is what replaces the old sorted-range invariant.)doc")
         .def("recompute_bounds", &whiteout::models::wem::Mesh::recomputeBounds, R"doc(Recomputes `bounds` and every section's `bounds` from `position`.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::Wc3ParticleEmitter1Payload>(m, "Wc3ParticleEmitter1Payload", R"doc(`PREM`: every particle is a copy of `spawnModel`, flung from the node.)doc")
+        .def(py::init<>())
+        .def_readwrite("emission_rate", &whiteout::models::wem::Wc3ParticleEmitter1Payload::emissionRate, R"doc(Particles a second.)doc")
+        .def_readwrite("gravity", &whiteout::models::wem::Wc3ParticleEmitter1Payload::gravity)
+        .def_readwrite("longitude", &whiteout::models::wem::Wc3ParticleEmitter1Payload::longitude, R"doc(Radians.)doc")
+        .def_readwrite("latitude", &whiteout::models::wem::Wc3ParticleEmitter1Payload::latitude, R"doc(Radians.)doc")
+        .def_readwrite("lifespan", &whiteout::models::wem::Wc3ParticleEmitter1Payload::lifespan, R"doc(Seconds.)doc")
+        .def_readwrite("speed", &whiteout::models::wem::Wc3ParticleEmitter1Payload::speed, R"doc(`initialVelocity`.)doc")
+        .def_readwrite("spawn_model", &whiteout::models::wem::Wc3ParticleEmitter1Payload::spawnModel, R"doc(The model each particle is, by path.)doc")
+        .def_readwrite("uses_mdl", &whiteout::models::wem::Wc3ParticleEmitter1Payload::usesMdl, R"doc(Node flag 0x8000.)doc")
+        .def_readwrite("uses_tga", &whiteout::models::wem::Wc3ParticleEmitter1Payload::usesTga, R"doc(Node flag 0x10000.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::Wc3ParticleSegment>(m, "Wc3ParticleSegment", R"doc(A particle's look at one of its three lifetime points: birth, `time`, death.)doc")
+        .def(py::init<>())
+        .def_readwrite("color", &whiteout::models::wem::Wc3ParticleSegment::color, R"doc(RGB, red first — the static-colour order.)doc")
+        .def_readwrite("alpha", &whiteout::models::wem::Wc3ParticleSegment::alpha)
+        .def_readwrite("scaling", &whiteout::models::wem::Wc3ParticleSegment::scaling, R"doc(The quad's size, in model units.)doc")
     ;
 
     bind_wem_1(m);

@@ -118,6 +118,13 @@ OptimizeReport OptimizeDocument(Document& document, const OptimizeOptions& optio
 /// token of the name). Such a node is never reduced.
 bool IsWarcraftEngineBoneName(const std::string& name);
 
+/// Whether @p name is a bone the game aims (EDIT_MODE_BIND_ORIENTATION_DESIGN.md
+/// §4.1): `bone_head` or `bone_chest`, which `SetUnitLookAt` names, or
+/// `bone_turret`, which the attack turns. The game points its bind +X at the
+/// target, the turret turning about bind +Z, so its `BPOS` turn changes where
+/// it looks.
+bool IsWarcraftLookAtBoneName(const std::string& name);
+
 } // namespace wem
 } // namespace models
 } // namespace whiteout

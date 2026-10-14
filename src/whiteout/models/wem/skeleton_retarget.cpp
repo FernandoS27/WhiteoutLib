@@ -1010,6 +1010,23 @@ void ToPivotRelative(Model& model, std::vector<Clip*>& clips, const ElementRef& 
         node.poses.assign(1, node.local);
         node.poseMatrices.clear();
     }
+    // The binds just removed held each bone's orientation, which a pivot rig
+    // keeps only as its bind frame (`kBindFrameRow`, `BPOS`): the turn of
+    // `inverse(IBM)` at the bone's place. Anything else has none
+    // (EDIT_MODE_BIND_ORIENTATION_PLAN.md BO8).
+    model.nodes.poseSchema.push_back(PoseSchema{kBindFrameRow, PoseSpace::Model, false, PoseStorage::Trs});
+    for (Node& node : model.nodes.nodes) {
+        Transform frame;
+        frame.translation = node.pivot;
+        node.poses.push_back(frame);
+    }
+    for (u32 n = 0; n < sourceCount; ++n) {
+        Transform& frame = model.nodes.nodes[remap[n]].poses.back();
+        frame.translation = plan[n].pivot;
+        if (model.nodes.nodes[remap[n]].kind == NodeKind::Bone) {
+            frame.rotation = FromMatrix(PolarRotation(Linear(plan[n].inverseConjugate))).rotation;
+        }
+    }
 
     if (result.shearedNodes != 0) {
         if (split) {
@@ -1051,11 +1068,40 @@ void ToPivotRelative(Model& model, std::vector<Clip*>& clips, const ElementRef& 
 }
 
 /// Restates one model as an explicit-bind rig. Exact, and needs no extra nodes:
-/// `B = T(rest position)` leaves the linear part alone, so no shear can appear
-/// and the whole operation is a constant added to every translation key.
+/// `B = R . T(rest position)`, `R` the turn of the node's bind frame
+/// (`kBindFrameRow`) and the identity without one, holds no shear, so the whole
+/// operation is a fixed turn and offset on every key: a translation key
+/// `t -> (t + d) . R(parent)^-1`, a rotation key `r -> R(parent)^-1 . r . R`
+/// in matrix order. With no row it is the offset alone.
 void ToExplicitBind(Model& model, std::vector<Clip*>& clips, const ElementRef& where,
                     SkeletonRetargetResult& result) {
     const u32 count = model.nodes.size();
+
+    // A pivot rig keeps its orientation in its bind frames and nowhere else, so
+    // the explicit bind stands each node at its frame: the world the rig poses
+    // is then the frame the editor draws, and a format that reads binds keeps
+    // it (EDIT_MODE_BIND_ORIENTATION_PLAN.md BO8).
+    const u32 frameRow = model.nodes.bindFrameEntry();
+    std::vector<Quaternion> turn(count, Quaternion{0, 0, 0, 1});
+    bool turned = false;
+    for (u32 n = 0; n < count; ++n) {
+        if (frameRow < model.nodes.nodes[n].poses.size()) {
+            const Quaternion q = FromMatrix(model.nodes.poseMatrixOf(n, frameRow)).rotation.normalized();
+            if (std::fabs(q.x) + std::fabs(q.y) + std::fabs(q.z) > 1e-7f) {
+                turn[n] = q;
+                turned = true;
+            }
+        }
+    }
+    // What rides a node's frame in its own (the physics) stays put in model
+    // space, as `ToPivotRelative` keeps it.
+    std::vector<Matrix44f> bindBefore;
+    if (turned && !model.physics.empty()) {
+        for (u32 n = 0; n < count; ++n) {
+            bindBefore.push_back(ToMatrix(model.nodes.worldBind(n)));
+        }
+    }
+    u32 squashed = 0;
 
     // `pivot`, not `worldBind` and not the `local` chain: the pivot IS the point
     // the composition turns about, so it is the only value `B = T(position)` can
@@ -1087,6 +1133,21 @@ void ToExplicitBind(Model& model, std::vector<Clip*>& clips, const ElementRef& w
                 : Vector3f{0, 0, 0};
         const Vector3f delta{position[n].x - parent.x, position[n].y - parent.y,
                              position[n].z - parent.z};
+        // The parent's turn, which a node that composes onto it takes back.
+        const bool underTurn = !DetachedFromParent(node) && node.parent != kInvalidNode &&
+                               node.parent < count &&
+                               !hasFlag(node.flags, NodeFlags::DontInheritRotation);
+        const Quaternion back = underTurn ? turn[node.parent].inverse() : Quaternion{0, 0, 0, 1};
+        const auto moveKey = [&](f32* v, bool value) {
+            Vector3f t{v[0], v[1], v[2]};
+            if (value) {
+                t = t + delta;
+            }
+            t = back.rotate_vector(t);
+            v[0] = t.x;
+            v[1] = t.y;
+            v[2] = t.z;
+        };
 
         AnimChannel* channel = nullptr;
         for (AnimChannel& entry : model.animChannels.channels) {
@@ -1100,10 +1161,7 @@ void ToExplicitBind(Model& model, std::vector<Clip*>& clips, const ElementRef& w
             const u32 id = channel->id;
             // The rest an un-keyed container contributes moves with the keys.
             if (channel->hasInitValue()) {
-                f32* init = reinterpret_cast<f32*>(channel->initValue.data());
-                init[0] += delta.x;
-                init[1] += delta.y;
-                init[2] += delta.z;
+                moveKey(reinterpret_cast<f32*>(channel->initValue.data()), true);
             }
             for (Clip* clip : clips) {
                 for (SubTrackContainer& container : clip->containers) {
@@ -1113,16 +1171,14 @@ void ToExplicitBind(Model& model, std::vector<Clip*>& clips, const ElementRef& w
                         }
                         f32* values = reinterpret_cast<f32*>(track.values.data());
                         const std::size_t floats = track.values.size() / sizeof(f32);
-                        // The VALUE of each key only. A `Hermite` key is
-                        // `{value, inTan, outTan}` in the same block, and a
-                        // tangent is a derivative — shifting it bends the curve
-                        // instead of moving it, which is what put a WC3 bone 444
-                        // units out.
+                        // The VALUE of each key only is shifted. A `Hermite`
+                        // key is `{value, inTan, outTan}` in the same block,
+                        // and a tangent is a derivative — shifting it bends the
+                        // curve instead of moving it, which is what put a WC3
+                        // bone 444 units out. The turn takes all three.
                         const std::size_t stride = ValuesPerKey(track.interp) * 3;
-                        for (std::size_t v = 0; v + 2 < floats; v += stride) {
-                            values[v + 0] += delta.x;
-                            values[v + 1] += delta.y;
-                            values[v + 2] += delta.z;
+                        for (std::size_t v = 0; v + 2 < floats; v += 3) {
+                            moveKey(values + v, v % stride == 0);
                         }
                         ++result.keysOffset;
                     }
@@ -1130,11 +1186,74 @@ void ToExplicitBind(Model& model, std::vector<Clip*>& clips, const ElementRef& w
             }
         }
 
-        // The rest is the pivot chain, which is what `local` already held; a
-        // rotation or scale left there was never part of the pivot composition
-        // and does not survive into a convention that reads it.
+        // A rotation key is the whole local now: the node's turn first, the
+        // parent's taken back after, `back * r * turn` for WEM's quaternions
+        // (`ToMatrix(a * b) = ToMatrix(b) . ToMatrix(a)`). A key's tangents are
+        // quaternions the fixed turns carry as they carry the key.
+        if (turned) {
+            const Quaternion own = turn[n];
+            const auto turnKey = [&](f32* v) {
+                const Quaternion q = back * Quaternion{v[0], v[1], v[2], v[3]} * own;
+                v[0] = q.x;
+                v[1] = q.y;
+                v[2] = q.z;
+                v[3] = q.w;
+            };
+            if (AnimChannel* rotation = const_cast<AnimChannel*>(
+                    FindNodeChannel(model.animChannels, n, Channel::Rotation));
+                rotation != nullptr && (rotation->valueType == geom::AttrType::Quat ||
+                                        rotation->valueType == geom::AttrType::F32x4)) {
+                const u32 id = rotation->id;
+                if (rotation->hasInitValue()) {
+                    turnKey(reinterpret_cast<f32*>(rotation->initValue.data()));
+                }
+                for (Clip* clip : clips) {
+                    for (SubTrackContainer& container : clip->containers) {
+                        for (SubTrack& track : container.subTracks) {
+                            if (track.channel != id) {
+                                continue;
+                            }
+                            f32* values = reinterpret_cast<f32*>(track.values.data());
+                            const std::size_t floats = track.values.size() / sizeof(f32);
+                            for (std::size_t v = 0; v + 3 < floats; v += 4) {
+                                turnKey(values + v);
+                            }
+                        }
+                    }
+                }
+            }
+            // A turn under a per-axis scale is a turn after it, which a TRS
+            // under the turn cannot hold.
+            const AnimChannel* scale = FindNodeChannel(model.animChannels, n, Channel::Scale);
+            bool uneven = false;
+            for (Clip* clip : clips) {
+                for (const SubTrackContainer& container : clip->containers) {
+                    for (const SubTrack& track : container.subTracks) {
+                        if (scale == nullptr || track.channel != scale->id ||
+                            scale->valueType != geom::AttrType::F32x3) {
+                            continue;
+                        }
+                        const f32* values = reinterpret_cast<const f32*>(track.values.data());
+                        const std::size_t floats = track.values.size() / sizeof(f32);
+                        for (std::size_t v = 0; v + 2 < floats && !uneven; v += 3) {
+                            uneven = std::fabs(values[v] - values[v + 1]) > 1e-4f ||
+                                     std::fabs(values[v + 1] - values[v + 2]) > 1e-4f;
+                        }
+                    }
+                }
+            }
+            const bool turns = std::fabs(own.x) + std::fabs(own.y) + std::fabs(own.z) > 1e-7f ||
+                               std::fabs(back.x) + std::fabs(back.y) + std::fabs(back.z) > 1e-7f;
+            squashed += uneven && turns;
+        }
+
+        // The rest is the pivot chain, which is what `local` already held, at
+        // the node's turn against its parent's; a rotation or scale left in
+        // `local` was never part of the pivot composition and does not survive
+        // into a convention that reads it.
         node.local = Transform::identity();
-        node.local.translation = delta;
+        node.local.translation = back.rotate_vector(delta);
+        node.local.rotation = (back * turn[n]).normalized();
         node.pivot = Vector3f{0, 0, 0};
     }
 
@@ -1154,10 +1273,25 @@ void ToExplicitBind(Model& model, std::vector<Clip*>& clips, const ElementRef& w
     // `.m2` event under such a bone was landing 1.4 units off.
     for (u32 n = 0; n < count; ++n) {
         Node& node = model.nodes.nodes[n];
-        Matrix44f bind = Matrix44f::identity();
-        SetTranslation(bind, Vector3f{-position[n].x, -position[n].y, -position[n].z});
+        Transform at;
+        at.translation = position[n];
+        at.rotation = turn[n];
+        const Matrix44f bind = AffineInverse(ToMatrix(at));
         node.poseMatrices.assign(1, bind);
         node.poses.assign(1, FromMatrix(bind));
+    }
+    if (!bindBefore.empty()) {
+        std::vector<Matrix44f> change(count, Matrix44f::identity());
+        for (u32 n = 0; n < count; ++n) {
+            change[n] = bindBefore[n] * AffineInverse(ToMatrix(model.nodes.worldBind(n)));
+        }
+        RebasePhysicsFrames(model.physics, change);
+    }
+    if (squashed != 0) {
+        result.diagnostics.warn(DiagCode::AnimTrackApproximated,
+                                number(squashed) +
+                                    " turned nodes key a per-axis scale; it plays after the turn",
+                                where);
     }
 
     if (suppressed != 0) {
@@ -1176,6 +1310,25 @@ void ToExplicitBind(Model& model, std::vector<Clip*>& clips, const ElementRef& w
 } // namespace
 
 // ============================================================================
+
+bool HoldsBindTurns(const Document& document) {
+    for (const Model& model : document.models) {
+        const NodeTree& tree = model.nodes;
+        const u32 row = tree.bindFrameEntry();
+        if (tree.rig != RigConvention::PivotRelative || row == kInvalidIndex) {
+            continue;
+        }
+        for (const Node& node : tree.nodes) {
+            if (row < node.poses.size()) {
+                const Quaternion& q = node.poses[row].rotation;
+                if (std::fabs(q.x) + std::fabs(q.y) + std::fabs(q.z) > 1e-7f) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
 
 SkeletonRetargetResult RetargetSkeleton(Document& document, ProfileId to,
                                         const SkeletonRetargetOptions& options) {
