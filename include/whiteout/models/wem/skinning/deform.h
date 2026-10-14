@@ -51,6 +51,12 @@ Vector3f DeformPosition(const Vector3f& rest, std::span<const geom::Influence> i
 std::vector<Vector3f> DeformMesh(const Mesh& mesh, std::span<const Matrix44f> skin,
                                  std::span<const std::vector<geom::Influence>> written = {});
 
+/// Each vertex's blended matrix, over the influences `DeformMesh` takes with no
+/// written set, rigid sections included: the identity everywhere when @p skin
+/// is empty. Its inverse brings a point the pose moved back to rest, which is
+/// how an edit made on the posed mesh lands in the document.
+std::vector<Matrix44f> VertexSkinMatrices(const Mesh& mesh, std::span<const Matrix44f> skin);
+
 /**
  * @brief Every corner normal of @p mesh, posed by @p skin, indexed like the
  *        mesh's Halfedge `normal` layer (empty when it has none).

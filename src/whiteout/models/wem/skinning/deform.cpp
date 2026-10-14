@@ -138,6 +138,19 @@ std::vector<Vector3f> DeformMesh(const Mesh& mesh, std::span<const Matrix44f> sk
     return out;
 }
 
+std::vector<Matrix44f> VertexSkinMatrices(const Mesh& mesh, std::span<const Matrix44f> skin) {
+    const std::size_t count = mesh.vertexCount();
+    std::vector<Matrix44f> out(count, Matrix44f::identity());
+    if (skin.empty()) {
+        return out;
+    }
+    VertexInfluences influences(mesh);
+    for (std::size_t v = 0; v < count; ++v) {
+        out[v] = BlendSkinMatrix(influences.of(v), skin);
+    }
+    return out;
+}
+
 namespace {
 
 /// `DeformNormals`' one body: @p influencesOf(vertex) is what each vertex binds.
