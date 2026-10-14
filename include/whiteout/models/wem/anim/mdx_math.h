@@ -126,9 +126,11 @@ inline KeyBracket FindBracket(const Time* timestamps, i32 count, i32 timeMs, i32
 // ---- The node composition ---------------------------------------------------
 
 /// The Warcraft III node flags the composition reads (`mdx::Node::NodeFlag`).
+/// 0x2 is scaling and 0x4 rotation, as the game strips them (`MatrixRemove`,
+/// 3.0) and as its own MDL writer names them (`WriteObjectHeader`).
 inline constexpr u32 kMdxDontInheritTranslation = 0x1;
-inline constexpr u32 kMdxDontInheritRotation = 0x2;
-inline constexpr u32 kMdxDontInheritScaling = 0x4;
+inline constexpr u32 kMdxDontInheritScaling = 0x2;
+inline constexpr u32 kMdxDontInheritRotation = 0x4;
 
 /// One node composed onto its parent, and the two matrices its tracks reach the
 /// world through — which differ once a don't-inherit flag strips the parent
