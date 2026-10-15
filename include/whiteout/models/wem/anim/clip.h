@@ -211,6 +211,15 @@ struct ClipEvent {
     u32 node = kInvalidNode; ///< The node it fires at, of any kind; a §10.6 referencer.
     std::string name;
     u32 value = 0;
+    // The rest of an `.m3` event key, as read (`CLEV` v2,
+    // EDIT_MODE_SC2_PROFILE_PLAN.md S1.5): what the game passes its handler
+    // beside the name. Every other source leaves them at what a shipped key
+    // that states nothing holds.
+    std::string option{};                          ///< `optionString`.
+    Matrix44f transform = Matrix44f::identity();   ///< In StarCraft II's bone frame.
+    u32 extra = 0;                                 ///< `extraParameter`.
+    u32 unknown = 0xFFFFFFFFu;                     ///< As read; -1 on every shipped key.
+    u32 rtt = 0;                                   ///< `rttChannelIndex`.
 
     template <class V>
     void reflect(V& v) {
@@ -218,6 +227,11 @@ struct ClipEvent {
         v.field("node", node);
         v.field("name", name);
         v.field("value", value);
+        v.since(2).field("option", option);
+        v.since(2).field("transform", transform);
+        v.since(2).field("extra", extra);
+        v.since(2).field("unknown", unknown);
+        v.since(2).field("rtt", rtt);
     }
 };
 
@@ -259,11 +273,16 @@ constexpr ReadRule RuleOf(Game game) {
 struct ClipTrackSet {
     u32 set = kInvalidIndex; ///< -> the clip's `Model::trackSets`.
     i32 priority = 0;        ///< The layer's STC `animPriority`.
+    /// The layer's STC `runsConcurrent`: transparent, so a channel it does not
+    /// key falls through to the layers under it. Opacity is per container,
+    /// and a container is a use. CTSU v2; a v1 use reads as transparent.
+    bool concurrent = true;
 
     template <class V>
     void reflect(V& v) {
         v.field("set", set);
         v.field("priority", priority);
+        v.since(2).field("concurrent", concurrent);
     }
 };
 
@@ -584,16 +603,20 @@ inline void SetUpClip(Clip& clip) {
  * @brief @p clip's containers as a layering format writes them: container 0
  *        split by the clip's `trackSets`, and the rest unchanged.
  *
- * Each listed set becomes a **transparent** container named after it, holding
- * container 0's sub-tracks for the set's channels, at the listed priority —
- * transparent because an opaque one would force every channel it lacks to rest
- * and override the whole body. What no listed set claims stays in container 0,
- * which keeps its name, priority and opacity: StarCraft II's "Default Track
- * Set". Sets come first, highest priority first, and a channel two of them
- * share goes to the higher; a set with nothing keyed in this clip is left out.
- * A clip listing no set comes back as it is.
+ * Each listed set becomes a container named after it, holding container 0's
+ * sub-tracks for the set's channels, at the listed priority and opacity — a
+ * use is transparent unless it says otherwise, because an opaque one forces
+ * every channel it lacks to rest and overrides the whole body. What no listed
+ * set claims stays in container 0, which keeps its name, priority and opacity:
+ * StarCraft II's "Default Track Set". Sets come first, highest priority first,
+ * and a channel two of them share goes to the higher; a set with nothing keyed
+ * in this clip is left out. A clip listing no set comes back as it is.
+ *
+ * @p remainder, when given, receives where container 0's remainder landed:
+ * after the sets and before the clip's other containers.
  */
-std::vector<SubTrackContainer> LayeredContainers(const Clip& clip, const std::vector<TrackSet>& sets);
+std::vector<SubTrackContainer> LayeredContainers(const Clip& clip, const std::vector<TrackSet>& sets,
+                                                 std::size_t* remainder = nullptr);
 
 /// The priority a use of @p set in @p clip has to be above for its layer to
 /// leave a lone play of the clip unchanged (WEM_ANIMATION_RUNTIME_DESIGN.md

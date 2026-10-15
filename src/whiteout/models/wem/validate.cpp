@@ -564,6 +564,24 @@ void checkAnimReferencers(const Document& document, Diagnostics& out) {
                 }
                 ids.push_back(source.id);
             }
+            // StarCraft II's own (EDIT_MODE_SC2_PROFILE_PLAN.md S1.4): a turret
+            // turns one bone, and a leg's chain runs down its parents.
+            if (stage.kind == StageKind::Sc2Turret && stage.driven.size() != 1) {
+                out.error(DiagCode::AnimStageInvalid,
+                          "turret '" + stage.name + "' drives " + number(stage.driven.size()) + " nodes; a turret turns one",
+                          ElementRef());
+            }
+            if (stage.kind == StageKind::Sc2LegIk) {
+                bool chained = stage.driven.size() >= 2;
+                for (std::size_t k = 1; chained && k < stage.driven.size(); ++k) {
+                    chained = stage.driven[k] < nodeCount && model.nodes.nodes[stage.driven[k]].parent == stage.driven[k - 1];
+                }
+                if (!chained) {
+                    out.error(DiagCode::AnimStageInvalid,
+                              "leg IK '" + stage.name + "' drives nodes that are not one parent chain",
+                              ElementRef());
+                }
+            }
             if (IsPhysicsStage(stage.kind)) {
                 physics = true;
             } else if (physics) {

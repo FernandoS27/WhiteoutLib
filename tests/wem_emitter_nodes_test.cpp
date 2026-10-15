@@ -451,7 +451,7 @@ u32 streamOf(const m3::Model& model, u32 animId) {
 TEST_CASE("wem emitter systems are gated by the profile registry", "[wem][node][emitter]") {
     for (u32 p = 0; p < static_cast<u32>(ProfileId::Count); ++p) {
         const ProfileId profile = static_cast<ProfileId>(p);
-        const bool warcraft = profile == ProfileId::Wc3Classic || profile == ProfileId::Wc3Reforged;
+        const bool warcraft = IsWc3(profile);
         const bool starcraft = profile == ProfileId::Sc2 || profile == ProfileId::Heroes;
         const bool wow = profile == ProfileId::Wow;
         INFO(ToString(profile));
@@ -460,13 +460,14 @@ TEST_CASE("wem emitter systems are gated by the profile registry", "[wem][node][
             INFO(ToString(kind));
             const bool expected = HasNodeKind(kSharedNodeKinds, kind) ||
                                   (warcraft && HasNodeKind(kWc3NodeKinds | kWc3FaceKinds, kind)) ||
-                                  (starcraft && HasNodeKind(kSc2NodeKinds | kSc2FieldKinds, kind)) ||
+                                  (starcraft && HasNodeKind(kSc2NodeKinds | kSc2FieldKinds | kSc2SceneKinds, kind)) ||
                                   (wow && HasNodeKind(kWowNodeKinds, kind));
             CHECK(CarriesNodeKind(profile, kind) == expected);
         }
     }
     CHECK(ProfilesCarryingNodeKind(NodeKind::Wc3ParticleEmitter2) ==
-          (ProfileBit(ProfileId::Wc3Classic) | ProfileBit(ProfileId::Wc3Reforged)));
+          (ProfileBit(ProfileId::Wc3Classic) | ProfileBit(ProfileId::Wc3Reforged) |
+           ProfileBit(ProfileId::Wc3Definitive)));
     CHECK(ProfilesCarryingNodeKind(NodeKind::Sc2RibbonEmitter) ==
           (ProfileBit(ProfileId::Sc2) | ProfileBit(ProfileId::Heroes)));
     // Generic has no exporter and no game: it carries the shared kinds alone.
@@ -475,7 +476,8 @@ TEST_CASE("wem emitter systems are gated by the profile registry", "[wem][node][
     CHECK_FALSE(IsEmitterSystemKind(NodeKind::RibbonEmitter));
     // Warcraft III's alone, and no emitter system.
     CHECK(ProfilesCarryingNodeKind(NodeKind::Wc3FaceFx) ==
-          (ProfileBit(ProfileId::Wc3Classic) | ProfileBit(ProfileId::Wc3Reforged)));
+          (ProfileBit(ProfileId::Wc3Classic) | ProfileBit(ProfileId::Wc3Reforged) |
+           ProfileBit(ProfileId::Wc3Definitive)));
     CHECK_FALSE(IsEmitterSystemKind(NodeKind::Wc3FaceFx));
     CHECK(IsRibbonEmitterKind(NodeKind::Sc2RibbonEmitter));
     CHECK(IsParticleEmitterKind(NodeKind::Wc3ParticleEmitter1));

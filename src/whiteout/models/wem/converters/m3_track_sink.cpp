@@ -503,10 +503,58 @@ void AddToContainer(m3::Model& out, u32 stcIndex, u32 animId, u32 animRef) {
     stc.animRefs.push_back(animRef);
     SortLookup(stc);
     // The state is the same id list read a second way; a container that
-    // names one keeps it in step.
-    if (stc.animationStateIndex < out.animationStates.size()) {
-        out.animationStates[stc.animationStateIndex].animIds = stc.animIds;
+    // names one keeps it in step. A shared one is this container's to change
+    // only once it is its own.
+    if (stc.animationStateIndex >= out.animationStates.size()) {
+        return;
     }
+    for (u32 other = 0; other < out.subTrackCollections.size(); ++other) {
+        if (other != stcIndex &&
+            out.subTrackCollections[other].animationStateIndex == stc.animationStateIndex) {
+            out.animationStates.push_back(out.animationStates[stc.animationStateIndex]);
+            stc.animationStateIndex = static_cast<u16>(out.animationStates.size() - 1);
+            stc.animationStateIndexCopy = stc.animationStateIndex;
+            break;
+        }
+    }
+    out.animationStates[stc.animationStateIndex].animIds = stc.animIds;
+}
+
+void ShareAnimationStates(m3::Model& out) {
+    std::vector<m3::AnimationState> shared;
+    // In the order the sequences play their containers, which is the order
+    // the shipped files number their states in.
+    std::vector<u32> order;
+    std::vector<bool> seen(out.subTrackCollections.size(), false);
+    for (const m3::AnimationGroup& group : out.animationGroups) {
+        for (const u32 index : group.subtrackIndices) {
+            if (index < seen.size() && !seen[index]) {
+                seen[index] = true;
+                order.push_back(index);
+            }
+        }
+    }
+    for (u32 index = 0; index < seen.size(); ++index) {
+        if (!seen[index]) {
+            order.push_back(index);
+        }
+    }
+    for (const u32 index : order) {
+        m3::SubTrackContainer& stc = out.subTrackCollections[index];
+        u32 state = 0;
+        while (state < shared.size() && shared[state].animIds != stc.animIds) {
+            ++state;
+        }
+        if (state == shared.size()) {
+            m3::AnimationState made;
+            made.animIds = stc.animIds;
+            made.unknown = kAnimationStateLinks;
+            shared.push_back(std::move(made));
+        }
+        stc.animationStateIndex = static_cast<u16>(state);
+        stc.animationStateIndexCopy = stc.animationStateIndex;
+    }
+    out.animationStates = std::move(shared);
 }
 
 SubTrack MergeColorAlpha(const SubTrack* color, const SubTrack* alpha, const Vector3f& restColor,

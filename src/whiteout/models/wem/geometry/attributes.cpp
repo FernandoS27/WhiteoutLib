@@ -137,6 +137,8 @@ const char* ToString(AttrType type) {
         return "bool";
     case AttrType::U32x4:
         return "u32x4";
+    case AttrType::Extent:
+        return "extent";
     case AttrType::Count:
         break;
     }
@@ -167,6 +169,8 @@ u32 AttrTypeSize(AttrType type) {
         return 1;
     case AttrType::U32x4:
         return 16;
+    case AttrType::Extent:
+        return 28;
     case AttrType::Count:
         break;
     }
@@ -190,6 +194,8 @@ u32 AttrTypeComponents(AttrType type) {
     case AttrType::Quat:
     case AttrType::U32x4:
         return 4;
+    case AttrType::Extent:
+        return 7;
     case AttrType::Count:
         break;
     }

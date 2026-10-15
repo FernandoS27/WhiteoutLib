@@ -185,8 +185,49 @@ void applyMapping(m3::UVMappingMode mode, TextureInput& input) {
 /// of 28267 Heroes ones, and a Murky's body tiles to u ~ 2. Read literally, half
 /// of him is a grey smear down the u = 1 seam -- which is the same correction
 /// the renderer's own adapter makes, for the same reason.
+using LayerSlot = std::optional<m3::TextureLayer> m3::StandardMaterial::*;
+
+/// A `MAT_`'s eighteen layer slots, in its own order.
+constexpr LayerSlot kStandardLayerSlots[] = {
+    &m3::StandardMaterial::diffuseLayer,          &m3::StandardMaterial::decalLayer,
+    &m3::StandardMaterial::specularLayer,         &m3::StandardMaterial::glossLayer,
+    &m3::StandardMaterial::emissiveLayer1,        &m3::StandardMaterial::emissiveLayer2,
+    &m3::StandardMaterial::environmentLayer,      &m3::StandardMaterial::environmentMaskLayer,
+    &m3::StandardMaterial::alphaLayer1,           &m3::StandardMaterial::alphaLayer2,
+    &m3::StandardMaterial::normalLayer,           &m3::StandardMaterial::heightLayer,
+    &m3::StandardMaterial::lightMapLayer,         &m3::StandardMaterial::ambientOcclusionLayer,
+    &m3::StandardMaterial::normalBlend1MaskLayer, &m3::StandardMaterial::normalBlend2MaskLayer,
+    &m3::StandardMaterial::normalBlend1Layer,     &m3::StandardMaterial::normalBlend2Layer,
+};
+
+/// A standard material's versions as `native::M3Material::recordVersions` holds them.
+std::vector<i32> StandardVersions(const m3::StandardMaterial& material) {
+    std::vector<i32> out{material.getVersion()};
+    for (const LayerSlot slot : kStandardLayerSlots) {
+        const auto& layer = material.*slot;
+        out.push_back(layer.has_value() ? layer->getVersion() : -1);
+    }
+    return out;
+}
+
+/// Puts @p versions back on a standard material copied from its block, where
+/// @p profile's game reads them; anything else keeps the writer's choice.
+void RestoreStandardVersions(m3::StandardMaterial& material, const std::vector<i32>& versions, ProfileId profile) {
+    const i32 ceiling = profile == ProfileId::Heroes ? m3::HOTS_MAX_STANDARD_MATERIAL_VERSION
+                                                     : m3::SC2_MAX_STANDARD_MATERIAL_VERSION;
+    if (versions.empty() || versions[0] < 0 || versions[0] > ceiling) {
+        return;
+    }
+    material.forceVersion(versions[0]);
+    for (std::size_t k = 0; k < std::size(kStandardLayerSlots) && k + 1 < versions.size(); ++k) {
+        if (auto& layer = material.*kStandardLayerSlots[k]; layer.has_value() && versions[k + 1] >= 0) {
+            layer->forceVersion(versions[k + 1]);
+        }
+    }
+}
+
 void MaddLayersWrap(m3::StandardMaterial& material) {
-    using Slot = std::optional<m3::TextureLayer> m3::StandardMaterial::*;
+    using Slot = LayerSlot;
     static constexpr Slot kSlots[] = {
         &m3::StandardMaterial::diffuseLayer,          &m3::StandardMaterial::decalLayer,
         &m3::StandardMaterial::specularLayer,         &m3::StandardMaterial::glossLayer,
@@ -662,6 +703,7 @@ Material ImportMaterial(const m3::Model& model, const m3::MaterialMap& entry, Pr
         native::M3Standard mirror;
         CopyToNative(source, mirror);
         block.body = std::move(mirror);
+        block.recordVersions = StandardVersions(source);
         break;
     }
     case m3::MaterialType::Displacement: {
@@ -813,6 +855,7 @@ Material ImportMaterial(const m3::Model& model, const m3::MaterialMap& entry, Pr
         native::M3DataDriven mirror;
         CopyToNative(source, mirror);
         block.body = std::move(mirror);
+        block.recordVersions = {source.getVersion()};
 
         // The authored blob, decoded once so nobody has to re-run it, and so a
         // property whose name hash we cannot resolve still round-trips.
@@ -890,19 +933,22 @@ namespace {
 /// is the version *both* clients read, which would drop those from a StarCraft
 /// II file too, and the renderer reads it back off the unwritten model.
 m3::MaterialMap pushStandard(m3::StandardMaterial standard, m3::Model& model, ProfileId profile,
-                             Diagnostics& out) {
+                             Diagnostics& out, const std::vector<i32>* versions = nullptr) {
     standard.setVersion(profile == ProfileId::Heroes ? m3::HOTS_MAX_STANDARD_MATERIAL_VERSION
                                                      : m3::SC2_MAX_STANDARD_MATERIAL_VERSION);
+    // An untouched block goes back at the versions it was read at.
+    if (versions != nullptr) {
+        RestoreStandardVersions(standard, *versions, profile);
+    }
     // From v19 a normal blend switches on factors the editor's draw reads without
     // looking: 0-3 for the first, 4-7 for the second. The flag with no factors
     // dereferences an empty array. All 20 shipped v20 materials that set it carry
-    // four. A record restored from a pre-v19 source still has that version's 0x4
-    // (17,012 of 59,704 v15-v18 materials), which Blizzard's loader clears when it
-    // upgrades one; the native mirror keeps no version, so the factors decide.
-    if (standard.normalBlendFactors.size() < 4) {
+    // four. A record written before v19 keeps that version's 0x4 (17,012 of 59,704
+    // v15-v18 materials), which Blizzard's loader clears when it upgrades one.
+    if (standard.getVersion() >= 19 && standard.normalBlendFactors.size() < 4) {
         standard.flags &= ~m3::MaterialFlag::NormalBlend;
     }
-    if (standard.normalBlendFactors.size() < 8) {
+    if (standard.getVersion() >= 19 && standard.normalBlendFactors.size() < 8) {
         standard.flags &= ~m3::MaterialFlag::NormalBlend2;
     }
     if (profile == ProfileId::Heroes && standard.hdrEnvironmentConstant > 0.0f) {
@@ -2561,11 +2607,17 @@ m3::MaterialMap ExportMaterial(const Material& material, ProfileId profile, cons
         if (const auto* body = std::get_if<native::M3Standard>(&block.body)) {
             m3::StandardMaterial standard;
             CopyFromNative(*body, standard);
-            return pushStandard(std::move(standard), model, profile, out);
+            return pushStandard(std::move(standard), model, profile, out, &block.recordVersions);
         }
         if (const auto* body = std::get_if<native::M3DataDriven>(&block.body)) {
             m3::DataDrivenMaterial madd;
             CopyFromNative(*body, madd);
+            // Written at the version it was read at, which Heroes reads: a v1
+            // or v2 record is shorter than the writer's v3.
+            if (profile == ProfileId::Heroes && !block.recordVersions.empty() && block.recordVersions[0] >= 1 &&
+                block.recordVersions[0] <= 3) {
+                madd.forceVersion(block.recordVersions[0]);
+            }
             entry.materialIndex = static_cast<u32>(model.dataDrivenMaterials.size());
             model.dataDrivenMaterials.push_back(std::move(madd));
             return entry;

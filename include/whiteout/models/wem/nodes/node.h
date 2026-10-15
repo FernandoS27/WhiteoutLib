@@ -33,6 +33,7 @@
  * runs it (`ProfileDesc::nodeKinds`).
  */
 
+#include <optional>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -45,6 +46,7 @@
 
 #include "../asset_key.h"
 #include "../bounds.h"
+#include "../native/m3_native.h"
 #include "../native_bag.h"
 #include "../skinning/setup.h"
 #include "../profile.h"
@@ -136,6 +138,7 @@ enum class NodeKind : u8 {
     ForceField,          ///< M3 `FOR_` (WEM_PHYSICS_DESIGN.md §3.8). `NODE` v14.
     VertexWarp,          ///< M3 `WRP_`. `NODE` v14.
     Wc3FaceFx,           ///< MDX `FAFX`: the FaceFX actor a model names (Reforged). `NODE` v18.
+    Projector,           ///< M3 `PROJ`: a decal projected from its bone. `NODE` v22.
     Count
 };
 
@@ -178,6 +181,9 @@ inline constexpr NodeKindMask kSc2NodeKinds =
 /// emitter systems, but carried by the same two profiles alone.
 inline constexpr NodeKindMask kSc2FieldKinds =
     NodeKindBit(NodeKind::ForceField) | NodeKindBit(NodeKind::VertexWarp);
+
+/// StarCraft II's projectors — `Sc2` and `Heroes`, as the fields are.
+inline constexpr NodeKindMask kSc2SceneKinds = NodeKindBit(NodeKind::Projector);
 
 /// World of Warcraft's — `Wow`. Its ribbons stay the generic reference.
 inline constexpr NodeKindMask kWowNodeKinds = NodeKindBit(NodeKind::M2ParticleEmitter);
@@ -243,6 +249,9 @@ constexpr NodeFlags operator|(NodeFlags a, NodeFlags b) {
 }
 constexpr NodeFlags operator&(NodeFlags a, NodeFlags b) {
     return static_cast<NodeFlags>(static_cast<u32>(a) & static_cast<u32>(b));
+}
+constexpr NodeFlags operator~(NodeFlags a) {
+    return static_cast<NodeFlags>(~static_cast<u32>(a));
 }
 inline NodeFlags& operator|=(NodeFlags& a, NodeFlags b) {
     a = a | b;
@@ -317,11 +326,20 @@ struct BonePayload {
 struct AttachmentPayload {
     AssetKey asset;            ///< What the source named, resolved or not.
     u32 model = kInvalidIndex; ///< -> `Document::models[]` once it resolved.
+    /// StarCraft II's attachment volumes (`ATVL`) on this point's bone, as read.
+    /// `NODE` v22.
+    std::vector<native::M3AttachmentVolume> sc2Volumes{};
+    /// Each volume's two MODL addons as read, the first in the low half: the
+    /// volume's bone and place in most files, zeros in older ones. Parallel to
+    /// `sc2Volumes`, or empty to write the bone and the place.
+    std::vector<u32> sc2VolumeAddons{};
 
     template <class V>
     void reflect(V& v) {
         v.field("asset", asset);
         v.field("model", model);
+        v.since(22).inlineList("sc2Volumes", sc2Volumes);
+        v.since(22).field("sc2VolumeAddons", sc2VolumeAddons);
     }
 };
 
@@ -350,6 +368,12 @@ struct LightPayload {
     f32 linearFalloff = 0;
     f32 damping = 0.00001f;
 
+    /// The `LITE` a StarCraft II light was read from, whole: what the fields
+    /// above do not say -- its LOD cuts, specular colour and multiplier, range
+    /// and every AnimRef's own header. An export starts from it and writes the
+    /// fields above over it. `NODE` v22.
+    std::optional<native::M3Light> sc2{};
+
     template <class V>
     void reflect(V& v) {
         v.field("kind", kind);
@@ -365,6 +389,7 @@ struct LightPayload {
         v.since(7).field("quadraticFalloff", quadraticFalloff);
         v.since(7).field("linearFalloff", linearFalloff);
         v.since(7).field("damping", damping);
+        v.since(22).optional("sc2", sc2);
     }
 };
 
@@ -383,6 +408,10 @@ struct CameraPayload {
     f32 focusDistance = 0;
     f32 focalLength = 0; ///< Millimetres.
     f32 fStop = 0;
+    /// The `CAM_` a StarCraft II camera was read from, whole: its vertical FOV,
+    /// depth of field, shadow clip, focus and bokeh. An export starts from it
+    /// and writes the fields above over it. `NODE` v22.
+    std::optional<native::M3Camera> sc2{};
 
     template <class V>
     void reflect(V& v) {
@@ -393,6 +422,7 @@ struct CameraPayload {
         v.since(13).field("focusDistance", focusDistance);
         v.since(13).field("focalLength", focalLength);
         v.since(13).field("fStop", fStop);
+        v.since(22).optional("sc2", sc2);
     }
 };
 
@@ -489,11 +519,19 @@ EventName ParseEventObjectName(std::string_view name);
 
 enum class CollisionShapeKind : u8 { Box, Sphere, Capsule, Plane, Cylinder, Hull };
 
+/// What a collision shape is to StarCraft II's selection (`SSGS`): the model's
+/// one tight hit test, one of its fuzzy ones, or neither.
+enum class Sc2HitTest : u8 { None, Tight, Fuzzy };
+
 struct CollisionShapeDesc {
     CollisionShapeKind kind = CollisionShapeKind::Box;
     Extent box;
     Sphere sphere;
     f32 height = 0; ///< Capsule / cylinder length along the shape's local axis.
+    /// StarCraft II's role for the shape, and the `SSGS` it was read from,
+    /// whole, in StarCraft II's basis. `NODE` v22.
+    Sc2HitTest hitTest = Sc2HitTest::None;
+    std::optional<native::M3HitTest> sc2{};
 
     template <class V>
     void reflect(V& v) {
@@ -501,6 +539,26 @@ struct CollisionShapeDesc {
         v.field("box", box);
         v.field("sphere", sphere);
         v.field("height", height);
+        v.since(22).field("hitTest", hitTest);
+        v.since(22).optional("sc2", sc2);
+    }
+};
+
+/**
+ * @brief An `.m3` projector (`PROJ`): a splat or a decal cast from the node.
+ *
+ * The record is kept whole, in StarCraft II's basis -- its projection, box,
+ * fade and lifetime, and every AnimRef's own header; the export writes it on
+ * the bone it rides and names the material slot below. `NODE` v22.
+ */
+struct ProjectorPayload {
+    native::M3Projector record{};
+    u32 materialSlot = kInvalidIndex; ///< -> `Model::materialSlots`.
+
+    template <class V>
+    void reflect(V& v) {
+        v.field("record", record);
+        v.field("materialSlot", materialSlot);
     }
 };
 
@@ -518,7 +576,8 @@ using NodePayload =
                  ParticlePayload, RibbonPayload, EventPayload, CollisionPayload,
                  Wc3ParticleEmitter1Payload, Wc3ParticleEmitter2Payload, Wc3RibbonEmitterPayload,
                  Sc2ParticleEmitterPayload, Sc2RibbonEmitterPayload, Wc3CornEmitterPayload,
-                 M2ParticleEmitterPayload, ForceFieldPayload, VertexWarpPayload, Wc3FaceFxPayload>;
+                 M2ParticleEmitterPayload, ForceFieldPayload, VertexWarpPayload, Wc3FaceFxPayload,
+                 ProjectorPayload>;
 
 /// Every node index @p payload holds, as `f(u32& node, EmitterLink what)` — the
 /// §10.6 referencer row the emitter systems add. @p payload may be const.
@@ -600,6 +659,41 @@ static_assert(std::variant_size_v<NodePayload> == static_cast<std::size_t>(NodeK
  */
 using NodeNative = NativeBag;
 
+/**
+ * @brief StarCraft II's billboard on a bone: its `BBSC` record
+ *        (EDIT_MODE_SC2_PROFILE_PLAN.md P2).
+ *
+ * The node flags are the shared part, and every profile reads them; this is
+ * what only StarCraft II and Heroes spell. Where both exist, `type` is the
+ * authority and the flags follow it (`Sc2BillboardFlags`). The pre-rotations
+ * are in StarCraft II's bone frame, as read: nothing but a `BBSC` reads them.
+ */
+struct Sc2Billboard {
+    u8 type = 6;              ///< `m3::BillboardType`: which axes may turn.
+    bool cameraLookAt = true; ///< Aim at the eye; false aims along the view.
+    Quaternion up{0, 0, 0, 1};      ///< The pre-rotation types 0-2 apply.
+    Quaternion forward{0, 0, 0, 1}; ///< The one type 6 applies under a parent bone.
+    std::vector<u16> dependents;    ///< As read; empty in every shipped record.
+    /// Where the file listed it among its `BBSC`s; -1 for one made here.
+    u32 place = 0xFFFFFFFFu;
+
+    template <class V>
+    void reflect(V& v) {
+        v.field("type", type);
+        v.field("cameraLookAt", cameraLookAt);
+        v.field("up", up);
+        v.field("forward", forward);
+        v.field("dependents", dependents);
+        v.field("place", place);
+    }
+};
+
+/// The shared billboard flags a `BBSC` type means, in WEM's basis: StarCraft
+/// II's X is WEM's Y and its Y is WEM's X, for a world axis (0, 1) and a bone's
+/// own (3, 5) alike; 2 locks Z, 6 is free, and 4 -- parsed, never applied --
+/// is none.
+NodeFlags Sc2BillboardFlags(u8 type);
+
 struct Node {
     std::string name;
     u32 parent = kInvalidNode; ///< Index into `NodeTree::nodes`; invalid = a root.
@@ -661,6 +755,15 @@ struct Node {
     /// the editor, empty on a `NODE` written before v20. No file carries any
     /// of it.
     NodeDisplay display;
+
+    /// StarCraft II's billboard, when a `BBSC` names the node's bone: one,
+    /// or on a few shipped bones several, the first the node's. `NODE` v22;
+    /// none on an older chunk.
+    std::vector<Sc2Billboard> sc2Billboards;
+
+    /// StarCraft II's shadow box (`SHBX`), when one rides the node's bone: the
+    /// record as read, its length, width and height animatable. `NODE` v22.
+    std::optional<native::M3ShadowBox> sc2ShadowBox;
 
     /**
      * @brief Transient removal marker (§10.6).
@@ -772,6 +875,10 @@ struct Node {
         case NodeKind::Wc3FaceFx:
             v.field("wc3FaceFx", VariantAs<Wc3FaceFxPayload>(payload));
             break;
+        // v22, the same way.
+        case NodeKind::Projector:
+            v.field("projector", VariantAs<ProjectorPayload>(payload));
+            break;
         case NodeKind::Count:
             break;
         }
@@ -790,6 +897,9 @@ struct Node {
         // v20: the display record, the same way: an older chunk reads one
         // never set, which the editor fills on entry.
         v.since(20).field("display", display);
+        // v22: StarCraft II's billboard, absent on an older chunk.
+        v.since(22).inlineList("sc2Billboards", sc2Billboards);
+        v.since(22).optional("sc2ShadowBox", sc2ShadowBox);
 
         if constexpr (V::kReading) {
             if (auto* bone = std::get_if<BonePayload>(&payload)) {

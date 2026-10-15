@@ -74,9 +74,17 @@
         "version": 1,
         "hash": "2e0b9a90094fba8b"
       },
+      "M3AttachmentVolume": {
+        "version": 1,
+        "hash": "72bffc0d599282c1"
+      },
       "M3BlendMode": {
         "version": 1,
         "hash": "5edcee8b1a5eaae6"
+      },
+      "M3Camera": {
+        "version": 1,
+        "hash": "a3fdfc3d3704b8ac"
       },
       "M3ColorBGRA": {
         "version": 1,
@@ -118,9 +126,21 @@
         "version": 1,
         "hash": "6e4cc7c0667d9cb8"
       },
+      "M3Extent": {
+        "version": 1,
+        "hash": "15e7115b99c086ca"
+      },
       "M3FresnelMode": {
         "version": 1,
         "hash": "18cbdff1020f0cb6"
+      },
+      "M3HitTest": {
+        "version": 1,
+        "hash": "60e22209c6af42cf"
+      },
+      "M3HitTestShapeType": {
+        "version": 1,
+        "hash": "93c2006d0147dd76"
       },
       "M3LayerBlendOp": {
         "version": 1,
@@ -129,6 +149,18 @@
       "M3LensFlare": {
         "version": 1,
         "hash": "0b2265c2778ba9e7"
+      },
+      "M3Light": {
+        "version": 1,
+        "hash": "4dd3091470f4489e"
+      },
+      "M3LightFlag": {
+        "version": 1,
+        "hash": "175edf99037b2ffb"
+      },
+      "M3LightType": {
+        "version": 1,
+        "hash": "8d62f00c10a60103"
       },
       "M3MaterialAdditionalFlag": {
         "version": 1,
@@ -150,6 +182,22 @@
         "version": 1,
         "hash": "e6ebd5f568b1079a"
       },
+      "M3MeshSection": {
+        "version": 1,
+        "hash": "09016f7e0fcc76ab"
+      },
+      "M3ProjectionType": {
+        "version": 1,
+        "hash": "91e38ccf1cfbc1df"
+      },
+      "M3Projector": {
+        "version": 1,
+        "hash": "496568ecc3b15871"
+      },
+      "M3ProjectorFlag": {
+        "version": 1,
+        "hash": "ae3e7d41c12b52a3"
+      },
       "M3Reflection": {
         "version": 1,
         "hash": "9cc3cea663183867"
@@ -157,6 +205,10 @@
       "M3ReflectionMaterialFlag": {
         "version": 1,
         "hash": "c937f75354efeb3c"
+      },
+      "M3ShadowBox": {
+        "version": 1,
+        "hash": "935493123e78d9e6"
       },
       "M3SpecularMode": {
         "version": 1,

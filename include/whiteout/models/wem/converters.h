@@ -546,6 +546,9 @@ public:
 
     /// The profile `fromM3` picks for a model of @p modelVersion.
     static ProfileId ProfileForVersion(u32 modelVersion);
+    /// The MODL version an export for @p profile writes: the newest its own
+    /// game reads, 29 for StarCraft II and 30 for Heroes of the Storm.
+    static u32 ExportVersionFor(ProfileId profile);
 
     /// @p profileOverride of `ProfileId::Count` means "decide from the version".
     Result<Document> fromM3(const m3::Model& source,

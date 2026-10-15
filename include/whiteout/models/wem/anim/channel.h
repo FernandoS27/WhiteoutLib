@@ -306,6 +306,12 @@ struct TrackTarget {
         MaterialFeature, ///< `material` + `sub` as a `MaterialFeature::id` (§7.2.5).
         Section,         ///< `mesh` + `sub` as the section within it (§5.5).
         Physics,         ///< `sub` as a `PhysicsSet` record id (WEM_PHYSICS_DESIGN.md §3.6).
+        /// A stream an `.m3` record WEM keeps whole names by its id (a material
+        /// layer's AnimRef, a light's range, a section's bounds): `sub` is its
+        /// `STC_` slot. Nothing in WEM plays it; the `.m3` export writes it
+        /// back under the same id, into the record that names it
+        /// (EDIT_MODE_SC2_PROFILE_PLAN.md S1.5). Every other writer skips it.
+        Native,
         Count
     };
 

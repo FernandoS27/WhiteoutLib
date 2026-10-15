@@ -19,6 +19,7 @@
  * (`Channel::StageSourceEnabled`), told apart by `StageSub`.
  */
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -41,6 +42,8 @@ enum class StageKind : u8 {
     Spring,      ///< A damped jiggle: each driven node lags where it is carried.
     Ragdoll,     ///< Rigid bodies, stepped by the host (`StageHooks`).
     Cloth,       ///< A cloth sheet, stepped by the host (`StageHooks`).
+    Sc2LegIk,    ///< StarCraft II's leg adaptation (`IKJT`), which its runtime runs.
+    Sc2Turret,   ///< StarCraft II's turret (`PATU`), which its runtime runs.
     Count
 };
 
@@ -57,6 +60,85 @@ constexpr bool IsConstraint(StageKind kind) {
 constexpr bool IsPhysicsStage(StageKind kind) {
     return kind == StageKind::Spring || kind == StageKind::Ragdoll || kind == StageKind::Cloth;
 }
+
+/// Whether @p kind is one only a game's own runtime runs
+/// (EDIT_MODE_SC2_PROFILE_PLAN.md P1): the editor keeps it, the runner leaves it
+/// alone, an export for a game that runs it writes its records, and one for any
+/// other game drops it.
+constexpr bool IsGameStage(StageKind kind) {
+    return kind == StageKind::Sc2LegIk || kind == StageKind::Sc2Turret;
+}
+
+/// A StarCraft II leg's adaptation to the ground (`IKJT`). The chain is the
+/// stage's `driven`, root to end: `boneIndex1` to `boneIndex2`.
+struct Sc2LegIkParams {
+    f32 probeUp = 1.5f;    ///< How far above the foot the ground is sought.
+    f32 probeDown = -4.0f; ///< How far below, signed: the window is [z + down, z + up].
+    f32 maxSpeed = 0.2f;   ///< How fast the leg may move to its goal.
+    f32 goalThreshold = 0.05f;
+    std::vector<u16> dependents; ///< As read.
+
+    template <class V>
+    void reflect(V& v) {
+        v.field("probeUp", probeUp);
+        v.field("probeDown", probeDown);
+        v.field("maxSpeed", maxSpeed);
+        v.field("goalThreshold", goalThreshold);
+        v.field("dependents", dependents);
+    }
+};
+
+/// A StarCraft II turret (`PATU`) on the stage's one driven node, and its place
+/// in the named group (`TRGD`) the game aims it with. The frame and the two
+/// rotations are in StarCraft II's basis, as read.
+struct Sc2TurretParams {
+    Matrix44f frame = Matrix44f::identity();
+    Vector4f rotationA{0, 0, 0, 1};
+    Vector4f rotationB{0, 0, 0, 1};
+    bool mainTurret = false;
+    u8 groupFlag = 1; ///< `turretGroupId`: 0 or 1 in every shipped record.
+    u32 yawLimited = 2; ///< 2 limits yaw to [yawMin, yawMax]; 0 leaves it free.
+    f32 yawMin = 0.0f;
+    f32 yawMax = 0.0f;
+    f32 yawWeight = 1.0f;
+    u32 pitchLimited = 2;
+    f32 pitchMin = 0.0f;
+    f32 pitchMax = 0.0f;
+    f32 pitchWeight = 1.0f;
+    f32 unknown3 = 1.0f; ///< As read.
+    f32 unknown4 = 1.0f; ///< As read.
+    Vector3f mainBoneOffset{0, 0, 0};
+    std::string group;       ///< The `TRGD` name; empty for none.
+    u32 groupOrder = 0xFFFFFFFFu; ///< Where the group stood among the `TRGD`s.
+    /// Where this turret stood in the group's list: more than once where a
+    /// shipped list names it again.
+    std::vector<u32> groupSlots;
+    i32 version = 4;              ///< The `PATU` version read.
+
+    template <class V>
+    void reflect(V& v) {
+        v.field("frame", frame);
+        v.field("rotationA", rotationA);
+        v.field("rotationB", rotationB);
+        v.field("mainTurret", mainTurret);
+        v.field("groupFlag", groupFlag);
+        v.field("yawLimited", yawLimited);
+        v.field("yawMin", yawMin);
+        v.field("yawMax", yawMax);
+        v.field("yawWeight", yawWeight);
+        v.field("pitchLimited", pitchLimited);
+        v.field("pitchMin", pitchMin);
+        v.field("pitchMax", pitchMax);
+        v.field("pitchWeight", pitchWeight);
+        v.field("unknown3", unknown3);
+        v.field("unknown4", unknown4);
+        v.field("mainBoneOffset", mainBoneOffset);
+        v.field("group", group);
+        v.field("groupOrder", groupOrder);
+        v.field("groupSlots", groupSlots);
+        v.field("version", version);
+    }
+};
 
 /// A stage channel's `TrackTarget::sub`: the stage's id, and above it the
 /// source's, 0 for the stage's own weight.
@@ -126,6 +208,10 @@ struct PoseStage {
     /// exports it natively instead (WEM_PHYSICS_DESIGN.md §7).
     u32 rig = 0;
     u32 cloth = 0;
+    /// `Sc2LegIk` and `Sc2Turret`: what the game reads. PSTG v3; none on an
+    /// older chunk, which holds neither kind.
+    std::optional<Sc2LegIkParams> legIk;
+    std::optional<Sc2TurretParams> turret;
 
     template <class V>
     void reflect(V& v) {
@@ -146,6 +232,8 @@ struct PoseStage {
         v.field("gravity", gravity);
         v.since(2).field("rig", rig);
         v.since(2).field("cloth", cloth);
+        v.since(3).optional("legIk", legIk);
+        v.since(3).optional("turret", turret);
     }
 };
 

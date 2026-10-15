@@ -78,6 +78,24 @@ inline void CopyToNative(const whiteout::m3::DataDrivenProperties& src,
                          native::M3DataDrivenProperties& dst);
 inline void CopyFromNative(const native::M3DataDrivenProperties& src,
                            whiteout::m3::DataDrivenProperties& dst);
+inline void CopyToNative(const whiteout::m3::Light& src, native::M3Light& dst);
+inline void CopyFromNative(const native::M3Light& src, whiteout::m3::Light& dst);
+inline void CopyToNative(const whiteout::m3::Camera& src, native::M3Camera& dst);
+inline void CopyFromNative(const native::M3Camera& src, whiteout::m3::Camera& dst);
+inline void CopyToNative(const whiteout::m3::Projector& src, native::M3Projector& dst);
+inline void CopyFromNative(const native::M3Projector& src, whiteout::m3::Projector& dst);
+inline void CopyToNative(const whiteout::m3::HitTestShape& src, native::M3HitTest& dst);
+inline void CopyFromNative(const native::M3HitTest& src, whiteout::m3::HitTestShape& dst);
+inline void CopyToNative(const whiteout::m3::AttachmentVolume& src,
+                         native::M3AttachmentVolume& dst);
+inline void CopyFromNative(const native::M3AttachmentVolume& src,
+                           whiteout::m3::AttachmentVolume& dst);
+inline void CopyToNative(const whiteout::m3::ShadowBox& src, native::M3ShadowBox& dst);
+inline void CopyFromNative(const native::M3ShadowBox& src, whiteout::m3::ShadowBox& dst);
+inline void CopyToNative(const whiteout::m3::Extent& src, native::M3Extent& dst);
+inline void CopyFromNative(const native::M3Extent& src, whiteout::m3::Extent& dst);
+inline void CopyToNative(const whiteout::m3::MeshSection& src, native::M3MeshSection& dst);
+inline void CopyFromNative(const native::M3MeshSection& src, whiteout::m3::MeshSection& dst);
 
 // Identity copy, so a mirrored class template's body can say
 // `CopyToNative(x, y)` without knowing whether its value type is a scalar
@@ -1265,6 +1283,314 @@ inline void CopyFromNative(const native::M3DataDrivenProperties& src,
             CopyFromNative(src_v[i], dst_v[i]);
         }
     }
+}
+
+inline void CopyToNative(const whiteout::m3::Light& src, native::M3Light& dst) {
+    // sourceVersion is the converter's to write: the record does not
+    // know which file it came out of.
+    dst.lightType = static_cast<native::M3LightType>(static_cast<u32>(src.lightType));
+    dst.boneIndex = src.boneIndex;
+    dst.flags = static_cast<native::M3LightFlag>(static_cast<u32>(src.flags));
+    dst.lodCut = src.lodCut;
+    dst.shadowLodCut = src.shadowLodCut;
+    CopyToNative(src.diffuseColor, dst.diffuseColor);
+    CopyToNative(src.intensityMultiplier, dst.intensityMultiplier);
+    CopyToNative(src.specularColor, dst.specularColor);
+    CopyToNative(src.specularMultiplier, dst.specularMultiplier);
+    CopyToNative(src.decay, dst.decay);
+    dst.attenuationEnd = src.attenuationEnd;
+    CopyToNative(src.attenuationStart, dst.attenuationStart);
+    CopyToNative(src.hotSpot, dst.hotSpot);
+    CopyToNative(src.falloff, dst.falloff);
+}
+
+inline void CopyFromNative(const native::M3Light& src, whiteout::m3::Light& dst) {
+    dst.lightType = static_cast<whiteout::m3::LightType>(static_cast<u32>(src.lightType));
+    dst.boneIndex = src.boneIndex;
+    dst.flags = static_cast<whiteout::m3::LightFlag>(static_cast<u32>(src.flags));
+    dst.lodCut = src.lodCut;
+    dst.shadowLodCut = src.shadowLodCut;
+    CopyFromNative(src.diffuseColor, dst.diffuseColor);
+    CopyFromNative(src.intensityMultiplier, dst.intensityMultiplier);
+    CopyFromNative(src.specularColor, dst.specularColor);
+    CopyFromNative(src.specularMultiplier, dst.specularMultiplier);
+    CopyFromNative(src.decay, dst.decay);
+    dst.attenuationEnd = src.attenuationEnd;
+    CopyFromNative(src.attenuationStart, dst.attenuationStart);
+    CopyFromNative(src.hotSpot, dst.hotSpot);
+    CopyFromNative(src.falloff, dst.falloff);
+}
+
+inline void CopyToNative(const whiteout::m3::Camera& src, native::M3Camera& dst) {
+    // sourceVersion is the converter's to write: the record does not
+    // know which file it came out of.
+    dst.boneIndex = src.boneIndex;
+    dst.name = src.name;
+    CopyToNative(src.fieldOfView, dst.fieldOfView);
+    dst.useVerticalFOV = src.useVerticalFOV;
+    dst.dofType = src.dofType;
+    CopyToNative(src.farClip, dst.farClip);
+    CopyToNative(src.nearClip, dst.nearClip);
+    CopyToNative(src.shadowClipDistance, dst.shadowClipDistance);
+    CopyToNative(src.focusDistance, dst.focusDistance);
+    CopyToNative(src.farFocusRange, dst.farFocusRange);
+    CopyToNative(src.nearFocusRange, dst.nearFocusRange);
+    CopyToNative(src.nearFalloffStart, dst.nearFalloffStart);
+    CopyToNative(src.nearFalloffEnd, dst.nearFalloffEnd);
+    CopyToNative(src.dofAmount, dst.dofAmount);
+    CopyToNative(src.bokehFStop, dst.bokehFStop);
+    CopyToNative(src.bokehMaxCoCDiameter, dst.bokehMaxCoCDiameter);
+}
+
+inline void CopyFromNative(const native::M3Camera& src, whiteout::m3::Camera& dst) {
+    dst.boneIndex = src.boneIndex;
+    dst.name = src.name;
+    CopyFromNative(src.fieldOfView, dst.fieldOfView);
+    dst.useVerticalFOV = src.useVerticalFOV;
+    dst.dofType = src.dofType;
+    CopyFromNative(src.farClip, dst.farClip);
+    CopyFromNative(src.nearClip, dst.nearClip);
+    CopyFromNative(src.shadowClipDistance, dst.shadowClipDistance);
+    CopyFromNative(src.focusDistance, dst.focusDistance);
+    CopyFromNative(src.farFocusRange, dst.farFocusRange);
+    CopyFromNative(src.nearFocusRange, dst.nearFocusRange);
+    CopyFromNative(src.nearFalloffStart, dst.nearFalloffStart);
+    CopyFromNative(src.nearFalloffEnd, dst.nearFalloffEnd);
+    CopyFromNative(src.dofAmount, dst.dofAmount);
+    CopyFromNative(src.bokehFStop, dst.bokehFStop);
+    CopyFromNative(src.bokehMaxCoCDiameter, dst.bokehMaxCoCDiameter);
+}
+
+inline void CopyToNative(const whiteout::m3::Projector& src, native::M3Projector& dst) {
+    // sourceVersion is the converter's to write: the record does not
+    // know which file it came out of.
+    dst.projectionType =
+        static_cast<native::M3ProjectionType>(static_cast<u32>(src.projectionType));
+    dst.bone = src.bone;
+    dst.materialReferenceIndex = src.materialReferenceIndex;
+    CopyToNative(src.offset, dst.offset);
+    CopyToNative(src.pitch, dst.pitch);
+    CopyToNative(src.yaw, dst.yaw);
+    CopyToNative(src.roll, dst.roll);
+    CopyToNative(src.fieldOfView, dst.fieldOfView);
+    CopyToNative(src.aspectRatio, dst.aspectRatio);
+    CopyToNative(src.near, dst.near);
+    CopyToNative(src.far, dst.far);
+    CopyToNative(src.boxOffsetZBottom, dst.boxOffsetZBottom);
+    CopyToNative(src.boxOffsetZTop, dst.boxOffsetZTop);
+    CopyToNative(src.boxOffsetXLeft, dst.boxOffsetXLeft);
+    CopyToNative(src.boxOffsetXRight, dst.boxOffsetXRight);
+    CopyToNative(src.boxOffsetYFront, dst.boxOffsetYFront);
+    CopyToNative(src.boxOffsetYBack, dst.boxOffsetYBack);
+    dst.falloff = src.falloff;
+    dst.alphaInit = src.alphaInit;
+    dst.alphaMid = src.alphaMid;
+    dst.alphaEnd = src.alphaEnd;
+    dst.lifetimeAttack = src.lifetimeAttack;
+    dst.lifetimeAttackTo = src.lifetimeAttackTo;
+    dst.lifetimeHold = src.lifetimeHold;
+    dst.lifetimeHoldTo = src.lifetimeHoldTo;
+    dst.lifetimeDecay = src.lifetimeDecay;
+    dst.lifetimeDecayTo = src.lifetimeDecayTo;
+    dst.attenuationDistance = src.attenuationDistance;
+    CopyToNative(src.active, dst.active);
+    dst.layer = src.layer;
+    dst.lodReduce = src.lodReduce;
+    dst.lodCut = src.lodCut;
+    dst.flags = static_cast<native::M3ProjectorFlag>(static_cast<u32>(src.flags));
+}
+
+inline void CopyFromNative(const native::M3Projector& src, whiteout::m3::Projector& dst) {
+    dst.projectionType =
+        static_cast<whiteout::m3::ProjectionType>(static_cast<u32>(src.projectionType));
+    dst.bone = src.bone;
+    dst.materialReferenceIndex = src.materialReferenceIndex;
+    CopyFromNative(src.offset, dst.offset);
+    CopyFromNative(src.pitch, dst.pitch);
+    CopyFromNative(src.yaw, dst.yaw);
+    CopyFromNative(src.roll, dst.roll);
+    CopyFromNative(src.fieldOfView, dst.fieldOfView);
+    CopyFromNative(src.aspectRatio, dst.aspectRatio);
+    CopyFromNative(src.near, dst.near);
+    CopyFromNative(src.far, dst.far);
+    CopyFromNative(src.boxOffsetZBottom, dst.boxOffsetZBottom);
+    CopyFromNative(src.boxOffsetZTop, dst.boxOffsetZTop);
+    CopyFromNative(src.boxOffsetXLeft, dst.boxOffsetXLeft);
+    CopyFromNative(src.boxOffsetXRight, dst.boxOffsetXRight);
+    CopyFromNative(src.boxOffsetYFront, dst.boxOffsetYFront);
+    CopyFromNative(src.boxOffsetYBack, dst.boxOffsetYBack);
+    dst.falloff = src.falloff;
+    dst.alphaInit = src.alphaInit;
+    dst.alphaMid = src.alphaMid;
+    dst.alphaEnd = src.alphaEnd;
+    dst.lifetimeAttack = src.lifetimeAttack;
+    dst.lifetimeAttackTo = src.lifetimeAttackTo;
+    dst.lifetimeHold = src.lifetimeHold;
+    dst.lifetimeHoldTo = src.lifetimeHoldTo;
+    dst.lifetimeDecay = src.lifetimeDecay;
+    dst.lifetimeDecayTo = src.lifetimeDecayTo;
+    dst.attenuationDistance = src.attenuationDistance;
+    CopyFromNative(src.active, dst.active);
+    dst.layer = src.layer;
+    dst.lodReduce = src.lodReduce;
+    dst.lodCut = src.lodCut;
+    dst.flags = static_cast<whiteout::m3::ProjectorFlag>(static_cast<u32>(src.flags));
+}
+
+inline void CopyToNative(const whiteout::m3::HitTestShape& src, native::M3HitTest& dst) {
+    // sourceVersion is the converter's to write: the record does not
+    // know which file it came out of.
+    dst.shapeType = static_cast<native::M3HitTestShapeType>(static_cast<u32>(src.shapeType));
+    dst.boneIndex = src.boneIndex;
+    dst.padding = src.padding;
+    dst.transform = src.transform;
+    {
+        const auto& src_v = src.vertexPositions;
+        auto& dst_v = dst.vertexPositions;
+        dst_v.resize(src_v.size());
+        for (std::size_t i = 0; i < src_v.size(); ++i) {
+            dst_v[i] = src_v[i];
+        }
+    }
+    {
+        const auto& src_v = src.faceIndices;
+        auto& dst_v = dst.faceIndices;
+        dst_v.resize(src_v.size());
+        for (std::size_t i = 0; i < src_v.size(); ++i) {
+            dst_v[i] = src_v[i];
+        }
+    }
+    dst.sizeX = src.sizeX;
+    dst.sizeY = src.sizeY;
+    dst.sizeZ = src.sizeZ;
+}
+
+inline void CopyFromNative(const native::M3HitTest& src, whiteout::m3::HitTestShape& dst) {
+    dst.shapeType = static_cast<whiteout::m3::HitTestShapeType>(static_cast<u32>(src.shapeType));
+    dst.boneIndex = src.boneIndex;
+    dst.padding = src.padding;
+    dst.transform = src.transform;
+    {
+        const auto& src_v = src.vertexPositions;
+        auto& dst_v = dst.vertexPositions;
+        dst_v.resize(src_v.size());
+        for (std::size_t i = 0; i < src_v.size(); ++i) {
+            dst_v[i] = src_v[i];
+        }
+    }
+    {
+        const auto& src_v = src.faceIndices;
+        auto& dst_v = dst.faceIndices;
+        dst_v.resize(src_v.size());
+        for (std::size_t i = 0; i < src_v.size(); ++i) {
+            dst_v[i] = src_v[i];
+        }
+    }
+    dst.sizeX = src.sizeX;
+    dst.sizeY = src.sizeY;
+    dst.sizeZ = src.sizeZ;
+}
+
+inline void CopyToNative(const whiteout::m3::AttachmentVolume& src,
+                         native::M3AttachmentVolume& dst) {
+    // sourceVersion is the converter's to write: the record does not
+    // know which file it came out of.
+    dst.bone1 = src.bone1;
+    dst.bone2 = src.bone2;
+    dst.shapeType = static_cast<native::M3HitTestShapeType>(static_cast<u32>(src.shapeType));
+    dst.boneIndex = src.boneIndex;
+    dst.padding = src.padding;
+    dst.transform = src.transform;
+    {
+        const auto& src_v = src.vertexPositions;
+        auto& dst_v = dst.vertexPositions;
+        dst_v.resize(src_v.size());
+        for (std::size_t i = 0; i < src_v.size(); ++i) {
+            dst_v[i] = src_v[i];
+        }
+    }
+    {
+        const auto& src_v = src.faceIndices;
+        auto& dst_v = dst.faceIndices;
+        dst_v.resize(src_v.size());
+        for (std::size_t i = 0; i < src_v.size(); ++i) {
+            dst_v[i] = src_v[i];
+        }
+    }
+    dst.sizeX = src.sizeX;
+    dst.sizeY = src.sizeY;
+    dst.sizeZ = src.sizeZ;
+}
+
+inline void CopyFromNative(const native::M3AttachmentVolume& src,
+                           whiteout::m3::AttachmentVolume& dst) {
+    dst.bone1 = src.bone1;
+    dst.bone2 = src.bone2;
+    dst.shapeType = static_cast<whiteout::m3::HitTestShapeType>(static_cast<u32>(src.shapeType));
+    dst.boneIndex = src.boneIndex;
+    dst.padding = src.padding;
+    dst.transform = src.transform;
+    {
+        const auto& src_v = src.vertexPositions;
+        auto& dst_v = dst.vertexPositions;
+        dst_v.resize(src_v.size());
+        for (std::size_t i = 0; i < src_v.size(); ++i) {
+            dst_v[i] = src_v[i];
+        }
+    }
+    {
+        const auto& src_v = src.faceIndices;
+        auto& dst_v = dst.faceIndices;
+        dst_v.resize(src_v.size());
+        for (std::size_t i = 0; i < src_v.size(); ++i) {
+            dst_v[i] = src_v[i];
+        }
+    }
+    dst.sizeX = src.sizeX;
+    dst.sizeY = src.sizeY;
+    dst.sizeZ = src.sizeZ;
+}
+
+inline void CopyToNative(const whiteout::m3::ShadowBox& src, native::M3ShadowBox& dst) {
+    // sourceVersion is the converter's to write: the record does not
+    // know which file it came out of.
+    dst.boneIndex = src.boneIndex;
+    dst.unknown = src.unknown;
+    CopyToNative(src.length, dst.length);
+    CopyToNative(src.width, dst.width);
+    CopyToNative(src.height, dst.height);
+}
+
+inline void CopyFromNative(const native::M3ShadowBox& src, whiteout::m3::ShadowBox& dst) {
+    dst.boneIndex = src.boneIndex;
+    dst.unknown = src.unknown;
+    CopyFromNative(src.length, dst.length);
+    CopyFromNative(src.width, dst.width);
+    CopyFromNative(src.height, dst.height);
+}
+
+inline void CopyToNative(const whiteout::m3::Extent& src, native::M3Extent& dst) {
+    dst.min = src.min;
+    dst.max = src.max;
+    dst.radius = src.radius;
+}
+
+inline void CopyFromNative(const native::M3Extent& src, whiteout::m3::Extent& dst) {
+    dst.min = src.min;
+    dst.max = src.max;
+    dst.radius = src.radius;
+}
+
+inline void CopyToNative(const whiteout::m3::MeshSection& src, native::M3MeshSection& dst) {
+    // sourceVersion is the converter's to write: the record does not
+    // know which file it came out of.
+    dst.nodeIndex = src.nodeIndex;
+    CopyToNative(src.bounds, dst.bounds);
+}
+
+inline void CopyFromNative(const native::M3MeshSection& src, whiteout::m3::MeshSection& dst) {
+    dst.nodeIndex = src.nodeIndex;
+    CopyFromNative(src.bounds, dst.bounds);
 }
 
 } // namespace wem

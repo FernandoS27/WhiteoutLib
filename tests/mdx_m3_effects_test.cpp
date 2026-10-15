@@ -521,7 +521,7 @@ TEST_CASE("wem m3 a light moves on its carrier bone", "[wem][m3][carriers]") {
     CHECK(block.keys[1].z == Catch::Approx(1.0f));
 }
 
-TEST_CASE("wem m3 the export map joins clips to sequences and their first container",
+TEST_CASE("wem m3 the export map joins clips to sequences and their default container",
           "[wem][m3][map]") {
     mdx::Model model = makeModel();
     model.particleEmitters2.push_back(makeEmitter("Smoke", 1, 0));
@@ -535,7 +535,8 @@ TEST_CASE("wem m3 the export map joins clips to sequences and their first contai
         const u32 s = on.map.clipSequence[c];
         REQUIRE(s < on.model.sequences.size());
         CHECK(sequenceNamed(on.model, document.clips[c].name) == s);
-        CHECK(on.map.sequenceStc[s] == on.model.animationGroups[s].subtrackIndices.at(0));
+        // The default container is written last, and carries the events.
+        CHECK(on.map.sequenceStc[s] == on.model.animationGroups[s].subtrackIndices.back());
     }
     u32 highest = 0;
     for (const m3::SubTrackContainer& stc : on.model.subTrackCollections) {

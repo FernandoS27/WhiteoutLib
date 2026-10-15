@@ -163,5 +163,35 @@ struct EngineConversion {
  */
 EngineConversion toStarCraft2(const Model& model, const StarCraft2ConversionOptions& options = {});
 
+/// @brief One rule of the Galaxy editor's a model breaks, and what to do
+struct EditorRuleFailure {
+    std::string rule;    ///< Short id: "version", "string", "msec", "stc-sorted", "sts", ...
+    std::string message; ///< What is wrong, where, and what fixes it
+};
+
+/**
+ * @brief The rules a model must keep for the game and its editor to load it
+ *
+ * Every one was paid for once (EDIT_MODE_SC2_PROFILE_DESIGN.md §8): a model
+ * that breaks one loads as nothing, or loads and resets the editor's device
+ * every frame, with no message naming the model. They are checked on the model
+ * as the writer will spell it -- an unset chunk version is the one the writer
+ * picks for @p engine -- and the shared-id rule on its written bytes.
+ *
+ * - **version**: the chunk versions and MADD @p engine reads (`checkEngineSupport`).
+ * - **string**: a name with a NUL before its end, which the client cuts there.
+ * - **msec**: a `DIV_` with no MSEC, or one whose bounds are not `0x001F9BD2`.
+ * - **stc-sorted**: a container whose lookup is not sorted by id.
+ * - **sts**: a container whose state is missing or lists other ids.
+ * - **events**: an event stream under an id neither game ships.
+ * - **region-bones**: a region naming more than 63 bones.
+ * - **normal-blend**: a normal-blend flag without its factors.
+ * - **addons**: MODL's attachment or camera addons out of step with their owners.
+ * - **shared-id**: two AnimRefs naming one id a container drives.
+ *
+ * Empty when the model keeps them all.
+ */
+std::vector<EditorRuleFailure> CheckEditorRules(const Model& model, Engine engine);
+
 } // namespace m3
 } // namespace whiteout

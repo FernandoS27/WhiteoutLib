@@ -47,6 +47,7 @@ bool FrameMatters(NodeKind kind) {
     case NodeKind::Camera:
     case NodeKind::Event:
     case NodeKind::Wc3FaceFx:
+    case NodeKind::Projector: // its own frame is in its record
         return false;
     default:
         return true;

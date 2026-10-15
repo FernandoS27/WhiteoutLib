@@ -93,6 +93,7 @@ struct Batch {
  *
  * Per-node animated bounding extent used for culling and LOD.
  */
+/// @wem rename=M3MeshSection
 struct MeshSection {
     u32 nodeIndex = 0;      ///< Index into BONE array
     AnimRef<Extent> bounds; ///< Animated bounding volume (76 bytes)

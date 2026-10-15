@@ -673,8 +673,13 @@ Simple single-bone orientation solver with angle limit and fallback bone.)doc")
 
     py::class_<whiteout::m3::ShadowBox>(m, "ShadowBox", R"doc(SHBX — Shadow box (v0, 64 bytes)
 
-Axis-aligned shadow volume defined by a 4×4 transform matrix.)doc")
+The box a portrait or a set limits its shadows to: on a bone, a length, a width and a height, each animatable. Read off the shipped files (EDIT_MODE_SC2_PROFILE_PLAN.md S1.0): a u16 bone index and a u16 beside it, then three `AnimRef<f32>` under fixed ids (0x6B72DE65, 0x337A603E, 0x1F42A5D8), some keyed -- not the matrix this was once taken for.)doc")
         .def(py::init<>())
+        .def_readwrite("bone_index", &whiteout::m3::ShadowBox::boneIndex, R"doc(Index into BONE array)doc")
+        .def_readwrite("unknown", &whiteout::m3::ShadowBox::unknown, R"doc(1 in three shipped story-mode sets, 0 in every other)doc")
+        .def_readwrite("length", &whiteout::m3::ShadowBox::length, R"doc(Animated length)doc")
+        .def_readwrite("width", &whiteout::m3::ShadowBox::width, R"doc(Animated width)doc")
+        .def_readwrite("height", &whiteout::m3::ShadowBox::height, R"doc(Animated height)doc")
     ;
 
     py::class_<whiteout::m3::ViewVolume>(m, "ViewVolume", R"doc(VVOL — View volume (v0, 40 bytes)
@@ -866,10 +871,10 @@ A capsule along its own +Z, centred, on `bone`.)doc")
 
     py::class_<whiteout::m3::ClothProxy>(m, "ClothProxy", R"doc(PHAC — Cloth proxy (v0, 32 bytes)
 
-Binds one cloth-influenced region to its cage: per vertex of `clothIndex`, four cage-local `u16` lanes packed in a `u64` and four byte weights (/255) packed in a `u32`.)doc")
+Binds one cloth-influenced region to its cage: per vertex of `proxyIndex`, four cage-local `u16` lanes packed in a `u64` and four byte weights (/255) packed in a `u32`.)doc")
         .def(py::init<>())
-        .def_readwrite("proxy_index", &whiteout::m3::ClothProxy::proxyIndex, R"doc(The cage's region (REGN index))doc")
-        .def_readwrite("cloth_index", &whiteout::m3::ClothProxy::clothIndex, R"doc(The bound region (REGN index))doc")
+        .def_readwrite("proxy_index", &whiteout::m3::ClothProxy::proxyIndex, R"doc(The bound region (REGN index))doc")
+        .def_readwrite("cloth_index", &whiteout::m3::ClothProxy::clothIndex, R"doc(The cage's region (REGN index))doc")
         .def_readwrite("proxy_vertices", &whiteout::m3::ClothProxy::proxyVertices, R"doc(Four cage vertices per bound vertex (U64_))doc")
         .def_readwrite("proxy_weights", &whiteout::m3::ClothProxy::proxyWeights, R"doc(Four byte weights per bound vertex (U32_))doc")
     ;

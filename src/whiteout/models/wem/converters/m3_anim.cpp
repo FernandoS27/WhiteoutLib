@@ -28,15 +28,190 @@ namespace m3_anim {
 namespace {
 
 
-/// STC `animRefs[j]` packs the slot in the high half and the block index in the
-/// low one — the 13 typed `AnimBlock` arrays are addressed no other way.
-/// An `STS_` record's four link fields at rest: parent, next sibling and first
-/// child all -1, then a -1 `i16` and a zero `u16` (§7.4). Every shipped record
-/// carries exactly this.
-constexpr std::array<u8, 16> kAnimationStateLinks = {
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00,
+using m3_sink::kAnimationStateLinks;
+
+/// How one `STC_` read, beside the container it became.
+struct ReadContainer {
+    bool events = false; ///< It held the slot-0 stream.
+    bool empty = false;  ///< It held no stream at all.
 };
+
+/// What `FoldTrackSets` made of a file's clips, for the import's report.
+struct FoldCounts {
+    u32 folded = 0;
+    u32 kept = 0;
+    u32 dropped = 0; ///< Empty unnamed containers.
+};
+
+std::vector<u32> ChannelsOf(const SubTrackContainer& container) {
+    std::vector<u32> out;
+    out.reserve(container.subTracks.size());
+    for (const SubTrack& track : container.subTracks) {
+        out.push_back(track.channel);
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
+/// The track sets the shipped files spell, folded back into `Model::trackSets`
+/// (EDIT_MODE_SC2_PROFILE_PLAN.md S1.2). A sequence's containers are
+/// `<sequence>_<set>` uses and a `<sequence>_full` default written last, which
+/// alone carries the events.
+///
+/// Pass 1 names a set for each distinct `<set>`, with the channels of every
+/// use of it across the clips. Pass 2 folds a clip when the export would write
+/// it back as it was read: a `_full` written last, every other container a use
+/// of a set named once, no channel in two containers, no events outside
+/// `_full`, and `LayeredContainers` over the folded clip giving each use back
+/// its own channels. A folded clip is one container -- `_full`'s priority and
+/// opacity, holding every key -- and a `ClipTrackSet` per use, in file order. Any
+/// other clip is kept as authored: the default first (`_full`, or the last
+/// container read), then the rest in file order, which is the order the export
+/// writes back. Empty unnamed containers carry nothing and are dropped.
+///
+/// @p ownSets is how many of @p sets the fold may add channels to from the
+/// end: a merge folds against the model's sets and adds only new ones.
+FoldCounts FoldTrackSets(std::vector<Clip>& clips, std::vector<std::vector<ReadContainer>>& read,
+                         std::vector<TrackSet>& sets) {
+    FoldCounts counts;
+    const std::size_t existing = sets.size();
+
+    for (std::size_t c = 0; c < clips.size(); ++c) {
+        std::vector<SubTrackContainer>& containers = clips[c].containers;
+        std::vector<ReadContainer>& flags = read[c];
+        for (std::size_t k = containers.size(); k-- > 0;) {
+            if (containers[k].name.empty() && flags[k].empty && containers.size() > 1) {
+                containers.erase(containers.begin() + static_cast<std::ptrdiff_t>(k));
+                flags.erase(flags.begin() + static_cast<std::ptrdiff_t>(k));
+                ++counts.dropped;
+            }
+        }
+    }
+
+    const auto fullOf = [](const Clip& clip) -> std::size_t {
+        const std::string full = clip.name + "_full";
+        for (std::size_t k = 0; k < clip.containers.size(); ++k) {
+            if (clip.containers[k].name == full) {
+                return k;
+            }
+        }
+        return kInvalidIndex;
+    };
+    const auto setNameOf = [](const Clip& clip, const SubTrackContainer& container) -> std::string {
+        const std::string prefix = clip.name + "_";
+        // On the sequence's own name and never on the last `_`: "Land and
+        // Take Off_full" is a container of "Land and Take Off".
+        if (container.name.size() <= prefix.size() || container.name.rfind(prefix, 0) != 0) {
+            return {};
+        }
+        return container.name.substr(prefix.size());
+    };
+    const auto setIndexOf = [&sets](const std::string& name) -> u32 {
+        for (std::size_t k = 0; k < sets.size(); ++k) {
+            if (sets[k].name == name) {
+                return static_cast<u32>(k);
+            }
+        }
+        return kInvalidIndex;
+    };
+
+    // Pass 1: the sets.
+    for (const Clip& clip : clips) {
+        const std::size_t full = fullOf(clip);
+        if (full == kInvalidIndex) {
+            continue;
+        }
+        for (std::size_t k = 0; k < clip.containers.size(); ++k) {
+            const std::string name = k == full ? std::string() : setNameOf(clip, clip.containers[k]);
+            if (name.empty()) {
+                continue;
+            }
+            u32 set = setIndexOf(name);
+            if (set == kInvalidIndex) {
+                set = static_cast<u32>(sets.size());
+                sets.push_back(TrackSet{name, {}});
+            }
+            if (set < existing) {
+                continue;
+            }
+            for (const u32 channel : ChannelsOf(clip.containers[k])) {
+                if (!sets[set].contains(channel)) {
+                    sets[set].channels.push_back(channel);
+                }
+            }
+        }
+    }
+    for (std::size_t k = existing; k < sets.size(); ++k) {
+        std::sort(sets[k].channels.begin(), sets[k].channels.end());
+    }
+
+    // Pass 2: each clip.
+    for (std::size_t c = 0; c < clips.size(); ++c) {
+        Clip& clip = clips[c];
+        std::vector<SubTrackContainer>& containers = clip.containers;
+        const std::vector<ReadContainer>& flags = read[c];
+        const std::size_t full = fullOf(clip);
+
+        bool fold = full != kInvalidIndex && full + 1 == containers.size() && containers.size() > 1;
+        std::vector<ClipTrackSet> uses;
+        std::vector<u32> seen;
+        for (std::size_t k = 0; fold && k + 1 < containers.size(); ++k) {
+            const u32 set = setIndexOf(setNameOf(clip, containers[k]));
+            if (set == kInvalidIndex || std::find(seen.begin(), seen.end(), set) != seen.end() ||
+                flags[k].events || containers[k].subTracks.empty()) {
+                fold = false;
+                break;
+            }
+            seen.push_back(set);
+            ClipTrackSet use;
+            use.set = set;
+            use.priority = containers[k].priority;
+            use.concurrent = containers[k].concurrent;
+            uses.push_back(use);
+            for (const SubTrack& track : containers[k].subTracks) {
+                for (std::size_t other = k + 1; other < containers.size() && fold; ++other) {
+                    fold = containers[other].find(track.channel) == nullptr;
+                }
+            }
+        }
+        if (fold) {
+            Clip folded = clip;
+            SubTrackContainer merged = containers[full];
+            for (std::size_t k = 0; k + 1 < containers.size(); ++k) {
+                merged.subTracks.insert(merged.subTracks.end(), containers[k].subTracks.begin(),
+                                        containers[k].subTracks.end());
+            }
+            folded.containers = {merged};
+            folded.trackSets = uses;
+            std::size_t remainder = 0;
+            const std::vector<SubTrackContainer> layered = LayeredContainers(folded, sets, &remainder);
+            fold = layered.size() == containers.size() &&
+                   ChannelsOf(layered[remainder]) == ChannelsOf(containers[full]);
+            for (std::size_t k = 0; fold && k + 1 < containers.size(); ++k) {
+                const std::string& name = sets[uses[k].set].name;
+                const auto layer = std::find_if(layered.begin(), layered.end(),
+                                                [&](const SubTrackContainer& l) { return l.name == name; });
+                fold = layer != layered.end() && ChannelsOf(*layer) == ChannelsOf(containers[k]);
+            }
+            if (fold) {
+                clip.containers = std::move(folded.containers);
+                clip.trackSets = std::move(folded.trackSets);
+                ++counts.folded;
+                continue;
+            }
+        }
+        // Kept as authored, the default first.
+        const std::size_t first = full != kInvalidIndex ? full : containers.size() - 1;
+        if (first != 0 && first < containers.size()) {
+            std::rotate(containers.begin(), containers.begin() + static_cast<std::ptrdiff_t>(first),
+                        containers.begin() + static_cast<std::ptrdiff_t>(first) + 1);
+        }
+        if (containers.size() > 1) {
+            ++counts.kept;
+        }
+    }
+    return counts;
+}
 
 /// The id the slot-0 event stream joins under. It is not free: across 2,044
 /// shipped models every slot-0 stream carries one of exactly two ids, and no
@@ -60,14 +235,41 @@ constexpr u16 kNoBone = 0xFFFFu;
 /// shipped events; every one that is not the end marker is type 2.
 constexpr u32 kNamedEventType = 2u;
 
+std::string TrimEventText(std::string value) {
+    while (!value.empty() && value.back() == '\0') {
+        value.pop_back();
+    }
+    return value;
+}
+
+/// An `.m3` event key as the clip event it reads as: everything it holds.
+ClipEvent EventOf(const m3::Event& event, f32 time, u32 node) {
+    ClipEvent out;
+    out.time = time;
+    out.node = node;
+    out.name = TrimEventText(event.name);
+    out.value = event.eventType;
+    // A lone NUL is a string the file wrote, not none: kept, it is written back.
+    out.option = event.optionString == std::string(1, '\0') ? event.optionString : TrimEventText(event.optionString);
+    out.transform = event.transform;
+    out.extra = event.extraParameter;
+    out.unknown = event.unknown;
+    out.rtt = event.rttChannelIndex;
+    return out;
+}
+
 /// The name a container crosses under. Formats with no container of their own
 /// (MDX, M2, Diablo III) all name theirs `base`, so every clip would export a
 /// container by the same name; retail qualifies each with its sequence
 /// (`Walk_full`, `Attack_full`). A container already named for its clip — an
-/// `.m3` making the round trip — keeps the name it came with.
-std::string containerName(const std::string& container, const std::string& clip) {
+/// `.m3` making the round trip — keeps the name it came with. The default
+/// container, the one with the events, is `<clip>_full` in every shipped file.
+std::string containerName(const std::string& container, const std::string& clip, bool isDefault) {
     if (clip.empty() || container.rfind(clip, 0) == 0) {
         return container;
+    }
+    if (isDefault) {
+        return clip + "_full";
     }
     return container.empty() ? clip : clip + "_" + container;
 }
@@ -144,6 +346,84 @@ template <class T>
 void AppendBytes(const T& value, std::vector<u8>& out) {
     const u8* raw = reinterpret_cast<const u8*>(&value);
     out.insert(out.end(), raw, raw + sizeof(T));
+}
+
+/// The value type a native stream (`TrackTarget::Kind::Native`) of slot
+/// @p slot holds: its keys as the slot stores them, a byte and a short
+/// widened. `Count` for the event slot and anything past SDMB.
+geom::AttrType NativeTypeOf(u32 slot) {
+    switch (slot) {
+    case 1:
+        return geom::AttrType::F32x2;
+    case 2:
+        return geom::AttrType::F32x3;
+    case 3:
+        return geom::AttrType::Quat;
+    case 4:
+        return geom::AttrType::U8x4;
+    case 5:
+        return geom::AttrType::F32;
+    case 6: // SDU8
+    case 10: // SDU3
+    case 11: // SDFG
+        return geom::AttrType::U32;
+    case 7: // SDS6
+    case 9: // SDS3
+        return geom::AttrType::I32;
+    case 8:
+        return geom::AttrType::U16;
+    case 12:
+        return geom::AttrType::Extent;
+    default:
+        return geom::AttrType::Count;
+    }
+}
+
+/// One SD block's keys as they are, into a native stream's sub-track: no
+/// rebase, no type change but the widening `NativeTypeOf` states.
+bool DecodeNative(const m3::SubTrackContainer& stc, u32 animRef, f32 originMs, SubTrack& track) {
+    const u32 block = animRef & 0xFFFFu;
+    const auto take = [&](const auto& blocks, auto&& value) {
+        if (block >= blocks.size()) {
+            return false;
+        }
+        for (i32 time : blocks[block].timestamps) {
+            track.times.push_back((static_cast<f32>(time) - originMs) / 1000.0f);
+        }
+        for (const auto& key : blocks[block].keys) {
+            value(key);
+        }
+        return true;
+    };
+    const auto raw = [&](const auto& key) { AppendBytes(key, track.values); };
+    switch (animRef >> 16) {
+    case 1:
+        return take(stc.sd2v, raw);
+    case 2:
+        return take(stc.sd3v, raw);
+    case 3:
+        return take(stc.sd4q, raw);
+    case 4:
+        return take(stc.sdcc, raw);
+    case 5:
+        return take(stc.sdr3, raw);
+    case 6:
+        return take(stc.sdu8, [&](u8 key) { AppendBytes(static_cast<u32>(key), track.values); });
+    case 7:
+        return take(stc.sds6, [&](i16 key) { AppendBytes(static_cast<i32>(key), track.values); });
+    case 8:
+        return take(stc.sdu6, raw);
+    case 9:
+        return take(stc.sds3, raw);
+    case 10:
+        return take(stc.sdu3, raw);
+    case 11:
+        return take(stc.sdfg, [&](const m3::Flag& key) { AppendBytes(key.value, track.values); });
+    case 12:
+        return take(stc.sdmb, raw);
+    default:
+        return false;
+    }
 }
 
 /// What one channel is, once. `interp` is the AnimRef's — **flags bit 4** — and
@@ -339,6 +619,12 @@ private:
         declared.animId = ref.animId;
         declared.type = type;
         declared.interp = InterpOf(ref.flags, type);
+        // The loader steps a ref stating row 0 (`flags |= 0x10`). Only one this
+        // file's own containers bind: an `.m3a`-driven base states 0 for want
+        // of a row, and its tracks move.
+        if (ref.interpType == 0 && (ref.flags & 0x4u) != 0 && ownIds().count(ref.animId) != 0) {
+            declared.interp = Interpolation::Step;
+        }
         declared.rebaseVector = rebaseVector;
         declared.rebaseQuaternion = rebaseQuaternion;
         declared_.push_back(declared);
@@ -422,11 +708,23 @@ private:
                 continue;
             }
             const m3::Light& light = source_.lights[l];
-            declare(light.diffuseColor, geom::AttrType::F32x4, nodeTarget(node, Channel::Color));
-            declare(light.intensityMultiplier, geom::AttrType::F32,
-                    nodeTarget(node, Channel::Intensity));
-            declare(light.attenuationStart, geom::AttrType::F32,
-                    nodeTarget(node, Channel::AttenuationStart));
+            // A ref the file keys but states unbound plays its rest in the
+            // game, which binds nothing on a model that latched its flags: no
+            // channel, so its stream goes through as read and the record, kept
+            // whole, still names it.
+            const bool latched = (static_cast<u32>(source_.flags) & 0x800u) != 0;
+            const auto played = [&](const auto& ref) {
+                return !latched || (ref.flags & 0x2u) != 0 || ownIds().count(ref.animId) == 0;
+            };
+            if (played(light.diffuseColor)) {
+                declare(light.diffuseColor, geom::AttrType::F32x3, nodeTarget(node, Channel::Color));
+            }
+            if (played(light.intensityMultiplier)) {
+                declare(light.intensityMultiplier, geom::AttrType::F32, nodeTarget(node, Channel::Intensity));
+            }
+            if (played(light.attenuationStart)) {
+                declare(light.attenuationStart, geom::AttrType::F32, nodeTarget(node, Channel::AttenuationStart));
+            }
         }
     }
 
@@ -634,35 +932,49 @@ private:
             SetClipMoveSpeed(clip, sequence.moveSpeed);
             clip.native.set("blendTime", static_cast<i64>(sequence.blendTime));
             clip.native.set("startFrame", static_cast<i64>(sequence.startFrame));
+            clip.native.set("m3SeqIndex", static_cast<i64>(sequence.index));
+            clip.native.set("m3ReplayStart", static_cast<i64>(sequence.replayStart));
+            clip.native.set("m3ReplayEnd", static_cast<i64>(sequence.replayEnd));
             // The sequence's own bound: the posed model over this clip, which
             // nothing in the file lets a reader derive back.
             clip.bounds = RebaseExtent(sequence.bounds);
 
             const f32 origin = static_cast<f32>(sequence.startFrame);
+            std::vector<ReadContainer> flags;
             if (s < source_.animationGroups.size()) {
                 for (u32 stcIndex : source_.animationGroups[s].subtrackIndices) {
                     if (stcIndex >= source_.subTrackCollections.size()) {
                         continue;
                     }
-                    clip.containers.push_back(
-                        buildContainer(source_.subTrackCollections[stcIndex], origin, clip));
+                    const m3::SubTrackContainer& stc = source_.subTrackCollections[stcIndex];
+                    ReadContainer flag;
+                    flag.empty = stc.animIds.empty();
+                    clip.containers.push_back(buildContainer(stc, origin, clip, flag.events));
+                    flags.push_back(flag);
                 }
             }
             if (clip.containers.empty()) {
                 SubTrackContainer container;
                 container.name = "base";
                 clip.containers.push_back(std::move(container));
+                flags.push_back(ReadContainer{});
+                // A sequence that names no container at all, which a few
+                // shipped ones do: the export writes it back with none.
+                clip.native.set("m3NoContainers", 1);
             }
             clips_.push_back(std::move(clip));
+            read_.push_back(std::move(flags));
         }
+        folds_ = FoldTrackSets(clips_, read_, model_.trackSets);
     }
 
-    SubTrackContainer buildContainer(const m3::SubTrackContainer& stc, f32 origin, Clip& clip) {
+    /// @p events is set when the container held the slot-0 stream. Its
+    /// `STS_` index is not kept: the export shares states afresh.
+    SubTrackContainer buildContainer(const m3::SubTrackContainer& stc, f32 origin, Clip& clip, bool& events) {
         SubTrackContainer container;
         container.name = TrimNuls(stc.name);
         container.priority = static_cast<i32>(stc.animPriority);
         container.concurrent = stc.runsConcurrent != 0;
-        container.native.set("animationStateIndex", static_cast<i64>(stc.animationStateIndex));
 
         for (std::size_t j = 0; j < stc.animIds.size() && j < stc.animRefs.size(); ++j) {
             const u32 animId = stc.animIds[j];
@@ -670,11 +982,27 @@ private:
 
             if (SlotOf(animRef) == kSdev) {
                 addEvents(stc, animRef, origin, clip);
+                events = true;
+                // Two ids are shipped for the stream; the file keeps its own.
+                if (animId != kEventStreamAnimId) {
+                    clip.native.set("m3EventStreamId", static_cast<i64>(animId));
+                }
                 continue;
             }
             const Declared* declared = declaredFor(animId);
             if (declared == nullptr) {
-                continue; // A target WEM does not store — see the file comment.
+                // A stream for a record WEM keeps whole -- a material's, a
+                // light's range, a section's bounds -- carried as read, under
+                // its own id, for the export to put back.
+                if (const AnimChannel* native = nativeChannel(animId, SlotOf(animRef))) {
+                    SubTrack track;
+                    track.channel = native->id;
+                    track.interp = Interpolation::Linear;
+                    if (DecodeNative(stc, animRef, origin, track)) {
+                        container.subTracks.push_back(std::move(track));
+                    }
+                }
+                continue;
             }
             SubTrack track;
             track.channel = animId;
@@ -696,10 +1024,30 @@ private:
         for (std::size_t k = 0; k < keys.timestamps.size() && k < keys.keys.size(); ++k) {
             const m3::Event& event = keys.keys[k];
             const u32 node = context_.bases.bone + event.boneIndex;
-            clip.events.push_back(ClipEvent{Seconds(static_cast<f32>(keys.timestamps[k]) - origin),
-                                            node < model_.nodes.size() ? node : kInvalidNode,
-                                            TrimNuls(event.name), event.eventType});
+            clip.events.push_back(EventOf(event, Seconds(static_cast<f32>(keys.timestamps[k]) - origin),
+                                          event.boneIndex != kNoBone && node < model_.nodes.size() ? node
+                                                                                                    : kInvalidNode));
         }
+    }
+
+    /// The native channel for @p animId's stream in @p slot, declared on first
+    /// sight; null when the id is another channel's or the slot holds nothing
+    /// a native stream carries.
+    const AnimChannel* nativeChannel(u32 animId, u32 slot) {
+        const geom::AttrType type = NativeTypeOf(slot);
+        if (animId == 0 || type == geom::AttrType::Count) {
+            return nullptr;
+        }
+        if (const AnimChannel* known = model_.animChannels.find(animId)) {
+            return known->target.kind == TrackTarget::Kind::Native && known->target.sub == slot ? known : nullptr;
+        }
+        AnimChannel channel;
+        channel.id = animId;
+        channel.target.kind = TrackTarget::Kind::Native;
+        channel.target.sub = slot;
+        channel.valueType = type;
+        model_.animChannels.add(channel);
+        return model_.animChannels.find(animId);
     }
 
     const Declared* declaredFor(u32 animId) const {
@@ -711,6 +1059,17 @@ private:
         return nullptr;
     }
 
+    /// Every id the file's own containers key.
+    const std::set<u32>& ownIds() {
+        if (!ownIdsRead_) {
+            for (const m3::SubTrackContainer& stc : source_.subTrackCollections) {
+                ownIds_.insert(stc.animIds.begin(), stc.animIds.end());
+            }
+            ownIdsRead_ = true;
+        }
+        return ownIds_;
+    }
+
     const m3::Model& source_;
     const Context& context_;
     Document& document_;
@@ -718,7 +1077,18 @@ private:
     u32 modelIndex_;
 
     std::vector<Clip> clips_;
+    std::vector<std::vector<ReadContainer>> read_;
+    FoldCounts folds_;
+
+public:
+    const FoldCounts& folds() const {
+        return folds_;
+    }
+
+private:
     std::vector<Declared> declared_;
+    std::set<u32> ownIds_;
+    bool ownIdsRead_ = false;
 };
 
 } // namespace
@@ -740,15 +1110,27 @@ NodeBases NodeBases::Of(const m3::Model& source) {
     bases.ribbon = bases.particleCopy + copies;
     bases.force = bases.ribbon + static_cast<u32>(source.ribbonEmitters.size());
     bases.warp = bases.force + static_cast<u32>(source.forces.size());
+    bases.hitTest = bases.warp + static_cast<u32>(source.warps.size());
+    bases.projector = bases.hitTest + 1 + static_cast<u32>(source.fuzzyHitTestObjects.size());
     return bases;
 }
 
 void Import(const m3::Model& source, const Context& context, Document& document, u32 model,
-            Diagnostics&) {
+            Diagnostics& out) {
     if (model >= document.models.size()) {
         return;
     }
-    Builder(source, context, document, model).run();
+    Builder builder(source, context, document, model);
+    builder.run();
+    const FoldCounts& folds = builder.folds();
+    if (folds.folded + folds.kept + folds.dropped != 0) {
+        out.info(DiagCode::Unspecified,
+                 "track sets: " + std::to_string(folds.folded) + " clip(s) folded into " +
+                     std::to_string(document.models[model].trackSets.size()) + " set(s), " +
+                     std::to_string(folds.kept) + " kept as authored, " + std::to_string(folds.dropped) +
+                     " empty container(s) dropped",
+                 ElementRef(ElementKind::Document, model));
+    }
 }
 
 u32 Merge(const m3::Model& external, Document& document, u32 model, Diagnostics& out) {
@@ -777,6 +1159,8 @@ u32 Merge(const m3::Model& external, Document& document, u32 model, Diagnostics&
 
     u32 added = 0;
     u32 unknown = 0;
+    std::vector<Clip> merged;
+    std::vector<std::vector<ReadContainer>> read;
     for (std::size_t s = 0; s < external.sequences.size(); ++s) {
         const m3::Sequence& sequence = external.sequences[s];
         Clip clip;
@@ -799,6 +1183,9 @@ u32 Merge(const m3::Model& external, Document& document, u32 model, Diagnostics&
         SetClipMoveSpeed(clip, sequence.moveSpeed);
         clip.native.set("blendTime", static_cast<i64>(sequence.blendTime));
         clip.native.set("startFrame", static_cast<i64>(sequence.startFrame));
+        clip.native.set("m3SeqIndex", static_cast<i64>(sequence.index));
+        clip.native.set("m3ReplayStart", static_cast<i64>(sequence.replayStart));
+        clip.native.set("m3ReplayEnd", static_cast<i64>(sequence.replayEnd));
         clip.native.set("external", static_cast<i64>(1));
         // The posed bound the file states for this sequence. Without it the
         // clip falls back on the model's own, which is the bind pose's — safe,
@@ -810,6 +1197,7 @@ u32 Merge(const m3::Model& external, Document& document, u32 model, Diagnostics&
         if (s >= external.animationGroups.size()) {
             continue;
         }
+        std::vector<ReadContainer> flags;
         for (u32 stcIndex : external.animationGroups[s].subtrackIndices) {
             if (stcIndex >= external.subTrackCollections.size()) {
                 continue;
@@ -819,13 +1207,57 @@ u32 Merge(const m3::Model& external, Document& document, u32 model, Diagnostics&
             container.name = TrimNuls(stc.name);
             container.priority = static_cast<i32>(stc.animPriority);
             container.concurrent = stc.runsConcurrent != 0;
+            ReadContainer flag;
+            flag.empty = stc.animIds.empty();
 
             for (std::size_t j = 0; j < stc.animIds.size() && j < stc.animRefs.size(); ++j) {
+                // The events, which an external file carries as the model's do:
+                // its bones are the model's, which import first.
+                if (SlotOf(stc.animRefs[j]) == kSdev) {
+                    const u32 block = BlockOf(stc.animRefs[j]);
+                    if (block < stc.sdev.size()) {
+                        const auto& keys = stc.sdev[block];
+                        for (std::size_t k = 0; k < keys.timestamps.size() && k < keys.keys.size(); ++k) {
+                            const m3::Event& event = keys.keys[k];
+                            clip.events.push_back(EventOf(
+                                event, Seconds(static_cast<f32>(keys.timestamps[k]) - origin),
+                                event.boneIndex != kNoBone && event.boneIndex < target.nodes.size()
+                                    ? static_cast<u32>(event.boneIndex)
+                                    : kInvalidNode));
+                        }
+                    }
+                    if (stc.animIds[j] != kEventStreamAnimId) {
+                        clip.native.set("m3EventStreamId", static_cast<i64>(stc.animIds[j]));
+                    }
+                    flag.events = true;
+                    continue;
+                }
                 const AnimChannel* channel = table.find(stc.animIds[j]);
+                // An `.m3a` cannot introduce a target, only new motion for one
+                // the base model names. A stream WEM keeps no channel for -- a
+                // material's, a light's range -- goes through as read under its
+                // own id, as the model's own streams do.
+                const u32 slot = SlotOf(stc.animRefs[j]);
+                if (channel == nullptr && stc.animIds[j] != 0 && NativeTypeOf(slot) != geom::AttrType::Count) {
+                    AnimChannel native;
+                    native.id = stc.animIds[j];
+                    native.target.kind = TrackTarget::Kind::Native;
+                    native.target.sub = slot;
+                    native.valueType = NativeTypeOf(slot);
+                    target.animChannels.add(native);
+                    channel = table.find(native.id);
+                }
                 if (channel == nullptr) {
-                    // An `.m3a` cannot introduce a target, only new motion for
-                    // one the base model already declares.
                     ++unknown;
+                    continue;
+                }
+                if (channel->target.kind == TrackTarget::Kind::Native) {
+                    SubTrack track;
+                    track.channel = channel->id;
+                    track.interp = Interpolation::Linear;
+                    if (channel->target.sub == slot && DecodeNative(stc, stc.animRefs[j], origin, track)) {
+                        container.subTracks.push_back(std::move(track));
+                    }
                     continue;
                 }
                 Declared declared;
@@ -844,10 +1276,18 @@ u32 Merge(const m3::Model& external, Document& document, u32 model, Diagnostics&
                 container.subTracks.push_back(std::move(track));
             }
             clip.containers.push_back(std::move(container));
+            flags.push_back(flag);
         }
         if (clip.containers.empty()) {
             continue;
         }
+        merged.push_back(std::move(clip));
+        read.push_back(std::move(flags));
+    }
+    // Against the model's sets, which an external file may use but not
+    // change: what it names for the first time becomes a set of its own.
+    FoldTrackSets(merged, read, target.trackSets);
+    for (Clip& clip : merged) {
         document.clips.push_back(std::move(clip));
         ++added;
     }
@@ -1293,19 +1733,21 @@ private:
         // a conversion that invented 0 for all of them was stating "sequence
         // zero, replay nothing, blend instantly".
         sequence.id = static_cast<i32>(clip.native.value("sequenceId", -1));
-        sequence.index = -1;
-        sequence.replayStart = 1;
-        sequence.replayEnd = 1;
-        sequence.flags = static_cast<m3::SequenceFlag>(clip.native.value("m3SeqFlags", 0));
+        sequence.index = static_cast<i32>(clip.native.value("m3SeqIndex", -1));
+        sequence.replayStart = static_cast<u32>(clip.native.value("m3ReplayStart", 1));
+        sequence.replayEnd = static_cast<u32>(clip.native.value("m3ReplayEnd", 1));
+        // The two bits the clip owns are the clip's, both ways: the bag keeps
+        // only the ones it does not.
+        u32 flags = static_cast<u32>(clip.native.value("m3SeqFlags", 0)) &
+                    ~(static_cast<u32>(m3::SequenceFlag::NotLooping) |
+                      static_cast<u32>(m3::SequenceFlag::AlwaysGlobal));
         if (!clip.looping) {
-            sequence.flags = static_cast<m3::SequenceFlag>(
-                static_cast<u32>(sequence.flags) | static_cast<u32>(m3::SequenceFlag::NotLooping));
+            flags |= static_cast<u32>(m3::SequenceFlag::NotLooping);
         }
         if (hasFlag(clip.flags, ClipFlags::AutoPlay)) {
-            sequence.flags =
-                static_cast<m3::SequenceFlag>(static_cast<u32>(sequence.flags) |
-                                              static_cast<u32>(m3::SequenceFlag::AlwaysGlobal));
+            flags |= static_cast<u32>(m3::SequenceFlag::AlwaysGlobal);
         }
+        sequence.flags = static_cast<m3::SequenceFlag>(flags);
         const i64 rarity = static_cast<i64>(ClipRarity(clip));
         sequence.frequency =
             static_cast<u32>(clip.native.value("m3Frequency", rarity != 0 ? rarity : 100));
@@ -1318,22 +1760,72 @@ private:
 
         m3::AnimationGroup group;
         group.name = clip.name;
-        // Every clip owes a slot-0 stream, whether or not it carries events of
-        // its own, because the end marker lives in it.
-        bool eventsPending = true;
-        // Split body: the clip's track sets become containers of their own.
-        for (const SubTrackContainer& container : LayeredContainers(clip, model_.trackSets)) {
-            const u32 index = buildContainer(container, clip, origin, eventsPending);
+        // Split body: the clip's track sets become containers of their own,
+        // written as the shipped files hold them -- the sets in the order the
+        // clip uses them, then its other containers, and last the default,
+        // `<clip>_full`, which carries the events. Every clip owes a slot-0
+        // stream because the end marker lives in it, so the default is always
+        // written.
+        // A sequence read with no container, and still with nothing to play.
+        const bool bare = clip.native.value("m3NoContainers", 0) != 0 && clip.events.empty() &&
+                          std::all_of(clip.containers.begin(), clip.containers.end(),
+                                      [](const SubTrackContainer& c) { return c.subTracks.empty(); });
+        if (bare) {
+            if (map_ != nullptr) {
+                map_->sequenceStc.push_back(kInvalidIndex);
+            }
+            out_.sequences.push_back(std::move(sequence));
+            out_.animationGroups.push_back(std::move(group));
+            return;
+        }
+        std::size_t remainder = 0;
+        const std::vector<SubTrackContainer> layered = LayeredContainers(clip, model_.trackSets, &remainder);
+        std::vector<const SubTrackContainer*> order;
+        std::vector<bool> placed(layered.size(), false);
+        for (const ClipTrackSet& use : clip.trackSets) {
+            if (use.set >= model_.trackSets.size()) {
+                continue;
+            }
+            for (std::size_t k = 0; k < remainder; ++k) {
+                if (!placed[k] && layered[k].name == model_.trackSets[use.set].name) {
+                    placed[k] = true;
+                    order.push_back(&layered[k]);
+                    break;
+                }
+            }
+        }
+        // A set's layer is named for the set alone; its container is
+        // `<clip>_<set>` even where the set's own name starts like the clip's
+        // ("GLstand" in "GLstand").
+        std::vector<SubTrackContainer> named(layered.begin(), layered.begin() + static_cast<std::ptrdiff_t>(remainder));
+        for (SubTrackContainer& layer : named) {
+            layer.name = clip.name + "_" + layer.name;
+        }
+        for (const SubTrackContainer*& entry : order) {
+            if (entry >= layered.data() && entry < layered.data() + remainder) {
+                entry = &named[static_cast<std::size_t>(entry - layered.data())];
+            }
+        }
+        for (std::size_t k = 0; k < layered.size(); ++k) {
+            if (k != remainder && !placed[k]) {
+                order.push_back(&layered[k]);
+            }
+        }
+        for (const SubTrackContainer* container : order) {
+            const u32 index = buildContainer(*container, clip, origin, false);
             if (index != kInvalidIndex) {
                 group.subtrackIndices.push_back(index);
-                eventsPending = false;
             }
+        }
+        const SubTrackContainer none;
+        const u32 fallback =
+            buildContainer(remainder < layered.size() ? layered[remainder] : none, clip, origin, true);
+        if (fallback != kInvalidIndex) {
+            group.subtrackIndices.push_back(fallback);
         }
 
         if (map_ != nullptr) {
-            map_->sequenceStc.push_back(group.subtrackIndices.empty()
-                                            ? kInvalidIndex
-                                            : group.subtrackIndices.front());
+            map_->sequenceStc.push_back(fallback);
         }
         out_.sequences.push_back(std::move(sequence));
         out_.animationGroups.push_back(std::move(group));
@@ -1343,7 +1835,7 @@ private:
                        bool takeEvents) {
         const SubTrackContainer source = linearised(layered, clip);
         m3::SubTrackContainer stc;
-        stc.name = containerName(source.name, clip.name);
+        stc.name = containerName(source.name, clip.name, takeEvents);
         stc.animPriority = static_cast<u16>(source.priority);
         stc.runsConcurrent = source.concurrent ? 1u : 0u;
         stc.animationStateIndex = static_cast<u16>(source.native.value("animationStateIndex", 0));
@@ -1364,6 +1856,16 @@ private:
             const AnimChannel* channel = model_.animChannels.find(track.channel);
             // A stage's own channels are the editor's; an export's bake consumes them.
             if (channel == nullptr || IsStageChannel(channel->target)) {
+                continue;
+            }
+            // A record's own stream goes back under its id; the record WEM keeps
+            // whole already names it.
+            if (channel->target.kind == TrackTarget::Kind::Native) {
+                const u32 animRef = writeNative(stc, *channel, track, origin, clip);
+                if (animRef != kInvalidIndex) {
+                    stc.animIds.push_back(exportId(channel->id));
+                    stc.animRefs.push_back(animRef);
+                }
                 continue;
             }
             // A material channel of another profile is the source's spelling
@@ -1427,13 +1929,15 @@ private:
         }
 
         // Events are the slot-0 stream, and they belong to the CLIP rather than
-        // to a container — so they go into the first container that is written
-        // and not into every one of them, which is how a three-layer clip would
-        // otherwise fire each of its events three times.
+        // to a container — so they go into the default container alone, which
+        // is how every shipped file holds them, and not into every one, which is
+        // how a three-layer clip would otherwise fire each of its events three
+        // times.
         if (takeEvents) {
             const u32 animRef = writeEvents(stc, clip, origin);
             if (animRef != kInvalidIndex) {
-                stc.animIds.push_back(kEventStreamAnimId);
+                stc.animIds.push_back(
+                    static_cast<u32>(clip.native.value("m3EventStreamId", kEventStreamAnimId)));
                 stc.animRefs.push_back(animRef);
             }
         }
@@ -1522,22 +2026,107 @@ private:
         return m3_sink::WriteStream(stc, spec, track, origin, duration, warcraft);
     }
 
+    /// A native stream's keys into the slot its channel names, as they were
+    /// read: the `(slot << 16) | block` word, or `kInvalidIndex`.
+    u32 writeNative(m3::SubTrackContainer& stc, const AnimChannel& channel, const SubTrack& track, i32 origin,
+                    const Clip& clip) {
+        const u32 slot = channel.target.sub;
+        const std::size_t size = geom::AttrTypeSize(channel.valueType);
+        if (size == 0 || track.values.size() != track.times.size() * size || NativeTypeOf(slot) != channel.valueType) {
+            return kInvalidIndex;
+        }
+        std::vector<i32> stamps;
+        for (const f32 time : track.times) {
+            stamps.push_back(origin + Ticks(time));
+        }
+        const u32 endFrame = static_cast<u32>(origin + Ticks(clip.duration));
+        const auto put = [&](auto& blocks, auto&& value) -> u32 {
+            using Block = typename std::decay_t<decltype(blocks)>::value_type;
+            Block block{};
+            block.timestamps = stamps;
+            block.flags = 0;
+            block.endFrame = endFrame;
+            for (std::size_t k = 0; k < track.times.size(); ++k) {
+                block.keys.push_back(value(track.values.data() + k * size));
+            }
+            blocks.push_back(std::move(block));
+            return (slot << 16) | static_cast<u32>(blocks.size() - 1);
+        };
+        const auto as = [](auto zero) {
+            return [](const u8* at) {
+                decltype(zero) out{};
+                std::memcpy(&out, at, sizeof(out));
+                return out;
+            };
+        };
+        switch (slot) {
+        case 1:
+            return put(stc.sd2v, as(Vector2f{}));
+        case 2:
+            return put(stc.sd3v, as(Vector3f{}));
+        case 3:
+            return put(stc.sd4q, as(Quaternion{}));
+        case 4:
+            return put(stc.sdcc, as(m3::ColorBGRA{}));
+        case 5:
+            return put(stc.sdr3, as(f32{}));
+        case 6:
+            return put(stc.sdu8, [](const u8* at) {
+                u32 wide = 0;
+                std::memcpy(&wide, at, sizeof(wide));
+                return static_cast<u8>(wide);
+            });
+        case 7:
+            return put(stc.sds6, [](const u8* at) {
+                i32 wide = 0;
+                std::memcpy(&wide, at, sizeof(wide));
+                return static_cast<i16>(wide);
+            });
+        case 8:
+            return put(stc.sdu6, as(u16{}));
+        case 9:
+            return put(stc.sds3, as(i32{}));
+        case 10:
+            return put(stc.sdu3, as(u32{}));
+        case 11:
+            return put(stc.sdfg, [](const u8* at) {
+                m3::Flag flag;
+                std::memcpy(&flag.value, at, sizeof(flag.value));
+                return flag;
+            });
+        case 12:
+            return put(stc.sdmb, as(m3::Extent{}));
+        default:
+            return kInvalidIndex;
+        }
+    }
+
     u32 writeEvents(m3::SubTrackContainer& stc, const Clip& clip, i32 origin) {
         m3::AnimBlock<m3::Event> entry;
+        // An `.m3` that made the round trip brings its own end marker back as
+        // a clip event, which goes back where it was -- a frame before the end
+        // in many shipped files -- while it still ends the clip. One the clip
+        // has since moved off its end is written at the end instead.
+        constexpr f32 kAtTheEnd = 0.0025f;
+        bool ended = false;
         for (const ClipEvent& event : clip.events) {
-            // An `.m3` that made the round trip brings its own end marker back
-            // as a clip event; the one appended below replaces it rather than
-            // joining it, or the block would end with two.
-            if (event.name == kSequenceEndEvent) {
+            const bool end = event.name == kSequenceEndEvent;
+            if (end && (ended || std::abs(event.time - clip.duration) > kAtTheEnd)) {
                 continue;
             }
+            ended = ended || end;
             m3::Event key{};
             key.name = event.name;
             key.eventType = event.value != 0 ? event.value : kNamedEventType;
+            key.optionString = event.option;
+            key.transform = event.transform;
+            key.extraParameter = event.extra;
+            key.unknown = event.unknown;
+            key.rttChannelIndex = event.rtt;
             // The node is a bone here, because that is what an `.m3` event
             // names — the kind is not fixed across formats, and this is the one
-            // that has to be a bone index.
-            key.boneIndex = 0;
+            // that has to be a bone index. None is the format's own 0xFFFF.
+            key.boneIndex = kNoBone;
             if (event.node < context_.nodeSlots.size()) {
                 const ExportContext::NodeSlot& slot = context_.nodeSlots[event.node];
                 if (slot.slot == ExportContext::Slot::Bone) {
@@ -1547,12 +2136,15 @@ private:
             entry.timestamps.push_back(origin + Ticks(event.time));
             entry.keys.push_back(std::move(key));
         }
-        m3::Event end{};
-        end.name = kSequenceEndEvent;
-        end.eventType = kSequenceEndType;
-        end.boneIndex = kNoBone;
-        entry.timestamps.push_back(origin + Ticks(clip.duration));
-        entry.keys.push_back(std::move(end));
+        if (!ended) {
+            m3::Event end{};
+            end.name = kSequenceEndEvent;
+            end.eventType = kSequenceEndType;
+            end.boneIndex = kNoBone;
+            end.unknown = 0xFFFFFFFFu;
+            entry.timestamps.push_back(origin + Ticks(clip.duration));
+            entry.keys.push_back(std::move(end));
+        }
 
         // A block of one key is flagged, and one of several is not: 2,317 of
         // 2,317 single-key blocks carry 1 and all 61 longer ones carry 0.
@@ -1607,6 +2199,8 @@ private:
 
     void wireAnimRef(const AnimChannel& channel, const SubTrack& track) {
         switch (channel.target.kind) {
+        case TrackTarget::Kind::Native: // the record WEM keeps already names it
+            return;
         case TrackTarget::Kind::Node:
             wireNode(channel, track);
             return;
@@ -2239,6 +2833,7 @@ void Export(const Document& document, u32 model, const ExportContext& context, m
     }
     Exporter(document, model, context, out, diagnostics, map).run();
     m3_sink::UnshareAnimIds(out);
+    m3_sink::ShareAnimationStates(out);
     SolveBoneAnimFlags(out);
 }
 

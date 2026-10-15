@@ -89,6 +89,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::PhysicsShape>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::PoseSchema>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ProfileId>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ProfileMaterialSet>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Sc2Billboard>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Sc2Property<whiteout::Vector3f>>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Sc2RibbonSplinePoint>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::SlotBinding>);
@@ -185,6 +186,7 @@ void bind_wem_3(py::module_& m) {
     py::bind_vector<std::vector<whiteout::models::wem::PoseSchema>>(m, "VectorWemPoseSchema");
     py::bind_vector<std::vector<whiteout::models::wem::ProfileId>>(m, "VectorWemProfileId");
     py::bind_vector<std::vector<whiteout::models::wem::ProfileMaterialSet>>(m, "VectorWemProfileMaterialSet");
+    py::bind_vector<std::vector<whiteout::models::wem::Sc2Billboard>>(m, "VectorWemSc2Billboard");
     py::bind_vector<std::vector<whiteout::models::wem::Sc2Property<whiteout::Vector3f>>>(m, "VectorWemSc2PropertyVector3f");
     py::bind_vector<std::vector<whiteout::models::wem::Sc2RibbonSplinePoint>>(m, "VectorWemSc2RibbonSplinePoint");
     py::bind_vector<std::vector<whiteout::models::wem::SlotBinding>>(m, "VectorWemSlotBinding");

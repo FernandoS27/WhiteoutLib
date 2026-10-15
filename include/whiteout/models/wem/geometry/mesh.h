@@ -29,6 +29,7 @@
 #include <whiteout/compatibility.h>
 
 #include "../bounds.h"
+#include "../native/m3_native.h"
 #include "../native_bag.h"
 #include "../profile.h"
 #include "attributes.h"
@@ -94,6 +95,12 @@ inline constexpr const char* kSectionVisibilityNode = "visibilityBone";
 /// The source's own "no gate, always drawn", stored rather than omitted.
 inline constexpr i64 kSectionAlwaysDrawn = 0xFFFF;
 
+/// A section's bag key: the node an `.m3` region names as its root bone (REGN
+/// `rootBone`). A node index, and so a referencer like the gate above; a
+/// section without one takes its palette's first bone, as every shipped
+/// region does.
+inline constexpr const char* kSectionRootBone = "rootBone";
+
 /// Metadata only; one per draw section. The faces that belong to it are the ones
 /// whose `section` attribute names it.
 struct MeshSection {
@@ -155,6 +162,10 @@ public:
     /// Per face slot, the triangles a polygon is drawn and written as
     /// (EDIT_MODE_MODELLING_DESIGN.md §2.3). Empty on an all-triangle mesh.
     geom::FaceTriangulation triangulation;
+    /// The `MSEC` records an `.m3` division held, as read: the bounds the game
+    /// culls it by and their AnimRef. `nodeIndex` names a node -- a §10.6
+    /// referencer, the bone's own index on import. `MESH` v3.
+    std::vector<native::M3MeshSection> sc2Bounds;
 
     // --- geometry ------------------------------------------------------------
 
@@ -254,6 +265,7 @@ public:
         v.field("repairLog", repairLog);
         v.field("bounds", bounds);
         v.since(2).field("triangulation", triangulation);
+        v.since(3).inlineList("sc2Bounds", sc2Bounds);
     }
 
 private:

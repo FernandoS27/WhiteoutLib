@@ -87,7 +87,11 @@ void BinaryParseVisitor::visit(Event& value, u32 version) {
 
 void BinaryParseVisitor::visit(ShadowBox& value, u32 version) {
     (void)version;
-    value.matrix = reader.read<Matrix44f>();
+    value.boneIndex = reader.read<u16>();
+    value.unknown = reader.read<u16>();
+    value.length = reader.read<AnimRef<f32>>();
+    value.width = reader.read<AnimRef<f32>>();
+    value.height = reader.read<AnimRef<f32>>();
 }
 
 void BinaryParseVisitor::visit(Projector& value, u32 version) {

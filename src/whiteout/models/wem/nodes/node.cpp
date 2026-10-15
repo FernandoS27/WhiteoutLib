@@ -146,6 +146,23 @@ std::string EventObjectName(const Node& node) {
     return name;
 }
 
+NodeFlags Sc2BillboardFlags(u8 type) {
+    switch (type) {
+    case 0:
+    case 3:
+        return NodeFlags::BillboardLockY;
+    case 1:
+    case 5:
+        return NodeFlags::BillboardLockX;
+    case 2:
+        return NodeFlags::BillboardLockZ;
+    case 6:
+        return NodeFlags::Billboarded;
+    default:
+        return NodeFlags::None;
+    }
+}
+
 const char* ToString(NodeKind kind) {
     switch (kind) {
     case NodeKind::Helper:
@@ -186,6 +203,8 @@ const char* ToString(NodeKind kind) {
         return "vertex_warp";
     case NodeKind::Wc3FaceFx:
         return "wc3_face_fx";
+    case NodeKind::Projector:
+        return "projector";
     case NodeKind::Count:
         break;
     }
@@ -288,6 +307,9 @@ void Node::resetPayloadForKind() {
         break;
     case NodeKind::Wc3FaceFx:
         payload = Wc3FaceFxPayload{};
+        break;
+    case NodeKind::Projector:
+        payload = ProjectorPayload{};
         break;
     case NodeKind::Count:
         break;

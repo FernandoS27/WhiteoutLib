@@ -64,7 +64,11 @@ void SetClipRarity(Clip& clip, f32 rarity) {
     SetMilli(clip.native, kRarityMilli, rarity);
 }
 
-std::vector<SubTrackContainer> LayeredContainers(const Clip& clip, const std::vector<TrackSet>& sets) {
+std::vector<SubTrackContainer> LayeredContainers(const Clip& clip, const std::vector<TrackSet>& sets,
+                                                 std::size_t* remainder) {
+    if (remainder != nullptr) {
+        *remainder = 0;
+    }
     if (clip.trackSets.empty() || clip.containers.empty()) {
         return clip.containers;
     }
@@ -84,7 +88,7 @@ std::vector<SubTrackContainer> LayeredContainers(const Clip& clip, const std::ve
         SubTrackContainer layer;
         layer.name = set.name;
         layer.priority = use.priority;
-        layer.concurrent = true;
+        layer.concurrent = use.concurrent;
         std::vector<SubTrack> kept;
         for (SubTrack& track : rest.subTracks) {
             if (set.contains(track.channel)) {
@@ -97,6 +101,9 @@ std::vector<SubTrackContainer> LayeredContainers(const Clip& clip, const std::ve
         if (!layer.subTracks.empty()) {
             out.push_back(std::move(layer));
         }
+    }
+    if (remainder != nullptr) {
+        *remainder = out.size();
     }
     out.push_back(std::move(rest));
     out.insert(out.end(), clip.containers.begin() + 1, clip.containers.end());

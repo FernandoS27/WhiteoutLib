@@ -89,6 +89,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::PhysicsShape>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::PoseSchema>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ProfileId>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ProfileMaterialSet>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Sc2Billboard>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Sc2Property<whiteout::Vector3f>>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Sc2RibbonSplinePoint>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::SlotBinding>);
@@ -170,13 +171,6 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 1 of bind_wem(), which calls the parts in order.
 void bind_wem_1(py::module_& m) {
-    py::class_<whiteout::models::wem::Wc3ParticleInterval>(m, "Wc3ParticleInterval", R"doc(A flipbook run: cells `start..end`, `repeat` times over the span.)doc")
-        .def(py::init<>())
-        .def_readwrite("start", &whiteout::models::wem::Wc3ParticleInterval::start)
-        .def_readwrite("end", &whiteout::models::wem::Wc3ParticleInterval::end)
-        .def_readwrite("repeat", &whiteout::models::wem::Wc3ParticleInterval::repeat)
-    ;
-
     py::class_<whiteout::models::wem::Wc3ParticleEmitter2Payload>(m, "Wc3ParticleEmitter2Payload", R"doc(`PRE2`: camera-facing flipbook quads — the Warcraft III particle.)doc")
         .def(py::init<>())
         .def_readwrite("speed", &whiteout::models::wem::Wc3ParticleEmitter2Payload::speed)
@@ -604,6 +598,7 @@ Both halves are optional and independent. `asset` is what the source named — a
         .def(py::init<>())
         .def_readwrite("asset", &whiteout::models::wem::AttachmentPayload::asset, R"doc(What the source named, resolved or not.)doc")
         .def_readwrite("model", &whiteout::models::wem::AttachmentPayload::model, R"doc(-> `Document::models[]` once it resolved.)doc")
+        .def_readwrite("sc2_volume_addons", &whiteout::models::wem::AttachmentPayload::sc2VolumeAddons, R"doc(Each volume's two MODL addons as read, the first in the low half: the volume's bone and place in most files, zeros in older ones. Parallel to `sc2Volumes`, or empty to write the bone and the place.)doc")
     ;
 
     py::class_<whiteout::models::wem::LightPayload>(m, "LightPayload")
@@ -621,6 +616,7 @@ Both halves are optional and independent. `asset` is what the source named — a
         .def_readwrite("quadratic_falloff", &whiteout::models::wem::LightPayload::quadraticFalloff, R"doc(MDX v1600: the distance falloff, a factor of `exp(-damping d²) / (1 + linearFalloff d + quadraticFalloff d²)` — unrelated to the spot cone's `falloff`.)doc")
         .def_readwrite("linear_falloff", &whiteout::models::wem::LightPayload::linearFalloff)
         .def_readwrite("damping", &whiteout::models::wem::LightPayload::damping)
+        .def_readwrite("sc2", &whiteout::models::wem::LightPayload::sc2, R"doc(The `LITE` a StarCraft II light was read from, whole: what the fields above do not say -- its LOD cuts, specular colour and multiplier, range and every AnimRef's own header. An export starts from it and writes the fields above over it. `NODE` v22.)doc")
     ;
 
     py::class_<whiteout::models::wem::CameraPayload>(m, "CameraPayload")
@@ -632,6 +628,7 @@ Both halves are optional and independent. `asset` is what the source named — a
         .def_readwrite("focus_distance", &whiteout::models::wem::CameraPayload::focusDistance, R"doc(Warcraft III 3.0's depth of field; 0 is unset. The game blurs only where all three have a value (`AnimateCamera`), and MDX stores no rests for them, only the IDUF/ELAF/PTSF keys.)doc")
         .def_readwrite("focal_length", &whiteout::models::wem::CameraPayload::focalLength, R"doc(Millimetres.)doc")
         .def_readwrite("f_stop", &whiteout::models::wem::CameraPayload::fStop)
+        .def_readwrite("sc2", &whiteout::models::wem::CameraPayload::sc2, R"doc(The `CAM_` a StarCraft II camera was read from, whole: its vertical FOV, depth of field, shadow clip, focus and bokeh. An export starts from it and writes the fields above over it. `NODE` v22.)doc")
     ;
 
     py::class_<whiteout::models::wem::Wc3FaceFxPayload>(m, "Wc3FaceFxPayload", R"doc(`FAFX`: the FaceFX actor Warcraft III 3.0 plays on the model.
@@ -670,11 +667,32 @@ In the file it is a model-level entry — a name and the actor's path, with no t
         .def_readwrite("box", &whiteout::models::wem::CollisionShapeDesc::box)
         .def_readwrite("sphere", &whiteout::models::wem::CollisionShapeDesc::sphere)
         .def_readwrite("height", &whiteout::models::wem::CollisionShapeDesc::height, R"doc(Capsule / cylinder length along the shape's local axis.)doc")
+        .def_readwrite("hit_test", &whiteout::models::wem::CollisionShapeDesc::hitTest, R"doc(StarCraft II's role for the shape, and the `SSGS` it was read from, whole, in StarCraft II's basis. `NODE` v22.)doc")
+        .def_readwrite("sc2", &whiteout::models::wem::CollisionShapeDesc::sc2)
+    ;
+
+    py::class_<whiteout::models::wem::ProjectorPayload>(m, "ProjectorPayload", R"doc(An `.m3` projector (`PROJ`): a splat or a decal cast from the node.
+
+The record is kept whole, in StarCraft II's basis -- its projection, box, fade and lifetime, and every AnimRef's own header; the export writes it on the bone it rides and names the material slot below. `NODE` v22.)doc")
+        .def(py::init<>())
+        .def_readwrite("material_slot", &whiteout::models::wem::ProjectorPayload::materialSlot, R"doc(-> `Model::materialSlots`.)doc")
     ;
 
     py::class_<whiteout::models::wem::CollisionPayload>(m, "CollisionPayload")
         .def(py::init<>())
         .def_readwrite("shape", &whiteout::models::wem::CollisionPayload::shape)
+    ;
+
+    py::class_<whiteout::models::wem::Sc2Billboard>(m, "Sc2Billboard", R"doc(StarCraft II's billboard on a bone: its `BBSC` record (EDIT_MODE_SC2_PROFILE_PLAN.md P2).
+
+The node flags are the shared part, and every profile reads them; this is what only StarCraft II and Heroes spell. Where both exist, `type` is the authority and the flags follow it (`Sc2BillboardFlags`). The pre-rotations are in StarCraft II's bone frame, as read: nothing but a `BBSC` reads them.)doc")
+        .def(py::init<>())
+        .def_readwrite("type", &whiteout::models::wem::Sc2Billboard::type, R"doc(`m3::BillboardType`: which axes may turn.)doc")
+        .def_readwrite("camera_look_at", &whiteout::models::wem::Sc2Billboard::cameraLookAt, R"doc(Aim at the eye; false aims along the view.)doc")
+        .def_readwrite("up", &whiteout::models::wem::Sc2Billboard::up, R"doc(The pre-rotation types 0-2 apply.)doc")
+        .def_readwrite("forward", &whiteout::models::wem::Sc2Billboard::forward, R"doc(The one type 6 applies under a parent bone.)doc")
+        .def_readwrite("dependents", &whiteout::models::wem::Sc2Billboard::dependents, R"doc(As read; empty in every shipped record.)doc")
+        .def_readwrite("place", &whiteout::models::wem::Sc2Billboard::place, R"doc(Where the file listed it among its `BBSC`s; -1 for one made here.)doc")
     ;
 
     py::class_<whiteout::models::wem::Node>(m, "Node")
@@ -689,6 +707,8 @@ In the file it is a model-level entry — a name and the actor's path, with no t
         .def_readwrite("poses", &whiteout::models::wem::Node::poses, R"doc(Values for `NodeTree::poseSchema` — sized to it for Bone nodes, empty for kinds that carry none (§10.5).)doc")
         .def_readwrite("native", &whiteout::models::wem::Node::native)
         .def_readwrite("profiles", &whiteout::models::wem::Node::profiles, R"doc(Which profiles hold this node (§6), as `MeshSection::profiles` says which draw a section. A profile outside it writes the node as a helper when a node under it is inside, and not at all otherwise (`NodePresenceIn`). Every profile on a `NODE` written before v16.)doc")
+        .def_readwrite("sc2_billboards", &whiteout::models::wem::Node::sc2Billboards, R"doc(StarCraft II's billboard, when a `BBSC` names the node's bone: one, or on a few shipped bones several, the first the node's. `NODE` v22; none on an older chunk.)doc")
+        .def_readwrite("sc2_shadow_box", &whiteout::models::wem::Node::sc2ShadowBox, R"doc(StarCraft II's shadow box (`SHBX`), when one rides the node's bone: the record as read, its length, width and height animatable. `NODE` v22.)doc")
         .def_readwrite("removed", &whiteout::models::wem::Node::removed, R"doc(Transient removal marker (§10.6).
 
 `RemoveNode` marks; `CompactNodes` collects. It lives on the node rather than in a parallel status array for the same reason the poses do: removing or copying a node has to move everything that is about it. Never serialized — a written document is always compacted first.)doc")
@@ -814,6 +834,10 @@ The node's **kind is not fixed**: MDX and `.m2` name a dedicated `Event` node, `
         .def_readwrite("node", &whiteout::models::wem::ClipEvent::node, R"doc(The node it fires at, of any kind; a §10.6 referencer.)doc")
         .def_readwrite("name", &whiteout::models::wem::ClipEvent::name)
         .def_readwrite("value", &whiteout::models::wem::ClipEvent::value)
+        .def_readwrite("option", &whiteout::models::wem::ClipEvent::option, R"doc(`optionString`.)doc")
+        .def_readwrite("extra", &whiteout::models::wem::ClipEvent::extra, R"doc(`extraParameter`.)doc")
+        .def_readwrite("unknown", &whiteout::models::wem::ClipEvent::unknown, R"doc(As read; -1 on every shipped key.)doc")
+        .def_readwrite("rtt", &whiteout::models::wem::ClipEvent::rtt, R"doc(`rttChannelIndex`.)doc")
     ;
 
     py::class_<whiteout::models::wem::ClipTrackSet>(m, "ClipTrackSet", R"doc(One of the model's `TrackSet`s this clip plays on a layer of its own.
@@ -822,6 +846,7 @@ Every clip also plays the "default" set — whatever no listed set claims — in
         .def(py::init<>())
         .def_readwrite("set", &whiteout::models::wem::ClipTrackSet::set, R"doc(-> the clip's `Model::trackSets`.)doc")
         .def_readwrite("priority", &whiteout::models::wem::ClipTrackSet::priority, R"doc(The layer's STC `animPriority`.)doc")
+        .def_readwrite("concurrent", &whiteout::models::wem::ClipTrackSet::concurrent, R"doc(The layer's STC `runsConcurrent`: transparent, so a channel it does not key falls through to the layers under it. Opacity is per container, and a container is a use. CTSU v2; a v1 use reads as transparent.)doc")
     ;
 
     py::class_<whiteout::models::wem::BakeWorldForce>(m, "BakeWorldForce", R"doc(A wind or a blast of one clip's bake (§4.7). Never exported: the bake writes what it does into keys.)doc")
@@ -1144,19 +1169,6 @@ D3's `.ans` is the shape this exists for: 30 tag maps in one asset, one core and
         .def_readwrite("density", &whiteout::models::wem::PhysicsMaterial::density, R"doc(The StarCraft II upgrade's default.)doc")
         .def_readwrite("friction", &whiteout::models::wem::PhysicsMaterial::friction)
         .def_readwrite("restitution", &whiteout::models::wem::PhysicsMaterial::restitution)
-    ;
-
-    py::class_<whiteout::models::wem::PhysicsShape>(m, "PhysicsShape")
-        .def(py::init<>())
-        .def_readwrite("kind", &whiteout::models::wem::PhysicsShape::kind)
-        .def_readwrite("half_extents", &whiteout::models::wem::PhysicsShape::halfExtents, R"doc(Box.)doc")
-        .def_readwrite("radius", &whiteout::models::wem::PhysicsShape::radius, R"doc(Sphere, capsule, cylinder.)doc")
-        .def_readwrite("length", &whiteout::models::wem::PhysicsShape::length, R"doc(Along own +Z, centred: a cylinder's whole, and a capsule's between its cap centres when it does not state them in `points`.)doc")
-        .def_readwrite("points", &whiteout::models::wem::PhysicsShape::points, R"doc(Own frame. A convex hull's vertex set; a capsule's two cap centres when the source states its ends (World of Warcraft, Diablo III), which a centred frame cannot hold to the bit.)doc")
-        .def_readwrite("vertices", &whiteout::models::wem::PhysicsShape::vertices, R"doc(Triangle mesh, own frame.)doc")
-        .def_readwrite("triangles", &whiteout::models::wem::PhysicsShape::triangles, R"doc(Triangle mesh, three per face.)doc")
-        .def_readwrite("material", &whiteout::models::wem::PhysicsShape::material)
-        .def_readwrite("game_flags", &whiteout::models::wem::PhysicsShape::gameFlags, R"doc(Domino's fixture `gameFlags`, for a game's contact callbacks. World of Warcraft authors it (0 in every shipped shape).)doc")
     ;
 
 }

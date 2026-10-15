@@ -421,6 +421,26 @@ TEST_CASE("wem compact nodes remaps every referencer", "[wem][nodes]") {
     CHECK(*meshes[0].sections[0].rigidNode == 3);
 }
 
+TEST_CASE("wem compact nodes remaps a region's root bone", "[wem][nodes]") {
+    NodeTree tree = makeRig();
+    std::vector<Mesh> meshes;
+    meshes.push_back(makeSkinnedMesh("leg", 1, 3, 3));
+    meshes[0].sections[0].native.set(kSectionRootBone, 3); // the shin
+
+    NodeReferencers referencers;
+    referencers.meshes = std::span<Mesh>(meshes.data(), meshes.size());
+    REQUIRE(RemoveNode(tree, 2, RemovePolicy::ReparentChildren, SkinPolicy::Refuse, true, referencers).removed);
+    Diagnostics diagnostics;
+    CompactNodes(tree, referencers, diagnostics);
+    CHECK(meshes[0].sections[0].native.value(kSectionRootBone, -1) == 2);
+
+    // A root that is gone leaves the section to take its palette's first bone.
+    meshes[0].sections[0].native.set(kSectionRootBone, 4);
+    const std::vector<u32> remap = {0, 1, 2, 3, kInvalidNode};
+    RemapNodeReferencers(tree, remap, referencers, diagnostics);
+    CHECK(meshes[0].sections[0].native.find(kSectionRootBone) == nullptr);
+}
+
 TEST_CASE("wem node referencer check catches a bad bind", "[wem][nodes]") {
     NodeTree tree = makeRig();
     std::vector<Mesh> meshes;

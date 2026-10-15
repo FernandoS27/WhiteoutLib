@@ -1317,6 +1317,11 @@ EMSCRIPTEN_BINDINGS(m3) {
 
     class_<whiteout::m3::ShadowBox>("M3ShadowBox")
         .constructor<>()
+        .property("boneIndex", &whiteout::m3::ShadowBox::boneIndex)
+        .property("unknown", &whiteout::m3::ShadowBox::unknown)
+        .property("length", &whiteout::m3::ShadowBox::length)
+        .property("width", &whiteout::m3::ShadowBox::width)
+        .property("height", &whiteout::m3::ShadowBox::height)
     ;
 
     class_<whiteout::m3::ViewVolume>("M3ViewVolume")

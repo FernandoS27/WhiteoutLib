@@ -29,6 +29,7 @@ namespace m3 {
  * Omni, spot, or directional light with animated diffuse/specular colors,
  * intensity, decay, attenuation start/end, and spot-light hot-spot/falloff.
  */
+/// @wem rename=M3Light
 struct Light {
     LightType lightType = LightType::Omni;               ///< Light type (omni/spot/directional)
     u16 boneIndex = 0;                 ///< Index into BONE array
@@ -53,6 +54,7 @@ struct Light {
  * Bone-attached camera with animated FOV, clip planes, shadow clip distance,
  * depth-of-field parameters, and version-dependent bokeh settings.
  */
+/// @wem rename=M3Camera
 struct Camera {
     u32 boneIndex = 0;                ///< Index into BONE array
     std::string name;                 ///< Camera name (Ref<CHAR>)

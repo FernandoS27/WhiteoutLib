@@ -495,6 +495,8 @@ Wc3EffectReport CrossWc3Effects(const mdx::Model& source, const wem::Document& s
                                     "StarCraft II plays sounds and splats from actor data",
                                 ElementRef());
     }
+    // The streams above went into containers `toM3` had already shared states between.
+    m3_sink::ShareAnimationStates(out);
     return report;
 }
 

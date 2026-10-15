@@ -89,6 +89,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::PhysicsShape>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::PoseSchema>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ProfileId>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ProfileMaterialSet>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Sc2Billboard>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Sc2Property<whiteout::Vector3f>>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Sc2RibbonSplinePoint>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::SlotBinding>);
@@ -827,6 +828,7 @@ Deliberate: Reforged HD is the only shipped PBR content among the six games, so 
         .value("FORCE_FIELD", whiteout::models::wem::NodeKind::ForceField, R"doc(M3 `FOR_` (WEM_PHYSICS_DESIGN.md §3.8). `NODE` v14.)doc")
         .value("VERTEX_WARP", whiteout::models::wem::NodeKind::VertexWarp, R"doc(M3 `WRP_`. `NODE` v14.)doc")
         .value("WC3_FACE_FX", whiteout::models::wem::NodeKind::Wc3FaceFx, R"doc(MDX `FAFX`: the FaceFX actor a model names (Reforged). `NODE` v18.)doc")
+        .value("PROJECTOR", whiteout::models::wem::NodeKind::Projector, R"doc(M3 `PROJ`: a decal projected from its bone. `NODE` v22.)doc")
         .value("COUNT", whiteout::models::wem::NodeKind::Count)
     ;
 
@@ -873,6 +875,12 @@ The game reads it off the object's name (`EventCallback`, 3.0): the first three 
         .value("PLANE", whiteout::models::wem::CollisionShapeKind::Plane)
         .value("CYLINDER", whiteout::models::wem::CollisionShapeKind::Cylinder)
         .value("HULL", whiteout::models::wem::CollisionShapeKind::Hull)
+    ;
+
+    py::enum_<whiteout::models::wem::Sc2HitTest>(m, "Sc2HitTest", R"doc(What a collision shape is to StarCraft II's selection (`SSGS`): the model's one tight hit test, one of its fuzzy ones, or neither.)doc")
+        .value("NONE", whiteout::models::wem::Sc2HitTest::None)
+        .value("TIGHT", whiteout::models::wem::Sc2HitTest::Tight)
+        .value("FUZZY", whiteout::models::wem::Sc2HitTest::Fuzzy)
     ;
 
     py::enum_<whiteout::models::wem::PoseSpace>(m, "PoseSpace")
@@ -1271,6 +1279,7 @@ A Reforged (HD) model uses all four of Warcraft III's model shaders — SD and S
         .def_readwrite("supports_actors", &whiteout::models::wem::ProfileDesc::supportsActors)
         .def_readwrite("node_kinds", &whiteout::models::wem::ProfileDesc::nodeKinds, R"doc(Which node kinds this profile carries (§10.9). The nine shared kinds are in every mask; an emitter-system kind — `Wc3ParticleEmitter2`, `Sc2RibbonEmitter`, … — is in its own game's alone, because its payload is that game's particle system and nothing else can run it. `Validate` and every exporter read the gate from here and nowhere else.)doc")
         .def_readwrite("physics", &whiteout::models::wem::ProfileDesc::physics)
+        .def_readwrite("native_stages", &whiteout::models::wem::ProfileDesc::nativeStages, R"doc(The `StageKind`s this profile's game runs itself, as `1 << kind`: an export keeps such a stage as its records and never bakes it -- StarCraft II's leg IK and turrets (EDIT_MODE_SC2_PROFILE_PLAN.md P1).)doc")
     ;
 
     py::class_<whiteout::models::wem::ElementRef>(m, "ElementRef", R"doc(Where a diagnostic happened, in the document's own coordinates.
@@ -1622,6 +1631,13 @@ Deterministic and idempotent. Fails only on a non-manifold face set, which `Mesh
         .def_readwrite("color", &whiteout::models::wem::Wc3ParticleSegment::color, R"doc(RGB, red first — the static-colour order.)doc")
         .def_readwrite("alpha", &whiteout::models::wem::Wc3ParticleSegment::alpha)
         .def_readwrite("scaling", &whiteout::models::wem::Wc3ParticleSegment::scaling, R"doc(The quad's size, in model units.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::Wc3ParticleInterval>(m, "Wc3ParticleInterval", R"doc(A flipbook run: cells `start..end`, `repeat` times over the span.)doc")
+        .def(py::init<>())
+        .def_readwrite("start", &whiteout::models::wem::Wc3ParticleInterval::start)
+        .def_readwrite("end", &whiteout::models::wem::Wc3ParticleInterval::end)
+        .def_readwrite("repeat", &whiteout::models::wem::Wc3ParticleInterval::repeat)
     ;
 
     bind_wem_1(m);

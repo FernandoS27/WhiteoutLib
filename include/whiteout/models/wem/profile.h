@@ -106,10 +106,17 @@ constexpr bool IsWc3(ProfileId id) {
     return id == ProfileId::Wc3Classic || IsWc3Hd(id);
 }
 
+/// Either of the two profiles an `.m3` serves.
+constexpr bool IsStarCraft(ProfileId id) {
+    return id == ProfileId::Sc2 || id == ProfileId::Heroes;
+}
+
 /// Whether two profiles hold the same materials, so a derive between them is
-/// a copy: a profile and itself, and Reforged and Definitive.
+/// a copy: a profile and itself, Reforged and Definitive, and StarCraft II and
+/// Heroes -- one `MAT_` read by two games, which the export reconciles (MADD
+/// is lowered for StarCraft II, `MAT_` v20's extras dropped for Heroes).
 constexpr bool SameShading(ProfileId a, ProfileId b) {
-    return a == b || (IsWc3Hd(a) && IsWc3Hd(b));
+    return a == b || (IsWc3Hd(a) && IsWc3Hd(b)) || (IsStarCraft(a) && IsStarCraft(b));
 }
 
 /// Registry name — "generic", "wc3_classic", … The stable spelling.
@@ -371,6 +378,12 @@ struct ProfileDesc {
 
     // --- physics ---
     PhysicsCaps physics;
+
+    // --- pose stages ---
+    /// The `StageKind`s this profile's game runs itself, as `1 << kind`: an
+    /// export keeps such a stage as its records and never bakes it -- StarCraft
+    /// II's leg IK and turrets (EDIT_MODE_SC2_PROFILE_PLAN.md P1).
+    u32 nativeStages = 0;
 
     bool acceptsBlendMode(BlendMode mode) const;
 };

@@ -89,6 +89,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::PhysicsShape>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::PoseSchema>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ProfileId>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ProfileMaterialSet>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Sc2Billboard>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Sc2Property<whiteout::Vector3f>>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Sc2RibbonSplinePoint>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::SlotBinding>);
@@ -170,6 +171,19 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 2 of bind_wem(), which calls the parts in order.
 void bind_wem_2(py::module_& m) {
+    py::class_<whiteout::models::wem::PhysicsShape>(m, "PhysicsShape")
+        .def(py::init<>())
+        .def_readwrite("kind", &whiteout::models::wem::PhysicsShape::kind)
+        .def_readwrite("half_extents", &whiteout::models::wem::PhysicsShape::halfExtents, R"doc(Box.)doc")
+        .def_readwrite("radius", &whiteout::models::wem::PhysicsShape::radius, R"doc(Sphere, capsule, cylinder.)doc")
+        .def_readwrite("length", &whiteout::models::wem::PhysicsShape::length, R"doc(Along own +Z, centred: a cylinder's whole, and a capsule's between its cap centres when it does not state them in `points`.)doc")
+        .def_readwrite("points", &whiteout::models::wem::PhysicsShape::points, R"doc(Own frame. A convex hull's vertex set; a capsule's two cap centres when the source states its ends (World of Warcraft, Diablo III), which a centred frame cannot hold to the bit.)doc")
+        .def_readwrite("vertices", &whiteout::models::wem::PhysicsShape::vertices, R"doc(Triangle mesh, own frame.)doc")
+        .def_readwrite("triangles", &whiteout::models::wem::PhysicsShape::triangles, R"doc(Triangle mesh, three per face.)doc")
+        .def_readwrite("material", &whiteout::models::wem::PhysicsShape::material)
+        .def_readwrite("game_flags", &whiteout::models::wem::PhysicsShape::gameFlags, R"doc(Domino's fixture `gameFlags`, for a game's contact callbacks. World of Warcraft authors it (0 in every shipped shape).)doc")
+    ;
+
     py::class_<whiteout::models::wem::Sc2BodyExtension>(m, "Sc2BodyExtension", R"doc(What only StarCraft II means by a body.)doc")
         .def(py::init<>())
         .def_readwrite("physics_material", &whiteout::models::wem::Sc2BodyExtension::physicsMaterial, R"doc(`physicsType`: a material id game data may override.)doc")

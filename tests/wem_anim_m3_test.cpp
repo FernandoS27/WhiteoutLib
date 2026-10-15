@@ -14,18 +14,21 @@
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include <set>
 #include <string>
 #include <vector>
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <whiteout/models/m3/engine_compat.h>
 #include <whiteout/models/m3/parser.h>
 #include <whiteout/models/wem/converters.h>
 #include <whiteout/models/wem/parser.h>
 #include <whiteout/models/wem/validate.h>
 #include <whiteout/models/wem/writer.h>
 
+#include "../src/whiteout/models/wem/converters/m3_track_sink.h"
 #include "wem_corpus_files.h"
 #include "wem_material_fixture.h"
 
@@ -327,7 +330,8 @@ TEST_CASE("wem m3 the end marker is replaced on a round trip, never doubled",
 TEST_CASE("wem m3 a container is named for the clip it plays under", "[wem][anim][m3]") {
     // Formats with no container of their own all name theirs `base`, so every
     // sequence exported a container by the same name; retail qualifies each
-    // with its sequence and 784 of 794 shipped models keep them distinct.
+    // with its sequence and 784 of 794 shipped models keep them distinct. The
+    // default container, the one with the events, is `<sequence>_full`.
     m3::Model model = makeModel();
     model.subTrackCollections[0].name = "base";
     keyTranslation(model, 11, {0, 1000}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 1}});
@@ -340,7 +344,7 @@ TEST_CASE("wem m3 a container is named for the clip it plays under", "[wem][anim
     const Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
     REQUIRE(written.ok());
     REQUIRE_FALSE(written->subTrackCollections.empty());
-    CHECK(written->subTrackCollections[0].name == "Stand_base");
+    CHECK(written->subTrackCollections[0].name == "Stand_full");
 }
 
 TEST_CASE("wem m3 a track steps on AnimRef flags bit 4", "[wem][anim][m3]") {
@@ -475,14 +479,18 @@ TEST_CASE("wem m3 an external animation merges on id, never on a name", "[wem][a
     const Clip& added = document.clips[1];
     CHECK(added.name == "Attack");
     CHECK(added.model == 0u);
-    // The known id landed; the unknown one did not become a channel.
+    // The known id landed on its channel; the unknown one is carried as read,
+    // under its own id, and drives nothing.
     REQUIRE(added.containers.size() == 1u);
-    CHECK(added.containers[0].subTracks.size() == 1u);
-    CHECK(added.containers[0].subTracks[0].channel == 7u);
-    CHECK(document.models[0].animChannels.channels.size() == 1u);
-    CHECK(document.models[0].animChannels.find(999) == nullptr);
+    CHECK(added.containers[0].subTracks.size() == 2u);
+    const SubTrack* landed = added.containers[0].find(7);
+    REQUIRE(landed != nullptr);
+    CHECK(document.models[0].animChannels.channels.size() == 2u);
+    const AnimChannel* carried = document.models[0].animChannels.find(999);
+    REQUIRE(carried != nullptr);
+    CHECK(carried->target.kind == TrackTarget::Kind::Native);
     // Keys arrive rebased, because the channel says what it drives.
-    CHECK(vectorAt(added.containers[0].subTracks[0], 1).y == 1.0f);
+    CHECK(vectorAt(*landed, 1).y == 1.0f);
 
     CHECK_FALSE(Validate(document, ValidateLevel::Profile).hasErrors());
 }
@@ -600,14 +608,19 @@ TEST_CASE("wem m3 animation survives the corpus", "[wem][anim][m3][corpus]") {
                 ++globalSequences;
             }
         }
+        // What the loader steps: bit 4, or a bound ref of the file's own
+        // stating row 0.
+        std::set<u32> own;
+        for (const m3::SubTrackContainer& stc : source.subTrackCollections) {
+            own.insert(stc.animIds.begin(), stc.animIds.end());
+        }
+        const auto steps = [&](const auto& ref) {
+            return (ref.flags & 0x10u) != 0 ||
+                   (ref.interpType == 0 && (ref.flags & 0x4u) != 0 && own.count(ref.animId) != 0);
+        };
         for (const m3::Bone& bone : source.bones) {
-            const u16 refs[] = {bone.position.flags, bone.rotation.flags, bone.scale.flags,
-                                bone.visibility.flags};
-            for (u16 flags : refs) {
-                if ((flags & 0x10u) != 0) {
-                    ++steppedRefs;
-                }
-            }
+            steppedRefs += (steps(bone.position) ? 1u : 0u) + (steps(bone.rotation) ? 1u : 0u) +
+                           (steps(bone.scale) ? 1u : 0u) + (steps(bone.visibility) ? 1u : 0u);
         }
 
         Result<Document> converted = converter.fromM3(source);
@@ -631,7 +644,10 @@ TEST_CASE("wem m3 animation survives the corpus", "[wem][anim][m3][corpus]") {
                 }
                 subTracks += static_cast<u32>(container.subTracks.size());
                 for (const SubTrack& track : container.subTracks) {
-                    if (track.interp == Interpolation::Step) {
+                    const AnimChannel* channel = document.models[clip.model].animChannels.find(track.channel);
+                    if (track.interp == Interpolation::Step && channel != nullptr &&
+                        channel->target.kind == TrackTarget::Kind::Node &&
+                        channel->target.node < source.bones.size()) {
                         ++stepped;
                     }
                 }
@@ -659,7 +675,7 @@ TEST_CASE("wem m3 animation survives the corpus", "[wem][anim][m3][corpus]") {
               << channels << " channels, " << subTracks << " sub-tracks (" << stepped
               << " stepped), " << events << " events" << std::endl;
     std::cout << "  source: " << globalSequences << " SEQS 0x2, " << steppedRefs
-              << " bone AnimRefs with the step bit" << std::endl;
+              << " bone AnimRefs the loader steps" << std::endl;
     for (const std::string& line : failing) {
         std::cout << "  " << line << std::endl;
     }
@@ -1338,12 +1354,19 @@ TEST_CASE("wem track sets export as a transparent container of their own", "[wem
     CHECK(holds(rest, 7));
     CHECK_FALSE(holds(rest, 8));
 
-    // The two containers come back as the file states them.
+    // And fold back into the set they came from (S1.2).
     const Document again = convert(*written);
     REQUIRE(again.clips.size() == 1u);
-    REQUIRE(again.clips[0].containers.size() == 2u);
-    CHECK(again.clips[0].containers[0].concurrent);
-    CHECK(again.clips[0].containers[0].subTracks.size() == 1u);
+    REQUIRE(again.clips[0].containers.size() == 1u);
+    CHECK(again.clips[0].containers[0].name == "Walk_full");
+    CHECK_FALSE(again.clips[0].containers[0].concurrent);
+    CHECK(again.clips[0].containers[0].subTracks.size() == 2u);
+    REQUIRE(again.models[0].trackSets.size() == 1u);
+    CHECK(again.models[0].trackSets[0].name == "LowerBody");
+    CHECK(again.models[0].trackSets[0].channels == std::vector<u32>{8});
+    REQUIRE(again.clips[0].trackSets.size() == 1u);
+    CHECK(again.clips[0].trackSets[0].priority == 10);
+    CHECK(again.clips[0].trackSets[0].concurrent);
 }
 
 TEST_CASE("wem track sets survive a save", "[wem][anim][trackset]") {
@@ -1378,4 +1401,420 @@ TEST_CASE("wem a clip read from an .m3 is read by the Sc2 rule", "[wem][anim][ru
     for (const Clip& clip : document.clips) {
         CHECK(clip.readRule == ReadRule::Sc2);
     }
+}
+
+// ---- S0 (EDIT_MODE_SC2_PROFILE_PLAN.md): the shipped layout ----------------
+
+TEST_CASE("wem m3 the two SEQS bits the clip owns clear both ways", "[wem][anim][m3][s0]") {
+    m3::Model model = makeModel();
+    keyTranslation(model, 11, {0, 1000}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 1}});
+    model.sequences[0].flags = m3::SequenceFlag::NotLooping | m3::SequenceFlag::AlwaysGlobal |
+                               m3::SequenceFlag::GlobalInPreviewer;
+    Document document = convert(model);
+    REQUIRE(document.clips.size() == 1u);
+    CHECK_FALSE(document.clips[0].looping);
+    CHECK(hasFlag(document.clips[0].flags, ClipFlags::AutoPlay));
+
+    // Looping and no longer auto-played: both bits go, the previewer's stays.
+    document.clips[0].looping = true;
+    document.clips[0].flags = ClipFlags::None;
+    M3Converter converter;
+    Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    CHECK(written->sequences[0].flags == m3::SequenceFlag::GlobalInPreviewer);
+
+    // And back.
+    document.clips[0].looping = false;
+    document.clips[0].flags = ClipFlags::AutoPlay;
+    written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    CHECK(written->sequences[0].flags == (m3::SequenceFlag::NotLooping | m3::SequenceFlag::AlwaysGlobal |
+                                          m3::SequenceFlag::GlobalInPreviewer));
+}
+
+TEST_CASE("wem m3 a sequence's replay window and index survive", "[wem][anim][m3][s0]") {
+    m3::Model model = makeModel();
+    keyTranslation(model, 11, {0, 1000}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 1}});
+    model.sequences[0].index = 4;
+    model.sequences[0].replayStart = 250;
+    model.sequences[0].replayEnd = 750;
+    M3Converter converter;
+    const Result<m3::Model> written = converter.toM3(convert(model), ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    CHECK(written->sequences[0].index == 4);
+    CHECK(written->sequences[0].replayStart == 250u);
+    CHECK(written->sequences[0].replayEnd == 750u);
+
+    // A clip of another format states what every shipped record states.
+    Document other = convert(model);
+    other.clips[0].native = NativeBag{};
+    const Result<m3::Model> fresh = converter.toM3(other, ProfileId::Sc2, 29);
+    REQUIRE(fresh.ok());
+    CHECK(fresh->sequences[0].index == -1);
+    CHECK(fresh->sequences[0].replayStart == 1u);
+    CHECK(fresh->sequences[0].replayEnd == 1u);
+}
+
+TEST_CASE("wem m3 a default container with nothing but events is kept", "[wem][anim][m3][s0]") {
+    Document document = twoBoneWalk();
+    // Every channel goes to the set, so the default is left with the events.
+    document.models[0].trackSets = {{"Body", {7, 8}}};
+    document.clips[0].trackSets = {{0, 10}};
+    document.clips[0].events.push_back(ClipEvent{0.5f, 0, "Evt_Step", 0});
+    M3Converter converter;
+    const Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    const std::vector<u32>& group = written->animationGroups[0].subtrackIndices;
+    REQUIRE(group.size() == 2u);
+    const m3::SubTrackContainer& set = written->subTrackCollections[group[0]];
+    const m3::SubTrackContainer& full = written->subTrackCollections[group[1]];
+    CHECK(set.name == "Walk_Body");
+    CHECK(set.sdev.empty());
+    CHECK(full.name == "Walk_full");
+    REQUIRE(full.sdev.size() == 1u);
+    CHECK(full.sdev[0].keys.size() == 2u); // the step and the end marker
+}
+
+TEST_CASE("wem m3 set containers are written in the order the clip uses them", "[wem][anim][m3][s0]") {
+    Document document = twoBoneWalk();
+    document.models[0].trackSets = {{"Upper", {7}}, {"Lower", {8}}};
+    // Lower first and below Upper: the files keep use order, not priority.
+    document.clips[0].trackSets = {{1, 5}, {0, 12}};
+    M3Converter converter;
+    const Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    const std::vector<u32>& group = written->animationGroups[0].subtrackIndices;
+    REQUIRE(group.size() == 3u);
+    CHECK(written->subTrackCollections[group[0]].name == "Walk_Lower");
+    CHECK(written->subTrackCollections[group[1]].name == "Walk_Upper");
+    CHECK(written->subTrackCollections[group[2]].name == "Walk_full");
+}
+
+TEST_CASE("wem m3 a set's container takes the use's opacity", "[wem][anim][m3][s0]") {
+    Document document = twoBoneWalk();
+    document.models[0].trackSets = {{"LowerBody", {8}}};
+    ClipTrackSet use{0, 10};
+    use.concurrent = false;
+    document.clips[0].trackSets = {use};
+    M3Converter converter;
+    const Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    const std::vector<u32>& group = written->animationGroups[0].subtrackIndices;
+    REQUIRE(group.size() == 2u);
+    CHECK(written->subTrackCollections[group[0]].runsConcurrent == 0);
+}
+
+TEST_CASE("wem m3 two containers with one id list share one state", "[wem][anim][m3][s0]") {
+    m3::Model model = makeModel();
+    keyTranslation(model, 11, {0, 1000}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 1}});
+    // A second sequence playing the same channel: its container lists the
+    // same ids, so the shipped files give both one state.
+    m3::Sequence walk = model.sequences[0];
+    walk.name = "Walk";
+    model.sequences.push_back(walk);
+    m3::SubTrackContainer stc = model.subTrackCollections[0];
+    stc.name = "Walk_full";
+    model.subTrackCollections[0].name = "Stand_full";
+    model.subTrackCollections.push_back(stc);
+    m3::AnimationGroup group;
+    group.name = "Walk";
+    group.subtrackIndices = {1};
+    model.animationGroups.push_back(group);
+
+    M3Converter converter;
+    const Result<m3::Model> written = converter.toM3(convert(model), ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    REQUIRE(written->subTrackCollections.size() == 2u);
+    const m3::SubTrackContainer& a = written->subTrackCollections[0];
+    const m3::SubTrackContainer& b = written->subTrackCollections[1];
+    REQUIRE(a.animIds == b.animIds);
+    CHECK(written->animationStates.size() == 1u);
+    CHECK(a.animationStateIndex == 0);
+    CHECK(b.animationStateIndex == 0);
+    CHECK(b.animationStateIndexCopy == 0);
+    for (const m3::EditorRuleFailure& failure : m3::CheckEditorRules(*written, m3::Engine::StarCraft2)) {
+        FAIL_CHECK(failure.rule + ": " + failure.message);
+    }
+}
+
+TEST_CASE("wem m3 a write into a shared state reaches its own container alone", "[wem][anim][m3][s0]") {
+    m3::Model model;
+    for (int k = 0; k < 2; ++k) {
+        m3::SubTrackContainer stc;
+        stc.animIds = {5};
+        stc.animRefs = {Ref(2, 0)};
+        model.subTrackCollections.push_back(stc);
+    }
+    m3::AnimationState state;
+    state.animIds = {5};
+    model.animationStates.push_back(state);
+    m3::AnimationGroup a;
+    a.subtrackIndices = {0};
+    m3::AnimationGroup b;
+    b.subtrackIndices = {1};
+    model.animationGroups = {a, b};
+
+    // The cross-effects pass adds a stream to the first container only.
+    m3_sink::AddToContainer(model, 0, 9, Ref(2, 1));
+    REQUIRE(model.animationStates.size() == 2u);
+    CHECK(model.animationStates[model.subTrackCollections[0].animationStateIndex].animIds ==
+          std::vector<u32>{5, 9});
+    CHECK(model.animationStates[model.subTrackCollections[1].animationStateIndex].animIds == std::vector<u32>{5});
+
+    // The final pass shares what is equal again and drops what nothing names.
+    model.subTrackCollections[1].animIds = {5, 9};
+    model.subTrackCollections[1].animRefs = {Ref(2, 0), Ref(2, 1)};
+    m3_sink::ShareAnimationStates(model);
+    CHECK(model.animationStates.size() == 1u);
+    CHECK(model.subTrackCollections[1].animationStateIndex == 0);
+}
+
+TEST_CASE("wem m3 the file's own event stream id comes back", "[wem][anim][m3][s0]") {
+    m3::Model model = makeModel();
+    keyTranslation(model, 11, {0, 1000}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 1}});
+    m3::AnimBlock<m3::Event> events;
+    events.timestamps = {1000};
+    m3::Event end;
+    end.name = "Evt_SeqEnd";
+    end.eventType = 4;
+    end.boneIndex = 0xFFFF;
+    events.keys = {end};
+    model.subTrackCollections[0].sdev.push_back(events);
+    model.subTrackCollections[0].animIds.push_back(0x65BD3215u);
+    model.subTrackCollections[0].animRefs.push_back(Ref(0, 0));
+
+    M3Converter converter;
+    const Result<m3::Model> written = converter.toM3(convert(model), ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    CHECK(holds(written->subTrackCollections[0], 0x65BD3215u));
+    CHECK_FALSE(holds(written->subTrackCollections[0], 0x063F6D59u));
+}
+
+// ---- S1.2: track sets from the file -------------------------------------------
+
+namespace {
+
+/// Two bones, each keying a translation (7, 8) and a rotation (9, 10).
+m3::Model splitRig() {
+    m3::Model model;
+    model.name = "split.m3";
+    for (int b = 0; b < 2; ++b) {
+        m3::Bone bone;
+        bone.name = b == 0 ? std::string("Bone_Root") : std::string("Bone_Child");
+        bone.parentIndex = b == 0 ? 0xFFFF : 0;
+        bone.position = animated<Vector3f>(7u + b, Vector3f{0, 0, static_cast<f32>(b)});
+        bone.rotation = animated<Quaternion>(9u + b, Quaternion{0, 0, 0, 1});
+        bone.scale = animated<Vector3f>(0, Vector3f{1, 1, 1});
+        bone.visibility = animated<u32>(0, 1u);
+        model.bones.push_back(bone);
+    }
+    return model;
+}
+
+/// A sequence with one container per entry of @p containers, in file order:
+/// each a name and the channels it keys.
+void addSequence(m3::Model& model, const std::string& name,
+                 const std::vector<std::pair<std::string, std::vector<u32>>>& containers) {
+    m3::Sequence sequence;
+    sequence.name = name;
+    sequence.endFrame = 1000;
+    model.sequences.push_back(sequence);
+    m3::AnimationGroup group;
+    group.name = name;
+    for (const auto& [stcName, channels] : containers) {
+        m3::SubTrackContainer stc;
+        stc.name = stcName;
+        stc.animPriority = static_cast<u16>(stcName == name + "_full" ? 0 : 20);
+        stc.runsConcurrent = stcName == name + "_full" ? 0 : 1;
+        for (const u32 id : channels) {
+            if (id == 7 || id == 8) {
+                m3::AnimBlock<Vector3f> block{};
+                block.timestamps = {0, 1000};
+                block.keys = {Vector3f{0, 0, 0}, Vector3f{0, 0, 1}};
+                stc.sd3v.push_back(block);
+                stc.animRefs.push_back(Ref(2, static_cast<u32>(stc.sd3v.size() - 1)));
+            } else {
+                m3::AnimBlock<Quaternion> block{};
+                block.timestamps = {0, 1000};
+                block.keys = {Quaternion{0, 0, 0, 1}, Quaternion{0, 0, 0.7071068f, 0.7071068f}};
+                stc.sd4q.push_back(block);
+                stc.animRefs.push_back(Ref(3, static_cast<u32>(stc.sd4q.size() - 1)));
+            }
+            stc.animIds.push_back(id);
+        }
+        group.subtrackIndices.push_back(static_cast<u32>(model.subTrackCollections.size()));
+        model.subTrackCollections.push_back(stc);
+    }
+    model.animationGroups.push_back(group);
+}
+
+const Clip& clipNamed(const Document& document, const std::string& name) {
+    for (const Clip& clip : document.clips) {
+        if (clip.name == name) {
+            return clip;
+        }
+    }
+    FAIL("no clip " + name);
+    return document.clips.front();
+}
+
+std::vector<std::string> layoutOf(const m3::Model& model, const std::string& sequence) {
+    std::vector<std::string> out;
+    for (std::size_t s = 0; s < model.sequences.size(); ++s) {
+        if (model.sequences[s].name != sequence) {
+            continue;
+        }
+        for (const u32 index : model.animationGroups[s].subtrackIndices) {
+            std::string line = model.subTrackCollections[index].name;
+            std::vector<u32> ids = model.subTrackCollections[index].animIds;
+            std::sort(ids.begin(), ids.end());
+            for (const u32 id : ids) {
+                if (id != 0x063F6D59u) {
+                    line += " " + std::to_string(id);
+                }
+            }
+            out.push_back(line);
+        }
+    }
+    return out;
+}
+
+} // namespace
+
+TEST_CASE("wem m3 a split clip folds into its sets and comes back as it was", "[wem][anim][trackset][m3][s1]") {
+    m3::Model model = splitRig();
+    addSequence(model, "Walk", {{"Walk_Upper", {8}}, {"Walk_full", {7}}});
+    addSequence(model, "Run", {{"Run_Upper", {8, 10}}, {"Run_full", {7, 9}}});
+    const Document document = convert(model);
+
+    REQUIRE(document.models[0].trackSets.size() == 1u);
+    CHECK(document.models[0].trackSets[0].name == "Upper");
+    CHECK(document.models[0].trackSets[0].channels == std::vector<u32>{8, 10});
+    for (const char* name : {"Walk", "Run"}) {
+        const Clip& clip = clipNamed(document, name);
+        CHECK(clip.containers.size() == 1u);
+        REQUIRE(clip.trackSets.size() == 1u);
+        CHECK(clip.trackSets[0].priority == 20);
+        CHECK(clip.trackSets[0].concurrent);
+    }
+
+    M3Converter converter;
+    const Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    CHECK(layoutOf(*written, "Walk") == std::vector<std::string>{"Walk_Upper 8", "Walk_full 7"});
+    CHECK(layoutOf(*written, "Run") == std::vector<std::string>{"Run_Upper 8 10", "Run_full 7 9"});
+}
+
+TEST_CASE("wem m3 a clip the sets would split otherwise is kept as authored", "[wem][anim][trackset][m3][s1]") {
+    m3::Model model = splitRig();
+    addSequence(model, "Run", {{"Run_Upper", {8, 10}}, {"Run_full", {7, 9}}});
+    // Upper is {8, 10}, but here 10 is in `_full`: folding would move it.
+    addSequence(model, "Stand", {{"Stand_Upper", {8}}, {"Stand_full", {7, 10}}});
+    const Document document = convert(model);
+    const Clip& stand = clipNamed(document, "Stand");
+    REQUIRE(stand.containers.size() == 2u);
+    CHECK(stand.containers[0].name == "Stand_full");
+    CHECK(stand.containers[1].name == "Stand_Upper");
+    CHECK(stand.trackSets.empty());
+
+    M3Converter converter;
+    const Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    CHECK(layoutOf(*written, "Stand") == std::vector<std::string>{"Stand_Upper 8", "Stand_full 7 10"});
+}
+
+TEST_CASE("wem m3 each refusal to fold keeps the clip as authored", "[wem][anim][trackset][m3][s1]") {
+    SECTION("two containers share a channel") {
+        m3::Model model = splitRig();
+        addSequence(model, "Walk", {{"Walk_Upper", {8}}, {"Walk_full", {7, 8}}});
+        const Document document = convert(model);
+        const Clip& clip = clipNamed(document, "Walk");
+        CHECK(clip.containers.size() == 2u);
+        CHECK(clip.trackSets.empty());
+    }
+    SECTION("a set is used twice") {
+        m3::Model model = splitRig();
+        addSequence(model, "Walk", {{"Walk_Upper", {8}}, {"Walk_Upper", {10}}, {"Walk_full", {7}}});
+        const Document document = convert(model);
+        const Clip& clip = clipNamed(document, "Walk");
+        CHECK(clip.containers.size() == 3u);
+        CHECK(clip.trackSets.empty());
+    }
+    SECTION("the default is not written last") {
+        m3::Model model = splitRig();
+        addSequence(model, "Walk", {{"Walk_full", {7}}, {"Walk_Upper", {8}}});
+        const Document document = convert(model);
+        const Clip& clip = clipNamed(document, "Walk");
+        REQUIRE(clip.containers.size() == 2u);
+        CHECK(clip.containers[0].name == "Walk_full");
+        CHECK(clip.trackSets.empty());
+    }
+    SECTION("an event outside the default") {
+        m3::Model model = splitRig();
+        addSequence(model, "Walk", {{"Walk_Upper", {8}}, {"Walk_full", {7}}});
+        m3::AnimBlock<m3::Event> events{};
+        events.timestamps = {500};
+        events.keys.push_back(m3::Event{});
+        events.keys[0].name = "Evt_Step";
+        model.subTrackCollections[0].sdev.push_back(events);
+        model.subTrackCollections[0].animIds.push_back(0x063F6D59u);
+        model.subTrackCollections[0].animRefs.push_back(Ref(0, 0));
+        const Document document = convert(model);
+        const Clip& clip = clipNamed(document, "Walk");
+        CHECK(clip.containers.size() == 2u);
+        CHECK(clip.trackSets.empty());
+    }
+}
+
+TEST_CASE("wem m3 a set is named on the sequence's own name, not the last underscore",
+          "[wem][anim][trackset][m3][s1]") {
+    m3::Model model = splitRig();
+    addSequence(model, "Fly_Stand", {{"Fly_Stand_Upper_Body", {8}}, {"Fly_Stand_full", {7}}});
+    const Document document = convert(model);
+    REQUIRE(document.models[0].trackSets.size() == 1u);
+    CHECK(document.models[0].trackSets[0].name == "Upper_Body");
+    CHECK(clipNamed(document, "Fly_Stand").trackSets.size() == 1u);
+}
+
+TEST_CASE("wem m3 an empty unnamed container is dropped", "[wem][anim][trackset][m3][s1]") {
+    m3::Model model = splitRig();
+    addSequence(model, "Walk", {{"Walk_Upper", {8}}, {"Walk_full", {7}}, {"", {}}});
+    model.animationGroups[0].subtrackIndices = {0, 1, 2};
+    // The shipped ones sit after `_full`, carrying nothing.
+    const Document document = convert(model);
+    const Clip& clip = clipNamed(document, "Walk");
+    CHECK(clip.containers.size() == 1u);
+    CHECK(clip.trackSets.size() == 1u);
+}
+
+TEST_CASE("wem m3 an external file folds against the model's sets and keeps its events",
+          "[wem][anim][trackset][m3][s1]") {
+    m3::Model model = splitRig();
+    addSequence(model, "Walk", {{"Walk_Upper", {8}}, {"Walk_full", {7}}});
+    Document document = convert(model);
+
+    m3::Model external;
+    addSequence(external, "Attack", {{"Attack_Upper", {8}}, {"Attack_Arms", {10}}, {"Attack_full", {7}}});
+    m3::AnimBlock<m3::Event> events{};
+    events.timestamps = {400};
+    events.keys.push_back(m3::Event{});
+    events.keys[0].name = "Evt_Hit";
+    events.keys[0].boneIndex = 1;
+    external.subTrackCollections[2].sdev.push_back(events);
+    external.subTrackCollections[2].animIds.push_back(0x063F6D59u);
+    external.subTrackCollections[2].animRefs.push_back(Ref(0, 0));
+
+    M3Converter converter;
+    const Result<u32> merged = converter.mergeAnimation(document, 0, external);
+    REQUIRE(merged.ok());
+    const Clip& attack = clipNamed(document, "Attack");
+    CHECK(attack.containers.size() == 1u);
+    REQUIRE(attack.trackSets.size() == 2u);
+    // Upper was the model's and stays as it was; Arms is new.
+    REQUIRE(document.models[0].trackSets.size() == 2u);
+    CHECK(document.models[0].trackSets[0].channels == std::vector<u32>{8});
+    CHECK(document.models[0].trackSets[1].name == "Arms");
+    REQUIRE(attack.events.size() == 1u);
+    CHECK(attack.events[0].name == "Evt_Hit");
+    CHECK(attack.events[0].node == 1u);
 }

@@ -44,7 +44,9 @@
 #include "whiteout/models/wem/skinning/quantize.h"
 
 #include "../materials/m3_core.h"
+#include "../native/m3_copy.h"
 #include "m3_anim.h"
+#include "m3_behaviors.h"
 #include "m3_emitters.h"
 #include "m3_physics.h"
 #include "skin_skeleton.h"
@@ -53,6 +55,7 @@
 #include <array>
 #include <bit>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <map>
 #include <set>
@@ -66,6 +69,11 @@ namespace wem {
 namespace {
 
 constexpr ProfileId kM3Profiles[] = {ProfileId::Sc2, ProfileId::Heroes};
+
+/// A node bag key: where its bone's `BBSC` stood in the file it came from, as
+/// text -- a comma-separated list, because a few of Blizzard's Warcraft III
+/// ports state one bone's record twice.
+constexpr i64 kNoBillboardOrder = 0x7FFFFFFF;
 
 /// The first `MODL` version whose loader builds `MADD` (§7.2.6).
 constexpr u32 kHeroesModlVersion = 30;
@@ -335,6 +343,60 @@ Vector2f UvDecodeFor(const m3::Region& region) {
     return Vector2f{1.0f / 2048.0f, 0.0f};
 }
 
+/// A record kept whole beside the node it rides (S1.5), with the version it
+/// was read at.
+template <class Mirror, class Record>
+Mirror MirrorOf(const Record& record) {
+    Mirror mirror;
+    CopyToNative(record, mirror);
+    mirror.sourceVersion = static_cast<u32>(std::max(record.getVersion(), 0));
+    return mirror;
+}
+
+/// The record a mirror holds, at the version it was read at.
+template <class Record, class Mirror>
+Record RecordOf(const Mirror& mirror) {
+    Record record;
+    CopyFromNative(mirror, record);
+    record.setVersion(static_cast<i32>(mirror.sourceVersion));
+    return record;
+}
+
+/// A hit test (`SSGS`) as the collision-shape node it imports as, at identity
+/// under its bone: the shape's own frame stays in the record.
+Node HitTestNode(const m3::HitTestShape& shape, Sc2HitTest role, u32 boneCount, std::string name) {
+    Node node;
+    node.name = std::move(name);
+    node.kind = NodeKind::CollisionShape;
+    node.resetPayloadForKind();
+    node.parent = shape.boneIndex < boneCount ? shape.boneIndex : kInvalidNode;
+    CollisionShapeDesc& desc = std::get<CollisionPayload>(node.payload).shape;
+    switch (shape.shapeType) {
+    case m3::HitTestShapeType::Box:
+        desc.kind = CollisionShapeKind::Box;
+        break;
+    case m3::HitTestShapeType::Capsule:
+        desc.kind = CollisionShapeKind::Capsule;
+        break;
+    case m3::HitTestShapeType::Cylinder:
+        desc.kind = CollisionShapeKind::Cylinder;
+        break;
+    case m3::HitTestShapeType::Mesh:
+        desc.kind = CollisionShapeKind::Hull;
+        break;
+    default:
+        desc.kind = CollisionShapeKind::Sphere;
+        break;
+    }
+    desc.sphere.radius = shape.sizeX;
+    desc.height = shape.sizeY;
+    desc.box.minimum = Vector3f{-shape.sizeY, -shape.sizeX, -shape.sizeZ};
+    desc.box.maximum = Vector3f{shape.sizeY, shape.sizeX, shape.sizeZ};
+    desc.hitTest = role;
+    desc.sc2 = MirrorOf<native::M3HitTest>(shape);
+    return node;
+}
+
 NodeTree ImportNodes(const m3::Model& source) {
     NodeTree tree;
 
@@ -384,6 +446,31 @@ NodeTree ImportNodes(const m3::Model& source) {
     }
 
     const u32 boneCount = tree.size();
+
+    // A `BBSC` is its bone's billboard (EDIT_MODE_SC2_PROFILE_PLAN.md S1.3):
+    // kept whole, with the shared flags it means.
+    constexpr NodeFlags kBillboardFlags = NodeFlags::Billboarded | NodeFlags::BillboardLockX |
+                                          NodeFlags::BillboardLockY | NodeFlags::BillboardLockZ;
+    for (std::size_t r = 0; r < source.billboardBehaviors.size(); ++r) {
+        const m3::BillboardBehavior& record = source.billboardBehaviors[r];
+        if (record.boneIndex >= boneCount) {
+            continue;
+        }
+        Node& node = tree.nodes[record.boneIndex];
+        Sc2Billboard billboard;
+        billboard.type = record.billboardType;
+        billboard.cameraLookAt = record.cameraLookAt != 0;
+        billboard.up = record.up;
+        billboard.forward = record.forward;
+        billboard.dependents = record.dependents;
+        // The file's order, which is the authoring order and not the bones'.
+        billboard.place = static_cast<u32>(r);
+        if (node.sc2Billboards.empty()) {
+            node.flags = (node.flags & ~kBillboardFlags) | Sc2BillboardFlags(record.billboardType);
+        }
+        node.sc2Billboards.push_back(std::move(billboard));
+    }
+
     for (const m3::AttachmentPoint& point : source.attachmentPoints) {
         Node node;
         node.name = TrimNuls(point.name);
@@ -391,6 +478,27 @@ NodeTree ImportNodes(const m3::Model& source) {
         node.resetPayloadForKind();
         node.parent = point.boneIndex < boneCount ? point.boneIndex : kInvalidNode;
         tree.add(std::move(node));
+    }
+    // An attachment volume rides the point on its bone (S1.0: every shipped
+    // one names the bone of the point it belongs to, three times over).
+    for (std::size_t v = 0; v < source.attachmentVolumes.size(); ++v) {
+        const m3::AttachmentVolume& volume = source.attachmentVolumes[v];
+        for (u32 a = boneCount; a < tree.size(); ++a) {
+            if (tree.nodes[a].parent == volume.boneIndex) {
+                auto& payload = std::get<AttachmentPayload>(tree.nodes[a].payload);
+                payload.sc2Volumes.push_back(MirrorOf<native::M3AttachmentVolume>(volume));
+                const u32 low = v < source.attachmentVolumesAddon0.size() ? source.attachmentVolumesAddon0[v] : 0u;
+                const u32 high = v < source.attachmentVolumesAddon1.size() ? source.attachmentVolumesAddon1[v] : 0u;
+                payload.sc2VolumeAddons.push_back(low | (high << 16));
+                break;
+            }
+        }
+    }
+    // A shadow box rides its bone.
+    for (const m3::ShadowBox& box : source.shadowBoxes) {
+        if (box.boneIndex < boneCount) {
+            tree.nodes[box.boneIndex].sc2ShadowBox = MirrorOf<native::M3ShadowBox>(box);
+        }
     }
 
     for (std::size_t l = 0; l < source.lights.size(); ++l) {
@@ -418,6 +526,7 @@ NodeTree ImportNodes(const m3::Model& source) {
         payload.attenuationEnd = light.attenuationEnd;
         payload.hotSpot = light.hotSpot.initValue;
         payload.falloff = light.falloff.initValue;
+        payload.sc2 = MirrorOf<native::M3Light>(light);
         node.native.set("m3LightFlags", static_cast<i64>(static_cast<u32>(light.flags)));
         tree.add(std::move(node));
     }
@@ -432,6 +541,7 @@ NodeTree ImportNodes(const m3::Model& source) {
         payload.fov = camera.fieldOfView.initValue;
         payload.nearClip = camera.nearClip.initValue;
         payload.farClip = camera.farClip.initValue;
+        payload.sc2 = MirrorOf<native::M3Camera>(camera);
         tree.add(std::move(node));
     }
 
@@ -505,6 +615,28 @@ NodeTree ImportNodes(const m3::Model& source) {
         tree.add(std::move(node));
     }
 
+    // The hit tests (`SSGS`), last, so no channel target before them moves:
+    // the model's tight one, then its fuzzy ones.
+    tree.add(HitTestNode(source.tightHitTestObject, Sc2HitTest::Tight, boneCount, "hit_test"));
+    for (std::size_t h = 0; h < source.fuzzyHitTestObjects.size(); ++h) {
+        tree.add(HitTestNode(source.fuzzyHitTestObjects[h], Sc2HitTest::Fuzzy, boneCount,
+                             "hit_test_fuzzy_" + std::to_string(h)));
+    }
+    // The projectors, after them: a node each under the bone it casts from,
+    // its record kept whole. A material map index is the slot the import made.
+    for (std::size_t p = 0; p < source.projections.size(); ++p) {
+        const m3::Projector& record = source.projections[p];
+        Node node;
+        node.name = "projector_" + std::to_string(p);
+        node.kind = NodeKind::Projector;
+        node.resetPayloadForKind();
+        node.parent = record.bone < boneCount ? record.bone : kInvalidNode;
+        auto& payload = std::get<ProjectorPayload>(node.payload);
+        payload.record = MirrorOf<native::M3Projector>(record);
+        payload.materialSlot = record.materialReferenceIndex;
+        tree.add(std::move(node));
+    }
+
     return tree;
 }
 
@@ -512,6 +644,10 @@ NodeTree ImportNodes(const m3::Model& source) {
 
 ProfileId M3Converter::ProfileForVersion(u32 modelVersion) {
     return modelVersion >= kHeroesModlVersion ? ProfileId::Heroes : ProfileId::Sc2;
+}
+
+u32 M3Converter::ExportVersionFor(ProfileId profile) {
+    return profile == ProfileId::Heroes ? kHeroesModlVersion : static_cast<u32>(m3::SC2_MAX_MODEL_VERSION);
 }
 
 // ============================================================================
@@ -559,6 +695,13 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
     // the buffer, and an export that rebuilt the word from what it could name
     // would quietly re-declare every model as the one shape it knows.
     set.native.set("vertexFlags", static_cast<i64>(static_cast<u32>(source.vertices.flags)));
+    // The 30 shipped models with no geometry and no `MSEC` (the story-mode
+    // cameras): the export writes their empty division as the game does.
+    if (!source.divisions.empty() &&
+        std::all_of(source.divisions.begin(), source.divisions.end(),
+                    [](const m3::MeshDivision& d) { return d.regions.empty() && d.msec.empty(); })) {
+        set.native.set("m3NoMeshBounds", 1);
+    }
     for (std::size_t m = 0; m < source.materialMaps.size(); ++m) {
         model.materialSlots.push_back(SlotName(m));
     }
@@ -676,7 +819,9 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
             const m3::Region& region = division.regions[r];
             MeshSection section;
             section.name = "region_" + std::to_string(r);
-            section.native.set("rootBone", static_cast<i64>(region.rootBone));
+            // Bones import as the first nodes, in order, so a bone index is
+            // its node's.
+            section.native.set(kSectionRootBone, static_cast<i64>(region.rootBone));
             section.native.set("regionFlags", static_cast<i64>(static_cast<u32>(region.flags)));
             // `Hidden` never appears alone. Measured over 111,743 shipped
             // regions — 36,712 Heroes and 75,031 StarCraft II — it is 189 + 189
@@ -791,14 +936,25 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
                 if (global >= boneIndices.size() || global >= boneWeights.size()) {
                     break;
                 }
-                for (std::size_t k = 0; k < 4; ++k) {
+                // The pairs the region says its vertices use. The rest of the
+                // four hold whatever the exporter left there -- full weights on
+                // lookup slots past the region's window, in the merged doodads
+                // -- and the game reads none of it.
+                const std::size_t pairs =
+                    region.boneWeightPairs == 0 ? 4 : std::min<std::size_t>(region.boneWeightPairs, 4);
+                for (std::size_t k = 0; k < pairs; ++k) {
                     const f32 weight = static_cast<f32>(boneWeights[global][k]) / 255.0f;
                     if (weight <= 0.0f) {
                         continue;
                     }
+                    // An index past the region's own window reads into the next
+                    // region's lookup, which is not this region's skin; the root
+                    // is the bone the region names for itself.
                     const std::size_t slot = region.firstBoneLookup + boneIndices[global][k];
-                    const u32 bone =
-                        slot < source.boneLookup.size() ? source.boneLookup[slot] : region.rootBone;
+                    const u32 bone = boneIndices[global][k] < region.boneLookupCount &&
+                                             slot < source.boneLookup.size()
+                                         ? source.boneLookup[slot]
+                                         : region.rootBone;
                     if (bone >= model.nodes.size()) {
                         diagnostics.warn(DiagCode::DanglingNodeReference,
                                          "bone lookup names bone " + std::to_string(bone),
@@ -811,6 +967,11 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
         }
 
         geom::MeshBuilder::BuildOutcome outcome = builder.build();
+        // The division's bounds records, as read; bones import as the first
+        // nodes, so a bone index is its node's.
+        for (const m3::MeshSection& bounds : division.msec) {
+            outcome.mesh.sc2Bounds.push_back(MirrorOf<native::M3MeshSection>(bounds));
+        }
         outcome.mesh.name = "division_" + std::to_string(d);
         outcome.mesh.lodLevel = static_cast<u32>(d);
         outcome.mesh.recomputeBounds();
@@ -822,6 +983,8 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
     // name. A PHCT ships in no model and nothing reads it; the parser has
     // already dropped it and said so.
     const m3_physics::ImportedIds physicsIds = m3_physics::Import(source, model, diagnostics);
+    // Leg IK and turrets, as the stages the game runs (S1.4).
+    m3_behaviors::Import(source, model, diagnostics);
     m3_anim::Context animContext;
     animContext.profile = profile;
     animContext.bases = m3_anim::NodeBases::Of(source);
@@ -858,10 +1021,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     // 0 means "whatever this profile's own game reads". The MODL version is the
     // one chunk version the caller has always chosen, because it is also how
     // `ProfileForVersion` decides which game a file came from.
-    out.setVersion(static_cast<i32>(targetVersion != 0 ? targetVersion
-                                    : profile == ProfileId::Heroes
-                                        ? kHeroesModlVersion
-                                        : static_cast<u32>(m3::SC2_MAX_MODEL_VERSION)));
+    out.setVersion(static_cast<i32>(targetVersion != 0 ? targetVersion : ExportVersionFor(profile)));
     if (document.models.empty()) {
         result.value = std::move(out);
         return result;
@@ -1076,7 +1236,9 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             animContext.nodeSlots[n] = {m3_anim::ExportContext::Slot::Bone, boneOf[n]};
         }
         m3::Bone bone;
-        bone.name = node.name;
+        // A bone with no name still names one: shipped files spell it as the
+        // lone terminator, and an empty string is written as no name at all.
+        bone.name = node.name.empty() ? std::string(1, '\0') : node.name;
         bone.flags = FromNodeFlags(node.flags, static_cast<u32>(node.native.value("m3FlagBits")));
         // A `ModelSpace` node's local is its world (`NodeTree::worldBind` stops
         // there, and so does the IREF below): under a parent bone it would be
@@ -1151,6 +1313,19 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             animContext.nodeVisBone[n] = visBoneOf[n] != 0xFFFFu ? visBoneOf[n] : boneOf[n];
         }
     }
+    // A node a section's bag names, as the bone the region or batch stores:
+    // its own, its visibility leaf for a gate, else its nearest ancestor's.
+    // 0xFFFF for none, which a gate reads as "always drawn".
+    const auto boneOfNode = [&](i64 stored, bool gate) -> u32 {
+        if (stored < 0 || static_cast<u64>(stored) >= boneOf.size()) {
+            return 0xFFFFu;
+        }
+        const std::size_t n = static_cast<std::size_t>(stored);
+        if (gate && n < visBoneOf.size() && visBoneOf[n] != 0xFFFFu) {
+            return visBoneOf[n];
+        }
+        return boneOf[n] != 0xFFFFu ? boneOf[n] : nearestBone(n);
+    };
     // A force field turned in its node's frame rides a bone of its own under the
     // one it would name: `FOR_` has no matrix.
     std::vector<u32> frameBoneOf(nodeCount, 0xFFFFu);
@@ -1202,10 +1377,13 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     // one; the two agree while nothing above the node turns it, and a turning
     // ancestor is reported.
     //
-    // Only for a Warcraft III document: the `.m2` importer sets the same bits
-    // with its own semantics, and an `.m3` source carries no NodeFlags at all.
-    const bool warcraftNodes = IsWc3(document.defaultProfile);
-    if (warcraftNodes) {
+    // A node that carries StarCraft II's own record writes it as it is
+    // (EDIT_MODE_SC2_PROFILE_PLAN.md P2); any other crosses from its flags --
+    // but not from a World of Warcraft document's, whose importer sets the
+    // same bits with its own semantics.
+    const bool crossFlags = document.defaultProfile != ProfileId::Wow;
+    std::vector<i64> billboardOrder;
+    {
         constexpr i64 kCameraAnchored = 0x80;
         const auto rotates = [&](u32 n) {
             for (u32 p = n; p != kInvalidNode && p < nodeCount; p = model.nodes.nodes[p].parent) {
@@ -1220,6 +1398,27 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         };
         for (const u32 n : topological) {
             const Node& node = model.nodes.nodes[n];
+            if (!node.sc2Billboards.empty()) {
+                if (boneOf[n] == 0xFFFFu) {
+                    continue;
+                }
+                for (const Sc2Billboard& billboard : node.sc2Billboards) {
+                    m3::BillboardBehavior record;
+                    record.boneIndex = static_cast<u16>(boneOf[n]);
+                    record.billboardType = billboard.type;
+                    record.cameraLookAt = billboard.cameraLookAt ? 1 : 0;
+                    record.up = billboard.up;
+                    record.forward = billboard.forward;
+                    record.dependents = billboard.dependents;
+                    billboardOrder.push_back(billboard.place == 0xFFFFFFFFu ? kNoBillboardOrder
+                                                                            : static_cast<i64>(billboard.place));
+                    out.billboardBehaviors.push_back(std::move(record));
+                }
+                continue;
+            }
+            if (!crossFlags) {
+                continue;
+            }
             const bool full = hasFlag(node.flags, NodeFlags::Billboarded);
             const bool lockX = hasFlag(node.flags, NodeFlags::BillboardLockX);
             const bool lockY = hasFlag(node.flags, NodeFlags::BillboardLockY);
@@ -1269,9 +1468,38 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                                      "sliding toward the eye does not",
                                  ElementRef(ElementKind::Node, n), profile);
             }
+            billboardOrder.push_back(kNoBillboardOrder);
             out.billboardBehaviors.push_back(std::move(record));
         }
+        // In the order the source wrote them; a record it did not write follows.
+        std::vector<std::size_t> order(out.billboardBehaviors.size());
+        for (std::size_t k = 0; k < order.size(); ++k) {
+            order[k] = k;
+        }
+        std::stable_sort(order.begin(), order.end(),
+                         [&](std::size_t a, std::size_t b) { return billboardOrder[a] < billboardOrder[b]; });
+        std::vector<m3::BillboardBehavior> sorted;
+        sorted.reserve(order.size());
+        for (const std::size_t k : order) {
+            sorted.push_back(std::move(out.billboardBehaviors[k]));
+        }
+        out.billboardBehaviors = std::move(sorted);
     }
+
+    // Shadow boxes, on the bone of the node that holds one.
+    for (const u32 n : topological) {
+        const Node& node = model.nodes.nodes[n];
+        if (!node.sc2ShadowBox) {
+            continue;
+        }
+        m3::ShadowBox box = RecordOf<m3::ShadowBox>(*node.sc2ShadowBox);
+        const u32 bone = boneOf[n] != 0xFFFFu ? boneOf[n] : nearestBone(n);
+        box.boneIndex = static_cast<u16>(bone == 0xFFFFu ? 0u : bone);
+        out.shadowBoxes.push_back(std::move(box));
+    }
+
+    // Leg IK and turrets: the stages the game runs, written as its records.
+    m3_behaviors::Export(model, boneOf, out, diagnostics);
 
     // The emitter systems' record numbers, first, because they name one another
     // -- a trail, a collision spawn, a bounce's ribbon, a copy's source -- and a
@@ -1360,17 +1588,67 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                                  ElementRef(ElementKind::Node, static_cast<u32>(n)), profile);
             }
             m3::AttachmentPoint point;
+            // -1, as every shipped ATT_ states it.
+            point.unknown = 0xFFFFFFFFu;
             point.name = node.name;
             point.boneIndex = parentBone == 0xFFFFu ? 0u : parentBone;
             if (boneOf[n] == 0xFFFFu) {
                 animContext.nodeSlots[n] = {m3_anim::ExportContext::Slot::Attachment,
                                             static_cast<u32>(out.attachmentPoints.size())};
             }
+            // Its volumes, on its bone; the addons name that bone and count.
+            if (const auto* payload = std::get_if<AttachmentPayload>(&node.payload)) {
+                for (std::size_t k = 0; k < payload->sc2Volumes.size(); ++k) {
+                    m3::AttachmentVolume volume = RecordOf<m3::AttachmentVolume>(payload->sc2Volumes[k]);
+                    volume.bone1 = point.boneIndex;
+                    volume.bone2 = point.boneIndex;
+                    volume.boneIndex = static_cast<u16>(point.boneIndex);
+                    const bool read = k < payload->sc2VolumeAddons.size();
+                    out.attachmentVolumesAddon0.push_back(
+                        static_cast<u16>(read ? payload->sc2VolumeAddons[k] & 0xFFFFu : point.boneIndex));
+                    out.attachmentVolumesAddon1.push_back(static_cast<u16>(
+                        read ? payload->sc2VolumeAddons[k] >> 16 : out.attachmentVolumes.size()));
+                    out.attachmentVolumes.push_back(std::move(volume));
+                }
+            }
             out.attachmentPoints.push_back(std::move(point));
             break;
         }
+        case NodeKind::Projector: {
+            const auto* payload = std::get_if<ProjectorPayload>(&node.payload);
+            if (payload == nullptr) {
+                break;
+            }
+            m3::Projector projector = RecordOf<m3::Projector>(payload->record);
+            projector.bone = parentBone == 0xFFFFu ? 0u : parentBone;
+            if (payload->materialSlot != kInvalidIndex) {
+                projector.materialReferenceIndex = payload->materialSlot;
+            }
+            out.projections.push_back(std::move(projector));
+            break;
+        }
+        case NodeKind::CollisionShape: {
+            // A StarCraft II hit test goes back to its slot; any other
+            // collision shape is the Warcraft III crossing's (`CrossHitTests`).
+            const auto* payload = std::get_if<CollisionPayload>(&node.payload);
+            if (payload == nullptr || payload->shape.hitTest == Sc2HitTest::None || !payload->shape.sc2) {
+                break;
+            }
+            m3::HitTestShape shape = RecordOf<m3::HitTestShape>(*payload->shape.sc2);
+            // 0xFFFF is the unset tight shape's own "no bone".
+            shape.boneIndex = static_cast<u16>(parentBone);
+            if (payload->shape.hitTest == Sc2HitTest::Tight) {
+                out.tightHitTestObject = std::move(shape);
+            } else {
+                out.fuzzyHitTestObjects.push_back(std::move(shape));
+            }
+            break;
+        }
         case NodeKind::Light: {
-            m3::Light light;
+            const auto* read = std::get_if<LightPayload>(&node.payload);
+            // The record as read when there is one; the fields the document
+            // edits go over it.
+            m3::Light light = read != nullptr && read->sc2 ? RecordOf<m3::Light>(*read->sc2) : m3::Light{};
             light.boneIndex = static_cast<u16>(parentBone == 0xFFFFu ? 0u : parentBone);
             // Every shipped light states LightOpaque (0x08 on 1,440 of 1,440,
             // Blizzard's two War3_* lights included), so a light no `.m3`
@@ -1404,9 +1682,12 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                 // struct's `decay` is that AnimRef, not an exponent -- its init
                 // equals the plain float on 1,947 of 2,001 sampled shipped
                 // lights, the two histograms identical. Left at zero it stated
-                // a light that reaches nowhere.
-                light.decay.initValue = payload->attenuationEnd;
-                light.decay.nullValue = payload->attenuationEnd;
+                // a light that reaches nowhere. A light read from a `LITE`
+                // keeps its own range.
+                if (!payload->sc2) {
+                    light.decay.initValue = payload->attenuationEnd;
+                    light.decay.nullValue = payload->attenuationEnd;
+                }
                 light.hotSpot.initValue = payload->hotSpot;
                 light.falloff.initValue = payload->falloff;
             }
@@ -1416,7 +1697,8 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             break;
         }
         case NodeKind::Camera: {
-            m3::Camera camera;
+            const auto* read = std::get_if<CameraPayload>(&node.payload);
+            m3::Camera camera = read != nullptr && read->sc2 ? RecordOf<m3::Camera>(*read->sc2) : m3::Camera{};
             camera.name = node.name;
             camera.boneIndex = parentBone == 0xFFFFu ? 0u : parentBone;
             if (const auto* payload = std::get_if<CameraPayload>(&node.payload)) {
@@ -1513,7 +1795,8 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
 
     // --- materials ----------------------------------------------------------
     m3_core::Context context;
-    context.modelVersion = targetVersion;
+    // The version written, which is not `targetVersion` when that was 0.
+    context.modelVersion = static_cast<u32>(out.getVersion());
     context.textureRefs = &document.textures;
     // The pass fold's inputs (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5): whether the
     // stacks are Warcraft III's, what the caller learned about the textures'
@@ -1939,6 +2222,14 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             // piece is not worn under the export's look.
             const bool cageRange = clothEmission.isCage(static_cast<u32>(m), range.section);
             const bool boundRange = clothEmission.isBound(static_cast<u32>(m), range.section);
+            // Nothing to draw and no region of its own to keep: a division with
+            // no regions (a decal's, a splat's, an emitter-only model's) reads
+            // back as an empty mesh, and writing it a region would add one.
+            if (range.indexCount == 0 &&
+                (range.section >= mesh.sections.size() ||
+                 mesh.sections[range.section].native.find("regionFlags") == nullptr)) {
+                continue;
+            }
             if (range.section < mesh.sections.size() && !cageRange && !boundRange) {
                 const MeshSection& skipTest = mesh.sections[range.section];
                 if (hasFlag(skipTest.flags, SectionFlags::Hidden) &&
@@ -2045,8 +2336,12 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                 bool carriedRoot = false;
                 if (range.section < mesh.sections.size()) {
                     const MeshSection& section = mesh.sections[range.section];
-                    carriedRoot = section.native.find("rootBone") != nullptr;
-                    region.rootBone = static_cast<u16>(section.native.value("rootBone"));
+                    // The bag names a node; the region names that node's bone.
+                    const u32 rootBone = boneOfNode(section.native.value(kSectionRootBone, -1), false);
+                    carriedRoot = rootBone != 0xFFFFu;
+                    if (carriedRoot) {
+                        region.rootBone = static_cast<u16>(rootBone);
+                    }
                     region.flags = static_cast<m3::RegionFlag>(
                         static_cast<u32>(section.native.value(
                             "regionFlags", hasFlag(section.flags, SectionFlags::Hidden)
@@ -2283,9 +2578,11 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             batch.materialIndex = static_cast<u16>(drawSlot);
             batch.boneCount = 0xFFFFu;
             if (range.section < mesh.sections.size()) {
-                batch.boneCount = static_cast<u16>(
-                    mesh.sections[range.section].native.value(kSectionVisibilityNode,
-                                                             kSectionAlwaysDrawn));
+                const i64 gate = mesh.sections[range.section].native.value(kSectionVisibilityNode,
+                                                                           kSectionAlwaysDrawn);
+                if (gate != kSectionAlwaysDrawn) {
+                    batch.boneCount = static_cast<u16>(boneOfNode(gate, true));
+                }
             }
             // A section with a keyed visibility and no stored gate -- a
             // Warcraft III geoset animation -- gets a dedicated gate bone: the
@@ -2487,14 +2784,37 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     // 0 — and 24,270 leave it unkeyed, which is what this writes. The animated
     // refinement (a `BNDS` run per sequence behind an `SDMB`) is the part we
     // have nothing to say about.
-    m3::MeshSection section;
-    section.nodeIndex = 0;
-    section.bounds.initValue = out.bounds;
-    // The bounds channel's id is a fixed one — every shipped model states it,
-    // keyed or not. Inert here (nothing keys it), but a reader that looks the
-    // channel up by id finds the one it expects.
-    section.bounds.animId = kModelBoundsAnimId;
-    division.msec.push_back(section);
+    // An `.m3`'s own records go back as read -- their bone through the node it
+    // is now, their bounds the model's when the geometry moved them.
+    for (const Mesh& mesh : model.meshes) {
+        for (const native::M3MeshSection& mirror : mesh.sc2Bounds) {
+            m3::MeshSection section = RecordOf<m3::MeshSection>(mirror);
+            const u32 node = section.nodeIndex;
+            section.nodeIndex = node < boneOf.size() && boneOf[node] != 0xFFFFu ? boneOf[node] : 0u;
+            const auto near = [](const Vector3f& a, const Vector3f& b) {
+                const f32 scale = std::max({1.0f, std::abs(b.x), std::abs(b.y), std::abs(b.z)});
+                return std::abs(a.x - b.x) <= 1e-3f * scale && std::abs(a.y - b.y) <= 1e-3f * scale &&
+                       std::abs(a.z - b.z) <= 1e-3f * scale;
+            };
+            if (!near(section.bounds.initValue.min, out.bounds.min) ||
+                !near(section.bounds.initValue.max, out.bounds.max)) {
+                section.bounds.initValue = out.bounds;
+            }
+            division.msec.push_back(section);
+        }
+    }
+    const bool unbounded =
+        division.regions.empty() && set != nullptr && set->native.value("m3NoMeshBounds", 0) != 0;
+    if (division.msec.empty() && !unbounded) {
+        m3::MeshSection section;
+        section.nodeIndex = 0;
+        section.bounds.initValue = out.bounds;
+        // The bounds channel's id is a fixed one — every shipped model states it,
+        // keyed or not. Inert here (nothing keys it), but a reader that looks the
+        // channel up by id finds the one it expects.
+        section.bounds.animId = kModelBoundsAnimId;
+        division.msec.push_back(section);
+    }
     // A division states how many copies of itself the client draws, and 0 is
     // not "one": 5,502 of 5,502 shipped divisions say 1, and the Galaxy editor
     // reading a 0 builds no index buffer for the model -- it logs
@@ -2590,6 +2910,27 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     // Reference where the client walks an array in step with its owner.
     out.attachmentPointAddons.assign(out.attachmentPoints.size(), kNoAddon);
     out.camerasAddons.assign(out.cameras.size(), kNoAddon);
+
+    // StarCraft II has no MADD at all, and a Heroes material reaches a
+    // StarCraft II export unchanged from its native block. The game's own
+    // reversal decides: what it approximates is said by name, and what it
+    // cannot reverse fails the export by name rather than writing a model
+    // StarCraft II refuses whole.
+    if (profile == ProfileId::Sc2 && !out.dataDrivenMaterials.empty()) {
+        m3::EngineConversion lowered = m3::toStarCraft2(out);
+        if (!lowered.converted) {
+            diagnostics.error(DiagCode::LossyKindConversion,
+                              "a Heroes material has no StarCraft II form: " + lowered.blocker +
+                                  "; convert it to Standard first, or export for Heroes",
+                              ElementRef(ElementKind::Document, 0), profile);
+            return result;
+        }
+        for (const std::string& loss : lowered.lossy) {
+            diagnostics.warn(DiagCode::LossyKindConversion, "Heroes material to StarCraft II: " + loss,
+                             ElementRef(ElementKind::Document, 0), profile);
+        }
+        out = std::move(lowered.model);
+    }
 
     result.value = std::move(out);
     return result;

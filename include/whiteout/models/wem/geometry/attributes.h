@@ -61,6 +61,7 @@ enum class AttrType : u8 {
     Quat, ///< F32x4 with quaternion semantics; distinguished so tools interpolate it right.
     Bool,
     U32x4, ///< Four u32: a cloth binding's cage vertex ids (WEM_PHYSICS_DESIGN.md §3.7).
+    Extent, ///< Seven f32: a box's corners and its sphere's radius -- an `.m3` bounds key.
     Count
 };
 

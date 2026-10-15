@@ -464,6 +464,10 @@ const char* ToString(StageKind kind) {
         return "ragdoll";
     case StageKind::Cloth:
         return "cloth";
+    case StageKind::Sc2LegIk:
+        return "sc2LegIk";
+    case StageKind::Sc2Turret:
+        return "sc2Turret";
     case StageKind::Count:
         break;
     }
@@ -1143,7 +1147,7 @@ SimulatedStages::SimulatedStages(const Document& document, u32 model, SimulatedS
     model_ = &document.models[model];
     const NodeTree& tree = model_->nodes;
     for (const PoseStage& stage : model_->poseStages) {
-        if (!stage.enabled || IsPhysicsStage(stage.kind)) {
+        if (!stage.enabled || IsPhysicsStage(stage.kind) || IsGameStage(stage.kind)) {
             continue;
         }
         for (const u32 node : stage.driven) {
@@ -1310,6 +1314,9 @@ void Append(std::vector<u8>& bytes, const T& value) {
 /// Whether @p target runs @p stage itself: the rig or cloth it names goes out
 /// as records, and the bake leaves it to the game (WEM_PHYSICS_DESIGN.md §7).
 bool RunsNatively(const Model& model, const PoseStage& stage, ProfileId target) {
+    if (IsGameStage(stage.kind)) {
+        return (Profile(target).nativeStages & (1u << static_cast<u32>(stage.kind))) != 0;
+    }
     const PhysicsCaps& caps = Profile(target).physics;
     if (stage.kind == StageKind::Ragdoll) {
         return stage.rig != 0 && caps.shapeKinds != 0 && model.physics.rig(stage.rig) != nullptr;
@@ -1384,8 +1391,10 @@ void WeightToSwitches(Document& document, u32 m, const PoseStage& stage) {
 }
 
 /// Every stage and its own channels gone from @p model, with their sub-tracks
-/// from every clip.
-void RemoveStages(Document& document, u32 model) {
+/// from every clip -- but a game stage @p target runs itself, which stays for
+/// the export to write as its records (EDIT_MODE_SC2_PROFILE_PLAN.md P1). Its
+/// weight goes: nothing in the game keys it.
+void RemoveStages(Document& document, u32 model, ProfileId target) {
     Model& owner = document.models[model];
     std::set<u32> weights;
     for (const AnimChannel& channel : owner.animChannels.channels) {
@@ -1393,6 +1402,9 @@ void RemoveStages(Document& document, u32 model) {
             weights.insert(channel.id);
         }
     }
+    const auto kept = [&](const PoseStage& stage) {
+        return IsGameStage(stage.kind) && RunsNatively(owner, stage, target);
+    };
     std::erase_if(owner.animChannels.channels,
                   [&](const AnimChannel& channel) { return weights.count(channel.id) != 0; });
     for (Clip& clip : document.clips) {
@@ -1404,7 +1416,7 @@ void RemoveStages(Document& document, u32 model) {
                           [&](const SubTrack& track) { return weights.count(track.channel) != 0; });
         }
     }
-    owner.poseStages.clear();
+    std::erase_if(owner.poseStages, [&](const PoseStage& stage) { return !kept(stage); });
 }
 
 } // namespace
@@ -1423,10 +1435,37 @@ u32 BakeStages(Document& document, ProfileId target, const StageHooks* hooks, Di
         if (document.models[m].poseStages.empty()) {
             continue;
         }
+        // A game's own stage goes out as its records for the game that runs
+        // it, and is dropped for any other: nothing else runs it, and it is
+        // the game's behaviour, not an animation to bake.
+        for (PoseStage& stage : document.models[m].poseStages) {
+            if (!IsGameStage(stage.kind)) {
+                continue;
+            }
+            const ElementRef where(ElementKind::Node, stage.driven.empty() ? kInvalidNode : stage.driven.front());
+            if (!RunsNatively(document.models[m], stage, target)) {
+                diagnostics.info(DiagCode::AnimStageNotBaked,
+                                 "stage '" + stage.name + "' is StarCraft II's own; " + Profile(target).displayName +
+                                     " does not run it, so it is left out",
+                                 where);
+                stage.enabled = false;
+                continue;
+            }
+            const AnimChannel* weight = StageWeightChannel(document.models[m], stage);
+            bool keyed = false;
+            for (const Clip& clip : document.clips) {
+                keyed = keyed || (weight != nullptr && clip.model == m && FindSubTrack(clip, weight->id) != nullptr);
+            }
+            if (keyed) {
+                diagnostics.warn(DiagCode::AnimStageNotBaked,
+                                 "stage '" + stage.name + "' has a keyed weight, which the game has no switch for",
+                                 where);
+            }
+        }
         // A rig or cloth the target runs itself goes out as its records and
         // their switches, not as keys.
         for (PoseStage& stage : document.models[m].poseStages) {
-            if (stage.enabled && RunsNatively(document.models[m], stage, target)) {
+            if (stage.enabled && !IsGameStage(stage.kind) && RunsNatively(document.models[m], stage, target)) {
                 const ElementRef where(ElementKind::Node, stage.driven.empty() ? kInvalidNode : stage.driven.front());
                 // A game with no switches runs what it builds from creation.
                 if (Profile(target).physics.switches) {
@@ -1459,7 +1498,7 @@ u32 BakeStages(Document& document, ProfileId target, const StageHooks* hooks, Di
         const Model& model = document.models[m];
         std::set<std::pair<u32, Channel>> written;
         for (const PoseStage& stage : model.poseStages) {
-            if (!stage.enabled) {
+            if (!stage.enabled || IsGameStage(stage.kind)) {
                 continue;
             }
             for (const u32 node : stage.driven) {
@@ -1542,12 +1581,12 @@ u32 BakeStages(Document& document, ProfileId target, const StageHooks* hooks, Di
             }
         }
         for (const PoseStage& stage : document.models[m].poseStages) {
-            if (stage.enabled) {
+            if (stage.enabled && !IsGameStage(stage.kind)) {
                 diagnostics.info(DiagCode::AnimStageBaked, "stage '" + stage.name + "' baked into keys",
                                  ElementRef(ElementKind::Node, stage.driven.empty() ? kInvalidNode : stage.driven.front()));
             }
         }
-        RemoveStages(document, m);
+        RemoveStages(document, m, target);
     }
     return rewritten;
 }

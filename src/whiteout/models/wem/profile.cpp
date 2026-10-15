@@ -3,6 +3,7 @@
 
 #include <whiteout/models/wem/profile.h>
 
+#include <whiteout/models/wem/anim/pose_stage.h>
 #include <whiteout/models/wem/nodes/node.h>
 
 namespace whiteout {
@@ -77,7 +78,7 @@ NodeKindMask nodeKindsOf(ProfileId id) {
         return kSharedNodeKinds | kWc3NodeKinds | kWc3FaceKinds;
     case ProfileId::Sc2:
     case ProfileId::Heroes:
-        return kSharedNodeKinds | kSc2NodeKinds | kSc2FieldKinds;
+        return kSharedNodeKinds | kSc2NodeKinds | kSc2FieldKinds | kSc2SceneKinds;
     case ProfileId::Wow:
         return kSharedNodeKinds | kWowNodeKinds;
     default:
@@ -154,6 +155,9 @@ ProfileDesc makeDesc(ProfileId id, const char* name, const char* displayName, co
     d.supportsActors = actors;
     d.nodeKinds = nodeKindsOf(id);
     d.physics = physicsOf(id);
+    if (id == ProfileId::Sc2 || id == ProfileId::Heroes) {
+        d.nativeStages = (1u << static_cast<u32>(StageKind::Sc2LegIk)) | (1u << static_cast<u32>(StageKind::Sc2Turret));
+    }
     return d;
 }
 

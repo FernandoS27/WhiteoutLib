@@ -1346,6 +1346,7 @@ private:
             emitSectionChannel(channel, merged);
             break;
         case TrackTarget::Kind::Physics: // the export bakes physics (WEM_PHYSICS_DESIGN.md §7)
+        case TrackTarget::Kind::Native:  // an `.m3` record's own stream
         case TrackTarget::Kind::Count:
             break;
         }

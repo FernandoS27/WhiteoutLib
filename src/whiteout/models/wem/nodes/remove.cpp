@@ -329,6 +329,15 @@ void RemapNodeReferencers(NodeTree& tree, std::span<const u32> remap, NodeRefere
                 }
                 node = fresh;
                 break;
+            case NodeReference::RegionRoot:
+                // A root that is gone is the export's to choose again: the
+                // palette's first bone, as for a section that never had one.
+                node = fresh;
+                break;
+            case NodeReference::MeshBounds:
+                // The bounds ride the model's root when their bone goes.
+                node = fresh == kInvalidNode ? 0u : fresh;
+                break;
             default:
                 break;
             }

@@ -342,6 +342,8 @@ const char* ToString(TrackTarget::Kind kind) {
         return "section";
     case TrackTarget::Kind::Physics:
         return "physics";
+    case TrackTarget::Kind::Native:
+        return "native";
     case TrackTarget::Kind::Count:
         break;
     }

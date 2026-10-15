@@ -24,6 +24,7 @@
  */
 
 #include <span>
+#include <vector>
 #include <type_traits>
 
 #include <whiteout/common_types.h>
@@ -68,6 +69,8 @@ enum class NodeReference : u8 {
     SoftChain,       ///< `SoftBulge::chain`.
     SoftAxisBone,    ///< A Wobble's or a Squash & stretch's `axisBone`; none unless its axis is a bone's.
     SoftStrand,      ///< `SoftDrip::strandNodes` and `dropNodes`: a strand's bones and its droplet's, by place.
+    RegionRoot,      ///< A section's `kSectionRootBone`. Owner: the mesh; sub: the section.
+    MeshBounds,      ///< `Mesh::sc2Bounds[].nodeIndex`. Owner: the mesh; sub: the record.
 };
 
 /// @p mesh's rows: its skin, and each section's rigid node and visibility gate.
@@ -75,6 +78,9 @@ template <class MeshT, class F>
 void ForEachMeshNodeReference(MeshT& mesh, u32 index, F&& f) {
     for (auto& influence : mesh.skin.influences) {
         f(NodeReference::Influence, influence.bone, index, kInvalidIndex);
+    }
+    for (u32 b = 0; b < mesh.sc2Bounds.size(); ++b) {
+        f(NodeReference::MeshBounds, mesh.sc2Bounds[b].nodeIndex, index, b);
     }
     for (u32 s = 0; s < mesh.sections.size(); ++s) {
         auto& section = mesh.sections[s];
@@ -89,6 +95,20 @@ void ForEachMeshNodeReference(MeshT& mesh, u32 index, F&& f) {
                     section.native.set(kSectionVisibilityNode,
                                        node == kInvalidNode ? kSectionAlwaysDrawn
                                                             : static_cast<i64>(node));
+                }
+            }
+        }
+        // The root, likewise; a section whose root is gone loses the key.
+        const i64 root = section.native.value(kSectionRootBone, -1);
+        if (root >= 0) {
+            u32 node = static_cast<u32>(root);
+            f(NodeReference::RegionRoot, node, index, s);
+            if constexpr (!std::is_const_v<MeshT>) {
+                if (node == kInvalidNode) {
+                    std::erase_if(section.native.entries,
+                                  [](const NativeBag::Entry& entry) { return entry.name == kSectionRootBone; });
+                } else if (node != static_cast<u32>(root)) {
+                    section.native.set(kSectionRootBone, static_cast<i64>(node));
                 }
             }
         }

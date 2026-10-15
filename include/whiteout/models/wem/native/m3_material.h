@@ -137,6 +137,12 @@ struct M3Material {
     /// forward direction, which is why the authored blob above is kept too.
     std::optional<M3Standard> restoredStandard;
 
+    /// The chunk versions the body was read at: its own, then, for a standard
+    /// material, each layer slot's in `MAT_` order (-1 for an empty one). An
+    /// untouched block is written back at them, so it reads as it did; empty
+    /// for a body no file gave. `NM3_` v2.
+    std::vector<i32> recordVersions;
+
     /// The variant alternative currently held. Prefer this over `kind` when
     /// reading `body`; `kind` is what the file claimed.
     std::size_t bodyIndex() const {
@@ -200,6 +206,7 @@ struct M3Material {
         }
         v.optional("dataDrivenProperties", dataDrivenProperties);
         v.optional("restoredStandard", restoredStandard);
+        v.since(2).field("recordVersions", recordVersions);
     }
 };
 
@@ -208,7 +215,8 @@ struct M3Material {
 template <>
 struct ChunkTagTraits<native::M3Material> {
     static constexpr u32 value = kTag("NM3_");
-    static constexpr u32 max_version = 1;
+    // v2: the record versions the body was read at.
+    static constexpr u32 max_version = 2;
     static constexpr bool is_trivial = false;
 };
 

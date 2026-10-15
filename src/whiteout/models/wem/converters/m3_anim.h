@@ -56,7 +56,9 @@ namespace m3_anim {
 
 /// Where the node import put each satellite array — `ImportNodes`' own order:
 /// bones, attachment points, lights, cameras, particle emitters, their `PARC`
-/// copies, ribbons, force fields, vertex warps.
+/// copies, ribbons, force fields, vertex warps, hit tests (the tight one, then
+/// the fuzzy ones), projectors. A new kind goes last, or every channel target
+/// after it moves.
 struct NodeBases {
     u32 bone = 0;
     u32 attachment = 0;
@@ -69,6 +71,8 @@ struct NodeBases {
     u32 ribbon = 0;
     u32 force = 0;
     u32 warp = 0;
+    u32 hitTest = 0;
+    u32 projector = 0;
 
     static NodeBases Of(const m3::Model& source);
 };

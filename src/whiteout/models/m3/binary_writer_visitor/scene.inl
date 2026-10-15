@@ -83,7 +83,11 @@ void BinaryWriterVisitor::visit(const Event& event, u32 version) {
 
 void BinaryWriterVisitor::visit(const ShadowBox& box, u32 version) {
     (void)version;
-    writer.write(box.matrix);
+    writer.write(box.boneIndex);
+    writer.write(box.unknown);
+    writer.write(box.length);
+    writer.write(box.width);
+    writer.write(box.height);
 }
 
 void BinaryWriterVisitor::visit(const Projector& projector, u32 version) {

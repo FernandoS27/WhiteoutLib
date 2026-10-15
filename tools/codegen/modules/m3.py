@@ -65,6 +65,11 @@ CONFIG = ModuleConfig(
             # and §7.3 says the block keeps the authored groups.
             'DataDrivenProperties',
             'TextureLayer',
+            # The scene records WEM keeps whole beside the node they ride
+            # (EDIT_MODE_SC2_PROFILE_PLAN.md S1.5): an export starts from the
+            # record as read and overwrites what the document edits.
+            'Light', 'Camera', 'Projector', 'HitTestShape', 'AttachmentVolume',
+            'ShadowBox', 'MeshSection',
         ],
         # HAI_ is defunct: the parser header says "always null" and the corpus
         # agrees, so the variant omits it and a non-null hairMaterials array
@@ -76,5 +81,9 @@ CONFIG = ModuleConfig(
         extra_enums=['MaterialType'],
         # Every body is inline in the authored `M3Material`'s NM3_ chunk.
         tags={},
+        # The scene records go back at the version they were read at: a
+        # `CAM_` is v2 to v5, and each spells another layout.
+        versioned_roots=['Light', 'Camera', 'Projector', 'HitTestShape', 'AttachmentVolume',
+                         'ShadowBox', 'MeshSection'],
     ),
 )

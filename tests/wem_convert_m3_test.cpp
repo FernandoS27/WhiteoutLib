@@ -24,6 +24,7 @@
 #include <whiteout/models/m3/writer.h>
 #include <whiteout/models/wem/converters.h>
 #include <whiteout/models/wem/profile.h>
+#include <whiteout/models/wem/retarget.h>
 
 #include "wem_material_fixture.h"
 
@@ -179,7 +180,9 @@ TEST_CASE("wem m3 rebases into the canonical space", "[wem][convert][m3][space]"
     CHECK(result->space == CoordSpace::Blizzard);
 
     const NodeTree& nodes = result->models.front().nodes;
-    REQUIRE(nodes.size() == 2);
+    // Two bones, and the model's tight hit test after them.
+    REQUIRE(nodes.size() == 3);
+    CHECK(nodes.nodes[2].kind == NodeKind::CollisionShape);
     // SC2's (0, -3, 0) -- three units along its forward -- is (3, 0, 0) in
     // Blizzard's basis, where forward is +X.
     CHECK(nodes.nodes[1].local.translation.x == 3.0f);
@@ -2229,4 +2232,61 @@ TEST_CASE("wem m3 the vertex declaration carries the widest mesh's uv sets",
     }
     CHECK(wide);
     CHECK(narrow);
+}
+
+// ---- S0.5 (EDIT_MODE_SC2_PROFILE_PLAN.md): MADD on the way out ---------------
+
+namespace {
+
+/// A Heroes model whose one material is a MADD, named for the messages.
+m3::Model heroesGlowModel() {
+    m3::Model model;
+    model.setVersion(30);
+    m3::DataDrivenMaterial madd;
+    madd.materialName = "HeroGlow";
+    model.dataDrivenMaterials.push_back(madd);
+    m3::MaterialMap map{};
+    map.materialType = m3::MaterialType::DataDriven;
+    map.materialIndex = 0;
+    model.materialMaps.push_back(map);
+    return model;
+}
+
+bool Names(const Diagnostics& diagnostics, const std::string& text, Severity severity) {
+    for (const Diagnostic& entry : diagnostics.all()) {
+        if (entry.severity == severity && entry.message.find(text) != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
+
+TEST_CASE("wem m3 a MADD exported for StarCraft II is converted or refused by name", "[wem][m3][madd][s0]") {
+    M3Converter converter;
+    Result<Document> imported = converter.fromM3(heroesGlowModel(), ProfileId::Heroes);
+    REQUIRE(imported.ok());
+    Document document = imported.take();
+    // The same content, written for the other game.
+    REQUIRE(RenameProfile(document, ProfileId::Heroes, ProfileId::Sc2));
+
+    const Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2);
+    if (written.ok()) {
+        CHECK(written->dataDrivenMaterials.empty());
+        CHECK(m3::checkEngineSupport(*written).starcraft2);
+        CHECK(Names(written.diagnostics, "HeroGlow", Severity::Warning));
+    } else {
+        CHECK(Names(written.diagnostics, "HeroGlow", Severity::Error));
+    }
+}
+
+TEST_CASE("wem m3 a Heroes export keeps its MADD", "[wem][m3][madd][s0]") {
+    M3Converter converter;
+    Result<Document> imported = converter.fromM3(heroesGlowModel(), ProfileId::Heroes);
+    REQUIRE(imported.ok());
+    const Result<m3::Model> written = converter.toM3(*imported.value, ProfileId::Heroes);
+    REQUIRE(written.ok());
+    CHECK(written->getVersion() == 30);
+    CHECK(written->dataDrivenMaterials.size() == 1u);
 }

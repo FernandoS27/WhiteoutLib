@@ -414,6 +414,7 @@ struct RibbonEmitter {
  * field of view, aspect ratio, clipping planes, alpha lifecycle, and
  * attenuation distance.
  */
+/// @wem rename=M3Projector
 struct Projector {
     ProjectionType projectionType = ProjectionType::Orthographic;             ///< Projection type (ortho/perspective)
     u32 bone = 0;                              ///< Index into BONE array

@@ -466,3 +466,163 @@ TEST_CASE("M3 Heroes -> StarCraft II conversion over the corpus", "[m3][corpus][
     // The approximate fallback has to actually reach models strict mode cannot.
     CHECK(approximateOnly > 0);
 }
+
+// ---- CheckEditorRules (EDIT_MODE_SC2_PROFILE_PLAN.md S0.7) ------------------
+
+namespace {
+
+/// A model that keeps every rule: one bone, one division with its bounds, one
+/// sequence whose container lists its state, its events under a shipped id,
+/// and one material with every slot.
+Model ruleAbidingModel() {
+    Model model = modelAt(29);
+    Bone bone;
+    bone.name = std::string("Root", 5);
+    bone.parentIndex = 0xFFFF;
+    model.bones.push_back(bone);
+
+    MeshDivision division;
+    MeshSection bounds;
+    bounds.bounds.animId = 0x001F9BD2u;
+    division.msec.push_back(bounds);
+    Region region;
+    region.boneLookupCount = 1;
+    division.regions.push_back(region);
+    model.divisions.push_back(division);
+    model.boneLookup = {0};
+
+    Sequence sequence;
+    sequence.name = "Stand";
+    model.sequences.push_back(sequence);
+    AnimationGroup group;
+    group.name = "Stand";
+    group.subtrackIndices = {0};
+    model.animationGroups.push_back(group);
+    SubTrackContainer stc;
+    stc.name = "Stand_full";
+    AnimBlock<Event> events{};
+    events.timestamps = {1000};
+    events.keys.push_back(Event{});
+    events.keys[0].name = "Evt_SeqEnd";
+    stc.sdev.push_back(events);
+    stc.animIds = {0x063F6D59u};
+    stc.animRefs = {0};
+    model.subTrackCollections.push_back(stc);
+    AnimationState state;
+    state.animIds = stc.animIds;
+    model.animationStates.push_back(state);
+
+    StandardMaterial material;
+    material.name = "Body";
+    for (std::optional<TextureLayer>* layer :
+         {&material.diffuseLayer, &material.decalLayer, &material.specularLayer, &material.glossLayer,
+          &material.emissiveLayer1, &material.emissiveLayer2, &material.environmentLayer,
+          &material.environmentMaskLayer, &material.alphaLayer1, &material.alphaLayer2, &material.normalLayer,
+          &material.heightLayer, &material.lightMapLayer, &material.ambientOcclusionLayer,
+          &material.normalBlend1MaskLayer, &material.normalBlend2MaskLayer, &material.normalBlend1Layer,
+          &material.normalBlend2Layer}) {
+        *layer = TextureLayer{};
+    }
+    model.standardMaterials.push_back(material);
+    model.materialMaps.push_back(mapTo(MaterialType::Standard, 0));
+    return model;
+}
+
+bool Breaks(const Model& model, const std::string& rule, Engine engine = Engine::StarCraft2) {
+    for (const EditorRuleFailure& failure : CheckEditorRules(model, engine)) {
+        if (failure.rule == rule) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
+
+TEST_CASE("M3 the editor rules hold on a model that keeps them", "[m3][compat][rules]") {
+    for (const EditorRuleFailure& failure : CheckEditorRules(ruleAbidingModel(), Engine::StarCraft2)) {
+        FAIL_CHECK(failure.rule + ": " + failure.message);
+    }
+}
+
+TEST_CASE("M3 each editor rule names what breaks it", "[m3][compat][rules]") {
+    SECTION("version: MADD in a StarCraft II file") {
+        Model model = ruleAbidingModel();
+        model.dataDrivenMaterials.push_back(DataDrivenMaterial{});
+        model.materialMaps.push_back(mapTo(MaterialType::DataDriven, 0));
+        CHECK(Breaks(model, "version"));
+        CHECK_FALSE(Breaks(model, "version", Engine::HeroesOfTheStorm));
+    }
+    SECTION("string: a NUL inside a name") {
+        Model model = ruleAbidingModel();
+        model.bones[0].name = std::string("Root\0_Vis", 9);
+        CHECK(Breaks(model, "string"));
+    }
+    SECTION("msec: a division without bounds, or bounds under another id") {
+        Model model = ruleAbidingModel();
+        model.divisions[0].msec[0].bounds.animId = 7;
+        CHECK(Breaks(model, "msec"));
+        model.divisions[0].msec.clear();
+        CHECK(Breaks(model, "msec"));
+    }
+    SECTION("stc-sorted: a lookup out of order") {
+        Model model = ruleAbidingModel();
+        model.subTrackCollections[0].animIds = {9, 0x063F6D59u, 3};
+        model.subTrackCollections[0].animRefs = {(2u << 16), 0, (2u << 16) | 1};
+        model.animationStates[0].animIds = model.subTrackCollections[0].animIds;
+        CHECK(Breaks(model, "stc-sorted"));
+    }
+    SECTION("sts: a state listing other ids, or a second index that does not copy it") {
+        Model model = ruleAbidingModel();
+        model.animationStates[0].animIds = {1};
+        CHECK(Breaks(model, "sts"));
+        model = ruleAbidingModel();
+        model.subTrackCollections[0].animationStateIndexCopy = 3;
+        CHECK(Breaks(model, "sts"));
+    }
+    SECTION("events: a stream under an id neither game ships") {
+        Model model = ruleAbidingModel();
+        model.subTrackCollections[0].animIds = {0};
+        model.animationStates[0].animIds = {0};
+        CHECK(Breaks(model, "events"));
+    }
+    SECTION("region-bones: 64 bones in one region") {
+        Model model = ruleAbidingModel();
+        model.divisions[0].regions[0].boneLookupCount = 64;
+        CHECK(Breaks(model, "region-bones"));
+    }
+    SECTION("normal-blend: the flag without its factors") {
+        Model model = ruleAbidingModel();
+        model.standardMaterials[0].flags = model.standardMaterials[0].flags | MaterialFlag::NormalBlend;
+        CHECK(Breaks(model, "normal-blend"));
+        model.standardMaterials[0].normalBlendFactors.resize(4);
+        CHECK_FALSE(Breaks(model, "normal-blend"));
+    }
+    SECTION("addons: an attachment point without its addon") {
+        Model model = ruleAbidingModel();
+        model.attachmentPoints.push_back(AttachmentPoint{});
+        CHECK(Breaks(model, "addons"));
+        model.attachmentPointAddons = {0xFFFF};
+        CHECK_FALSE(Breaks(model, "addons"));
+    }
+    SECTION("shared-id: two bones driven by one stream") {
+        Model model = ruleAbidingModel();
+        Bone second = model.bones[0];
+        second.parentIndex = 0;
+        model.bones.push_back(second);
+        for (Bone& bone : model.bones) {
+            bone.position.animId = 0x1234ABCDu;
+        }
+        AnimBlock<Vector3f> keys{};
+        keys.timestamps = {0};
+        keys.keys = {Vector3f{0, 0, 0}};
+        SubTrackContainer& stc = model.subTrackCollections[0];
+        stc.sd3v.push_back(keys);
+        stc.animIds = {0x063F6D59u, 0x1234ABCDu};
+        stc.animRefs = {0, (2u << 16)};
+        model.animationStates[0].animIds = stc.animIds;
+        CHECK(Breaks(model, "shared-id"));
+        model.bones[1].position.animId = 0;
+        CHECK_FALSE(Breaks(model, "shared-id"));
+    }
+}

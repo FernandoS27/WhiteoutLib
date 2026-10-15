@@ -32,6 +32,7 @@ namespace m3 {
  * Defines a collision / selection volume (box, sphere, capsule, cylinder,
  * or mesh) attached to a bone. Used for both tight and fuzzy hit testing.
  */
+/// @wem rename=M3HitTest
 struct HitTestShape {
     /// Shape type (box/sphere/capsule/cylinder/mesh). Defaulted because a
     /// conversion builds `MODL.tightHitTestObject` without ever assigning it,
@@ -41,7 +42,7 @@ struct HitTestShape {
     HitTestShapeType shapeType = HitTestShapeType::Sphere;
     u16 boneIndex = 0;                     ///< Index into BONE array
     u16 padding = 0;                       ///< Alignment padding
-    Matrix44f transform = Matrix44f::identity();                   ///< 4×4 shape transform
+    Matrix44f transform = Matrix44f::identity(); ///< @wem as=Matrix44f — 4×4 shape transform
     std::vector<Vector3f> vertexPositions; ///< Mesh vertex positions (VEC3, mesh type only)
     std::vector<u16> faceIndices;          ///< Mesh triangle indices (U16_, mesh type only)
     f32 sizeX = 0.0f;                      ///< X dimension (radius for sphere/capsule)
@@ -55,13 +56,14 @@ struct HitTestShape {
  *
  * Like HitTestShape but with two bone indices for attachment-point volumes.
  */
+/// @wem rename=M3AttachmentVolume
 struct AttachmentVolume {
     u32 bone1 = 0;                         ///< First bone index
     u32 bone2 = 0;                         ///< Second bone index
     HitTestShapeType shapeType = HitTestShapeType::Sphere;            ///< Shape type
     u16 boneIndex = 0;                     ///< Primary bone index
     u16 padding = 0;                       ///< Alignment padding
-    Matrix44f transform = Matrix44f::identity();                   ///< 4×4 volume transform
+    Matrix44f transform = Matrix44f::identity(); ///< @wem as=Matrix44f — 4×4 volume transform
     std::vector<Vector3f> vertexPositions; ///< Mesh vertex positions (VEC3)
     std::vector<u16> faceIndices;          ///< Mesh triangle indices (U16_)
     f32 sizeX = 0.0f;                      ///< X dimension
@@ -205,10 +207,19 @@ struct OneBoneSolver {
 /**
  * @brief SHBX — Shadow box (v0, 64 bytes)
  *
- * Axis-aligned shadow volume defined by a 4×4 transform matrix.
+ * The box a portrait or a set limits its shadows to: on a bone, a length, a
+ * width and a height, each animatable. Read off the shipped files
+ * (EDIT_MODE_SC2_PROFILE_PLAN.md S1.0): a u16 bone index and a u16 beside it,
+ * then three `AnimRef<f32>` under fixed ids (0x6B72DE65, 0x337A603E,
+ * 0x1F42A5D8), some keyed -- not the matrix this was once taken for.
  */
+/// @wem rename=M3ShadowBox
 struct ShadowBox {
-    Matrix44f matrix = Matrix44f::identity(); ///< 4×4 shadow box transform
+    u16 boneIndex = 0;   ///< Index into BONE array
+    u16 unknown = 0;     ///< 1 in three shipped story-mode sets, 0 in every other
+    AnimRef<f32> length; ///< Animated length
+    AnimRef<f32> width;  ///< Animated width
+    AnimRef<f32> height; ///< Animated height
     M3_DEFINE_VERSION_ACCESSORS()
 };
 

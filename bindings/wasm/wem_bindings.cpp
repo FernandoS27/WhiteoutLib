@@ -652,6 +652,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("ForceField", whiteout::models::wem::NodeKind::ForceField)
         .value("VertexWarp", whiteout::models::wem::NodeKind::VertexWarp)
         .value("Wc3FaceFx", whiteout::models::wem::NodeKind::Wc3FaceFx)
+        .value("Projector", whiteout::models::wem::NodeKind::Projector)
         .value("Count", whiteout::models::wem::NodeKind::Count);
 
     enum_<whiteout::models::wem::NodeFlags>("WemNodeFlags")
@@ -690,6 +691,11 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("Plane", whiteout::models::wem::CollisionShapeKind::Plane)
         .value("Cylinder", whiteout::models::wem::CollisionShapeKind::Cylinder)
         .value("Hull", whiteout::models::wem::CollisionShapeKind::Hull);
+
+    enum_<whiteout::models::wem::Sc2HitTest>("WemSc2HitTest")
+        .value("None", whiteout::models::wem::Sc2HitTest::None)
+        .value("Tight", whiteout::models::wem::Sc2HitTest::Tight)
+        .value("Fuzzy", whiteout::models::wem::Sc2HitTest::Fuzzy);
 
     enum_<whiteout::models::wem::PoseSpace>("WemPoseSpace")
         .value("Model", whiteout::models::wem::PoseSpace::Model)
@@ -1028,6 +1034,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("supportsActors", &whiteout::models::wem::ProfileDesc::supportsActors)
         .property("nodeKinds", &whiteout::models::wem::ProfileDesc::nodeKinds)
         .property("physics", &whiteout::models::wem::ProfileDesc::physics)
+        .property("nativeStages", &whiteout::models::wem::ProfileDesc::nativeStages)
     ;
 
     class_<whiteout::models::wem::ElementRef>("WemElementRef")
@@ -1776,6 +1783,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .constructor<>()
         .property("asset", &whiteout::models::wem::AttachmentPayload::asset)
         .property("model", &whiteout::models::wem::AttachmentPayload::model)
+        .property("sc2VolumeAddons", &whiteout::models::wem::AttachmentPayload::sc2VolumeAddons)
     ;
 
     class_<whiteout::models::wem::LightPayload>("WemLightPayload")
@@ -1793,6 +1801,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("quadraticFalloff", &whiteout::models::wem::LightPayload::quadraticFalloff)
         .property("linearFalloff", &whiteout::models::wem::LightPayload::linearFalloff)
         .property("damping", &whiteout::models::wem::LightPayload::damping)
+        .property("sc2", &whiteout::models::wem::LightPayload::sc2)
     ;
 
     class_<whiteout::models::wem::CameraPayload>("WemCameraPayload")
@@ -1804,6 +1813,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("focusDistance", &whiteout::models::wem::CameraPayload::focusDistance)
         .property("focalLength", &whiteout::models::wem::CameraPayload::focalLength)
         .property("fStop", &whiteout::models::wem::CameraPayload::fStop)
+        .property("sc2", &whiteout::models::wem::CameraPayload::sc2)
     ;
 
     class_<whiteout::models::wem::Wc3FaceFxPayload>("WemWc3FaceFxPayload")
@@ -1840,11 +1850,28 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("box", &whiteout::models::wem::CollisionShapeDesc::box)
         .property("sphere", &whiteout::models::wem::CollisionShapeDesc::sphere)
         .property("height", &whiteout::models::wem::CollisionShapeDesc::height)
+        .property("hitTest", &whiteout::models::wem::CollisionShapeDesc::hitTest)
+        .property("sc2", &whiteout::models::wem::CollisionShapeDesc::sc2)
+    ;
+
+    class_<whiteout::models::wem::ProjectorPayload>("WemProjectorPayload")
+        .constructor<>()
+        .property("materialSlot", &whiteout::models::wem::ProjectorPayload::materialSlot)
     ;
 
     class_<whiteout::models::wem::CollisionPayload>("WemCollisionPayload")
         .constructor<>()
         .property("shape", &whiteout::models::wem::CollisionPayload::shape)
+    ;
+
+    class_<whiteout::models::wem::Sc2Billboard>("WemSc2Billboard")
+        .constructor<>()
+        .property("type", &whiteout::models::wem::Sc2Billboard::type)
+        .property("cameraLookAt", &whiteout::models::wem::Sc2Billboard::cameraLookAt)
+        .property("up", &whiteout::models::wem::Sc2Billboard::up)
+        .property("forward", &whiteout::models::wem::Sc2Billboard::forward)
+        .property("dependents", &whiteout::models::wem::Sc2Billboard::dependents)
+        .property("place", &whiteout::models::wem::Sc2Billboard::place)
     ;
 
     class_<whiteout::models::wem::Node>("WemNode")
@@ -1859,6 +1886,8 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("poses", &whiteout::models::wem::Node::poses)
         .property("native", &whiteout::models::wem::Node::native)
         .property("profiles", &whiteout::models::wem::Node::profiles)
+        .property("sc2Billboards", &whiteout::models::wem::Node::sc2Billboards)
+        .property("sc2ShadowBox", &whiteout::models::wem::Node::sc2ShadowBox)
         .property("removed", &whiteout::models::wem::Node::removed)
     ;
 
@@ -1954,12 +1983,17 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("node", &whiteout::models::wem::ClipEvent::node)
         .property("name", &whiteout::models::wem::ClipEvent::name)
         .property("value", &whiteout::models::wem::ClipEvent::value)
+        .property("option", &whiteout::models::wem::ClipEvent::option)
+        .property("extra", &whiteout::models::wem::ClipEvent::extra)
+        .property("unknown", &whiteout::models::wem::ClipEvent::unknown)
+        .property("rtt", &whiteout::models::wem::ClipEvent::rtt)
     ;
 
     class_<whiteout::models::wem::ClipTrackSet>("WemClipTrackSet")
         .constructor<>()
         .property("set", &whiteout::models::wem::ClipTrackSet::set)
         .property("priority", &whiteout::models::wem::ClipTrackSet::priority)
+        .property("concurrent", &whiteout::models::wem::ClipTrackSet::concurrent)
     ;
 
     class_<whiteout::models::wem::BakeWorldForce>("WemBakeWorldForce")
@@ -2761,6 +2795,7 @@ EMSCRIPTEN_BINDINGS(wem) {
     register_vector<whiteout::models::wem::PoseSchema>("VectorWemPoseSchema");
     register_vector<whiteout::models::wem::ProfileId>("VectorWemProfileId");
     register_vector<whiteout::models::wem::ProfileMaterialSet>("VectorWemProfileMaterialSet");
+    register_vector<whiteout::models::wem::Sc2Billboard>("VectorWemSc2Billboard");
     register_vector<whiteout::models::wem::Sc2Property<whiteout::Vector3f>>("VectorWemSc2PropertyVector3f");
     register_vector<whiteout::models::wem::Sc2RibbonSplinePoint>("VectorWemSc2RibbonSplinePoint");
     register_vector<whiteout::models::wem::SlotBinding>("VectorWemSlotBinding");

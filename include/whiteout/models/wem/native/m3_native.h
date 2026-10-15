@@ -582,6 +582,129 @@ inline const char* ToString(M3MaterialShaderType value) {
     }
 }
 
+/// Light source type (LITE)
+enum class M3LightType : u16 {
+    Omni = 0,        ///< Point light (omnidirectional)
+    Spot = 1,        ///< Spot light (cone)
+    Directional = 2, ///< Directional light (infinite distance)
+};
+
+inline const char* ToString(M3LightType value) {
+    switch (value) {
+    case M3LightType::Omni:
+        return "Omni";
+    case M3LightType::Spot:
+        return "Spot";
+    case M3LightType::Directional:
+        return "Directional";
+    default:
+        return "?";
+    }
+}
+
+/// Light flags (LITE.flags)
+enum class M3LightFlag : u32 {
+    None = 0,
+    Shadows = 0x1,           ///< Casts shadows
+    Specular = 0x2,          ///< Specular component
+    AmbientOcclusion = 0x4,  ///< AO influence
+    LightOpaque = 0x8,       ///< Lights opaque objects
+    LightTransparent = 0x10, ///< Lights transparent objects
+    TeamColor = 0x20,        ///< Uses team color
+};
+WHITEOUT_WEM_DEFINE_FLAG_OPERATORS(M3LightFlag)
+
+inline const char* ToString(M3LightFlag value) {
+    switch (value) {
+    case M3LightFlag::None:
+        return "None";
+    case M3LightFlag::Shadows:
+        return "Shadows";
+    case M3LightFlag::Specular:
+        return "Specular";
+    case M3LightFlag::AmbientOcclusion:
+        return "AmbientOcclusion";
+    case M3LightFlag::LightOpaque:
+        return "LightOpaque";
+    case M3LightFlag::LightTransparent:
+        return "LightTransparent";
+    case M3LightFlag::TeamColor:
+        return "TeamColor";
+    default:
+        return "?";
+    }
+}
+
+/// Projector / decal projection type (PROJ)
+enum class M3ProjectionType : u32 {
+    Orthographic = 0, ///< Orthographic projection
+    Perspective = 1,  ///< Perspective projection
+};
+
+inline const char* ToString(M3ProjectionType value) {
+    switch (value) {
+    case M3ProjectionType::Orthographic:
+        return "Orthographic";
+    case M3ProjectionType::Perspective:
+        return "Perspective";
+    default:
+        return "?";
+    }
+}
+
+/// Projector flags (PROJ.flags)
+enum class M3ProjectorFlag : u32 {
+    None = 0,
+    Static = 0x1,         ///< Static position
+    UnknownFlag0x2 = 0x2, ///< Unknown
+    UnknownFlag0x4 = 0x4, ///< Unknown
+    UnknownFlag0x8 = 0x8, ///< Unknown
+};
+WHITEOUT_WEM_DEFINE_FLAG_OPERATORS(M3ProjectorFlag)
+
+inline const char* ToString(M3ProjectorFlag value) {
+    switch (value) {
+    case M3ProjectorFlag::None:
+        return "None";
+    case M3ProjectorFlag::Static:
+        return "Static";
+    case M3ProjectorFlag::UnknownFlag0x2:
+        return "UnknownFlag0x2";
+    case M3ProjectorFlag::UnknownFlag0x4:
+        return "UnknownFlag0x4";
+    case M3ProjectorFlag::UnknownFlag0x8:
+        return "UnknownFlag0x8";
+    default:
+        return "?";
+    }
+}
+
+/// Hit-test shape type (SSGS / ATVL), same semantics as PhysicsShapeType but u32
+enum class M3HitTestShapeType : u32 {
+    Box = 0,
+    Sphere = 1,
+    Capsule = 2,
+    Cylinder = 3,
+    Mesh = 4,
+};
+
+inline const char* ToString(M3HitTestShapeType value) {
+    switch (value) {
+    case M3HitTestShapeType::Box:
+        return "Box";
+    case M3HitTestShapeType::Sphere:
+        return "Sphere";
+    case M3HitTestShapeType::Capsule:
+        return "Capsule";
+    case M3HitTestShapeType::Cylinder:
+        return "Cylinder";
+    case M3HitTestShapeType::Mesh:
+        return "Mesh";
+    default:
+        return "?";
+    }
+}
+
 /// Animatable reference holding a default value and animation link
 ///
 /// Holds both a constant default value and a link to keyframed animation data. If
@@ -1393,6 +1516,412 @@ struct M3DataDrivenProperties {
     template <class V>
     void reflect(V& v) {
         v.inlineList("groups", groups);
+    }
+};
+
+/// LITE — Light source (v0–v7, 212 bytes)
+///
+/// Omni, spot, or directional light with animated diffuse/specular colors, intensity,
+/// decay, attenuation start/end, and spot-light hot-spot/falloff.
+struct M3Light {
+    /// The format version this record was read from. No parser struct
+    /// carries it, and a converter cannot read the record without it.
+    u32 sourceVersion{};
+
+    /// Light type (omni/spot/directional)
+    M3LightType lightType{};
+    /// Index into BONE array
+    u16 boneIndex{};
+    /// Light flags (shadows, specular, AO, etc.)
+    M3LightFlag flags{};
+    /// LOD cut-off level
+    u32 lodCut{};
+    /// Shadow LOD cut-off level
+    u32 shadowLodCut{};
+    /// Animated diffuse color (RGB)
+    M3AnimRef<Vector3f> diffuseColor{};
+    /// Animated intensity multiplier
+    M3AnimRef<f32> intensityMultiplier{};
+    /// Animated specular color (RGB)
+    M3AnimRef<Vector3f> specularColor{};
+    /// Animated specular multiplier
+    M3AnimRef<f32> specularMultiplier{};
+    /// Animated distance decay exponent
+    M3AnimRef<f32> decay{};
+    /// Attenuation end distance
+    f32 attenuationEnd{};
+    /// Animated attenuation start distance
+    M3AnimRef<f32> attenuationStart{};
+    /// Animated spot inner cone angle
+    M3AnimRef<f32> hotSpot{};
+    /// Animated spot outer cone falloff
+    M3AnimRef<f32> falloff{};
+
+    template <class V>
+    void reflect(V& v) {
+        v.field("sourceVersion", sourceVersion);
+        v.field("lightType", lightType);
+        v.field("boneIndex", boneIndex);
+        v.field("flags", flags);
+        v.field("lodCut", lodCut);
+        v.field("shadowLodCut", shadowLodCut);
+        v.field("diffuseColor", diffuseColor);
+        v.field("intensityMultiplier", intensityMultiplier);
+        v.field("specularColor", specularColor);
+        v.field("specularMultiplier", specularMultiplier);
+        v.field("decay", decay);
+        v.field("attenuationEnd", attenuationEnd);
+        v.field("attenuationStart", attenuationStart);
+        v.field("hotSpot", hotSpot);
+        v.field("falloff", falloff);
+    }
+};
+
+/// CAM_ — Camera (v2–v5, 144–264 bytes)
+///
+/// Bone-attached camera with animated FOV, clip planes, shadow clip distance,
+/// depth-of-field parameters, and version-dependent bokeh settings.
+struct M3Camera {
+    /// The format version this record was read from. No parser struct
+    /// carries it, and a converter cannot read the record without it.
+    u32 sourceVersion{};
+
+    /// Index into BONE array
+    u32 boneIndex{};
+    /// Camera name (Ref<CHAR>)
+    std::string name;
+    /// Animated FOV in radians (v2+)
+    M3AnimRef<f32> fieldOfView{};
+    /// Use vertical FOV (0 or 1, v2+)
+    u32 useVerticalFOV{};
+    /// DOF type (v5 only, default 3)
+    u32 dofType{};
+    /// Animated far clip plane (v3+)
+    M3AnimRef<f32> farClip{};
+    /// Animated near clip plane (v3+)
+    M3AnimRef<f32> nearClip{};
+    /// Animated shadow clip distance (v2+)
+    M3AnimRef<f32> shadowClipDistance{};
+    /// Animated DOF focal point distance (v2+)
+    M3AnimRef<f32> focusDistance{};
+    /// Animated DOF far focus range (v2+)
+    M3AnimRef<f32> farFocusRange{};
+    /// Animated DOF near focus range (v2+)
+    M3AnimRef<f32> nearFocusRange{};
+    /// Animated near falloff start (v4+)
+    M3AnimRef<f32> nearFalloffStart{};
+    /// Animated near falloff end (v4+)
+    M3AnimRef<f32> nearFalloffEnd{};
+    /// Animated DOF strength (v2+)
+    M3AnimRef<f32> dofAmount{};
+    /// Animated bokeh f-stop (v5+)
+    M3AnimRef<f32> bokehFStop{};
+    /// Animated bokeh max CoC diameter (v5+)
+    M3AnimRef<f32> bokehMaxCoCDiameter{};
+
+    template <class V>
+    void reflect(V& v) {
+        v.field("sourceVersion", sourceVersion);
+        v.field("boneIndex", boneIndex);
+        v.field("name", name);
+        v.field("fieldOfView", fieldOfView);
+        v.field("useVerticalFOV", useVerticalFOV);
+        v.field("dofType", dofType);
+        v.field("farClip", farClip);
+        v.field("nearClip", nearClip);
+        v.field("shadowClipDistance", shadowClipDistance);
+        v.field("focusDistance", focusDistance);
+        v.field("farFocusRange", farFocusRange);
+        v.field("nearFocusRange", nearFocusRange);
+        v.field("nearFalloffStart", nearFalloffStart);
+        v.field("nearFalloffEnd", nearFalloffEnd);
+        v.field("dofAmount", dofAmount);
+        v.field("bokehFStop", bokehFStop);
+        v.field("bokehMaxCoCDiameter", bokehMaxCoCDiameter);
+    }
+};
+
+/// PROJ — Projector / decal (v0–v5, 388 bytes)
+///
+/// Projects a material onto scene geometry with animated offset, orientation, field of
+/// view, aspect ratio, clipping planes, alpha lifecycle, and attenuation distance.
+struct M3Projector {
+    /// The format version this record was read from. No parser struct
+    /// carries it, and a converter cannot read the record without it.
+    u32 sourceVersion{};
+
+    /// Projection type (ortho/perspective)
+    M3ProjectionType projectionType{};
+    /// Index into BONE array
+    u32 bone{};
+    /// Index into MATM material map
+    u32 materialReferenceIndex{};
+    /// Animated position offset
+    M3AnimRef<Vector3f> offset{};
+    /// Animated pitch angle
+    M3AnimRef<f32> pitch{};
+    /// Animated yaw angle
+    M3AnimRef<f32> yaw{};
+    /// Animated roll angle
+    M3AnimRef<f32> roll{};
+    /// Animated field of view
+    M3AnimRef<f32> fieldOfView{};
+    /// Animated aspect ratio
+    M3AnimRef<f32> aspectRatio{};
+    /// Animated near clip plane
+    M3AnimRef<f32> near{};
+    /// Animated far clip plane
+    M3AnimRef<f32> far{};
+    /// Animated box Z bottom offset
+    M3AnimRef<f32> boxOffsetZBottom{};
+    /// Animated box Z top offset
+    M3AnimRef<f32> boxOffsetZTop{};
+    /// Animated box X left offset
+    M3AnimRef<f32> boxOffsetXLeft{};
+    /// Animated box X right offset
+    M3AnimRef<f32> boxOffsetXRight{};
+    /// Animated box Y front offset
+    M3AnimRef<f32> boxOffsetYFront{};
+    /// Animated box Y back offset
+    M3AnimRef<f32> boxOffsetYBack{};
+    /// Projection falloff distance
+    f32 falloff{};
+    /// Alpha at creation
+    f32 alphaInit{};
+    /// Alpha at midpoint
+    f32 alphaMid{};
+    /// Alpha at end
+    f32 alphaEnd{};
+    /// Attack phase duration
+    f32 lifetimeAttack{};
+    /// Attack target time
+    f32 lifetimeAttackTo{};
+    /// Hold phase duration
+    f32 lifetimeHold{};
+    /// Hold target time
+    f32 lifetimeHoldTo{};
+    /// Decay phase duration
+    f32 lifetimeDecay{};
+    /// Decay target time
+    f32 lifetimeDecayTo{};
+    /// Distance-based attenuation
+    f32 attenuationDistance{};
+    /// Animated active state
+    M3AnimRef<u32> active{};
+    /// Render layer
+    u32 layer{};
+    /// LOD reduction level
+    u32 lodReduce{};
+    /// LOD cut-off level
+    u32 lodCut{};
+    /// Projector flags
+    M3ProjectorFlag flags{};
+
+    template <class V>
+    void reflect(V& v) {
+        v.field("sourceVersion", sourceVersion);
+        v.field("projectionType", projectionType);
+        v.field("bone", bone);
+        v.field("materialReferenceIndex", materialReferenceIndex);
+        v.field("offset", offset);
+        v.field("pitch", pitch);
+        v.field("yaw", yaw);
+        v.field("roll", roll);
+        v.field("fieldOfView", fieldOfView);
+        v.field("aspectRatio", aspectRatio);
+        v.field("near", near);
+        v.field("far", far);
+        v.field("boxOffsetZBottom", boxOffsetZBottom);
+        v.field("boxOffsetZTop", boxOffsetZTop);
+        v.field("boxOffsetXLeft", boxOffsetXLeft);
+        v.field("boxOffsetXRight", boxOffsetXRight);
+        v.field("boxOffsetYFront", boxOffsetYFront);
+        v.field("boxOffsetYBack", boxOffsetYBack);
+        v.field("falloff", falloff);
+        v.field("alphaInit", alphaInit);
+        v.field("alphaMid", alphaMid);
+        v.field("alphaEnd", alphaEnd);
+        v.field("lifetimeAttack", lifetimeAttack);
+        v.field("lifetimeAttackTo", lifetimeAttackTo);
+        v.field("lifetimeHold", lifetimeHold);
+        v.field("lifetimeHoldTo", lifetimeHoldTo);
+        v.field("lifetimeDecay", lifetimeDecay);
+        v.field("lifetimeDecayTo", lifetimeDecayTo);
+        v.field("attenuationDistance", attenuationDistance);
+        v.field("active", active);
+        v.field("layer", layer);
+        v.field("lodReduce", lodReduce);
+        v.field("lodCut", lodCut);
+        v.field("flags", flags);
+    }
+};
+
+/// SSGS — Hit-test shape (v0–v1, 108 bytes)
+///
+/// Defines a collision / selection volume (box, sphere, capsule, cylinder, or mesh)
+/// attached to a bone. Used for both tight and fuzzy hit testing.
+struct M3HitTest {
+    /// The format version this record was read from. No parser struct
+    /// carries it, and a converter cannot read the record without it.
+    u32 sourceVersion{};
+
+    /// Shape type (box/sphere/capsule/cylinder/mesh). Defaulted because a conversion
+    /// builds `MODL.tightHitTestObject` without ever assigning it, and an indeterminate
+    /// enum wrote junk shape types into every export (`reference_m3_layer_stack_junk`,
+    /// the same defect one field over). Sphere is what 2,222 of 2,448 shipped models
+    /// state.
+    M3HitTestShapeType shapeType{};
+    /// Index into BONE array
+    u16 boneIndex{};
+    /// Alignment padding
+    u16 padding{};
+    /// 4×4 shape transform
+    Matrix44f transform{};
+    /// Mesh vertex positions (VEC3, mesh type only)
+    std::vector<Vector3f> vertexPositions;
+    /// Mesh triangle indices (U16_, mesh type only)
+    std::vector<u16> faceIndices;
+    /// X dimension (radius for sphere/capsule)
+    f32 sizeX{};
+    /// Y dimension (height for capsule/cylinder)
+    f32 sizeY{};
+    /// Z dimension
+    f32 sizeZ{};
+
+    template <class V>
+    void reflect(V& v) {
+        v.field("sourceVersion", sourceVersion);
+        v.field("shapeType", shapeType);
+        v.field("boneIndex", boneIndex);
+        v.field("padding", padding);
+        v.field("transform", transform);
+        v.inlineList("vertexPositions", vertexPositions);
+        v.inlineList("faceIndices", faceIndices);
+        v.field("sizeX", sizeX);
+        v.field("sizeY", sizeY);
+        v.field("sizeZ", sizeZ);
+    }
+};
+
+/// ATVL — Attachment volume (v0, 116 bytes)
+///
+/// Like HitTestShape but with two bone indices for attachment-point volumes.
+struct M3AttachmentVolume {
+    /// The format version this record was read from. No parser struct
+    /// carries it, and a converter cannot read the record without it.
+    u32 sourceVersion{};
+
+    /// First bone index
+    u32 bone1{};
+    /// Second bone index
+    u32 bone2{};
+    /// Shape type
+    M3HitTestShapeType shapeType{};
+    /// Primary bone index
+    u16 boneIndex{};
+    /// Alignment padding
+    u16 padding{};
+    /// 4×4 volume transform
+    Matrix44f transform{};
+    /// Mesh vertex positions (VEC3)
+    std::vector<Vector3f> vertexPositions;
+    /// Mesh triangle indices (U16_)
+    std::vector<u16> faceIndices;
+    /// X dimension
+    f32 sizeX{};
+    /// Y dimension
+    f32 sizeY{};
+    /// Z dimension
+    f32 sizeZ{};
+
+    template <class V>
+    void reflect(V& v) {
+        v.field("sourceVersion", sourceVersion);
+        v.field("bone1", bone1);
+        v.field("bone2", bone2);
+        v.field("shapeType", shapeType);
+        v.field("boneIndex", boneIndex);
+        v.field("padding", padding);
+        v.field("transform", transform);
+        v.inlineList("vertexPositions", vertexPositions);
+        v.inlineList("faceIndices", faceIndices);
+        v.field("sizeX", sizeX);
+        v.field("sizeY", sizeY);
+        v.field("sizeZ", sizeZ);
+    }
+};
+
+/// SHBX — Shadow box (v0, 64 bytes)
+///
+/// The box a portrait or a set limits its shadows to: on a bone, a length, a width and
+/// a height, each animatable. Read off the shipped files (EDIT_MODE_SC2_PROFILE_PLAN.md
+/// S1.0): a u16 bone index and a u16 beside it, then three `AnimRef<f32>` under fixed
+/// ids (0x6B72DE65, 0x337A603E, 0x1F42A5D8), some keyed -- not the matrix this was once
+/// taken for.
+struct M3ShadowBox {
+    /// The format version this record was read from. No parser struct
+    /// carries it, and a converter cannot read the record without it.
+    u32 sourceVersion{};
+
+    /// Index into BONE array
+    u16 boneIndex{};
+    /// 1 in three shipped story-mode sets, 0 in every other
+    u16 unknown{};
+    /// Animated length
+    M3AnimRef<f32> length{};
+    /// Animated width
+    M3AnimRef<f32> width{};
+    /// Animated height
+    M3AnimRef<f32> height{};
+
+    template <class V>
+    void reflect(V& v) {
+        v.field("sourceVersion", sourceVersion);
+        v.field("boneIndex", boneIndex);
+        v.field("unknown", unknown);
+        v.field("length", length);
+        v.field("width", width);
+        v.field("height", height);
+    }
+};
+
+/// Axis-aligned bounding box with bounding sphere radius (28 bytes)
+///
+/// Used throughout M3 for model bounds, collision bounds, and per-region extents.
+struct M3Extent {
+    /// AABB minimum corner
+    Vector3f min{};
+    /// AABB maximum corner
+    Vector3f max{};
+    /// Bounding sphere radius
+    f32 radius{};
+
+    template <class V>
+    void reflect(V& v) {
+        v.field("min", min);
+        v.field("max", max);
+        v.field("radius", radius);
+    }
+};
+
+/// MSEC — Mesh section bounds (v0–v1, 80 bytes)
+///
+/// Per-node animated bounding extent used for culling and LOD.
+struct M3MeshSection {
+    /// The format version this record was read from. No parser struct
+    /// carries it, and a converter cannot read the record without it.
+    u32 sourceVersion{};
+
+    /// Index into BONE array
+    u32 nodeIndex{};
+    /// Animated bounding volume (76 bytes)
+    M3AnimRef<M3Extent> bounds{};
+
+    template <class V>
+    void reflect(V& v) {
+        v.field("sourceVersion", sourceVersion);
+        v.field("nodeIndex", nodeIndex);
+        v.field("bounds", bounds);
     }
 };
 

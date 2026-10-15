@@ -214,7 +214,8 @@ struct ChunkTagTraits<SlotBinding> {
 template <>
 struct ChunkTagTraits<Mesh> {
     static constexpr u32 value = kTag("MESH");
-    static constexpr u32 max_version = 2;
+    // v3: StarCraft II's `MSEC` records (EDIT_MODE_SC2_PROFILE_PLAN.md S1.5).
+    static constexpr u32 max_version = 3;
     static constexpr bool is_trivial = false;
 };
 
@@ -286,7 +287,10 @@ struct ChunkTagTraits<Matrix44f> {
 /// Warcraft particle's model and trail model (GPID / RPID); v18 Warcraft III's
 /// `Wc3FaceFx` kind (MDX `FAFX`); v19 an event's category and code, read out
 /// of the name an older chunk kept them in; v20 the display record
-/// (EDIT_MODE_RIGGING_DESIGN.md §2); v21 a helper's gizmo in it (§8).
+/// (EDIT_MODE_RIGGING_DESIGN.md §2); v21 a helper's gizmo in it (§8); v22
+/// StarCraft II's own records beside the nodes they ride -- its billboard, its
+/// shadow box, a light's and a camera's `LITE` and `CAM_`, an attachment's
+/// volumes and a hit test's role (EDIT_MODE_SC2_PROFILE_PLAN.md S1.3, S1.5).
 /// An older chunk holds none of them, so it reads unchanged. A NEWER one does
 /// not: records sit back to back, and nothing checks a chunk's version against
 /// this, so a build older than a field misreads every node after the first
@@ -294,7 +298,7 @@ struct ChunkTagTraits<Matrix44f> {
 template <>
 struct ChunkTagTraits<Node> {
     static constexpr u32 value = kTag("NODE");
-    static constexpr u32 max_version = 21;
+    static constexpr u32 max_version = 22;
     static constexpr bool is_trivial = false;
 };
 
@@ -501,7 +505,8 @@ struct ChunkTagTraits<SubTrackContainer> {
 template <>
 struct ChunkTagTraits<ClipEvent> {
     static constexpr u32 value = kTag("CLEV");
-    static constexpr u32 max_version = 1;
+    // v2: the rest of an `.m3` event key (EDIT_MODE_SC2_PROFILE_PLAN.md S1.5).
+    static constexpr u32 max_version = 2;
     static constexpr bool is_trivial = false;
 };
 
@@ -538,7 +543,8 @@ struct ChunkTagTraits<TrackSet> {
 template <>
 struct ChunkTagTraits<PoseStage> {
     static constexpr u32 value = kTag("PSTG");
-    static constexpr u32 max_version = 2;
+    // v3: StarCraft II's leg IK and turret blocks (EDIT_MODE_SC2_PROFILE_PLAN.md P1).
+    static constexpr u32 max_version = 3;
     static constexpr bool is_trivial = false;
 };
 
@@ -635,10 +641,11 @@ struct ChunkTagTraits<SoftPart> {
     static constexpr bool is_trivial = false;
 };
 
+/// v2 `ClipTrackSet::concurrent`.
 template <>
 struct ChunkTagTraits<ClipTrackSet> {
     static constexpr u32 value = kTag("CTSU");
-    static constexpr u32 max_version = 1;
+    static constexpr u32 max_version = 2;
     static constexpr bool is_trivial = false;
 };
 

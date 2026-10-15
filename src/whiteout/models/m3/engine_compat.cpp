@@ -6,10 +6,14 @@
 // documented in M3_FILE_FORMAT_SPECIFICATION.md §18.
 
 #include <whiteout/models/m3/engine_compat.h>
+#include <whiteout/models/m3/writer.h>
 
 #include "tags.h"
 
 #include <algorithm>
+#include <cstring>
+#include <map>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -220,6 +224,255 @@ EngineConversion toStarCraft2(const Model& model, const StarCraft2ConversionOpti
     }
 
     out.converted = true;
+    return out;
+}
+
+namespace {
+
+/// The id every shipped mesh section's bounds name, keyed or not.
+constexpr u32 kMeshBoundsAnimId = 0x001F9BD2u;
+/// The two ids a shipped event stream joins under: 1,517 models use the first
+/// and 527 the older second, and none mixes them.
+constexpr u32 kEventStreamAnimIds[] = {0x063F6D59u, 0x65BD3215u};
+/// The most bones one region's palette may name (63 in 436 shipped regions,
+/// 64 in none).
+constexpr u32 kRegionBoneLimit = 63;
+
+bool HasInnerNul(const std::string& text) {
+    const std::size_t nul = text.find('\0');
+    return nul != std::string::npos && nul + 1 != text.size();
+}
+
+std::string Shown(const std::string& text) {
+    std::string out = text;
+    out.erase(std::remove(out.begin(), out.end(), '\0'), out.end());
+    return out;
+}
+
+/// Each id a container drives, against how many AnimRefs in @p bytes name it.
+/// An AnimRef is `{u16 interp; u16 flags; u32 animId; ...}`, so an id is
+/// counted where it sits 4-aligned, after an interpolation the format has,
+/// in a chunk that is a record -- not a list of ids, keys or times.
+std::map<u32, u32> AnimRefsNaming(const std::vector<u8>& bytes, const std::set<u32>& driven) {
+    std::map<u32, u32> counts;
+    const auto word = [&](std::size_t at) {
+        u32 v = 0;
+        if (at + 4 <= bytes.size()) {
+            std::memcpy(&v, bytes.data() + at, 4);
+        }
+        return v;
+    };
+    if (bytes.size() < 12) {
+        return counts;
+    }
+    const u32 indexOffset = word(4);
+    const u32 indexCount = word(8);
+    struct Span {
+        u32 offset;
+        u32 tag;
+    };
+    std::vector<Span> spans;
+    for (u32 i = 0; i < indexCount; ++i) {
+        const std::size_t at = static_cast<std::size_t>(indexOffset) + 16u * i;
+        if (at + 16 > bytes.size()) {
+            break;
+        }
+        spans.push_back({word(at + 4), word(at)});
+    }
+    std::sort(spans.begin(), spans.end(), [](const Span& a, const Span& b) { return a.offset < b.offset; });
+    static const std::set<u32> kData = {TAG_CHAR, TAG_U8,   TAG_U16,  TAG_U32,  TAG_U64,  TAG_I16, TAG_I32,
+                                        TAG_VEC2, TAG_VEC3, TAG_VEC4, TAG_QUAT, TAG_REAL, TAG_FLAG, TAG_BNDS,
+                                        TAG_COL};
+    std::size_t span = 0;
+    for (std::size_t at = 4; at + 4 <= (std::min)(bytes.size(), static_cast<std::size_t>(indexOffset));
+         at += 4) {
+        while (span + 1 < spans.size() && spans[span + 1].offset <= at) {
+            ++span;
+        }
+        const u32 id = word(at);
+        if (spans.empty() || spans[span].offset > at || kData.count(spans[span].tag) != 0 ||
+            driven.count(id) == 0 || (word(at - 4) & 0xFFFFu) > 3u) {
+            continue;
+        }
+        // And its closing `unused` -1, past an init and a null of one of the
+        // value sizes an AnimRef holds: u16, 4 bytes, Vector2, Vector3,
+        // Quaternion, Extent.
+        bool closed = false;
+        for (const std::size_t pair : {4u, 8u, 16u, 24u, 32u, 56u}) {
+            closed = closed || word(at + 4 + pair) == 0xFFFFFFFFu;
+        }
+        if (closed) {
+            ++counts[id];
+        }
+    }
+    return counts;
+}
+
+/// The layer slots a `MAT_` of @p version holds: 13 to v15, the gloss map from
+/// v16, the four normal-blend maps from v19.
+std::vector<const std::optional<TextureLayer>*> LayerSlots(const StandardMaterial& m, i32 version) {
+    std::vector<const std::optional<TextureLayer>*> slots = {
+        &m.diffuseLayer,     &m.decalLayer,     &m.specularLayer,       &m.emissiveLayer1,
+        &m.emissiveLayer2,   &m.environmentLayer, &m.environmentMaskLayer, &m.alphaLayer1,
+        &m.alphaLayer2,      &m.normalLayer,    &m.heightLayer,         &m.lightMapLayer,
+        &m.ambientOcclusionLayer};
+    if (version >= 16) {
+        slots.push_back(&m.glossLayer);
+    }
+    if (version >= 19) {
+        for (const std::optional<TextureLayer>* layer : {&m.normalBlend1MaskLayer, &m.normalBlend2MaskLayer,
+                                                         &m.normalBlend1Layer, &m.normalBlend2Layer}) {
+            slots.push_back(layer);
+        }
+    }
+    return slots;
+}
+
+} // namespace
+
+std::vector<EditorRuleFailure> CheckEditorRules(const Model& model, Engine engine) {
+    std::vector<EditorRuleFailure> out;
+    const auto fail = [&out](const char* rule, std::string message) {
+        out.push_back({rule, std::move(message)});
+    };
+
+    const EngineSupport support = checkEngineSupport(model);
+    if (engine == Engine::StarCraft2 && !support.starcraft2) {
+        for (const std::string& reason : support.heroesOnlyReasons) {
+            fail("version", "StarCraft II will not load this model: " + reason +
+                                ". Convert its Heroes materials to Standard, or export it for Heroes.");
+        }
+    }
+    if (engine == Engine::HeroesOfTheStorm && !support.heroesOfTheStorm) {
+        for (const std::string& reason : support.starcraft2OnlyReasons) {
+            fail("version", "Heroes of the Storm will not load this model: " + reason +
+                                ". Export it for StarCraft II.");
+        }
+    }
+
+    const auto checkName = [&](const std::string& text, const std::string& what) {
+        if (HasInnerNul(text)) {
+            fail("string", what + " '" + Shown(text) +
+                               "' holds a NUL before its end, and the game reads it only that far. Rename it.");
+        }
+    };
+    for (const Bone& bone : model.bones) {
+        checkName(bone.name, "bone");
+    }
+    for (const Sequence& sequence : model.sequences) {
+        checkName(sequence.name, "sequence");
+    }
+    for (const AnimationGroup& group : model.animationGroups) {
+        checkName(group.name, "sequence group");
+    }
+    for (const SubTrackContainer& stc : model.subTrackCollections) {
+        checkName(stc.name, "track container");
+        for (const AnimBlock<Event>& block : stc.sdev) {
+            for (const Event& event : block.keys) {
+                checkName(event.name, "event");
+                checkName(event.optionString, "event option");
+            }
+        }
+    }
+    for (const AttachmentPoint& point : model.attachmentPoints) {
+        checkName(point.name, "attachment point");
+    }
+    for (const Camera& camera : model.cameras) {
+        checkName(camera.name, "camera");
+    }
+    for (const StandardMaterial& material : model.standardMaterials) {
+        checkName(material.name, "material");
+        for (const std::optional<TextureLayer>* layer : LayerSlots(material, 20)) {
+            if (layer->has_value()) {
+                checkName((*layer)->texturePath, "texture path");
+            }
+        }
+    }
+    for (const CompositeMaterial& material : model.compositeMaterials) {
+        checkName(material.name, "composite material");
+    }
+
+    for (std::size_t d = 0; d < model.divisions.size(); ++d) {
+        const MeshDivision& division = model.divisions[d];
+        if (division.msec.empty()) {
+            fail("msec", "mesh division " + std::to_string(d) +
+                             " has no section bounds (MSEC); the editor reads one and crashes without it.");
+        }
+        for (const MeshSection& section : division.msec) {
+            if (section.bounds.animId != kMeshBoundsAnimId) {
+                fail("msec", "mesh division " + std::to_string(d) +
+                                 "'s section bounds name animation id " + std::to_string(section.bounds.animId) +
+                                 ", not the 0x001F9BD2 every shipped model uses.");
+            }
+        }
+        for (std::size_t r = 0; r < division.regions.size(); ++r) {
+            if (division.regions[r].boneLookupCount > kRegionBoneLimit) {
+                fail("region-bones", "region " + std::to_string(r) + " names " +
+                                         std::to_string(division.regions[r].boneLookupCount) +
+                                         " bones; the editor draws at most 63 per region and resets its "
+                                         "device every frame past that. Split the mesh or reduce its bones.");
+            }
+        }
+    }
+
+    std::set<u32> driven;
+    for (std::size_t s = 0; s < model.subTrackCollections.size(); ++s) {
+        const SubTrackContainer& stc = model.subTrackCollections[s];
+        const std::string label = "track container '" + Shown(stc.name) + "'";
+        if (!std::is_sorted(stc.animIds.begin(), stc.animIds.end()) ||
+            std::adjacent_find(stc.animIds.begin(), stc.animIds.end()) != stc.animIds.end()) {
+            fail("stc-sorted", label + " lists its animation ids out of order or twice; the game searches "
+                                       "the list and misses what is out of place.");
+        }
+        if (stc.animationStateIndex >= model.animationStates.size() ||
+            model.animationStates[stc.animationStateIndex].animIds != stc.animIds ||
+            stc.animationStateIndexCopy != stc.animationStateIndex) {
+            fail("sts", label + " names an animation state (STS) that is missing or lists other ids.");
+        }
+        for (std::size_t k = 0; k < stc.animIds.size() && k < stc.animRefs.size(); ++k) {
+            if ((stc.animRefs[k] >> 16) == 0) {
+                if (std::find(std::begin(kEventStreamAnimIds), std::end(kEventStreamAnimIds), stc.animIds[k]) ==
+                    std::end(kEventStreamAnimIds)) {
+                    fail("events", label + "'s event stream is under id " + std::to_string(stc.animIds[k]) +
+                                       ", which neither game looks its events up by.");
+                }
+            } else {
+                driven.insert(stc.animIds[k]);
+            }
+        }
+    }
+
+    // Every `MAT_` layer slot the game reads is filled by the writer itself
+    // (`visitLayerSlot`), so an empty one here is not a rule broken.
+    for (const StandardMaterial& material : model.standardMaterials) {
+        if (hasFlag(material.flags, MaterialFlag::NormalBlend) && material.normalBlendFactors.size() < 4) {
+            fail("normal-blend", "material '" + Shown(material.name) +
+                                     "' blends normals with fewer than its four factors.");
+        }
+        if (hasFlag(material.flags, MaterialFlag::NormalBlend2) && material.normalBlendFactors.size() < 8) {
+            fail("normal-blend", "material '" + Shown(material.name) +
+                                     "' blends a second normal map without factors 4 to 7.");
+        }
+    }
+
+    const auto noAddon = [](u16 value) { return value == 0xFFFFu; };
+    if (model.attachmentPointAddons.size() != model.attachmentPoints.size() ||
+        !std::all_of(model.attachmentPointAddons.begin(), model.attachmentPointAddons.end(), noAddon)) {
+        fail("addons", "the attachment points' addon list is not one 0xFFFF per point.");
+    }
+    if (model.camerasAddons.size() != model.cameras.size() ||
+        !std::all_of(model.camerasAddons.begin(), model.camerasAddons.end(), noAddon)) {
+        fail("addons", "the cameras' addon list is not one 0xFFFF per camera.");
+    }
+
+    if (!driven.empty()) {
+        for (const auto& [id, count] : AnimRefsNaming(Writer().write(model), driven)) {
+            if (count > 1) {
+                fail("shared-id", std::to_string(count) + " animated properties share animation id " +
+                                      std::to_string(id) + "; the game plays the keys on one of them only.");
+            }
+        }
+    }
     return out;
 }
 

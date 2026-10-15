@@ -554,6 +554,7 @@ add_library(whiteout_lib
     src/whiteout/models/wem/converters/m3_anim.cpp
     src/whiteout/models/wem/converters/m3_emitters.cpp
     src/whiteout/models/wem/converters/m3_physics.cpp
+    src/whiteout/models/wem/converters/m3_behaviors.cpp
     src/whiteout/models/wem/converters/m2_physics.cpp
     src/whiteout/models/wem/converters/d3_physics.cpp
     src/whiteout/models/wem/physics/crossing.cpp

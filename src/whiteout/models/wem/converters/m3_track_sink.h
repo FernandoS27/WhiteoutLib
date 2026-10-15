@@ -15,6 +15,7 @@
  * targets: the caller says which stream, which basis and which AnimRef.
  */
 
+#include <array>
 #include <set>
 #include <span>
 #include <vector>
@@ -96,7 +97,9 @@ public:
         }
         const bool step = interp == Interpolation::Step && moving_.count(animId) == 0;
         ref.flags = kBound;
-        ref.interpType = step ? u16(0) : u16(1);
+        // A moving track states a non-zero row; one a record kept whole
+        // already states (a few shipped refs say 0xFFFF) reads the same.
+        ref.interpType = step ? u16(0) : (ref.interpType != 0 ? ref.interpType : u16(1));
     }
 
     /// What a bound AnimRef states in `flags`: bit 1 that an animId in this
@@ -114,9 +117,27 @@ private:
 /// shipped container keeps it sorted.
 void SortLookup(m3::SubTrackContainer& stc);
 
+/// An `STS_` record's four link fields at rest: parent, next sibling and first
+/// child all -1, then a -1 `i16` and a zero `u16` (§7.4). Every shipped record
+/// carries exactly this.
+inline constexpr std::array<u8, 16> kAnimationStateLinks = {
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00,
+};
+
 /// Adds one `(animId, animRef)` pair to container @p stcIndex of @p out, keeping
-/// its lookup sorted and the animation state it names listing the same ids.
+/// its lookup sorted and the animation state it names listing the same ids. A
+/// state another container shares is copied first, so the write reaches this
+/// container alone.
 void AddToContainer(m3::Model& out, u32 stcIndex, u32 animId, u32 animRef);
+
+/// Rebuilds `STS_` the way the shipped files hold it: one state per distinct id
+/// list, in the order containers first use them, each container naming its own
+/// list's state twice. 161,361 of 161,361 shipped containers name a state
+/// equal to their list, and no two equal states exist in one file. States
+/// nothing names are dropped. The last pass over a written model, since every
+/// earlier write gives a container a state of its own.
+void ShareAnimationStates(m3::Model& out);
 
 /// The `animId` of every AnimRef an export can key: bones, lights, standard
 /// material layers, particle and ribbon emitters, force fields, vertex warps and
