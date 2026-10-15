@@ -25,13 +25,14 @@ void Link(WorkMesh& mesh, u32 a, u32 b) {
     }
 }
 
-u32 NewTriangle(WorkMesh& mesh, u32 a, u32 b, u32 c) {
+u32 NewTriangle(WorkMesh& mesh, u32 a, u32 b, u32 c, u32 region) {
     const u32 t = mesh.triangleCount();
     mesh.corners.insert(mesh.corners.end(), {a, b, c});
     mesh.twins.insert(mesh.twins.end(), {kNone, kNone, kNone});
     mesh.features.insert(mesh.features.end(), {0, 0, 0});
     mesh.curves.insert(mesh.curves.end(), {kNone, kNone, kNone});
     mesh.dead.push_back(0);
+    mesh.regions.push_back(region);
     return t;
 }
 
@@ -138,7 +139,7 @@ void WorkMesh::split(u32 h, u32 m) {
 
     // t0 = (a, b, c) becomes (a, m, c); (m, b, c) is new.
     corners[h0n] = m;
-    const u32 t2 = NewTriangle(*this, m, b, c);
+    const u32 t2 = NewTriangle(*this, m, b, c, regions[h / 3]);
     const u32 g0 = 3 * t2;
     const u32 g1 = 3 * t2 + 1;
     const u32 g2 = 3 * t2 + 2;
@@ -168,7 +169,7 @@ void WorkMesh::split(u32 h, u32 m) {
     const u8 f1n = features[h1n];
     const u32 c1n = curves[h1n];
     corners[h1n] = m;
-    const u32 t3 = NewTriangle(*this, m, a, d);
+    const u32 t3 = NewTriangle(*this, m, a, d, regions[twin / 3]);
     const u32 k0 = 3 * t3;
     const u32 k1 = 3 * t3 + 1;
     const u32 k2 = 3 * t3 + 2;
@@ -408,6 +409,7 @@ std::vector<u32> WorkMesh::compact() {
             next.curves.push_back(curves[h]);
         }
         next.dead.push_back(0);
+        next.regions.push_back(regions[t]);
     }
     for (u32 h = 0; h < next.corners.size(); ++h) {
         const u32 v = next.corners[h];
@@ -455,7 +457,7 @@ WorkMesh SeedWorkMesh(const Surface& surface, u32 component) {
             }
             ids[i] = it->second;
         }
-        NewTriangle(mesh, ids[0], ids[1], ids[2]);
+        NewTriangle(mesh, ids[0], ids[1], ids[2], surface.regions[t]);
     }
     for (u32 i = 0; i < sourceTriangles.size(); ++i) {
         const u32 t = sourceTriangles[i];
@@ -520,7 +522,7 @@ bool MoveVertex(WorkMesh& mesh, const Surface& surface, u32 vertex, const V3& ta
         home = surface.toSurface(onCurve);
     } else {
         const u32 start = mesh.homes[vertex].triangle;
-        home = surface.locate(std::span<const u32>(&start, 1), target, 2.0 * step);
+        home = surface.locate(std::span<const u32>(&start, 1), target, 2.0 * step, surface.filterAt(mesh.homes[vertex]));
     }
     if (!home.valid()) {
         return false;
@@ -675,6 +677,9 @@ u32 SplitLong(WorkMesh& mesh, const Surface& surface, f64 high) {
                 mesh.curve[m] = curve;
             } else {
                 const u32 start[2] = {mesh.homes[a].triangle, mesh.homes[b].triangle};
+                // The nearest point, whatever its region: a chord over a narrow
+                // region turning away under it has no middle in its own, and an
+                // edge split by an end never gets shorter.
                 const SurfacePoint home = surface.locate(start, middle, length);
                 if (!home.valid()) {
                     continue;
@@ -854,7 +859,11 @@ u32 SplitFeatureCorners(WorkMesh& mesh, const Surface& surface) {
         const f64 reach = std::max({Distance(centroid, mesh.positions[a]),
                                     Distance(centroid, mesh.positions[b]),
                                     Distance(centroid, mesh.positions[c])});
-        const SurfacePoint home = surface.locate(start, centroid, reach);
+        const LocateFilter filter{mesh.regions[t], AgreedNormal(surface.normal(mesh.homes[a]) +
+                                                                     surface.normal(mesh.homes[b]) +
+                                                                     surface.normal(mesh.homes[c]),
+                                                                 3)};
+        const SurfacePoint home = surface.locate(start, centroid, reach, filter);
         if (!home.valid()) {
             continue;
         }
@@ -871,8 +880,8 @@ u32 SplitFeatureCorners(WorkMesh& mesh, const Surface& surface) {
         }
         const u32 ids[3] = {a, b, c};
         mesh.corners[3 * t + 2] = m;
-        const u32 t1 = NewTriangle(mesh, b, c, m);
-        const u32 t2 = NewTriangle(mesh, c, a, m);
+        const u32 t1 = NewTriangle(mesh, b, c, m, mesh.regions[t]);
+        const u32 t2 = NewTriangle(mesh, c, a, m, mesh.regions[t]);
         const u32 tris[3] = {t, t1, t2};
         for (u32 i = 0; i < 3; ++i) {
             const u32 e = 3 * tris[i];

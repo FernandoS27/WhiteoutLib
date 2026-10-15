@@ -45,6 +45,9 @@ public:
     std::vector<u8> features;  ///< Per halfedge, the source's `FeatureBit`s.
     std::vector<u32> curves;   ///< Per halfedge, the source curve, or kNone.
     std::vector<u8> dead;      ///< Per triangle.
+    /// Per triangle, the source region it lies in: no edit moves a triangle
+    /// across a feature, so a split's triangles keep their parent's.
+    std::vector<u32> regions;
 
     static u32 Next(u32 h) {
         return h - h % 3 + (h % 3 + 1) % 3;

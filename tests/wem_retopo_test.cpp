@@ -76,6 +76,87 @@ Mesh SkinnedTube(f32 radius, f32 height, u32 around, u32 rows) {
     return mesh;
 }
 
+/// A cloth and its lining: two n x n sheets of `size` squared, `thickness`
+/// apart and joined at the rim. The top reads the left half of the texture,
+/// the bottom the right half and the rim a strip along the top edge.
+Mesh Slab(f32 size, f32 thickness, u32 n) {
+    geom::MeshBuilder builder;
+    builder.declareAttr(geom::Domain::Halfedge, geom::names::uv(0), geom::AttrType::F32x2);
+    std::vector<geom::VertexId> top;
+    std::vector<geom::VertexId> bottom;
+    auto at = [&](u32 i, u32 j) { return Vector2f{size * (static_cast<f32>(i) / n - 0.5f), size * (static_cast<f32>(j) / n - 0.5f)}; };
+    for (u32 j = 0; j <= n; ++j) {
+        for (u32 i = 0; i <= n; ++i) {
+            const Vector2f p = at(i, j);
+            top.push_back(builder.addVertex({p.x, p.y, thickness}));
+            bottom.push_back(builder.addVertex({p.x, p.y, 0.0f}));
+        }
+    }
+    auto id = [&](u32 i, u32 j) { return j * (n + 1) + i; };
+    auto face = [&](std::initializer_list<geom::VertexId> corners, std::initializer_list<Vector2f> uvs) {
+        const geom::FaceId f = builder.addFace(std::span<const geom::VertexId>(corners.begin(), corners.size()));
+        u32 k = 0;
+        for (const Vector2f& uv : uvs) {
+            builder.setCornerAttr(f, k++, geom::names::uv(0), uv);
+        }
+    };
+    auto uvOf = [&](u32 i, u32 j, f32 offset) {
+        return Vector2f{offset + 0.4f * static_cast<f32>(i) / n, 0.1f + 0.4f * static_cast<f32>(j) / n};
+    };
+    for (u32 j = 0; j < n; ++j) {
+        for (u32 i = 0; i < n; ++i) {
+            face({top[id(i, j)], top[id(i + 1, j)], top[id(i + 1, j + 1)], top[id(i, j + 1)]},
+                 {uvOf(i, j, 0.05f), uvOf(i + 1, j, 0.05f), uvOf(i + 1, j + 1, 0.05f), uvOf(i, j + 1, 0.05f)});
+            face({bottom[id(i, j)], bottom[id(i, j + 1)], bottom[id(i + 1, j + 1)], bottom[id(i + 1, j)]},
+                 {uvOf(i, j, 0.55f), uvOf(i, j + 1, 0.55f), uvOf(i + 1, j + 1, 0.55f), uvOf(i + 1, j, 0.55f)});
+        }
+    }
+    // The rim, counter-clockwise from above, each quad outward.
+    std::vector<std::pair<u32, u32>> rim;
+    for (u32 i = 0; i < n; ++i) {
+        rim.push_back({i, 0});
+    }
+    for (u32 j = 0; j < n; ++j) {
+        rim.push_back({n, j});
+    }
+    for (u32 i = n; i > 0; --i) {
+        rim.push_back({i, n});
+    }
+    for (u32 j = n; j > 0; --j) {
+        rim.push_back({0, j});
+    }
+    for (std::size_t k = 0; k < rim.size(); ++k) {
+        const u32 a = id(rim[k].first, rim[k].second);
+        const u32 b = id(rim[(k + 1) % rim.size()].first, rim[(k + 1) % rim.size()].second);
+        const f32 u0 = static_cast<f32>(k) / rim.size();
+        const f32 u1 = static_cast<f32>(k + 1) / rim.size();
+        face({top[b], top[a], bottom[a], bottom[b]}, {{u1, 0.97f}, {u0, 0.97f}, {u0, 0.96f}, {u1, 0.96f}});
+    }
+    Mesh mesh = builder.build().mesh;
+    mesh.ensureConnectivity();
+    return mesh;
+}
+
+/// The farthest any source vertex lies from the result's faces.
+f32 Farthest(const Mesh& source, const Mesh& result) {
+    const std::span<const Vector3f> from = source.attributes.get<const Vector3f>(geom::names::kPosition, geom::Domain::Vertex);
+    const std::span<const Vector3f> to = result.attributes.get<const Vector3f>(geom::names::kPosition, geom::Domain::Vertex);
+    const geom::FaceSet& faces = result.faceSet();
+    f32 worst = 0.0f;
+    for (const Vector3f& p : from) {
+        f32 nearest = 1e30f;
+        std::size_t at = 0;
+        for (const u32 valence : faces.faceValence) {
+            for (u32 k = 0; k < valence; ++k) {
+                nearest = std::min(nearest, Len(Sub(p, to[faces.cornerVertex[at + k]])));
+            }
+            at += valence;
+        }
+        worst = std::max(worst, nearest);
+    }
+    return worst;
+}
+
 } // namespace
 
 TEST_CASE("retopo: a box comes out as quads near the count asked for", "[retopo]") {
@@ -412,4 +493,76 @@ TEST_CASE("retopo: a part its layout cannot simplify is kept, never emptied or b
         far += beyond ? 1 : 0;
     }
     CHECK(far == 4);
+}
+
+TEST_CASE("retopo: a cloth and its lining a hair apart stay two sheets", "[retopo]") {
+    // A quad edge of about 0.2 over sheets 0.04 apart: a point placed by the
+    // nearest surface alone lands on either, and a face across both reads the
+    // two halves of the texture and turns against one of them.
+    const Mesh slab = Slab(2.0f, 0.04f, 24);
+    RetopoOptions options;
+    options.targetQuads = 200;
+    const RetopoResult result = Retopologize(slab, options);
+    INFO(ToString(result.report.failure) << " quads " << result.report.quads << " other " << result.report.otherFaces
+                                         << " kept " << result.report.piecesKept);
+    REQUIRE(result.report.ok());
+    CHECK(result.report.piecesFailed == 0);
+    const Mesh& mesh = result.mesh;
+    const geom::Topology& topology = mesh.topology();
+    const std::span<const Vector2f> uv = mesh.attributes.get<const Vector2f>(geom::names::uv(0), geom::Domain::Halfedge);
+    const std::span<const Vector3f> positions =
+        mesh.attributes.get<const Vector3f>(geom::names::kPosition, geom::Domain::Vertex);
+    u32 spanning = 0;
+    u32 turned = 0;
+    for (u32 f = 0; f < topology.faceCount(); ++f) {
+        f32 low = 1.0f;
+        f32 high = 0.0f;
+        f32 bottom = 1.0f;
+        f32 top = 0.0f;
+        Vector3f newell{0.0f, 0.0f, 0.0f};
+        for (const geom::HalfedgeId h : topology.fh(geom::FaceId(f))) {
+            const Vector3f& a = positions[topology.from(h).index()];
+            const Vector3f& b = positions[topology.to(h).index()];
+            newell.z += a.x * b.y - a.y * b.x;
+            low = std::min(low, uv[h.index()].x);
+            high = std::max(high, uv[h.index()].x);
+            bottom = std::min(bottom, a.z);
+            top = std::max(top, a.z);
+        }
+        // A face reads one island: the halves are 0.1 apart in u.
+        spanning += high - low > 0.1f ? 1 : 0;
+        // A face on one sheet faces that sheet's way.
+        if (bottom > 0.036f) {
+            turned += newell.z <= 0.0f ? 1 : 0;
+        } else if (top < 0.004f) {
+            turned += newell.z >= 0.0f ? 1 : 0;
+        }
+    }
+    CHECK(spanning == 0);
+    CHECK(turned == 0);
+    const i64 euler = static_cast<i64>(topology.vertexCount()) - topology.edgeCount() + topology.faceCount();
+    CHECK(euler == 2);
+}
+
+TEST_CASE("retopo: a strap narrower than a quad is held whole or kept, never folded away", "[retopo]") {
+    // Both methods, which share everything round the quads.
+    const RetopoMethod method = GENERATE(RetopoMethod::Field, RetopoMethod::Layout);
+    INFO((method == RetopoMethod::Field ? "field" : "layout"));
+    // A box four long and a tenth across, asked for a quad edge wider than
+    // it: a collapse that folds its strips away leaves a stub of it.
+    geom::PrimitiveParams params;
+    params.size = Vector3f{4.0f, 0.1f, 0.1f};
+    const Mesh strap = geom::MakeBox(params);
+    RetopoOptions options;
+    options.method = method;
+    options.targetQuads = 12;
+    options.keepBelowQuads = 0.0f;
+    const RetopoResult result = Retopologize(strap, options);
+    INFO(ToString(result.report.failure) << " quads " << result.report.quads << " kept " << result.report.piecesKept
+                                         << " failed " << result.report.piecesFailed);
+    CHECK((result.report.ok() || result.report.failure == RetopoReport::Failure::Unsolved));
+    if (result.report.ok()) {
+        CHECK(Farthest(strap, result.mesh) < 0.5f);
+    }
+    CHECK(result.report.piecesFailed <= result.report.piecesKept);
 }

@@ -102,6 +102,11 @@ struct RetopoReport {
     u32 otherFaces = 0;        ///< Kept pieces', unfilled and mismatched patches' faces.
     u32 piecesRemeshed = 0;
     u32 piecesKept = 0;        ///< Kept as they were: too small for a patch (§1.2), or no valid quads.
+    /// Of the kept, those no result held: every try folded, tore, lost part
+    /// of the piece or crossed a seam (§9, third pass).
+    u32 piecesFailed = 0;
+    u32 piecesFellBack = 0;    ///< The field method's pieces the patch layout made instead.
+    f64 worstLost = 0.0;       ///< The largest share of a remeshed piece's surface left off its quads.
     u32 patches = 0;
     u32 patchesUnfilled = 0;   ///< Kept as triangles: the repair could not make them rectangles.
     u32 patchesMismatched = 0; ///< Opposite sides apart: triangles along the shorter.

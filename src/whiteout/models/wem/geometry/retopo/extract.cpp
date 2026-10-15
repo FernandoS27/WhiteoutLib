@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <unordered_map>
 
 #include "patch_map.h"
@@ -131,7 +132,11 @@ private:
     /// its middle to its border's arc points. False for any other patch.
     bool fanPatch(u32 patch);
     void keepTriangles(u32 patch);
-    void addFace(std::span<const u32> corners, u32 patch);
+    void addFace(std::span<const u32> corners, u32 patch, u32 region);
+    /// The region a patch lies in: features bound patches, so any triangle's.
+    u32 patchRegion(const LayoutPatch& patch) const {
+        return patch.triangles.empty() ? kNone : mesh_.regions[patch.triangles.front()];
+    }
 
     const WorkMesh& mesh_;
     const Surface& surface_;
@@ -146,6 +151,7 @@ private:
     std::vector<std::vector<u32>> arcOut_; ///< Per arc, its inside points in its own order.
     std::vector<std::vector<u32>> rawFaces_;
     std::vector<u32> rawPatch_;
+    std::vector<u32> rawRegion_;
 };
 
 u32 Extractor::nodeVertex(u32 v) {
@@ -226,9 +232,11 @@ void Extractor::arcPoints(u32 a) {
             }
         }
         const u32 start[2] = {mesh_.homes[a0].triangle, mesh_.homes[a1].triangle};
-        SurfacePoint home = surface_.locate(start, point, reach);
+        const LocateFilter filter{h != kNone ? mesh_.regions[h / 3] : kNone,
+                                  AgreedNormal(surface_.normal(mesh_.homes[a0]) + surface_.normal(mesh_.homes[a1]), 2)};
+        SurfacePoint home = surface_.locate(start, point, reach, filter);
         if (!home.valid()) {
-            home = mesh_.homes[a0];
+            home = surface_.locate(start, point, reach);
         }
         points.push_back(addVertex(surface_.position(home), home, VertexKind::Free, {}, kNone));
     }
@@ -260,9 +268,10 @@ u32 Extractor::sidePoint(const LayoutPatch& patch, u32 side, i32 at) {
     return nodeVertex(run.forward ? arc.vertices.back() : arc.vertices.front());
 }
 
-void Extractor::addFace(std::span<const u32> corners, u32 patch) {
+void Extractor::addFace(std::span<const u32> corners, u32 patch, u32 region) {
     rawFaces_.emplace_back(corners.begin(), corners.end());
     rawPatch_.push_back(patch);
+    rawRegion_.push_back(region);
 }
 
 bool Extractor::fillPatch(u32 id) {
@@ -360,17 +369,20 @@ bool Extractor::fillPatch(u32 id) {
             V3 point{0.0, 0.0, 0.0};
             u32 starts[3];
             f64 reach = 0.0;
+            LocateFilter filter{patchRegion(patch), V3{0.0, 0.0, 0.0}};
             for (u32 c = 0; c < 3; ++c) {
                 const u32 v = map.vertices[map.corners[3 * t + c]];
                 point = point + mesh_.positions[v] * w[c];
                 starts[c] = mesh_.homes[v].triangle;
+                filter.normal = filter.normal + surface_.normal(mesh_.homes[v]);
             }
             for (u32 c = 0; c < 3; ++c) {
                 reach = std::max(reach, Distance(point, mesh_.positions[map.vertices[map.corners[3 * t + c]]]));
             }
-            SurfacePoint home = surface_.locate(starts, point, reach + 1e-12);
+            filter.normal = AgreedNormal(filter.normal, 3);
+            SurfacePoint home = surface_.locate(starts, point, reach + 1e-12, filter);
             if (!home.valid()) {
-                home = mesh_.homes[map.vertices[map.corners[3 * t]]];
+                home = surface_.locate(starts, point, reach + 1e-12);
             }
             inside[static_cast<std::size_t>((j - 1) * (n - 1) + (i - 1))] =
                 addVertex(surface_.position(home), home, VertexKind::Free, {}, kNone);
@@ -394,7 +406,7 @@ bool Extractor::fillPatch(u32 id) {
     for (i32 j = 0; j < m; ++j) {
         for (i32 i = 0; i < n; ++i) {
             const u32 quad[4] = {grid(i, j), grid(i + 1, j), grid(i + 1, j + 1), grid(i, j + 1)};
-            addFace(quad, id);
+            addFace(quad, id, patchRegion(patch));
         }
     }
     ++stats_.patchesFilled;
@@ -460,22 +472,25 @@ bool Extractor::fanPatch(u32 id) {
     V3 point{0.0, 0.0, 0.0};
     u32 starts[3];
     f64 reach = 0.0;
+    LocateFilter filter{patchRegion(patch), V3{0.0, 0.0, 0.0}};
     for (u32 c = 0; c < 3; ++c) {
         const u32 v = map.vertices[map.corners[3 * t + c]];
         point = point + mesh_.positions[v] * w[c];
         starts[c] = mesh_.homes[v].triangle;
+        filter.normal = filter.normal + surface_.normal(mesh_.homes[v]);
     }
     for (u32 c = 0; c < 3; ++c) {
         reach = std::max(reach, Distance(point, mesh_.positions[map.vertices[map.corners[3 * t + c]]]));
     }
-    SurfacePoint home = surface_.locate(starts, point, reach + 1e-12);
+    filter.normal = AgreedNormal(filter.normal, 3);
+    SurfacePoint home = surface_.locate(starts, point, reach + 1e-12, filter);
     if (!home.valid()) {
-        home = mesh_.homes[map.vertices[map.corners[3 * t]]];
+        home = surface_.locate(starts, point, reach + 1e-12);
     }
     const u32 centre = addVertex(surface_.position(home), home, VertexKind::Free, {}, kNone);
     for (std::size_t k = 0; k < border.size(); ++k) {
         const u32 triangle[3] = {border[k], border[(k + 1) % border.size()], centre};
-        addFace(triangle, id);
+        addFace(triangle, id, patchRegion(patch));
     }
     ++stats_.patchesFanned;
     return true;
@@ -530,7 +545,7 @@ void Extractor::keepTriangles(u32 id) {
             }
             corners[i] = it->second;
         }
-        addFace(corners, id);
+        addFace(corners, id, mesh_.regions[t]);
     }
 }
 
@@ -594,6 +609,7 @@ QuadMesh Extractor::run() {
         result.faceVertices.insert(result.faceVertices.end(), corners.begin(), corners.end());
         result.faceOffsets.push_back(static_cast<u32>(result.faceVertices.size()));
         result.facePatch.push_back(rawPatch_[f]);
+        result.faceRegion.push_back(rawRegion_[f]);
         stats_.quads += corners.size() == 4 ? 1 : 0;
     }
     return result;
@@ -685,6 +701,8 @@ u32 RemoveDoublets(QuadMesh& quads) {
         next.faceOffsets.assign(1, 0);
         next.faceVertices.clear();
         next.facePatch.clear();
+        next.faceRegion.clear();
+        const bool regions = quads.faceRegion.size() == quads.faceCount();
         for (u32 f = 0; f < faces.size(); ++f) {
             if (dead[f]) {
                 continue;
@@ -692,6 +710,9 @@ u32 RemoveDoublets(QuadMesh& quads) {
             next.faceVertices.insert(next.faceVertices.end(), faces[f].begin(), faces[f].end());
             next.faceOffsets.push_back(static_cast<u32>(next.faceVertices.size()));
             next.facePatch.push_back(quads.facePatch[f]);
+            if (regions) {
+                next.faceRegion.push_back(quads.faceRegion[f]);
+            }
         }
         quads = std::move(next);
     }
@@ -703,6 +724,7 @@ void CompactQuads(QuadMesh& quads) {
     QuadMesh next;
     next.faceOffsets = quads.faceOffsets;
     next.facePatch = quads.facePatch;
+    next.faceRegion = quads.faceRegion;
     next.faceVertices.reserve(quads.faceVertices.size());
     for (u32 v : quads.faceVertices) {
         if (remap[v] == kNone) {
@@ -764,7 +786,217 @@ QuadValidity CheckQuads(const QuadMesh& quads) {
     return validity;
 }
 
-void RelaxQuads(QuadMesh& quads, const Surface& surface, u32 iterations, f64 step) {
+namespace {
+
+bool Folded(const QuadMesh& quads, const Surface& surface, u32 f) {
+    const std::span<const u32> face = quads.face(f);
+    V3 newell{0.0, 0.0, 0.0};
+    V3 up{0.0, 0.0, 0.0};
+    for (std::size_t k = 0; k < face.size(); ++k) {
+        newell = newell + Cross(quads.positions[face[k]], quads.positions[face[(k + 1) % face.size()]]);
+        up = up + surface.normal(quads.homes[face[k]]);
+    }
+    return Dot(newell, up) < 0.0;
+}
+
+} // namespace
+
+namespace {
+
+bool FlatCorners(const QuadMesh& quads, std::span<const u32> face) {
+    const V3 origin = ToV3(ToV3f(quads.positions[face[0]]));
+    V3 normal{0.0, 0.0, 0.0};
+    f64 longest = 0.0;
+    f64 reach = 0.0;
+    for (std::size_t i = 0; i < face.size(); ++i) {
+        const V3 a = ToV3(ToV3f(quads.positions[face[i]])) - origin;
+        const V3 b = ToV3(ToV3f(quads.positions[face[(i + 1) % face.size()]])) - origin;
+        normal = normal + Cross(a, b);
+        longest = std::max(longest, Length(b - a));
+        const V3 p = a + origin;
+        reach = std::max({reach, std::abs(p.x), std::abs(p.y), std::abs(p.z)});
+    }
+    const f64 noise = longest * std::max(reach, longest) * 4.0 * static_cast<f64>(std::numeric_limits<f32>::epsilon());
+    return Length(normal) <= noise;
+}
+
+} // namespace
+
+bool DegenerateFace(const QuadMesh& quads, u32 face) {
+    return FlatCorners(quads, quads.face(face));
+}
+
+u32 RepairDegenerate(QuadMesh& quads) {
+    std::vector<std::vector<u32>> faces(quads.faceCount());
+    for (u32 f = 0; f < quads.faceCount(); ++f) {
+        const std::span<const u32> face = quads.face(f);
+        faces[f].assign(face.begin(), face.end());
+    }
+    std::vector<u8> gone(faces.size(), 0);
+    auto rank = [&](u32 v) {
+        return quads.kinds[v] == VertexKind::Corner ? 2u : (quads.kinds[v] == VertexKind::Feature ? 1u : 0u);
+    };
+    auto onePoint = [&](u32 a, u32 b) {
+        const Vector3f p = ToV3f(quads.positions[a]);
+        const Vector3f q = ToV3f(quads.positions[b]);
+        return p.x == q.x && p.y == q.y && p.z == q.z;
+    };
+    u32 mended = 0;
+    // Two corners of a side of a flat face on one point: the side collapsed,
+    // everywhere. A face with area left round them is drawn, and stays.
+    for (bool again = true; again;) {
+        again = false;
+        for (u32 f = 0; f < faces.size() && !again; ++f) {
+            if (gone[f] || !FlatCorners(quads, faces[f])) {
+                continue;
+            }
+            for (std::size_t i = 0; i < faces[f].size() && !gone[f]; ++i) {
+                const u32 a = faces[f][i];
+                const u32 b = faces[f][(i + 1) % faces[f].size()];
+                if (a == b || !onePoint(a, b)) {
+                    continue;
+                }
+                const u32 keep = rank(a) >= rank(b) ? a : b;
+                const u32 drop = keep == a ? b : a;
+                for (u32 g = 0; g < faces.size(); ++g) {
+                    if (gone[g]) {
+                        continue;
+                    }
+                    std::vector<u32> next;
+                    for (const u32 v : faces[g]) {
+                        const u32 w = v == drop ? keep : v;
+                        if (next.empty() || next.back() != w) {
+                            next.push_back(w);
+                        }
+                    }
+                    while (next.size() > 1 && next.front() == next.back()) {
+                        next.pop_back();
+                    }
+                    faces[g] = std::move(next);
+                    gone[g] = faces[g].size() < 3 ? 1 : 0;
+                }
+                ++mended;
+                again = true;
+                break;
+            }
+        }
+    }
+    // A face flat along a line: its corners go into the face across its
+    // longest side, between that side's ends.
+    std::unordered_map<u64, u32> sideOf;
+    auto directed = [](u32 a, u32 b) { return (static_cast<u64>(a) << 32) | b; };
+    for (u32 f = 0; f < faces.size(); ++f) {
+        for (std::size_t i = 0; i < faces[f].size() && !gone[f]; ++i) {
+            sideOf[directed(faces[f][i], faces[f][(i + 1) % faces[f].size()])] = f;
+        }
+    }
+    for (u32 f = 0; f < faces.size(); ++f) {
+        if (gone[f] || !FlatCorners(quads, faces[f])) {
+            continue;
+        }
+        const std::vector<u32> flat = faces[f];
+        const std::size_t n = flat.size();
+        std::size_t span = 0;
+        f64 longest = -1.0;
+        for (std::size_t i = 0; i < n; ++i) {
+            const f64 d = Distance(quads.positions[flat[i]], quads.positions[flat[(i + 1) % n]]);
+            if (d > longest) {
+                longest = d;
+                span = i;
+            }
+        }
+        const u32 from = flat[span];
+        const u32 to = flat[(span + 1) % n];
+        const auto across = sideOf.find(directed(to, from));
+        if (across == sideOf.end() || gone[across->second] || across->second == f) {
+            continue;
+        }
+        const u32 hostFace = across->second;
+        std::vector<u32>& host = faces[hostFace];
+        const auto at = std::find(host.begin(), host.end(), to);
+        if (at == host.end() || host[static_cast<std::size_t>(at - host.begin() + 1) % host.size()] != from) {
+            continue;
+        }
+        std::vector<u32> inserted;
+        for (std::size_t k = 2; k < n; ++k) {
+            inserted.push_back(flat[(span + k) % n]);
+        }
+        if (std::any_of(inserted.begin(), inserted.end(),
+                        [&](u32 v) { return std::find(host.begin(), host.end(), v) != host.end(); })) {
+            continue;
+        }
+        host.insert(at + 1, inserted.begin(), inserted.end());
+        gone[f] = 1;
+        ++mended;
+        for (std::size_t i = 0; i < host.size(); ++i) {
+            sideOf[directed(host[i], host[(i + 1) % host.size()])] = hostFace;
+        }
+    }
+    if (mended == 0) {
+        return 0;
+    }
+    QuadMesh next = quads;
+    next.faceOffsets.assign(1, 0);
+    next.faceVertices.clear();
+    next.facePatch.clear();
+    next.faceRegion.clear();
+    const bool regions = quads.faceRegion.size() == quads.faceCount();
+    for (u32 f = 0; f < faces.size(); ++f) {
+        if (gone[f]) {
+            continue;
+        }
+        next.faceVertices.insert(next.faceVertices.end(), faces[f].begin(), faces[f].end());
+        next.faceOffsets.push_back(static_cast<u32>(next.faceVertices.size()));
+        next.facePatch.push_back(quads.facePatch[f]);
+        if (regions) {
+            next.faceRegion.push_back(quads.faceRegion[f]);
+        }
+    }
+    quads = std::move(next);
+    return mended;
+}
+
+u32 CountFolded(const QuadMesh& quads, const Surface& surface) {
+    u32 folded = 0;
+    for (u32 f = 0; f < quads.faceCount(); ++f) {
+        folded += Folded(quads, surface, f) ? 1 : 0;
+    }
+    return folded;
+}
+
+u32 UnfoldQuads(QuadMesh& quads, const Surface& surface, u32 rounds) {
+    u32 folded = CountFolded(quads, surface);
+    std::vector<u8> movable(quads.vertexCount(), 0);
+    for (u32 round = 0; round < rounds && folded > 0; ++round) {
+        std::fill(movable.begin(), movable.end(), 0);
+        std::vector<u8> near(quads.vertexCount(), 0);
+        for (u32 f = 0; f < quads.faceCount(); ++f) {
+            if (Folded(quads, surface, f)) {
+                for (const u32 v : quads.face(f)) {
+                    near[v] = 1;
+                }
+            }
+        }
+        // The folded faces' corners and every corner of a face beside them.
+        for (u32 f = 0; f < quads.faceCount(); ++f) {
+            const std::span<const u32> face = quads.face(f);
+            if (std::any_of(face.begin(), face.end(), [&](u32 v) { return near[v] != 0; })) {
+                for (const u32 v : face) {
+                    movable[v] = 1;
+                }
+            }
+        }
+        RelaxQuads(quads, surface, 4, 1.0, movable);
+        const u32 left = CountFolded(quads, surface);
+        if (left >= folded) {
+            break;
+        }
+        folded = left;
+    }
+    return folded;
+}
+
+void RelaxQuads(QuadMesh& quads, const Surface& surface, u32 iterations, f64 step, std::span<const u8> movable) {
     const u32 vertices = quads.vertexCount();
     std::vector<std::vector<u32>> neighbours(vertices);
     std::vector<std::vector<u32>> faces(vertices);
@@ -781,6 +1013,16 @@ void RelaxQuads(QuadMesh& quads, const Surface& surface, u32 iterations, f64 ste
     for (std::vector<u32>& list : neighbours) {
         std::sort(list.begin(), list.end());
         list.erase(std::unique(list.begin(), list.end()), list.end());
+    }
+    // A free vertex's faces' one region, which its moves stay in.
+    std::vector<u32> region(vertices, kNone);
+    if (quads.faceRegion.size() == quads.faceCount()) {
+        for (u32 v = 0; v < vertices; ++v) {
+            for (const u32 f : faces[v]) {
+                const u32 r = quads.faceRegion[f];
+                region[v] = f == faces[v].front() ? r : (region[v] == r ? r : kNone);
+            }
+        }
     }
     auto faceNormal = [&](u32 f, u32 moved, const V3& at) {
         // Newell's normal, with one corner moved.
@@ -814,7 +1056,7 @@ void RelaxQuads(QuadMesh& quads, const Surface& surface, u32 iterations, f64 ste
     };
     for (u32 iteration = 0; iteration < iterations; ++iteration) {
         for (u32 v = 0; v < vertices; ++v) {
-            if (quads.kinds[v] == VertexKind::Corner || neighbours[v].empty()) {
+            if (quads.kinds[v] == VertexKind::Corner || neighbours[v].empty() || (!movable.empty() && !movable[v])) {
                 continue;
             }
             const V3 p = quads.positions[v];
@@ -856,8 +1098,12 @@ void RelaxQuads(QuadMesh& quads, const Surface& surface, u32 iterations, f64 ste
                 placed = surface.position(onCurve);
             } else {
                 const u32 start = quads.homes[v].triangle;
-                home = surface.locate(std::span<const u32>(&start, 1), wanted, 2.0 * moved);
-                placed = surface.position(home);
+                LocateFilter filter = surface.filterAt(quads.homes[v]);
+                if (region[v] != kNone) {
+                    filter.region = region[v];
+                }
+                home = surface.locate(std::span<const u32>(&start, 1), wanted, 2.0 * moved, filter);
+                placed = home.valid() ? surface.position(home) : p;
             }
             if (!home.valid()) {
                 continue;

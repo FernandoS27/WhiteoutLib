@@ -95,10 +95,42 @@ u32 Surface::nextStamp() const {
 }
 
 SurfacePoint Surface::locate(std::span<const u32> start, const V3& point, f64 radius) const {
+    return locate(start, point, radius, LocateFilter{});
+}
+
+LocateFilter Surface::filterAt(const SurfacePoint& home) const {
+    LocateFilter filter;
+    if (!home.valid()) {
+        return filter;
+    }
+    const u32 t = home.triangle;
+    filter.normal = normal(home);
+    filter.region = regions[t];
+    // On a feature edge or a feature point, the region is either side's.
+    for (u32 i = 0; i < 3; ++i) {
+        if (home.weight(i) > 1.0 - 1e-9 && kinds[corners[3 * t + i]] != VertexKind::Free) {
+            filter.region = kNone;
+        }
+        if (home.weight(i) < 1e-9 && features[3 * t + (i + 1) % 3] != 0) {
+            filter.region = kNone;
+        }
+    }
+    return filter;
+}
+
+SurfacePoint Surface::locate(std::span<const u32> start, const V3& point, f64 radius,
+                             const LocateFilter& filter) const {
     const u32 stamp = nextStamp();
     std::vector<u32> stack;
     SurfacePoint best;
     f64 bestDistance = std::numeric_limits<f64>::infinity();
+    // Facing away by more than 120 degrees: the other sheet of a thin shell,
+    // whose faces turn round; a crease or a rim turns by less.
+    const f64 hint = Length(filter.normal);
+    auto allowed = [&](u32 t) {
+        return (filter.region == kNone || regions[t] == filter.region) &&
+               (hint == 0.0 || Dot(triangleNormals[t], filter.normal) > -0.5 * Length(triangleNormals[t]) * hint);
+    };
     auto visit = [&](u32 t, bool always) {
         if (t == kNone || stamp_[t] == stamp) {
             return;
@@ -110,9 +142,54 @@ SurfacePoint Surface::locate(std::span<const u32> start, const V3& point, f64 ra
             return;
         }
         stamp_[t] = stamp;
-        if (nearest.distance < bestDistance) {
+        if (nearest.distance < bestDistance && allowed(t)) {
             bestDistance = nearest.distance;
             best = Make(t, nearest.w0, nearest.w1, nearest.w2);
+        }
+        stack.push_back(t);
+    };
+    for (u32 t : start) {
+        visit(t, true);
+    }
+    while (!stack.empty()) {
+        const u32 t = stack.back();
+        stack.pop_back();
+        for (u32 i = 0; i < 3; ++i) {
+            const u32 twin = twins[3 * t + i];
+            if (twin != kNone) {
+                visit(twin / 3, false);
+            }
+        }
+    }
+    return best;
+}
+
+FeaturePoint Surface::nearestOnFeature(std::span<const u32> start, const V3& point, f64 radius) const {
+    const u32 stamp = nextStamp();
+    std::vector<u32> stack;
+    FeaturePoint best;
+    f64 bestDistance = std::numeric_limits<f64>::infinity();
+    auto visit = [&](u32 t, bool always) {
+        if (t == kNone || stamp_[t] == stamp) {
+            return;
+        }
+        const Nearest nearest = NearestOnTriangle(point, positions[corners[3 * t]], positions[corners[3 * t + 1]],
+                                                  positions[corners[3 * t + 2]]);
+        if (!always && nearest.distance > radius) {
+            return;
+        }
+        stamp_[t] = stamp;
+        for (u32 i = 0; i < 3; ++i) {
+            const u32 h = 3 * t + i;
+            if (features[h] == 0 || curves[h] == kNone) {
+                continue;
+            }
+            const f64 along = NearestOnSegment(point, positions[from(h)], positions[to(h)]);
+            const f64 d = Distance(point, Lerp(positions[from(h)], positions[to(h)], along));
+            if (d < bestDistance) {
+                bestDistance = d;
+                best = FeaturePoint{h, along};
+            }
         }
         stack.push_back(t);
     };

@@ -75,23 +75,33 @@ constexpr f64 kBetter = 0.087;
 /// A piece of fewer of the pure lattice's cells than this is solved unsplit:
 /// below it the corpus's pieces lost a tenth of their area and more to it.
 constexpr f64 kFewCells = 60.0;
-/// The share of a piece's field faces that may be folded.
-constexpr f64 kFolded = 0.05;
+/// Where neither lattice holds a piece, finer ones at these shares of the quad
+/// edge, the nearer first: each step costs the piece's share more quads.
+constexpr f64 kFinerLattices[2] = {0.8, 0.6};
 
-/// Source farther from the quads than this many quad edges is lost to them,
-/// and a piece that loses more than this share of its area (a bevel or a
-/// blade narrower than a quad, which a lattice cannot put lines on both sides
-/// of) is better made another way. Pure quads may lose more: their lattice,
-/// twice the quad edge, cuts every fold narrower than two quads, which on the
-/// corpus's large pieces is 1.5 to 4 % of the area; a lattice that did not
-/// hold the piece lost a tenth and more.
-constexpr f64 kLostReach = 0.5;
-constexpr f64 kLostShare = 0.01;
-constexpr f64 kLostSharePure = 0.04;
+/// What a piece's result may get wrong and still be taken (§9, third pass):
+/// a folded face draws black, a lost stretch is a hole in the silhouette and
+/// a face across a seam smears the texture. The tries are taken in order of
+/// evenness, the first within the bar; where none is, the best within twice
+/// it or so; where none is that either, the piece stays as it was.
+struct Bar {
+    f64 folded;   ///< Share of the faces.
+    f64 lost;     ///< Share of the source farther than half a quad edge...
+    f64 lostFar;  ///< ...and than a whole one: a strap or a blade gone.
+    f64 straddle; ///< Share of the faces with a corner inside another island.
+    f64 others;   ///< Share of the faces that are no quads: a layout's fills.
+    /// Share of the faces laid over a strip of texture narrower than a quad,
+    /// a decal's outline or a trim, which smear it: no quad that size fits it.
+    f64 spans;
+};
+constexpr Bar kStrict{0.01, 0.02, 0.005, 0.005, 0.25, 0.05};
+constexpr Bar kLenient{0.03, 0.04, 0.01, 0.01, 0.4, 0.1};
 
-/// The share of @p component's source area whose triangles' centres lie
-/// farther than @p reach from every face of @p quads.
-f64 LostShare(const Surface& surface, u32 component, const QuadMesh& quads, f64 reach) {
+/// The shares of @p triangles' source area whose centres lie farther than
+/// @p near, and than @p far, from every face of @p quads.
+void LostShares(const Surface& surface, std::span<const u32> triangles, const QuadMesh& quads, f64 near, f64 far,
+                f64& lostNear, f64& lostFar) {
+    const f64 reach = far;
     // The faces as fans of triangles, in a grid of `reach` cells.
     struct Cell {
         i64 x, y, z;
@@ -109,7 +119,7 @@ f64 LostShare(const Surface& surface, u32 component, const QuadMesh& quads, f64 
         return Cell{static_cast<i64>(std::floor(p.x / reach)), static_cast<i64>(std::floor(p.y / reach)),
                     static_cast<i64>(std::floor(p.z / reach))};
     };
-    std::vector<std::array<u32, 3>> triangles;
+    std::vector<std::array<u32, 3>> fans;
     std::unordered_map<Cell, std::vector<u32>, CellHash> grid;
     for (u32 f = 0; f < quads.faceCount(); ++f) {
         const std::span<const u32> face = quads.face(f);
@@ -124,8 +134,8 @@ f64 LostShare(const Surface& surface, u32 component, const QuadMesh& quads, f64 
             }
             const Cell a = cellOf(lo);
             const Cell b = cellOf(hi);
-            const u32 id = static_cast<u32>(triangles.size());
-            triangles.push_back(t);
+            const u32 id = static_cast<u32>(fans.size());
+            fans.push_back(t);
             for (i64 x = a.x; x <= b.x; ++x) {
                 for (i64 y = a.y; y <= b.y; ++y) {
                     for (i64 z = a.z; z <= b.z; ++z) {
@@ -136,39 +146,67 @@ f64 LostShare(const Surface& surface, u32 component, const QuadMesh& quads, f64 
         }
     }
     f64 total = 0.0;
-    f64 lost = 0.0;
-    for (u32 t = 0; t < surface.triangleCount(); ++t) {
-        if (surface.components[t] != component) {
-            continue;
-        }
+    f64 farOff = 0.0;
+    f64 nearOff = 0.0;
+    for (const u32 t : triangles) {
         const V3 centre = (surface.positions[surface.corners[3 * t]] + surface.positions[surface.corners[3 * t + 1]] +
                            surface.positions[surface.corners[3 * t + 2]]) *
                           (1.0 / 3.0);
         total += surface.triangleAreas[t];
-        bool near = false;
+        f64 nearest = std::numeric_limits<f64>::infinity();
         const Cell c = cellOf(centre);
-        for (i64 x = c.x - 1; x <= c.x + 1 && !near; ++x) {
-            for (i64 y = c.y - 1; y <= c.y + 1 && !near; ++y) {
-                for (i64 z = c.z - 1; z <= c.z + 1 && !near; ++z) {
+        for (i64 x = c.x - 1; x <= c.x + 1 && nearest > near; ++x) {
+            for (i64 y = c.y - 1; y <= c.y + 1 && nearest > near; ++y) {
+                for (i64 z = c.z - 1; z <= c.z + 1 && nearest > near; ++z) {
                     const auto it = grid.find(Cell{x, y, z});
                     if (it == grid.end()) {
                         continue;
                     }
                     for (const u32 id : it->second) {
-                        const std::array<u32, 3>& tri = triangles[id];
+                        const std::array<u32, 3>& tri = fans[id];
                         const Nearest n = NearestOnTriangle(centre, quads.positions[tri[0]], quads.positions[tri[1]],
                                                             quads.positions[tri[2]]);
-                        if (n.distance <= reach) {
-                            near = true;
+                        nearest = std::min(nearest, n.distance);
+                        if (nearest <= near) {
                             break;
                         }
                     }
                 }
             }
         }
-        lost += near ? 0.0 : surface.triangleAreas[t];
+        nearOff += nearest > near ? surface.triangleAreas[t] : 0.0;
+        farOff += nearest > far ? surface.triangleAreas[t] : 0.0;
     }
-    return total > 0.0 ? lost / total : 0.0;
+    lostNear = total > 0.0 ? nearOff / total : 0.0;
+    lostFar = total > 0.0 ? farOff / total : 0.0;
+}
+
+/// Parts of @p quads: faces joined through their corners.
+u32 PartsOf(const QuadMesh& quads) {
+    std::vector<u32> parent(quads.vertexCount());
+    for (u32 v = 0; v < parent.size(); ++v) {
+        parent[v] = v;
+    }
+    auto root = [&](u32 v) {
+        while (parent[v] != v) {
+            parent[v] = parent[parent[v]];
+            v = parent[v];
+        }
+        return v;
+    };
+    std::vector<u8> used(quads.vertexCount(), 0);
+    for (u32 f = 0; f < quads.faceCount(); ++f) {
+        const std::span<const u32> face = quads.face(f);
+        for (const u32 v : face) {
+            used[v] = 1;
+            parent[root(v)] = root(face[0]);
+        }
+    }
+    u32 parts = 0;
+    for (u32 v = 0; v < parent.size(); ++v) {
+        parts += used[v] && root(v) == v ? 1 : 0;
+    }
+    return parts;
 }
 
 /// V - E + F over the faces' vertices and sides.
@@ -214,12 +252,60 @@ f64 MedianCornerTurn(const QuadMesh& quads) {
     return worst[worst.size() / 2];
 }
 
+/// How a try at a piece holds its source: what `CheckQuads`, which reads only
+/// how the faces join, cannot see.
+struct Assessment {
+    bool valid = false; ///< Manifold and oriented, one part, the source piece's Euler characteristic.
+    u32 faces = 0;
+    u32 degenerate = 0; ///< Faces the mesh build would drop: holes.
+    u32 folded = 0;     ///< Faces turned against the surface.
+    u32 straddling = 0; ///< Faces with a corner inside another region: across a seam.
+    u32 others = 0;     ///< Faces of other than four corners.
+    u32 spanning = 0;   ///< Faces with a corner on a seam beyond a strip of another region.
+    bool blown = false; ///< Twice the faces the piece had triangles, and far over its share: no simplification.
+    f64 lost = 0.0;     ///< The source piece's share farther than half a quad edge from them.
+    f64 lostFar = 0.0;  ///< And farther than a whole one.
+    f64 turn = 0.0;     ///< `MedianCornerTurn`.
+
+    bool holds(const Bar& bar = kStrict) const {
+        const f64 n = static_cast<f64>(faces);
+        return valid && !blown && degenerate == 0 && folded <= bar.folded * n && straddling <= bar.straddle * n &&
+               others <= bar.others * n && spanning <= bar.spans * n && lost <= bar.lost && lostFar <= bar.lostFar;
+    }
+    /// How far it misses, for choosing among tries that miss the strict bar.
+    f64 shortfall() const {
+        const f64 n = std::max<f64>(faces, 1.0);
+        return folded / n / kStrict.folded + lost / kStrict.lost + lostFar / kStrict.lostFar +
+               straddling / n / kStrict.straddle + spanning / n / kStrict.spans;
+    }
+};
+
+/// The best try at a piece that misses the strict bar but not the lenient one.
+struct Fallback {
+    QuadMesh quads;
+    Assessment assessment;
+    bool any = false;
+    u32 from = 0; ///< 0 the field, 1 the layout.
+
+    /// The field's tries before the layout's, as for the strict bar.
+    void offer(const QuadMesh& q, const Assessment& a, u32 method) {
+        if (a.holds(kLenient) &&
+            (!any || method < from || (method == from && a.shortfall() < assessment.shortfall()))) {
+            quads = q;
+            assessment = a;
+            any = true;
+            from = method;
+        }
+    }
+};
 
 /// One connected piece of the surface, through the pipeline.
 struct Piece {
     u32 component = kNone;
     f64 area = 0.0;
+    f64 share = 0.0;   ///< Its share of the quads asked for, by area.
     u32 triangles = 0; ///< Source triangles.
+    std::vector<u32> sourceTriangles;
     i64 euler = 0;     ///< The source piece's Euler characteristic.
     WorkMesh mesh;
     CrossField field;
@@ -284,8 +370,19 @@ private:
     /// The layout method over every piece (§1.6-§1.8).
     void runLayout(std::vector<Piece>& pieces, f64 edge, f64 quads, f64 remeshedArea);
     /// One piece by the layout alone at quad edge @p edge: the field
-    /// method's fallback.
-    bool layoutAlone(Piece& piece, f64 edge);
+    /// method's fallback. Returns whether its quads hold the piece.
+    bool layoutAlone(Piece& piece, f64 edge, Assessment& assessment, Fallback& fallback);
+    /// Prepares and assesses @p piece's layout quads, just extracted; where
+    /// they do not hold and arcs may collapse, extracts them again with every
+    /// arc kept. Returns whether the quads hold the piece; each try is
+    /// offered to @p fallback.
+    bool holdLayout(Piece& piece, f64 edge, Assessment& assessment, Fallback& fallback);
+
+    /// Readies a try as it would be taken -- doublets out, relaxed on the
+    /// source -- and returns its connectivity's verdict. Relaxing moves
+    /// points, so it comes before the checks that read where they are.
+    QuadValidity prepare(QuadMesh& quads) const;
+    Assessment assess(const Piece& piece, const QuadMesh& quads, const QuadValidity& validity) const;
 
     // --- the field method (§6) ---
     void prepareFieldPiece(Piece& piece, f64 lattice);
@@ -295,15 +392,13 @@ private:
     /// The lattice at the quad edge @p edge, unsplit, the work mesh refined
     /// for it first where it is too coarse.
     void solveFine(Piece& piece, f64 edge);
-    /// Cleans and checks the piece's field quads -- valid, its topology kept,
-    /// few folds -- and relaxes them. Returns whether they will do.
-    bool settle(Piece& piece);
     void runField(std::vector<Piece>& pieces, f64 edge, f64 quads, f64 remeshedArea);
 
-    /// Adds @p piece's quads, relaxed unless @p relaxed says they are, unless
-    /// they came out far over its share of the count; then its source is
-    /// kept. Returns whether added.
-    bool finishPiece(Piece& piece, f64 share, bool relaxed = false);
+    /// Adds @p piece's prepared quads, unless they came out far over its share
+    /// of the count; then its source is kept. Returns whether added.
+    bool finishPiece(Piece& piece, f64 share, const Assessment& assessment);
+    /// Keeps @p piece as it was because no try held it.
+    void failPiece(const Piece& piece);
 
     // --- the output ---
     u32 addVertex(const OutVertex& vertex) {
@@ -330,6 +425,7 @@ private:
     Surface surface_;
     std::vector<OutVertex> vertices_;
     std::vector<std::vector<u32>> faces_;
+    std::vector<u32> faceRegions_; ///< Per face, the source region it lies in; kNone where unknown.
     std::unordered_map<u32, SourcePolygon> polygons_;
     mutable std::vector<u32> seen_; ///< `homeIn`'s walk, by stamp.
     mutable u32 seenStamp_ = 0;
@@ -498,6 +594,7 @@ void Retopology::addPieceQuads(const Piece& piece) {
             corners.push_back(base + v);
         }
         faces_.push_back(std::move(corners));
+        faceRegions_.push_back(f < q.faceRegion.size() ? q.faceRegion[f] : kNone);
     }
 }
 
@@ -526,6 +623,7 @@ void Retopology::keepComponent(u32 component) {
             corners.push_back(it->second);
         }
         faces_.push_back(std::move(corners));
+        faceRegions_.push_back(surface_.regions[t]);
     }
     ++report_.piecesKept;
 }
@@ -660,10 +758,20 @@ Mesh Retopology::build() {
         }
         centroid = centroid * (1.0 / static_cast<f64>(faces_[f].size()));
         f64 reach = 0.0;
+        LocateFilter filter{faceRegions_[f], V3{0.0, 0.0, 0.0}};
+        u32 homed = 0;
         for (u32 v : faces_[f]) {
             reach = std::max(reach, Distance(centroid, vertices_[v].position));
+            if (vertices_[v].home.valid()) {
+                filter.normal = filter.normal + surface_.normal(vertices_[v].home);
+                ++homed;
+            }
         }
-        faceHome[f] = surface_.locate(starts, centroid, reach + 1e-12);
+        filter.normal = AgreedNormal(filter.normal, homed);
+        faceHome[f] = surface_.locate(starts, centroid, reach + 1e-12, filter);
+        if (!faceHome[f].valid()) {
+            faceHome[f] = surface_.locate(starts, centroid, reach + 1e-12);
+        }
     }
 
     MeshBuilder builder;
@@ -725,11 +833,15 @@ Mesh Retopology::build() {
     // weights with it.
     for (const AttrLayer& layer : welded_.attributes.layers()) {
         if (layer.name == names::kPosition || layer.name == names::kMergeGroup ||
-            layer.name == names::kSection || layer.domain == Domain::Mesh || IsVertexReferenceLayer(layer) ||
+            layer.name == names::kSection || IsVertexReferenceLayer(layer) ||
             layer.name == names::kClothBindWeight) {
             continue;
         }
-        out.attributes.create(layer.name, layer.domain, layer.type, layer.storage);
+        AttrLayer& made = out.attributes.create(layer.name, layer.domain, layer.type, layer.storage);
+        // One value for the mesh, such as how its normals are weighted.
+        if (layer.domain == Domain::Mesh && made.data.size() == layer.data.size()) {
+            made.data = layer.data;
+        }
     }
 
     // Corners: each from its own face's side of any seam.
@@ -890,7 +1002,7 @@ Mesh Retopology::build() {
     return out;
 }
 
-bool Retopology::finishPiece(Piece& piece, f64 share, bool relaxed) {
+bool Retopology::finishPiece(Piece& piece, f64 share, const Assessment& assessment) {
     // Twice the faces it had triangles and far over its share of the count:
     // nothing simplified it (each facet of a low-poly part wants patches of
     // its own), and the source is the better mesh.
@@ -900,13 +1012,134 @@ bool Retopology::finishPiece(Piece& piece, f64 share, bool relaxed) {
         keepComponent(piece.component);
         return false;
     }
-    if (!relaxed) {
-        CompactQuads(piece.quads);
-        RelaxQuads(piece.quads, surface_, options_.relaxIterations);
-    }
     addPieceQuads(piece);
     ++report_.piecesRemeshed;
+    report_.worstLost = std::max(report_.worstLost, assessment.lost);
     return true;
+}
+
+void Retopology::failPiece(const Piece& piece) {
+    keepComponent(piece.component);
+    ++report_.piecesFailed;
+}
+
+QuadValidity Retopology::prepare(QuadMesh& quads) const {
+    RemoveDoublets(quads);
+    const QuadValidity validity = CheckQuads(quads);
+    if (validity.ok() && quads.faceCount() > 0) {
+        CompactQuads(quads);
+        RelaxQuads(quads, surface_, options_.relaxIterations);
+        UnfoldQuads(quads, surface_, 6);
+        if (RepairDegenerate(quads) > 0) {
+            CompactQuads(quads);
+            return CheckQuads(quads);
+        }
+    }
+    return validity;
+}
+
+Assessment Retopology::assess(const Piece& piece, const QuadMesh& quads, const QuadValidity& validity) const {
+    Assessment a;
+    a.faces = quads.faceCount();
+    // Each facet of a low-poly part wanting patches of its own: the source is
+    // the better mesh (`finishPiece`).
+    a.blown = a.faces > std::max(2.0 * piece.triangles, 4.0 * piece.share);
+    a.valid = validity.ok() && a.faces > 0 && EulerOf(quads) == piece.euler && PartsOf(quads) == 1;
+    if (!a.valid) {
+        return a;
+    }
+    const bool regions = quads.faceRegion.size() == quads.faceCount();
+    // A corner belongs to a face's region when a triangle at it is in it:
+    // inside a triangle, its own; on an edge, either side's; on a point, any
+    // round it. A corner a collapse moved onto another seam touches none.
+    std::vector<u32> fan;
+    auto touches = [&](const SurfacePoint& home, u32 region) {
+        if (!home.valid() || surface_.regions[home.triangle] == region) {
+            return true;
+        }
+        const u32 t = home.triangle;
+        for (u32 i = 0; i < 3; ++i) {
+            if (home.weight(i) > 1.0 - 1e-9) {
+                surface_.fan(surface_.corners[3 * t + i], fan);
+                return std::any_of(fan.begin(), fan.end(), [&](u32 x) { return surface_.regions[x] == region; });
+            }
+        }
+        for (u32 i = 0; i < 3; ++i) {
+            const u32 twin = surface_.twins[3 * t + (i + 1) % 3];
+            if (home.weight(i) < 1e-9 && twin != kNone && surface_.regions[twin / 3] == region) {
+                return true;
+            }
+        }
+        return false;
+    };
+    std::vector<u32> starts;
+    for (u32 f = 0; f < quads.faceCount(); ++f) {
+        const std::span<const u32> face = quads.face(f);
+        V3 newell{0.0, 0.0, 0.0};
+        V3 normal{0.0, 0.0, 0.0};
+        V3 centroid{0.0, 0.0, 0.0};
+        bool across = false;
+        bool spans = false;
+        starts.clear();
+        for (std::size_t k = 0; k < face.size(); ++k) {
+            const SurfacePoint& home = quads.homes[face[k]];
+            newell = newell + Cross(quads.positions[face[k]], quads.positions[face[(k + 1) % face.size()]]);
+            normal = normal + surface_.normal(home);
+            centroid = centroid + quads.positions[face[k]];
+            starts.push_back(home.triangle);
+            if (regions && quads.faceRegion[f] != kNone && !touches(home, quads.faceRegion[f])) {
+                // Inside another triangle: across a seam. On a seam: past a strip.
+                const bool inside = home.weight(0) > 1e-9 && home.u > 1e-9 && home.v > 1e-9;
+                across = across || inside;
+                spans = spans || !inside;
+            }
+        }
+        // A face wrapped round a fold tighter than itself, a hem between a
+        // cloth and its lining, has corners facing apart: it is judged by the
+        // surface under its middle instead.
+        if (Length(AgreedNormal(normal, static_cast<u32>(face.size()))) == 0.0) {
+            centroid = centroid * (1.0 / static_cast<f64>(face.size()));
+            const SurfacePoint under = surface_.locate(starts, centroid, std::sqrt(Length(newell)) + 1e-12);
+            normal = under.valid() ? surface_.normal(under) : normal;
+        }
+        a.folded += Dot(newell, normal) < 0.0 ? 1 : 0;
+        a.straddling += across ? 1 : 0;
+        a.spanning += spans && !across ? 1 : 0;
+        a.others += face.size() != 4 ? 1 : 0;
+        a.degenerate += DegenerateFace(quads, f) ? 1 : 0;
+    }
+    LostShares(surface_, piece.sourceTriangles, quads, 0.5 * report_.targetEdge, report_.targetEdge, a.lost,
+               a.lostFar);
+    a.turn = MedianCornerTurn(quads);
+    return a;
+}
+
+bool Retopology::holdLayout(Piece& piece, f64 edge, Assessment& assessment, Fallback& fallback) {
+    if (piece.valid) {
+        assessment = assess(piece, piece.quads, prepare(piece.quads));
+        if (assessment.holds()) {
+            return true;
+        }
+        fallback.offer(piece.quads, assessment, 1);
+    }
+    if (!options_.collapseArcs) {
+        return false;
+    }
+    // The collapses folded part of it away, or left no valid quads: every arc
+    // kept, at the price of a count over the request.
+    report_.notes.push_back("a piece's simplified layout did not hold its shape and was made with every arc kept");
+    std::fill(piece.penalties.begin(), piece.penalties.end(), kKeepArc);
+    if (stopped() || !quantize(piece, edge)) {
+        return false;
+    }
+    extract(piece, edge);
+    report_.validityRounds += piece.rounds;
+    if (!piece.valid) {
+        return false;
+    }
+    assessment = assess(piece, piece.quads, prepare(piece.quads));
+    fallback.offer(piece.quads, assessment, 1);
+    return assessment.holds();
 }
 
 void Retopology::runLayout(std::vector<Piece>& pieces, f64 edge, f64 quads, f64 remeshedArea) {
@@ -964,14 +1197,32 @@ void Retopology::runLayout(std::vector<Piece>& pieces, f64 edge, f64 quads, f64 
             return;
         }
         progress(static_cast<u32>(pieces.size() + 1 + i), steps_);
+        piece.share = quads * piece.area / remeshedArea;
         if (!quantize(piece, edge)) {
             report_.notes.push_back("a piece found no quantization and was kept as it was");
-            keepComponent(piece.component);
+            failPiece(piece);
             continue;
         }
         extract(piece, edge);
         report_.validityRounds += piece.rounds;
-        if (!piece.valid) {
+        Assessment assessment;
+        Fallback fallback;
+        bool held = holdLayout(piece, edge, assessment, fallback);
+        if (!held && fallback.any) {
+            report_.notes.push_back("a piece's quads missed the bar narrowly and the nearest try was taken");
+            piece.quads = std::move(fallback.quads);
+            assessment = fallback.assessment;
+            held = true;
+        }
+        if (!held && piece.valid) {
+            report_.notes.push_back("a piece's quads did not hold its shape (folded " + std::to_string(assessment.folded) +
+                                    " of " + std::to_string(assessment.faces) + ", lost " +
+                                    std::to_string(assessment.lost) + ", across seams " +
+                                    std::to_string(assessment.straddling) + ") and it was kept as it was");
+            failPiece(piece);
+            continue;
+        }
+        if (!held) {
             u32 zero = 0;
             u32 kept = 0;
             for (u32 a = 0; a < piece.lengths.size(); ++a) {
@@ -986,10 +1237,10 @@ void Retopology::runLayout(std::vector<Piece>& pieces, f64 edge, f64 quads, f64 
                                     ", zero " + std::to_string(zero) + ", kept " + std::to_string(kept) +
                                     ", unfilled " + std::to_string(piece.layout.stats.unfilled) + ", rounds " +
                                     std::to_string(piece.rounds) + ")");
-            keepComponent(piece.component);
+            failPiece(piece);
             continue;
         }
-        if (!finishPiece(piece, quads * piece.area / remeshedArea)) {
+        if (!finishPiece(piece, piece.share, assessment)) {
             continue;
         }
         for (i32 length : piece.lengths) {
@@ -1000,7 +1251,7 @@ void Retopology::runLayout(std::vector<Piece>& pieces, f64 edge, f64 quads, f64 
     }
 }
 
-bool Retopology::layoutAlone(Piece& piece, f64 edge) {
+bool Retopology::layoutAlone(Piece& piece, f64 edge, Assessment& assessment, Fallback& fallback) {
     report_.singularities -= std::min(report_.singularities, piece.field.singularityCount());
     preparePiece(piece);
     // At the run's quad edge, as every piece of a layout run is: an edge
@@ -1011,7 +1262,7 @@ bool Retopology::layoutAlone(Piece& piece, f64 edge) {
     }
     extract(piece, edge);
     report_.validityRounds += piece.rounds;
-    return piece.valid;
+    return holdLayout(piece, edge, assessment, fallback);
 }
 
 void Retopology::prepareFieldPiece(Piece& piece, f64 lattice) {
@@ -1085,37 +1336,80 @@ void Retopology::runField(std::vector<Piece>& pieces, f64 edge, f64 quads, f64 r
             return;
         }
         progress(static_cast<u32>(pieces.size() + 1 + i), steps_);
-        const f64 share = quads * piece.area / remeshedArea;
-        const bool split = piece.split;
-        bool good = settle(piece) && LostShare(surface_, piece.component, piece.quads, kLostReach * fine) <=
-                                         (split ? kLostSharePure : kLostShare);
-        // Pure quads come from a lattice twice the quad edge, which a thin part
-        // has too few cells across: where they come out uneven or lose part of
-        // the piece, the lattice at the quad edge, if that does better.
-        if (split) {
-            const bool held = good;
-            const f64 turn = held ? MedianCornerTurn(piece.quads) : 0.0;
-            if (!held || turn > kUneven) {
-                QuadMesh pure = std::move(piece.quads);
+        piece.share = quads * piece.area / remeshedArea;
+        const f64 share = piece.share;
+        // Each try is prepared and measured as it would be taken, and the
+        // first that holds the piece is: pure quads, the lattice at the quad
+        // edge, the layout, the piece as it was.
+        Assessment taken;
+        Fallback fallback;
+        bool good = false;
+        bool pureHolds = false;
+        QuadMesh pure;
+        if (piece.split) {
+            taken = assess(piece, piece.quads, prepare(piece.quads));
+            pureHolds = taken.holds();
+            good = pureHolds && taken.turn <= kUneven;
+            fallback.offer(piece.quads, taken, 0);
+        }
+        if (!good) {
+            // A lattice twice the quad edge has too few cells across a thin
+            // part; where pure quads fold, lose part of the piece or come out
+            // uneven, the lattice at the quad edge, if that does better.
+            if (piece.split) {
+                pure = std::move(piece.quads);
                 solveFine(piece, fine);
-                const bool fineHeld =
-                    settle(piece) && LostShare(surface_, piece.component, piece.quads, kLostReach * fine) <= kLostShare;
-                if (fineHeld && (!held || MedianCornerTurn(piece.quads) + kBetter <= turn)) {
-                    good = true;
-                } else if (held) {
-                    piece.quads = std::move(pure);
-                }
+            }
+            const Assessment fineTry = assess(piece, piece.quads, prepare(piece.quads));
+            fallback.offer(piece.quads, fineTry, 0);
+            if (fineTry.holds() && (!pureHolds || fineTry.turn + kBetter <= taken.turn)) {
+                taken = fineTry;
+                good = true;
+            } else if (pureHolds) {
+                piece.quads = std::move(pure);
+                good = true;
+            }
+        }
+        if (!good && fallback.any) {
+            // Near the bar at the count asked: kept over a finer lattice's
+            // count, or the layout's floor.
+            report_.notes.push_back("a piece's lattice missed the bar narrowly and was taken");
+            piece.quads = std::move(fallback.quads);
+            taken = fallback.assessment;
+            fallback = Fallback{};
+            good = true;
+        }
+        // A part a few cells across -- a buckle, a strap, a plate's rim --
+        // folds in a lattice that coarse: one finer, at some quads over its
+        // share, still beats the layout's floor.
+        for (const f64 finer : kFinerLattices) {
+            if (good || stopped()) {
+                break;
+            }
+            solveFine(piece, finer * fine);
+            const Assessment finerTry = assess(piece, piece.quads, prepare(piece.quads));
+            fallback.offer(piece.quads, finerTry, 0);
+            if (finerTry.holds()) {
+                taken = finerTry;
+                good = true;
             }
         }
         if (!good) {
-            report_.notes.push_back("a piece's lattice made no valid quads, or lost part of it, and the layout took it");
-            if (!layoutAlone(piece, fine)) {
-                report_.notes.push_back("a piece made no valid quads either way and was kept as it was");
-                keepComponent(piece.component);
+            report_.notes.push_back("a piece's lattice did not hold its shape, and the layout took it");
+            if (layoutAlone(piece, fine, taken, fallback)) {
+                ++report_.piecesFellBack;
+            } else if (fallback.any) {
+                report_.notes.push_back("a piece's quads missed the bar narrowly and the nearest try was taken");
+                piece.quads = std::move(fallback.quads);
+                taken = fallback.assessment;
+                report_.piecesFellBack += fallback.from;
+            } else {
+                report_.notes.push_back("a piece's quads did not hold its shape either way and it was kept as it was");
+                failPiece(piece);
                 continue;
             }
         }
-        finishPiece(piece, share, good);
+        finishPiece(piece, share, taken);
     }
 }
 
@@ -1125,30 +1419,6 @@ void Retopology::solveFine(Piece& piece, f64 edge) {
         prepareFieldPiece(piece, edge);
     }
     solveField(piece, edge, false);
-}
-
-bool Retopology::settle(Piece& piece) {
-    RemoveDoublets(piece.quads);
-    piece.validity = CheckQuads(piece.quads);
-    if (!piece.validity.ok() || piece.quads.faceCount() == 0 || EulerOf(piece.quads) != piece.euler) {
-        return false;
-    }
-    CompactQuads(piece.quads);
-    RelaxQuads(piece.quads, surface_, options_.relaxIterations);
-    // Faces turned against the surface are folds the lattice made: a few
-    // round a singular point relax away, many mean it did not hold the piece.
-    u32 folded = 0;
-    for (u32 f = 0; f < piece.quads.faceCount(); ++f) {
-        const std::span<const u32> face = piece.quads.face(f);
-        V3 newell{0.0, 0.0, 0.0};
-        V3 normal{0.0, 0.0, 0.0};
-        for (std::size_t k = 0; k < face.size(); ++k) {
-            newell = newell + Cross(piece.quads.positions[face[k]], piece.quads.positions[face[(k + 1) % face.size()]]);
-            normal = normal + surface_.normal(piece.quads.homes[face[k]]);
-        }
-        folded += Dot(newell, normal) < 0.0 ? 1 : 0;
-    }
-    return folded <= kFolded * piece.quads.faceCount();
 }
 
 RetopoResult Retopology::run() {
@@ -1172,9 +1442,11 @@ RetopoResult Retopology::run() {
     // Pieces, and which are too small to hold a patch.
     std::vector<f64> area(surface_.componentCount, 0.0);
     std::vector<u32> triangles(surface_.componentCount, 0);
+    std::vector<std::vector<u32>> trianglesOf(surface_.componentCount);
     for (u32 t = 0; t < surface_.triangleCount(); ++t) {
         area[surface_.components[t]] += surface_.triangleAreas[t];
         ++triangles[surface_.components[t]];
+        trianglesOf[surface_.components[t]].push_back(t);
     }
     f64 total = 0.0;
     for (f64 a : area) {
@@ -1230,6 +1502,7 @@ RetopoResult Retopology::run() {
             piece.component = c;
             piece.area = area[c];
             piece.triangles = triangles[c];
+            piece.sourceTriangles = std::move(trianglesOf[c]);
             piece.euler = euler[c];
             remeshedArea += area[c];
             pieces.push_back(std::move(piece));

@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <unordered_map>
 
 namespace whiteout {
@@ -152,6 +153,24 @@ QuadMesh ExtractFieldQuads(WorkMesh& mesh, const Surface& surface, const Positio
         }
     }
 
+    // Each vertex's region, from its triangles: one for a free vertex, as no
+    // collapse joins two free vertices across a feature.
+    std::vector<u32> regionOf(mesh.vertexCount(), kNone);
+    std::vector<u8> mixed(mesh.vertexCount(), 0);
+    for (u32 t = 0; t < mesh.triangleCount(); ++t) {
+        if (mesh.dead[t]) {
+            continue;
+        }
+        for (u32 i = 0; i < 3; ++i) {
+            const u32 v = mesh.corners[3 * t + i];
+            if (regionOf[v] == kNone) {
+                regionOf[v] = mesh.regions[t];
+            } else if (regionOf[v] != mesh.regions[t]) {
+                mixed[v] = 1;
+            }
+        }
+    }
+
     // The output vertices: each survivor at its lattice point, on the source.
     QuadMesh quads;
     std::vector<u32> outOf(mesh.vertexCount(), kNone);
@@ -173,7 +192,9 @@ QuadMesh ExtractFieldQuads(WorkMesh& mesh, const Surface& surface, const Positio
             }
         } else if (mesh.kinds[v] == VertexKind::Free) {
             const u32 start = mesh.homes[v].triangle;
-            const SurfacePoint at = surface.locate(std::span<const u32>(&start, 1), target, radius);
+            LocateFilter filter = surface.filterAt(mesh.homes[v]);
+            filter.region = mixed[v] ? kNone : regionOf[v];
+            const SurfacePoint at = surface.locate(std::span<const u32>(&start, 1), target, radius, filter);
             if (at.valid()) {
                 home = at;
                 position = surface.position(at);
@@ -193,6 +214,7 @@ QuadMesh ExtractFieldQuads(WorkMesh& mesh, const Surface& surface, const Positio
     struct Face {
         std::vector<u32> corners; ///< Survivors, counter-clockwise.
         std::vector<u32> sides;   ///< Per side, its work halfedge; kNone for one made here.
+        u32 region = kNone;       ///< The source region of its work triangles.
     };
     const u32 triangles = mesh.triangleCount();
     std::vector<u32> cell(triangles);
@@ -213,7 +235,9 @@ QuadMesh ExtractFieldQuads(WorkMesh& mesh, const Surface& surface, const Positio
         for (u32 i = 0; i < 3; ++i) {
             const u32 he = 3 * t + i;
             const u32 twin = mesh.twins[he];
-            if (twin != kNone && twin > he && !shiftOf(he).unit()) {
+            // Never across a feature: a cell on both sides of a seam would read
+            // two islands of the texture, and of a crease two sheets.
+            if (twin != kNone && twin > he && !shiftOf(he).unit() && !mesh.isFeature(he)) {
                 cell[root(twin / 3)] = root(t);
             }
         }
@@ -227,7 +251,8 @@ QuadMesh ExtractFieldQuads(WorkMesh& mesh, const Surface& surface, const Positio
     std::vector<Face> faces;
     auto addTriangle = [&](u32 t) {
         faces.push_back(Face{{mesh.corners[3 * t], mesh.corners[3 * t + 1], mesh.corners[3 * t + 2]},
-                             {3 * t, 3 * t + 1, 3 * t + 2}});
+                             {3 * t, 3 * t + 1, 3 * t + 2},
+                             mesh.regions[t]});
     };
     std::unordered_map<u32, u32> boundaryFrom; // a cell's boundary, by its start
     for (u32 r = 0; r < triangles; ++r) {
@@ -255,6 +280,7 @@ QuadMesh ExtractFieldQuads(WorkMesh& mesh, const Surface& surface, const Positio
             }
         }
         Face face;
+        face.region = mesh.regions[group[0]];
         if (simple && count >= 3 && count <= kMaxCorners) {
             u32 he = boundaryFrom.begin()->second;
             for (u32 k = 0; k < count; ++k) {
@@ -311,6 +337,7 @@ QuadMesh ExtractFieldQuads(WorkMesh& mesh, const Surface& surface, const Positio
         // a's side i is b's side j turned round: a from the side's end round to
         // its start, then b on from there.
         Face merged;
+        merged.region = a.region;
         const std::size_t na = a.corners.size();
         const std::size_t nb = b.corners.size();
         for (std::size_t k = 1; k < na; ++k) {
@@ -326,6 +353,7 @@ QuadMesh ExtractFieldQuads(WorkMesh& mesh, const Surface& surface, const Positio
         return merged;
     };
     auto edgeKey = [](u32 a, u32 b) { return (static_cast<u64>(std::min(a, b)) << 32) | std::max(a, b); };
+    auto onFeature = [&](u32 side) { return side != kNone && mesh.isFeature(side); };
     for (u32 round = 0; round < 2; ++round) {
         // Each side's two faces.
         std::unordered_map<u64, std::pair<u32, u32>> sideFaces;
@@ -358,7 +386,8 @@ QuadMesh ExtractFieldQuads(WorkMesh& mesh, const Surface& surface, const Positio
                 const u32 b = faces[f].corners[(i + 1) % 3];
                 const auto [x, y] = sideFaces[edgeKey(a, b)];
                 const u32 g = x == f ? y : x;
-                if (g == kNone || g == f || faces[g].corners.size() != partner || (round == 0 && g < f)) {
+                if (g == kNone || g == f || faces[g].corners.size() != partner || (round == 0 && g < f) ||
+                    onFeature(faces[f].sides[i]) || faces[g].region != faces[f].region) {
                     continue;
                 }
                 std::size_t j = 0;
@@ -415,6 +444,7 @@ QuadMesh ExtractFieldQuads(WorkMesh& mesh, const Surface& surface, const Positio
             const u32 d = c.diagonal;
             Face first;
             Face second;
+            first.region = second.region = merged.region;
             for (u32 k = 0; k < 4; ++k) {
                 first.corners.push_back(merged.corners[(d + k) % 6]);
                 first.sides.push_back(k < 3 ? merged.sides[(d + k) % 6] : kNone);
@@ -461,11 +491,13 @@ QuadMesh ExtractFieldQuads(WorkMesh& mesh, const Surface& surface, const Positio
             // Both of v's sides shared: a turns from p through v to q, b back.
             const u32 p = a.corners[(i + na - 1) % na];
             const u32 q = a.corners[(i + 1) % na];
-            if (b.corners[(j + 1) % nb] != p || b.corners[(j + nb - 1) % nb] != q || na + nb < 7) {
+            if (b.corners[(j + 1) % nb] != p || b.corners[(j + nb - 1) % nb] != q || na + nb < 7 ||
+                a.region != b.region || onFeature(a.sides[(i + na - 1) % na]) || onFeature(a.sides[i])) {
                 continue;
             }
             // a from q round to p, then b from p round to q, v left out.
             Face merged;
+            merged.region = a.region;
             for (std::size_t k = 1; k < na; ++k) {
                 merged.corners.push_back(a.corners[(i + k) % na]);
                 merged.sides.push_back(k + 1 < na ? a.sides[(i + k) % na] : b.sides[(j + 1) % nb]);
@@ -544,6 +576,7 @@ QuadMesh ExtractFieldQuads(WorkMesh& mesh, const Surface& surface, const Positio
                 bool clean = true;
                 for (const Face& face : faces) {
                     Face c;
+                    c.region = face.region;
                     const std::size_t m = face.corners.size();
                     for (std::size_t k = 0; k < m && clean; ++k) {
                         const u32 v = face.corners[k] == drop ? keep : face.corners[k];
@@ -640,10 +673,11 @@ QuadMesh ExtractFieldQuads(WorkMesh& mesh, const Surface& surface, const Positio
         (n == 4 ? stats.quads : (n == 3 ? stats.triangles : stats.polygons)) += 1;
     }
 
-    auto addFace = [&](std::initializer_list<u32> corners) {
+    auto addFace = [&](std::initializer_list<u32> corners, u32 region) {
         quads.faceVertices.insert(quads.faceVertices.end(), corners.begin(), corners.end());
         quads.faceOffsets.push_back(static_cast<u32>(quads.faceVertices.size()));
         quads.facePatch.push_back(0);
+        quads.faceRegion.push_back(region);
     };
     if (!split) {
         for (const Face& face : faces) {
@@ -652,6 +686,7 @@ QuadMesh ExtractFieldQuads(WorkMesh& mesh, const Surface& surface, const Positio
             }
             quads.faceOffsets.push_back(static_cast<u32>(quads.faceVertices.size()));
             quads.facePatch.push_back(0);
+            quads.faceRegion.push_back(face.region);
         }
     } else {
         // Each face of n corners as n quads: a point mid-side, shared with the
@@ -665,32 +700,48 @@ QuadMesh ExtractFieldQuads(WorkMesh& mesh, const Surface& surface, const Positio
             quads.curve.push_back(curve);
             return quads.vertexCount() - 1;
         };
-        std::unordered_map<u64, u32> middles;
-        auto middle = [&](u32 a, u32 b, u32 he) {
+        // A side's midpoint is shared with the face across it. Off the features
+        // that face is in the same region, and the point stays in it and on its
+        // sheet; two faces of two regions can join the same corners by two
+        // sides, a seam's and a chord's, so the region is part of the key.
+        std::map<std::pair<u64, u32>, u32> middles;
+        auto middle = [&](u32 a, u32 b, u32 he, const LocateFilter& filter) {
             const u32 oa = outOf[a];
             const u32 ob = outOf[b];
-            const u64 key = edgeKey(oa, ob);
+            const bool feature = he != kNone && mesh.isFeature(he);
+            const std::pair<u64, u32> key{edgeKey(oa, ob), feature ? kNone : filter.region};
             const auto found = middles.find(key);
             if (found != middles.end()) {
                 return found->second;
             }
             const V3 mid = Lerp(quads.positions[oa], quads.positions[ob], 0.5);
             const f64 reach = Distance(quads.positions[oa], quads.positions[ob]) + 0.5 * h;
+            const u32 starts[2] = {quads.homes[oa].triangle, quads.homes[ob].triangle};
             u32 made = kNone;
-            if (he != kNone && mesh.isFeature(he) && mesh.curves[he] != kNone && mesh.kinds[a] != VertexKind::Free &&
-                mesh.kinds[b] != VertexKind::Free) {
+            if (feature) {
+                // On the side's curve, or, where collapses left the side a curve
+                // its ends are not on, on the feature nearest: a seam's point
+                // inside either region would read that side's texture alone.
                 const u32 curve = mesh.curves[he];
-                const FeaturePoint start = CurveStart(mesh, surface, a, curve, mid);
-                const FeaturePoint point = start.valid() ? surface.locateOnCurve(start, mid, reach) : FeaturePoint{};
+                FeaturePoint start = curve != kNone ? CurveStart(mesh, surface, a, curve, mid) : FeaturePoint{};
+                if (!start.valid() && curve != kNone) {
+                    start = CurveStart(mesh, surface, b, curve, mid);
+                }
+                FeaturePoint point = start.valid() ? surface.locateOnCurve(start, mid, reach) : FeaturePoint{};
+                if (!point.valid()) {
+                    point = surface.nearestOnFeature(starts, mid, reach);
+                }
                 if (point.valid()) {
-                    made = addVertex(surface.position(point), surface.toSurface(point), VertexKind::Feature, point, curve);
+                    made = addVertex(surface.position(point), surface.toSurface(point), VertexKind::Feature, point,
+                                     surface.curves[point.halfedge]);
                 }
             }
             if (made == kNone) {
-                const u32 starts[2] = {quads.homes[oa].triangle, quads.homes[ob].triangle};
-                SurfacePoint home = surface.locate(starts, mid, reach);
+                LocateFilter within = filter;
+                within.region = feature ? kNone : filter.region;
+                SurfacePoint home = surface.locate(starts, mid, reach, within);
                 if (!home.valid()) {
-                    home = quads.homes[oa];
+                    home = surface.locate(starts, mid, reach);
                 }
                 made = addVertex(surface.position(home), home, VertexKind::Free, FeaturePoint{}, kNone);
             }
@@ -703,9 +754,15 @@ QuadMesh ExtractFieldQuads(WorkMesh& mesh, const Surface& surface, const Positio
             std::vector<u32> mids(n);
             V3 centroid{0.0, 0.0, 0.0};
             std::vector<u32> starts;
+            // The sheet the face's work triangles lie on, read at their homes.
+            LocateFilter filter{face.region, V3{0.0, 0.0, 0.0}};
+            for (std::size_t i = 0; i < n; ++i) {
+                filter.normal = filter.normal + surface.normal(mesh.homes[face.corners[i]]);
+            }
+            filter.normal = AgreedNormal(filter.normal, static_cast<u32>(n));
             for (std::size_t i = 0; i < n; ++i) {
                 corner[i] = outOf[face.corners[i]];
-                mids[i] = middle(face.corners[i], face.corners[(i + 1) % n], face.sides[i]);
+                mids[i] = middle(face.corners[i], face.corners[(i + 1) % n], face.sides[i], filter);
                 centroid = centroid + quads.positions[corner[i]];
                 starts.push_back(quads.homes[corner[i]].triangle);
             }
@@ -714,13 +771,13 @@ QuadMesh ExtractFieldQuads(WorkMesh& mesh, const Surface& surface, const Positio
             for (std::size_t i = 0; i < n; ++i) {
                 reach = std::max(reach, Distance(centroid, quads.positions[corner[i]]));
             }
-            SurfacePoint home = surface.locate(starts, centroid, reach + 0.5 * h);
+            SurfacePoint home = surface.locate(starts, centroid, reach + 0.5 * h, filter);
             if (!home.valid()) {
-                home = quads.homes[corner[0]];
+                home = surface.locate(starts, centroid, reach + 0.5 * h);
             }
             const u32 centre = addVertex(surface.position(home), home, VertexKind::Free, FeaturePoint{}, kNone);
             for (std::size_t i = 0; i < n; ++i) {
-                addFace({corner[i], mids[i], centre, mids[(i + n - 1) % n]});
+                addFace({corner[i], mids[i], centre, mids[(i + n - 1) % n]}, face.region);
             }
         }
     }

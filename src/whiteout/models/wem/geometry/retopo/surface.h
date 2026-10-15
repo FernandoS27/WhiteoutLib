@@ -76,6 +76,20 @@ enum class VertexKind : u8 {
     Corner,  ///< Never moves.
 };
 
+/// Where a located point may land: in one region, so not across a seam, and
+/// on triangles not facing away from a normal, so not on the far sheet of a
+/// cloth and its lining. The walk may pass through others.
+struct LocateFilter {
+    u32 region = kNone; ///< kNone: any region.
+    V3 normal{0.0, 0.0, 0.0}; ///< Zero: any facing.
+};
+
+/// The facing for a point among @p count normals that sum to @p sum, or none
+/// where they disagree: a chord across a cap reads the rim's two sides.
+inline V3 AgreedNormal(const V3& sum, u32 count) {
+    return count > 0 && Length(sum) >= 0.5 * static_cast<f64>(count) ? sum : V3{0.0, 0.0, 0.0};
+}
+
 class Surface {
 public:
     // --- the triangles -------------------------------------------------------
@@ -145,9 +159,18 @@ public:
      *        of it. The start triangles are always tried, near or not.
      */
     SurfacePoint locate(std::span<const u32> start, const V3& point, f64 radius) const;
+    /// The same walk, the point found only where @p filter allows; invalid
+    /// when no triangle within reach does.
+    SurfacePoint locate(std::span<const u32> start, const V3& point, f64 radius, const LocateFilter& filter) const;
+    /// The filter for a point near @p home: its region, and its normal.
+    LocateFilter filterAt(const SurfacePoint& home) const;
 
     /// The same walk over the feature edges of @p start's curve.
     FeaturePoint locateOnCurve(const FeaturePoint& start, const V3& point, f64 radius) const;
+    /// The point of any feature edge nearest @p point, on the triangles
+    /// `locate`'s walk reaches: for a side that runs along a seam whose curve
+    /// its ends do not name.
+    FeaturePoint nearestOnFeature(std::span<const u32> start, const V3& point, f64 radius) const;
 
     /// The triangles around source vertex @p vertex, in fan order.
     void fan(u32 vertex, std::vector<u32>& triangles) const;

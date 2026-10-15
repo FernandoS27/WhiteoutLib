@@ -53,6 +53,9 @@ struct QuadMesh {
     std::vector<u32> faceOffsets{0};
     std::vector<u32> faceVertices;
     std::vector<u32> facePatch; ///< The layout patch each face came from.
+    /// The source region each face lies in, its corners on it or round it:
+    /// what its attributes are read from, never across a seam.
+    std::vector<u32> faceRegion;
 
     u32 vertexCount() const {
         return static_cast<u32>(positions.size());
@@ -101,7 +104,27 @@ void CompactQuads(QuadMesh& quads);
 /// Evens the quads on the source: each vertex toward the mean of its
 /// neighbours in its tangent plane, a feature vertex along its curve, a
 /// corner never; re-homed after each move, and no move that folds a face.
-void RelaxQuads(QuadMesh& quads, const Surface& surface, u32 iterations, f64 step = 0.5);
+/// With @p movable, only the vertices it marks move.
+void RelaxQuads(QuadMesh& quads, const Surface& surface, u32 iterations, f64 step = 0.5,
+                std::span<const u8> movable = {});
+
+/// Faces turned against the surface under them.
+u32 CountFolded(const QuadMesh& quads, const Surface& surface);
+
+/// The mesh build drops a face whose area f32 rounding cannot tell from none
+/// (`MeshBuilder`'s repair), which opens a hole: its test, on the positions as
+/// they will be stored.
+bool DegenerateFace(const QuadMesh& quads, u32 face);
+
+/// Mends the faces `DegenerateFace` finds: two corners of a side of one on a
+/// point become one, the stronger kind kept, and one flat along a line goes
+/// into the face across its longest side. Returns how many it mended.
+u32 RepairDegenerate(QuadMesh& quads);
+
+/// Takes folds out where relaxing left them: the corners of each folded face
+/// and their neighbours moved the whole way to their neighbours' mean, a move
+/// kept only where it turns fewer faces over. Returns the folds left.
+u32 UnfoldQuads(QuadMesh& quads, const Surface& surface, u32 rounds);
 
 /// Faces whose corners repeat, edges shared by more than two faces, and edges
 /// two faces run the same way: what a valid output must have none of.
