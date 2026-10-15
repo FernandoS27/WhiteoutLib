@@ -758,7 +758,8 @@ TEST_CASE("wem triangulation rows survive a .wem round trip", "[wem][geometry][t
 
 TEST_CASE("wem triangulation a v1 MESH reads with no table", "[wem][geometry][triangulation]") {
     // Every MESH chunk stamped version 1, as a writer from before the table
-    // would have: one mesh, so the table is all that follows the bounds.
+    // would have: one mesh, so the table and the v3 StarCraft II bounds are
+    // all that follow the bounds.
     Mesh mesh = shearedQuads(2, 2);
     storeLongerCuts(mesh);
     Writer writer;
@@ -773,7 +774,7 @@ TEST_CASE("wem triangulation a v1 MESH reads with no table", "[wem][geometry][tr
         if (entry.tag != ChunkTagTraits<Mesh>::value) {
             continue;
         }
-        CHECK(entry.version == 2u);
+        CHECK(entry.version == 3u);
         entry.version = 1;
         std::memcpy(at, &entry, sizeof(entry));
         ++stamped;

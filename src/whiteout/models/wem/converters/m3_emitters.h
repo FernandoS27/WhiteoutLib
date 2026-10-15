@@ -123,7 +123,6 @@ namespace m3_emitters {
 
 /// One `SRIB`'s, keyed per element of the ribbon's spline.
 #define WHITEOUT_SC2_SPLINE_REFS(X)                                                                \
-    X(SplineVelocity, velocity, velocity)                                                          \
     X(SplineVelocityBaseFactor, velocityBaseFactor, velocityBaseFactor)                            \
     X(SplineVelocityEndFactor, velocityEndFactor, velocityEndFactor)                               \
     X(SplineYawAmplitude, yawAmplitude, yawVariation.amplitude)                                    \

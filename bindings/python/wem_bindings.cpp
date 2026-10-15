@@ -946,6 +946,14 @@ Closed on purpose. A source property with no entry here is **dropped with an `An
         .value("SOFT_LUMP_TRANSLATION", whiteout::models::wem::Channel::SoftLumpTranslation, R"doc(F32x3. Along the model's axes at the bind.)doc")
         .value("SOFT_LUMP_ROTATION", whiteout::models::wem::Channel::SoftLumpRotation, R"doc(Quat. About the lump's pivot.)doc")
         .value("SOFT_LUMP_SCALE", whiteout::models::wem::Channel::SoftLumpScale, R"doc(F32x3. About the lump's pivot, along the model's axes at the bind.)doc")
+        .value("COLOR_ADD", whiteout::models::wem::Channel::ColorAdd, R"doc(F32. LAYR `rgbAdd`.)doc")
+        .value("UV_W_TRANSLATE", whiteout::models::wem::Channel::UvWTranslate, R"doc(F32. LAYR `wOffset`: a volume texture's third coordinate.)doc")
+        .value("UV_W_SCALE", whiteout::models::wem::Channel::UvWScale, R"doc(F32. LAYR `wTiling`.)doc")
+        .value("TRIPLANAR_TRANSLATE", whiteout::models::wem::Channel::TriplanarTranslate, R"doc(F32x3. LAYR `triplanarOffset`, as the file has it.)doc")
+        .value("TRIPLANAR_SCALE", whiteout::models::wem::Channel::TriplanarScale, R"doc(F32x3. LAYR `triplanarScale`, as the file has it.)doc")
+        .value("PARALLAX_HEIGHT", whiteout::models::wem::Channel::ParallaxHeight, R"doc(F32. `MAT_` `parallaxHeight`, `sub` `kWholeMaterial`.)doc")
+        .value("MOTION_BLUR", whiteout::models::wem::Channel::MotionBlur, R"doc(F32. `MAT_` `motionBlurAmount`, `sub` `kWholeMaterial`.)doc")
+        .value("SECTION_WEIGHT", whiteout::models::wem::Channel::SectionWeight, R"doc(F32. A composite's `CMS_` `mapMultiplier`, `sub` the section.)doc")
         .value("COUNT", whiteout::models::wem::Channel::Count)
     ;
 
@@ -1631,13 +1639,6 @@ Deterministic and idempotent. Fails only on a non-manifold face set, which `Mesh
         .def_readwrite("color", &whiteout::models::wem::Wc3ParticleSegment::color, R"doc(RGB, red first — the static-colour order.)doc")
         .def_readwrite("alpha", &whiteout::models::wem::Wc3ParticleSegment::alpha)
         .def_readwrite("scaling", &whiteout::models::wem::Wc3ParticleSegment::scaling, R"doc(The quad's size, in model units.)doc")
-    ;
-
-    py::class_<whiteout::models::wem::Wc3ParticleInterval>(m, "Wc3ParticleInterval", R"doc(A flipbook run: cells `start..end`, `repeat` times over the span.)doc")
-        .def(py::init<>())
-        .def_readwrite("start", &whiteout::models::wem::Wc3ParticleInterval::start)
-        .def_readwrite("end", &whiteout::models::wem::Wc3ParticleInterval::end)
-        .def_readwrite("repeat", &whiteout::models::wem::Wc3ParticleInterval::repeat)
     ;
 
     bind_wem_1(m);

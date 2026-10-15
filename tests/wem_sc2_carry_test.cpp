@@ -7,6 +7,8 @@
 /// as the record it was read from, straight and through a `.wem`; and a `.wem`
 /// written before each of those blocks reads with none.
 
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <optional>
 #include <span>
@@ -16,8 +18,11 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <whiteout/models/m3/writer.h>
+#include <whiteout/models/wem/anim/m3_math.h>
 #include <whiteout/models/wem/anim/stages.h>
 #include <whiteout/models/wem/converters.h>
+#include <whiteout/models/wem/geometry/attributes.h>
 #include <whiteout/models/wem/parser.h>
 #include <whiteout/models/wem/profile.h>
 #include <whiteout/models/wem/validate.h>
@@ -637,4 +642,366 @@ TEST_CASE("wem a .wem written before S1 reads with none of its blocks", "[wem][f
     CHECK(key.option.empty());
     CHECK(key.unknown == 0xFFFFFFFFu);
     CHECK(key.extra == 0u);
+}
+
+TEST_CASE("wem m3 the export map names each region's section, vertices and faces", "[wem][m3][s3]") {
+    // EDIT_MODE_SC2_PROFILE_PLAN.md S3.2: the drawn file's M3 arm reaches a
+    // drawn vertex or triangle through these, so each must be the export's.
+    const Document document = wemfix::makeDocument(ProfileId::Sc2);
+    const Mesh& mesh = document.models[0].meshes[0];
+    M3ExportMap map;
+    const Result<m3::Model> written = M3Converter{}.toM3(document, ProfileId::Sc2, 0, {}, &map);
+    REQUIRE(written.ok());
+    REQUIRE(written->divisions.size() == 1u);
+    const m3::MeshDivision& division = written->divisions[0];
+    REQUIRE(map.regionElements.size() == division.regions.size());
+    REQUIRE(map.regionMesh.size() == division.regions.size());
+    REQUIRE(map.regionSection.size() == division.regions.size());
+    REQUIRE(map.regionPalette.size() == division.regions.size());
+    const auto positions = mesh.attributes.get<Vector3f>(geom::names::kPosition, geom::Domain::Vertex);
+    for (u32 r = 0; r < division.regions.size(); ++r) {
+        CAPTURE(r);
+        const m3::Region& region = division.regions[r];
+        const DrawnElements& drawn = map.regionElements[r];
+        CHECK(map.regionMesh[r] == 0u);
+        CHECK(map.regionSection[r] == r);
+        CHECK(map.sectionRegion[0][r] == r);
+        REQUIRE(drawn.vertices.size() == region.vertexCount);
+        REQUIRE(drawn.halfedges.size() == region.vertexCount);
+        REQUIRE(drawn.triangles.size() == region.indexCount);
+        REQUIRE(drawn.triangleFaces.size() == region.indexCount / 3);
+        for (u32 i = 0; i < region.indexCount; ++i) {
+            CHECK(drawn.triangles[i] == division.faces[region.firstIndex + i]);
+            REQUIRE(drawn.triangles[i] < drawn.vertices.size());
+        }
+        // One triangle per section, on its own three vertices, in face order.
+        for (const u32 face : drawn.triangleFaces) {
+            CHECK(face == r);
+        }
+        for (const u32 vertex : drawn.vertices) {
+            REQUIRE(vertex < positions.size());
+            CHECK(positions[vertex].x >= static_cast<f32>(r) * 4.0f);
+            CHECK(positions[vertex].x <= static_cast<f32>(r) * 4.0f + 1.0f);
+        }
+    }
+    // The preview's map is the same export, run for the map alone.
+    const M3ExportMap again = M3ExportMapOf(document, ProfileId::Sc2);
+    CHECK(again.regionSection == map.regionSection);
+    CHECK(again.regionPalette == map.regionPalette);
+    CHECK(again.clipSequence == map.clipSequence);
+}
+
+TEST_CASE("wem m3 a bone's scale crosses into WEM's axes and back, and an older file's is traded on read",
+          "[wem][m3][s3]") {
+    // G-S3e found it: a scale kept in the file's axes poses a bone scaled
+    // unevenly another way than the game does.
+    m3::Model shipped = shippedModel();
+    shipped.bones[4].scale.initValue = Vector3f{2, 3, 4};
+    shipped.bones[4].rotation.initValue = Quaternion{0, 0, 0.3826834f, 0.9238795f};
+    M3Converter converter;
+    Result<Document> read = converter.fromM3(shipped, ProfileId::Sc2);
+    REQUIRE(read.ok());
+    Document document = *read.value;
+    Node& gun = document.models[0].nodes.nodes[4];
+    CHECK(gun.local.scale.x == 3.0f);
+    CHECK(gun.local.scale.y == 2.0f);
+    CHECK(gun.local.scale.z == 4.0f);
+    // The local in WEM's axes is the file's, conjugated: the frame the game
+    // composes.
+    Transform file;
+    file.translation = shipped.bones[4].position.initValue;
+    file.rotation = shipped.bones[4].rotation.initValue;
+    file.scale = shipped.bones[4].scale.initValue;
+    const Matrix44f back = M3FrameOf(ToMatrix(gun.local));
+    const Matrix44f wanted = ToMatrix(file);
+    for (int r = 0; r < 4; ++r)
+        for (int c = 0; c < 4; ++c)
+            CHECK(std::abs(back.data[r][c] - wanted.data[r][c]) < 1e-5f);
+    const Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    const auto gunBone = std::find_if(written->bones.begin(), written->bones.end(),
+                                      [](const m3::Bone& b) { return b.name == "Bone_Gun"; });
+    REQUIRE(gunBone != written->bones.end());
+    CHECK(gunBone->scale.initValue.x == 2.0f);
+    CHECK(gunBone->scale.initValue.y == 3.0f);
+
+    // A scale key on it, as a NODE v22 file kept it: in the file's axes.
+    Model& model = document.models[0];
+    AnimChannel channel;
+    channel.id = model.animChannels.nextFreeId();
+    channel.target.kind = TrackTarget::Kind::Node;
+    channel.target.node = 4;
+    channel.target.channel = Channel::Scale;
+    channel.valueType = geom::AttrType::F32x3;
+    const Vector3f rest{3, 2, 4}, key{6, 5, 7};
+    channel.initValue.resize(sizeof(rest));
+    std::memcpy(channel.initValue.data(), &rest, sizeof(rest));
+    model.animChannels.add(channel);
+    Clip clip;
+    clip.name = "Grow";
+    clip.model = 0;
+    clip.duration = 1.0f;
+    SubTrack track;
+    track.channel = channel.id;
+    track.times = {0.0f};
+    track.values.resize(sizeof(key));
+    std::memcpy(track.values.data(), &key, sizeof(key));
+    clip.containers.emplace_back().subTracks.push_back(track);
+    document.clips.push_back(clip);
+
+    std::vector<u8> bytes = writeWem(document);
+    const auto reread = [&] {
+        std::optional<Document> parsed = Parser().parse(std::span<const u8>(bytes.data(), bytes.size()));
+        REQUIRE(parsed);
+        return *parsed;
+    };
+    const auto scaleOf = [](const Document& d) { return d.models[0].nodes.nodes[4].local.scale; };
+    const auto keyOf = [](const Document& d) {
+        Vector3f v;
+        std::memcpy(&v, d.clips.back().containers[0].subTracks[0].values.data(), sizeof(v));
+        return v;
+    };
+    // Written now, it reads as written.
+    {
+        const Document now = reread();
+        CHECK(scaleOf(now).x == 3.0f);
+        CHECK(keyOf(now).x == 6.0f);
+    }
+    // Stamped v22, it was the file's: traded, rest, channel rest and key.
+    for (const Chunk& chunk : chunksTagged(bytes, ChunkTagTraits<Node>::value)) {
+        IndexEntry entry = chunk.entry;
+        entry.version = 22;
+        WEMHeader header{};
+        std::memcpy(&header, bytes.data(), sizeof(header));
+        std::memcpy(bytes.data() + header.indexOffset + chunk.slot * sizeof(IndexEntry), &entry, sizeof(entry));
+    }
+    const Document old = reread();
+    CHECK(scaleOf(old).x == 2.0f);
+    CHECK(scaleOf(old).y == 3.0f);
+    CHECK(keyOf(old).x == 5.0f);
+    CHECK(keyOf(old).y == 6.0f);
+    Vector3f channelRest;
+    std::memcpy(&channelRest, old.models[0].animChannels.channels.back().initValue.data(), sizeof(channelRest));
+    CHECK(channelRest.x == 2.0f);
+}
+
+namespace {
+
+m3::TextureLayer paintLayer(const char* path) {
+    m3::TextureLayer layer;
+    layer.texturePath = path;
+    layer.color.initValue = m3::ColorBGRA{255, 255, 255, 255};
+    layer.mapAlpha.initValue = 1.0f;
+    return layer;
+}
+
+/// `shippedModel()` wearing one Standard material: a diffuse and a specular.
+m3::Model paintedModel() {
+    m3::Model model = shippedModel();
+    m3::StandardMaterial standard;
+    standard.name = "painted";
+    standard.diffuseLayer = paintLayer("diffuse.dds");
+    standard.specularLayer = paintLayer("spec.dds");
+    model.standardMaterials.push_back(standard);
+    m3::MaterialMap entry;
+    entry.materialType = m3::MaterialType::Standard;
+    entry.materialIndex = 0;
+    model.materialMaps.push_back(entry);
+    return model;
+}
+
+native::M3Material blockOf(const Document& document) {
+    return std::get<native::M3Material>(document.models[0].setFor(ProfileId::Sc2)->materials[0].Native());
+}
+
+native::M3Standard& standardOf(native::M3Material& block) {
+    return std::get<native::M3Standard>(block.body);
+}
+
+std::vector<u8> writtenM3(const Document& document) {
+    const Result<m3::Model> written = M3Converter{}.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    return m3::Writer().write(*written);
+}
+
+AnimChannel layerChannel(Model& model, u32 ordinal) {
+    AnimChannel channel;
+    channel.id = model.animChannels.nextFreeId();
+    channel.target.kind = TrackTarget::Kind::MaterialLayer;
+    channel.target.material.profile = ProfileId::Sc2;
+    channel.target.material.slot = 0;
+    channel.target.sub = ordinal;
+    channel.target.channel = Channel::Alpha;
+    channel.valueType = geom::AttrType::F32;
+    return channel;
+}
+
+} // namespace
+
+TEST_CASE("wem m3 a material block edited in place writes back that field and nothing else", "[wem][m3][s4]") {
+    const M3Converter converter;
+    Result<Document> read = converter.fromM3(paintedModel(), ProfileId::Sc2);
+    REQUIRE(read.ok());
+    Document document = *read.value;
+    const std::vector<u8> was = writtenM3(document);
+
+    // Unchanged, it is the same file.
+    MaterialBlockResult same = converter.setMaterialBlock(document, {0, ProfileId::Sc2, 0, blockOf(document)});
+    REQUIRE(same.ok);
+    CHECK(writtenM3(document) == was);
+    CHECK(document.models[0].setFor(ProfileId::Sc2)->materials[0].sync() == NativeSync::InSync);
+
+    // One field: that field, and the file otherwise as it was.
+    native::M3Material block = blockOf(document);
+    standardOf(block).priority = 3;
+    REQUIRE(converter.setMaterialBlock(document, {0, ProfileId::Sc2, 0, block}).ok);
+    const Result<m3::Model> edited = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(edited.ok());
+    REQUIRE(edited->standardMaterials.size() == 1u);
+    CHECK(edited->standardMaterials[0].priority == 3);
+    m3::Model restored = *edited;
+    restored.standardMaterials[0].priority = 0;
+    CHECK(m3::Writer().write(restored) == was);
+
+    // Not a StarCraft set: refused, nothing written.
+    CHECK_FALSE(converter.setMaterialBlock(document, {0, ProfileId::Wc3Reforged, 0, block}).ok);
+}
+
+TEST_CASE("wem m3 a block edit adds its new paths and carries a channel by its layer", "[wem][m3][s4]") {
+    const M3Converter converter;
+    Result<Document> read = converter.fromM3(paintedModel(), ProfileId::Sc2);
+    REQUIRE(read.ok());
+    Document document = *read.value;
+    Model& model = document.models[0];
+    // The specular is ordinal 1, after the diffuse.
+    const u32 id = model.animChannels.channels[model.animChannels.add(layerChannel(model, 1))].id;
+    const auto target = [&]() -> const TrackTarget& { return model.animChannels.find(id)->target; };
+    const std::size_t textures = document.textures.size();
+
+    // A decal goes between them: a new texture, and the channel follows its layer.
+    native::M3Material block = blockOf(document);
+    standardOf(block).decalLayer = native::M3TextureLayer{};
+    standardOf(block).decalLayer->texturePath = "decal.dds";
+    standardOf(block).decalLayer->mapAlpha.initValue = 1.0f;
+    MaterialBlockResult added = converter.setMaterialBlock(document, {0, ProfileId::Sc2, 0, block});
+    REQUIRE(added.ok);
+    CHECK(document.textures.size() == textures + 1);
+    CHECK(document.textures.back().path == "decal.dds");
+    CHECK(added.channelsRemapped == 1u);
+    CHECK(target().sub == 2u);
+
+    // The specular gone: the channel is invalidated, never dropped.
+    block = blockOf(document);
+    standardOf(block).specularLayer.reset();
+    MaterialBlockResult removed = converter.setMaterialBlock(document, {0, ProfileId::Sc2, 0, block});
+    REQUIRE(removed.ok);
+    CHECK(removed.channelsInvalidated == 1u);
+    CHECK(target().material.slot == kInvalidIndex);
+}
+
+TEST_CASE("wem m3 a channel the block does not name binds to its layer on export", "[wem][m3][s4]") {
+    const M3Converter converter;
+    Result<Document> read = converter.fromM3(paintedModel(), ProfileId::Sc2);
+    REQUIRE(read.ok());
+    Document document = *read.value;
+    Model& model = document.models[0];
+    const AnimChannel made = model.animChannels.channels[model.animChannels.add(layerChannel(model, 0))];
+    REQUIRE_FALSE(document.clips.empty());
+    SubTrack track;
+    track.channel = made.id;
+    track.times = {0.0f, 0.5f};
+    for (const f32 alpha : {1.0f, 0.25f}) {
+        const u8* bytes = reinterpret_cast<const u8*>(&alpha);
+        track.values.insert(track.values.end(), bytes, bytes + sizeof(alpha));
+    }
+    document.clips[0].containers[0].subTracks.push_back(track);
+
+    const Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    REQUIRE(written->standardMaterials.size() == 1u);
+    const m3::AnimRef<f32>& alpha = written->standardMaterials[0].diffuseLayer->mapAlpha;
+    CHECK(alpha.animId != 0u);
+    CHECK(alpha.flags == 0x6);
+    bool streamed = false;
+    for (const m3::SubTrackContainer& stc : written->subTrackCollections)
+        streamed = streamed || std::find(stc.animIds.begin(), stc.animIds.end(), alpha.animId) != stc.animIds.end();
+    CHECK(streamed);
+    // The specular, which no channel names, keeps its rest.
+    CHECK(written->standardMaterials[0].specularLayer->mapAlpha.flags == 0);
+}
+
+TEST_CASE("wem m3 a new material takes the model's style and one diffuse over its colour map", "[wem][m3][s4]") {
+    const M3Converter converter;
+    m3::Model styled = paintedModel();
+    styled.standardMaterials[0].blendMode = m3::BlendMode::AlphaBlend;
+    styled.standardMaterials[0].flags = m3::MaterialFlag::GeometryVisible | m3::MaterialFlag::TwoSided |
+                                        m3::MaterialFlag::NormalBlend;
+    Result<Document> read = converter.fromM3(styled, ProfileId::Sc2);
+    REQUIRE(read.ok());
+    const Document& document = *read.value;
+    REQUIRE(document.textures.size() >= 2u);
+
+    native::M3Material made = converter.defaultMaterialBlock(document, 0, ProfileId::Sc2, 1);
+    const native::M3Standard& standard = standardOf(made);
+    CHECK(standard.blendMode == static_cast<native::M3BlendMode>(m3::BlendMode::AlphaBlend));
+    // The style's flags, but not the normal blend: no factors came with it.
+    CHECK(static_cast<u32>(standard.flags) ==
+          static_cast<u32>(m3::MaterialFlag::GeometryVisible | m3::MaterialFlag::TwoSided));
+    REQUIRE(standard.diffuseLayer.has_value());
+    CHECK(standard.diffuseLayer->texturePath == document.textures[1].path);
+    CHECK(standard.diffuseLayer->rgbMultiply.initValue == 1.0f);
+    CHECK_FALSE(standard.specularLayer.has_value());
+
+    // A model with no material yet gets the drawn floor.
+    Result<Document> bare = converter.fromM3(shippedModel(), ProfileId::Sc2);
+    REQUIRE(bare.ok());
+    Document empty = *bare.value;
+    empty.textures.push_back(TextureRef{});
+    empty.textures.back().path = "a.dds";
+    native::M3Material floor = converter.defaultMaterialBlock(empty, 0, ProfileId::Sc2, 0);
+    CHECK(static_cast<u32>(standardOf(floor).flags) == static_cast<u32>(m3::MaterialFlag::GeometryVisible));
+    CHECK(standardOf(floor).diffuseLayer->texturePath == "a.dds");
+}
+
+TEST_CASE("wem m3 the export map names each emitter node's runtime emitter", "[wem][m3][s5]") {
+    // EDIT_MODE_SC2_PROFILE_PLAN.md S5.3: a PAR_ is its own emitter, a PARC
+    // a slot of its source's, a RIB_ its ribbon.
+    m3::Model model = shippedModel();
+    m3::ParticleEmitter first;
+    first.boneIndex = 4;
+    m3::ParticleEmitter second;
+    second.boneIndex = 5;
+    second.copyIndices = {0};
+    model.particleEmitters = {first, second};
+    m3::ParticleEmitterCopy copy;
+    copy.boneIndex = 2;
+    model.particleEmitterCopies = {copy};
+    m3::RibbonEmitter ribbon;
+    ribbon.boneIndex = 3;
+    model.ribbonEmitters = {ribbon};
+    const M3Converter converter;
+    Result<Document> read = converter.fromM3(model, ProfileId::Sc2);
+    REQUIRE(read.ok());
+    const Document& document = *read.value;
+    M3ExportMap map;
+    REQUIRE(converter.toM3(document, ProfileId::Sc2, 29, {}, &map).ok());
+    const NodeTree& tree = document.models[0].nodes;
+    REQUIRE(map.nodeEmitter.size() == tree.size());
+    std::vector<u32> particles, copies, ribbons;
+    for (u32 n = 0; n < tree.size(); ++n) {
+        const Node& node = tree.nodes[n];
+        if (const auto* particle = std::get_if<Sc2ParticleEmitterPayload>(&node.payload))
+            (particle->isCopy() ? copies : particles).push_back(n);
+        else if (node.kind == NodeKind::Sc2RibbonEmitter)
+            ribbons.push_back(n);
+        else
+            CHECK(map.nodeEmitter[n] == kInvalidIndex);
+    }
+    REQUIRE(particles.size() == 2u);
+    REQUIRE(copies.size() == 1u);
+    REQUIRE(ribbons.size() == 1u);
+    CHECK(map.nodeEmitter[particles[0]] == 0u);
+    CHECK(map.nodeEmitter[particles[1]] == 1u);
+    CHECK(map.nodeEmitter[copies[0]] == 1u);
+    CHECK(map.nodeEmitter[ribbons[0]] == 0u);
 }

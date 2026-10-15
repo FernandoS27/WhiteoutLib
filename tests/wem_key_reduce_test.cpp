@@ -307,7 +307,9 @@ Reads CompareReads(const Document& before, const Document& after, bool byTarget)
         const std::vector<i32> times = TimesOf(before.clips[c]);
         for (const AnimChannel& channel : before.models[0].animChannels.channels) {
             const AnimChannel* other = nullptr;
-            if (byTarget) {
+            // A carried `.m3` stream keeps its id through the file, and its
+            // target is only its value slot, which many share.
+            if (byTarget && channel.target.kind != TrackTarget::Kind::Native) {
                 const auto found = others.find(keyOf(channel.target));
                 other = found != others.end() ? found->second : nullptr;
             } else {

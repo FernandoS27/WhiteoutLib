@@ -180,7 +180,8 @@ void rescaleEmitter(NodePayload& payload, f32 factor) {
         scale(sr->size.amplitude, factor);
         for (Sc2RibbonSplinePoint& point : sr->splinePoints) {
             scale(point.emissionOffset, factor);
-            scale(point.velocity, factor);
+            point.endTangent = point.endTangent * factor;
+            point.endOffset = point.endOffset * factor;
             scale(point.velocityVariation.amplitude, factor);
         }
     }

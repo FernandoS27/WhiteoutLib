@@ -399,7 +399,8 @@ m3::Model makeM3() {
     m3::SplineRibbon point;
     point.boneIndex = 0;
     point.emissionOffset = Vector3f{0, 1, 0};
-    point.velocity = ref(0, 4.0f);
+    point.endTangent = Vector3f{0, 0, 4.0f};
+    point.endOffset = Vector3f{1.0f, 2.0f, 3.0f};
     point.yawType = 1;
     point.yawAmplitude = ref(0, 0.25f);
     ribbon.splineRibbons.push_back(point);
@@ -1210,6 +1211,11 @@ TEST_CASE("wem m3 carries PAR_, PARC and RIB_ both ways", "[wem][node][emitter]"
     CHECK(rib.splineRibbons[0].boneIndex == 0u);
     CHECK(rib.splineRibbons[0].emissionOffset.y == 1.0f);
     CHECK(rib.splineRibbons[0].yawAmplitude.initValue == 0.25f);
+    // The end vectors whole: the community layout's AnimRef kept three of six.
+    CHECK(rib.splineRibbons[0].endTangent.z == 4.0f);
+    CHECK(rib.splineRibbons[0].endOffset.x == 1.0f);
+    CHECK(rib.splineRibbons[0].endOffset.y == 2.0f);
+    CHECK(rib.splineRibbons[0].endOffset.z == 3.0f);
 }
 
 // ============================================================================

@@ -328,6 +328,12 @@ Quaternion RebaseRotation(const Quaternion& q) {
     return Quaternion{-q.y, q.x, q.z, q.w};
 }
 
+/// A bone's scale through the same change: X and Y traded, as `m3_converter`
+/// trades the rest's. Its own inverse.
+Vector3f RebaseScale(const Vector3f& v) {
+    return Vector3f{v.y, v.x, v.z};
+}
+
 /// BGRA bytes into RGBA floats. M3 stores a colour the way the hardware wanted
 /// it in 2010, and the byte order is the half worth writing down.
 Vector4f ToRgba(const m3::ColorBGRA& color) {
@@ -435,6 +441,7 @@ struct Declared {
     Interpolation interp = Interpolation::Linear;
     bool rebaseVector = false;
     bool rebaseQuaternion = false;
+    bool rebaseScale = false;
 };
 
 /// AnimRef flags bit 4: step iff set.
@@ -480,7 +487,10 @@ bool Decode(const m3::SubTrackContainer& stc, u32 animRef, const Declared& chann
         }
         stamp(stc.sd3v[block].timestamps);
         for (const Vector3f& key : stc.sd3v[block].keys) {
-            AppendBytes(channel.rebaseVector ? Rebase(key) : key, values);
+            AppendBytes(channel.rebaseVector  ? Rebase(key)
+                        : channel.rebaseScale ? RebaseScale(key)
+                                              : key,
+                        values);
         }
         break;
     }
@@ -604,7 +614,7 @@ private:
     /// AnimRefs sharing an id share a stream, which is legal.
     template <class T>
     void declare(const m3::AnimRef<T>& ref, geom::AttrType type, const TrackTarget& target,
-                 bool rebaseVector = false, bool rebaseQuaternion = false) {
+                 bool rebaseVector = false, bool rebaseQuaternion = false, bool rebaseScale = false) {
         if (!ref.isAnimated() || model_.animChannels.find(ref.animId) != nullptr) {
             return;
         }
@@ -612,7 +622,7 @@ private:
         channel.id = ref.animId;
         channel.target = target;
         channel.valueType = type;
-        channel.initValue = restValue(ref.initValue, type, rebaseVector, rebaseQuaternion);
+        channel.initValue = restValue(ref.initValue, type, rebaseVector, rebaseQuaternion, rebaseScale);
         model_.animChannels.add(channel);
 
         Declared declared;
@@ -627,18 +637,28 @@ private:
         }
         declared.rebaseVector = rebaseVector;
         declared.rebaseQuaternion = rebaseQuaternion;
+        declared.rebaseScale = rebaseScale;
         declared_.push_back(declared);
+    }
+
+    /// `declare`, for a ref this file's own containers key: one the import never
+    /// declared rides as `Native` until something keys it (S4.3).
+    template <class T>
+    void declareKeyed(const m3::AnimRef<T>& ref, geom::AttrType type, const TrackTarget& target) {
+        if (ownIds().count(ref.animId) != 0) {
+            declare(ref, type, target);
+        }
     }
 
     /// The AnimRef's `initValue`, in the channel's own type and basis — the rest
     /// value an opaque container contributes for an un-keyed channel (§10.8.1).
     template <class T>
     static std::vector<u8> restValue(const T& value, geom::AttrType type, bool rebaseVector,
-                                     bool rebaseQuaternion) {
+                                     bool rebaseQuaternion, bool rebaseScale = false) {
         std::vector<u8> bytes;
         if constexpr (std::is_same_v<T, Vector3f>) {
             if (type == geom::AttrType::F32x3) {
-                AppendBytes(rebaseVector ? Rebase(value) : value, bytes);
+                AppendBytes(rebaseVector ? Rebase(value) : rebaseScale ? RebaseScale(value) : value, bytes);
             }
         } else if constexpr (std::is_same_v<T, Quaternion>) {
             if (type == geom::AttrType::Quat) {
@@ -692,11 +712,10 @@ private:
                     true, false);
             declare(bone.rotation, geom::AttrType::Quat, nodeTarget(node, Channel::Rotation), false,
                     true);
-            // Scale is not rebased, matching the rest transform the node import
-            // wrote: a componentwise scale in a frame the basis change permutes
-            // is a question `m3_converter` answers, and answering it differently
-            // here would make the rest pose and the motion disagree.
-            declare(bone.scale, geom::AttrType::F32x3, nodeTarget(node, Channel::Scale));
+            // Scale with its X and Y traded, as the node import trades the
+            // rest's: the rest pose and the motion read one way.
+            declare(bone.scale, geom::AttrType::F32x3, nodeTarget(node, Channel::Scale), false, false,
+                    true);
             declare(bone.visibility, geom::AttrType::F32, nodeTarget(node, Channel::Visibility));
         }
     }
@@ -815,25 +834,46 @@ private:
         }
     }
 
-    /// Standard materials only. A `MADD` restores to a *temporary*
-    /// `StandardMaterial`, so its AnimRefs have no home in the parsed model to
-    /// point back at — the blob keeps them and WEM's channel table cannot.
+    /// Standard materials, and a composite's section weights. A `MADD` restores
+    /// to a *temporary* `StandardMaterial`, so its AnimRefs have no home in the
+    /// parsed model to point back at — the blob keeps them and WEM's channel
+    /// table cannot.
     void declareMaterialChannels() {
         ProfileMaterialSet* set = model_.setFor(context_.profile);
         if (set == nullptr) {
             return;
         }
         for (std::size_t m = 0; m < source_.materialMaps.size(); ++m) {
+            TrackTarget whole;
+            whole.kind = TrackTarget::Kind::MaterialLayer;
+            whole.material.profile = context_.profile;
+            whole.material.slot = static_cast<u32>(m);
+            whole.material.look = 0;
+            const std::size_t index = source_.materialMaps[m].materialIndex;
+            if (source_.materialMaps[m].materialType == m3::MaterialType::Composite &&
+                index < source_.compositeMaterials.size()) {
+                const auto& sections = source_.compositeMaterials[index].sections;
+                whole.channel = Channel::SectionWeight;
+                for (std::size_t k = 0; k < sections.size(); ++k) {
+                    whole.sub = static_cast<u32>(k);
+                    declareKeyed(sections[k].mapMultiplier, geom::AttrType::F32, whole);
+                }
+                continue;
+            }
             if (source_.materialMaps[m].materialType != m3::MaterialType::Standard ||
                 m >= context_.layerOrdinals.size()) {
                 continue;
             }
-            const std::size_t index = source_.materialMaps[m].materialIndex;
             if (index >= source_.standardMaterials.size()) {
                 continue;
             }
             const m3::StandardMaterial& material = source_.standardMaterials[index];
             const std::vector<u32>& ordinals = context_.layerOrdinals[m];
+            whole.sub = kWholeMaterial;
+            whole.channel = Channel::ParallaxHeight;
+            declareKeyed(material.parallaxHeight, geom::AttrType::F32, whole);
+            whole.channel = Channel::MotionBlur;
+            declareKeyed(material.motionBlurAmount, geom::AttrType::F32, whole);
 
             for (u32 s = 0; s < static_cast<u32>(m3_core::StandardLayer::Count); ++s) {
                 if (s >= ordinals.size() || ordinals[s] == kInvalidIndex) {
@@ -866,6 +906,16 @@ private:
         declare(layer.currentFrame, geom::AttrType::U32, layerTarget);
         layerTarget.channel = Channel::Weight;
         declare(layer.rgbMultiply, geom::AttrType::F32, layerTarget);
+        layerTarget.channel = Channel::ColorAdd;
+        declareKeyed(layer.rgbAdd, geom::AttrType::F32, layerTarget);
+        layerTarget.channel = Channel::UvWTranslate;
+        declareKeyed(layer.wOffset, geom::AttrType::F32, layerTarget);
+        layerTarget.channel = Channel::UvWScale;
+        declareKeyed(layer.wTiling, geom::AttrType::F32, layerTarget);
+        layerTarget.channel = Channel::TriplanarTranslate;
+        declareKeyed(layer.triplanarOffset, geom::AttrType::F32x3, layerTarget);
+        layerTarget.channel = Channel::TriplanarScale;
+        declareKeyed(layer.triplanarScale, geom::AttrType::F32x3, layerTarget);
 
         const bool uvKeyed = layer.uvOffset.isAnimated() || layer.uvAngle.isAnimated() ||
                              layer.uvTiling.isAnimated();
@@ -1529,6 +1579,9 @@ private:
         return channel.target.kind == TrackTarget::Kind::Node &&
                channel.target.channel == Channel::Rotation;
     }
+    static bool RebasesScale(const AnimChannel& channel) {
+        return channel.target.kind == TrackTarget::Kind::Node && channel.target.channel == Channel::Scale;
+    }
 
     /// A sub-track re-emitted in the layer's own vocabulary, under the
     /// channel copy it is written and wired as.
@@ -2017,6 +2070,7 @@ private:
         spec.type = channel.valueType;
         spec.unrebaseVector = RebasesVector(channel);
         spec.unrebaseQuaternion = RebasesQuaternion(channel);
+        spec.unrebaseScale = RebasesScale(channel);
         Quaternion rest{};
         if (channel.valueType == geom::AttrType::Quat && channel.hasInitValue()) {
             std::memcpy(&rest, channel.initValue.data(), sizeof(rest));
@@ -2364,10 +2418,9 @@ private:
             return;
         }
         const ExportContext::NodeSlot& slot = context_.nodeSlots[node];
-        // The Warcraft III carriers (`M3ExportSettings::effectNodeBones`): a
-        // visibility goes to the bone `toM3` chose for it -- a `_Vis` leaf
-        // where the node has children -- and a light's or a camera's transform
-        // to the bone that carries its record.
+        // The carriers: a visibility goes to the bone `toM3` chose for it -- a
+        // Warcraft III `_Vis` leaf where the node has children -- and a
+        // light's or a camera's transform to the bone that carries its record.
         const u32 carrier = node < context_.nodeBone.size() ? context_.nodeBone[node] : kInvalidIndex;
         const u32 visCarrier =
             node < context_.nodeVisBone.size() ? context_.nodeVisBone[node] : kInvalidIndex;
@@ -2450,6 +2503,7 @@ private:
     /// has exactly one authority (`m3_core`'s).
     void buildMaterialOrdinals() {
         materialOrdinals_.assign(out_.materialMaps.size(), {});
+        nativeSlots_.clear();
         m3_core::Context context;
         Diagnostics ignored;
         for (std::size_t m = 0; m < out_.materialMaps.size(); ++m) {
@@ -2465,6 +2519,7 @@ private:
             }
             m3_core::ImportMaterial(out_, out_.materialMaps[m], profile(), context, ignored,
                                     &materialOrdinals_[m]);
+            nativeSlots_.insert(static_cast<u32>(m));
         }
     }
 
@@ -2482,6 +2537,34 @@ private:
         const auto gate = context_.sectionGateBones.find(channel.id);
         if (gate != context_.sectionGateBones.end() && gate->second < out_.bones.size()) {
             Wire(out_.bones[gate->second].visibility, exportId(channel.id), track.interp);
+        }
+        // A StarCraft II material's own refs (S4.3): each Standard material the
+        // slot draws, and a composite's section. A ref that names the channel
+        // already is the native block's, flags and all.
+        const auto wireOwn = [&](auto& animRef) {
+            if (animRef.animId != exportId(channel.id)) {
+                Wire(animRef, exportId(channel.id), track.interp);
+            }
+        };
+        if (channel.target.kind == TrackTarget::Kind::MaterialLayer &&
+            (channel.target.channel == Channel::ParallaxHeight ||
+             channel.target.channel == Channel::MotionBlur)) {
+            for (const SectionRef& section : sectionsOf(ref.slot)) {
+                m3::StandardMaterial& mat = out_.standardMaterials[section.standard];
+                wireOwn(channel.target.channel == Channel::ParallaxHeight ? mat.parallaxHeight
+                                                                          : mat.motionBlurAmount);
+            }
+            return;
+        }
+        if (channel.target.kind == TrackTarget::Kind::MaterialLayer &&
+            channel.target.channel == Channel::SectionWeight) {
+            const m3::MaterialMap& map = out_.materialMaps[ref.slot];
+            if (map.materialType == m3::MaterialType::Composite &&
+                map.materialIndex < out_.compositeMaterials.size() &&
+                channel.target.sub < out_.compositeMaterials[map.materialIndex].sections.size()) {
+                wireOwn(out_.compositeMaterials[map.materialIndex].sections[channel.target.sub].mapMultiplier);
+            }
+            return;
         }
         // WoW's whole-batch tint and fade (`M2Color` times the unit-0 weight
         // — the element-alpha product) target the material, not a stage. M3
@@ -2520,6 +2603,18 @@ private:
         if (ordinal == kInvalidIndex) {
             return;
         }
+        // A native block names its own channels already (`fromM3` keeps the
+        // animIds), and a ref it names keeps its flags, unbound ones too (an
+        // `.m3a` drives those): only a channel the block does not name is
+        // wired. Its diffuse alpha is the layer's own `mapAlpha`, not the
+        // carrier a crossed stack fades through.
+        const bool native = nativeSlots_.count(ref.slot) != 0;
+        const auto wire = [&](auto& animRef) {
+            if (native && animRef.animId == exportId(channel.id)) {
+                return;
+            }
+            Wire(animRef, exportId(channel.id), track.interp);
+        };
 
         // EVERY StandardLayer that ordinal became — the inverse of the map the
         // re-import just produced, and it is one-to-many: one chain stage
@@ -2542,7 +2637,7 @@ private:
             // the track rides a carrier alpha layer instead. Unless the fold
             // made it the live/dead coverage switch: then it drives the
             // coverage layer's add (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5.3 R6b).
-            if (channel.target.kind == TrackTarget::Kind::MaterialLayer &&
+            if (!native && channel.target.kind == TrackTarget::Kind::MaterialLayer &&
                 channel.target.channel == Channel::Alpha &&
                 static_cast<m3_core::StandardLayer>(layerSlot) ==
                     m3_core::StandardLayer::Diffuse) {
@@ -2568,19 +2663,34 @@ private:
             if (channel.target.kind == TrackTarget::Kind::MaterialLayer) {
                 switch (channel.target.channel) {
                 case Channel::Alpha:
-                    Wire(layer->mapAlpha, exportId(channel.id), track.interp);
+                    wire(layer->mapAlpha);
                     continue;
                 case Channel::Color:
-                    Wire(layer->color, exportId(channel.id), track.interp);
+                    wire(layer->color);
                     continue;
                 case Channel::TextureIndex:
-                    Wire(layer->currentFrame, exportId(channel.id), track.interp);
+                    wire(layer->currentFrame);
                     if (mask != nullptr) {
                         Wire(mask->currentFrame, exportId(channel.id), track.interp);
                     }
                     continue;
                 case Channel::Weight:
-                    Wire(layer->rgbMultiply, exportId(channel.id), track.interp);
+                    wire(layer->rgbMultiply);
+                    continue;
+                case Channel::ColorAdd:
+                    wire(layer->rgbAdd);
+                    continue;
+                case Channel::UvWTranslate:
+                    wire(layer->wOffset);
+                    continue;
+                case Channel::UvWScale:
+                    wire(layer->wTiling);
+                    continue;
+                case Channel::TriplanarTranslate:
+                    wire(layer->triplanarOffset);
+                    continue;
+                case Channel::TriplanarScale:
+                    wire(layer->triplanarScale);
                     continue;
                 default:
                     continue;
@@ -2588,19 +2698,19 @@ private:
             }
             switch (channel.target.channel) {
             case Channel::UvTranslate:
-                Wire(layer->uvOffset, exportId(channel.id), track.interp);
+                wire(layer->uvOffset);
                 if (mask != nullptr) {
                     Wire(mask->uvOffset, exportId(channel.id), track.interp);
                 }
                 continue;
             case Channel::UvRotate:
-                Wire(layer->uvAngle, exportId(channel.id), track.interp);
+                wire(layer->uvAngle);
                 if (mask != nullptr) {
                     Wire(mask->uvAngle, exportId(channel.id), track.interp);
                 }
                 continue;
             case Channel::UvScale:
-                Wire(layer->uvTiling, exportId(channel.id), track.interp);
+                wire(layer->uvTiling);
                 if (mask != nullptr) {
                     Wire(mask->uvTiling, exportId(channel.id), track.interp);
                 }
@@ -2774,6 +2884,9 @@ private:
     Diagnostics& diagnostics_;
     M3ExportMap* map_ = nullptr;
     std::vector<std::vector<u32>> materialOrdinals_;
+    /// The map entries written from a native block, whose refs already name
+    /// their channels (`buildMaterialOrdinals` re-imports them).
+    std::set<u32> nativeSlots_;
     /// (channel, standard material) pairs that already have a carrier alpha
     /// layer (`wireAlphaCarrier`) -- a composite slot plants one per section.
     std::set<std::pair<u32, u32>> alphaCarriers_;

@@ -635,10 +635,11 @@ inline const char* ToString(M3LightFlag value) {
     }
 }
 
-/// Projector / decal projection type (PROJ)
+/// Projector / decal projection type (PROJ): from 1, as every shipped record reads
+/// (EDIT_MODE_SC2_PROFILE_PLAN.md S7.1).
 enum class M3ProjectionType : u32 {
-    Orthographic = 0, ///< Orthographic projection
-    Perspective = 1,  ///< Perspective projection
+    Orthographic = 1, ///< Orthographic projection
+    Perspective = 2,  ///< Perspective projection
 };
 
 inline const char* ToString(M3ProjectionType value) {

@@ -60,6 +60,8 @@ struct StreamSpec {
     /// WEM's canonical basis back into StarCraft II's, on a vector or rotation key.
     bool unrebaseVector = false;
     bool unrebaseQuaternion = false;
+    /// A bone's scale key, its X and Y traded back.
+    bool unrebaseScale = false;
     /// The rest the first quaternion key is kept on the side of, in the FILE's
     /// basis; null when the property states none.
     const Quaternion* restQuaternion = nullptr;

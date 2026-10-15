@@ -4,6 +4,7 @@
 #include "m3_core.h"
 
 #include <whiteout/models/m3/engine_compat.h>
+#include <whiteout/models/wem/anim/m3_uv.h>
 
 #include "../native/m3_copy.h"
 
@@ -624,50 +625,23 @@ std::optional<m3::TextureLayer>& MutableLayerOf(m3::StandardMaterial& material,
 }
 
 Matrix3x2f UvTransformOf(const m3::TextureLayer& layer) {
-    const f32 angle = layer.uvAngle.initValue.z;
-    const f32 c = std::cos(angle);
-    const f32 s = std::sin(angle);
     // A tiling of zero is silence, not a scale of zero: 965509 of Heroes'
     // 1039144 shipped layers tile at exactly one and 48032 leave the pair at
     // the struct's zero, which composed literally samples one texel over the
     // whole surface (`reference_m3_uv_and_fresnel`).
-    const f32 tx = layer.uvTiling.initValue.x != 0.0f ? layer.uvTiling.initValue.x : 1.0f;
-    const f32 ty = layer.uvTiling.initValue.y != 0.0f ? layer.uvTiling.initValue.y : 1.0f;
-
-    Matrix3x2f matrix;
-    matrix.m[0][0] = tx * c;
-    matrix.m[0][1] = -tx * s;
-    matrix.m[1][0] = ty * s;
-    matrix.m[1][1] = ty * c;
-    // The pivot and the offset, which the engine applies together: the offset
-    // sits beside the 0.5 INSIDE the pre-multiply, so it is subtracted.
-    const f32 px = 0.5f + layer.uvOffset.initValue.x;
-    const f32 py = 0.5f + layer.uvOffset.initValue.y;
-    matrix.m[0][2] = 0.5f - (matrix.m[0][0] * px + matrix.m[0][1] * py);
-    matrix.m[1][2] = 0.5f - (matrix.m[1][0] * px + matrix.m[1][1] * py);
-    return matrix;
+    m3_uv::UvValues values;
+    values.offset = layer.uvOffset.initValue;
+    values.angle = layer.uvAngle.initValue.z;
+    values.tiling = Vector2f(layer.uvTiling.initValue.x != 0.0f ? layer.uvTiling.initValue.x : 1.0f,
+                             layer.uvTiling.initValue.y != 0.0f ? layer.uvTiling.initValue.y : 1.0f);
+    return m3_uv::MatrixOf(values);
 }
 
 void SetUvTransform(const Matrix3x2f& matrix, m3::TextureLayer& layer) {
-    // Row 0 is `tiling.x * (cos, -sin)`, so it names the angle; both tilings
-    // are then the projection of their row onto that angle, which is exact for
-    // a true `tiling * rotation` and the closest scale-and-turn for anything
-    // else.
-    const f32 angle = std::atan2(-matrix.m[0][1], matrix.m[0][0]);
-    const f32 c = std::cos(angle);
-    const f32 s = std::sin(angle);
-    const f32 tx = matrix.m[0][0] * c - matrix.m[0][1] * s;
-    const f32 ty = matrix.m[1][0] * s + matrix.m[1][1] * c;
-
-    layer.uvAngle.initValue = Vector3f(0.0f, 0.0f, angle);
-    layer.uvTiling.initValue = Vector2f(tx, ty);
-
-    // `matrix.translation = 0.5 - tiling * R * (0.5 + offset)`, read backwards.
-    const f32 vx = 0.5f - matrix.m[0][2];
-    const f32 vy = 0.5f - matrix.m[1][2];
-    const f32 wx = tx != 0.0f ? vx / tx : 0.0f;
-    const f32 wy = ty != 0.0f ? vy / ty : 0.0f;
-    layer.uvOffset.initValue = Vector2f(c * wx + s * wy - 0.5f, -s * wx + c * wy - 0.5f);
+    const m3_uv::UvValues values = m3_uv::ValuesOf(matrix);
+    layer.uvAngle.initValue = Vector3f(0.0f, 0.0f, values.angle);
+    layer.uvTiling.initValue = values.tiling;
+    layer.uvOffset.initValue = values.offset;
 }
 
 Material ImportMaterial(const m3::Model& model, const m3::MaterialMap& entry, ProfileId profile,
@@ -2590,6 +2564,23 @@ m3::MaterialMap exportPasses(std::vector<Pass> passes, const CompositeBody* body
 
 } // namespace
 
+native::M3Material StandardBlock(const m3::StandardMaterial& record, u32 sourceVersion) {
+    native::M3Material block;
+    block.sourceVersion = sourceVersion;
+    block.kind = native::M3MaterialKind::Standard;
+    native::M3Standard body;
+    CopyToNative(record, body);
+    block.body = std::move(body);
+    block.recordVersions = StandardVersions(record);
+    return block;
+}
+
+m3::TextureLayer TexturedLayer(u32 texture, const Context& context) {
+    TextureInput input;
+    input.texture = texture;
+    return layerFrom(input, context);
+}
+
 m3::MaterialMap ExportMaterial(const Material& material, ProfileId profile, const Context& context,
                                m3::Model& model, Diagnostics& out,
                                std::vector<u32>* layerOrdinals, const ExportHints* hints,
@@ -2597,9 +2588,14 @@ m3::MaterialMap ExportMaterial(const Material& material, ProfileId profile, cons
     if (layerOrdinals != nullptr) {
         layerOrdinals->assign(static_cast<std::size_t>(StandardLayer::Count), kInvalidIndex);
     }
-    // §7.1: a native block that is not stale IS the answer.
+    // §7.1: a native block that is not stale IS the answer. Its ordinals are
+    // left to the animation export's re-import of what was written, which is
+    // how a channel the block does not name finds its layer.
     if (material.hasNative() && material.sync() != NativeSync::CommonEdited &&
         material.nativeKind() == NativeKind::M3) {
+        if (layerOrdinals != nullptr) {
+            layerOrdinals->clear();
+        }
         const auto& block = std::get<native::M3Material>(material.Native());
         m3::MaterialMap entry;
         entry.materialType = static_cast<m3::MaterialType>(block.kind);

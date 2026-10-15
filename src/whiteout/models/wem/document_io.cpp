@@ -111,6 +111,56 @@ void KeyLegacySets(Document& document) {
     }
 }
 
+/// A `NODE` written before v23 kept an `.m3` bone's scale, and its keys, in
+/// the file's axes. WEM's trade X and Y (`m3_converter`'s `RebaseScale`), so
+/// each node the `.m3` import made (`m3FlagBits`) is traded here, rest, channel
+/// rest and every key.
+void TradeLegacyM3Scale(Document& document) {
+    const auto trade = [](u8* bytes) {
+        Vector3f v;
+        std::memcpy(&v, bytes, sizeof(v));
+        v = Vector3f{v.y, v.x, v.z};
+        std::memcpy(bytes, &v, sizeof(v));
+    };
+    for (u32 m = 0; m < document.models.size(); ++m) {
+        Model& model = document.models[m];
+        std::vector<u8> fromM3(model.nodes.size(), 0);
+        for (u32 n = 0; n < model.nodes.size(); ++n) {
+            Node& node = model.nodes.nodes[n];
+            if (node.native.find("m3FlagBits") == nullptr) {
+                continue;
+            }
+            fromM3[n] = 1;
+            node.local.scale = Vector3f{node.local.scale.y, node.local.scale.x, node.local.scale.z};
+        }
+        for (AnimChannel& channel : model.animChannels.channels) {
+            const TrackTarget& target = channel.target;
+            if (target.kind != TrackTarget::Kind::Node || target.channel != Channel::Scale ||
+                channel.valueType != geom::AttrType::F32x3 || target.node >= fromM3.size() || !fromM3[target.node]) {
+                continue;
+            }
+            if (channel.initValue.size() == sizeof(Vector3f)) {
+                trade(channel.initValue.data());
+            }
+            for (Clip& clip : document.clips) {
+                if (clip.model != m) {
+                    continue;
+                }
+                for (SubTrackContainer& container : clip.containers) {
+                    for (SubTrack& track : container.subTracks) {
+                        if (track.channel != channel.id) {
+                            continue;
+                        }
+                        for (std::size_t at = 0; at + sizeof(Vector3f) <= track.values.size(); at += sizeof(Vector3f)) {
+                            trade(track.values.data() + at);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 } // namespace
 
 class Parser::Impl {
@@ -168,6 +218,9 @@ public:
             return std::nullopt;
         }
         KeyLegacySets(document);
+        if (visitor.oldestVersion(ChunkTagTraits<Node>::value) < 23) {
+            TradeLegacyM3Scale(document);
+        }
         DropLevelsOfDetail(document, diagnostics);
         MarkBakeStretches(document);
         return document;

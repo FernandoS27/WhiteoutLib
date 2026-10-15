@@ -496,9 +496,12 @@ TEST_CASE("wem m3 a light moves on its carrier bone", "[wem][m3][carriers]") {
     setPivot(model, 1, Vector3f{0, 0, 0});
     const Document document = stage(model);
 
+    // Its keys move it with the carriers off too (EDIT_MODE_SC2_PROFILE_PLAN.md
+    // S6.6): a keyed transform needs a bone whatever the source.
     const Written off = writeAndRead(document, false);
     REQUIRE(off.model.lights.size() == 1);
-    CHECK(boneNamed(off.model, "Glow") == kInvalidIndex);
+    CHECK(boneNamed(off.model, "Glow") != kInvalidIndex);
+    CHECK(off.model.lights[0].boneIndex == boneNamed(off.model, "Glow"));
     // A Warcraft III light states no LITE flags; it lights opaque geometry the
     // way every shipped light says it does.
     CHECK(off.model.lights[0].flags == m3::LightFlag::LightOpaque);

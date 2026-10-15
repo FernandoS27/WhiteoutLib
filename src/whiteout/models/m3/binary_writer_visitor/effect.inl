@@ -237,8 +237,8 @@ void BinaryWriterVisitor::visit(const SplineRibbon& ribbon, u32 version) {
     (void)version;
     writer.write(ribbon.emissionOffset);
     writer.write(ribbon.emissionVector);
-    writer.write(ribbon.velocity);
-    writer.write(ribbon.reserved);
+    writer.write(ribbon.endTangent);
+    writer.write(ribbon.endOffset);
     writer.write(ribbon.boneIndex);
     writer.write(ribbon.velocityBaseFactor);
     writer.write(ribbon.velocityEndFactor);

@@ -750,6 +750,14 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("SoftLumpTranslation", whiteout::models::wem::Channel::SoftLumpTranslation)
         .value("SoftLumpRotation", whiteout::models::wem::Channel::SoftLumpRotation)
         .value("SoftLumpScale", whiteout::models::wem::Channel::SoftLumpScale)
+        .value("ColorAdd", whiteout::models::wem::Channel::ColorAdd)
+        .value("UvWTranslate", whiteout::models::wem::Channel::UvWTranslate)
+        .value("UvWScale", whiteout::models::wem::Channel::UvWScale)
+        .value("TriplanarTranslate", whiteout::models::wem::Channel::TriplanarTranslate)
+        .value("TriplanarScale", whiteout::models::wem::Channel::TriplanarScale)
+        .value("ParallaxHeight", whiteout::models::wem::Channel::ParallaxHeight)
+        .value("MotionBlur", whiteout::models::wem::Channel::MotionBlur)
+        .value("SectionWeight", whiteout::models::wem::Channel::SectionWeight)
         .value("Count", whiteout::models::wem::Channel::Count);
 
     enum_<whiteout::models::wem::Interpolation>("WemInterpolation")
@@ -1656,6 +1664,8 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("pitch", &whiteout::models::wem::Sc2RibbonSplinePoint::pitch)
         .property("emissionVectorNormFactor", &whiteout::models::wem::Sc2RibbonSplinePoint::emissionVectorNormFactor)
         .property("velocityNormFactor", &whiteout::models::wem::Sc2RibbonSplinePoint::velocityNormFactor)
+        .property("endTangent", &whiteout::models::wem::Sc2RibbonSplinePoint::endTangent)
+        .property("endOffset", &whiteout::models::wem::Sc2RibbonSplinePoint::endOffset)
     ;
 
     class_<whiteout::models::wem::Sc2RibbonEmitterPayload>("WemSc2RibbonEmitterPayload")

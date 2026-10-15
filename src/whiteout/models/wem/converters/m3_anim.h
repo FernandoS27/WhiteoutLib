@@ -125,10 +125,10 @@ struct ExportContext {
     /// Parallel to `Model::nodes`.
     std::vector<NodeSlot> nodeSlots;
 
-    /// Parallel to `Model::nodes`, and only filled under
-    /// `M3ExportSettings::effectNodeBones`: the node's own carrier bone
+    /// Parallel to `Model::nodes`: the node's own carrier bone
     /// (`kInvalidIndex` when it has none) and the bone its visibility is wired
-    /// to -- the `_Vis` leaf where `toM3` made one. A light or camera keeps its
+    /// to -- the `_Vis` leaf where `toM3` made one, under
+    /// `M3ExportSettings::effectNodeBones`. A light or camera keeps its
     /// record's slot for its own properties and keys its carrier with the rest.
     std::vector<u32> nodeBone;
     std::vector<u32> nodeVisBone;

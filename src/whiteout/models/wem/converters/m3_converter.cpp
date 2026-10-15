@@ -178,6 +178,12 @@ Vector3f Unrebase(const Vector3f& v) {
     return Vector3f{v.y, -v.x, v.z};
 }
 
+/// A bone's scale through the same change. The quarter turn about Z trades a
+/// componentwise scale's X and Y, without a sign, so this is its own inverse.
+Vector3f RebaseScale(const Vector3f& v) {
+    return Vector3f{v.y, v.x, v.z};
+}
+
 /// A model-space matrix from SC2's basis into WEM's. A change of basis is a
 /// conjugation, and this is the direction that agrees with `Rebase` on the
 /// translation, on the rotation, **and** on the scale — which the per-component
@@ -189,6 +195,29 @@ Matrix44f RebaseMatrix(const Matrix44f& m) {
 
 Matrix44f UnrebaseMatrix(const Matrix44f& m) {
     return m3_physics::UnrebaseConjugate(m);
+}
+
+/// What node @p n's BONE values are: the pose the game shows where nothing
+/// keys it. Each transform channel's `initValue` where it has one -- an `.m3`
+/// import keeps them there, apart from the T-pose `local` -- and the rest
+/// where it has none.
+Transform UnkeyedLocal(const Model& model, u32 n) {
+    Transform out = model.nodes.nodes[n].local;
+    for (const AnimChannel& channel : model.animChannels.channels) {
+        if (channel.target.kind != TrackTarget::Kind::Node || channel.target.node != n ||
+            channel.target.sub != 0 || !channel.hasInitValue()) {
+            continue;
+        }
+        const u8* bytes = channel.initValue.data();
+        if (channel.target.channel == Channel::Translation && channel.valueType == geom::AttrType::F32x3) {
+            std::memcpy(&out.translation, bytes, sizeof(Vector3f));
+        } else if (channel.target.channel == Channel::Rotation && channel.valueType == geom::AttrType::Quat) {
+            std::memcpy(&out.rotation, bytes, sizeof(Quaternion));
+        } else if (channel.target.channel == Channel::Scale && channel.valueType == geom::AttrType::F32x3) {
+            std::memcpy(&out.scale, bytes, sizeof(Vector3f));
+        }
+    }
+    return out;
 }
 
 /// Whether @p m is the identity, to within what an edit leaves.
@@ -397,6 +426,22 @@ Node HitTestNode(const m3::HitTestShape& shape, Sc2HitTest role, u32 boneCount, 
     return node;
 }
 
+/// The local that `Compose(parent, local)` takes to @p world: the tree composes
+/// TRS by TRS, which a matrix quotient does not match under a parent scaled
+/// unevenly.
+Transform RestUnder(const Transform& parent, const Transform& world) {
+    const Quaternion undo = parent.rotation.inverse();
+    const auto over = [](f32 v, f32 s) { return s != 0.0f ? v / s : 0.0f; };
+    const Vector3f moved = undo.rotate_vector(world.translation - parent.translation);
+    Transform local;
+    local.translation = Vector3f{over(moved.x, parent.scale.x), over(moved.y, parent.scale.y),
+                                 over(moved.z, parent.scale.z)};
+    local.rotation = undo * world.rotation;
+    local.scale = Vector3f{over(world.scale.x, parent.scale.x), over(world.scale.y, parent.scale.y),
+                           over(world.scale.z, parent.scale.z)};
+    return local;
+}
+
 NodeTree ImportNodes(const m3::Model& source) {
     NodeTree tree;
 
@@ -422,23 +467,29 @@ NodeTree ImportNodes(const m3::Model& source) {
         node.parent = bone.parentIndex == 0xFFFFu ? kInvalidNode : bone.parentIndex;
         node.native.set("m3FlagBits", static_cast<i64>(static_cast<u32>(bone.flags)));
 
-        // The bone's own rest transform, in the source's own parent-relative
-        // terms -- rebased, because a translation is a vector in the basis
-        // being changed.
-        node.local.translation = Rebase(bone.position.initValue);
+        // The BONE values, in the source's own parent-relative terms --
+        // rebased, because a translation is a vector in the basis being
+        // changed: the pose the game shows where nothing keys the bone.
+        Transform init;
+        init.translation = Rebase(bone.position.initValue);
         const Quaternion& rotation = bone.rotation.initValue;
         // The same change of basis applied to a quaternion's vector part; the
         // scalar is invariant under a rotation of the frame.
-        node.local.rotation = Quaternion{-rotation.y, rotation.x, rotation.z, rotation.w};
-        node.local.scale = bone.scale.initValue;
+        init.rotation = Quaternion{-rotation.y, rotation.x, rotation.z, rotation.w};
+        init.scale = RebaseScale(bone.scale.initValue);
 
-        // The pose is IREF itself, not the rest transform: the rest chain does
-        // not compose to the bind pose (up to 2.2 units apart on `Marine.m3`),
-        // so it cannot stand in for one. A bone past the end of IREF gets
-        // identity, which is what the renderer would have bound anyway.
-        const Matrix44f iref = b < source.initialReference.size()
-                                   ? RebaseMatrix(source.initialReference[b].matrix)
-                                   : Matrix44f::identity();
+        // The bind is IREF itself. The rest is the T-pose it states, which is
+        // the pose the mesh is stored in, so every skin matrix at rest is the
+        // identity. The BONE values are not that pose (up to 2.2 units off on
+        // `Marine.m3`, 43.8 on `DarkTemplar_00.m3`); every shipped bone keeps
+        // them as its channels' `initValue`, which `toM3` writes back. A bone
+        // past the end of IREF gets identity, which is what the renderer would
+        // have bound anyway, and rests at its BONE values.
+        const bool bound = b < source.initialReference.size();
+        const Matrix44f iref = bound ? RebaseMatrix(source.initialReference[b].matrix) : Matrix44f::identity();
+        node.local = bound ? RestUnder(node.parent < b ? tree.worldBind(node.parent) : Transform::identity(),
+                                       FromMatrix(Matrix44f::inverse(iref)))
+                           : init;
         node.poseMatrices.push_back(iref);
         // Derived, and never read back: it is what a TRS-only consumer gets.
         node.poses.push_back(FromMatrix(iref));
@@ -648,6 +699,12 @@ ProfileId M3Converter::ProfileForVersion(u32 modelVersion) {
 
 u32 M3Converter::ExportVersionFor(ProfileId profile) {
     return profile == ProfileId::Heroes ? kHeroesModlVersion : static_cast<u32>(m3::SC2_MAX_MODEL_VERSION);
+}
+
+M3ExportMap M3ExportMapOf(const Document& document, ProfileId profile) {
+    M3ExportMap map;
+    (void)M3Converter{}.toM3(document, profile, 0, {}, &map);
+    return map;
 }
 
 // ============================================================================
@@ -1128,33 +1185,33 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                          "hierarchy in one pass)",
                          ElementRef(ElementKind::Document, 0), profile);
     }
-    // What each node keys, for the Warcraft III carriers: a node whose
-    // transform or visibility moves needs a bone of its own to move, and an
-    // identity attachment that rides its parent's bone would otherwise take its
-    // keys nowhere. A visibility that rests hidden counts -- it has to hide
-    // something.
+    // What each node keys: a node whose transform moves needs a bone of its
+    // own to move, and an identity attachment, light or camera that rides its
+    // parent's bone would otherwise take its keys nowhere -- an editor key on
+    // a StarCraft II camera as much as a Warcraft III carrier. For those
+    // carriers a visibility moves it too, and one that rests hidden counts --
+    // it has to hide something.
     const std::size_t nodeCount = model.nodes.size();
     std::vector<u8> keyedTransform(nodeCount, 0);
     std::vector<u8> keyedVisibility(nodeCount, 0);
-    if (settings.effectNodeBones) {
-        for (const AnimChannel& channel : model.animChannels.channels) {
-            if (channel.target.kind != TrackTarget::Kind::Node ||
-                channel.target.node >= nodeCount) {
-                continue;
-            }
-            switch (channel.target.channel) {
-            case Channel::Translation:
-            case Channel::Rotation:
-            case Channel::Scale:
-                keyedTransform[channel.target.node] = 1;
-                break;
-            case Channel::Visibility:
-                keyedVisibility[channel.target.node] = 1;
-                break;
-            default:
-                break;
-            }
+    for (const AnimChannel& channel : model.animChannels.channels) {
+        if (channel.target.kind != TrackTarget::Kind::Node || channel.target.node >= nodeCount) {
+            continue;
         }
+        switch (channel.target.channel) {
+        case Channel::Translation:
+        case Channel::Rotation:
+        case Channel::Scale:
+            keyedTransform[channel.target.node] = 1;
+            break;
+        case Channel::Visibility:
+            keyedVisibility[channel.target.node] = settings.effectNodeBones ? 1 : 0;
+            break;
+        default:
+            break;
+        }
+    }
+    if (settings.effectNodeBones) {
         for (u32 n = 0; n < nodeCount; ++n) {
             if (VisibilityRest(model, n) <= 0.5f) {
                 keyedVisibility[n] = 1;
@@ -1172,8 +1229,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         case NodeKind::Attachment:
         case NodeKind::Light:
         case NodeKind::Camera:
-            carries = !identityLocal(node) ||
-                      (settings.effectNodeBones && (keyedTransform[n] || keyedVisibility[n]));
+            carries = !identityLocal(node) || keyedTransform[n] || keyedVisibility[n];
             break;
         // A StarCraft II emitter record names a bone like those three do, and
         // the import puts it under that bone at identity. A Warcraft III
@@ -1182,10 +1238,9 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         // only while the parent is (`cross/wc3_sc2_emitters`).
         case NodeKind::Sc2ParticleEmitter:
         case NodeKind::Sc2RibbonEmitter:
-            carries = !identityLocal(node) ||
+            carries = !identityLocal(node) || keyedTransform[n] ||
                       (settings.effectNodeBones &&
-                       (keyedTransform[n] || keyedVisibility[n] ||
-                        node.native.find(kNodeSharesParentVisibility) == nullptr));
+                       (keyedVisibility[n] || node.native.find(kNodeSharesParentVisibility) == nullptr));
             break;
         // A force field or a vertex warp names a bone as an emitter does, and
         // the import puts it under that bone at identity.
@@ -1199,11 +1254,23 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         case NodeKind::Wc3ParticleEmitter2:
         case NodeKind::Wc3RibbonEmitter:
         case NodeKind::Wc3CornEmitter:
-        case NodeKind::CollisionShape:
             // An emitter record names a bone, and a Warcraft III emitter moves
-            // and hides on its own node: the bone is the node (§2.3). So does
-            // the hit test a collision shape crosses as (C8.2).
+            // and hides on its own node: the bone is the node (§2.3).
             carries = settings.effectNodeBones;
+            break;
+        case NodeKind::CollisionShape: {
+            // So does the hit test a Warcraft III collision shape crosses as
+            // (C8.2). A StarCraft II hit test rides its bone at identity, and
+            // one the editor moved or keyed gets a bone of its own to keep the
+            // offset on (EDIT_MODE_SC2_PROFILE_PLAN.md S7.1).
+            const auto* shape = std::get_if<CollisionPayload>(&node.payload);
+            const bool hitTest = shape != nullptr && shape->shape.hitTest != Sc2HitTest::None;
+            carries = settings.effectNodeBones || (hitTest && (!identityLocal(node) || keyedTransform[n]));
+            break;
+        }
+        // A projector likewise; its record's own offset rides that bone.
+        case NodeKind::Projector:
+            carries = !identityLocal(node) || keyedTransform[n];
             break;
         default:
             break;
@@ -1246,10 +1313,11 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         const u32 parentBone =
             hasFlag(node.flags, NodeFlags::ModelSpace) ? 0xFFFFu : nearestBone(n);
         bone.parentIndex = parentBone == 0xFFFFu ? u16(0xFFFFu) : static_cast<u16>(parentBone);
-        bone.position.initValue = Unrebase(node.local.translation);
-        const Quaternion& rotation = node.local.rotation;
+        const Transform init = UnkeyedLocal(model, static_cast<u32>(n));
+        bone.position.initValue = Unrebase(init.translation);
+        const Quaternion& rotation = init.rotation;
         bone.rotation.initValue = Quaternion{rotation.y, -rotation.x, rotation.z, rotation.w};
-        bone.scale.initValue = node.local.scale;
+        bone.scale.initValue = RebaseScale(init.scale);
         // The batch gate reads this and nothing else when no clip drives it.
         bone.visibility.initValue =
             VisibilityRest(model, static_cast<u32>(n)) > 0.5f ? 1u : 0u;
@@ -1303,15 +1371,16 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             // An identity child binds where its owner does.
             out.initialReference.push_back(out.initialReference[boneOf[n]]);
         }
-        animContext.nodeBone.assign(nodeCount, kInvalidIndex);
-        animContext.nodeVisBone.assign(nodeCount, kInvalidIndex);
-        for (u32 n = 0; n < nodeCount; ++n) {
-            if (boneOf[n] == 0xFFFFu) {
-                continue;
-            }
-            animContext.nodeBone[n] = boneOf[n];
-            animContext.nodeVisBone[n] = visBoneOf[n] != 0xFFFFu ? visBoneOf[n] : boneOf[n];
+    }
+    // The bone each node's keys go to: its own, and its visibility leaf's.
+    animContext.nodeBone.assign(nodeCount, kInvalidIndex);
+    animContext.nodeVisBone.assign(nodeCount, kInvalidIndex);
+    for (u32 n = 0; n < nodeCount; ++n) {
+        if (boneOf[n] == 0xFFFFu) {
+            continue;
         }
+        animContext.nodeBone[n] = boneOf[n];
+        animContext.nodeVisBone[n] = visBoneOf[n] != 0xFFFFu ? visBoneOf[n] : boneOf[n];
     }
     // A node a section's bag names, as the bone the region or batch stores:
     // its own, its visibility leaf for a gate, else its nearest ancestor's.
@@ -1346,7 +1415,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         bone.position.initValue = Unrebase(local.translation);
         bone.rotation.initValue =
             Quaternion{local.rotation.y, -local.rotation.x, local.rotation.z, local.rotation.w};
-        bone.scale.initValue = local.scale;
+        bone.scale.initValue = RebaseScale(local.scale);
         bone.visibility.initValue = 1u;
         frameBoneOf[n] = static_cast<u32>(out.bones.size());
         out.bones.push_back(std::move(bone));
@@ -1558,6 +1627,16 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         }
     }
     out.particleEmitterCopies.resize(copyCount);
+    if (map != nullptr) {
+        map->nodeEmitter.assign(nodeCount, kInvalidIndex);
+        for (std::size_t n = 0; n < nodeCount; ++n) {
+            const auto* particle = particleAt(n);
+            map->nodeEmitter[n] = particleOf[n] != kInvalidIndex ? particleOf[n]
+                                  : copyRecordOf[n] != kInvalidIndex && particle != nullptr
+                                      ? particleOf[particle->copyOf]
+                                      : ribbonOf[n];
+        }
+    }
     m3_emitters::ExportLinks emitterLinks;
     emitterLinks.particleOf = &particleOf;
     emitterLinks.ribbonOf = &ribbonOf;
@@ -2187,6 +2266,11 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         for (std::size_t m = 0; m < model.meshes.size(); ++m) {
             map->sectionRegion[m].assign(model.meshes[m].sections.size(), kInvalidIndex);
         }
+        map->regionMesh.clear();
+        map->regionSection.clear();
+        map->regionElements.clear();
+        map->regionPalette.clear();
+        map->regionSkin.clear();
     }
 
     for (std::size_t m = 0; m < model.meshes.size(); ++m) {
@@ -2455,11 +2539,13 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                 }
 
                 bool rigid = true;
+                WrittenGeosetSkin writtenSkin;
                 for (u32 source : sourceOf) {
                     // Packed into the leading slots -- an influence on a node that is not
                     // a bone leaves no gap -- so a one-bone vertex names its bone in slot 0.
                     std::array<std::pair<f32, u8>, 4> influences{};
                     std::array<u32, 4> globalBones{0, 0, 0, 0};
+                    std::array<u32, 4> nodes{0, 0, 0, 0};
                     std::size_t count = 0;
                     for (std::size_t k = 0; k < 4; ++k) {
                         if (source >= boneIndices.size() || source >= boneWeights.size() ||
@@ -2472,6 +2558,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                             continue;
                         }
                         globalBones[count] = bone;
+                        nodes[count] = node;
                         influences[count++] = {std::clamp(boneWeights[source][k], 0.0f, 1.0f),
                                                slotFor(bone)};
                     }
@@ -2482,6 +2569,20 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                         indices[k] = influences[k].second;
                     }
                     const std::array<u8, 4> weights = skinning::QuantizeWeights(shares, count);
+                    if (map != nullptr) {
+                        std::vector<WrittenInfluence>& said = writtenSkin.influences.emplace_back();
+                        for (std::size_t k = 0; k < count; ++k) {
+                            if (weights[k] != 0) {
+                                said.push_back({nodes[k], static_cast<f32>(weights[k]) / 255.0f, weights[k]});
+                            }
+                        }
+                        std::stable_sort(said.begin(), said.end(), [](const WrittenInfluence& a, const WrittenInfluence& b) {
+                            return a.byte > b.byte;
+                        });
+                        if (count == 0) {
+                            writtenSkin.unbound.push_back(static_cast<u32>(writtenSkin.influences.size() - 1));
+                        }
+                    }
                     // A cage vertex's skin is its particle's anchors, and PHCL
                     // states them as global bone bytes.
                     if (cageRecord != nullptr) {
@@ -2567,6 +2668,31 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                 }
                 // 874 of 874 shipped regions repeat the lookup count here.
                 region.unknown2 = region.boneLookupCount;
+                if (map != nullptr) {
+                    map->regionMesh.push_back(static_cast<u32>(m));
+                    map->regionSection.push_back(range.section);
+                    DrawnElements& drawn = map->regionElements.emplace_back();
+                    drawn.vertices.reserve(sourceOf.size());
+                    drawn.halfedges.reserve(sourceOf.size());
+                    for (const u32 source : sourceOf) {
+                        drawn.vertices.push_back(source < render.vertexToWemVertex.size()
+                                                     ? render.vertexToWemVertex[source]
+                                                     : kInvalidIndex);
+                        drawn.halfedges.push_back(source < render.vertexToWemHalfedge.size()
+                                                      ? render.vertexToWemHalfedge[source]
+                                                      : geom::HalfedgeId());
+                    }
+                    drawn.triangles.assign(division.faces.begin() + region.firstIndex, division.faces.end());
+                    const u32 firstTriangle = (range.firstIndex + run.first) / 3;
+                    for (u32 t = 0; t < run.second / 3; ++t) {
+                        drawn.triangleFaces.push_back(firstTriangle + t < render.triangleFace.size()
+                                                          ? render.triangleFace[firstTriangle + t]
+                                                          : kInvalidIndex);
+                    }
+                    map->regionPalette.emplace_back(window.begin(), window.end());
+                    writtenSkin.vertices = drawn.vertices;
+                    map->regionSkin.push_back(std::move(writtenSkin));
+                }
                 division.regions.push_back(std::move(region));
             }
             const std::size_t regionCount = division.regions.size() - firstRegion;
@@ -3000,6 +3126,245 @@ Result<std::vector<u8>> M3Converter::exportToBytes(const Document& document, Pro
     m3::Writer writer;
     result.value = writer.write(*converted);
     return result;
+}
+
+namespace {
+
+/// The material at @p index of @p set written as `toM3` writes the set, the
+/// edited one replaced by @p block, and read back as `fromM3` reads it.
+/// @p ordinals receives the ordinal each `StandardLayer` became.
+Material ProjectM3Block(const Model& model, const ProfileMaterialSet& set, ProfileId profile, u32 index,
+                        const native::M3Material& block, const m3_core::Context& context, Diagnostics& out,
+                        std::vector<u32>& ordinals) {
+    Material edited;
+    edited.name = set.materials[index].name;
+    edited.SetNativeInSync(block);
+    // One map entry per slot, as the export writes them: a composite's
+    // sections name entries by slot. The edited material, bound to no slot,
+    // goes after them.
+    m3::Model scratch;
+    Diagnostics ignored;
+    u32 entry = kInvalidIndex;
+    for (u32 slot = 0; slot < model.materialSlots.size(); ++slot) {
+        const Material* bound = Resolve(model, slot, profile, set.defaultLook);
+        const bool mine = bound == &set.materials[index];
+        if (mine && entry == kInvalidIndex) {
+            entry = slot;
+        }
+        scratch.materialMaps.push_back(bound == nullptr ? m3::MaterialMap{}
+                                                        : m3_core::ExportMaterial(mine ? edited : *bound, profile,
+                                                                                  context, scratch, ignored));
+    }
+    if (entry == kInvalidIndex) {
+        entry = static_cast<u32>(scratch.materialMaps.size());
+        scratch.materialMaps.push_back(m3_core::ExportMaterial(edited, profile, context, scratch, ignored));
+    }
+    Material derived = m3_core::ImportMaterial(scratch, scratch.materialMaps[entry], profile, context, out, &ordinals);
+    // The block as given: the projection's own copy of it is the import's.
+    derived.SetNativeInSync(block);
+    derived.name = set.materials[index].name;
+    return derived;
+}
+
+bool BindsM3Material(const ProfileMaterialSet& set, u32 slot, u32 look, u32 material) {
+    return slot < set.slotBindings.size() && look < set.slotBindings[slot].byLook.size() &&
+           set.slotBindings[slot].byLook[look] == material;
+}
+
+} // namespace
+
+MaterialBlockResult M3Converter::setMaterialBlock(Document& document, const M3MaterialBlockEdit& edit) const {
+    MaterialBlockResult result;
+    Diagnostics& out = result.diagnostics;
+    const auto number = [](u64 value) { return std::to_string(value); };
+    if (!IsStarCraft(edit.profile)) {
+        out.error(DiagCode::OperationUnsupported,
+                  std::string("an M3 block edits a StarCraft II or Heroes set, not ") + ToString(edit.profile),
+                  ElementRef(), edit.profile);
+        return result;
+    }
+    if (edit.model >= document.models.size()) {
+        out.error(DiagCode::IndexOutOfRange, "model " + number(edit.model) + " of " + number(document.models.size()));
+        return result;
+    }
+    Model& model = document.models[edit.model];
+    ProfileMaterialSet* set = model.setFor(edit.profile);
+    if (set == nullptr) {
+        out.error(DiagCode::ProfileNotCarried,
+                  std::string("the model carries no ") + ToString(edit.profile) + " material set", ElementRef(),
+                  edit.profile);
+        return result;
+    }
+    if (edit.material >= set->materials.size()) {
+        out.error(DiagCode::IndexOutOfRange,
+                  "material " + number(edit.material) + " of " + number(set->materials.size()),
+                  ElementRef(ElementKind::Material, edit.material), edit.profile);
+        return result;
+    }
+    Material& target = set->materials[edit.material];
+    const native::M3Material* previous = std::get_if<native::M3Material>(&target.Native());
+    if (previous == nullptr) {
+        out.error(DiagCode::OperationUnsupported, "the material has no M3 block to edit",
+                  ElementRef(ElementKind::Material, edit.material), edit.profile);
+        return result;
+    }
+
+    // --- project, both sides: the import decides which ordinal a layer is ---
+    m3_core::Context context;
+    context.modelVersion = previous->sourceVersion;
+    context.internUnknownPaths = true;
+    for (const TextureRef& ref : document.textures) {
+        context.texturesByPath.emplace_back(ref.path, static_cast<u32>(context.texturesByPath.size()));
+    }
+    // The old block on a copy: a path the table has since lost (a texture's
+    // path edited under it) is not the new block's to intern.
+    Diagnostics before;
+    std::vector<u32> oldOrdinals;
+    const m3_core::Context previousContext = context;
+    ProjectM3Block(model, *set, edit.profile, edit.material, *previous, previousContext, before, oldOrdinals);
+    std::vector<u32> newOrdinals;
+    Material derived = ProjectM3Block(model, *set, edit.profile, edit.material, edit.block, context, out, newOrdinals);
+    // A path no texture had joins the table, as `fromM3` builds it.
+    for (std::size_t i = document.textures.size(); i < context.texturesByPath.size(); ++i) {
+        TextureRef ref;
+        ref.path = context.texturesByPath[i].first;
+        ref.key = TexturePath{ref.path};
+        document.textures.push_back(std::move(ref));
+    }
+
+    // Old ordinal -> its layer -> new ordinal: a layer IS its `MAT_` slot.
+    const auto newOrdinalOf = [&](u32 oldOrdinal) -> u32 {
+        if (oldOrdinal == kWholeMaterial) {
+            return kWholeMaterial;
+        }
+        for (std::size_t layer = 0; layer < oldOrdinals.size() && layer < newOrdinals.size(); ++layer) {
+            if (oldOrdinals[layer] == oldOrdinal) {
+                return newOrdinals[layer];
+            }
+        }
+        return kInvalidIndex;
+    };
+
+    // --- the features: the import makes none, the animation import does ----
+    const std::vector<MaterialFeature>& oldFeatures = target.Common().features;
+    CommonMaterial& common = derived.InitCommon();
+    std::vector<u32> droppedIds;
+    for (const MaterialFeature& old : oldFeatures) {
+        const u32 layer = newOrdinalOf(old.layer);
+        if (layer == kInvalidIndex) {
+            droppedIds.push_back(old.id);
+            out.warn(DiagCode::FeatureDropped,
+                     std::string(ToString(old.kind())) + " feature " + number(old.id) + " was on a removed layer",
+                     ElementRef(ElementKind::Feature, edit.material, old.id), edit.profile);
+            continue;
+        }
+        MaterialFeature kept = old;
+        kept.layer = layer;
+        common.features.push_back(std::move(kept));
+    }
+
+    // --- the channels ---------------------------------------------------------
+    for (AnimChannel& channel : model.animChannels.channels) {
+        TrackTarget& t = channel.target;
+        if (!IsMaterialTarget(t.kind) || t.material.profile != edit.profile ||
+            !BindsM3Material(*set, t.material.slot, t.material.look, edit.material)) {
+            continue;
+        }
+        bool dead = false;
+        if (t.kind == TrackTarget::Kind::MaterialLayer) {
+            if (!NamesOrdinal(t)) {
+                continue;
+            }
+            const u32 to = newOrdinalOf(t.sub);
+            dead = to == kInvalidIndex;
+            if (!dead && to != t.sub) {
+                t.sub = to;
+                ++result.channelsRemapped;
+            }
+        } else {
+            dead = std::find(droppedIds.begin(), droppedIds.end(), t.sub) != droppedIds.end();
+        }
+        if (!dead) {
+            continue;
+        }
+        // Invalidated, never dropped: an id is never reused.
+        t.material.slot = kInvalidIndex;
+        ++result.channelsInvalidated;
+        out.warn(DiagCode::AnimChannelInvalidated, "channel " + number(channel.id) + " animated a removed layer",
+                 ElementRef(ElementKind::Channel, channel.id), edit.profile);
+    }
+
+    target = std::move(derived);
+    result.ok = true;
+    return result;
+}
+
+native::M3Material M3Converter::defaultMaterialBlock(const Document& document, u32 model, ProfileId profile,
+                                                      u32 colourMap) const {
+    native::M3Material block;
+    block.kind = native::M3MaterialKind::Standard;
+    const ProfileMaterialSet* set = model < document.models.size() ? document.models[model].setFor(profile) : nullptr;
+    native::M3Standard standard;
+    const native::M3Material* style = nullptr;
+    for (std::size_t m = 0; set && m < set->materials.size() && style == nullptr; ++m) {
+        const auto* candidate = std::get_if<native::M3Material>(&set->materials[m].Native());
+        if (candidate && std::holds_alternative<native::M3Standard>(candidate->body)) {
+            style = candidate;
+        }
+    }
+    if (style != nullptr) {
+        // The style, not its layers or its keys. The normal-blend bits go with
+        // the factors they read: set over an empty array they crash the
+        // Galaxy editor (`reference_m3_normal_blend_flag`).
+        standard = std::get<native::M3Standard>(style->body);
+        standard.name.clear();
+        for (std::optional<native::M3TextureLayer>* layer :
+             {&standard.diffuseLayer, &standard.decalLayer, &standard.specularLayer, &standard.glossLayer,
+              &standard.emissiveLayer1, &standard.emissiveLayer2, &standard.environmentLayer,
+              &standard.environmentMaskLayer, &standard.alphaLayer1, &standard.alphaLayer2, &standard.normalLayer,
+              &standard.heightLayer, &standard.lightMapLayer, &standard.ambientOcclusionLayer,
+              &standard.normalBlend1MaskLayer, &standard.normalBlend2MaskLayer, &standard.normalBlend1Layer,
+              &standard.normalBlend2Layer}) {
+            layer->reset();
+        }
+        standard.normalBlendFactors.clear();
+        standard.flags = static_cast<native::M3MaterialFlag>(
+            static_cast<u32>(standard.flags) &
+            ~static_cast<u32>(m3::MaterialFlag::NormalBlend | m3::MaterialFlag::NormalBlend2));
+        for (native::M3AnimRef<f32>* ref : {&standard.parallaxHeight, &standard.motionBlurAmount}) {
+            ref->animId = 0;
+            ref->flags = 0;
+            ref->interpType = 0;
+        }
+        block.sourceVersion = style->sourceVersion;
+        block.recordVersions = style->recordVersions;
+    } else {
+        // The floor a drawn, opaque material states (`m3_core`'s own export).
+        standard.flags = static_cast<native::M3MaterialFlag>(static_cast<u32>(m3::MaterialFlag::GeometryVisible));
+        standard.specularExponent = 20.0f;
+        standard.hdrSpecularMultiplier = 1.0f;
+        block.sourceVersion = set ? static_cast<u32>(set->native.value("modelVersion", ExportVersionFor(profile)))
+                                  : ExportVersionFor(profile);
+    }
+    m3_core::Context context;
+    for (const TextureRef& ref : document.textures) {
+        context.texturesByPath.emplace_back(ref.path, static_cast<u32>(context.texturesByPath.size()));
+    }
+    native::M3TextureLayer diffuse;
+    CopyToNative(m3_core::TexturedLayer(colourMap, context), diffuse);
+    standard.diffuseLayer = std::move(diffuse);
+    block.body = std::move(standard);
+    return block;
+}
+
+m3::DataDrivenMaterial M3Converter::dataDrivenRecord(const native::M3DataDriven& body) {
+    m3::DataDrivenMaterial record;
+    CopyFromNative(body, record);
+    return record;
+}
+
+native::M3Material M3Converter::standardMaterialBlock(const m3::StandardMaterial& record, u32 sourceVersion) {
+    return m3_core::StandardBlock(record, sourceVersion);
 }
 
 } // namespace wem

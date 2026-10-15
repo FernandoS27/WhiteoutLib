@@ -620,6 +620,8 @@ void ForEachMaterialLink(Payload& payload, F&& f) {
         Sc2ParticleEmitterPayload::forEachMaterialLink(*particle, f);
     } else if (auto* sc2Ribbon = std::get_if<Sc2RibbonEmitterPayload>(&payload)) {
         Sc2RibbonEmitterPayload::forEachMaterialLink(*sc2Ribbon, f);
+    } else if (auto* projector = std::get_if<ProjectorPayload>(&payload)) {
+        f(projector->materialSlot);
     }
 }
 

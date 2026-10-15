@@ -261,10 +261,13 @@ struct ParticleEmitterCopy {
  * variation channels.
  */
 struct SplineRibbon {
-    Vector3f emissionOffset{};           ///< Emission point offset from bone
-    Vector3f emissionVector{};           ///< Emission direction vector
-    AnimRef<f32> velocity;               ///< Animated base velocity
-    u32 reserved = 0;                    ///< Reserved (always 0)
+    Vector3f emissionOffset{};           ///< Bezier C0: the start point, emitter-local
+    Vector3f emissionVector{};           ///< The start tangent (C1)
+    /// The end tangent (C2) and the end point (C3), in the bone's frame: raw
+    /// vectors the runtime reads as they are, where the community layout read
+    /// an AnimRef and a reserved word (SC2_RIBBON_RE.md §1.2).
+    Vector3f endTangent{};
+    Vector3f endOffset{};
     u32 boneIndex = 0;                   ///< Index into BONE array
     AnimRef<f32> velocityBaseFactor;     ///< Animated base velocity factor
     AnimRef<f32> velocityEndFactor;      ///< Animated end velocity factor

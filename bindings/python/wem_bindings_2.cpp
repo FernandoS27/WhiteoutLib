@@ -171,6 +171,13 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 2 of bind_wem(), which calls the parts in order.
 void bind_wem_2(py::module_& m) {
+    py::class_<whiteout::models::wem::PhysicsMaterial>(m, "PhysicsMaterial")
+        .def(py::init<>())
+        .def_readwrite("density", &whiteout::models::wem::PhysicsMaterial::density, R"doc(The StarCraft II upgrade's default.)doc")
+        .def_readwrite("friction", &whiteout::models::wem::PhysicsMaterial::friction)
+        .def_readwrite("restitution", &whiteout::models::wem::PhysicsMaterial::restitution)
+    ;
+
     py::class_<whiteout::models::wem::PhysicsShape>(m, "PhysicsShape")
         .def(py::init<>())
         .def_readwrite("kind", &whiteout::models::wem::PhysicsShape::kind)

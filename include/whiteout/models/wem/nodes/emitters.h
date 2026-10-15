@@ -43,6 +43,7 @@
  * transform with the basis change.
  */
 
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -1047,8 +1048,11 @@ struct Sc2ParticleEmitterPayload {
 /// `SRIB`: one control point of a `RIB_`'s spline, riding a bone of its own.
 struct Sc2RibbonSplinePoint {
     u32 node = kInvalidNode; ///< The bone it rides.
-    Vector3f emissionOffset{0, 0, 0};
-    Vector3f emissionVector{0, 0, 0};
+    Vector3f emissionOffset{0, 0, 0}; ///< The curve's start, emitter-local.
+    Vector3f emissionVector{0, 0, 0}; ///< Its start tangent.
+    /// Retired at `NODE` v24: the community layout's reading of the bytes that
+    /// hold `endTangent` and `endOffset`, of which only these three floats
+    /// crossed. Written as zero; an older chunk's are read into the two below.
     Sc2Property<f32> velocity;
     u32 reserved = 0;
     Sc2Property<f32> velocityBaseFactor;
@@ -1060,6 +1064,10 @@ struct Sc2RibbonSplinePoint {
     Sc2Property<f32> pitch;
     f32 emissionVectorNormFactor = 0; ///< Shipped as ~0.01 / |emissionVector|.
     f32 velocityNormFactor = 0;       ///< Shipped as ~0.01 / velocity.
+    /// The end tangent and the end point, in the bone's frame: the curve's last
+    /// two control points (SC2_RIBBON_RE.md §1.2). `NODE` v24.
+    Vector3f endTangent{0, 0, 0};
+    Vector3f endOffset{0, 0, 0};
 
     template <class V>
     void reflect(V& v) {
@@ -1077,6 +1085,13 @@ struct Sc2RibbonSplinePoint {
         v.field("pitch", pitch);
         v.field("emissionVectorNormFactor", emissionVectorNormFactor);
         v.field("velocityNormFactor", velocityNormFactor);
+        // An older chunk kept the end tangent's z, and the end offset's x and z.
+        v.since(24).fieldOr("endTangent", endTangent, [this] { endTangent = {0, 0, velocity.initValue}; });
+        v.since(24).fieldOr("endOffset", endOffset, [this] {
+            f32 z = 0;
+            std::memcpy(&z, &reserved, sizeof z);
+            endOffset = {velocity.nullValue, 0, z};
+        });
     }
 };
 

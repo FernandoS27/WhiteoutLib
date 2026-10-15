@@ -171,6 +171,13 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 1 of bind_wem(), which calls the parts in order.
 void bind_wem_1(py::module_& m) {
+    py::class_<whiteout::models::wem::Wc3ParticleInterval>(m, "Wc3ParticleInterval", R"doc(A flipbook run: cells `start..end`, `repeat` times over the span.)doc")
+        .def(py::init<>())
+        .def_readwrite("start", &whiteout::models::wem::Wc3ParticleInterval::start)
+        .def_readwrite("end", &whiteout::models::wem::Wc3ParticleInterval::end)
+        .def_readwrite("repeat", &whiteout::models::wem::Wc3ParticleInterval::repeat)
+    ;
+
     py::class_<whiteout::models::wem::Wc3ParticleEmitter2Payload>(m, "Wc3ParticleEmitter2Payload", R"doc(`PRE2`: camera-facing flipbook quads — the Warcraft III particle.)doc")
         .def(py::init<>())
         .def_readwrite("speed", &whiteout::models::wem::Wc3ParticleEmitter2Payload::speed)
@@ -450,9 +457,9 @@ Field names are the M3 record's. The bit words keep the file's own bits: `flags`
     py::class_<whiteout::models::wem::Sc2RibbonSplinePoint>(m, "Sc2RibbonSplinePoint", R"doc(`SRIB`: one control point of a `RIB_`'s spline, riding a bone of its own.)doc")
         .def(py::init<>())
         .def_readwrite("node", &whiteout::models::wem::Sc2RibbonSplinePoint::node, R"doc(The bone it rides.)doc")
-        .def_readwrite("emission_offset", &whiteout::models::wem::Sc2RibbonSplinePoint::emissionOffset)
-        .def_readwrite("emission_vector", &whiteout::models::wem::Sc2RibbonSplinePoint::emissionVector)
-        .def_readwrite("velocity", &whiteout::models::wem::Sc2RibbonSplinePoint::velocity)
+        .def_readwrite("emission_offset", &whiteout::models::wem::Sc2RibbonSplinePoint::emissionOffset, R"doc(The curve's start, emitter-local.)doc")
+        .def_readwrite("emission_vector", &whiteout::models::wem::Sc2RibbonSplinePoint::emissionVector, R"doc(Its start tangent.)doc")
+        .def_readwrite("velocity", &whiteout::models::wem::Sc2RibbonSplinePoint::velocity, R"doc(Retired at `NODE` v24: the community layout's reading of the bytes that hold `endTangent` and `endOffset`, of which only these three floats crossed. Written as zero; an older chunk's are read into the two below.)doc")
         .def_readwrite("reserved", &whiteout::models::wem::Sc2RibbonSplinePoint::reserved)
         .def_readwrite("velocity_base_factor", &whiteout::models::wem::Sc2RibbonSplinePoint::velocityBaseFactor)
         .def_readwrite("velocity_end_factor", &whiteout::models::wem::Sc2RibbonSplinePoint::velocityEndFactor)
@@ -463,6 +470,8 @@ Field names are the M3 record's. The bit words keep the file's own bits: `flags`
         .def_readwrite("pitch", &whiteout::models::wem::Sc2RibbonSplinePoint::pitch)
         .def_readwrite("emission_vector_norm_factor", &whiteout::models::wem::Sc2RibbonSplinePoint::emissionVectorNormFactor, R"doc(Shipped as ~0.01 / |emissionVector|.)doc")
         .def_readwrite("velocity_norm_factor", &whiteout::models::wem::Sc2RibbonSplinePoint::velocityNormFactor, R"doc(Shipped as ~0.01 / velocity.)doc")
+        .def_readwrite("end_tangent", &whiteout::models::wem::Sc2RibbonSplinePoint::endTangent, R"doc(The end tangent and the end point, in the bone's frame: the curve's last two control points (SC2_RIBBON_RE.md §1.2). `NODE` v24.)doc")
+        .def_readwrite("end_offset", &whiteout::models::wem::Sc2RibbonSplinePoint::endOffset)
     ;
 
     py::class_<whiteout::models::wem::Sc2RibbonEmitterPayload>(m, "Sc2RibbonEmitterPayload", R"doc(`RIB_` — the StarCraft II ribbon.
@@ -1162,13 +1171,6 @@ D3's `.ans` is the shape this exists for: 30 tag maps in one asset, one core and
         .def_readwrite("colliders", &whiteout::models::wem::SoftBody::colliders, R"doc(`ClothCollider::id`s.)doc")
         .def_readwrite("drips", &whiteout::models::wem::SoftBody::drips, R"doc(The mesh Drip added, or none.)doc")
         .def_readwrite("next_effect", &whiteout::models::wem::SoftBody::nextEffect, R"doc(The next effect id: never reused.)doc")
-    ;
-
-    py::class_<whiteout::models::wem::PhysicsMaterial>(m, "PhysicsMaterial")
-        .def(py::init<>())
-        .def_readwrite("density", &whiteout::models::wem::PhysicsMaterial::density, R"doc(The StarCraft II upgrade's default.)doc")
-        .def_readwrite("friction", &whiteout::models::wem::PhysicsMaterial::friction)
-        .def_readwrite("restitution", &whiteout::models::wem::PhysicsMaterial::restitution)
     ;
 
 }

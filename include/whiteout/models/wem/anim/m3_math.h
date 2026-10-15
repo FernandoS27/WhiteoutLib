@@ -64,6 +64,14 @@ inline f32 M3SmoothstepFactor(f32 accumulated, f32 w) {
     return t * t * (3.0f - 2.0f * t);
 }
 
+/// @brief @p frame, a model-space frame in WEM's axes, in the axes an `.m3`
+///        states its bones in: the conjugation `toM3` writes a bind with. What
+///        a host that poses an `.m3` actor from a WEM pose hands it.
+Matrix44f M3FrameOf(const Matrix44f& frame);
+/// @brief The inverse: a frame in an `.m3`'s axes — a record's own, under the
+///        bone it rides — in WEM's.
+Matrix44f WemFrameOf(const Matrix44f& frame);
+
 /// @brief Budget the weight walk starts with, and the epsilon it stops at.
 inline constexpr f32 kM3StartBudget = 1.0f;
 inline constexpr f32 kM3BudgetEpsilon = 1e-5f;

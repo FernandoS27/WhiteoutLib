@@ -241,7 +241,8 @@ Sc2RibbonEmitterPayload ImportRibbon(const m3::RibbonEmitter& r, const ImportLin
         point.node = links.bone(source.boneIndex);
         point.emissionOffset = source.emissionOffset;
         point.emissionVector = source.emissionVector;
-        point.reserved = source.reserved;
+        point.endTangent = source.endTangent;
+        point.endOffset = source.endOffset;
         point.yawVariation.type = source.yawType;
         point.pitchVariation.type = source.pitchType;
         point.velocityVariation.type = source.velocityType;
@@ -415,7 +416,8 @@ m3::RibbonEmitter ExportRibbon(const Sc2RibbonEmitterPayload& w, const ExportLin
         out.boneIndex = links.bone(point.node);
         out.emissionOffset = point.emissionOffset;
         out.emissionVector = point.emissionVector;
-        out.reserved = point.reserved;
+        out.endTangent = point.endTangent;
+        out.endOffset = point.endOffset;
         out.yawType = point.yawVariation.type;
         out.pitchType = point.pitchVariation.type;
         out.velocityType = point.velocityVariation.type;

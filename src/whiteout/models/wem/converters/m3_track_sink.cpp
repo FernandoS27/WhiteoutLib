@@ -157,6 +157,11 @@ Quaternion UnrebaseRotation(const Quaternion& q) {
     return Quaternion{q.y, -q.x, q.z, q.w};
 }
 
+/// The inverse of `m3_anim`'s `RebaseScale`, which is itself.
+Vector3f UnrebaseScale(const Vector3f& v) {
+    return Vector3f{v.y, v.x, v.z};
+}
+
 m3::ColorBGRA FromRgba(const Vector4f& value) {
     const auto byteOf = [](f32 v) {
         const f32 scaled = v * 255.0f;
@@ -384,7 +389,9 @@ u32 WriteStream(m3::SubTrackContainer& stc, const StreamSpec& spec, const SubTra
         for (std::size_t k = 0; k < count; ++k) {
             Vector3f value{};
             std::memcpy(&value, values[k], sizeof(value));
-            out.keys.push_back(spec.unrebaseVector ? Unrebase(value) : value);
+            out.keys.push_back(spec.unrebaseVector  ? Unrebase(value)
+                               : spec.unrebaseScale ? UnrebaseScale(value)
+                                                    : value);
         }
         block = static_cast<u32>(stc.sd3v.size());
         stc.sd3v.push_back(std::move(out));

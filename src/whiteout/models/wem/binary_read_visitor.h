@@ -20,6 +20,7 @@
 #include "../../common/binary_reader.h"
 #include "chunk_tags.h"
 
+#include <algorithm>
 #include <optional>
 #include <string>
 #include <type_traits>
@@ -53,6 +54,18 @@ public:
     /// "a v3.0 tool opening a v3.2 file" are one mechanism, not two.
     const std::vector<UnknownChunk>& unknownChunks() const {
         return unknown_;
+    }
+
+    /// The oldest version a chunk tagged @p tag was written at, or `~0u` when
+    /// the file holds none: for a fix-up a reading changed under.
+    u32 oldestVersion(u32 tag) const {
+        u32 oldest = ~0u;
+        for (const IndexEntry& entry : index_) {
+            if (entry.tag == tag) {
+                oldest = std::min(oldest, entry.version);
+            }
+        }
+        return oldest;
     }
 
     /// Skip every chunk carrying @p tag, as a build compiled without that format

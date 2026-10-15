@@ -388,8 +388,11 @@ TrackRests WarcraftRests(const Document& document, u32 model, const TrackTarget&
 TrackRests StarCraftRests(const Document& document, u32 model, const TrackTarget& target,
                           geom::AttrType type, const std::vector<u8>* initValue) {
     const Model& source = document.models[model];
+    // An explicit bind's unkeyed transform is the BONE value, which an `.m3`
+    // import keeps as the channel's `initValue` (its rest is the T-pose), and
+    // the rest where the channel holds none.
     if (target.kind == TrackTarget::Kind::Node && target.node < source.nodes.size() &&
-        source.nodes.rig == RigConvention::ExplicitBind) {
+        source.nodes.rig == RigConvention::ExplicitBind && initValue == nullptr) {
         const Transform& local = source.nodes.nodes[target.node].local;
         switch (target.channel) {
         case Channel::Translation:

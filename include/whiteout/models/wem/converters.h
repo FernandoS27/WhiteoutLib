@@ -500,7 +500,9 @@ struct M3ExportSettings {
     ///
     /// Off, `toM3` writes what it always has: an `.m3`-imported emitter node
     /// has no transform and no channel, and a StarCraft II visibility IS
-    /// hierarchical, so no other source wants it.
+    /// hierarchical, so no other source wants it. Either way, a node of those
+    /// kinds whose transform is keyed -- an editor key on a StarCraft II
+    /// camera -- gets a bone of its own to move.
     bool effectNodeBones = false;
 };
 
@@ -527,8 +529,34 @@ struct M3ExportMap {
     /// Per mesh, per section: the first `REGN` it became (a palette split
     /// makes more after it), `kInvalidIndex` for one not written.
     std::vector<std::vector<u32>> sectionRegion;
+    /// Per `REGN`, in file order: the mesh and section it was cut from, its
+    /// WEM elements (vertices and triangles in the region's own numbering) and
+    /// its bone-lookup window, the BONE each slot names. A geoset the M3 adapter
+    /// draws is a region, or one composite pass over it
+    /// (EDIT_MODE_SC2_PROFILE_PLAN.md S3.2).
+    std::vector<u32> regionMesh;
+    std::vector<u32> regionSection;
+    std::vector<DrawnElements> regionElements;
+    std::vector<std::vector<u32>> regionPalette;
+    /// Per region: its skin as the file holds it, per region vertex the nodes
+    /// and the weight bytes written, heaviest first.
+    std::vector<WrittenGeosetSkin> regionSkin;
+    /// Per document node, the runtime emitter it is or adds to: its `PAR_` for
+    /// a particle and for a copy of one (a `PARC` is a slot of its source), its
+    /// `RIB_` for a ribbon, `kInvalidIndex` for anything else
+    /// (EDIT_MODE_SC2_PROFILE_PLAN.md S5.3).
+    std::vector<u32> nodeEmitter;
     /// The first animId no stream or AnimRef the export wrote uses.
     u32 nextAnimId = 1;
+};
+
+/// One edit to a StarCraft II or Heroes material, as its whole new native
+/// block (EDIT_MODE_SC2_PROFILE_PLAN.md S4).
+struct M3MaterialBlockEdit {
+    u32 model = 0;
+    ProfileId profile = ProfileId::Sc2; ///< StarCraft II or Heroes (`IsStarCraft`).
+    u32 material = kInvalidIndex;       ///< In that set's `materials`.
+    native::M3Material block;           ///< The whole new block.
 };
 
 class M3Converter final : public FormatConverter {
@@ -569,15 +597,47 @@ public:
      * Nothing in a `.m3` names its `.m3a` — the caller decides which pair up —
      * and the join inside is the **animId** alone. The merge therefore adds
      * clips and containers that reference channels @p document already declares;
-     * a channel the base model never declared is skipped rather than invented,
-     * because an external file can supply new motion for a target but not a new
-     * target (§10.8.1).
+     * an id the base model never declared is carried as a `Native` stream under
+     * that id, since an external file supplies motion for a record's AnimRef
+     * but never a new target (§10.8.1; EDIT_MODE_SC2_PROFILE_PLAN.md S1.5).
      *
      * @return how many clips were added, or an error when @p model is not in the
      *         document.
      */
     Result<u32> mergeAnimation(Document& document, u32 model, const m3::Model& external) const;
+
+    /**
+     * @brief Replace one material's native block and re-derive its common
+     *        view, as `MdxConverter::setMaterialBlock` does for Warcraft III.
+     *
+     * The block is projected through the import beside the set's other
+     * materials, so a composite's sections find the entries they name, and a
+     * path no document texture has joins the textures. The material keeps its
+     * name and stays `InSync`. Features and `MaterialLayer` channels follow
+     * the `MAT_` layer they were on (old ordinal -> layer -> new ordinal); one
+     * whose layer is gone is invalidated.
+     */
+    MaterialBlockResult setMaterialBlock(Document& document, const M3MaterialBlockEdit& edit) const;
+
+    /// A new material's block for @p profile's set of @p model, over document
+    /// texture @p colourMap: the set's first Standard material for its class,
+    /// blend, flags and HDR terms, the model's own style, with one diffuse
+    /// layer as the export writes a fresh one. A set with no Standard material
+    /// gets the shipped floor, drawn and opaque.
+    native::M3Material defaultMaterialBlock(const Document& document, u32 model, ProfileId profile,
+                                            u32 colourMap) const;
+
+    /// The `.m3` records a native block holds, and back: for a host that runs
+    /// its own pass over the file's types, as the viewer restores a MADD.
+    static m3::DataDrivenMaterial dataDrivenRecord(const native::M3DataDriven& body);
+    static native::M3Material standardMaterialBlock(const m3::StandardMaterial& record, u32 sourceVersion);
 };
+
+/// Where `toM3` puts @p document's first model written as @p profile: the
+/// export run for its map alone. For a host that has no drawn conversion to
+/// ask (a preview of a staged copy); one that drew the document keeps the map
+/// that conversion returned, which is the same by construction.
+M3ExportMap M3ExportMapOf(const Document& document, ProfileId profile);
 
 // ============================================================================
 // GltfConverter

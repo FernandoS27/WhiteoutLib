@@ -13,7 +13,7 @@
  * and may hold its motion as a constant rate or as another game's keys, so
  * `toMdx`, the rests and an editor all need the same three readings: the
  * affine as those values, a rate as keys, and one key in whatever type its
- * channel has. The StarCraft II counterpart is `m3_core::UvTransformOf`.
+ * channel has. The StarCraft II counterpart is `m3_uv`.
  */
 
 #include <array>

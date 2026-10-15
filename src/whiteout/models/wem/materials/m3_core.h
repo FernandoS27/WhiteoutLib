@@ -189,6 +189,14 @@ Matrix3x2f UvTransformOf(const m3::TextureLayer& layer);
 /// uniform tiling.
 void SetUvTransform(const Matrix3x2f& matrix, m3::TextureLayer& layer);
 
+/// @p record as a native block, its record versions with it, read at
+/// @p sourceVersion: what `ImportMaterial` keeps for a `MAT_`.
+native::M3Material StandardBlock(const m3::StandardMaterial& record, u32 sourceVersion);
+
+/// A layer over document texture @p texture as the export writes a fresh one:
+/// the rests every shipped textured layer states, wrapping both ways.
+m3::TextureLayer TexturedLayer(u32 texture, const Context& context);
+
 /// One `MaterialMap` entry -> one `wem::Material`.
 ///
 /// Yields a `Composite` (§7.2.6) with the native block attached `InSync`. A map

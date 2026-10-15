@@ -1818,3 +1818,91 @@ TEST_CASE("wem m3 an external file folds against the model's sets and keeps its 
     CHECK(attack.events[0].name == "Evt_Hit");
     CHECK(attack.events[0].node == 1u);
 }
+
+TEST_CASE("wem m3 rests in the T-pose its mesh is stored in", "[wem][anim][m3][corpus][rest]") {
+    // IREF binds the mesh where the file stores it, and that T-pose is the
+    // rest: at rest every skin matrix is the identity. The BONE values -- the
+    // pose the game shows where nothing keys a bone, up to 43.8 units off the
+    // bind -- ride each channel's `initValue` and come back out bit for bit.
+    const auto files =
+        test::gather("WEM_M3_CORPUS_DIR", ".m3", {"Sc2M3", "Sc2BetaM3", "HotSM3", "StarM3"});
+    if (files.empty()) {
+        WARN("no .m3 corpus found; set WEM_M3_CORPUS_DIR");
+        return;
+    }
+    const std::size_t limit = test::sweepLimit(files.size(), 150);
+    const M3Converter converter;
+    u32 models = 0, bones = 0, apart = 0, moved = 0, skewed = 0, sheared = 0;
+    f32 worst = 0.0f;
+    std::string worstAt;
+    for (std::size_t i = 0; i < limit; ++i) {
+        test::trace(files[i]);
+        const std::vector<u8> bytes = test::readCorpusFile(files[i]);
+        m3::Parser parser;
+        const m3::Model source = parser.parse(std::span<const u8>(bytes.data(), bytes.size()));
+        if (source.bones.empty() || source.initialReference.size() < source.bones.size()) {
+            continue;
+        }
+        Result<Document> imported = converter.fromM3(source);
+        REQUIRE(imported.ok());
+        const NodeTree& tree = imported->models[0].nodes;
+        ++models;
+        for (u32 b = 0; b < source.bones.size(); ++b) {
+            // A bind with shear in it has no TRS to rest at: the rest is its
+            // nearest, and the skin keeps the shear.
+            const Matrix44f bind = Matrix44f::inverse(tree.inverseBindMatrix(b));
+            Vector3f rows[3];
+            for (int r = 0; r < 3; ++r) {
+                rows[r] = Vector3f{bind.data[r][0], bind.data[r][1], bind.data[r][2]}.normalized();
+            }
+            if (std::max({std::fabs(rows[0].dot(rows[1])), std::fabs(rows[0].dot(rows[2])),
+                          std::fabs(rows[1].dot(rows[2]))}) > 1e-3f) {
+                ++sheared;
+                continue;
+            }
+            // Skin at rest, rows against the identity; the translation over the
+            // bone's reach, so a large model is held to the same share.
+            const Matrix44f skin = tree.inverseBindMatrix(b) * ToMatrix(tree.worldBind(b));
+            const Vector3f at = tree.worldBind(b).translation;
+            const f32 reach = std::max(1.0f, std::sqrt(at.x * at.x + at.y * at.y + at.z * at.z));
+            f32 off = 0.0f;
+            for (int r = 0; r < 3; ++r) {
+                for (int c = 0; c < 3; ++c) {
+                    off = std::max(off, std::fabs(skin.data[r][c] - (r == c ? 1.0f : 0.0f)));
+                }
+                off = std::max(off, std::fabs(skin.data[3][r]) / reach);
+            }
+            skewed += off > 1e-3f ? 1u : 0u;
+            if (off > worst) {
+                worst = off;
+                worstAt = files[i].filename().string() + " " + tree.nodes[b].name;
+            }
+            ++bones;
+            const m3::Bone& was = source.bones[b];
+            const Transform& rest = tree.nodes[b].local;
+            const Vector3f initAt{-was.position.initValue.y, was.position.initValue.x, was.position.initValue.z};
+            apart += std::fabs(rest.translation.x - initAt.x) + std::fabs(rest.translation.y - initAt.y) +
+                                 std::fabs(rest.translation.z - initAt.z) >
+                             1e-3f
+                         ? 1u
+                         : 0u;
+        }
+        Result<m3::Model> back = converter.toM3(*imported, ProfileId::Sc2, 29);
+        REQUIRE(back.ok());
+        REQUIRE(back->bones.size() == source.bones.size());
+        for (std::size_t b = 0; b < source.bones.size(); ++b) {
+            const m3::Bone& was = source.bones[b];
+            const m3::Bone& now = back->bones[b];
+            moved += std::memcmp(&was.position.initValue, &now.position.initValue, sizeof(Vector3f)) != 0 ||
+                             std::memcmp(&was.rotation.initValue, &now.rotation.initValue, sizeof(Quaternion)) != 0 ||
+                             std::memcmp(&was.scale.initValue, &now.scale.initValue, sizeof(Vector3f)) != 0
+                         ? 1u
+                         : 0u;
+        }
+    }
+    std::cout << "[rest] " << models << " models, " << bones << " bones, " << apart
+              << " resting away from their BONE values, " << skewed << " off the identity at rest (" << sheared << " sheared binds apart), worst "
+              << worst << " (" << worstAt << ")\n";
+    CHECK(moved == 0u);
+    CHECK(worst < 1e-3f);
+}

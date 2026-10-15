@@ -290,15 +290,19 @@ struct ChunkTagTraits<Matrix44f> {
 /// (EDIT_MODE_RIGGING_DESIGN.md §2); v21 a helper's gizmo in it (§8); v22
 /// StarCraft II's own records beside the nodes they ride -- its billboard, its
 /// shadow box, a light's and a camera's `LITE` and `CAM_`, an attachment's
-/// volumes and a hit test's role (EDIT_MODE_SC2_PROFILE_PLAN.md S1.3, S1.5).
-/// An older chunk holds none of them, so it reads unchanged. A NEWER one does
+/// volumes and a hit test's role (EDIT_MODE_SC2_PROFILE_PLAN.md S1.3, S1.5);
+/// v23 no field: an `.m3` bone's scale in WEM's axes, its X and Y traded, where
+/// an older chunk kept the file's (the `Parser` trades it on read, with its
+/// keys); v24 a StarCraft II spline point's end tangent and end offset, which
+/// an older chunk kept three floats of under the community layout's names. An
+/// older chunk holds none of them, so it reads unchanged. A NEWER one does
 /// not: records sit back to back, and nothing checks a chunk's version against
 /// this, so a build older than a field misreads every node after the first
 /// record that carries it.
 template <>
 struct ChunkTagTraits<Node> {
     static constexpr u32 value = kTag("NODE");
-    static constexpr u32 max_version = 22;
+    static constexpr u32 max_version = 24;
     static constexpr bool is_trivial = false;
 };
 

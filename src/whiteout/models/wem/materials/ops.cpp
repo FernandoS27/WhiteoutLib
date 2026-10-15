@@ -185,7 +185,7 @@ RemovalResult RemoveLayer(Model& model, ProfileId profile, u32 material, u32 ord
                            material)) {
             continue;
         }
-        if (channel.target.sub == kWholeMaterial) {
+        if (!NamesOrdinal(channel.target)) {
             continue; // Not an ordinal, so nothing renumbers it.
         }
         if (channel.target.sub == ordinal) {
@@ -1001,7 +1001,8 @@ void CheckMaterialReferencers(const Model& model, u32 modelIndex, Diagnostics& o
         }
         // `kWholeMaterial` is a legal ordinal here for the same reason it is on
         // a feature: a WoW `M2Color` multiplies the whole batch, not one stage.
-        if (channel.target.sub == kWholeMaterial) {
+        // A composite's section weight names its section.
+        if (!NamesOrdinal(channel.target)) {
             continue;
         }
         const Material* material = Resolve(model, ref.slot, ref.profile, ref.look);

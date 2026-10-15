@@ -332,8 +332,8 @@ void BinaryParseVisitor::visit(SplineRibbon& value, u32 version) {
     (void)version;
     value.emissionOffset = reader.read<Vector3f>();
     value.emissionVector = reader.read<Vector3f>();
-    value.velocity = reader.read<AnimRef<f32>>();
-    value.reserved = reader.read<u32>();
+    value.endTangent = reader.read<Vector3f>();
+    value.endOffset = reader.read<Vector3f>();
     value.boneIndex = reader.read<u32>();
     value.velocityBaseFactor = reader.read<AnimRef<f32>>();
     value.velocityEndFactor = reader.read<AnimRef<f32>>();

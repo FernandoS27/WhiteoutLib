@@ -123,10 +123,11 @@ enum class RibbonType : u32 {
     Star = 3,      ///< Star-shaped cross-section
 };
 
-/** @brief Projector / decal projection type (PROJ) */
+/** @brief Projector / decal projection type (PROJ): from 1, as every shipped
+ *  record reads (EDIT_MODE_SC2_PROFILE_PLAN.md S7.1). */
 enum class ProjectionType : u32 {
-    Orthographic = 0, ///< Orthographic projection
-    Perspective = 1,  ///< Perspective projection
+    Orthographic = 1, ///< Orthographic projection
+    Perspective = 2,  ///< Perspective projection
 };
 
 /** @brief Volume shape type (VOL_ / VON_) */

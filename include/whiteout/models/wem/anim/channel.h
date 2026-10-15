@@ -180,6 +180,18 @@ enum class Channel : u8 {
     SoftLumpRotation,    ///< Quat. About the lump's pivot.
     SoftLumpScale,       ///< F32x3. About the lump's pivot, along the model's axes at the bind.
 
+    // A StarCraft II layer's other refs and its material's (EDIT_MODE_SC2_PROFILE_PLAN.md
+    // S4.3), on a `MaterialLayer` target. Only the `.m3` import declares them,
+    // where the file keys them, and only its export writes them.
+    ColorAdd,           ///< F32. LAYR `rgbAdd`.
+    UvWTranslate,       ///< F32. LAYR `wOffset`: a volume texture's third coordinate.
+    UvWScale,           ///< F32. LAYR `wTiling`.
+    TriplanarTranslate, ///< F32x3. LAYR `triplanarOffset`, as the file has it.
+    TriplanarScale,     ///< F32x3. LAYR `triplanarScale`, as the file has it.
+    ParallaxHeight,     ///< F32. `MAT_` `parallaxHeight`, `sub` `kWholeMaterial`.
+    MotionBlur,         ///< F32. `MAT_` `motionBlurAmount`, `sub` `kWholeMaterial`.
+    SectionWeight,      ///< F32. A composite's `CMS_` `mapMultiplier`, `sub` the section.
+
     Count
 };
 
@@ -344,6 +356,14 @@ const char* ToString(TrackTarget::Kind kind);
 /// worth spelling once because both of them and `Validate` ask it.
 constexpr bool IsMaterialTarget(TrackTarget::Kind kind) {
     return kind == TrackTarget::Kind::MaterialLayer || kind == TrackTarget::Kind::MaterialFeature;
+}
+
+/// Whether @p target's `sub` is a layer ordinal, which a layer's removal or a
+/// re-derive renumbers: a `MaterialLayer` target's, but for the whole material
+/// (`kWholeMaterial`) and a composite's section (`SectionWeight`).
+constexpr bool NamesOrdinal(const TrackTarget& target) {
+    return target.kind == TrackTarget::Kind::MaterialLayer && target.sub != kWholeMaterial &&
+           target.channel != Channel::SectionWeight;
 }
 
 // ============================================================================

@@ -324,6 +324,22 @@ const char* ToString(Channel channel) {
         return "softLumpRotation";
     case Channel::SoftLumpScale:
         return "softLumpScale";
+    case Channel::ColorAdd:
+        return "colorAdd";
+    case Channel::UvWTranslate:
+        return "uvWTranslate";
+    case Channel::UvWScale:
+        return "uvWScale";
+    case Channel::TriplanarTranslate:
+        return "triplanarTranslate";
+    case Channel::TriplanarScale:
+        return "triplanarScale";
+    case Channel::ParallaxHeight:
+        return "parallaxHeight";
+    case Channel::MotionBlur:
+        return "motionBlur";
+    case Channel::SectionWeight:
+        return "sectionWeight";
     case Channel::Count:
         break;
     }
@@ -361,6 +377,8 @@ geom::AttrType DefaultValueType(Channel channel) {
     case Channel::ClothDriverTranslation:
     case Channel::SoftLumpTranslation:
     case Channel::SoftLumpScale:
+    case Channel::TriplanarTranslate:
+    case Channel::TriplanarScale:
         return geom::AttrType::F32x3;
     case Channel::Rotation:
     case Channel::UvRotate:
@@ -399,6 +417,12 @@ geom::AttrType DefaultValueType(Channel channel) {
     case Channel::PhysicsRagdoll:
     case Channel::PhysicsBlend:
     case Channel::SoftAmount:
+    case Channel::ColorAdd:
+    case Channel::UvWTranslate:
+    case Channel::UvWScale:
+    case Channel::ParallaxHeight:
+    case Channel::MotionBlur:
+    case Channel::SectionWeight:
     case Channel::Count:
         break;
     }

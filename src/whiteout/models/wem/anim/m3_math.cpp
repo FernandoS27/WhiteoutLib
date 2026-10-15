@@ -3,6 +3,8 @@
 
 #include "whiteout/models/wem/anim/m3_math.h"
 
+#include "../converters/m3_physics.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -85,6 +87,14 @@ Quaternion M3SlerpQuat(const Quaternion& a, const Quaternion& b,
     const f32 wa = std::sin((1.0f - t) * theta) / sinTheta;
     const f32 wb = std::sin(t * theta) / sinTheta;
     return {a.x * wa + e.x * wb, a.y * wa + e.y * wb, a.z * wa + e.z * wb, a.w * wa + e.w * wb};
+}
+
+Matrix44f M3FrameOf(const Matrix44f& frame) {
+    return m3_physics::UnrebaseConjugate(frame);
+}
+
+Matrix44f WemFrameOf(const Matrix44f& frame) {
+    return m3_physics::RebaseConjugate(frame);
 }
 
 } // namespace wem
