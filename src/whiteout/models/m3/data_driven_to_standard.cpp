@@ -24,6 +24,7 @@ using PropertyMap = std::map<std::string, const DataDrivenProperty*>;
 struct LayerSpec {
     std::optional<TextureLayer> StandardMaterial::*slot;
     const char* prefix;         // property prefix, which is not always the group name
+    const char* family;         // prefix of the `<family>Constant` / `<family>Alpha` pair
     std::vector<const char*> families;
 };
 
@@ -31,37 +32,48 @@ struct LayerSpec {
 // is the irregular part: AlphaMask stores its properties under `Alpha`, the
 // environment layer splits between `EnvironmentMap` and `Envio`, and HeightMap
 // spells its own scalar `HeightMapScale` while its layer properties use
-// `Heightmap`.
+// `Heightmap`. The constant and its alpha follow the fragment's name instead:
+// `EnvioConstant`, `EnvioAlpha`, `LightMapConstant` (the binder, sub_1027B12E0).
 const std::vector<LayerSpec>& layerTable() {
     static const std::vector<LayerSpec> table = {
-        {&StandardMaterial::diffuseLayer, "Diffuse",
+        {&StandardMaterial::diffuseLayer, "Diffuse", "Diffuse",
          {"Diffuse", "DiffuseFast", "DiffuseTriPlanar", "DiffuseTeamColor", "DiffuseConstantTeam"}},
-        {&StandardMaterial::decalLayer, "Decal", {"Decal"}},
-        {&StandardMaterial::specularLayer, "Specular",
+        {&StandardMaterial::decalLayer, "Decal", "Decal", {"Decal"}},
+        {&StandardMaterial::specularLayer, "Specular", "Specular",
          {"Specular", "SpecularTriPlanar", "SpecularConstant"}},
-        {&StandardMaterial::glossLayer, "Gloss", {"Gloss", "GlossConstant"}},
-        {&StandardMaterial::emissiveLayer1, "Emissive",
+        {&StandardMaterial::glossLayer, "Gloss", "Gloss", {"Gloss", "GlossConstant"}},
+        {&StandardMaterial::emissiveLayer1, "Emissive", "Emissive",
          {"Emissive", "EmissiveFast", "EmissiveMasked", "EmissiveTriPlanar", "EmissiveTeam",
           "EmissiveConstant", "EmissiveConstantTeam"}},
-        {&StandardMaterial::emissiveLayer2, "Emissive2",
+        {&StandardMaterial::emissiveLayer2, "Emissive2", "Emissive2",
          {"Emissive2", "Emissive2Fast", "Emissive2Team", "Emissive2Constant",
           "Emissive2ConstantTeam"}},
-        {&StandardMaterial::environmentLayer, "EnvironmentMap",
+        {&StandardMaterial::environmentLayer, "EnvironmentMap", "Envio",
          {"Envio", "EnvioBlurred", "EnvioNonReflective", "EnvioNonReflectiveBlurred", "SphereEnvio",
           "SphereEnvioBlurred", "SphereEnvioNonReflective", "SphereEnvioNonReflectiveBlurred",
           "EnvioConstant"}},
-        {&StandardMaterial::environmentMaskLayer, "EnvioMask",
+        {&StandardMaterial::environmentMaskLayer, "EnvioMask", "EnvioMask",
          {"EnvioMask", "SphereEnvioMask", "EnvioMaskConstant"}},
-        {&StandardMaterial::alphaLayer1, "Alpha",
+        {&StandardMaterial::alphaLayer1, "Alpha", "Alpha",
          {"AlphaMask", "AlphaMaskTriPlanar", "AlphaMaskConstant"}},
-        {&StandardMaterial::alphaLayer2, "Alpha2", {"AlphaMask2", "AlphaMask2Constant"}},
-        {&StandardMaterial::normalLayer, "Normal",
+        {&StandardMaterial::alphaLayer2, "Alpha2", "Alpha2", {"AlphaMask2", "AlphaMask2Constant"}},
+        {&StandardMaterial::normalLayer, "Normal", "Normal",
          {"Normal", "NormalWorld", "NormalTriPlanar", "NormalConstant"}},
-        {&StandardMaterial::heightLayer, "Heightmap", {"HeightMap"}},
-        {&StandardMaterial::lightMapLayer, "Lightmap", {"LightMap"}},
-        {&StandardMaterial::ambientOcclusionLayer, "AOMask", {"AOMask"}},
+        {&StandardMaterial::heightLayer, "Heightmap", "Heightmap", {"HeightMap"}},
+        {&StandardMaterial::lightMapLayer, "Lightmap", "LightMap", {"LightMap"}},
+        {&StandardMaterial::ambientOcclusionLayer, "AOMask", "AOMask", {"AOMask"}},
     };
     return table;
+}
+
+// The environment layer's projection is the fragment the converter picked for
+// it, not a UV slot: Envio for 2, SphereEnvio 3, EnvioNonReflective 7,
+// SphereEnvioNonReflective 8, each with a `Blurred` twin under MAT_ flag 0x800.
+UVMappingMode envioMapping(const std::string& family) {
+    const bool sphere = family.rfind("Sphere", 0) == 0;
+    if (family.find("NonReflective") != std::string::npos)
+        return sphere ? UVMappingMode::SphericalEnvio : UVMappingMode::CubicEnvio;
+    return sphere ? UVMappingMode::ReflectSphericalEnvio : UVMappingMode::ReflectCubicEnvio;
 }
 
 // Fragments the forward converter emits from the model context (which emitter
@@ -225,15 +237,25 @@ void applyChannelSelection(const PropertyMap& props, const LayerSpec& spec, Text
     const auto* p = find(props, std::string(spec.prefix) + "ChannelSelection");
     if (!p || p->data.size() < 20)
         return;
+    // MADD numbers the channels its own way (RGBA 0, RGB 1, R 2, G 3, B 4,
+    // A 5): the converter writes `{1, 0, 5, 2, 3, 4}[colorType]`
+    // (dword_10431B010). DiffuseFast, emitted for an RGB layer, carries 1 on
+    // all 614 shipped records, and DiffuseTeamColor 0 on all 240.
+    static constexpr ColorChannelSelect kChannel[] = {
+        ColorChannelSelect::RGBA, ColorChannelSelect::RGB,  ColorChannelSelect::Red,
+        ColorChannelSelect::Green, ColorChannelSelect::Blue, ColorChannelSelect::Alpha};
     u32 selector = 0;
-    f32 multiply = 1.0f, add = 0.0f;
+    f32 multiply = 1.0f, add = 0.0f, alpha = 1.0f;
     std::memcpy(&selector, p->data.data(), sizeof(selector));
     std::memcpy(&multiply, p->data.data() + 4, sizeof(multiply));
     std::memcpy(&add, p->data.data() + 8, sizeof(add));
-    if (selector <= static_cast<u32>(ColorChannelSelect::Blue))
-        layer.colorType = static_cast<ColorChannelSelect>(selector);
+    std::memcpy(&alpha, p->data.data() + 12, sizeof(alpha));
+    if (selector < std::size(kChannel))
+        layer.colorType = kChannel[selector];
     layer.rgbMultiply.initValue = multiply;
     layer.rgbAdd.initValue = add;
+    // `AlphaMultiplier`, the layer's map alpha (LAYR+328 in the converter).
+    layer.mapAlpha.initValue = alpha;
     // Two booleans at byte 16/17; the two bytes after them are uninitialised.
     if (p->data[16])
         layer.flags |= TextureLayerFlag::ColorInvert;
@@ -241,9 +263,27 @@ void applyChannelSelection(const PropertyMap& props, const LayerSpec& spec, Text
         layer.flags |= TextureLayerFlag::ColorClamp;
 }
 
-void applyUV(const PropertyMap& props, const LayerSpec& spec, TextureLayer& layer) {
-    layer.uvMapping =
-        static_cast<UVMappingMode>(readU32(find(props, std::string(spec.prefix) + "UVSelection"), 0));
+void applyUV(const PropertyMap& props, const LayerSpec& spec, const DataDrivenMaterial& madd,
+             TextureLayer& layer) {
+    // `UVSelection` picks one of four UV slots, and the record keeps a code
+    // byte per slot at +144 (sub_10279F920): 0 the slot's own explicit set,
+    // then planar local X/Y/Z, planar world X/Y/Z, screen, triplanar and the
+    // particle flipbook (byte_10431B028).
+    static constexpr UVMappingMode kExplicit[] = {UVMappingMode::ExplicitUV0, UVMappingMode::ExplicitUV1,
+                                                  UVMappingMode::ExplicitUV2, UVMappingMode::ExplicitUV3};
+    static constexpr UVMappingMode kCode[] = {
+        UVMappingMode::ExplicitUV0,  UVMappingMode::PlanarLocalX, UVMappingMode::PlanarLocalY,
+        UVMappingMode::PlanarLocalZ, UVMappingMode::PlanarWorldX, UVMappingMode::PlanarWorldY,
+        UVMappingMode::PlanarWorldZ, UVMappingMode::ScreenSpace,  UVMappingMode::TriPlanarWorldLocalZ,
+        UVMappingMode::ParticleFlipbook};
+    if (const auto* sel = find(props, std::string(spec.prefix) + "UVSelection")) {
+        const u32 slot = readU32(sel, 0);
+        const u32 code = slot < 4 ? (madd.unknown144 >> (8 * slot)) & 0xFFu : 0xFFu;
+        if (code == 0)
+            layer.uvMapping = kExplicit[slot];
+        else if (code < std::size(kCode))
+            layer.uvMapping = kCode[code];
+    }
 
     const auto* p = find(props, std::string(spec.prefix) + "UVTransform");
     if (!p)
@@ -351,11 +391,16 @@ StandardMaterialConversion DataDrivenMaterial::toStandardMaterial() const {
 
         TextureLayer layer = neutralLayer();
         applyTexture(props, spec, *this, layer, out.lossy);
-        applyUV(props, spec, layer);
+        applyUV(props, spec, *this, layer);
         applyChannelSelection(props, spec, layer);
         applyFresnel(props, spec, layer, out.lossy);
+        if (spec.slot == &StandardMaterial::environmentLayer) {
+            layer.uvMapping = envioMapping(*family);
+            if (std::string(*family).find("Blurred") != std::string::npos)
+                mat.flags |= MaterialFlag::SimulateRoughness;
+        }
 
-        if (const auto* c = find(props, std::string(spec.prefix) + "Constant")) {
+        if (const auto* c = find(props, std::string(spec.family) + "Constant")) {
             const u32 packed = readU32(c);
             layer.color.initValue = ColorBGRA{static_cast<u8>(packed & 0xFF),
                                               static_cast<u8>((packed >> 8) & 0xFF),
@@ -369,7 +414,7 @@ StandardMaterialConversion DataDrivenMaterial::toStandardMaterial() const {
             else if (spec.slot == &StandardMaterial::emissiveLayer2)
                 mat.emissiveBlendMode2 = static_cast<LayerBlendOp>(op);
         }
-        if (const auto* alpha = find(props, std::string(spec.prefix) + "Alpha"))
+        if (const auto* alpha = find(props, std::string(spec.family) + "Alpha"))
             layer.mapAlpha.initValue = readF32(alpha, 1.0f);
         if (const auto* off = find(props, std::string(spec.prefix) + "TriplanarOffset");
             off && off->data.size() >= 12)
@@ -396,7 +441,10 @@ StandardMaterialConversion DataDrivenMaterial::toStandardMaterial() const {
             out.lossy.push_back("pipeline fragment '" + fragment +
                                 "' is derived from the model, not the material");
 
-    out.lossy.emplace_back("animation links are not stored in the blob; every AnimRef is constant");
+    // The engine binds tracks by the crc32 of a name built from the material
+    // and the emitter kind that uses it (sub_1027B12E0), which only the model
+    // can say; a caller holding the model can bind them.
+    out.lossy.emplace_back("animation is bound by name from the model; every AnimRef here is constant");
     out.converted = true;
     return out;
 }
@@ -585,7 +633,7 @@ StandardMaterialConversion DataDrivenMaterial::approximateStandardMaterial() con
     if (unassignedTextures)
         out.lossy.push_back(std::to_string(unassignedTextures) +
                             " sampled textures had no role signal and were dropped");
-    out.lossy.emplace_back("animation links are not stored in the blob; every AnimRef is constant");
+    out.lossy.emplace_back("animation is bound by name from the model; every AnimRef here is constant");
     out.converted = true;
     return out;
 }
