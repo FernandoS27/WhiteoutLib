@@ -4,8 +4,11 @@
 #include "mdl_parser.h"
 #include "mdl_tokenizer.h"
 
+#include <clocale>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
+#include <string>
 
 namespace whiteout {
 namespace mdx {
@@ -75,11 +78,30 @@ private:
 static f64 toNumber(std::string_view text) {
     // std::from_chars for double is not universally available on all MSVC
     // versions for all locales, so we use strtod via a null-terminated copy.
-    // The text is typically short (< 30 chars).
+    // The text is typically short (< 30 chars). strtod honours LC_NUMERIC:
+    // a host that runs with a ',' locale (3ds Max 2027 on a German Windows)
+    // would stop at the '.' and read every "1.5" as 1, hence the radix
+    // substitution (as in the glTF JSON reader).
     char buf[64];
     auto len = text.size() < 63 ? text.size() : 63;
     std::memcpy(buf, text.data(), len);
     buf[len] = '\0';
+    // "-1.#IND00" / "1.#INF00" / "1.#QNAN0": old MSVC non-finite spellings
+    if (const char* hash = std::strchr(buf, '#')) {
+        const bool neg = buf[0] == '-';
+        const bool inf = std::strncmp(hash + 1, "INF", 3) == 0 || std::strncmp(hash + 1, "inf", 3) == 0;
+        if (inf)
+            return neg ? -std::numeric_limits<f64>::infinity() : std::numeric_limits<f64>::infinity();
+        return std::numeric_limits<f64>::quiet_NaN();
+    }
+    const char* const radix = std::localeconv()->decimal_point;
+    if (radix != nullptr && std::strcmp(radix, ".") != 0) {
+        std::string s(buf, len);
+        const std::size_t dot = s.find('.');
+        if (dot != std::string::npos)
+            s.replace(dot, 1, radix);
+        return std::strtod(s.c_str(), nullptr);
+    }
     return std::strtod(buf, nullptr);
 }
 
