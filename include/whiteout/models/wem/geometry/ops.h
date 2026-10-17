@@ -310,6 +310,9 @@ f32 ShadingAngle(const Mesh& mesh);
 
 /// `RecomputeNormals` over the corners at the vertices of @p faces only.
 void RecomputeNormals(Mesh& mesh, std::span<const FaceId> faces, f32 angleThreshold);
+/// The same over the corners at @p vertices. Both read the normals of the
+/// faces round those vertices and of no other, so a patch costs its size.
+void RecomputeNormalsAt(Mesh& mesh, std::span<const VertexId> vertices, f32 angleThreshold);
 
 /**
  * @brief States a smoothing angle as `sharp` flags: an edge between two faces
@@ -346,6 +349,8 @@ u32 MarkSharpByAngle(Mesh& mesh, f32 angle, bool keepHard = false);
  * normal, and `w` +1.
  */
 void RecomputeTangents(Mesh& mesh, std::span<const FaceId> faces, u32 uvSet);
+/// The same over the corners at @p vertices.
+void RecomputeTangentsAt(Mesh& mesh, std::span<const VertexId> vertices, u32 uvSet);
 
 } // namespace geom
 } // namespace wem

@@ -184,6 +184,13 @@ std::vector<DrawnElements> MdxGeosetElements(const Document& document, u32 model
                                              ProfileId profile,
                                              std::optional<u32> secondUvSet = std::nullopt);
 
+/// `MdxGeosetElements` of mesh @p mesh alone, in `MdxExportMap::geosetsOfMesh`'s
+/// order for it: each drawn section's geoset, then a cut section's further
+/// pieces. One render view, for a host that redraws one mesh.
+std::vector<DrawnElements> MdxMeshElements(const Document& document, u32 model, u32 mesh,
+                                           ProfileId profile,
+                                           std::optional<u32> secondUvSet = std::nullopt);
+
 /// `MdxGeosetElements`' vertices alone: the WEM vertex of each geoset vertex, in
 /// the geoset's own order (EDIT_MODE_SKIN_DESIGN.md §12.4).
 std::vector<std::vector<u32>> MdxGeosetVertices(const Document& document, u32 model,
@@ -664,6 +671,17 @@ public:
 /// ask (a preview of a staged copy); one that drew the document keeps the map
 /// that conversion returned, which is the same by construction.
 M3ExportMap M3ExportMapOf(const Document& document, ProfileId profile);
+
+/// A document vector -- a position, a normal, a tangent's axis -- in StarCraft
+/// II's basis, as `toM3` writes it into a vertex record: what a host writing a
+/// drawn region in place turns its values through.
+Vector3f M3VertexBasis(const Vector3f& v);
+
+/// The render view `toM3` cuts @p model's regions from as @p profile, as far
+/// as it decides which corners share a drawn vertex: positions, normals,
+/// tangents, and every UV set and the colour the model's one vertex
+/// declaration holds. The skin, which never splits a vertex, is left out.
+geom::RenderMeshDesc M3RegionRenderDesc(const Model& model, ProfileId profile);
 
 // ============================================================================
 // GltfConverter

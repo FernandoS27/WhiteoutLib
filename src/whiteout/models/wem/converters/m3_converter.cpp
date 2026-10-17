@@ -34,6 +34,7 @@
 #include "whiteout/models/m3/engine_compat.h"
 #include "whiteout/models/m3/parser.h"
 #include "whiteout/models/m3/physics_upgrade.h"
+#include "whiteout/models/m3/vertex_encoding.h"
 #include "whiteout/models/m3/writer.h"
 #include "whiteout/models/wem/anim/rests.h"
 #include "whiteout/models/wem/converters.h"
@@ -305,10 +306,10 @@ std::string SlotName(std::size_t materialMapIndex) {
 /// is that function read backwards. Position f32x3 at 0, weights and indices as
 /// raw bytes at 12 and 16, the normal as UNORM bytes at 20 with the tangent's
 /// handedness in its fourth, then one i16 pair per UV layer at 1/2048 units, and
-/// the tangent last in the same UNORM encoding.
+/// the tangent last in the same UNORM encoding. Each value is encoded by
+/// `vertex_encoding.h`, which a renderer patching a record in place shares.
 struct M3VertexEncoder {
     static constexpr std::size_t kBaseSize = 24;
-    static constexpr f32 kUvScale = 2048.0f;
     static constexpr std::size_t kMaxUvSets = 5;
 
     std::vector<u8> data;
@@ -320,11 +321,6 @@ struct M3VertexEncoder {
         stride = kBaseSize + (hasColor ? 4 : 0) + uvCount * 4 + 4;
     }
 
-    static u8 EncodeUnorm(f32 value) {
-        const f32 mapped = (std::clamp(value, -1.0f, 1.0f) * 0.5f + 0.5f) * 255.0f;
-        return static_cast<u8>(mapped + 0.5f);
-    }
-
     void push(const Vector3f& position, const Vector3f& normal, const Vector4f& tangent,
               const std::array<Vector2f, kMaxUvSets>& uvs, const std::array<u8, 4>& color,
               const std::array<u8, 4>& boneIndices, const std::array<u8, 4>& boneWeights) {
@@ -334,12 +330,9 @@ struct M3VertexEncoder {
         std::memcpy(out + 0, &position, sizeof(Vector3f));
         std::memcpy(out + 12, boneWeights.data(), 4);
         std::memcpy(out + 16, boneIndices.data(), 4);
-        out[20] = EncodeUnorm(normal.x);
-        out[21] = EncodeUnorm(normal.y);
-        out[22] = EncodeUnorm(normal.z);
         // The bitangent's handedness rides the normal's fourth byte, not the
         // tangent's -- the tangent's own is unused and shipped as 255.
-        out[23] = tangent.w < 0.0f ? 0 : 255;
+        m3::EncodeNormal(out + 20, normal, tangent.w);
         std::size_t at = kBaseSize;
         if (hasColor) {
             out[at + 0] = color[2]; // The blob is BGRA; the layer is RGBA.
@@ -349,20 +342,67 @@ struct M3VertexEncoder {
             at += 4;
         }
         for (std::size_t set = 0; set < uvCount; ++set) {
-            const i16 u =
-                static_cast<i16>(std::clamp(uvs[set].x * kUvScale, -32768.0f, 32767.0f));
-            const i16 v =
-                static_cast<i16>(std::clamp(uvs[set].y * kUvScale, -32768.0f, 32767.0f));
-            std::memcpy(out + at, &u, 2);
-            std::memcpy(out + at + 2, &v, 2);
+            m3::EncodeStockUv(out + at, uvs[set]);
             at += 4;
         }
-        out[stride - 4] = EncodeUnorm(tangent.x);
-        out[stride - 3] = EncodeUnorm(tangent.y);
-        out[stride - 2] = EncodeUnorm(tangent.z);
-        out[stride - 1] = 255;
+        m3::EncodeTangent(out + stride - 4, Vector3f{tangent.x, tangent.y, tangent.z});
     }
 };
+
+/// What the model's one vertex declaration holds.
+///
+/// It follows the meshes, not a default: an `.m3` may carry none, one or five
+/// UV sets and an optional colour, and writing the one shape this converter
+/// used to assume both dropped sets a material samples and invented one for a
+/// model that had none. The buffer is one declaration for every mesh, so it
+/// takes the widest: a count that followed the last mesh dropped the flowing
+/// light Zhao Yun's spear reads from its one geoset with a second set, and
+/// every later geoset had one.
+struct M3Declaration {
+    std::size_t uvSets = 0;
+    bool color = false;
+};
+
+M3Declaration DeclarationOf(const Model& model, ProfileId profile) {
+    const std::size_t maxUvSets =
+        std::min<std::size_t>(Profile(profile).maxUvSets, M3VertexEncoder::kMaxUvSets);
+    M3Declaration out;
+    for (const Mesh& mesh : model.meshes) {
+        for (std::size_t u = 0; u < maxUvSets; ++u) {
+            if (mesh.attributes.has(geom::names::uv(static_cast<u32>(u)), geom::Domain::Halfedge) ||
+                mesh.attributes.has(geom::names::uv(static_cast<u32>(u)), geom::Domain::Vertex)) {
+                out.uvSets = std::max(out.uvSets, u + 1);
+            }
+        }
+        out.color = out.color || mesh.attributes.has(geom::names::color(0), geom::Domain::Halfedge) ||
+                    mesh.attributes.has(geom::names::color(0), geom::Domain::Vertex);
+    }
+    return out;
+}
+
+/// The render view a region is cut from, without its skin: every attribute the
+/// record holds, which is what decides the corners that share a vertex.
+geom::RenderMeshDesc RegionDesc(const M3Declaration& declaration) {
+    geom::RenderMeshDesc desc;
+    desc.attributes = {
+        {geom::names::kPosition, utils::AttributeClass::Position, utils::AttributeEncoding::Float32,
+         3, 0},
+        {geom::names::kNormal, utils::AttributeClass::Normal, utils::AttributeEncoding::Float32, 3,
+         0},
+        {geom::names::kTangent, utils::AttributeClass::Tangent,
+         utils::AttributeEncoding::Float32, 4, 0},
+    };
+    for (std::size_t u = 0; u < declaration.uvSets; ++u) {
+        desc.attributes.push_back({geom::names::uv(static_cast<u32>(u)),
+                                   utils::AttributeClass::UV,
+                                   utils::AttributeEncoding::Float32, 2, 0});
+    }
+    if (declaration.color) {
+        desc.attributes.push_back({geom::names::color(0), utils::AttributeClass::Color,
+                                   utils::AttributeEncoding::UInt8, 4, 0});
+    }
+    return desc;
+}
 
 /// The multiply/add that turns a raw i16 UV unit into a texture coordinate.
 ///
@@ -935,6 +975,14 @@ M3ExportMap M3ExportMapOf(const Document& document, ProfileId profile) {
     M3ExportMap map;
     (void)M3Converter{}.toM3(document, profile, 0, {}, &map);
     return map;
+}
+
+Vector3f M3VertexBasis(const Vector3f& v) {
+    return Unrebase(v);
+}
+
+geom::RenderMeshDesc M3RegionRenderDesc(const Model& model, ProfileId profile) {
+    return RegionDesc(DeclarationOf(model, profile));
 }
 
 // ============================================================================
@@ -2328,15 +2376,10 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     // cross-profile document did. Every region writes into the model's single
     // vertex buffer, so their `firstVertex` runs are the concatenation of the
     // meshes'.
-    geom::RenderMeshDesc desc;
-    desc.attributes = {
-        {geom::names::kPosition, utils::AttributeClass::Position, utils::AttributeEncoding::Float32,
-         3, 0},
-        {geom::names::kNormal, utils::AttributeClass::Normal, utils::AttributeEncoding::Float32, 3,
-         0},
-        {geom::names::kTangent, utils::AttributeClass::Tangent,
-         utils::AttributeEncoding::Float32, 4, 0},
-    };
+    const M3Declaration declaration = DeclarationOf(model, profile);
+    const std::size_t uvCount = declaration.uvSets;
+    const bool hasColor = declaration.color;
+    geom::RenderMeshDesc desc = RegionDesc(declaration);
     desc.includeSkin = true;
     desc.maxInfluences = Profile(profile).maxBoneInfluences;
     // Node indices, not bone slots: a byte wraps node 256 onto node 0 before
@@ -2344,38 +2387,6 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     desc.blendIndexEncoding = utils::AttributeEncoding::UInt16;
     const SkinSkeleton skinSkeleton(model.nodes);
     skinSkeleton.describe(desc);
-
-    // The vertex declaration follows the meshes, not a default: an `.m3` may
-    // carry none, one or five UV sets and an optional colour, and writing the
-    // one shape this converter used to assume both dropped sets a material
-    // samples and invented one for a model that had none. The buffer is one
-    // declaration for every mesh, so it takes the widest: a count that followed
-    // the last mesh dropped the flowing light Zhao Yun's spear reads from its
-    // one geoset with a second set, and every later geoset had one.
-    const std::size_t maxUvSets =
-        std::min<std::size_t>(Profile(profile).maxUvSets, M3VertexEncoder::kMaxUvSets);
-    std::size_t uvCount = 0;
-    bool hasColor = false;
-    for (const Mesh& mesh : model.meshes) {
-        for (std::size_t u = 0; u < maxUvSets; ++u) {
-            if (mesh.attributes.has(geom::names::uv(static_cast<u32>(u)), geom::Domain::Halfedge) ||
-                mesh.attributes.has(geom::names::uv(static_cast<u32>(u)), geom::Domain::Vertex)) {
-                uvCount = std::max(uvCount, u + 1);
-            }
-        }
-        hasColor = hasColor ||
-                   mesh.attributes.has(geom::names::color(0), geom::Domain::Halfedge) ||
-                   mesh.attributes.has(geom::names::color(0), geom::Domain::Vertex);
-    }
-    for (std::size_t u = 0; u < uvCount; ++u) {
-        desc.attributes.push_back({geom::names::uv(static_cast<u32>(u)),
-                                   utils::AttributeClass::UV,
-                                   utils::AttributeEncoding::Float32, 2, 0});
-    }
-    if (hasColor) {
-        desc.attributes.push_back({geom::names::color(0), utils::AttributeClass::Color,
-                                   utils::AttributeEncoding::UInt8, 4, 0});
-    }
 
     M3VertexEncoder encoder(uvCount, hasColor);
     std::size_t writtenVertices = 0;

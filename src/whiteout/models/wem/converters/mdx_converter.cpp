@@ -2192,6 +2192,49 @@ MdxExportMap MdxExportMapOf(const Document& document, u32 model, ProfileId profi
     return map;
 }
 
+namespace {
+
+/// @p mesh's geosets as `toMdx` cuts them: each drawn section's first piece
+/// onto @p firsts, the further pieces of a cut section onto @p late.
+void AppendMeshElements(const Mesh& mesh, ProfileId profile, std::optional<u32> secondUvSet,
+                        std::vector<DrawnElements>& firsts, std::vector<DrawnElements>& late) {
+    // The profile decides whether a second UV set can split vertices.
+    const geom::RenderMesh render =
+        geom::BuildRenderMesh(mesh, GeosetRenderDesc(SecondUvSetOf(mesh, profile, secondUvSet)));
+    if (render.ranges.empty()) {
+        firsts.resize(firsts.size() + DrawnSectionsOf(mesh, profile).size());
+        return;
+    }
+    std::vector<u32> localOf(render.vertexCount(), kUnmappedVertex);
+    for (const geom::RenderRange& range : render.ranges) {
+        if (range.section < mesh.sections.size() &&
+            !SectionDrawnIn(mesh.sections[range.section], profile)) {
+            continue;
+        }
+        const std::vector<geom::RenderRange> pieces = CutToGeosetWidth(render, range);
+        for (std::size_t p = 0; p < pieces.size(); ++p) {
+            GeosetSlice slice = SliceRange(render, pieces[p], localOf);
+            DrawnElements& drawn = (p == 0 ? firsts : late).emplace_back();
+            drawn.vertices = WemVerticesOf(render, slice);
+            drawn.halfedges.reserve(slice.sourceOf.size());
+            for (const u32 source : slice.sourceOf) {
+                drawn.halfedges.push_back(source < render.vertexToWemHalfedge.size()
+                                              ? render.vertexToWemHalfedge[source]
+                                              : geom::HalfedgeId());
+            }
+            const u32 first = pieces[p].firstIndex / 3;
+            for (u32 t = 0; t < pieces[p].indexCount / 3; ++t) {
+                drawn.triangleFaces.push_back(first + t < render.triangleFace.size()
+                                                  ? render.triangleFace[first + t]
+                                                  : kUnmappedVertex);
+            }
+            drawn.triangles = std::move(slice.faces);
+        }
+    }
+}
+
+} // namespace
+
 std::vector<DrawnElements> MdxGeosetElements(const Document& document, u32 model,
                                              ProfileId profile,
                                              std::optional<u32> secondUvSet) {
@@ -2199,46 +2242,25 @@ std::vector<DrawnElements> MdxGeosetElements(const Document& document, u32 model
     if (model >= document.models.size()) {
         return out;
     }
-    // The sections the profile draws, as `MdxExportMapOf` numbers them; the
-    // profile also decides whether a second UV set can split vertices.
-    const auto& meshes = document.models[model].meshes;
-    // A section's pieces past its first, which `toMdx` numbers last.
+    // The sections the profile draws, as `MdxExportMapOf` numbers them, and a
+    // section's pieces past its first, which `toMdx` numbers last.
     std::vector<DrawnElements> late;
-    for (std::size_t m = 0; m < meshes.size(); ++m) {
-        const Mesh& mesh = meshes[m];
-        const geom::RenderMesh render =
-            geom::BuildRenderMesh(mesh, GeosetRenderDesc(SecondUvSetOf(mesh, profile, secondUvSet)));
-        if (render.ranges.empty()) {
-            out.resize(out.size() + DrawnSectionsOf(mesh, profile).size());
-            continue;
-        }
-        std::vector<u32> localOf(render.vertexCount(), kUnmappedVertex);
-        for (const geom::RenderRange& range : render.ranges) {
-            if (range.section < mesh.sections.size() &&
-                !SectionDrawnIn(mesh.sections[range.section], profile)) {
-                continue;
-            }
-            const std::vector<geom::RenderRange> pieces = CutToGeosetWidth(render, range);
-            for (std::size_t p = 0; p < pieces.size(); ++p) {
-                GeosetSlice slice = SliceRange(render, pieces[p], localOf);
-                DrawnElements& drawn = (p == 0 ? out : late).emplace_back();
-                drawn.vertices = WemVerticesOf(render, slice);
-                drawn.halfedges.reserve(slice.sourceOf.size());
-                for (const u32 source : slice.sourceOf) {
-                    drawn.halfedges.push_back(source < render.vertexToWemHalfedge.size()
-                                                  ? render.vertexToWemHalfedge[source]
-                                                  : geom::HalfedgeId());
-                }
-                const u32 first = pieces[p].firstIndex / 3;
-                for (u32 t = 0; t < pieces[p].indexCount / 3; ++t) {
-                    drawn.triangleFaces.push_back(first + t < render.triangleFace.size()
-                                                      ? render.triangleFace[first + t]
-                                                      : kUnmappedVertex);
-                }
-                drawn.triangles = std::move(slice.faces);
-            }
-        }
+    for (const Mesh& mesh : document.models[model].meshes) {
+        AppendMeshElements(mesh, profile, secondUvSet, out, late);
     }
+    out.insert(out.end(), std::make_move_iterator(late.begin()),
+               std::make_move_iterator(late.end()));
+    return out;
+}
+
+std::vector<DrawnElements> MdxMeshElements(const Document& document, u32 model, u32 mesh,
+                                           ProfileId profile, std::optional<u32> secondUvSet) {
+    std::vector<DrawnElements> out;
+    if (model >= document.models.size() || mesh >= document.models[model].meshes.size()) {
+        return out;
+    }
+    std::vector<DrawnElements> late;
+    AppendMeshElements(document.models[model].meshes[mesh], profile, secondUvSet, out, late);
     out.insert(out.end(), std::make_move_iterator(late.begin()),
                std::make_move_iterator(late.end()));
     return out;

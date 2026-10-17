@@ -254,6 +254,31 @@ std::vector<std::vector<HalfedgeId>> cornerGroups(const Mesh& mesh,
     return groups;
 }
 
+/// The normal of every face round @p vertices, at the size of the whole list;
+/// the faces no corner there reads are left at +Z, unmeasured. What a re-shade
+/// of those corners reads, and nothing more.
+std::vector<Vector3f> ringFaceNormals(const Mesh& mesh, std::span<const VertexId> vertices) {
+    const Topology& topology = mesh.topology();
+    const std::span<const Vector3f> positions =
+        mesh.attributes.get<const Vector3f>(names::kPosition, Domain::Vertex);
+    std::vector<Vector3f> normals(topology.faceCount(), Vector3f{0.0f, 0.0f, 1.0f});
+    std::vector<u8> done(topology.faceCount(), 0);
+    for (const VertexId v : vertices) {
+        if (v.index() >= topology.vertexCount() || topology.isDeleted(v)) {
+            continue;
+        }
+        for (const HalfedgeId h : topology.voh(v)) {
+            const FaceId f = topology.face(h);
+            if (!f.valid() || done[f.index()] != 0 || topology.isDeleted(f)) {
+                continue;
+            }
+            done[f.index()] = 1;
+            normals[f.index()] = normalized(faceNormal(topology, positions, f));
+        }
+    }
+    return normals;
+}
+
 std::vector<Vector3f> allFaceNormals(const Mesh& mesh) {
     const Topology& topology = mesh.topology();
     const std::span<const Vector3f> positions =
@@ -2576,7 +2601,14 @@ void RecomputeNormals(Mesh& mesh, std::span<const FaceId> faces, f32 angleThresh
     if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
         return;
     }
-    const std::vector<Vector3f> faceNormals = allFaceNormals(mesh);
+    RecomputeNormalsAt(mesh, verticesOf(std::as_const(mesh).topology(), faces), angleThreshold);
+}
+
+void RecomputeNormalsAt(Mesh& mesh, std::span<const VertexId> vertices, f32 angleThreshold) {
+    if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
+        return;
+    }
+    const std::vector<Vector3f> faceNormals = ringFaceNormals(mesh, vertices);
     const std::span<Vector3f> normals =
         mesh.attributes.getOrCreate<Vector3f>(names::kNormal, Domain::Halfedge, AttrType::F32x3);
     if (normals.empty()) {
@@ -2585,7 +2617,10 @@ void RecomputeNormals(Mesh& mesh, std::span<const FaceId> faces, f32 angleThresh
     const f32 cosThreshold = std::cos(angleThreshold);
     const Topology& topology = std::as_const(mesh).topology();
     const ShadingRule rule(mesh);
-    for (const VertexId v : verticesOf(topology, faces)) {
+    for (const VertexId v : vertices) {
+        if (v.index() >= topology.vertexCount() || topology.isDeleted(v)) {
+            continue;
+        }
         for (const std::vector<HalfedgeId>& group : cornerGroups(mesh, faceNormals, v, cosThreshold)) {
             rule.write(mesh, faceNormals, group, normals);
         }
@@ -2607,7 +2642,7 @@ void recomputeTangents(Mesh& mesh, std::span<const VertexId> vertices, std::span
         return;
     }
     const Topology& topology = readable.topology();
-    const std::vector<Vector3f> faceNormals = allFaceNormals(readable);
+    const std::vector<Vector3f> faceNormals = ringFaceNormals(readable, vertices);
     const std::span<const Vector3f> normals =
         readable.attributes.get<const Vector3f>(names::kNormal, Domain::Halfedge);
     const auto normalAt = [&](HalfedgeId h) {
@@ -2758,6 +2793,13 @@ void RecomputeTangents(Mesh& mesh, std::span<const FaceId> faces, u32 uvSet) {
         return;
     }
     recomputeTangents(mesh, verticesOf(std::as_const(mesh).topology(), faces), {}, uvSet);
+}
+
+void RecomputeTangentsAt(Mesh& mesh, std::span<const VertexId> vertices, u32 uvSet) {
+    if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
+        return;
+    }
+    recomputeTangents(mesh, vertices, {}, uvSet);
 }
 
 namespace detail {
