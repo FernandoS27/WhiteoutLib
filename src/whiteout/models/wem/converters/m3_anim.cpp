@@ -2185,6 +2185,11 @@ private:
                 const ExportContext::NodeSlot& slot = context_.nodeSlots[event.node];
                 if (slot.slot == ExportContext::Slot::Bone) {
                     key.boneIndex = static_cast<u16>(slot.index);
+                } else if (event.node < context_.nodeBone.size() &&
+                           context_.nodeBone[event.node] != kInvalidIndex) {
+                    // A record with a bone of its own -- an emitter the import
+                    // folded into the bone that fired it -- fires from that bone.
+                    key.boneIndex = static_cast<u16>(context_.nodeBone[event.node]);
                 }
             }
             entry.timestamps.push_back(origin + Ticks(event.time));

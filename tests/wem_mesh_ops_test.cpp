@@ -399,7 +399,7 @@ TEST_CASE("wem MergeMeshesInto renumbers the meshes after an absorbed one",
     CHECK_FALSE(Validate(document, ValidateLevel::Structural).hasErrors());
 }
 
-TEST_CASE("wem MergeMeshesInto clears a StarCraft II shape on an absorbed mesh 0",
+TEST_CASE("wem MergeMeshesInto moves a StarCraft II shape with the mesh it names",
           "[wem][mesh][merge]") {
     Document document = imported();
     Model& model = document.models[0];
@@ -418,11 +418,11 @@ TEST_CASE("wem MergeMeshesInto clears a StarCraft II shape on an absorbed mesh 0
         CHECK(std::get<Sc2ParticleEmitterPayload>(model.nodes.nodes[index].payload).shapeSections ==
               std::vector<u32>{0});
     }
-    SECTION("mesh 0 is absorbed: they name nothing now") {
+    SECTION("mesh 0 is absorbed: they name the merged mesh's section") {
         const MeshMergeResult result = MergeMeshesInto(model, merging, 1);
         REQUIRE(result.ok);
-        CHECK(std::get<Sc2ParticleEmitterPayload>(model.nodes.nodes[index].payload)
-                  .shapeSections.empty());
+        CHECK(std::get<Sc2ParticleEmitterPayload>(model.nodes.nodes[index].payload).shapeSections ==
+              std::vector<u32>{Sc2ShapeSection(result.merged, 0)});
     }
 }
 

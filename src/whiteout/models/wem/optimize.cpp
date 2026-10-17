@@ -983,9 +983,12 @@ void RemoveEmptyMeshes(Document& document, u32 model, std::vector<std::vector<u3
         if (GateOf(node) < drop.size()) {
             drop[GateOf(node)] = 0;
         }
-        if (const auto* emitter = std::get_if<Sc2ParticleEmitterPayload>(&node.payload);
-            emitter != nullptr && !emitter->shapeSections.empty() && !drop.empty()) {
-            drop[0] = 0;
+        if (const auto* emitter = std::get_if<Sc2ParticleEmitterPayload>(&node.payload)) {
+            for (const u32 entry : emitter->shapeSections) {
+                if (Sc2ShapeSectionMesh(entry) < drop.size()) {
+                    drop[Sc2ShapeSectionMesh(entry)] = 0;
+                }
+            }
         }
     }
     for (const u8 d : drop) {

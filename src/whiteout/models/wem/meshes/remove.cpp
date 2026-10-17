@@ -89,15 +89,23 @@ void RemapMeshReferencers(Model& model, std::span<const u32> meshRemap, Diagnost
             }
             bone->gateMesh = to;
         }
-        // Sections of `meshes[0]`: they mean something only while it stays first.
+        // Each section follows its mesh, and one of a mesh that is gone goes.
         if (auto* emitter = std::get_if<Sc2ParticleEmitterPayload>(&node.payload);
-            emitter != nullptr && !emitter->shapeSections.empty() &&
-            remapped(meshRemap, 0) != 0) {
-            out.warn(DiagCode::IndexOutOfRange,
-                     "emitter '" + node.name +
-                         "' emitted from sections of mesh 0, which is gone; its shape is cleared",
-                     ElementRef(ElementKind::Node, i));
-            emitter->shapeSections.clear();
+            emitter != nullptr && !emitter->shapeSections.empty()) {
+            const std::size_t before = emitter->shapeSections.size();
+            std::erase_if(emitter->shapeSections, [&](u32 entry) {
+                return remapped(meshRemap, Sc2ShapeSectionMesh(entry)) == kInvalidIndex;
+            });
+            for (u32& entry : emitter->shapeSections) {
+                entry = Sc2ShapeSection(remapped(meshRemap, Sc2ShapeSectionMesh(entry)), Sc2ShapeSectionIndex(entry));
+            }
+            if (emitter->shapeSections.size() != before) {
+                out.warn(DiagCode::IndexOutOfRange,
+                         "emitter '" + node.name + "' emitted from " +
+                             number(before - emitter->shapeSections.size()) +
+                             " section(s) of a mesh that is gone; they are dropped",
+                         ElementRef(ElementKind::Node, i));
+            }
         }
         // The raw `geosetId` an MDX bone keeps where its gate would not write it
         // back (`fromMdx`). Only an in-range value is a mesh index; anything
@@ -226,8 +234,6 @@ u32 DropLevelsOfDetail(Document& document, Diagnostics& out) {
 
 void CheckMeshReferencers(const Model& model, Diagnostics& out) {
     const u32 meshCount = static_cast<u32>(model.meshes.size());
-    const u32 firstSections =
-        meshCount == 0 ? 0u : static_cast<u32>(model.meshes[0].sections.size());
     for (u32 i = 0; i < model.nodes.size(); ++i) {
         const Node& node = model.nodes.nodes[i];
         if (const auto* bone = std::get_if<BonePayload>(&node.payload);
@@ -238,11 +244,14 @@ void CheckMeshReferencers(const Model& model, Diagnostics& out) {
                       ElementRef(ElementKind::Node, i));
         }
         if (const auto* emitter = std::get_if<Sc2ParticleEmitterPayload>(&node.payload)) {
-            for (const u32 section : emitter->shapeSections) {
-                if (section >= firstSections) {
+            for (const u32 entry : emitter->shapeSections) {
+                const u32 mesh = Sc2ShapeSectionMesh(entry);
+                const u32 sections = mesh < meshCount ? static_cast<u32>(model.meshes[mesh].sections.size()) : 0u;
+                if (Sc2ShapeSectionIndex(entry) >= sections) {
                     out.warn(DiagCode::IndexOutOfRange,
-                             "emitter '" + node.name + "' emits from section " + number(section) +
-                                 " of mesh 0, which has " + number(firstSections),
+                             "emitter '" + node.name + "' emits from section " +
+                                 number(Sc2ShapeSectionIndex(entry)) + " of mesh " + number(mesh) +
+                                 ", which has " + number(sections),
                              ElementRef(ElementKind::Node, i));
                 }
             }
@@ -386,6 +395,23 @@ MeshMergeResult MergeMeshesInto(Model& model, std::span<const u32> meshes, u32 k
             meshRemap[m] = next++;
         }
     }
+    // Where each input's sections start among the merged mesh's, in merge order.
+    std::vector<u32> sectionBase(count, kInvalidIndex);
+    {
+        u32 base = 0;
+        for (const u32 m : picked) {
+            if (m == keep) {
+                sectionBase[m] = base;
+                base += static_cast<u32>(model.meshes[m].sections.size());
+            }
+        }
+        for (const u32 m : picked) {
+            if (m != keep) {
+                sectionBase[m] = base;
+                base += static_cast<u32>(model.meshes[m].sections.size());
+            }
+        }
+    }
     for (AnimChannel& channel : model.animChannels.channels) {
         if (channel.target.kind != TrackTarget::Kind::Section) {
             continue;
@@ -413,13 +439,21 @@ MeshMergeResult MergeMeshesInto(Model& model, std::span<const u32> meshes, u32 k
             bone->gateMesh = keep;
             ++result.linksMoved;
         }
-        if (auto* emitter = std::get_if<Sc2ParticleEmitterPayload>(&node.payload);
-            emitter != nullptr && keep == 0) {
-            for (u32& section : emitter->shapeSections) {
-                if (section < sectionRemap.size() && sectionRemap[section] != geom::kInvalidId) {
-                    section = sectionRemap[section];
+        if (auto* emitter = std::get_if<Sc2ParticleEmitterPayload>(&node.payload)) {
+            std::vector<u32> sections;
+            for (u32 entry : emitter->shapeSections) {
+                const u32 mesh = Sc2ShapeSectionMesh(entry);
+                if (mesh < count && sectionBase[mesh] != kInvalidIndex) {
+                    const u32 at = sectionBase[mesh] + Sc2ShapeSectionIndex(entry);
+                    entry = Sc2ShapeSection(keep, at < sectionRemap.size() && sectionRemap[at] != geom::kInvalidId
+                                                      ? sectionRemap[at]
+                                                      : 0u);
+                }
+                if (std::find(sections.begin(), sections.end(), entry) == sections.end()) {
+                    sections.push_back(entry);
                 }
             }
+            emitter->shapeSections = std::move(sections);
         }
     }
 

@@ -20,7 +20,7 @@
  * |---|---|---|
  * | `AnimChannel` of kind `Section` | `target.mesh`, `target.sub` | the primary's renumbered; an absorbed mesh's **invalidated** (`mesh = kInvalidIndex`), declaration and sub-tracks kept, as a removed node's are |
  * | a bone's geoset link | `BonePayload::gateMesh` | renumbered; an absorbed mesh's moved to the merged mesh |
- * | StarCraft II mesh emitters | `Sc2ParticleEmitterPayload::shapeSections` (sections of `meshes[0]`) | renumbered with `meshes[0]`'s sections; cleared when `meshes[0]` is absorbed |
+ * | StarCraft II mesh emitters | `Sc2ParticleEmitterPayload::shapeSections` (`Sc2ShapeSection` entries) | each follows its mesh, an absorbed mesh's onto the merged one's sections; one of a removed mesh is dropped |
  * | the face `section` layer | mesh-local | renumbered by `MergeSections` |
  * | the repair log | `FaceRecord::section`, mesh-local | renumbered by `MergeSections` |
  * | an MDX bone's raw `geosetId` in its native bag | an in-range value | renumbered; one naming a gone mesh becomes the file's "no geoset"; any other value is the file's own and kept |

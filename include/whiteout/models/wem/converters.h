@@ -511,6 +511,32 @@ struct M3ExportSettings {
 /// the helper an effect crossing plants under its emitter says so.
 inline constexpr const char* kNodeSharesParentVisibility = "sharesParentVisibility";
 
+/// A node native key: the node is a `BONE` of the file as well as its own
+/// record -- `M3ImportOptions::foldRecordBones` made the two one -- so `toM3`
+/// writes it a bone whatever its transform says.
+inline constexpr const char* kNodeM3Bone = "m3Bone";
+/// Its text: that bone's name, where it is not the node's.
+inline constexpr const char* kNodeM3BoneName = "m3BoneName";
+
+/// How `fromM3` lays a model out. Both off, the document is the file's own
+/// shape -- every record a node under its bone, a mesh per division, a section
+/// per region -- which is what a round trip compares against. On, it is laid
+/// out as a Warcraft III document is, for an editor to work on; `toM3` writes
+/// either back as the file.
+struct M3ImportOptions {
+    /// An attachment, emitter, light, camera, force, warp, hit test or
+    /// projector that is its bone's only child becomes that bone: one node,
+    /// where the bone was, with the bone's keys, bind and setups (its billboard,
+    /// its shadow box). A bone that skins, gates a draw or carries physics, an
+    /// IK joint or a turret stays a bone.
+    bool foldRecordBones = false;
+    /// A division becomes one mesh per material and visibility gate: the
+    /// regions that share both draw as one mesh of one section. The cloth
+    /// regions keep a mesh of their own, a section each, and a region a mesh
+    /// emitter names is merged only with regions the same emitters name.
+    bool splitByMaterial = false;
+};
+
 /// Where `toM3` put what the document named, for a caller that adds records
 /// beside the ones WEM carries (WC3_TO_SC2_COMPLETION_PLAN.md §2.2).
 struct M3ExportMap {
@@ -579,8 +605,8 @@ public:
     static u32 ExportVersionFor(ProfileId profile);
 
     /// @p profileOverride of `ProfileId::Count` means "decide from the version".
-    Result<Document> fromM3(const m3::Model& source,
-                            ProfileId profileOverride = ProfileId::Count) const;
+    Result<Document> fromM3(const m3::Model& source, ProfileId profileOverride = ProfileId::Count,
+                            const M3ImportOptions& options = {}) const;
     /// @p targetVersion of 0 means the newest MODL @p profile's own game reads:
     /// v29 for StarCraft II, v30 for Heroes of the Storm. The two ranges are
     /// the difference between the games — a v30 file is one StarCraft II

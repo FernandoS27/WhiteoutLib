@@ -212,12 +212,15 @@ void FollowSectionRemap(Document& document, u32 model, u32 mesh, std::span<const
         }
     }
     EraseChannels(document, model, erased);
-    if (mesh == 0) {
-        for (Node& node : owner.nodes.nodes) {
-            if (auto* emitter = std::get_if<Sc2ParticleEmitterPayload>(&node.payload)) {
-                std::erase_if(emitter->shapeSections, [&](u32 s) { return Remapped(remap, s) == kInvalidIndex; });
-                for (u32& s : emitter->shapeSections) {
-                    s = Remapped(remap, s);
+    for (Node& node : owner.nodes.nodes) {
+        if (auto* emitter = std::get_if<Sc2ParticleEmitterPayload>(&node.payload)) {
+            const auto mine = [mesh](u32 entry) { return Sc2ShapeSectionMesh(entry) == mesh; };
+            std::erase_if(emitter->shapeSections, [&](u32 entry) {
+                return mine(entry) && Remapped(remap, Sc2ShapeSectionIndex(entry)) == kInvalidIndex;
+            });
+            for (u32& entry : emitter->shapeSections) {
+                if (mine(entry)) {
+                    entry = Sc2ShapeSection(mesh, Remapped(remap, Sc2ShapeSectionIndex(entry)));
                 }
             }
         }

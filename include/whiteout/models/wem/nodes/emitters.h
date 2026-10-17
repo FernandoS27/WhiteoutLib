@@ -719,6 +719,19 @@ enum class Sc2EmitterShape : u32 {
     Mesh = 7,   ///< Off `shapeSections`.
 };
 
+/// A `shapeSections` entry: section @p section of `Model::meshes[mesh]`. A
+/// section of the first mesh is its plain index, which is all an entry was
+/// while a StarCraft II import made one mesh of a division.
+constexpr u32 Sc2ShapeSection(u32 mesh, u32 section) {
+    return (mesh << 16) | (section & 0xFFFFu);
+}
+constexpr u32 Sc2ShapeSectionMesh(u32 entry) {
+    return entry >> 16;
+}
+constexpr u32 Sc2ShapeSectionIndex(u32 entry) {
+    return entry & 0xFFFFu;
+}
+
 /// `PAR_` instance types — what one particle is drawn as.
 enum class Sc2ParticleInstance : u32 {
     Billboard = 0,
@@ -815,9 +828,8 @@ struct Sc2ParticleEmitterPayload {
     Sc2Property<Vector3f> shapeInner;
     Sc2Property<f32> outerRadius;
     Sc2Property<f32> innerRadius;
-    /// The mesh sections a `Mesh` shape emits from: sections of
-    /// `Model::meshes[0]`, which is the one division StarCraft II draws, so a
-    /// section index is the region index the file stores.
+    /// The mesh sections a `Mesh` shape emits from, each a `Sc2ShapeSection`;
+    /// the export writes the regions they became.
     std::vector<u32> shapeSections;
 
     u32 velocityType = 0;

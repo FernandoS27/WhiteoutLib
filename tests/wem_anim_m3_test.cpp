@@ -1906,3 +1906,92 @@ TEST_CASE("wem m3 rests in the T-pose its mesh is stored in", "[wem][anim][m3][c
     CHECK(moved == 0u);
     CHECK(worst < 1e-3f);
 }
+
+TEST_CASE("wem m3 a record its bone holds alone becomes the bone, keys and all", "[wem][anim][m3][fold]") {
+    // A particle on the keyed child bone, and an attachment on a bone named
+    // otherwise: each is its bone's one child, and each becomes that bone.
+    m3::Model model = makeModel();
+    addChildBone(model);
+    m3::Bone volume = model.bones[1];
+    volume.name = "Vol_Target";
+    model.bones.push_back(volume);
+    model.bones[1].position = animated<Vector3f>(0x51, Vector3f{0, 0, 1});
+    m3::AnimBlock<Vector3f> block;
+    block.timestamps = {0, 500};
+    block.keys = {Vector3f{0, 0, 1}, Vector3f{0, -2, 1}};
+    model.subTrackCollections[0].sd3v.push_back(block);
+    model.subTrackCollections[0].animIds.push_back(0x51);
+    model.subTrackCollections[0].animRefs.push_back(Ref(2, 0));
+    m3::ParticleEmitter emitter;
+    emitter.boneIndex = 1;
+    model.particleEmitters.push_back(emitter);
+    m3::AttachmentPoint point;
+    point.name = "Ref_Target";
+    point.boneIndex = 2;
+    model.attachmentPoints.push_back(point);
+
+    M3Converter converter;
+    M3ImportOptions options;
+    options.foldRecordBones = true;
+    Result<Document> folded = converter.fromM3(model, ProfileId::Sc2, options);
+    REQUIRE(folded.ok());
+    const NodeTree& tree = folded->models[0].nodes;
+    // In the bones' places, so every bone index still names its bone.
+    REQUIRE(tree.size() >= 3);
+    CHECK(tree.nodes[1].kind == NodeKind::Sc2ParticleEmitter);
+    CHECK(tree.nodes[1].name == "Bone_Child");
+    CHECK(tree.nodes[1].parent == 0u);
+    CHECK(tree.nodes[2].kind == NodeKind::Attachment);
+    CHECK(tree.nodes[2].name == "Ref_Target");
+    CHECK(tree.nodes[2].native.text(kNodeM3BoneName) == "Vol_Target");
+    for (const Node& node : tree.nodes) {
+        CHECK(node.name != "particle_0");
+        CHECK(node.parent != 1u);
+        CHECK(node.parent != 2u);
+    }
+    const AnimChannel* key = folded->models[0].animChannels.find(0x51);
+    REQUIRE(key != nullptr);
+    CHECK(key->target.node == 1u);
+
+    // An event on the emitter fires from its bone.
+    REQUIRE_FALSE(folded->clips.empty());
+    ClipEvent event;
+    event.time = 0.25f;
+    event.name = "Evt_Puff";
+    event.node = 1;
+    folded->clips[0].events.push_back(event);
+
+    // Written back as the file it came from: the same bones, the records on
+    // them, the key on the bone it moved.
+    Result<m3::Model> back = converter.toM3(*folded.value, ProfileId::Sc2, 29);
+    REQUIRE(back.ok());
+    REQUIRE(back->bones.size() == 3);
+    CHECK(back->bones[0].name == std::string("Bone_Root"));
+    CHECK(back->bones[1].name == std::string("Bone_Child"));
+    CHECK(back->bones[2].name == std::string("Vol_Target"));
+    CHECK(back->bones[1].parentIndex == 0u);
+    CHECK(back->bones[2].parentIndex == 0u);
+    CHECK(back->bones[1].position.animId == 0x51u);
+    REQUIRE(back->particleEmitters.size() == 1);
+    CHECK(back->particleEmitters[0].boneIndex == 1u);
+    REQUIRE(back->attachmentPoints.size() == 1);
+    CHECK(back->attachmentPoints[0].name == std::string("Ref_Target"));
+    CHECK(back->attachmentPoints[0].boneIndex == 2u);
+    bool fired = false;
+    for (const m3::SubTrackContainer& stc : back->subTrackCollections) {
+        for (const m3::AnimBlock<m3::Event>& events : stc.sdev) {
+            for (const m3::Event& written : events.keys) {
+                if (written.name.rfind("Evt_Puff", 0) == 0) {
+                    fired = true;
+                    CHECK(written.boneIndex == 1u);
+                }
+            }
+        }
+    }
+    CHECK(fired);
+
+    // Unfolded, each record is a node of its own under its bone.
+    Result<Document> plain = converter.fromM3(model, ProfileId::Sc2);
+    REQUIRE(plain.ok());
+    CHECK(plain->models[0].nodes.size() == tree.size() + 2);
+}

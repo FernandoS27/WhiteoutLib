@@ -806,6 +806,141 @@ TEST_CASE("wem m3 two regions keep their own vertices and windows",
     }
 }
 
+namespace {
+
+/// Appends a quad at x @p x0..x0+1 as a region of its own, skinned to bone 1
+/// through a one-entry window, drawn by a batch of @p material under @p gate.
+void addQuad(m3::Model& model, f32 x0, u16 material, u16 gate) {
+    std::vector<u8> blob = model.vertices.data;
+    const u32 first = static_cast<u32>(blob.size() / kStride);
+    const Vector3f corners[4] = {{x0, 0, 0}, {x0 + 1, 0, 0}, {x0 + 1, 1, 0}, {x0, 1, 0}};
+    for (const Vector3f& corner : corners) {
+        pushVertex(blob, corner, 0);
+    }
+    model.vertices.data = std::move(blob);
+    model.vertices.initialize();
+    m3::MeshDivision& division = model.divisions[0];
+    m3::Region region = division.regions[0];
+    region.index = static_cast<u32>(division.regions.size());
+    region.firstVertex = first;
+    region.firstIndex = static_cast<u32>(division.faces.size());
+    region.firstBoneLookup = static_cast<u16>(model.boneLookup.size());
+    model.boneLookup.push_back(1);
+    division.faces.insert(division.faces.end(), {0, 1, 2, 0, 2, 3});
+    m3::Batch batch;
+    batch.regionIndex = static_cast<u16>(division.regions.size());
+    batch.materialIndex = material;
+    batch.boneCount = gate;
+    division.regions.push_back(region);
+    division.batches.push_back(batch);
+}
+
+/// The two-region model, a second material, and two more quads: one drawing
+/// the second material, one the first under bone 2's gate.
+m3::Model makeSplitModel() {
+    m3::Model model = makeTwoRegionModel();
+    m3::StandardMaterial glow = model.standardMaterials[0];
+    glow.name = "glow";
+    model.standardMaterials.push_back(glow);
+    m3::MaterialMap map = model.materialMaps[0];
+    map.materialIndex = 1;
+    model.materialMaps.push_back(map);
+    addQuad(model, 4, 1, 0xFFFF);
+    addQuad(model, 6, 0, 2);
+    return model;
+}
+
+M3ImportOptions splitting() {
+    M3ImportOptions options;
+    options.splitByMaterial = true;
+    return options;
+}
+
+} // namespace
+
+TEST_CASE("wem m3 a division splits into a mesh per material and gate", "[wem][convert][m3][split]") {
+    const M3Converter converter;
+    Result<Document> doc = converter.fromM3(makeSplitModel(), ProfileId::Count, splitting());
+    REQUIRE(doc.ok());
+    const Model& model = doc->models[0];
+
+    // The first two quads draw the first material ungated and merge into one
+    // section; the other two are a mesh each.
+    REQUIRE(model.meshes.size() == 3);
+    CHECK(model.meshes[0].name == "body");
+    CHECK(model.meshes[1].name == "glow");
+    CHECK(model.meshes[2].name == "body_2");
+    for (const Mesh& mesh : model.meshes) {
+        CHECK(mesh.sections.size() == 1);
+    }
+    CHECK(model.meshes[0].faceCount() == 4);
+    CHECK(model.meshes[0].vertexCount() == 8);
+    CHECK(model.meshes[1].sections[0].materialSlot == 1);
+    CHECK(model.meshes[2].sections[0].native.value(kSectionVisibilityNode) == 2);
+
+    // Written back, every quad is still drawn by its material under its gate,
+    // and every vertex still follows the bone its region's window named.
+    Result<m3::Model> back = converter.toM3(*doc.value, ProfileId::Heroes, 30);
+    REQUIRE(back.ok());
+    const m3::MeshDivision& division = back->divisions[0];
+    REQUIRE(division.regions.size() == 3);
+    REQUIRE(division.batches.size() == 3);
+    CHECK(division.batches[0].materialIndex == 0);
+    CHECK(division.batches[0].boneCount == 0xFFFF);
+    CHECK(division.batches[1].materialIndex == 1);
+    CHECK(division.batches[2].materialIndex == 0);
+    CHECK(division.batches[2].boneCount == 2);
+    CHECK(division.regions[0].vertexCount == 8);
+    for (const auto& [position, bone] : skinOf(*back.value)) {
+        CHECK(bone == (position.x > 1.5f && position.x < 3.5f ? 2u : 1u));
+    }
+
+    // Off, the division is the one mesh it always was.
+    Result<Document> whole = converter.fromM3(makeSplitModel());
+    REQUIRE(whole.ok());
+    REQUIRE(whole->models[0].meshes.size() == 1);
+    CHECK(whole->models[0].meshes[0].sections.size() == 4);
+}
+
+TEST_CASE("wem m3 a region a mesh emitter names keeps its own surface", "[wem][convert][m3][split]") {
+    m3::Model source = makeSplitModel();
+    m3::ParticleEmitter emitter;
+    emitter.emitterShape = m3::EmitterShape::Mesh;
+    emitter.shapeRegions = {1};
+    source.particleEmitters.push_back(emitter);
+
+    const M3Converter converter;
+    Result<Document> doc = converter.fromM3(source, ProfileId::Count, splitting());
+    REQUIRE(doc.ok());
+    const Model& model = doc->models[0];
+    // The two quads of the first material part: the emitter names the second.
+    REQUIRE(model.meshes.size() == 4);
+    const Sc2ParticleEmitterPayload* payload = nullptr;
+    for (const Node& node : model.nodes.nodes) {
+        if (const auto* found = std::get_if<Sc2ParticleEmitterPayload>(&node.payload)) {
+            payload = found;
+        }
+    }
+    REQUIRE(payload != nullptr);
+    REQUIRE(payload->shapeSections.size() == 1);
+    CHECK(Sc2ShapeSectionMesh(payload->shapeSections[0]) == 1);
+    CHECK(Sc2ShapeSectionIndex(payload->shapeSections[0]) == 0);
+
+    Result<m3::Model> back = converter.toM3(*doc.value, ProfileId::Heroes, 30);
+    REQUIRE(back.ok());
+    REQUIRE(back->particleEmitters.size() == 1);
+    REQUIRE(back->particleEmitters[0].shapeRegions.size() == 1);
+    // The region the second quad became, wherever the export put it.
+    const u32 region = back->particleEmitters[0].shapeRegions[0];
+    REQUIRE(region < back->divisions[0].regions.size());
+    const m3::Region& written = back->divisions[0].regions[region];
+    const std::vector<Vector3f> positions = back->vertices.getPositions();
+    for (u32 v = 0; v < written.vertexCount; ++v) {
+        const f32 x = positions[written.firstVertex + v].x;
+        CHECK((x >= 2.0f && x <= 3.0f));
+    }
+}
+
 // ---------------------------------------------------------------------------
 // A region's bone palette is a hardware limit, not a preference.
 // ---------------------------------------------------------------------------

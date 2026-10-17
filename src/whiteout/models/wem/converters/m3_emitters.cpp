@@ -162,6 +162,7 @@ Sc2ParticleEmitterPayload ImportParticle(const m3::ParticleEmitter& p, const Imp
     w.indexPlusLength = p.indexPlusLength;
     w.maxParticles = p.maxParticles;
     w.emitterShape = static_cast<Sc2EmitterShape>(p.emitterShape);
+    // Regions of the first division; `fromM3` restates them as sections.
     w.shapeSections = p.shapeRegions;
     w.velocityType = p.velocityType;
     w.sizeRandomEnable = p.sizeRandomEnable;
@@ -341,7 +342,8 @@ m3::ParticleEmitter ExportParticle(const Sc2ParticleEmitterPayload& w, const Exp
     p.indexPlusLength = w.indexPlusLength;
     p.maxParticles = w.maxParticles;
     p.emitterShape = static_cast<m3::EmitterShape>(w.emitterShape);
-    p.shapeRegions = w.shapeSections;
+    // Restated as the regions the sections became once `toM3` writes them.
+    p.shapeRegions.clear();
     p.velocityType = w.velocityType;
     p.sizeRandomEnable = w.sizeRandomEnable;
     p.rotationRandomEnable = w.rotationRandomEnable;

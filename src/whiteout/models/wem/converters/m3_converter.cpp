@@ -40,6 +40,7 @@
 #include "whiteout/models/wem/geometry/builder.h"
 #include "whiteout/models/wem/geometry/render_view.h"
 #include "whiteout/models/wem/meshes/remove.h"
+#include "whiteout/models/wem/nodes/remove.h"
 #include "whiteout/models/wem/physics/references.h"
 #include "whiteout/models/wem/skinning/quantize.h"
 
@@ -59,7 +60,9 @@
 #include <cstring>
 #include <map>
 #include <set>
+#include <span>
 #include <string>
+#include <tuple>
 #include <utility>
 
 namespace whiteout {
@@ -84,6 +87,11 @@ constexpr u32 kModelBoundsAnimId = 0x001F9BD2;
 /// What MODL's attachment-point and camera addon arrays hold: 5,998 of 5,998
 /// shipped attachment addons and every camera one measured is 0xFFFF.
 constexpr u16 kNoAddon = 0xFFFFu;
+
+/// A node native key: where a record's node stood before `FoldRecordBones`
+/// moved it into its bone's place -- the order `toM3` writes each kind's
+/// records in, which is the file's.
+constexpr const char* kNodeM3Place = "m3Place";
 
 /// Reorders `MATM` so every composite follows the entries its sections name,
 /// and repoints everything that indexes the map. The editor builds the map in
@@ -691,6 +699,228 @@ NodeTree ImportNodes(const m3::Model& source) {
     return tree;
 }
 
+/// One mesh a division becomes: its regions in file order, and whether each
+/// keeps a section of its own (`M3ImportOptions::splitByMaterial`).
+struct DivisionPart {
+    std::vector<u32> regions;
+    bool sectionEach = true;
+};
+
+/// The whole division as one mesh, a section per region: the file's shape.
+std::vector<DivisionPart> WholeDivision(const m3::MeshDivision& division) {
+    DivisionPart part;
+    for (u32 r = 0; r < division.regions.size(); ++r) {
+        part.regions.push_back(r);
+    }
+    return {std::move(part)};
+}
+
+/// The division as one mesh per material and gate, in the order each one's
+/// first region stands. Regions share a mesh when their batch draws the same
+/// material under the same gate bone, their flags agree and the same mesh
+/// emitters name them -- so an emitter still emits from the surface it did.
+/// The cloth regions share one mesh, a section each: a cage and the regions it
+/// drives are one vertex space.
+std::vector<DivisionPart> SplitDivision(const m3::Model& source, std::size_t d,
+                                        const std::vector<u32>& batchOfRegion) {
+    const m3::MeshDivision& division = source.divisions[d];
+    // A `PAR_` names regions of the division the game draws, which is the first.
+    std::vector<std::vector<u32>> emitters(division.regions.size());
+    if (d == 0) {
+        for (u32 p = 0; p < source.particleEmitters.size(); ++p) {
+            for (const u32 r : source.particleEmitters[p].shapeRegions) {
+                if (r < emitters.size() && (emitters[r].empty() || emitters[r].back() != p)) {
+                    emitters[r].push_back(p);
+                }
+            }
+        }
+    }
+    using Key = std::tuple<bool, u32, u32, u32, std::vector<u32>>;
+    std::map<Key, u32> partOf;
+    std::vector<DivisionPart> parts;
+    for (u32 r = 0; r < division.regions.size(); ++r) {
+        const m3::Region& region = division.regions[r];
+        const bool cloth = hasFlag(region.flags, m3::RegionFlag::ClothSimulated) ||
+                           hasFlag(region.flags, m3::RegionFlag::ClothInfluenced);
+        const u32 batch = batchOfRegion[r];
+        const m3::Batch* drawn = batch != kInvalidIndex ? &division.batches[batch] : nullptr;
+        Key key = cloth ? Key{true, 0u, 0u, 0u, {}}
+                        : Key{false, drawn ? static_cast<u32>(drawn->materialIndex) : kInvalidIndex,
+                              drawn ? static_cast<u32>(drawn->boneCount) : kInvalidIndex,
+                              static_cast<u32>(region.flags), emitters[r]};
+        const auto [at, fresh] = partOf.emplace(std::move(key), static_cast<u32>(parts.size()));
+        if (fresh) {
+            parts.push_back(DivisionPart{{}, cloth});
+        }
+        parts[at->second].regions.push_back(r);
+    }
+    if (parts.empty()) {
+        parts.emplace_back();
+    }
+    return parts;
+}
+
+bool IsIdentityLocal(const Transform& local) {
+    constexpr f32 e = 1e-6f;
+    const Vector3f& t = local.translation;
+    const Quaternion& r = local.rotation;
+    const Vector3f& s = local.scale;
+    return std::fabs(t.x) < e && std::fabs(t.y) < e && std::fabs(t.z) < e && std::fabs(r.x) < e &&
+           std::fabs(r.y) < e && std::fabs(r.z) < e && std::fabs(std::fabs(r.w) - 1.0f) < e &&
+           std::fabs(s.x - 1.0f) < e && std::fabs(s.y - 1.0f) < e && std::fabs(s.z - 1.0f) < e;
+}
+
+/// The kinds `ImportNodes` hangs under a bone at identity, which may take that
+/// bone's place.
+bool FoldsIntoBone(NodeKind kind) {
+    switch (kind) {
+    case NodeKind::Attachment:
+    case NodeKind::Light:
+    case NodeKind::Camera:
+    case NodeKind::Sc2ParticleEmitter:
+    case NodeKind::Sc2RibbonEmitter:
+    case NodeKind::ForceField:
+    case NodeKind::VertexWarp:
+    case NodeKind::CollisionShape:
+    case NodeKind::Projector:
+        return true;
+    default:
+        return false;
+    }
+}
+
+/// `M3ImportOptions::foldRecordBones` on model @p modelIndex: each record that
+/// is its bone's only child becomes the bone, in the bone's place, so every
+/// bone keeps its index -- an `.m3a` merged later names bones by it. The record
+/// keeps its kind and payload; an attachment and a camera keep the name the
+/// game finds them by, the rest take the bone's over the import's numbered
+/// one. Returns how many folded.
+u32 FoldRecordBones(Document& document, u32 modelIndex, Diagnostics& out) {
+    Model& model = document.models[modelIndex];
+    NodeTree& tree = model.nodes;
+    const u32 count = tree.size();
+    std::vector<u32> children(count, 0);
+    for (const Node& node : tree.nodes) {
+        if (node.parent < count) {
+            ++children[node.parent];
+        }
+    }
+    // What keeps a bone a bone: anything but its own keys, its bounds and the
+    // events it fires, which the record takes over with it.
+    std::vector<u8> held(count, 0);
+    const NodeTree& view = tree;
+    ForEachNodeReference(view, std::span<const Mesh>(model.meshes), &std::as_const(model.animChannels),
+                         &std::as_const(model.poseStages), &std::as_const(model.physics), std::span<const Clip>(),
+                         [&](NodeReference row, const u32& node, u32, u32) {
+                             switch (row) {
+                             case NodeReference::Channel:
+                             case NodeReference::MeshBounds:
+                             case NodeReference::NodeLink:
+                             case NodeReference::ClipEvent:
+                             case NodeReference::ClipWorldCentre:
+                                 return;
+                             default:
+                                 if (node < count) {
+                                     held[node] = 1;
+                                 }
+                             }
+                         });
+    std::vector<std::vector<std::pair<Channel, u32>>> keyed(count);
+    for (const AnimChannel& channel : model.animChannels.channels) {
+        if (channel.target.kind == TrackTarget::Kind::Node && channel.target.node < count) {
+            keyed[channel.target.node].emplace_back(channel.target.channel, channel.target.sub);
+        }
+    }
+
+    std::vector<u32> into(count, kInvalidNode);
+    u32 folded = 0;
+    for (u32 n = 0; n < count; ++n) {
+        const Node& record = tree.nodes[n];
+        const u32 p = record.parent;
+        if (!FoldsIntoBone(record.kind) || p >= count || children[p] != 1 || children[n] != 0 ||
+            held[p] != 0 || tree.nodes[p].kind != NodeKind::Bone || !IsIdentityLocal(record.local)) {
+            continue;
+        }
+        const bool clash = std::any_of(keyed[n].begin(), keyed[n].end(), [&](const auto& own) {
+            return std::find(keyed[p].begin(), keyed[p].end(), own) != keyed[p].end();
+        });
+        if (!clash) {
+            into[n] = p;
+            ++folded;
+        }
+    }
+    if (folded == 0) {
+        return 0;
+    }
+    // Where every record stood, which is the order the export writes them in.
+    for (u32 n = 0; n < count; ++n) {
+        if (tree.nodes[n].kind != NodeKind::Bone) {
+            tree.nodes[n].native.set(kNodeM3Place, n);
+        }
+    }
+    for (u32 n = 0; n < count; ++n) {
+        if (into[n] == kInvalidNode) {
+            continue;
+        }
+        Node& record = tree.nodes[n];
+        Node& bone = tree.nodes[into[n]];
+        if (record.kind == NodeKind::Attachment || record.kind == NodeKind::Camera) {
+            if (record.name != bone.name) {
+                bone.native.setText(kNodeM3BoneName, bone.name);
+            }
+            bone.name = record.name;
+        }
+        bone.kind = record.kind;
+        bone.payload = std::move(record.payload);
+        bone.flags = bone.flags | record.flags;
+        bone.display = record.display;
+        bone.native.set(kNodeM3Bone, 1);
+        for (const NativeBag::Entry& entry : record.native.entries) {
+            bone.native.set(entry.name, entry.value);
+            if (!entry.text.empty()) {
+                bone.native.setText(entry.name, entry.text);
+            }
+        }
+    }
+
+    std::vector<u32> remap(count, kInvalidNode);
+    u32 next = 0;
+    for (u32 n = 0; n < count; ++n) {
+        if (into[n] == kInvalidNode) {
+            remap[n] = next++;
+        }
+    }
+    for (u32 n = 0; n < count; ++n) {
+        if (into[n] != kInvalidNode) {
+            remap[n] = remap[into[n]];
+        }
+    }
+    std::vector<Node> kept;
+    kept.reserve(next);
+    for (u32 n = 0; n < count; ++n) {
+        if (into[n] != kInvalidNode) {
+            continue;
+        }
+        Node node = std::move(tree.nodes[n]);
+        node.parent = node.parent < count ? remap[node.parent] : kInvalidNode;
+        kept.push_back(std::move(node));
+    }
+    tree.nodes = std::move(kept);
+    tree.invalidateHierarchy();
+    NodeReferencers referencers;
+    referencers.meshes = model.meshes;
+    referencers.channels = &model.animChannels;
+    referencers.stages = &model.poseStages;
+    referencers.physics = &model.physics;
+    RemapNodeReferencers(tree, remap, referencers, out);
+    for (Clip& clip : document.clips) {
+        if (clip.model == modelIndex) {
+            RemapClipNodes(clip, remap);
+        }
+    }
+    return folded;
+}
+
 } // namespace
 
 ProfileId M3Converter::ProfileForVersion(u32 modelVersion) {
@@ -711,7 +941,8 @@ M3ExportMap M3ExportMapOf(const Document& document, ProfileId profile) {
 // fromM3
 // ============================================================================
 
-Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileOverride) const {
+Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileOverride,
+                                     const M3ImportOptions& options) const {
     Result<Document> result;
     Diagnostics& diagnostics = result.diagnostics;
 
@@ -812,6 +1043,27 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
     const std::vector<std::array<u8, 4>> boneIndices = source.vertices.getBoneIndices();
     const std::vector<std::array<u8, 4>> boneWeights = source.vertices.getBoneWeights();
 
+    // Per region of division 0, the mesh and section it became: a cloth and a
+    // mesh emitter name a region, and a split moves it.
+    std::vector<SectionRef> regionSection(source.divisions.empty() ? 0 : source.divisions[0].regions.size());
+    // A split mesh is named for the material it draws; a second one drawing
+    // it under another gate, by its place.
+    std::map<std::string, u32> meshNames;
+    const auto partName = [&](const DivisionPart& part, const std::vector<u32>& batchOfRegion,
+                              const m3::MeshDivision& division) {
+        std::string name = "mesh";
+        if (part.sectionEach && !part.regions.empty()) {
+            name = "cloth";
+        } else if (!part.regions.empty() && batchOfRegion[part.regions.front()] == kInvalidIndex) {
+            name = "undrawn";
+        } else if (!part.regions.empty()) {
+            const u32 slot = division.batches[batchOfRegion[part.regions.front()]].materialIndex;
+            name = slot < set.materials.size() ? set.materials[slot].name : SlotName(slot);
+        }
+        const u32 seen = ++meshNames[name];
+        return seen == 1 ? name : name + "_" + std::to_string(seen);
+    };
+
     for (std::size_t d = 0; d < source.divisions.size(); ++d) {
         const m3::MeshDivision& division = source.divisions[d];
 
@@ -827,7 +1079,6 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
             }
         }
 
-        geom::MeshBuilder builder;
         // A division's regions select ranges of the global vertex buffer;
         // rebasing to the lowest one makes the mesh self-contained.
         u32 lowest = 0xFFFFFFFFu;
@@ -841,10 +1092,6 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
             highest = 0;
         }
 
-        for (u32 v = lowest; v < highest; ++v) {
-            builder.addVertex(v < positions.size() ? Rebase(positions[v]) : Vector3f{0, 0, 0});
-        }
-
         // Cloth (WEM_PHYSICS_DESIGN.md §3.7): only division 0 draws, and only
         // it carries PHCL. A cage vertex's anchors become its skin, its
         // movability a layer, and a bound vertex's PHAC lanes the cage
@@ -854,25 +1101,8 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
             cloth = m3_physics::PlanClothVertices(source, division, lowest, highest - lowest,
                                                   diagnostics);
         }
-        if (cloth.anyCage) {
-            for (u32 v = 0; v < highest - lowest; ++v) {
-                if (cloth.movable[v] != 0xFFu) {
-                    builder.setVertexAttr(geom::VertexId(v), geom::names::kClothMovable,
-                                          static_cast<u8>(cloth.movable[v]));
-                }
-            }
-        }
-        if (cloth.anyBinding) {
-            for (u32 v = 0; v < highest - lowest; ++v) {
-                builder.setVertexAttr(geom::VertexId(v), geom::names::kClothBindVertex,
-                                      cloth.bindVertex[v]);
-                builder.setVertexAttr(geom::VertexId(v), geom::names::kClothBindWeight,
-                                      cloth.bindWeight[v]);
-            }
-        }
 
-        std::vector<u32> sectionOfRegion(division.regions.size(), 0);
-        for (std::size_t r = 0; r < division.regions.size(); ++r) {
+        const auto sectionOf = [&](std::size_t r) {
             const m3::Region& region = division.regions[r];
             MeshSection section;
             section.name = "region_" + std::to_string(r);
@@ -919,120 +1149,214 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
                 // drawn. It is section state, not a count.
                 section.native.set(kSectionVisibilityNode, static_cast<i64>(record.boneCount));
             }
-            sectionOfRegion[r] = builder.addSection(std::move(section));
-        }
+            return section;
+        };
 
-        for (std::size_t r = 0; r < division.regions.size(); ++r) {
-            const m3::Region& region = division.regions[r];
-            const Vector2f uvDecode = UvDecodeFor(region);
-            const u32 base = region.firstVertex - lowest;
-            const std::size_t first = region.firstIndex;
-            const std::size_t last = first + region.indexCount;
-            for (std::size_t i = first; i + 2 < last && i + 2 < division.faces.size(); i += 3) {
-                const std::array<u32, 3> corners = {static_cast<u32>(division.faces[i + 0]) + base,
-                                                    static_cast<u32>(division.faces[i + 1]) + base,
-                                                    static_cast<u32>(division.faces[i + 2]) + base};
-                if (corners[0] >= builder.vertexCount() || corners[1] >= builder.vertexCount() ||
-                    corners[2] >= builder.vertexCount()) {
-                    diagnostics.warn(DiagCode::IndexOutOfRange,
-                                     "region face corner past the division's vertex slice",
-                                     ElementRef(ElementKind::Mesh, static_cast<u32>(d)));
-                    continue;
+        const std::vector<DivisionPart> parts = options.splitByMaterial
+                                                    ? SplitDivision(source, d, batchOfRegion)
+                                                    : WholeDivision(division);
+        // Division-local vertex -> the vertex of the part being built.
+        std::vector<u32> localOf(highest - lowest, kInvalidIndex);
+        const auto local = [&](u32 v) { return v < localOf.size() ? localOf[v] : kInvalidIndex; };
+        for (std::size_t k = 0; k < parts.size(); ++k) {
+            const DivisionPart& part = parts[k];
+            const u32 meshIndex = static_cast<u32>(model.meshes.size());
+            geom::MeshBuilder builder;
+            // The part's vertices in the division's order: the whole slice for
+            // the division as one mesh, its regions' own slices for a part.
+            std::vector<u32> mine;
+            if (options.splitByMaterial) {
+                for (const u32 r : part.regions) {
+                    const m3::Region& region = division.regions[r];
+                    for (u32 v = region.firstVertex; v < region.firstVertex + region.vertexCount && v < highest; ++v) {
+                        mine.push_back(v - lowest);
+                    }
                 }
-                const geom::FaceId face =
-                    builder.addTriangle(geom::VertexId(corners[0]), geom::VertexId(corners[1]),
-                                        geom::VertexId(corners[2]), sectionOfRegion[r]);
-                for (u32 c = 0; c < 3; ++c) {
-                    const u32 global = corners[c] + lowest;
-                    if (global < normals.size()) {
-                        builder.setCornerAttr(face, c, geom::names::kNormal,
-                                              Rebase(normals[global]));
+                std::sort(mine.begin(), mine.end());
+                mine.erase(std::unique(mine.begin(), mine.end()), mine.end());
+            } else {
+                mine.resize(highest - lowest);
+                for (u32 v = 0; v < mine.size(); ++v) {
+                    mine[v] = v;
+                }
+            }
+            for (const u32 v : mine) {
+                localOf[v] = static_cast<u32>(builder.vertexCount());
+                builder.addVertex(v + lowest < positions.size() ? Rebase(positions[v + lowest]) : Vector3f{0, 0, 0});
+            }
+
+            // A cage vertex's lanes name cage vertices of the same part: the
+            // cloth regions are one part.
+            const bool clothPart = !options.splitByMaterial || part.sectionEach;
+            for (const u32 v : clothPart ? std::span<const u32>(mine) : std::span<const u32>()) {
+                const u32 at = localOf[v];
+                if (cloth.anyCage && cloth.movable[v] != 0xFFu) {
+                    builder.setVertexAttr(geom::VertexId(at), geom::names::kClothMovable,
+                                          static_cast<u8>(cloth.movable[v]));
+                }
+                if (cloth.anyBinding) {
+                    std::array<u32, 4> lanes = cloth.bindVertex[v];
+                    for (u32& lane : lanes) {
+                        lane = lane == geom::kInvalidId ? geom::kInvalidId : local(lane);
                     }
-                    if (global < colors.size()) {
-                        // Stored RGBA, which is what a `U8x4` colour layer means
-                        // everywhere else; the `.m3` blob is BGRA.
-                        const m3::ColorBGRA& color = colors[global];
-                        const std::array<u8, 4> rgba{color.r, color.g, color.b, color.a};
-                        builder.setCornerAttr(face, c, geom::names::color(0), rgba);
-                    }
-                    if (global < tangents.size()) {
-                        const Vector4f& tangent = tangents[global];
-                        const Vector3f axis =
-                            Rebase(Vector3f{tangent.x, tangent.y, tangent.z});
-                        builder.setCornerAttr(face, c, geom::names::kTangent,
-                                              Vector4f{axis.x, axis.y, axis.z, tangent.w});
-                    }
-                    for (std::size_t u = 0; u < uvSets.size(); ++u) {
-                        if (global < uvSets[u].size()) {
-                            const Vector2f& raw = uvSets[u][global];
-                            builder.setCornerAttr(
-                                face, c, geom::names::uv(static_cast<u32>(u)),
-                                Vector2f{raw.x * uvDecode.x + uvDecode.y,
-                                         raw.y * uvDecode.x + uvDecode.y});
-                        }
-                    }
+                    builder.setVertexAttr(geom::VertexId(at), geom::names::kClothBindVertex, lanes);
+                    builder.setVertexAttr(geom::VertexId(at), geom::names::kClothBindWeight,
+                                          cloth.bindWeight[v]);
                 }
             }
 
-            // Skinning, through the region's own bone-lookup window. A cage
-            // vertex's is its PHCL anchors instead: the client never draws the
-            // cage, so its region skin is otherwise unread.
-            for (u32 v = 0; v < region.vertexCount; ++v) {
-                const u32 global = region.firstVertex + v;
-                if (global >= lowest && cloth.hasAnchors(global - lowest)) {
-                    const auto& anchors =
-                        cloth.anchors[static_cast<std::size_t>(cloth.anchorOf[global - lowest])];
-                    for (u32 k = 0; k < anchors.count; ++k) {
-                        if (anchors.bones[k] < model.nodes.size()) {
-                            builder.addInfluence(geom::VertexId(global - lowest), anchors.bones[k],
-                                                 anchors.weights[k]);
-                        }
-                    }
-                    continue;
+            // A section each, or one for the part: its regions share the
+            // material, gate and flags, and the root where they agree on one.
+            std::vector<u32> sectionOfRegion(division.regions.size(), 0);
+            if (part.sectionEach) {
+                for (const u32 r : part.regions) {
+                    sectionOfRegion[r] = builder.addSection(sectionOf(r));
                 }
-                if (global >= boneIndices.size() || global >= boneWeights.size()) {
-                    break;
-                }
-                // The pairs the region says its vertices use. The rest of the
-                // four hold whatever the exporter left there -- full weights on
-                // lookup slots past the region's window, in the merged doodads
-                // -- and the game reads none of it.
-                const std::size_t pairs =
-                    region.boneWeightPairs == 0 ? 4 : std::min<std::size_t>(region.boneWeightPairs, 4);
-                for (std::size_t k = 0; k < pairs; ++k) {
-                    const f32 weight = static_cast<f32>(boneWeights[global][k]) / 255.0f;
-                    if (weight <= 0.0f) {
-                        continue;
+            } else {
+                MeshSection merged = sectionOf(part.regions.front());
+                for (std::size_t i = 1; i < part.regions.size(); ++i) {
+                    (void)sectionOf(part.regions[i]);
+                    if (division.regions[part.regions[i]].rootBone !=
+                        division.regions[part.regions.front()].rootBone) {
+                        std::erase_if(merged.native.entries, [](const NativeBag::Entry& entry) {
+                            return entry.name == kSectionRootBone;
+                        });
                     }
-                    // An index past the region's own window reads into the next
-                    // region's lookup, which is not this region's skin; the root
-                    // is the bone the region names for itself.
-                    const std::size_t slot = region.firstBoneLookup + boneIndices[global][k];
-                    const u32 bone = boneIndices[global][k] < region.boneLookupCount &&
-                                             slot < source.boneLookup.size()
-                                         ? source.boneLookup[slot]
-                                         : region.rootBone;
-                    if (bone >= model.nodes.size()) {
-                        diagnostics.warn(DiagCode::DanglingNodeReference,
-                                         "bone lookup names bone " + std::to_string(bone),
+                }
+                const u32 into = builder.addSection(std::move(merged));
+                for (const u32 r : part.regions) {
+                    sectionOfRegion[r] = into;
+                }
+            }
+            if (d == 0) {
+                for (const u32 r : part.regions) {
+                    regionSection[r] = SectionRef{meshIndex, sectionOfRegion[r]};
+                }
+            }
+
+            for (const u32 r : part.regions) {
+                const m3::Region& region = division.regions[r];
+                const Vector2f uvDecode = UvDecodeFor(region);
+                const u32 base = region.firstVertex - lowest;
+                const std::size_t first = region.firstIndex;
+                const std::size_t last = first + region.indexCount;
+                for (std::size_t i = first; i + 2 < last && i + 2 < division.faces.size(); i += 3) {
+                    // Division-local: the vertex a corner names, before the part
+                    // renumbers it.
+                    const std::array<u32, 3> corners = {static_cast<u32>(division.faces[i + 0]) + base,
+                                                        static_cast<u32>(division.faces[i + 1]) + base,
+                                                        static_cast<u32>(division.faces[i + 2]) + base};
+                    const std::array<u32, 3> mine = {local(corners[0]), local(corners[1]), local(corners[2])};
+                    if (mine[0] == kInvalidIndex || mine[1] == kInvalidIndex || mine[2] == kInvalidIndex) {
+                        diagnostics.warn(DiagCode::IndexOutOfRange,
+                                         "region face corner past the division's vertex slice",
                                          ElementRef(ElementKind::Mesh, static_cast<u32>(d)));
                         continue;
                     }
-                    builder.addInfluence(geom::VertexId(global - lowest), bone, weight);
+                    const geom::FaceId face =
+                        builder.addTriangle(geom::VertexId(mine[0]), geom::VertexId(mine[1]),
+                                            geom::VertexId(mine[2]), sectionOfRegion[r]);
+                    for (u32 c = 0; c < 3; ++c) {
+                        const u32 global = corners[c] + lowest;
+                        if (global < normals.size()) {
+                            builder.setCornerAttr(face, c, geom::names::kNormal,
+                                                  Rebase(normals[global]));
+                        }
+                        if (global < colors.size()) {
+                            // Stored RGBA, which is what a `U8x4` colour layer means
+                            // everywhere else; the `.m3` blob is BGRA.
+                            const m3::ColorBGRA& color = colors[global];
+                            const std::array<u8, 4> rgba{color.r, color.g, color.b, color.a};
+                            builder.setCornerAttr(face, c, geom::names::color(0), rgba);
+                        }
+                        if (global < tangents.size()) {
+                            const Vector4f& tangent = tangents[global];
+                            const Vector3f axis =
+                                Rebase(Vector3f{tangent.x, tangent.y, tangent.z});
+                            builder.setCornerAttr(face, c, geom::names::kTangent,
+                                                  Vector4f{axis.x, axis.y, axis.z, tangent.w});
+                        }
+                        for (std::size_t u = 0; u < uvSets.size(); ++u) {
+                            if (global < uvSets[u].size()) {
+                                const Vector2f& raw = uvSets[u][global];
+                                builder.setCornerAttr(
+                                    face, c, geom::names::uv(static_cast<u32>(u)),
+                                    Vector2f{raw.x * uvDecode.x + uvDecode.y,
+                                             raw.y * uvDecode.x + uvDecode.y});
+                            }
+                        }
+                    }
+                }
+
+                // Skinning, through the region's own bone-lookup window. A cage
+                // vertex's is its PHCL anchors instead: the client never draws the
+                // cage, so its region skin is otherwise unread.
+                for (u32 v = 0; v < region.vertexCount; ++v) {
+                    const u32 global = region.firstVertex + v;
+                    const u32 at = global >= lowest ? local(global - lowest) : kInvalidIndex;
+                    if (at == kInvalidIndex) {
+                        continue;
+                    }
+                    if (cloth.hasAnchors(global - lowest)) {
+                        const auto& anchors =
+                            cloth.anchors[static_cast<std::size_t>(cloth.anchorOf[global - lowest])];
+                        for (u32 b = 0; b < anchors.count; ++b) {
+                            if (anchors.bones[b] < model.nodes.size()) {
+                                builder.addInfluence(geom::VertexId(at), anchors.bones[b], anchors.weights[b]);
+                            }
+                        }
+                        continue;
+                    }
+                    if (global >= boneIndices.size() || global >= boneWeights.size()) {
+                        break;
+                    }
+                    // The pairs the region says its vertices use. The rest of the
+                    // four hold whatever the exporter left there -- full weights on
+                    // lookup slots past the region's window, in the merged doodads
+                    // -- and the game reads none of it.
+                    const std::size_t pairs =
+                        region.boneWeightPairs == 0 ? 4 : std::min<std::size_t>(region.boneWeightPairs, 4);
+                    for (std::size_t p = 0; p < pairs; ++p) {
+                        const f32 weight = static_cast<f32>(boneWeights[global][p]) / 255.0f;
+                        if (weight <= 0.0f) {
+                            continue;
+                        }
+                        // An index past the region's own window reads into the next
+                        // region's lookup, which is not this region's skin; the root
+                        // is the bone the region names for itself.
+                        const std::size_t slot = region.firstBoneLookup + boneIndices[global][p];
+                        const u32 bone = boneIndices[global][p] < region.boneLookupCount &&
+                                                 slot < source.boneLookup.size()
+                                             ? source.boneLookup[slot]
+                                             : region.rootBone;
+                        if (bone >= model.nodes.size()) {
+                            diagnostics.warn(DiagCode::DanglingNodeReference,
+                                             "bone lookup names bone " + std::to_string(bone),
+                                             ElementRef(ElementKind::Mesh, static_cast<u32>(d)));
+                            continue;
+                        }
+                        builder.addInfluence(geom::VertexId(at), bone, weight);
+                    }
                 }
             }
-        }
 
-        geom::MeshBuilder::BuildOutcome outcome = builder.build();
-        // The division's bounds records, as read; bones import as the first
-        // nodes, so a bone index is its node's.
-        for (const m3::MeshSection& bounds : division.msec) {
-            outcome.mesh.sc2Bounds.push_back(MirrorOf<native::M3MeshSection>(bounds));
+            geom::MeshBuilder::BuildOutcome outcome = builder.build();
+            // The division's bounds records, as read, on its first mesh; bones
+            // import as the first nodes, so a bone index is its node's.
+            if (k == 0) {
+                for (const m3::MeshSection& bounds : division.msec) {
+                    outcome.mesh.sc2Bounds.push_back(MirrorOf<native::M3MeshSection>(bounds));
+                }
+            }
+            outcome.mesh.name = options.splitByMaterial ? partName(part, batchOfRegion, division)
+                                                        : "division_" + std::to_string(d);
+            outcome.mesh.lodLevel = static_cast<u32>(d);
+            outcome.mesh.recomputeBounds();
+            model.meshes.push_back(std::move(outcome.mesh));
+            for (const u32 v : mine) {
+                localOf[v] = kInvalidIndex;
+            }
         }
-        outcome.mesh.name = "division_" + std::to_string(d);
-        outcome.mesh.lodLevel = static_cast<u32>(d);
-        outcome.mesh.recomputeBounds();
-        model.meshes.push_back(std::move(outcome.mesh));
     }
 
     model.profileSets.push_back(std::move(set));
@@ -1040,6 +1364,36 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
     // name. A PHCT ships in no model and nothing reads it; the parser has
     // already dropped it and said so.
     const m3_physics::ImportedIds physicsIds = m3_physics::Import(source, model, diagnostics);
+    // Both name a region as a section of mesh 0, which a split moved.
+    if (options.splitByMaterial) {
+        const auto moved = [&](SectionRef& ref) {
+            if (ref.mesh == 0 && ref.section < regionSection.size()) {
+                ref = regionSection[ref.section];
+            }
+        };
+        for (Cloth& record : model.physics.cloths) {
+            moved(record.cage);
+            for (ClothBinding& binding : record.bindings) {
+                moved(binding.section);
+            }
+        }
+        for (Node& node : model.nodes.nodes) {
+            auto* emitter = std::get_if<Sc2ParticleEmitterPayload>(&node.payload);
+            if (emitter == nullptr) {
+                continue;
+            }
+            std::vector<u32> sections;
+            for (const u32 r : emitter->shapeSections) {
+                const u32 entry = r < regionSection.size()
+                                      ? Sc2ShapeSection(regionSection[r].mesh, regionSection[r].section)
+                                      : r;
+                if (std::find(sections.begin(), sections.end(), entry) == sections.end()) {
+                    sections.push_back(entry);
+                }
+            }
+            emitter->shapeSections = std::move(sections);
+        }
+    }
     // Leg IK and turrets, as the stages the game runs (S1.4).
     m3_behaviors::Import(source, model, diagnostics);
     m3_anim::Context animContext;
@@ -1054,6 +1408,10 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
     m3_anim::Import(source, animContext, document, modelIndex, diagnostics);
     // Divisions after the first are levels of detail (§8.1); `toM3` writes one.
     DropLevelsOfDetail(document, diagnostics);
+    // Last, over the keys the animation import declared on the bones.
+    if (options.foldRecordBones) {
+        FoldRecordBones(document, modelIndex, diagnostics);
+    }
 
     result.value = std::move(document);
     return result;
@@ -1220,8 +1578,9 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     }
     for (const u32 n : topological) {
         const Node& node = model.nodes.nodes[n];
-        bool carries = false;
-        switch (node.kind) {
+        // A record the import folded into its bone is that bone too.
+        bool carries = node.native.find(kNodeM3Bone) != nullptr;
+        switch (carries ? NodeKind::Bone : node.kind) {
         case NodeKind::Bone:
         case NodeKind::Helper:
             carries = true;
@@ -1305,7 +1664,11 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         m3::Bone bone;
         // A bone with no name still names one: shipped files spell it as the
         // lone terminator, and an empty string is written as no name at all.
-        bone.name = node.name.empty() ? std::string(1, '\0') : node.name;
+        // A folded record's bone keeps its own name where the record's differs.
+        const std::string& boneName = node.native.text(kNodeM3BoneName).empty()
+                                          ? node.name
+                                          : node.native.text(kNodeM3BoneName);
+        bone.name = boneName.empty() ? std::string(1, '\0') : boneName;
         bone.flags = FromNodeFlags(node.flags, static_cast<u32>(node.native.value("m3FlagBits")));
         // A `ModelSpace` node's local is its world (`NodeTree::worldBind` stops
         // there, and so does the IREF below): under a parent bone it would be
@@ -1603,11 +1966,23 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                    ? std::get_if<Sc2ParticleEmitterPayload>(&node.payload)
                    : nullptr;
     };
+    // Each kind's records in the order the file had them: a fold put a
+    // record's node in its bone's place, and the node keeps where it stood.
+    std::vector<u32> recordOrder(nodeCount);
+    {
+        std::vector<i64> placeOf(nodeCount);
+        for (u32 n = 0; n < nodeCount; ++n) {
+            recordOrder[n] = n;
+            placeOf[n] = model.nodes.nodes[n].native.value(kNodeM3Place, (i64{1} << 32) + n);
+        }
+        std::stable_sort(recordOrder.begin(), recordOrder.end(),
+                         [&](u32 a, u32 b) { return placeOf[a] < placeOf[b]; });
+    }
     u32 copyCount = 0;
     {
         u32 particles = 0;
         u32 ribbons = 0;
-        for (std::size_t n = 0; n < nodeCount; ++n) {
+        for (const u32 n : recordOrder) {
             const Node& node = model.nodes.nodes[n];
             const u32 bone = recordBoneOf(n);
             recordBone[n] = bone == 0xFFFFu ? kInvalidIndex : bone;
@@ -1618,7 +1993,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                 ribbonOf[n] = ribbons++;
             }
         }
-        for (std::size_t n = 0; n < nodeCount; ++n) {
+        for (const u32 n : recordOrder) {
             const auto* particle = particleAt(n);
             if (particle != nullptr && particle->isCopy() && particle->copyOf < nodeCount &&
                 particleOf[particle->copyOf] != kInvalidIndex) {
@@ -1642,7 +2017,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     emitterLinks.ribbonOf = &ribbonOf;
     emitterLinks.boneOf = &recordBone;
 
-    for (std::size_t n = 0; n < model.nodes.size(); ++n) {
+    for (const std::size_t n : recordOrder) {
         const Node& node = model.nodes.nodes[n];
         // The node's own bone when the pass above gave it one (it carries a
         // rest offset), the nearest ancestor's otherwise -- and its visibility
@@ -1816,8 +2191,8 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             m3::ParticleEmitter emitter = m3_emitters::ExportParticle(*payload, emitterLinks);
             emitter.boneIndex = parentBone == 0xFFFFu ? 0u : parentBone;
             // A copy names its source, and the source lists its copies: every
-            // node copying this one, in node order -- the slot order.
-            for (std::size_t c = 0; c < nodeCount; ++c) {
+            // node copying this one, in record order -- the slot order.
+            for (const u32 c : recordOrder) {
                 const auto* other = particleAt(c);
                 if (other != nullptr && copyRecordOf[c] != kInvalidIndex && other->copyOf == n) {
                     emitter.copyIndices.push_back(copyRecordOf[c]);
@@ -2261,6 +2636,8 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     // per mesh vertex, and neither a cage nor a bound section is split or
     // skipped, because each is ONE region a PHCL or a PHAC names.
     m3_physics::ClothEmission clothEmission = m3_physics::PlanClothEmission(model);
+    // Every region each section became, for the mesh emitters that name it.
+    std::map<std::pair<u32, u32>, std::vector<u32>> sectionRegions;
     if (map != nullptr) {
         map->sectionRegion.assign(model.meshes.size(), {});
         for (std::size_t m = 0; m < model.meshes.size(); ++m) {
@@ -2293,6 +2670,9 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         const std::vector<std::array<u32, 4>> boneIndices = render.vertices.getBoneIndices();
         const std::vector<std::array<f32, 4>> boneWeights = render.vertices.getBoneWeights();
 
+        // The run each render vertex was last counted in, across every range.
+        std::vector<u32> runOf(positions.size(), kInvalidIndex);
+        u32 runCount = 0;
         for (const geom::RenderRange& range : render.ranges) {
             // What this export must NOT draw (D3_TO_SC2_DESIGN.md §4). A
             // cross-profile `Hidden` section is a variant that is not worn,
@@ -2361,19 +2741,33 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
 
             // Whole triangles, in order, so every run is a contiguous slice of
             // the face buffer -- which is all a region's `firstIndex` can state.
+            // A run also closes before it needs a 65,537th vertex: a face corner
+            // is a u16 into its region's own slice, and a mesh made of several
+            // shipped regions can hold more than one region may.
             std::vector<std::pair<u32, u32>> runs;
             {
+                constexpr u32 kRegionVertices = 0x10000u;
                 const u32 corners = range.indexCount - range.indexCount % 3;
                 std::vector<u32> window;
                 std::vector<u32> adding;
+                u32 run = runCount++;
+                u32 vertices = 0;
                 u32 first = 0;
                 for (u32 i = 0; i < corners; i += 3) {
                     // Twice at most: once against the running window, and again
                     // against an empty one after the run is closed.
+                    u32 fresh = 0;
                     for (int pass = 0; pass < 2; ++pass) {
                         adding.clear();
+                        fresh = 0;
                         for (u32 c = 0; c < 3; ++c) {
                             const u32 index = render.indices[range.firstIndex + i + c];
+                            const bool repeat =
+                                (c > 0 && render.indices[range.firstIndex + i] == index) ||
+                                (c > 1 && render.indices[range.firstIndex + i + 1] == index);
+                            if (index < runOf.size() && runOf[index] != run && !repeat) {
+                                ++fresh;
+                            }
                             std::array<u32, 4> slots{};
                             const std::size_t n =
                                 index < positions.size() ? bonesOf(index, slots) : 0;
@@ -2386,15 +2780,26 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                                 }
                             }
                         }
-                        if (window.empty() || paletteLimit == 0 || cageRange || boundRange ||
-                            window.size() + adding.size() <= paletteLimit) {
+                        const bool bonesFit = window.empty() || paletteLimit == 0 ||
+                                              window.size() + adding.size() <= paletteLimit;
+                        if (i == first || cageRange || boundRange ||
+                            (bonesFit && vertices + fresh <= kRegionVertices)) {
                             break;
                         }
                         runs.emplace_back(first, i - first);
                         first = i;
                         window.clear();
+                        run = runCount++;
+                        vertices = 0;
                     }
                     window.insert(window.end(), adding.begin(), adding.end());
+                    for (u32 c = 0; c < 3; ++c) {
+                        const u32 index = render.indices[range.firstIndex + i + c];
+                        if (index < runOf.size()) {
+                            runOf[index] = run;
+                        }
+                    }
+                    vertices += fresh;
                 }
                 // The tail, and with it any corners a range short of a whole
                 // triangle left over: they stay on the last run, not dropped.
@@ -2693,6 +3098,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                     writtenSkin.vertices = drawn.vertices;
                     map->regionSkin.push_back(std::move(writtenSkin));
                 }
+                sectionRegions[{static_cast<u32>(m), range.section}].push_back(region.index);
                 division.regions.push_back(std::move(region));
             }
             const std::size_t regionCount = division.regions.size() - firstRegion;
@@ -2903,6 +3309,26 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             }
         }
     }
+    // A mesh emitter names sections; its record names the regions they became.
+    for (std::size_t n = 0; n < nodeCount; ++n) {
+        const auto* particle = particleAt(n);
+        if (particle == nullptr || particleOf[n] >= out.particleEmitters.size()) {
+            continue;
+        }
+        std::vector<u32> regions;
+        for (const u32 entry : particle->shapeSections) {
+            const auto found =
+                sectionRegions.find({Sc2ShapeSectionMesh(entry), Sc2ShapeSectionIndex(entry)});
+            if (found != sectionRegions.end()) {
+                regions.insert(regions.end(), found->second.begin(), found->second.end());
+            } else if (Sc2ShapeSectionMesh(entry) == 0) {
+                // A region the file named and no section holds goes back as read.
+                regions.push_back(Sc2ShapeSectionIndex(entry));
+            }
+        }
+        out.particleEmitters[particleOf[n]].shapeRegions = std::move(regions);
+    }
+
     // Every division states its bounding volume, and StarCraft II reads it
     // without first asking whether there is one: an import with no `MSEC` at
     // all crashes the Galaxy editor on a null array. 33,030 of the 33,060
