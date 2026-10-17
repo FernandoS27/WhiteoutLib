@@ -3117,7 +3117,7 @@ ModelPlan PlanRemove(Mesh& mesh, const PointTable& points, const ElementSet& sel
     }
     ElementSet asked;
     asked.vertices = selection.vertices;
-    const std::vector<u32> vertices = verticesOf(mesh, points, asked);
+    std::vector<u32> vertices = verticesOf(mesh, points, asked);
     Mesh copy = mesh;
     std::vector<u32> left; // the vertices a dissolve left behind, for Clean vertices
     // The edges: a dissolve each; a border edge has nothing to close.
@@ -3141,7 +3141,8 @@ ModelPlan PlanRemove(Mesh& mesh, const PointTable& points, const ElementSet& sel
     }
     // The vertices: the faces around each replaced by one face over its ring,
     // every outer corner keeping its own values (§3.7).
-    for (const u32 v : vertices) {
+    for (std::size_t i = 0; i < vertices.size(); ++i) {
+        const u32 v = vertices[i];
         const Topology& topology = std::as_const(copy).topology();
         if (v >= topology.vertexCount() || topology.isDeleted(VertexId(v))) {
             continue;
@@ -3204,6 +3205,7 @@ ModelPlan PlanRemove(Mesh& mesh, const PointTable& points, const ElementSet& sel
             }
         }
         mapping.faces.vertexCount = static_cast<u32>(mapping.vertexSource.size());
+        std::vector<u32> faceId(topology.faceCount(), kInvalidId);
         u32 corner = 0;
         for (u32 f = 0; f < topology.faceCount(); ++f) {
             const FaceId face(f);
@@ -3220,17 +3222,18 @@ ModelPlan PlanRemove(Mesh& mesh, const PointTable& points, const ElementSet& sel
                 continue;
             }
             mapping.faces.faceValence.push_back(static_cast<u32>(loop.size()));
-            for (std::size_t i = 0; i < loop.size(); ++i) {
-                mapping.faces.cornerVertex.push_back(newId[loop[i]]);
-                mapping.cornerSource.push_back(mine[i]);
+            for (std::size_t k = 0; k < loop.size(); ++k) {
+                mapping.faces.cornerVertex.push_back(newId[loop[k]]);
+                mapping.cornerSource.push_back(mine[k]);
             }
+            faceId[f] = static_cast<u32>(mapping.faceSource.size());
             mapping.faceSource.push_back(f);
         }
         const u32 slot = static_cast<u32>(mapping.faces.faceValence.size());
         mapping.faces.faceValence.push_back(static_cast<u32>(ring.loop.size()));
-        for (std::size_t i = 0; i < ring.loop.size(); ++i) {
-            mapping.faces.cornerVertex.push_back(newId[ring.loop[i]]);
-            const auto at = cornerOfHalfedge.find(ring.corners[i]);
+        for (std::size_t k = 0; k < ring.loop.size(); ++k) {
+            mapping.faces.cornerVertex.push_back(newId[ring.loop[k]]);
+            const auto at = cornerOfHalfedge.find(ring.corners[k]);
             mapping.cornerSource.push_back(at == cornerOfHalfedge.end() ? kInvalidId : at->second);
         }
         mapping.faceSource.push_back(ring.faces.front()); // its section and smoothing group
@@ -3239,9 +3242,23 @@ ModelPlan PlanRemove(Mesh& mesh, const PointTable& points, const ElementSet& sel
             plan.refusal = ModelRefusal::WouldFold;
             return plan;
         }
+        // The rebuild renumbered everything: the vertices still to go, the
+        // ones the clean pass holds and the rings already made follow it. A
+        // ring this one took in is gone with it.
+        const auto renumber = [](std::vector<u32>& ids, const std::vector<u32>& to) {
+            for (u32& id : ids) {
+                id = id < to.size() ? to[id] : kInvalidId;
+            }
+            std::erase(ids, kInvalidId);
+        };
+        std::vector<u32> rest(vertices.begin() + static_cast<std::ptrdiff_t>(i) + 1, vertices.end());
+        renumber(rest, newId);
+        vertices.resize(i + 1);
+        vertices.insert(vertices.end(), rest.begin(), rest.end());
+        renumber(left, newId);
+        renumber(plan.changedFaces, faceId);
         plan.changedFaces.push_back(slot);
         ++plan.changed;
-        left.clear(); // the ids the clean pass held are another mesh's now
     }
     // Clean vertices (3ds Max's Ctrl+Backspace): the valence-2 vertices the
     // dissolves left, and only those.
@@ -3261,7 +3278,7 @@ ModelPlan PlanRemove(Mesh& mesh, const PointTable& points, const ElementSet& sel
     return plan;
 }
 
-ModelPlan PlanDelete(Mesh& mesh, const ElementSet& faces) {
+ModelPlan PlanDelete(Mesh& mesh, const ElementSet& selection) {
     ModelPlan plan;
     if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
         plan.refusal = ModelRefusal::NotBuiltYet;
@@ -3269,15 +3286,39 @@ ModelPlan PlanDelete(Mesh& mesh, const ElementSet& faces) {
     }
     const Topology& topology = std::as_const(mesh).topology();
     std::vector<u8> gone(topology.faceCount(), 0);
+    for (const u32 f : selection.faces) {
+        if (f < gone.size()) {
+            gone[f] = 1;
+        }
+    }
+    for (const u32 e : selection.edges) {
+        if (e >= topology.edgeCount() || topology.isDeleted(EdgeId(e))) {
+            continue;
+        }
+        for (u32 side = 0; side < 2; ++side) {
+            const FaceId f = topology.face(Topology::halfedge(EdgeId(e), side));
+            if (f.valid() && f.value() < gone.size()) {
+                gone[f.value()] = 1;
+            }
+        }
+    }
+    std::vector<u8> at(topology.vertexCount(), 0);
+    for (const u32 v : selection.vertices) {
+        if (v < at.size()) {
+            at[v] = 1;
+        }
+    }
     u32 chosen = 0, live = 0;
     for (u32 f = 0; f < topology.faceCount(); ++f) {
-        live += topology.isDeleted(FaceId(f)) ? 0u : 1u;
-    }
-    for (const u32 f : sortedUnique(faces.faces)) {
-        if (f < gone.size() && !topology.isDeleted(FaceId(f)) && gone[f] == 0) {
-            gone[f] = 1;
-            ++chosen;
+        if (topology.isDeleted(FaceId(f))) {
+            gone[f] = 0;
+            continue;
         }
+        ++live;
+        for (const HalfedgeId h : topology.fh(FaceId(f))) {
+            gone[f] |= at[topology.from(h).value()];
+        }
+        chosen += gone[f];
     }
     if (chosen == 0) {
         plan.refusal = ModelRefusal::EmptySelection;

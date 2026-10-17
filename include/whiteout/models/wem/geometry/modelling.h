@@ -337,14 +337,16 @@ ModelPlan PlanRemove(Mesh& mesh, const PointTable& points, const ElementSet& sel
                      const RemoveParams& params = {});
 
 /**
- * @brief Delete (§3.7): the face set without @p faces, through the rebuild.
+ * @brief Delete (§3.7): the face set without @p selection's faces, the faces
+ *        using any of its vertices and the faces either side of any of its
+ *        edges, through the rebuild -- 3ds Max's Delete at every level.
  *
  * The repair splits every vertex the deletion pinched, one per fan, and the
  * twins keep the original's `mergeGroup`, so the file still writes one vertex
- * wherever their corners agree. Isolated vertices go. Deleting every face is
- * refused (`AllFaces`).
+ * wherever their corners agree. Isolated vertices go, and with them the
+ * selected vertices and edges. Deleting every face is refused (`AllFaces`).
  */
-ModelPlan PlanDelete(Mesh& mesh, const ElementSet& faces);
+ModelPlan PlanDelete(Mesh& mesh, const ElementSet& selection);
 
 /**
  * @brief Cap (§3.10): the border loop @p edge lies on closed with one polygon.

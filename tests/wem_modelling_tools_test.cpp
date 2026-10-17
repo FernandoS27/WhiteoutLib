@@ -1076,6 +1076,82 @@ TEST_CASE("wem tools delete refuses every face of a mesh", "[wem][geometry][tool
     CHECK(liveFaces(mesh) == 1u);
 }
 
+namespace {
+
+bool hasVertexAt(const Mesh& mesh, f32 x, f32 y) {
+    const auto p = mesh.attributes.get<const Vector3f>(geom::names::kPosition, Domain::Vertex);
+    for (u32 v = 0; v < p.size(); ++v) {
+        if (!mesh.topology().isDeleted(VertexId(v)) && p[v].x == x && p[v].y == y) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
+
+TEST_CASE("wem tools remove takes every selected vertex, not the ones renumbered into place",
+          "[wem][geometry][tools]") {
+    // Each ring is a rebuild that renumbers the mesh: the second vertex has to
+    // be the one selected, not whichever took its number.
+    Mesh mesh = grid(4, 4, /*quads=*/true);
+    ElementSet selection;
+    SECTION("two apart: four quads each become one") {
+        selection.vertices = {vertexAt(mesh, 1, 1).value(), vertexAt(mesh, 3, 3).value()};
+        ModelPlan plan = geom::PlanRemove(mesh, pointsOf(mesh), selection);
+        finish(mesh, plan);
+        CHECK(liveFaces(mesh) == 10u);
+    }
+    SECTION("two side by side: the second ring takes in the first") {
+        selection.vertices = {vertexAt(mesh, 1, 1).value(), vertexAt(mesh, 2, 1).value()};
+        ModelPlan plan = geom::PlanRemove(mesh, pointsOf(mesh), selection);
+        finish(mesh, plan);
+        CHECK(liveFaces(mesh) == 11u);
+        CHECK_FALSE(hasVertexAt(mesh, 2, 1));
+    }
+    CHECK(mesh.vertexCount() == 23u);
+    CHECK_FALSE(hasVertexAt(mesh, 1, 1));
+    CHECK(hasVertexAt(mesh, 4, 3)); // the border vertex the old bug removed instead
+}
+
+TEST_CASE("wem tools delete at a vertex takes every face using it", "[wem][geometry][tools]") {
+    // 3ds Max's Delete at the Vertex level: the four quads round (1,1) go, and
+    // the vertices only they used go with them.
+    Mesh mesh = grid(3, 3, /*quads=*/true);
+    ElementSet selection;
+    selection.vertices = {vertexAt(mesh, 1, 1).value()};
+    ModelPlan plan = geom::PlanDelete(mesh, selection);
+    finish(mesh, plan);
+    CHECK(liveFaces(mesh) == 5u);
+    CHECK(mesh.vertexCount() == 12u);
+    CHECK_FALSE(hasVertexAt(mesh, 0, 0));
+    CHECK_FALSE(hasVertexAt(mesh, 1, 1));
+    CHECK(hasVertexAt(mesh, 2, 1));
+
+    Mesh small = grid(2, 2, /*quads=*/true);
+    selection.vertices = {vertexAt(small, 1, 1).value()};
+    CHECK(geom::PlanDelete(small, selection).refusal == ModelRefusal::AllFaces);
+}
+
+TEST_CASE("wem tools delete at an edge takes the faces either side", "[wem][geometry][tools]") {
+    Mesh mesh = grid(3, 1, /*quads=*/true);
+    ElementSet selection;
+    SECTION("an inner edge: both its quads") {
+        selection.edges = {edgeBetween(mesh, vertexAt(mesh, 1, 0), vertexAt(mesh, 1, 1)).value()};
+        ModelPlan plan = geom::PlanDelete(mesh, selection);
+        finish(mesh, plan);
+        CHECK(liveFaces(mesh) == 1u);
+        CHECK(mesh.vertexCount() == 4u);
+    }
+    SECTION("a border edge: its one quad") {
+        selection.edges = {edgeBetween(mesh, vertexAt(mesh, 0, 0), vertexAt(mesh, 1, 0)).value()};
+        ModelPlan plan = geom::PlanDelete(mesh, selection);
+        finish(mesh, plan);
+        CHECK(liveFaces(mesh) == 2u);
+        CHECK(mesh.vertexCount() == 6u);
+    }
+}
+
 TEST_CASE("wem tools cap closes a loop and copies its rim", "[wem][geometry][tools]") {
     // A 2 x 2 grid with its middle quad deleted: the hole is capped, and the
     // cap's corners carry the rim's UVs.
