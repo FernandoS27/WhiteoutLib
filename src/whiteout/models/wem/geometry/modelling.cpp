@@ -2940,6 +2940,74 @@ std::vector<std::vector<u32>> partsOf(const Mesh& mesh, const PointTable& points
 
 } // namespace
 
+std::vector<std::vector<u32>> SelectionParts(const Mesh& mesh, const PointTable& points,
+                                             const ElementSet& selection) {
+    if (!mesh.hasConnectivity()) {
+        return {};
+    }
+    // Joined across what was selected, not across any edge between two of its
+    // points: two groups of polygons with an unselected one between them are
+    // two parts, though that polygon's edges run from one to the other.
+    const Topology& topology = mesh.topology();
+    const std::vector<u32> chosen = verticesOf(mesh, points, selection);
+    std::unordered_map<u32, u32> parent;
+    for (const u32 v : chosen) {
+        parent[v] = v;
+    }
+    const auto find = [&](u32 v) {
+        while (parent[v] != v) {
+            parent[v] = parent[parent[v]];
+            v = parent[v];
+        }
+        return v;
+    };
+    const auto join = [&](u32 a, u32 b) {
+        if (parent.count(a) != 0 && parent.count(b) != 0) {
+            parent[find(a)] = find(b);
+        }
+    };
+    for (const u32 f : selection.faces) {
+        if (f < topology.faceCount() && !topology.isDeleted(FaceId(f))) {
+            for (const HalfedgeId h : topology.fh(FaceId(f))) {
+                join(topology.from(h).value(), topology.to(h).value());
+            }
+        }
+    }
+    for (const u32 e : selection.edges) {
+        if (e < topology.edgeCount() && !topology.isDeleted(EdgeId(e))) {
+            const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
+            join(topology.from(h).value(), topology.to(h).value());
+        }
+    }
+    // Vertices picked as vertices are joined by the mesh's own edges.
+    const std::vector<u32> picked = sortedUnique(selection.vertices);
+    for (const u32 v : picked) {
+        if (v >= topology.vertexCount() || topology.isDeleted(VertexId(v))) {
+            continue;
+        }
+        for (const HalfedgeId h : topology.voh(VertexId(v))) {
+            if (std::binary_search(picked.begin(), picked.end(), topology.to(h).value())) {
+                join(v, topology.to(h).value());
+            }
+        }
+    }
+    for (const u32 v : chosen) {
+        for (const u32 member : membersOfPoint(mesh, points, v)) {
+            join(v, member);
+        }
+    }
+    std::unordered_map<u32, std::vector<u32>> groups;
+    for (const u32 v : chosen) {
+        groups[find(v)].push_back(v);
+    }
+    std::vector<std::vector<u32>> parts;
+    for (auto& entry : groups) {
+        parts.push_back(sortedUnique(std::move(entry.second)));
+    }
+    std::sort(parts.begin(), parts.end());
+    return parts;
+}
+
 ModelPlan PlanCollapse(Mesh& mesh, const PointTable& points, const ElementSet& selection) {
     ModelPlan plan;
     if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
@@ -4752,6 +4820,9 @@ struct Placed {
     u32 id = kInvalidId;
 };
 
+ModelPlan chamferAt(Mesh& mesh, const std::vector<u8>& chosen, const std::vector<u8>& touched, u32 count,
+                    const ChamferParams& params);
+
 } // namespace
 
 ModelPlan PlanChamferEdges(Mesh& mesh, const PointTable& points, const ElementSet& edges,
@@ -4762,7 +4833,6 @@ ModelPlan PlanChamferEdges(Mesh& mesh, const PointTable& points, const ElementSe
         plan.refusal = ModelRefusal::NotBuiltYet;
         return plan;
     }
-    const u32 segments = std::clamp(params.segments, 1u, 64u);
     if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
         plan.refusal = ModelRefusal::NotBuiltYet;
         return plan;
@@ -4787,6 +4857,61 @@ ModelPlan PlanChamferEdges(Mesh& mesh, const PointTable& points, const ElementSe
         plan.refusal = ModelRefusal::EmptySelection;
         return plan;
     }
+    std::vector<u8> touched(topology.vertexCount(), 0);
+    for (u32 e = 0; e < topology.edgeCount(); ++e) {
+        if (chosen[e] == 0) {
+            continue;
+        }
+        const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
+        touched[topology.from(h).value()] = 1;
+        touched[topology.to(h).value()] = 1;
+    }
+    return chamferAt(mesh, chosen, touched, count, params);
+}
+
+ModelPlan PlanChamferVertices(Mesh& mesh, const PointTable& points, const ElementSet& vertices,
+                              const ChamferParams& params) {
+    ModelPlan plan;
+    (void)points;
+    if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
+        plan.refusal = ModelRefusal::NotBuiltYet;
+        return plan;
+    }
+    const Topology& topology = std::as_const(mesh).topology();
+    // Each member of a point is its own vertex here, as it is at an edge: a
+    // crack's twins each cut their own side, and the two cuts meet on it.
+    std::vector<u8> touched(topology.vertexCount(), 0);
+    u32 count = 0;
+    for (const u32 v : sortedUnique(vertices.vertices)) {
+        if (v >= topology.vertexCount() || topology.isDeleted(VertexId(v)) || touched[v] != 0) {
+            continue;
+        }
+        bool inFace = false;
+        for (const HalfedgeId h : topology.voh(VertexId(v))) {
+            inFace = inFace || topology.face(h).valid();
+        }
+        if (!inFace) {
+            continue; // a loose vertex has no edge to put a point on
+        }
+        touched[v] = 1;
+        ++count;
+    }
+    if (count == 0) {
+        plan.refusal = ModelRefusal::EmptySelection;
+        return plan;
+    }
+    return chamferAt(mesh, std::vector<u8>(topology.edgeCount(), 0), touched, count, params);
+}
+
+namespace {
+
+/// Chamfer itself (§3.9): every vertex @p touched marks cut off, with the edges
+/// @p chosen marks replaced by strips -- none at all for the Vertex level's.
+ModelPlan chamferAt(Mesh& mesh, const std::vector<u8>& chosen, const std::vector<u8>& touched, u32 count,
+                    const ChamferParams& params) {
+    ModelPlan plan;
+    const u32 segments = std::clamp(params.segments, 1u, 64u);
+    const Topology& topology = std::as_const(mesh).topology();
     const std::span<const Vector3f> places = positionsOf(mesh);
     const auto at = [&](u32 v) { return v < places.size() ? places[v] : Vector3f{0.0f, 0.0f, 0.0f}; };
     const std::vector<u32> snapshot = detail::snapshotCornersBuilt(mesh);
@@ -4812,15 +4937,6 @@ ModelPlan PlanChamferEdges(Mesh& mesh, const PointTable& points, const ElementSe
         }
         return out;
     };
-    std::vector<u8> touched(topology.vertexCount(), 0);
-    for (u32 e = 0; e < topology.edgeCount(); ++e) {
-        if (chosen[e] == 0) {
-            continue;
-        }
-        const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
-        touched[topology.from(h).value()] = 1;
-        touched[topology.to(h).value()] = 1;
-    }
     // A touched vertex disappears: every one of its edges now ends at a point
     // (§3.9), so it is left out of the rebuild rather than left behind with no
     // face of its own.
@@ -4978,6 +5094,27 @@ ModelPlan PlanChamferEdges(Mesh& mesh, const PointTable& points, const ElementSe
             }
         }
         ringOfVertex[v] = std::move(ring);
+    }
+    // Two cut vertices on one edge each put a point on it, and the two run at
+    // each other: they meet before either reaches the far end, which no face's
+    // area says while the face between them is still convex. Measured here, on
+    // the edges as they were.
+    f32 meets = FLT_MAX;
+    for (const auto& [key, id] : pointOfEdge) {
+        const u32 v = static_cast<u32>(key >> 32);
+        const u32 e = static_cast<u32>(key & 0xffffffffu);
+        const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
+        const u32 w = topology.from(h).value() == v ? topology.to(h).value() : topology.from(h).value();
+        const auto other = pointOfEdge.find((static_cast<u64>(w) << 32) | e);
+        if (w < v || other == pointOfEdge.end()) {
+            continue; // each pair once, and only a pair
+        }
+        const Vector3f along = at(w) - at(v);
+        const f32 closing =
+            (placed[other->second - firstPlaced].direction - placed[id - firstPlaced].direction).dot(along);
+        if (closing < 0.0f) {
+            meets = std::min(meets, -along.dot(along) / closing);
+        }
     }
     // Every face's touched corners, replaced in loop order.
     std::vector<u32> cornerVertex;
@@ -5149,13 +5286,15 @@ ModelPlan PlanChamferEdges(Mesh& mesh, const PointTable& points, const ElementSe
             plan.changedFaces.push_back(strips.back());
         }
     }
-    // One patch per ring of three or more, wound with the faces around it.
+    // One patch per ring of three or more, wound with the faces around it --
+    // unless the vertices are to leave holes.
     std::vector<u32> ringed;
     for (const auto& entry : ringOfVertex) {
         ringed.push_back(entry.first);
     }
     std::sort(ringed.begin(), ringed.end());
-    for (const u32 vertex : ringed) {
+    std::vector<u32> patches;
+    for (const u32 vertex : params.open ? std::vector<u32>{} : ringed) {
         const std::vector<u32>& ring = ringOfVertex[vertex];
         if (ring.size() < 3) {
             continue;
@@ -5214,6 +5353,7 @@ ModelPlan PlanChamferEdges(Mesh& mesh, const PointTable& points, const ElementSe
             }
             faceSource.push_back(lowest == kInvalidId ? 0u : lowest);
             plan.changedFaces.push_back(static_cast<u32>(faceValence.size() - 1));
+            patches.push_back(plan.changedFaces.back());
         };
         if (loop.size() == ring.size()) {
             patch(loop);
@@ -5256,11 +5396,19 @@ ModelPlan PlanChamferEdges(Mesh& mesh, const PointTable& points, const ElementSe
     }
     std::sort(plan.motions.begin(), plan.motions.end(),
               [](const VertexMotion& a, const VertexMotion& b) { return a.vertex < b.vertex; });
-    plan.selection.faces = strips;
+    // The strips; or at vertices, which have none, the points and patches made.
+    plan.selection.faces = strips.empty() ? patches : strips;
+    if (strips.empty()) {
+        for (const Placed& point : placed) {
+            plan.selection.vertices.push_back(point.id);
+        }
+        plan.selection.normalise();
+    }
     const Topology& built = std::as_const(mesh).topology();
     touchFaces(mesh, plan);
     plan.changed = count;
     AmountRange(mesh, plan);
+    plan.amountMax = std::min(plan.amountMax, meets);
     // §2.4 for every point that moves: its corners and its skin come from the
     // face its new place lands in.
     const f32 sample = plan.amountMax > 0.0f && plan.amountMax < FLT_MAX ? plan.amountMax * 0.5f : 1.0f;
@@ -5290,6 +5438,8 @@ ModelPlan PlanChamferEdges(Mesh& mesh, const PointTable& points, const ElementSe
     }
     return plan;
 }
+
+} // namespace
 
 // ============================================================================
 // Adding topology by hand (§3.14)
@@ -7158,41 +7308,63 @@ ModelPlan PlanMirror(Mesh& mesh, const MirrorParams& params, std::span<const u32
 
 namespace {
 
-/// Both forms of Make Planar once the plane is settled (§3.17): one motion per
-/// chosen point that is off it, landing that point on it at amount 1.
-ModelPlan planarOnto(Mesh& mesh, const std::vector<u32>& chosen, const Vector3f& origin,
-                     const Vector3f& normal) {
+/// Every form of Make Planar once its planes are settled (§3.17): one motion
+/// per point of a part that is off that part's plane, landing it there at
+/// amount 1.
+ModelPlan planarOnto(Mesh& mesh, std::span<const PlanarPart> parts) {
     ModelPlan plan;
     plan.renumbers = false;
     const std::span<const Vector3f> at = positionsOf(mesh);
-    for (const u32 v : chosen) {
-        const f32 distance = (at[v] - origin).dot(normal);
-        if (std::abs(distance) <= 0.0f) {
-            continue;
+    const Topology& topology = std::as_const(mesh).topology();
+    std::vector<u32> chosen;
+    for (const PlanarPart& part : parts) {
+        if (part.normal.length() <= 1e-12f) {
+            continue; // no plane to go onto
         }
-        VertexMotion motion;
-        motion.vertex = v;
-        motion.base = at[v];
-        motion.direction = normal * -distance; // amount 1 lands it on the plane
-        plan.motions.push_back(motion);
+        const Vector3f normal = part.normal.normalized();
+        for (const u32 v : part.vertices) {
+            if (v >= at.size() || topology.isDeleted(VertexId(v))) {
+                continue;
+            }
+            chosen.push_back(v);
+            const f32 distance = (at[v] - part.origin).dot(normal);
+            if (std::abs(distance) <= 0.0f) {
+                continue;
+            }
+            VertexMotion motion;
+            motion.vertex = v;
+            motion.base = at[v];
+            motion.direction = normal * -distance; // amount 1 lands it on the plane
+            plan.motions.push_back(motion);
+        }
     }
     if (plan.motions.empty()) {
         plan.refusal = ModelRefusal::ZeroAmount; // already flat
         return plan;
     }
+    std::sort(plan.motions.begin(), plan.motions.end(),
+              [](const VertexMotion& a, const VertexMotion& b) { return a.vertex < b.vertex; });
     plan.changed = static_cast<u32>(plan.motions.size());
     plan.amountMin = -1.0f;
     plan.amountMax = 1.0f;
+    chosen = sortedUnique(std::move(chosen));
     for (const u32 v : chosen) {
-        for (const HalfedgeId h : std::as_const(mesh).topology().voh(VertexId(v))) {
-            if (const FaceId face = std::as_const(mesh).topology().face(h); face.valid()) {
+        for (const HalfedgeId h : topology.voh(VertexId(v))) {
+            if (const FaceId face = topology.face(h); face.valid()) {
                 plan.changedFaces.push_back(face.value());
             }
         }
     }
     plan.changedFaces = sortedUnique(std::move(plan.changedFaces));
-    plan.selection.vertices = chosen;
+    plan.selection.vertices = std::move(chosen);
     return plan;
+}
+
+/// One plane for the whole of @p chosen.
+ModelPlan planarOnto(Mesh& mesh, const std::vector<u32>& chosen, const Vector3f& origin,
+                     const Vector3f& normal) {
+    const PlanarPart part{chosen, origin, normal};
+    return planarOnto(mesh, std::span<const PlanarPart>(&part, 1));
 }
 
 } // namespace
@@ -7296,8 +7468,9 @@ ModelPlan PlanMakePlanar(Mesh& mesh, const PointTable& points, const ElementSet&
         plan.refusal = ModelRefusal::NotBuiltYet;
         return plan;
     }
+    // A plane the caller names needs no three points to find it.
     const std::vector<u32> chosen = verticesOf(mesh, points, selection);
-    if (chosen.size() < 3) {
+    if (chosen.empty()) {
         plan.refusal = ModelRefusal::EmptySelection;
         return plan;
     }
@@ -7306,6 +7479,24 @@ ModelPlan PlanMakePlanar(Mesh& mesh, const PointTable& points, const ElementSet&
         return plan;
     }
     return planarOnto(mesh, chosen, origin, normal.normalized());
+}
+
+ModelPlan PlanMakePlanar(Mesh& mesh, std::span<const PlanarPart> parts) {
+    ModelPlan plan;
+    plan.renumbers = false;
+    if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
+        plan.refusal = ModelRefusal::NotBuiltYet;
+        return plan;
+    }
+    bool any = false;
+    for (const PlanarPart& part : parts) {
+        any = any || !part.vertices.empty();
+    }
+    if (!any) {
+        plan.refusal = ModelRefusal::EmptySelection;
+        return plan;
+    }
+    return planarOnto(mesh, parts);
 }
 
 } // namespace geom

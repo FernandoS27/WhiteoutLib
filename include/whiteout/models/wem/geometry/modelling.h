@@ -488,11 +488,13 @@ ModelPlan PlanHingeBorder(Mesh& mesh, const PointTable& points, const ElementSet
 // Chamfer (§3.9)
 // ============================================================================
 
-/// Chamfer's parameters (§3.9). `open` is refused until it is built.
+/// Chamfer's parameters (§3.9).
 struct ChamferParams {
     u32 segments = 1;   ///< Strips across each edge, 1 to 64; past 1 they follow `profile`.
     f32 profile = 0.5f; ///< The strips' curve, the square of its middle's height: 0.25 flat, 0.5 round, toward 1 square.
-    bool open = false;  ///< True: `NotBuiltYet`.
+    /// A hole where each vertex was rather than a polygon. Built for vertices;
+    /// at edges it is `NotBuiltYet`.
+    bool open = false;
 };
 
 /**
@@ -531,6 +533,24 @@ struct ChamferParams {
  */
 ModelPlan PlanChamferEdges(Mesh& mesh, const PointTable& points, const ElementSet& edges,
                            const ChamferParams& params = {});
+
+/**
+ * @brief Chamfer at the Vertex level (§3.9, 3ds Max's): each selected vertex
+ *        cut off, a point on each of its edges `amount` along it and a polygon
+ *        closing the ring they make.
+ *
+ * `PlanChamferEdges`' vertex rule with no edge selected: every edge at the
+ * vertex gets a point, each face around it trades that corner for the two
+ * points on its edges there, and the ring closes into a polygon -- at a border
+ * vertex a polygon with a new border edge, and at a corner with two edges no
+ * polygon at all. Two selected vertices on one edge each put a point on it, and
+ * `amountMax` stops where the two meet. With `open` the polygons are left out
+ * and each vertex leaves a hole; `segments` and `profile` are not read.
+ *
+ * Output selection: the new vertices, and the polygons.
+ */
+ModelPlan PlanChamferVertices(Mesh& mesh, const PointTable& points, const ElementSet& vertices,
+                              const ChamferParams& params = {});
 
 // ============================================================================
 // Adding topology by hand (§3.14)
@@ -679,9 +699,41 @@ bool FitPlane(std::span<const Vector3f> points, Vector3f* origin, Vector3f* norm
  * where it is (0) to that plane (1), as it does there.
  *
  * Refused with `ZeroAmount` for a zero-length @p normal, which names no plane.
+ * One point is enough here, where the fit wants three.
  */
 ModelPlan PlanMakePlanar(Mesh& mesh, const PointTable& points, const ElementSet& selection,
                          const Vector3f& origin, const Vector3f& normal);
+
+/// One part of a Make Planar and the plane it goes onto: a point on it and its
+/// direction.
+struct PlanarPart {
+    std::vector<u32> vertices;
+    Vector3f origin{0.0f, 0.0f, 0.0f};
+    Vector3f normal{0.0f, 0.0f, 1.0f};
+};
+
+/**
+ * @brief Make Planar with a plane per part (§3.17's *Each part*): every part's
+ *        vertices onto its own plane, as the caller found it.
+ *
+ * The amount is the other forms': 0 where each point is, 1 on its plane. A
+ * part with a zero-length normal is skipped; with no point off its plane the
+ * whole is refused with `ZeroAmount`.
+ */
+ModelPlan PlanMakePlanar(Mesh& mesh, std::span<const PlanarPart> parts);
+
+/**
+ * @brief The connected parts of @p selection, over points (§3.17's *Each
+ *        part*).
+ *
+ * Its vertices, joined across what was selected -- a selected face's edges, a
+ * selected edge, a mesh edge between two selected vertices -- and across the
+ * members of one point. Two groups of faces with an unselected face between
+ * them are two parts, though that face's edges join their points. A lone point
+ * is a part of its own. Sorted, each part and the list.
+ */
+std::vector<std::vector<u32>> SelectionParts(const Mesh& mesh, const PointTable& points,
+                                             const ElementSet& selection);
 
 // ============================================================================
 // Parts (§3.16)

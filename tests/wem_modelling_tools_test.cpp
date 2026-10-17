@@ -2202,6 +2202,125 @@ TEST_CASE("wem tools chamfer blends an edge point's skin", "[wem][geometry][tool
     REQUIRE(near.size() == 1u);
     CHECK(near[0].bone == 0u);
 }
+namespace {
+
+/// Each live face's corner count, sorted.
+std::vector<u32> valences(const Mesh& mesh) {
+    std::vector<u32> out;
+    for (u32 f = 0; f < mesh.topology().faceCount(); ++f) {
+        if (mesh.topology().isDeleted(FaceId(f))) {
+            continue;
+        }
+        u32 valence = 0;
+        for (const HalfedgeId h : mesh.topology().fh(FaceId(f))) {
+            (void)h;
+            ++valence;
+        }
+        out.push_back(valence);
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
+} // namespace
+
+TEST_CASE("wem tools chamfer cuts a cube's corner off at a vertex", "[wem][geometry][tools]") {
+    // 3ds Max's vertex chamfer: a point a quarter along each of the corner's
+    // three edges, the three faces round it pentagons, and a triangle where the
+    // corner was.
+    Mesh mesh = box();
+    ElementSet corner;
+    corner.vertices = {vertexAt(mesh, 0, 0, 0).value()};
+    ModelPlan plan = geom::PlanChamferVertices(mesh, pointsOf(mesh), corner);
+    INFO("refusal " << geom::ToString(plan.refusal));
+    REQUIRE_FALSE(plan.refused());
+    CHECK(plan.motions.size() == 3u);
+    CHECK(plan.amountMax == Catch::Approx(1.0f).margin(1e-3)); // a point reaches its edge's far end
+    geom::ApplyAmount(mesh, plan, 0.25f);
+    finish(mesh, plan);
+    CHECK(liveFaces(mesh) == 7u);
+    CHECK(mesh.vertexCount() == 10u); // eight, less the corner, and three points
+    CHECK(valences(mesh) == std::vector<u32>{3, 4, 4, 4, 5, 5, 5});
+    CHECK(vertexAt(mesh, 0.25f, 0, 0).valid());
+    CHECK(vertexAt(mesh, 0, 0.25f, 0).valid());
+    CHECK(vertexAt(mesh, 0, 0, 0.25f).valid());
+    // The corner itself is gone.
+    bool left = false;
+    const auto places = mesh.attributes.get<const Vector3f>(geom::names::kPosition, Domain::Vertex);
+    for (u32 v = 0; v < places.size(); ++v) {
+        left = left || (!mesh.topology().isDeleted(VertexId(v)) && places[v] == Vector3f{0, 0, 0});
+    }
+    CHECK_FALSE(left);
+    // What it made is selected: the three points and the triangle.
+    CHECK(plan.selection.vertices.size() == 3u);
+    CHECK(plan.selection.faces.size() == 1u);
+}
+
+TEST_CASE("wem tools chamfer at a vertex closes its ring, or leaves a hole when open", "[wem][geometry][tools]") {
+    // An inner vertex of a grid has four edges: four points and a quad.
+    Mesh mesh = grid(3, 3, /*quads=*/true);
+    ElementSet inner;
+    inner.vertices = {vertexAt(mesh, 1, 1).value()};
+    ModelPlan plan = geom::PlanChamferVertices(mesh, pointsOf(mesh), inner);
+    REQUIRE_FALSE(plan.refused());
+    geom::ApplyAmount(mesh, plan, 0.25f);
+    finish(mesh, plan);
+    CHECK(liveFaces(mesh) == 10u);
+    CHECK(borderEdges(mesh) == 12u); // the grid's own rim, nothing more
+    CHECK(vertexAt(mesh, 1.25f, 1).valid());
+    CHECK(vertexAt(mesh, 1, 0.75f).valid());
+
+    // Open: the same four points, and a hole where the quad would be.
+    Mesh open = grid(3, 3, /*quads=*/true);
+    geom::ChamferParams params;
+    params.open = true;
+    ElementSet same;
+    same.vertices = {vertexAt(open, 1, 1).value()};
+    ModelPlan holed = geom::PlanChamferVertices(open, pointsOf(open), same, params);
+    REQUIRE_FALSE(holed.refused());
+    geom::ApplyAmount(open, holed, 0.25f);
+    finish(open, holed);
+    CHECK(liveFaces(open) == 9u);
+    CHECK(borderEdges(open) == 16u); // the rim and the hole's four
+    CHECK(holed.selection.faces.empty());
+    CHECK(holed.selection.vertices.size() == 4u);
+}
+
+TEST_CASE("wem tools chamfer at border vertices, and at two on one edge", "[wem][geometry][tools]") {
+    // A border vertex with three edges: three points, and a triangle whose third
+    // side is new border. A corner with two: two points, the corner cut
+    // straight, and no polygon.
+    Mesh mesh = grid(3, 3, /*quads=*/true);
+    ElementSet rim;
+    rim.vertices = {vertexAt(mesh, 1, 0).value(), vertexAt(mesh, 3, 3).value()};
+    ModelPlan plan = geom::PlanChamferVertices(mesh, pointsOf(mesh), rim);
+    REQUIRE_FALSE(plan.refused());
+    CHECK(plan.motions.size() == 5u);
+    geom::ApplyAmount(mesh, plan, 0.25f);
+    finish(mesh, plan);
+    CHECK(liveFaces(mesh) == 10u);
+    CHECK(borderEdges(mesh) == 14u); // each cut adds one to the rim
+    CHECK(vertexAt(mesh, 3, 2.75f).valid());
+    CHECK(vertexAt(mesh, 2.75f, 3).valid());
+    CHECK_FALSE(hasVertexAt(mesh, 3, 3));
+
+    // Side by side: the edge between them takes a point from each end, and the
+    // two meet at its middle, where the amount stops.
+    Mesh pair = grid(3, 3, /*quads=*/true);
+    ElementSet two;
+    two.vertices = {vertexAt(pair, 1, 1).value(), vertexAt(pair, 2, 1).value()};
+    ModelPlan both = geom::PlanChamferVertices(pair, pointsOf(pair), two);
+    REQUIRE_FALSE(both.refused());
+    CHECK(both.motions.size() == 8u);
+    CHECK(both.amountMax == Catch::Approx(0.5f).margin(1e-3));
+    geom::ApplyAmount(pair, both, 0.25f);
+    finish(pair, both);
+    CHECK(liveFaces(pair) == 11u);
+    CHECK(vertexAt(pair, 1.25f, 1).valid());
+    CHECK(vertexAt(pair, 1.75f, 1).valid());
+    CHECK(geom::PlanChamferVertices(pair, pointsOf(pair), ElementSet{}).refusal == ModelRefusal::EmptySelection);
+}
+
 // ============================================================================
 // Adding topology by hand (Â§3.14)
 // ============================================================================
@@ -3110,6 +3229,53 @@ TEST_CASE("wem tools make planar takes a plane it is given", "[wem][geometry][to
     Mesh flat = fromFaces({{0, 1, 2, 3}}, places);
     CHECK(geom::PlanMakePlanar(flat, pointsOf(flat), every, Vector3f{0, 0, 0}, Vector3f{0, 0, 0})
               .refusal == ModelRefusal::ZeroAmount);
+}
+
+TEST_CASE("wem tools make planar takes a plane per part, and a plane for one point", "[wem][geometry][tools]") {
+    // Two separate pairs of quads, each dented its own way: each part goes onto
+    // a plane of its own, and the quad between them is left alone.
+    Mesh mesh = grid(5, 1, /*quads=*/true);
+    {
+        const auto places = mesh.attributes.get<Vector3f>(geom::names::kPosition, Domain::Vertex);
+        places[vertexAt(mesh, 1, 1).value()].z = 0.4f;
+        places[vertexAt(mesh, 4, 1).value()].z = -0.2f;
+    }
+    ElementSet two;
+    two.faces = {0, 1, 3, 4};
+    const std::vector<std::vector<u32>> parts = geom::SelectionParts(mesh, pointsOf(mesh), two);
+    REQUIRE(parts.size() == 2u);
+    CHECK(parts[0].size() == 6u);
+    CHECK(parts[1].size() == 6u);
+    const std::vector<geom::PlanarPart> planes = {{parts[0], Vector3f{0, 0, 0.1f}, Vector3f{0, 0, 1}},
+                                                  {parts[1], Vector3f{0, 0, -0.3f}, Vector3f{0, 0, 2}}};
+    ModelPlan plan = geom::PlanMakePlanar(mesh, planes);
+    INFO("refusal " << geom::ToString(plan.refusal));
+    REQUIRE_FALSE(plan.refused());
+    geom::ApplyAmount(mesh, plan, 1.0f);
+    finish(mesh, plan);
+    // The first part at 0.1, the second at -0.3 with an unnormalised normal.
+    const auto at = mesh.attributes.get<const Vector3f>(geom::names::kPosition, Domain::Vertex);
+    for (const f32 x : {0.0f, 1.0f, 2.0f}) {
+        CHECK(at[nearest(mesh, x, 0).value()].z == Catch::Approx(0.1f).margin(1e-5));
+        CHECK(at[nearest(mesh, x, 1).value()].z == Catch::Approx(0.1f).margin(1e-5));
+    }
+    for (const f32 x : {3.0f, 4.0f, 5.0f}) {
+        CHECK(at[nearest(mesh, x, 0).value()].z == Catch::Approx(-0.3f).margin(1e-5));
+        CHECK(at[nearest(mesh, x, 1).value()].z == Catch::Approx(-0.3f).margin(1e-5));
+    }
+
+    // A lone point is a part of its own, and a plane the caller names takes it.
+    ElementSet one;
+    one.vertices = {nearest(mesh, 0, 1).value()};
+    CHECK(geom::SelectionParts(mesh, pointsOf(mesh), one).size() == 1u);
+    ModelPlan single = geom::PlanMakePlanar(mesh, pointsOf(mesh), one, Vector3f{0, 0, 0}, Vector3f{0, 0, 1});
+    REQUIRE_FALSE(single.refused());
+    geom::ApplyAmount(mesh, single, 1.0f);
+    finish(mesh, single);
+    CHECK(vertexAt(mesh, 0, 1).valid());
+    // Already on every plane it is given: nothing to do.
+    const std::vector<geom::PlanarPart> flat = {{{vertexAt(mesh, 0, 1).value()}, Vector3f{0, 0, 0}, Vector3f{0, 0, 1}}};
+    CHECK(geom::PlanMakePlanar(mesh, flat).refusal == ModelRefusal::ZeroAmount);
 }
 
 TEST_CASE("wem tools to quads and to polygons say which edges went", "[wem][geometry][tools]") {
