@@ -6,12 +6,12 @@ package whiteout.m3;
  * Light source type (LITE)
  */
 public enum LightType {
-    /** Point light (omnidirectional) */
-    Omni(0),
-    /** Spot light (cone) */
-    Spot(1),
     /** Directional light (infinite distance) */
-    Directional(2);
+    Directional(0),
+    /** Point light (omnidirectional) */
+    Omni(1),
+    /** Spot light (cone) */
+    Spot(2);
 
     public final int value;
     LightType(int v) { this.value = v; }

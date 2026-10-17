@@ -505,6 +505,8 @@ TEST_CASE("wem m3 a light moves on its carrier bone", "[wem][m3][carriers]") {
     // A Warcraft III light states no LITE flags; it lights opaque geometry the
     // way every shipped light says it does.
     CHECK(off.model.lights[0].flags == m3::LightFlag::LightOpaque);
+    // An omni is LITE type 1, as every shipped "Star2Omni" light is; 0 is not one.
+    CHECK(static_cast<u16>(off.model.lights[0].lightType) == 1u);
 
     const Written on = writeAndRead(document, true);
     const u32 bone = boneNamed(on.model, "Glow");

@@ -584,19 +584,19 @@ inline const char* ToString(M3MaterialShaderType value) {
 
 /// Light source type (LITE)
 enum class M3LightType : u16 {
-    Omni = 0,        ///< Point light (omnidirectional)
-    Spot = 1,        ///< Spot light (cone)
-    Directional = 2, ///< Directional light (infinite distance)
+    Directional = 0, ///< Directional light (infinite distance)
+    Omni = 1,        ///< Point light (omnidirectional)
+    Spot = 2,        ///< Spot light (cone)
 };
 
 inline const char* ToString(M3LightType value) {
     switch (value) {
+    case M3LightType::Directional:
+        return "Directional";
     case M3LightType::Omni:
         return "Omni";
     case M3LightType::Spot:
         return "Spot";
-    case M3LightType::Directional:
-        return "Directional";
     default:
         return "?";
     }

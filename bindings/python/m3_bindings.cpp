@@ -203,9 +203,9 @@ These bitmask flags control the per-vertex data layout in the U8__ vertex blob. 
     ;
 
     py::enum_<whiteout::m3::LightType>(m, "LightType", R"doc(Light source type (LITE))doc")
+        .value("DIRECTIONAL", whiteout::m3::LightType::Directional, R"doc(Directional light (infinite distance))doc")
         .value("OMNI", whiteout::m3::LightType::Omni, R"doc(Point light (omnidirectional))doc")
         .value("SPOT", whiteout::m3::LightType::Spot, R"doc(Spot light (cone))doc")
-        .value("DIRECTIONAL", whiteout::m3::LightType::Directional, R"doc(Directional light (infinite distance))doc")
     ;
 
     py::enum_<whiteout::m3::PhysicsShapeType>(m, "PhysicsShapeType", R"doc(Physics collision shape type (PHSH))doc")

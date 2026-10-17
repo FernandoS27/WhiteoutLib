@@ -131,21 +131,21 @@ impl TryFrom<i32> for MaterialType {
 #[repr(i32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum LightType {
-    /// Point light (omnidirectional)
-    Omni = 0,
-    /// Spot light (cone)
-    Spot = 1,
     /// Directional light (infinite distance)
-    Directional = 2,
+    Directional = 0,
+    /// Point light (omnidirectional)
+    Omni = 1,
+    /// Spot light (cone)
+    Spot = 2,
 }
 
 impl TryFrom<i32> for LightType {
     type Error = crate::Error;
     fn try_from(v: i32) -> Result<Self, crate::Error> {
         match v {
-            0 => Ok(LightType::Omni),
-            1 => Ok(LightType::Spot),
-            2 => Ok(LightType::Directional),
+            0 => Ok(LightType::Directional),
+            1 => Ok(LightType::Omni),
+            2 => Ok(LightType::Spot),
             other => Err(crate::Error::UnknownEnum {
                 name: "LightType",
                 value: other,

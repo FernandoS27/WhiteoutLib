@@ -161,6 +161,39 @@ void TradeLegacyM3Scale(Document& document) {
     }
 }
 
+/// A `NODE` written before v25 took an `.m3` light's kind from a `LITE` type
+/// read one off: 1, an omni, as a spot, 2, a spot, as a directional, and 0 as
+/// an omni. The record beside it keeps the type as the file wrote it, so a
+/// kind still saying what that reading made of it is put right; one the
+/// document has changed since is left alone.
+void RetypeLegacyM3Lights(Document& document) {
+    for (Model& model : document.models) {
+        for (Node& node : model.nodes.nodes) {
+            auto* light = std::get_if<LightPayload>(&node.payload);
+            if (light == nullptr || !light->sc2) {
+                continue;
+            }
+            switch (light->sc2->lightType) {
+            case native::M3LightType::Omni:
+                if (light->kind == LightKind::Spot) {
+                    light->kind = LightKind::Omni;
+                }
+                break;
+            case native::M3LightType::Spot:
+                if (light->kind == LightKind::Directional) {
+                    light->kind = LightKind::Spot;
+                }
+                break;
+            case native::M3LightType::Directional:
+                if (light->kind == LightKind::Omni) {
+                    light->kind = LightKind::Directional;
+                }
+                break;
+            }
+        }
+    }
+}
+
 } // namespace
 
 class Parser::Impl {
@@ -220,6 +253,9 @@ public:
         KeyLegacySets(document);
         if (visitor.oldestVersion(ChunkTagTraits<Node>::value) < 23) {
             TradeLegacyM3Scale(document);
+        }
+        if (visitor.oldestVersion(ChunkTagTraits<Node>::value) < 25) {
+            RetypeLegacyM3Lights(document);
         }
         DropLevelsOfDetail(document, diagnostics);
         MarkBakeStretches(document);

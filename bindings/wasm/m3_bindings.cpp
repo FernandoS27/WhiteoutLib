@@ -86,9 +86,9 @@ EMSCRIPTEN_BINDINGS(m3) {
         .value("DataDriven", whiteout::m3::MaterialType::DataDriven);
 
     enum_<whiteout::m3::LightType>("M3LightType")
+        .value("Directional", whiteout::m3::LightType::Directional)
         .value("Omni", whiteout::m3::LightType::Omni)
-        .value("Spot", whiteout::m3::LightType::Spot)
-        .value("Directional", whiteout::m3::LightType::Directional);
+        .value("Spot", whiteout::m3::LightType::Spot);
 
     enum_<whiteout::m3::PhysicsShapeType>("M3PhysicsShapeType")
         .value("Box", whiteout::m3::PhysicsShapeType::Box)

@@ -7,10 +7,10 @@ namespace Whiteout.M3;
 /// <summary>Light source type (LITE)</summary>
 public enum LightType : int
 {
-    /// <summary>Point light (omnidirectional)</summary>
-    Omni = 0,
-    /// <summary>Spot light (cone)</summary>
-    Spot = 1,
     /// <summary>Directional light (infinite distance)</summary>
-    Directional = 2,
+    Directional = 0,
+    /// <summary>Point light (omnidirectional)</summary>
+    Omni = 1,
+    /// <summary>Spot light (cone)</summary>
+    Spot = 2,
 }

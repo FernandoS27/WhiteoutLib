@@ -40,9 +40,9 @@ typedef enum {
 } whiteout_m3_MaterialType;
 
 typedef enum {
+    whiteout_m3_LightType_Directional,
     whiteout_m3_LightType_Omni,
     whiteout_m3_LightType_Spot,
-    whiteout_m3_LightType_Directional,
 } whiteout_m3_LightType;
 
 typedef enum {

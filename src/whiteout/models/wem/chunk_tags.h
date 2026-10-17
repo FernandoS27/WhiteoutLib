@@ -294,7 +294,9 @@ struct ChunkTagTraits<Matrix44f> {
 /// v23 no field: an `.m3` bone's scale in WEM's axes, its X and Y traded, where
 /// an older chunk kept the file's (the `Parser` trades it on read, with its
 /// keys); v24 a StarCraft II spline point's end tangent and end offset, which
-/// an older chunk kept three floats of under the community layout's names. An
+/// an older chunk kept three floats of under the community layout's names; v25
+/// no field: an `.m3` light's kind from its `LITE` type, which an older chunk
+/// took one off (the `Parser` re-types it on read). An
 /// older chunk holds none of them, so it reads unchanged. A NEWER one does
 /// not: records sit back to back, and nothing checks a chunk's version against
 /// this, so a build older than a field misreads every node after the first
@@ -302,7 +304,7 @@ struct ChunkTagTraits<Matrix44f> {
 template <>
 struct ChunkTagTraits<Node> {
     static constexpr u32 value = kTag("NODE");
-    static constexpr u32 max_version = 24;
+    static constexpr u32 max_version = 25;
     static constexpr bool is_trivial = false;
 };
 

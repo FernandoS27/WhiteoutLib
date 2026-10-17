@@ -785,6 +785,62 @@ TEST_CASE("wem m3 a bone's scale crosses into WEM's axes and back, and an older 
     CHECK(channelRest.x == 2.0f);
 }
 
+TEST_CASE("wem m3 a light's kind is its LITE type, and an older file's is re-typed on read", "[wem][m3][s3]") {
+    // Read one off, an omni came in as a spot and went out as a spot again, so
+    // a round trip hid it while every shipped light drew as a shut cone.
+    m3::Model shipped = shippedModel();
+    shipped.lights.push_back(shipped.lights[0]);
+    shipped.lights[1].lightType = m3::LightType::Spot;
+    REQUIRE(static_cast<u16>(shipped.lights[0].lightType) == 1u);
+    M3Converter converter;
+    Result<Document> read = converter.fromM3(shipped, ProfileId::Sc2);
+    REQUIRE(read.ok());
+    Document document = *read.value;
+    const auto lightsOf = [](Document& d) {
+        std::vector<LightPayload*> out;
+        for (Node& node : d.models[0].nodes.nodes)
+            if (auto* light = std::get_if<LightPayload>(&node.payload))
+                out.push_back(light);
+        return out;
+    };
+    std::vector<LightPayload*> lights = lightsOf(document);
+    REQUIRE(lights.size() == 2);
+    CHECK(lights[0]->kind == LightKind::Omni);
+    CHECK(lights[1]->kind == LightKind::Spot);
+    const Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    REQUIRE(written->lights.size() == 2);
+    CHECK(static_cast<u16>(written->lights[0].lightType) == 1u);
+    CHECK(static_cast<u16>(written->lights[1].lightType) == 2u);
+
+    // The kinds the old reading made, beside the records as the file wrote them.
+    lights[0]->kind = LightKind::Spot;
+    lights[1]->kind = LightKind::Directional;
+    std::vector<u8> bytes = writeWem(document);
+    const auto reread = [&] {
+        std::optional<Document> parsed = Parser().parse(std::span<const u8>(bytes.data(), bytes.size()));
+        REQUIRE(parsed);
+        return *parsed;
+    };
+    // Written now, a kind is the document's own and reads as written.
+    {
+        Document now = reread();
+        CHECK(lightsOf(now)[0]->kind == LightKind::Spot);
+        CHECK(lightsOf(now)[1]->kind == LightKind::Directional);
+    }
+    // Stamped v24, they were the old reading's: re-typed.
+    for (const Chunk& chunk : chunksTagged(bytes, ChunkTagTraits<Node>::value)) {
+        IndexEntry entry = chunk.entry;
+        entry.version = 24;
+        WEMHeader header{};
+        std::memcpy(&header, bytes.data(), sizeof(header));
+        std::memcpy(bytes.data() + header.indexOffset + chunk.slot * sizeof(IndexEntry), &entry, sizeof(entry));
+    }
+    Document old = reread();
+    CHECK(lightsOf(old)[0]->kind == LightKind::Omni);
+    CHECK(lightsOf(old)[1]->kind == LightKind::Spot);
+}
+
 namespace {
 
 m3::TextureLayer paintLayer(const char* path) {

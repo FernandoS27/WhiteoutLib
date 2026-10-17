@@ -45,11 +45,14 @@ enum class MaterialType : u32 {
     DataDriven = 12,      ///< MADD — Data-driven material; what every other type is converted into at load
 };
 
+// StarCraft II's own lighttypes.fx: LIGHTTYPE_DIRECTIONAL 0, POINT 1, SPOT 2.
+// Every shipped LITE (14,294, SC2 and Heroes) agrees: type 1 rides an "Omni"
+// bone, type 2 a "Spot" one, and none is 0.
 /** @brief Light source type (LITE) */
 enum class LightType : u16 {
-    Omni = 0,        ///< Point light (omnidirectional)
-    Spot = 1,        ///< Spot light (cone)
-    Directional = 2, ///< Directional light (infinite distance)
+    Directional = 0, ///< Directional light (infinite distance)
+    Omni = 1,        ///< Point light (omnidirectional)
+    Spot = 2,        ///< Spot light (cone)
 };
 
 /** @brief Physics collision shape type (PHSH) */
