@@ -219,6 +219,14 @@ mdx::Model makeMdx() {
 /// the two, where Reforged numbers it -- and every CORN field and track set to
 /// something its default is not. The colour keys are blue first, as the file
 /// stores them.
+/// @p times as the export writes them: Stand is laid out from 1000 ms.
+std::vector<u32> laidOut(std::vector<u32> times) {
+    for (u32& t : times) {
+        t += 1000;
+    }
+    return times;
+}
+
 mdx::Model makeReforgedMdx() {
     mdx::Model model = makeMdx();
     model.version = 1800;
@@ -802,7 +810,7 @@ TEST_CASE("wem mdx carries all three Warcraft III systems both ways", "[wem][nod
     CHECK(e1.initialVelocity == s1.initialVelocity);
     CHECK(e1.spawnModelFileName == s1.spawnModelFileName);
     CHECK(static_cast<u32>(e1.node.flags) == static_cast<u32>(s1.node.flags));
-    CHECK(e1.lifespanTracks.timestamps == s1.lifespanTracks.timestamps);
+    CHECK(e1.lifespanTracks.timestamps == laidOut(s1.lifespanTracks.timestamps));
     CHECK(e1.lifespanTracks.keys_data == s1.lifespanTracks.keys_data);
 
     const mdx::ParticleEmitter2& e2 = back->particleEmitters2[0];
@@ -828,7 +836,7 @@ TEST_CASE("wem mdx carries all three Warcraft III systems both ways", "[wem][nod
     CHECK(e2.squirt == s2.squirt);
     CHECK(e2.priorityPlane == s2.priorityPlane);
     CHECK(static_cast<u32>(e2.node.flags) == static_cast<u32>(s2.node.flags));
-    CHECK(e2.speedTracks.timestamps == s2.speedTracks.timestamps);
+    CHECK(e2.speedTracks.timestamps == laidOut(s2.speedTracks.timestamps));
     CHECK(e2.speedTracks.keys_data == s2.speedTracks.keys_data);
     CHECK(e2.widthTracks.keys_data == s2.widthTracks.keys_data);
     CHECK_FALSE(e2.lengthTracks.isUsed);
@@ -968,7 +976,7 @@ TEST_CASE("wem mdx carries a PopcornFX emitter both ways", "[wem][node][emitter]
     CHECK(out.path == in.path);
     CHECK(out.animVisibilityGuide == in.animVisibilityGuide);
     const auto sameTrack = [](const auto& a, const auto& b) {
-        return a.isUsed == b.isUsed && a.timestamps == b.timestamps &&
+        return a.isUsed == b.isUsed && a.timestamps == laidOut(b.timestamps) &&
                a.keys_data == b.keys_data && a.interpolationType == b.interpolationType;
     };
     CHECK(sameTrack(out.lifeSpanTracks, in.lifeSpanTracks));

@@ -226,6 +226,25 @@ void DetachClip(const AnimChannelTable& table, Clip& target) {
     });
 }
 
+void KeyLoopEnds(const AnimChannelTable& table, Clip& clip) {
+    if (!IsGlobalLoop(clip) || clip.readRule != ReadRule::Wc3) {
+        return;
+    }
+    // A loop is a window of its own that starts at 0.
+    const i32 end = static_cast<i32>(ClipMs(clip));
+    for (SubTrackContainer& container : clip.containers) {
+        std::vector<SubTrack> kept;
+        kept.reserve(container.subTracks.size());
+        for (SubTrack& track : container.subTracks) {
+            const AnimChannel* channel = table.find(track.channel);
+            if (channel == nullptr || DetachAny(track, channel->valueType, 0, end)) {
+                kept.push_back(std::move(track));
+            }
+        }
+        container.subTracks = std::move(kept);
+    }
+}
+
 } // namespace wem
 } // namespace models
 } // namespace whiteout

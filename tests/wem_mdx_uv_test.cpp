@@ -227,9 +227,10 @@ TEST_CASE("wem mdx uv a keyed track leaves the layer its fixed transform", "[wem
     const mdx::Track<Vector3f>& translation = animation.translationTracks;
     REQUIRE(translation.isUsed);
     CHECK(translation.globalSequenceId == kNoGlobalSequence);
-    REQUIRE(keyAt(translation, 0) != nullptr);
-    REQUIRE(keyAt(translation, 1000) != nullptr);
-    CHECK(keyAt(translation, 1000)->x == Catch::Approx(1.25f));
+    const mdx::Sequence& stand = exported->sequences[0];
+    REQUIRE(keyAt(translation, stand.intervalStart) != nullptr);
+    REQUIRE(keyAt(translation, stand.intervalEnd) != nullptr);
+    CHECK(keyAt(translation, stand.intervalEnd)->x == Catch::Approx(1.25f));
 
     const u32 walkStart = exported->sequences[1].intervalStart;
     const Vector3f* held = keyAt(translation, walkStart);
@@ -544,7 +545,8 @@ TEST_CASE("wem mdx uv a layer of an .mdx is not moved", "[wem][mdx][uv]") {
     const Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic);
     REQUIRE(exported.ok());
     const mdx::TextureAnimation& animation = onlyTextureAnimation(*exported);
-    CHECK(animation.translationTracks.timestamps == std::vector<u32>{0u, 1000u});
+    CHECK(animation.translationTracks.timestamps ==
+          std::vector<u32>{exported->sequences[0].intervalStart, exported->sequences[0].intervalEnd});
     CHECK(animation.translationTracks.globalSequenceId == kNoGlobalSequence);
     CHECK_FALSE(animation.scalingTracks.isUsed);
     CHECK_FALSE(animation.rotationTracks.isUsed);
@@ -577,8 +579,9 @@ TEST_CASE("wem mdx uv a StarCraft II offset keyed over a tiling keeps the tiling
     const Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic);
     REQUIRE(exported.ok());
     const mdx::TextureAnimation& animation = onlyTextureAnimation(*exported);
-    REQUIRE(keyAt(animation.translationTracks, 1000) != nullptr);
-    CHECK(keyAt(animation.translationTracks, 1000)->x == Catch::Approx(1.0f));
+    const u32 standEnd = exported->sequences[0].intervalEnd;
+    REQUIRE(keyAt(animation.translationTracks, standEnd) != nullptr);
+    CHECK(keyAt(animation.translationTracks, standEnd)->x == Catch::Approx(1.0f));
     REQUIRE(animation.scalingTracks.isUsed);
     CHECK(animation.scalingTracks.keys_data[0].x == Catch::Approx(2.0f));
     // The other sequence shows the layer where its fixed transform puts it.
@@ -634,11 +637,12 @@ TEST_CASE("wem mdx uv a rate under a keyed track is dropped aloud", "[wem][mdx][
     const Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic);
     REQUIRE(exported.ok());
     const mdx::TextureAnimation& animation = onlyTextureAnimation(*exported);
+    const u32 standEnd = exported->sequences[0].intervalEnd;
     // The keys stand; the scroll they replace is named, and the turn, which
     // nothing keys, is still written.
     CHECK(animation.translationTracks.globalSequenceId == kNoGlobalSequence);
-    REQUIRE(keyAt(animation.translationTracks, 1000) != nullptr);
-    CHECK(keyAt(animation.translationTracks, 1000)->x == Catch::Approx(0.5f));
+    REQUIRE(keyAt(animation.translationTracks, standEnd) != nullptr);
+    CHECK(keyAt(animation.translationTracks, standEnd)->x == Catch::Approx(0.5f));
     CHECK(countOf(exported.diagnostics, "scroll RATE is dropped") == 1u);
     REQUIRE(animation.rotationTracks.isUsed);
     CHECK(animation.rotationTracks.keys_data.size() == 5u);
@@ -678,9 +682,10 @@ TEST_CASE("wem mdx uv two keyed maps of one HD layer: the first map keeps it", "
     const Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Reforged);
     REQUIRE(exported.ok());
     const mdx::TextureAnimation& animation = onlyTextureAnimation(*exported);
-    REQUIRE(keyAt(animation.translationTracks, 1000) != nullptr);
-    CHECK(keyAt(animation.translationTracks, 1000)->x == Catch::Approx(3.0f));
-    CHECK(keyAt(animation.translationTracks, 1000)->y == Catch::Approx(0.0f));
+    const u32 standEnd = exported->sequences[0].intervalEnd;
+    REQUIRE(keyAt(animation.translationTracks, standEnd) != nullptr);
+    CHECK(keyAt(animation.translationTracks, standEnd)->x == Catch::Approx(3.0f));
+    CHECK(keyAt(animation.translationTracks, standEnd)->y == Catch::Approx(0.0f));
     CHECK(countOf(exported.diagnostics, "another map of this layer") == 1u);
 }
 

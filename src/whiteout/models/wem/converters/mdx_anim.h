@@ -16,8 +16,8 @@
  * The slice **keeps the two bracketing keys** — the last key before the window
  * and the first one after it — with their times rebased and therefore negative
  * or past the clip's end. A bracket key is a neighbour's own key, or one no
- * window holds, and keeping it is what writes the global track back byte for
- * byte. §10.8.2 already says a sub-track's times are not clamped to its clip,
+ * window holds; the export, which lays the timeline out afresh, leaves them
+ * behind. §10.8.2 already says a sub-track's times are not clamped to its clip,
  * and this is the case that needs it. Shipped exporters put keys on the
  * boundaries, so on most content the bracket keys are the boundary keys and
  * nothing is added.
@@ -158,17 +158,13 @@ bool IsGlobalLoop(const Clip& clip);
 /// order. `kInvalidIndex` for a global loop or another model's clip.
 std::vector<u32> ClipSequences(const Document& document, u32 model);
 
-/// Writes `document`'s clips back onto `out` as sequences, global sequences and
+/// Writes `document`'s clips onto `out` as sequences, global sequences and
 /// per-record tracks — the inverse of @ref Import (design §10.8.3).
 ///
-/// The two directions are not symmetric in one place, and it is the interesting
-/// one: import SLICED one global timeline into a clip per sequence, keeping the
-/// bracketing keys, so export MERGES the clips back onto that timeline. A key
-/// two clips share — which is exactly what a bracket key is — is written once.
-///
-/// A clip carrying no `intervalStart` (one that came from another format, or
-/// from an editor) is given a fresh window after the last one, because MDX has
-/// nowhere else to put it: the timeline is the only clock the format has.
+/// The timeline is laid out afresh: the first animation at 1000 ms, each next
+/// one 1000 ms past the end of the one before, in list order, and the global
+/// loops numbered as listed, each keyed at both ends (`KeyLoopEnds`). The
+/// window and global sequence id an import stamped on a clip place nothing.
 void Export(const Document& document, u32 model, ProfileId profile, const ExportContext& context,
             mdx::Model& out, Diagnostics& diagnostics);
 

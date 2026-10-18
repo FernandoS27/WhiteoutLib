@@ -38,6 +38,14 @@ void DetachClip(Document& document, u32 model, u32 clip);
 /// The same on a clip of its own, whose channels @p table declares.
 void DetachClip(const AnimChannelTable& table, Clip& clip);
 
+/// @p clip, a global loop read by Warcraft III's rule, with every sub-track
+/// keyed at 0 and at the loop's length: what the renderer shows there, its
+/// wrap from the last key round to the first, split as a detach splits it. A
+/// file that numbers its loops afresh then states each loop's whole cycle,
+/// and no reader's wrap rule matters. Keys past the length, which no cycle
+/// reaches, go.
+void KeyLoopEnds(const AnimChannelTable& table, Clip& clip);
+
 } // namespace wem
 } // namespace models
 } // namespace whiteout

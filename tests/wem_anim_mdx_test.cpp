@@ -222,18 +222,19 @@ TEST_CASE("wem mdx a key before time 0 is before every window", "[wem][anim][mdx
     CHECK(track->times[2] == Catch::Approx(0.034f));
     CHECK(track->times[3] == Catch::Approx(2.467f));
 
-    // Written back, every key is at its own time: the one before 0 stays
-    // before it, and does not take the place of the key that is at 0.
+    // Written back, each window's own keys at the same place in its new one:
+    // Stand's at 33 and 67, Walk's at 2500. The keys before 33 are brackets
+    // and stay behind.
     MdxConverter converter;
     const Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic, 800);
     REQUIRE(exported.ok());
     const mdx::Track<Vector3f>& written = exported->bones[0].node.translationTracks;
-    CHECK(written.timestamps == std::vector<u32>{0, 33, 67, 2500});
-    REQUIRE(written.keys_data.size() == 4u);
-    CHECK(written.keys_data[0] == Vector3f{0, 0, 0});
+    CHECK(written.timestamps == std::vector<u32>{1000, 1034, 3467});
+    REQUIRE(written.keys_data.size() == 3u);
+    CHECK(written.keys_data[0] == Vector3f{0, 0, 1});
 
     // With a window that starts at 0, the key before it is that window's
-    // bracket, and goes back where it was.
+    // bracket, and stays behind too.
     model.sequences[0].intervalStart = 0;
     const Document early = convert(model);
     const SubTrack* first = trackFor(early, *clipNamed(early, "Stand"), Channel::Translation);
@@ -243,10 +244,9 @@ TEST_CASE("wem mdx a key before time 0 is before every window", "[wem][anim][mdx
     const Result<mdx::Model> again = converter.toMdx(early, ProfileId::Wc3Classic, 800);
     REQUIRE(again.ok());
     const mdx::Track<Vector3f>& kept = again->bones[0].node.translationTracks;
-    CHECK(kept.timestamps == std::vector<u32>{before, 0, 33, 67, 2500});
-    REQUIRE(kept.keys_data.size() == 5u);
-    CHECK(kept.keys_data[0] == Vector3f{0, 0, -1});
-    CHECK(kept.keys_data[1] == Vector3f{0, 0, 0});
+    CHECK(kept.timestamps == std::vector<u32>{1000, 1033, 1067, 3500});
+    REQUIRE(kept.keys_data.size() == 4u);
+    CHECK(kept.keys_data[0] == Vector3f{0, 0, 0});
 }
 
 TEST_CASE("wem mdx hermite keys keep their tangents", "[wem][anim][mdx]") {
@@ -459,7 +459,9 @@ TEST_CASE("wem mdx an event's global sequence is the loop it is keyed in", "[wem
     REQUIRE(exported.ok());
     REQUIRE(exported->eventObjects.size() == 2u);
     CHECK(exported->eventObjects[0].globalSequenceId == 0xFFFFFFFFu);
-    CHECK(exported->eventObjects[0].eventTrackTimes == std::vector<u32>{2250});
+    REQUIRE(exported->sequences.size() == 2u);
+    CHECK(exported->eventObjects[0].eventTrackTimes ==
+          std::vector<u32>{exported->sequences[1].intervalStart + 250u});
 }
 
 TEST_CASE("wem mdx an event object's name is its category and code", "[wem][nodes][mdx]") {
@@ -556,10 +558,11 @@ TEST_CASE("wem mdx a light keys its ambient term beside its diffuse one", "[wem]
     CHECK(table.channels[0].target.node == table.channels[1].target.node);
 }
 
-TEST_CASE("wem mdx export writes the clips back onto the timeline", "[wem][anim][mdx]") {
-    // The inverse of the slice above: import cut one global timeline into a
-    // clip per sequence and kept the bracketing keys, so export merges them
-    // back and a key two clips share is written once.
+TEST_CASE("wem mdx export lays the clips out afresh on the timeline", "[wem][anim][mdx]") {
+    // Whatever windows the import read: the first sequence at 1000 ms, each
+    // next one 1000 ms past the end of the one before. A sequence plays only
+    // the keys inside its own window, so those go along and the bracket keys
+    // the slice kept stay behind.
     mdx::Model model = makeModel();
     model.bones[0].node.translationTracks = makeTrack<Vector3f>(
         mdx::InterpolationType::Linear, {0, 1000}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 5}});
@@ -571,23 +574,20 @@ TEST_CASE("wem mdx export writes the clips back onto the timeline", "[wem][anim]
     const Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic);
     REQUIRE(exported.ok());
 
-    // The sequence table comes back with its own windows — they rode
-    // `Clip::native`, which is what makes the merge exact rather than a
-    // re-timing, so nothing reports one.
     REQUIRE(exported->sequences.size() == model.sequences.size());
     CHECK(exported->sequences[0].name == model.sequences[0].name);
-    CHECK(exported->sequences[0].intervalStart == model.sequences[0].intervalStart);
-    CHECK(exported->sequences[0].intervalEnd == model.sequences[0].intervalEnd);
-    CHECK(exported.diagnostics.countOf(DiagCode::AnimClipRetimed) == 0u);
+    CHECK(exported->sequences[0].intervalStart == 1000u);
+    CHECK(exported->sequences[0].intervalEnd == 2000u);
+    CHECK(exported->sequences[1].intervalStart == 3000u);
+    CHECK(exported->sequences[1].intervalEnd == 4000u);
 
-    // …and so does the track, on the bone it was keyed on, with both keys and
-    // neither of them duplicated.
+    // Stand's two keys, moved with it; Walk keys nothing inside its window.
     REQUIRE_FALSE(exported->bones.empty());
     const mdx::Track<Vector3f>& track = exported->bones[0].node.translationTracks;
     REQUIRE(track.isUsed);
     REQUIRE(track.timestamps.size() == 2u);
-    CHECK(track.timestamps[0] == 0u);
-    CHECK(track.timestamps[1] == 1000u);
+    CHECK(track.timestamps[0] == 1000u);
+    CHECK(track.timestamps[1] == 2000u);
     REQUIRE(track.keys_data.size() == 2u);
     CHECK(track.keys_data[1].z == Catch::Approx(5.0f));
     CHECK(track.interpolationType == mdx::InterpolationType::Linear);
@@ -817,8 +817,8 @@ TEST_CASE("wem mdx a section's visibility gate becomes a geoset animation",
     // rest value -- MDX has one timeline where M3 had a clock per sequence, so
     // without it "Stand"'s answer would still be in force during "Walk".
     REQUIRE(animation.alphaTracks.timestamps.size() == 2u);
-    CHECK(animation.alphaTracks.timestamps[0] == 0u);
-    CHECK(animation.alphaTracks.timestamps[1] == 2000u);
+    CHECK(animation.alphaTracks.timestamps[0] == 1000u);
+    CHECK(animation.alphaTracks.timestamps[1] == 3000u);
     REQUIRE(animation.alphaTracks.keys_data.size() == 2u);
     CHECK(animation.alphaTracks.keys_data[0] == Catch::Approx(1.0f));
     CHECK(animation.alphaTracks.keys_data[1] == Catch::Approx(0.0f));
@@ -910,7 +910,7 @@ TEST_CASE("wem mdx a gate cuts the section's own alpha where it opens", "[wem][a
     CHECK(track.globalSequenceId == mdx::Track<f32>::kNoGlobalSequence);
     // Shut to the millisecond before it opens, then the fade from where it is,
     // and "Walk" shut from end to end.
-    const std::vector<u32> times = {0u, 499u, 500u, 1000u, 2000u, 3000u};
+    const std::vector<u32> times = {1000u, 1499u, 1500u, 2000u, 3000u, 4000u};
     const std::vector<f32> values = {0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f};
     REQUIRE(track.timestamps == times);
     REQUIRE(track.keyCount == times.size());
@@ -936,7 +936,7 @@ TEST_CASE("wem mdx a gate that shuts ends a stepped alpha there", "[wem][anim][m
     CHECK(track.interpolationType == mdx::InterpolationType::None);
     // Its own alpha while open; "Walk", which keys neither, plays the gate's
     // rest over the 1 an alpha keyed elsewhere plays.
-    const std::vector<u32> times = {0u, 300u, 2000u};
+    const std::vector<u32> times = {1000u, 1300u, 3000u};
     const std::vector<f32> values = {0.75f, 0.0f, 1.0f};
     REQUIRE(track.timestamps == times);
     REQUIRE(track.keys_data.size() == values.size());
@@ -957,7 +957,7 @@ TEST_CASE("wem mdx an alpha with no gate, and a gate with no alpha, are written 
         REQUIRE(exported->geosetAnimations.size() == 1u);
         const mdx::Track<f32>& track = exported->geosetAnimations[0].alphaTracks;
         CHECK(track.interpolationType == mdx::InterpolationType::Linear);
-        CHECK(track.timestamps == std::vector<u32>{0u, 1000u});
+        CHECK(track.timestamps == std::vector<u32>{1000u, 2000u});
         CHECK(track.keys_data == std::vector<f32>{1.0f, 0.0f});
     }
     // The gate alone.
@@ -970,7 +970,7 @@ TEST_CASE("wem mdx an alpha with no gate, and a gate with no alpha, are written 
         REQUIRE(exported->geosetAnimations.size() == 1u);
         const mdx::Track<f32>& track = exported->geosetAnimations[0].alphaTracks;
         CHECK(track.interpolationType == mdx::InterpolationType::None);
-        CHECK(track.timestamps == std::vector<u32>{0u, 500u, 2000u});
+        CHECK(track.timestamps == std::vector<u32>{1000u, 1500u, 3000u});
         CHECK(track.keys_data == std::vector<f32>{0.0f, 1.0f, 0.0f});
     }
 }
@@ -1036,10 +1036,9 @@ TEST_CASE("wem mdx a whole-unit rarity from an older document still exports", "[
     CHECK(exported->sequences[0].rarity == Catch::Approx(2.0f));
 }
 
-TEST_CASE("wem mdx export re-times a clip that never had a window", "[wem][anim][mdx]") {
+TEST_CASE("wem mdx export places a clip that never had a window like any other", "[wem][anim][mdx]") {
     // A clip from another format — or from an editor — carries no
-    // `intervalStart`, and MDX's one timeline is the only clock it has. That is
-    // a real re-timing and the export says so rather than placing it silently.
+    // `intervalStart`; every clip is placed afresh anyway, so it is no re-timing.
     mdx::Model model = makeModel();
     model.bones[0].node.translationTracks = makeTrack<Vector3f>(
         mdx::InterpolationType::Linear, {0, 1000}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 5}});
@@ -1051,17 +1050,14 @@ TEST_CASE("wem mdx export re-times a clip that never had a window", "[wem][anim]
     MdxConverter converter;
     const Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic);
     REQUIRE(exported.ok());
-    // Every clip still becomes a sequence — the one whose window was taken away
-    // is placed rather than dropped, and it is the only one reported.
     CHECK(exported->sequences.size() == document.clips.size());
-    CHECK(exported.diagnostics.countOf(DiagCode::AnimClipRetimed) == 1u);
+    CHECK(exported->sequences[0].intervalStart == 1000u);
+    CHECK(exported.diagnostics.countOf(DiagCode::AnimClipRetimed) == 0u);
 }
 
-TEST_CASE("wem mdx export never gives a new global loop a stored loop's id", "[wem][anim][mdx]") {
-    // A global loop that carries no id (an editor's, or another format's) comes
-    // first in the document, and a stored loop after it owns id 0. Handing out
-    // the next slot in document order would put both on sequence 0: one clock,
-    // one duration, and two loops' keys merged onto it.
+TEST_CASE("wem mdx export numbers the global loops as they are listed", "[wem][anim][mdx]") {
+    // A loop with no stored id (an editor's, or another format's) listed ahead
+    // of one the file numbered 0: the list's order numbers them, not the file.
     mdx::Model model = makeModel();
     model.globalSequences = {4000, 2000};
     model.bones[0].node.translationTracks = makeTrack<Vector3f>(
@@ -1084,10 +1080,37 @@ TEST_CASE("wem mdx export never gives a new global loop a stored loop's id", "[w
     REQUIRE(exported.ok());
     REQUIRE(exported->globalSequences.size() == 2u);
     const mdx::Node& node = exported->bones[0].node;
-    CHECK(node.translationTracks.globalSequenceId == 0u);
-    CHECK(node.rotationTracks.globalSequenceId == 1u);
-    CHECK(exported->globalSequences[0] == 4000u);
-    CHECK(exported->globalSequences[1] == 2000u);
+    CHECK(node.rotationTracks.globalSequenceId == 0u);
+    CHECK(node.translationTracks.globalSequenceId == 1u);
+    CHECK(exported->globalSequences[0] == 2000u);
+    CHECK(exported->globalSequences[1] == 4000u);
+}
+
+TEST_CASE("wem mdx export keys a global loop at both ends", "[wem][anim][mdx]") {
+    // A 1500 ms loop keyed at 300 and 900: written with keys at 0 and 1500 that
+    // hold what it plays there, so the file states the whole cycle and no
+    // reader's wrap rule changes it. Past 900 it runs from 9 back toward 0 over
+    // the 900 ms wrap; before 300 the game plays that span extrapolated
+    // backwards (`SetAnimTime`), and jumps to the first key at 300.
+    mdx::Model model = makeModel();
+    model.globalSequences = {1500};
+    model.bones[0].node.translationTracks = makeTrack<Vector3f>(
+        mdx::InterpolationType::Linear, {300, 900}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 9}});
+    model.bones[0].node.translationTracks.globalSequenceId = 0;
+
+    MdxConverter converter;
+    const Result<mdx::Model> exported = converter.toMdx(convert(model), ProfileId::Wc3Classic);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->globalSequences == std::vector<u32>{1500});
+    const mdx::Track<Vector3f>& track = exported->bones[0].node.translationTracks;
+    CHECK(track.globalSequenceId == 0u);
+    REQUIRE(track.timestamps.size() >= 4u);
+    CHECK(track.timestamps.front() == 0u);
+    CHECK(track.timestamps.back() == 1500u);
+    CHECK(track.keys_data.front().z == Catch::Approx(12.0f));
+    CHECK(track.keys_data.back().z == Catch::Approx(3.0f));
+    CHECK(std::find(track.timestamps.begin(), track.timestamps.end(), 300u) != track.timestamps.end());
+    CHECK(std::find(track.timestamps.begin(), track.timestamps.end(), 900u) != track.timestamps.end());
 }
 
 TEST_CASE("wem mdx export keys both edges of a window its track does not reach",
@@ -1112,9 +1135,7 @@ TEST_CASE("wem mdx export keys both edges of a window its track does not reach",
     const u32 end = exported->sequences[0].intervalEnd;
     CHECK(end - start == static_cast<u32>(duration * 1000.0f + 0.5f));
 
-    // The window lands after Walk's, and Walk still carries its bracket copy
-    // of the 800 ms key at its old place, where no window plays it. Only the
-    // keys inside the window are this clip's.
+    // Only the keys inside the window are this clip's.
     const mdx::Track<Vector3f>& track = exported->bones[0].node.translationTracks;
     std::vector<u32> times;
     std::vector<f32> z;
@@ -1293,11 +1314,10 @@ TEST_CASE("wem mdx the export map says where toMdx puts nodes and clips", "[wem]
     CHECK(MdxExportMapOf(document, 1, ProfileId::Wc3Classic).nodeObjectId.empty());
 }
 
-TEST_CASE("wem mdx a clip without a window lands after every stored window",
+TEST_CASE("wem mdx a clip without a window takes its place in the list",
           "[wem][anim][mdx]") {
     // An editor takes a clip's window away, and that clip can be anywhere in the
-    // list. Placed after only the windows ahead of it, the middle one here would
-    // land on top of the last.
+    // list: it is laid out where it is listed, like every other.
     mdx::Model model = makeModel();
     mdx::Sequence fly;
     fly.name = "Fly";
@@ -1318,19 +1338,19 @@ TEST_CASE("wem mdx a clip without a window lands after every stored window",
     const std::vector<mdx::Sequence>& sequences = exported->sequences;
     REQUIRE(sequences.size() == 3u);
     CHECK(sequences[1].name == "Walk");
-    CHECK(sequences[1].intervalStart == 6000u);
-    CHECK(sequences[1].intervalEnd == 7000u);
+    CHECK(sequences[1].intervalStart == 3000u);
+    CHECK(sequences[1].intervalEnd == 4000u);
     for (std::size_t a = 0; a < sequences.size(); ++a) {
         for (std::size_t b = a + 1; b < sequences.size(); ++b) {
             CHECK((sequences[a].intervalEnd < sequences[b].intervalStart ||
                    sequences[b].intervalEnd < sequences[a].intervalStart));
         }
     }
-    CHECK(exported.diagnostics.countOf(DiagCode::AnimClipRetimed) == 1u);
+    CHECK(exported.diagnostics.countOf(DiagCode::AnimClipRetimed) == 0u);
 
     // Its keys went with it, and the key at 3000 is at the new window's end.
     const mdx::Track<Vector3f>& track = exported->bones[0].node.translationTracks;
-    CHECK(std::find(track.timestamps.begin(), track.timestamps.end(), 7000u) !=
+    CHECK(std::find(track.timestamps.begin(), track.timestamps.end(), 4000u) !=
           track.timestamps.end());
 }
 
@@ -1347,7 +1367,7 @@ mdx::Model exportWindowless(const mdx::Model& model) {
     Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic);
     REQUIRE(exported.ok());
     REQUIRE(exported->sequences.size() == 1u);
-    REQUIRE(exported->sequences[0].intervalStart == 0u);
+    REQUIRE(exported->sequences[0].intervalStart == 1000u);
     return std::move(*exported.value);
 }
 
@@ -1374,7 +1394,7 @@ TEST_CASE("wem mdx a made-up edge of a tangent stream is written as a hold",
         const mdx::Model exported = exportWindowless(model);
         const mdx::Track<Vector3f>& track = exported.bones[0].node.translationTracks;
         CHECK(track.interpolationType == mdx::InterpolationType::Hermite);
-        REQUIRE(track.timestamps == std::vector<u32>{0, 300, 700, 1000});
+        REQUIRE(track.timestamps == std::vector<u32>{1000, 1300, 1700, 2000});
         const auto keys = track.tangentKeys();
         const Vector3f zero{0, 0, 0};
         CHECK(same(keys[0].value, v0));
@@ -1397,7 +1417,7 @@ TEST_CASE("wem mdx a made-up edge of a tangent stream is written as a hold",
         const mdx::Model exported = exportWindowless(model);
         const mdx::Track<Vector3f>& track = exported.bones[0].node.translationTracks;
         CHECK(track.interpolationType == mdx::InterpolationType::Bezier);
-        REQUIRE(track.timestamps == std::vector<u32>{0, 300, 700, 1000});
+        REQUIRE(track.timestamps == std::vector<u32>{1000, 1300, 1700, 2000});
         const auto keys = track.tangentKeys();
         CHECK(same(keys[0].inTan, v0));
         CHECK(same(keys[0].outTan, v0));
@@ -1418,7 +1438,7 @@ TEST_CASE("wem mdx a made-up edge of a tangent stream is written as a hold",
         const mdx::Model exported = exportWindowless(model);
         const mdx::Track<Quaternion>& track = exported.bones[0].node.rotationTracks;
         CHECK(track.interpolationType == mdx::InterpolationType::Hermite);
-        REQUIRE(track.timestamps == std::vector<u32>{0, 300, 700, 1000});
+        REQUIRE(track.timestamps == std::vector<u32>{1000, 1300, 1700, 2000});
         const auto keys = track.tangentKeys();
         CHECK(same(keys[0].inTan, q0));
         CHECK(same(keys[0].outTan, q0));
@@ -1436,7 +1456,7 @@ TEST_CASE("wem mdx a made-up edge of a tangent stream is written as a hold",
             makeTrack<Vector3f>(mdx::InterpolationType::Hermite, {500}, {v, in, out});
         const mdx::Model exported = exportWindowless(model);
         const mdx::Track<Vector3f>& track = exported.bones[0].node.translationTracks;
-        REQUIRE(track.timestamps == std::vector<u32>{0, 500, 1000});
+        REQUIRE(track.timestamps == std::vector<u32>{1000, 1500, 2000});
         const auto keys = track.tangentKeys();
         const Vector3f zero{0, 0, 0};
         for (const auto& key : keys) {
@@ -1569,7 +1589,7 @@ TEST_CASE("wem mdx a flipbook crosses from where each version keeps it", "[wem][
         const mdx::Layer& out = exported->materials[0].layers[0];
         const mdx::Track<u32>& written = writtenFlipbook(out, version);
         REQUIRE(written.isUsed);
-        CHECK(written.timestamps == std::vector<u32>{0u, 500u});
+        CHECK(written.timestamps == std::vector<u32>{1000u, 1500u});
         CHECK(written.keys_data == std::vector<u32>{0u, 1u});
 
         // And through the bytes: what the writer writes, the parser reads back.
@@ -1581,7 +1601,7 @@ TEST_CASE("wem mdx a flipbook crosses from where each version keeps it", "[wem][
         REQUIRE_FALSE(reread.materials[0].layers.empty());
         const mdx::Track<u32>& back = writtenFlipbook(reread.materials[0].layers[0], version);
         REQUIRE(back.isUsed);
-        CHECK(back.timestamps == std::vector<u32>{0u, 500u});
+        CHECK(back.timestamps == std::vector<u32>{1000u, 1500u});
         CHECK(back.keys_data == std::vector<u32>{0u, 1u});
     }
 }
@@ -1654,7 +1674,7 @@ TEST_CASE("wem mdx an HD layer's other slots flipbook on channels of their own",
     CHECK(back.subTextures[0].tracks.keys_data == std::vector<u32>{0u, 1u});
     CHECK_FALSE(back.subTextures[1].tracks.isUsed);
     REQUIRE(back.subTextures[2].tracks.isUsed);
-    CHECK(back.subTextures[2].tracks.timestamps == std::vector<u32>{0u, 500u});
+    CHECK(back.subTextures[2].tracks.timestamps == std::vector<u32>{1000u, 1500u});
     CHECK(back.subTextures[2].tracks.keys_data == std::vector<u32>{1u, 2u});
 
     // A slot's keys are texture references as the colour map's are: removing

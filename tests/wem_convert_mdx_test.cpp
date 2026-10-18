@@ -750,8 +750,13 @@ TEST_CASE("wem mdx a camera keeps 3.0's depth of field", "[wem][convert][mdx][no
     REQUIRE(exported.ok());
     REQUIRE(exported->cameras.size() == 1u);
     const mdx::Camera& out = exported->cameras[0];
+    // Each key at its place in the first sequence, laid out from 1000 ms.
     const auto same = [](const mdx::Track<f32>& a, const mdx::Track<f32>& b) {
-        return a.isUsed == b.isUsed && a.timestamps == b.timestamps && a.keys_data == b.keys_data;
+        std::vector<u32> times = b.timestamps;
+        for (u32& t : times) {
+            t += 1000;
+        }
+        return a.isUsed == b.isUsed && a.timestamps == times && a.keys_data == b.keys_data;
     };
     CHECK(same(out.focusDistanceTracks, camera.focusDistanceTracks));
     CHECK(same(out.focalLengthTracks, camera.focalLengthTracks));
@@ -816,9 +821,10 @@ TEST_CASE("wem mdx a camera keeps its target and roll keys", "[wem][convert][mdx
     REQUIRE(exported.ok());
     const mdx::Camera& out = exported->cameras[0];
     CHECK(out.targetPosition == camera.targetPosition);
-    CHECK(out.targetPositionTracks.timestamps == camera.targetPositionTracks.timestamps);
+    // Shot laid out from 1000 ms.
+    CHECK(out.targetPositionTracks.timestamps == std::vector<u32>{1000, 2000});
     CHECK(out.targetPositionTracks.keys_data == camera.targetPositionTracks.keys_data);
-    CHECK(out.targetRotationTracks.timestamps == camera.targetRotationTracks.timestamps);
+    CHECK(out.targetRotationTracks.timestamps == std::vector<u32>{1000, 2000});
     CHECK(out.targetRotationTracks.keys_data == camera.targetRotationTracks.keys_data);
     CHECK_FALSE(out.positionTracks.isUsed);
 }
@@ -852,7 +858,7 @@ TEST_CASE("wem mdx a camera's depth-of-field rests reach every sequence", "[wem]
     Result<mdx::Model> exported = converter.toMdx(*imported, ProfileId::Wc3Classic, 1800);
     REQUIRE(exported.ok());
     const mdx::Camera& out = exported->cameras[0];
-    CHECK(out.focusDistanceTracks.timestamps == std::vector<u32>{0, 1033});
+    CHECK(out.focusDistanceTracks.timestamps == std::vector<u32>{1000, 3000});
     CHECK(out.focusDistanceTracks.keys_data == std::vector<f32>{250.0f, 250.0f});
     CHECK(out.fStopTracks.keys_data == std::vector<f32>{2.8f, 2.8f});
     CHECK_FALSE(out.focalLengthTracks.isUsed);
@@ -978,8 +984,13 @@ TEST_CASE("wem mdx a light keeps 3.0's shadow range and falloff", "[wem][convert
     CHECK(out.quadraticFalloff == lamp.quadraticFalloff);
     CHECK(out.linearFalloff == lamp.linearFalloff);
     CHECK(out.damping == lamp.damping);
+    // Each key at its place in the first sequence, laid out from 1000 ms.
     const auto same = [](const mdx::Track<f32>& a, const mdx::Track<f32>& b) {
-        return a.isUsed == b.isUsed && a.timestamps == b.timestamps && a.keys_data == b.keys_data;
+        std::vector<u32> times = b.timestamps;
+        for (u32& t : times) {
+            t += 1000;
+        }
+        return a.isUsed == b.isUsed && a.timestamps == times && a.keys_data == b.keys_data;
     };
     CHECK(same(out.shadowCastingStartTracks, lamp.shadowCastingStartTracks));
     CHECK(same(out.shadowCastingEndTracks, lamp.shadowCastingEndTracks));

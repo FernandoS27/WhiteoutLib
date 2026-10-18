@@ -15,6 +15,7 @@
 #include <utility>
 
 #include <whiteout/models/wem/anim/clip.h>
+#include <whiteout/models/wem/anim/detach.h>
 #include <whiteout/models/wem/anim/mdx_uv.h>
 
 #include "mdx_track_slicer.h"
@@ -760,17 +761,14 @@ void Import(const mdx::Model& source, const Context& context, Document& document
 }
 
 // ============================================================================
-// Export — clips back onto MDX's one global timeline (§10.8.3)
+// Export — clips onto MDX's one global timeline (§10.8.3)
 //
-// The inverse of everything above, and the asymmetry is the whole of it. Import
-// sliced one timeline into a clip per sequence and kept the bracketing keys;
-// export merges those clips back, and a key two clips share — which is what a
-// bracket key IS — has to be written once. So the merge is keyed on the
-// ABSOLUTE time, and the first clip to claim a timestamp keeps it.
-//
-// What cannot round-trip, said once: a clip that carries no `intervalStart` did
-// not come from an `.mdx`, and MDX has nowhere to put it but a fresh window at
-// the end of the timeline. That is a real re-timing and it is reported.
+// Laid out afresh, whatever the clips were imported with: the animations in
+// list order, 1000 ms apart, and the global loops numbered as listed. A clip
+// plays the same anywhere on the timeline, because the game reads only the
+// keys inside a sequence's own window; so an imported clip writes those and
+// leaves the bracket keys of its neighbours behind, and every other clip is
+// keyed at its edges with what it shows there.
 // ============================================================================
 
 bool IsGlobalLoop(const Clip& clip) {
@@ -836,9 +834,8 @@ struct MergedTrack {
     u32 valuesPerKey = 1;
     std::size_t valueSize = 0;
 
-    /// Claim @p time for @p key. The FIRST claim wins, which is the whole of the
-    /// bracket-key rule: the two clips either side of a boundary both carry the
-    /// key that sits on it, and it belongs on the timeline once.
+    /// Claim @p time for @p key. The FIRST claim wins: a clip that keys one
+    /// millisecond twice writes it once.
     void add(i32 time, const u8* key) {
         pending.emplace_back(time, key);
     }
@@ -1014,10 +1011,16 @@ private:
     /// IS. Exactly one of the two.
     struct Window {
         u32 clip = kInvalidIndex;
+        /// What it plays: the document's clip, or for a global loop the copy
+        /// with its ends keyed.
+        const Clip* played = nullptr;
         u32 start = 0; ///< Milliseconds. Meaningless for a global-sequence clip.
         u32 end = 0;   ///< Milliseconds, inclusive. Same.
         u32 globalSequenceId = mdx::Track<f32>::kNoGlobalSequence;
     };
+
+    /// Between two sequences on the timeline, and before the first.
+    static constexpr u32 kTimelineGap = 1000;
 
     /// The TXAN table is built here, from the UV features: the document keeps
     /// no copy of the source file's. A material written from its native block
@@ -1034,33 +1037,11 @@ private:
     }
 
     void buildWindows() {
-        // What a new clip must not land on, found before anything is placed.
-        // A global loop without a stored id takes the first one past every
-        // stored id, not the next slot in document order: that slot may belong
-        // to a loop further down, and the two would then share one clock. A
-        // clip without a window goes after every stored window for the same
-        // reason: one placed after only the windows EARLIER in the document
-        // could land on top of a later one.
-        u32 nextGlobal = 0;
-        u32 nextFree = 0;
-        for (const Clip& clip : document_.clips) {
-            if (clip.model != modelIndex_) {
-                continue;
-            }
-            if (IsGlobalLoop(clip)) {
-                const i64 stored = clip.native.value("globalSequenceId", -1);
-                if (stored >= 0) {
-                    nextGlobal = std::max(nextGlobal, static_cast<u32>(stored) + 1u);
-                }
-                continue;
-            }
-            const i64 start = clip.native.value("intervalStart", -1);
-            const i64 end = clip.native.value("intervalEnd", -1);
-            if (start >= 0 && end >= start) {
-                nextFree = std::max(nextFree, static_cast<u32>(end) + 1000u);
-            }
-        }
-
+        // The timeline is the export's to lay out: every animation in list
+        // order, the first at 1000 ms and each next one 1000 ms past the end of
+        // the one before; every global loop numbered as it is listed. Nothing a
+        // clip was imported with places it, so a list reordered, a clip
+        // stretched or one made in an editor writes the same way.
         const std::vector<u32>& sequenceOf = context_.clipSequence;
         u32 sequenceCount = 0;
         for (const u32 sequence : sequenceOf) {
@@ -1070,6 +1051,7 @@ private:
         }
         out_.sequences.resize(sequenceCount);
 
+        u32 next = kTimelineGap;
         for (std::size_t c = 0; c < document_.clips.size(); ++c) {
             const Clip& clip = document_.clips[c];
             if (clip.model != modelIndex_) {
@@ -1077,15 +1059,16 @@ private:
             }
             Window window;
             window.clip = static_cast<u32>(c);
+            window.played = &clip;
 
             if (IsGlobalLoop(clip)) {
-                const i64 stored = clip.native.value("globalSequenceId", -1);
-                const u32 id = stored >= 0 ? static_cast<u32>(stored) : nextGlobal++;
-                if (out_.globalSequences.size() <= id) {
-                    out_.globalSequences.resize(id + 1, 0);
-                }
-                out_.globalSequences[id] = Milliseconds(clip.duration);
-                window.globalSequenceId = id;
+                // Its whole cycle stated, ends keyed: what it plays does not
+                // hang on how a reader wraps a loop it was not numbered in.
+                loops_.push_back(clip);
+                KeyLoopEnds(model_.animChannels, loops_.back());
+                window.played = &loops_.back();
+                window.globalSequenceId = static_cast<u32>(out_.globalSequences.size());
+                out_.globalSequences.push_back(Milliseconds(clip.duration));
                 windows_.push_back(window);
                 continue;
             }
@@ -1095,22 +1078,9 @@ private:
 
             mdx::Sequence sequence;
             sequence.name = clip.name;
-            const i64 start = clip.native.value("intervalStart", -1);
-            const i64 end = clip.native.value("intervalEnd", -1);
-            if (start >= 0 && end >= start) {
-                sequence.intervalStart = static_cast<u32>(start);
-                sequence.intervalEnd = static_cast<u32>(end);
-            } else {
-                // No window on the clip: it did not come from an `.mdx`. The
-                // timeline is the only clock MDX has, so one is allocated after
-                // everything already placed — a real re-timing, reported.
-                sequence.intervalStart = nextFree;
-                sequence.intervalEnd = nextFree + Milliseconds(clip.duration);
-                diagnostics_.info(DiagCode::AnimClipRetimed,
-                                  "clip '" + clip.name + "' had no MDX interval; placed at " +
-                                      std::to_string(sequence.intervalStart) + "ms",
-                                  ElementRef(ElementKind::Clip, static_cast<u32>(c)), profile_);
-            }
+            sequence.intervalStart = next;
+            sequence.intervalEnd = next + Milliseconds(clip.duration);
+            next = sequence.intervalEnd + kTimelineGap;
             if (!clip.looping) {
                 sequence.flags = mdx::Sequence::Flag::NonLooping;
             }
@@ -1128,7 +1098,6 @@ private:
                 sequence.extent = out_.modelExtent; // the model's, as `toMdx` wrote it
             }
 
-            nextFree = std::max(nextFree, sequence.intervalEnd + 1000u);
             window.start = sequence.intervalStart;
             window.end = sequence.intervalEnd;
             windows_.push_back(window);
@@ -1148,7 +1117,7 @@ private:
         };
         std::vector<Part> parts;
         for (const Window& window : windows_) {
-            const Clip& clip = document_.clips[window.clip];
+            const Clip& clip = *window.played;
             for (const SubTrackContainer& container : clip.containers) {
                 const SubTrack* track = container.find(channel.id);
                 if (track == nullptr || track->times.empty()) {
@@ -1224,18 +1193,18 @@ private:
             const u32 end = global ? Milliseconds(clip.duration) : window.end;
             const auto at = [&](std::size_t k) { return track.values.data() + k * stride; };
 
-            if (clip.native.value("intervalStart", -1) >= 0 ||
-                clip.native.value("globalSequenceId", -1) >= 0) {
-                // An `.mdx` clip's keys already say what its engine plays,
-                // bracket keys included: a bracket key's time is negative or
-                // past the clip, which is exactly what puts it back where the
-                // neighbouring window's key already is. One before the
-                // timeline's own start goes back before it too: moved up to 0
-                // it would claim the time of the key that is really there.
+            if (KeepsWindow(clip)) {
+                // An `.mdx` clip's keys are what the game plays, and it reads
+                // only those inside the playing window
+                // (`CKeyFrameTrackBase::SetSequenceIndices`): they go where the
+                // clip is placed now, and the bracket keys the import kept of
+                // its neighbours stay behind. A loop's ends were keyed above.
                 for (std::size_t k = 0; k < track.times.size(); ++k) {
-                    const f32 absolute =
-                        track.times[k] * kMillisecondsPerSecond + static_cast<f32>(start);
-                    merged.add(static_cast<i32>(std::floor(absolute + 0.5f)), at(k));
+                    const i32 ms =
+                        static_cast<i32>(std::floor(track.times[k] * kMillisecondsPerSecond + 0.5f));
+                    if (ms >= 0 && ms <= static_cast<i32>(end - start)) {
+                        merged.add(static_cast<i32>(start) + ms, at(k));
+                    }
                 }
                 continue;
             }
@@ -2289,7 +2258,7 @@ private:
     /// question, asked without merging.
     bool keyedInWindows(const AnimChannel& channel) const {
         for (const Window& window : windows_) {
-            for (const SubTrackContainer& container : document_.clips[window.clip].containers) {
+            for (const SubTrackContainer& container : window.played->containers) {
                 const SubTrack* track = container.find(channel.id);
                 if (track != nullptr && !track->times.empty() &&
                     track->wellSized(channel.valueType)) {
@@ -2756,6 +2725,10 @@ private:
                                       ElementRef(ElementKind::Node, event.node), profile_);
                     continue;
                 }
+                // Past its clip it would fire in the gap, or in the next one.
+                if (event.time < 0.0f || Milliseconds(event.time) > Milliseconds(clip.duration)) {
+                    continue;
+                }
                 mdx::EventObject& object = out_.eventObjects[slot.index];
                 object.globalSequenceId = window.globalSequenceId;
                 const f32 absolute = event.time * kMilliseconds + static_cast<f32>(window.start);
@@ -2779,6 +2752,9 @@ private:
     mdx::Model& out_;
     Diagnostics& diagnostics_;
     std::vector<Window> windows_;
+    /// The global loops as written, ends keyed; a deque so `Window::played`
+    /// stays put.
+    std::deque<Clip> loops_;
     std::vector<VisibilityGate> gates_;
     /// The ordinal that holds each drawn layer's one texture matrix.
     std::map<const mdx::Layer*, u32> uvOwners_;
