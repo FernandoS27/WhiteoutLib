@@ -451,6 +451,22 @@ M2SequenceReport CrossM2Sequences(wem::Document& document) {
     return report;
 }
 
+u32 CrossM2Looping(wem::Document& document) {
+    u32 changed = 0;
+    for (wem::Clip& clip : document.clips) {
+        const wem::NativeBag::Entry* id = clip.native.find("animationId");
+        if (id == nullptr || id->value < 0 || id->value > 0xFFFF) {
+            continue;
+        }
+        if (const std::optional<M2Wc3Sequence> named = M2Wc3SequenceFor(static_cast<u16>(id->value));
+            named && clip.looping == named->nonLooping) {
+            clip.looping = !named->nonLooping;
+            ++changed;
+        }
+    }
+    return changed;
+}
+
 } // namespace cross
 } // namespace models
 } // namespace whiteout

@@ -93,6 +93,12 @@ struct KeptKeys {
     std::vector<f32> times;
 };
 
+/// The channels one clip reduces, in place of `KeyReduceOptions::channels`.
+struct ClipChannels {
+    u32 clip = kInvalidIndex;
+    std::vector<u32> channels; ///< `AnimChannel::id`s; empty: every channel.
+};
+
 struct KeyReduceOptions {
     /// ε in model units: nothing the model draws moves further. 0 means
     /// @ref heightShare of `ModelHeight`.
@@ -128,6 +134,9 @@ struct KeyReduceOptions {
 
     std::vector<u32> clips;    ///< Document clip indices; empty: every clip of the model.
     std::vector<u32> channels; ///< `AnimChannel::id`s; empty: every channel.
+    /// Per clip, its own channels in place of @ref channels: a batch of
+    /// physics bakes, each reducing the keys it wrote and no others.
+    std::vector<ClipChannels> clipChannels;
     /// Keys that stay whatever they cost: a physics bake keeps the source's
     /// keys outside what it simulated, and its splice's edges
     /// (EDIT_MODE_PHYSICS_BAKE_DESIGN.md §8.3).

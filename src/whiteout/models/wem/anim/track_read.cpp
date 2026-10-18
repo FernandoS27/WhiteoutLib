@@ -20,12 +20,17 @@ using prepared::Bytes;
 using prepared::Evaluate;
 using prepared::Load;
 using prepared::Prepare;
+using prepared::PrepareInto;
 using prepared::PreparedTrack;
 
 template <class T>
 std::optional<std::vector<u8>> ReadTyped(const Clip& clip, const SubTrack& track, bool quat,
                                          const SampleWindow& window, bool held) {
-    const std::optional<T> value = Evaluate(Prepare<T>(clip, track, quat), window, held);
+    // Read once a channel a sample, by every thread sampling: each keeps one
+    // track's arrays rather than allocating two a read.
+    thread_local PreparedTrack<T> prepared;
+    PrepareInto(prepared, clip, track, quat);
+    const std::optional<T> value = Evaluate(prepared, window, held);
     if (!value)
         return std::nullopt;
     return Bytes(*value);

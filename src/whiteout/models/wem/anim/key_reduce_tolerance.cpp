@@ -891,6 +891,16 @@ bool InList(const std::vector<u32>& list, u32 value) {
     return list.empty() || std::find(list.begin(), list.end(), value) != list.end();
 }
 
+/// The channels @p clip reduces: its own list, else every clip's.
+const std::vector<u32>& ChannelsFor(const KeyReduceOptions& options, u32 clip) {
+    for (const ClipChannels& scoped : options.clipChannels) {
+        if (scoped.clip == clip) {
+            return scoped.channels;
+        }
+    }
+    return options.channels;
+}
+
 ClipWork BuildClip(const Document& document, u32 model, u32 clip, const Animator& animator,
                    const std::set<u32>& agreeing, const KeyReduceOptions& options) {
     const Clip& source = document.clips[clip];
@@ -983,7 +993,7 @@ ClipWork BuildClip(const Document& document, u32 model, u32 clip, const Animator
             const bool smooth = t.interp == Interpolation::Hermite || t.interp == Interpolation::Bezier;
             t.curved = (t.quat && t.rule != ReadRule::Sc2) || smooth;
             t.refit = options.refitTangents && smooth && !t.quat;
-            t.reducible = agreeing.count(sub.channel) != 0 && InList(options.channels, sub.channel);
+            t.reducible = agreeing.count(sub.channel) != 0 && InList(ChannelsFor(options, clip), sub.channel);
             if (t.kind == Kind::Node && t.node >= document.models[model].nodes.size()) {
                 t.kind = Kind::Exact;
             }
@@ -1170,11 +1180,13 @@ Measured Compare(const std::vector<MeshData>& meshes, u32 nodes,
     for (std::size_t m = 0; m < meshes.size(); ++m) {
         out.vertexMax[m].assign(meshes[m].area.size(), 0.0f);
     }
+    std::vector<Vector3f> a;
+    std::vector<Vector3f> b;
     for (std::size_t i = 0; i < was.size() && i < now.size(); ++i) {
         for (std::size_t m = 0; m < meshes.size(); ++m) {
             const MeshData& data = meshes[m];
-            const std::vector<Vector3f> a = skinning::DeformMesh(*data.mesh, was[i]);
-            const std::vector<Vector3f> b = skinning::DeformMesh(*data.mesh, now[i]);
+            skinning::DeformMeshInto(*data.mesh, was[i], a);
+            skinning::DeformMeshInto(*data.mesh, now[i], b);
             for (std::size_t v = 0; v < a.size() && v < b.size(); ++v) {
                 const Vector3f d = a[v] - b[v];
                 const f32 e = std::sqrt(d.dot(d));
@@ -1421,8 +1433,15 @@ KeyReduceReport ReduceKeys(Document& document, u32 model, const KeyReduceOptions
 
     // What no rule reads goes first, and a constant is one key: tier 1's own.
     ExactKeyReport exact;
-    DropUnreadKeys(document, model, clips, options.channels, exact);
-    CollapseConstantTracks(document, model, clips, options.channels, exact);
+    if (options.clipChannels.empty()) {
+        DropUnreadKeys(document, model, clips, options.channels, exact);
+        CollapseConstantTracks(document, model, clips, options.channels, exact);
+    } else {
+        for (const u32 c : clips) {
+            DropUnreadKeys(document, model, {c}, ChannelsFor(options, c), exact);
+            CollapseConstantTracks(document, model, {c}, ChannelsFor(options, c), exact);
+        }
+    }
     const std::set<u32> agreeing = AgreeingChannels(document, model);
 
     // Everything the threads read and nothing writes, found here: a face set

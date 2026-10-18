@@ -53,6 +53,11 @@ struct M2SequenceReport {
 /// `Stand - 1`, so that anything listing them can still tell them apart.
 M2SequenceReport CrossM2Sequences(wem::Document& document);
 
+/// Every `.m2` clip the table names takes its looping and keeps its name: what
+/// a physics bake reads to tell a loop from a clip played once (`BakeLoops`),
+/// which the `.m2` does not say. Returns how many changed.
+u32 CrossM2Looping(wem::Document& document);
+
 } // namespace cross
 } // namespace models
 } // namespace whiteout

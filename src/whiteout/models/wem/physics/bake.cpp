@@ -17,6 +17,7 @@
 #include <whiteout/models/wem/reflect_bytes.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -24,6 +25,7 @@
 #include <memory>
 #include <optional>
 #include <set>
+#include <thread>
 
 namespace whiteout {
 namespace models {
@@ -1428,7 +1430,23 @@ u32 BakeStepsOf(const Document& document, u32 clip, f32& dt) {
     return steps;
 }
 
-BakeReport BakeClip(Document& document, const BakeRun& run, const BakeRun* goesTo, SoftModesCache* softModes) {
+namespace {
+
+/// A bake's key reduction, left to its caller (`BakeForExport`): what
+/// `ReduceKeys` is to be asked for the clip.
+struct DeferredReduction {
+    u32 clip = kInvalidIndex;
+    std::vector<u32> channels;
+    std::vector<KeptKeys> kept;
+    f32 tolerance = 0.0f;
+    bool mesh = false;
+};
+
+/// `BakeClip`, its reduction handed to @p deferred when it is given: the
+/// clip's record is then stamped as the keys stand unreduced, and
+/// `StampReduced` stamps it again once they are.
+BakeReport BakeClipInto(Document& document, const BakeRun& run, const BakeRun* goesTo, SoftModesCache* softModes,
+                        DeferredReduction* deferred) {
     BakeReport report;
     if (run.clip >= document.clips.size() || !run.complete || run.steps == 0) {
         report.error = run.error.empty() ? "the run is not complete" : run.error;
@@ -2075,7 +2093,13 @@ BakeReport BakeClip(Document& document, const BakeRun& run, const BakeRun* goesT
     }
     // Fewer keys, only among those the bake wrote (§8.3). A bake that wrote
     // none is still recorded, so the clip reads baked.
-    if (settings.tolerance > 0.0f && !record.channels.empty()) {
+    if (settings.tolerance > 0.0f && !record.channels.empty() && deferred != nullptr) {
+        deferred->clip = clipIndex;
+        deferred->channels = record.channels;
+        deferred->kept = std::move(keep);
+        deferred->tolerance = settings.tolerance;
+        deferred->mesh = settings.meshMeasure;
+    } else if (settings.tolerance > 0.0f && !record.channels.empty()) {
         KeyReduceOptions options;
         options.heightShare = settings.tolerance;
         options.measure = settings.meshMeasure ? KeyReduceOptions::Measure::Mesh : KeyReduceOptions::Measure::Skeleton;
@@ -2338,6 +2362,40 @@ BakeReport BakeClip(Document& document, const BakeRun& run, const BakeRun* goesT
     return report;
 }
 
+/// @p clip's record after its deferred reduction: what it keyed, hashed again
+/// as it now stands, and the reduction's count and error.
+void StampReduced(Document& document, u32 clip, f32 maxError) {
+    Clip& out = document.clips[clip];
+    if (!out.physics.has_value() || !out.physics->baked.has_value()) {
+        return;
+    }
+    PhysicsBake& record = *out.physics->baked;
+    record.keys = 0;
+    for (const SubTrackContainer& container : out.containers) {
+        for (const SubTrack& track : container.subTracks) {
+            if (std::find(record.channels.begin(), record.channels.end(), track.channel) != record.channels.end()) {
+                record.keys += static_cast<u32>(track.times.size());
+            }
+        }
+    }
+    record.maxError = maxError;
+    std::vector<Stretch> stretches;
+    for (std::size_t k = 0; k < record.stretchChannels.size() && k < record.stretchOutside.size(); ++k) {
+        stretches.clear();
+        if (StretchesOf(record, record.stretchChannels[k], stretches).has_value() && !stretches.empty()) {
+            record.stretchOutside[k] = OutsideHash(out, record.stretchChannels[k], stretches);
+        }
+    }
+    record.written = WrittenHash(out, record);
+    record.stretchInside = InsideHash(out, record);
+}
+
+} // namespace
+
+BakeReport BakeClip(Document& document, const BakeRun& run, const BakeRun* goesTo, SoftModesCache* softModes) {
+    return BakeClipInto(document, run, goesTo, softModes, nullptr);
+}
+
 std::vector<u32> BakeOrder(const Document& document, std::vector<u32> clips) {
     std::vector<u32> out;
     std::set<u32> placed;
@@ -2419,6 +2477,68 @@ std::vector<u32> UnbakedSoftClips(const Document& document) {
     std::vector<u32> out;
     for (const u32 c : UnbakedSetUpClips(document)) {
         if (SoftActsIn(document, c)) {
+            out.push_back(c);
+        }
+    }
+    return out;
+}
+
+namespace {
+
+/// Whether the rule hands a body with a shape to the simulation somewhere in
+/// @p clip (`SwitchScope::Clip`): read at 0 and at each switch key, the only
+/// times a state changes. A body with no shape follows its bone.
+bool BodiesActIn(const Document& document, u32 clip) {
+    const Clip& source = document.clips[clip];
+    if (source.model >= document.models.size()) {
+        return false;
+    }
+    const Model& model = document.models[source.model];
+    const std::vector<PhysicsBody>& bodies = model.physics.bodies;
+    if (std::all_of(bodies.begin(), bodies.end(), [](const PhysicsBody& body) { return body.shapes.empty(); })) {
+        return false;
+    }
+    std::vector<f32> times{0.0f};
+    for (const SubTrackContainer& container : source.containers) {
+        for (const SubTrack& track : container.subTracks) {
+            const AnimChannel* channel = model.animChannels.find(track.channel);
+            if (channel == nullptr || channel->target.kind != TrackTarget::Kind::Physics ||
+                (channel->target.channel != Channel::PhysicsDynamic && channel->target.channel != Channel::PhysicsRagdoll)) {
+                continue;
+            }
+            for (const f32 t : track.times) {
+                if (t > 0.0f && t <= source.duration) {
+                    times.push_back(t);
+                }
+            }
+        }
+    }
+    std::sort(times.begin(), times.end());
+    times.erase(std::unique(times.begin(), times.end()), times.end());
+    const SwitchReader reader(document, source.model, clip, SwitchScope::Clip);
+    std::vector<BodySwitch> previous;
+    std::vector<BodySwitch> now;
+    for (const f32 t : times) {
+        reader.read(t, previous, now);
+        for (std::size_t b = 0; b < now.size() && b < bodies.size(); ++b) {
+            if (now[b].active && !bodies[b].shapes.empty()) {
+                return true;
+            }
+        }
+        previous.swap(now);
+    }
+    return false;
+}
+
+} // namespace
+
+std::vector<u32> UnbakedPhysicsClips(const Document& document) {
+    std::vector<u32> out;
+    for (u32 c = 0; c < document.clips.size(); ++c) {
+        const Clip& clip = document.clips[c];
+        const bool baked = clip.physics.has_value() && clip.physics->baked.has_value();
+        if (!baked && !IsGlobalLoop(clip) &&
+            (clip.physics.has_value() || SoftActsIn(document, c) || BodiesActIn(document, c))) {
             out.push_back(c);
         }
     }
@@ -2590,38 +2710,184 @@ void MarkBakeStretches(Document& document) {
     }
 }
 
-u32 BakeForExport(Document& document, const BakeHooks& hooks, std::span<const std::shared_ptr<const BakeRun>> runs,
-                  Diagnostics& out, const std::vector<u32>* only) {
-    u32 baked = 0;
-    for (const u32 clip : BakeOrder(document, only != nullptr ? *only : UnbakedSetUpClips(document))) {
-        const u64 inputs = BakeInputs(document, clip);
-        const BakeRun* use = nullptr;
+namespace {
+
+/// @p count jobs over @p threads threads, each job handed the index of the
+/// thread that takes it.
+void ForEachOn(std::size_t count, u32 threads, const std::function<void(std::size_t job, u32 thread)>& work) {
+    if (count == 0) {
+        return;
+    }
+    const u32 used = static_cast<u32>(std::min<std::size_t>(std::max<u32>(threads, 1), count));
+    if (used == 1) {
+        for (std::size_t job = 0; job < count; ++job) {
+            work(job, 0);
+        }
+        return;
+    }
+    std::atomic<std::size_t> next{0};
+    std::vector<std::thread> pool;
+    for (u32 t = 0; t < used; ++t) {
+        pool.emplace_back([&, t] {
+            for (std::size_t job = next++; job < count; job = next++) {
+                work(job, t);
+            }
+        });
+    }
+    for (std::thread& thread : pool) {
+        thread.join();
+    }
+}
+
+u32 BakeForExportOn(Document& document, const std::function<BakeHooks()>& hooksFor, u32 runThreads,
+                    u32 reduceThreads, std::span<const std::shared_ptr<const BakeRun>> runs, Diagnostics& out,
+                    const std::vector<u32>* only) {
+    const std::vector<u32> order = BakeOrder(document, only != nullptr ? *only : UnbakedPhysicsClips(document));
+    if (order.empty()) {
+        return 0;
+    }
+    // A run reads every clip from its bake's source, which a bake here leaves
+    // as it was: one copy with the sources put back serves every run, on any
+    // thread. Settings a bake added go with their record, as `IsSetUp` reads
+    // such a clip; the caches a first read fills are filled before the threads.
+    Document sources = document;
+    RestoreBakeSources(sources);
+    for (Clip& clip : sources.clips) {
+        if (clip.physics.has_value() && clip.physics->baked.has_value() && clip.physics->baked->madeSettings) {
+            clip.physics.reset();
+        } else if (clip.physics.has_value()) {
+            clip.physics->baked.reset();
+        }
+    }
+    for (const Model& model : sources.models) {
+        model.nodes.ensureHierarchy();
+        for (const Mesh& mesh : model.meshes) {
+            (void)mesh.faceSet();
+        }
+    }
+    // A bake reads the keys of the clip it is matched into as they stand
+    // (§7.4), and a soft body's pass the clip's own: such a clip is reduced as
+    // soon as it is baked, as a bake alone reduces it, and every other at the
+    // end, side by side, each its own keys.
+    std::set<u32> readLater;
+    for (const u32 clip : order) {
+        if (const u32 to = BakeLoops(document.clips[clip]) ? kInvalidIndex : BakeGoesTo(document, clip);
+            to < document.clips.size()) {
+            readLater.insert(to);
+        }
+    }
+    const u32 threads = std::max<u32>(runThreads, 1);
+    std::vector<BakeHooks> hooks;
+    for (u32 t = 0; t < threads; ++t) {
+        hooks.push_back(hooksFor());
+    }
+    // The editor's recording of @p clip, made from @p inputs; any complete
+    // one with no inputs asked.
+    const auto recorded = [&](u32 clip, std::optional<u64> inputs) -> const BakeRun* {
+        const BakeRun* found = nullptr;
         for (const std::shared_ptr<const BakeRun>& run : runs) {
-            if (run != nullptr && run->clip == clip && run->complete && run->inputs == inputs) {
-                use = run.get();
+            if (run != nullptr && run->clip == clip && run->complete && (!inputs || run->inputs == *inputs)) {
+                found = run.get();
             }
         }
-        BakeRun fresh;
-        if (use == nullptr) {
-            fresh = SimulateClip(document, clip, hooks);
-            use = &fresh;
+        return found;
+    };
+    std::vector<DeferredReduction> deferred;
+    u32 baked = 0;
+    // A few runs a thread at a time, made side by side and then baked in order.
+    const std::size_t batch = static_cast<std::size_t>(threads) * 2;
+    for (std::size_t from = 0; from < order.size(); from += batch) {
+        const std::size_t to = std::min(order.size(), from + batch);
+        std::vector<std::optional<BakeRun>> fresh(to - from);
+        std::vector<std::size_t> needed;
+        for (std::size_t i = from; i < to; ++i) {
+            if (recorded(order[i], std::nullopt) == nullptr) {
+                needed.push_back(i - from);
+            }
         }
-        const ElementRef where(ElementKind::Clip, clip);
-        if (!use->complete) {
-            out.warn(DiagCode::AnimStageNotBaked,
-                     "clip '" + document.clips[clip].name + "': its physics could not be run: " + use->error, where);
-            continue;
+        ForEachOn(needed.size(), threads, [&](std::size_t job, u32 thread) {
+            const std::size_t k = needed[job];
+            fresh[k] = SimulateClip(sources, order[from + k], hooks[thread]);
+        });
+        for (std::size_t i = from; i < to; ++i) {
+            const u32 clip = order[i];
+            const u64 inputs = BakeInputs(document, clip);
+            const BakeRun* use = recorded(clip, inputs);
+            if (use == nullptr) {
+                std::optional<BakeRun>& run = fresh[i - from];
+                if (!run.has_value()) {
+                    run = SimulateClip(sources, clip, hooks.front());
+                }
+                run->inputs = inputs;
+                use = &*run;
+            }
+            const ElementRef where(ElementKind::Clip, clip);
+            if (!use->complete) {
+                out.warn(DiagCode::AnimStageNotBaked,
+                         "clip '" + document.clips[clip].name + "': its physics could not be run: " + use->error, where);
+                continue;
+            }
+            DeferredReduction later;
+            const bool now = readLater.count(clip) != 0 || SoftActsIn(document, clip);
+            BakeReport report = BakeClipInto(document, *use, nullptr, nullptr, now ? nullptr : &later);
+            out.append(report.diagnostics);
+            if (!report.ok) {
+                out.warn(DiagCode::AnimStageNotBaked,
+                         "clip '" + document.clips[clip].name + "': its physics could not be baked: " + report.error, where);
+                continue;
+            }
+            ++baked;
+            if (later.clip != kInvalidIndex) {
+                deferred.push_back(std::move(later));
+            }
         }
-        BakeReport report = BakeClip(document, *use);
-        out.append(report.diagnostics);
-        if (!report.ok) {
-            out.warn(DiagCode::AnimStageNotBaked,
-                     "clip '" + document.clips[clip].name + "': its physics could not be baked: " + report.error, where);
-            continue;
+    }
+    // One reduction per model and setting, its clips side by side.
+    while (!deferred.empty()) {
+        const u32 model = document.clips[deferred.front().clip].model;
+        const f32 tolerance = deferred.front().tolerance;
+        const bool mesh = deferred.front().mesh;
+        KeyReduceOptions options;
+        options.heightShare = tolerance;
+        options.measure = mesh ? KeyReduceOptions::Measure::Mesh : KeyReduceOptions::Measure::Skeleton;
+        options.threads = reduceThreads;
+        std::vector<DeferredReduction> rest;
+        for (DeferredReduction& d : deferred) {
+            if (document.clips[d.clip].model != model || d.tolerance != tolerance || d.mesh != mesh) {
+                rest.push_back(std::move(d));
+                continue;
+            }
+            options.clips.push_back(d.clip);
+            options.clipChannels.push_back(ClipChannels{d.clip, std::move(d.channels)});
+            options.kept.insert(options.kept.end(), std::make_move_iterator(d.kept.begin()),
+                                std::make_move_iterator(d.kept.end()));
         }
-        ++baked;
+        deferred = std::move(rest);
+        KeyReduceReport reduced = ReduceKeys(document, model, options);
+        out.append(reduced.diagnostics);
+        for (const KeyErrorRow& row : reduced.clips) {
+            if (row.index < document.clips.size()) {
+                StampReduced(document, row.index, row.maxError);
+            }
+        }
     }
     return baked;
+}
+
+} // namespace
+
+u32 BakeForExport(Document& document, const BakeHooks& hooks, std::span<const std::shared_ptr<const BakeRun>> runs,
+                  Diagnostics& out, const std::vector<u32>* only) {
+    return BakeForExportOn(document, [&] { return hooks; }, 1, 0, runs, out, only);
+}
+
+u32 BakeForExport(Document& document, const std::function<BakeHooks()>& hooksFor,
+                  std::span<const std::shared_ptr<const BakeRun>> runs, Diagnostics& out,
+                  const std::vector<u32>* only, u32 threads) {
+    // Sampling allocates as it goes, and past the cores the threads wait on
+    // the heap more than they work (371 clips: 35 s on 16 threads, 44 on 32).
+    const u32 count = threads != 0 ? threads : std::max(1u, std::thread::hardware_concurrency() / 2);
+    return BakeForExportOn(document, hooksFor, count, count, runs, out, only);
 }
 
 } // namespace wem

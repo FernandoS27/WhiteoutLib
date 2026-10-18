@@ -138,6 +138,19 @@ std::vector<Vector3f> DeformMesh(const Mesh& mesh, std::span<const Matrix44f> sk
     return out;
 }
 
+void DeformMeshInto(const Mesh& mesh, std::span<const Matrix44f> skin, std::vector<Vector3f>& out) {
+    const std::span<const Vector3f> positions =
+        mesh.attributes.get<Vector3f>(geom::names::kPosition, geom::Domain::Vertex);
+    out.assign(positions.begin(), positions.end());
+    if (skin.empty()) {
+        return;
+    }
+    VertexInfluences influences(mesh);
+    for (std::size_t v = 0; v < positions.size(); ++v) {
+        out[v] = DeformPosition(positions[v], influences.of(v), skin);
+    }
+}
+
 std::vector<Matrix44f> VertexSkinMatrices(const Mesh& mesh, std::span<const Matrix44f> skin) {
     const std::size_t count = mesh.vertexCount();
     std::vector<Matrix44f> out(count, Matrix44f::identity());

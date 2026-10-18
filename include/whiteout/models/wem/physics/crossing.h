@@ -40,6 +40,40 @@ bool NeedsPhysicsFit(const Document& document, ProfileId target);
 /// cages it changed.
 u32 FitPhysicsToProfile(Document& document, ProfileId target, Diagnostics& out);
 
+/**
+ * @brief Each dynamic body whose gravity scale is not 1 pushed the rest of the
+ *        way by a force field of the model's own, for @p target, which fixes
+ *        the scale at 1 (StarCraft II).
+ *
+ * StarCraft II gives a body a field's acceleration times its mass, at the
+ * point of its first shape nearest the field (EDIT_MODE_PHYSICS_REDESIGN.md
+ * §25.1). So each field is directional and unbounded, pushes up by
+ * `(1 - scale) * gravity` on a Local channel of its own, and stands at its
+ * body's centre of mass at rest, a node of its own at the root that the
+ * animation does not turn. While the free Local channels last each body has
+ * one; past them, the bodies that fall alike and stand nearest share one at
+ * their centre. @p gravity is the target's, in the document's units a second
+ * squared. Returns how many fields it made.
+ */
+u32 CarryGravityScale(Document& document, ProfileId target, f32 gravity, Diagnostics& out);
+
+/// The half-width a sprung twist is held to for StarCraft II: under the 2°
+/// below which Domino locks a twist (`halfRange < 0.0349`).
+inline constexpr f32 kHeldTwist = 0.01745f;
+
+/**
+ * @brief Each cone-twist joint whose position motor springs its twist back to
+ *        rest (World of Warcraft's shoulder) has that twist held instead, for
+ *        @p target, which has limits and no spring (StarCraft II): its limits
+ *        narrowed to ±`kHeldTwist` round rest, its motor and spring dropped.
+ *
+ * Measured against the rigs themselves (`[.wow-sc2-fidelity]`), the swing free
+ * and the twist held move nearer them than the twist let go. A hinge's motor
+ * is left to be dropped: holding its one axis would weld it. Returns how many
+ * joints it changed.
+ */
+u32 HoldSprungTwists(Document& document, ProfileId target, Diagnostics& out);
+
 /// Whether @p document holds a cloth, or a collider for one.
 bool CarriesCloth(const Document& document);
 

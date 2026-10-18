@@ -238,14 +238,19 @@ struct PreparedTrack {
     bool valid = false;
 };
 
+/// `Prepare` into @p out, keeping what it holds of its arrays: for a caller
+/// that prepares track after track, one at a time.
 template <class T>
-PreparedTrack<T> Prepare(const Clip& clip, const SubTrack& track, bool quat) {
-    PreparedTrack<T> out;
+void PrepareInto(PreparedTrack<T>& out, const Clip& clip, const SubTrack& track, bool quat) {
+    out.keys.clear();
+    out.times.clear();
+    out.origin = 0;
+    out.valid = false;
     out.interp = track.interp;
     out.rule = clip.readRule;
     const u32 perKey = ValuesPerKey(track.interp);
     if (track.times.empty() || track.values.size() != track.times.size() * perKey * sizeof(T))
-        return out;
+        return;
     if (clip.readRule == ReadRule::Wc3) {
         // The export places a windowless clip's edges at its own length,
         // whatever window it is later read in.
@@ -270,6 +275,12 @@ PreparedTrack<T> Prepare(const Clip& clip, const SubTrack& track, bool quat) {
     for (std::size_t k = 0; k < out.keys.size(); ++k)
         out.times[k] = out.keys[k].ms;
     out.valid = true;
+}
+
+template <class T>
+PreparedTrack<T> Prepare(const Clip& clip, const SubTrack& track, bool quat) {
+    PreparedTrack<T> out;
+    PrepareInto(out, clip, track, quat);
     return out;
 }
 

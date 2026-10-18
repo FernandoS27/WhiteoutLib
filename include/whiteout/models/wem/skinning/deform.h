@@ -50,6 +50,9 @@ Vector3f DeformPosition(const Vector3f& rest, std::span<const geom::Influence> i
  */
 std::vector<Vector3f> DeformMesh(const Mesh& mesh, std::span<const Matrix44f> skin,
                                  std::span<const std::vector<geom::Influence>> written = {});
+/// `DeformMesh` with the mesh's own influences, into @p out: what skins one
+/// mesh at many poses without a fresh array each time.
+void DeformMeshInto(const Mesh& mesh, std::span<const Matrix44f> skin, std::vector<Vector3f>& out);
 
 /// Each vertex's blended matrix, over the influences `DeformMesh` takes with no
 /// written set, rigid sections included: the identity everywhere when @p skin

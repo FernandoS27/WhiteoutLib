@@ -3,17 +3,22 @@
 
 #include <whiteout/models/wem/physics/crossing.h>
 
+#include <whiteout/models/wem/anim/key_reduce.h>
 #include <whiteout/models/wem/anim/track_read.h>
 #include <whiteout/models/wem/geometry/ops.h>
 #include <whiteout/models/wem/meshes/remove.h>
 #include <whiteout/models/wem/physics/cloth_cage.h>
 #include <whiteout/models/wem/physics/references.h>
 #include <whiteout/models/wem/physics/switches.h>
+#include <whiteout/models/wem/retarget.h>
 
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cmath>
+#include <cstdio>
 #include <cstring>
+#include <limits>
 #include <set>
 #include <string>
 #include <vector>
@@ -579,12 +584,301 @@ u32 PhysicsSwitchChannel(Model& model, u32 record, Channel channel) {
     return model.animChannels.add(made);
 }
 
+namespace {
+
+/// @p p through @p m, row-vector, as a node's frame places it.
+Vector3f Through(const Matrix44f& m, const Vector3f& p) {
+    return Vector3f{p.x * m.data[0][0] + p.y * m.data[1][0] + p.z * m.data[2][0] + m.data[3][0],
+                    p.x * m.data[0][1] + p.y * m.data[1][1] + p.z * m.data[2][1] + m.data[3][1],
+                    p.x * m.data[0][2] + p.y * m.data[1][2] + p.z * m.data[2][2] + m.data[3][2]};
+}
+
+/// Where @p body's mass sits in its node's frame, and how much there is: each
+/// shape's centre weighed by its density and volume, a hull's or a mesh's by
+/// the box round its points.
+std::pair<Vector3f, f32> MassCentre(const PhysicsBody& body) {
+    constexpr f32 kPi = 3.14159265f;
+    Vector3f sum{0, 0, 0};
+    f32 total = 0.0f;
+    for (const PhysicsShape& shape : body.shapes) {
+        const Vector3f origin{shape.transform.data[3][0], shape.transform.data[3][1], shape.transform.data[3][2]};
+        Vector3f centre = origin;
+        f32 volume = 0.0f;
+        switch (shape.kind) {
+        case PhysicsShapeKind::Box:
+            volume = 8.0f * std::abs(shape.halfExtents.x * shape.halfExtents.y * shape.halfExtents.z);
+            break;
+        case PhysicsShapeKind::Sphere:
+            volume = 4.0f / 3.0f * kPi * shape.radius * shape.radius * shape.radius;
+            break;
+        case PhysicsShapeKind::Capsule:
+        case PhysicsShapeKind::Cylinder: {
+            f32 length = shape.length;
+            if (shape.kind == PhysicsShapeKind::Capsule && shape.points.size() == 2) {
+                centre = (shape.points[0] + shape.points[1]) * 0.5f;
+                length = (shape.points[1] - shape.points[0]).length();
+            }
+            volume = kPi * shape.radius * shape.radius * length +
+                     (shape.kind == PhysicsShapeKind::Capsule ? 4.0f / 3.0f * kPi * shape.radius * shape.radius * shape.radius
+                                                              : 0.0f);
+            break;
+        }
+        case PhysicsShapeKind::ConvexHull:
+        case PhysicsShapeKind::TriangleMesh: {
+            const std::vector<Vector3f>& points = shape.kind == PhysicsShapeKind::ConvexHull ? shape.points : shape.vertices;
+            if (points.empty()) {
+                break;
+            }
+            Vector3f low = Through(shape.transform, points.front());
+            Vector3f high = low;
+            Vector3f mean{0, 0, 0};
+            for (const Vector3f& p : points) {
+                const Vector3f at = Through(shape.transform, p);
+                low = Vector3f{std::min(low.x, at.x), std::min(low.y, at.y), std::min(low.z, at.z)};
+                high = Vector3f{std::max(high.x, at.x), std::max(high.y, at.y), std::max(high.z, at.z)};
+                mean = mean + at;
+            }
+            centre = mean * (1.0f / static_cast<f32>(points.size()));
+            volume = (high.x - low.x) * (high.y - low.y) * (high.z - low.z);
+            break;
+        }
+        case PhysicsShapeKind::Count:
+            break;
+        }
+        const f32 mass = std::max(shape.material.density, 0.0f) * std::max(volume, 0.0f);
+        sum = sum + centre * mass;
+        total += mass;
+    }
+    if (!(total > 0.0f)) {
+        // No mass to weigh by: the shapes' centres alike.
+        for (const PhysicsShape& shape : body.shapes) {
+            const Vector3f origin{shape.transform.data[3][0], shape.transform.data[3][1], shape.transform.data[3][2]};
+            sum = sum + (shape.kind == PhysicsShapeKind::Capsule && shape.points.size() == 2
+                             ? (shape.points[0] + shape.points[1]) * 0.5f
+                             : origin);
+        }
+        return {sum * (1.0f / static_cast<f32>(std::max<std::size_t>(body.shapes.size(), 1))), 0.0f};
+    }
+    return {sum * (1.0f / total), total};
+}
+
+/// `CarryGravityScale` for one model.
+u32 CarryModelGravity(Model& model, ProfileId target, f32 gravity, Diagnostics& out) {
+    PhysicsSet& physics = model.physics;
+    struct Faller {
+        u32 body = 0;
+        Vector3f at{0, 0, 0}; ///< Its centre of mass at rest, model space.
+        f32 mass = 0.0f;
+        f32 scale = 1.0f;
+    };
+    std::vector<Faller> fallers;
+    for (u32 b = 0; b < physics.bodies.size(); ++b) {
+        const PhysicsBody& body = physics.bodies[b];
+        if (body.motion != BodyMotion::Dynamic || body.shapes.empty() || std::abs(body.gravityScale - 1.0f) <= 1e-4f ||
+            body.node >= model.nodes.size()) {
+            continue;
+        }
+        // At rest a pivot rig's node stands at its pivot, unturned, as the
+        // pose places its shapes; an explicit bind's at its bind.
+        Matrix44f frame = Matrix44f::identity();
+        if (model.nodes.rig == RigConvention::PivotRelative) {
+            frame.data[3][0] = model.nodes.nodes[body.node].pivot.x;
+            frame.data[3][1] = model.nodes.nodes[body.node].pivot.y;
+            frame.data[3][2] = model.nodes.nodes[body.node].pivot.z;
+        } else {
+            frame = ToMatrix(model.nodes.worldBind(body.node));
+        }
+        const auto [centre, mass] = MassCentre(body);
+        fallers.push_back({b, Through(frame, centre), std::max(mass, 1e-6f), body.gravityScale});
+    }
+    if (fallers.empty()) {
+        return 0;
+    }
+    // The Local channels nothing of the model uses yet.
+    u32 used = 0;
+    for (const PhysicsBody& body : physics.bodies) {
+        used |= body.forceChannels & 0xFFFFu;
+    }
+    for (const Node& node : model.nodes.nodes) {
+        if (const ForceFieldPayload* field = std::get_if<ForceFieldPayload>(&node.payload)) {
+            used |= field->channels & 0xFFFFu;
+        }
+    }
+    std::vector<u32> free;
+    for (u32 bit = 0; bit < 16; ++bit) {
+        if ((used & (1u << bit)) == 0) {
+            free.push_back(bit);
+        }
+    }
+    if (free.empty()) {
+        out.warn(DiagCode::PhysicsGravityScaleDropped,
+                 std::to_string(fallers.size()) +
+                     " bodies' gravity scale: every Local force channel is taken, so none is left to carry it",
+                 ElementRef(ElementKind::PhysicsRecord, physics.bodies[fallers.front().body].id), target);
+        return 0;
+    }
+    // One group a body while the channels last; past them, the two groups
+    // that fall most alike and stand nearest go together.
+    std::vector<std::vector<u32>> groups;
+    for (u32 f = 0; f < fallers.size(); ++f) {
+        groups.push_back({f});
+    }
+    const auto centreOf = [&](const std::vector<u32>& group) {
+        Vector3f sum{0, 0, 0};
+        f32 mass = 0.0f;
+        f32 scale = 0.0f;
+        for (const u32 f : group) {
+            sum = sum + fallers[f].at * fallers[f].mass;
+            scale += fallers[f].scale * fallers[f].mass;
+            mass += fallers[f].mass;
+        }
+        return std::make_pair(sum * (1.0f / mass), scale / mass);
+    };
+    const f32 height = std::max(ModelHeight(model), 1.0f);
+    while (groups.size() > free.size()) {
+        std::size_t into = 0;
+        std::size_t from = 1;
+        f32 best = std::numeric_limits<f32>::max();
+        for (std::size_t a = 0; a < groups.size(); ++a) {
+            const auto [atA, scaleA] = centreOf(groups[a]);
+            for (std::size_t b = a + 1; b < groups.size(); ++b) {
+                const auto [atB, scaleB] = centreOf(groups[b]);
+                const f32 cost = (atA - atB).length() + 10.0f * height * std::abs(scaleA - scaleB);
+                if (cost < best) {
+                    best = cost;
+                    into = a;
+                    from = b;
+                }
+            }
+        }
+        groups[into].insert(groups[into].end(), groups[from].begin(), groups[from].end());
+        groups.erase(groups.begin() + static_cast<std::ptrdiff_t>(from));
+    }
+    const auto taken = [&](const std::string& name) {
+        return std::any_of(model.nodes.nodes.begin(), model.nodes.nodes.end(),
+                           [&](const Node& node) { return node.name == name; });
+    };
+    u32 carried = 0;
+    for (std::size_t g = 0; g < groups.size(); ++g) {
+        const auto [at, scale] = centreOf(groups[g]);
+        const u32 bit = 1u << free[g];
+        char stem[32];
+        std::snprintf(stem, sizeof stem, "Gravity %.2f", static_cast<double>(scale));
+        std::string name = stem;
+        for (u32 n = 2; taken(name); ++n) {
+            name = std::string(stem) + " " + std::to_string(n);
+        }
+        Node node;
+        node.name = std::move(name);
+        node.kind = NodeKind::ForceField;
+        node.parent = kInvalidNode;
+        node.local.translation = at;
+        node.pivot = at;
+        ForceFieldPayload field;
+        field.kind = ForceKind::Directional;
+        field.volume = ForceVolume::Sphere;
+        field.unbounded = true;
+        field.affectsParticles = false;
+        field.affectsBodies = true;
+        field.channels = bit;
+        field.strength = (1.0f - scale) * gravity;
+        // Drawn round the model; unbounded, it pushes everywhere.
+        field.width = field.height = field.length = height;
+        node.payload = field;
+        model.nodes.add(std::move(node));
+        for (const u32 f : groups[g]) {
+            PhysicsBody& body = physics.bodies[fallers[f].body];
+            body.forceChannels |= bit;
+            body.gravityScale = 1.0f;
+            ++carried;
+        }
+    }
+    out.info(DiagCode::PhysicsGravityScaleDropped,
+             std::to_string(carried) + " bodies' gravity scale carried by " + std::to_string(groups.size()) +
+                 " force field(s), the game's own being fixed at 1",
+             ElementRef(ElementKind::Document, 0), target);
+    return static_cast<u32>(groups.size());
+}
+
+/// Whether @p joint springs its twist back to rest, which StarCraft II cannot.
+bool SpringsTwist(const PhysicsJoint& joint) {
+    return joint.kind == JointKind::ConeTwist && joint.motor == JointMotorMode::Position && joint.angularSpring.hz > 0.0f;
+}
+
+/// `HoldSprungTwists` for one model.
+u32 HoldModelTwists(Model& model, ProfileId target, Diagnostics& out) {
+    u32 held = 0;
+    for (PhysicsJoint& joint : model.physics.joints) {
+        if (!SpringsTwist(joint)) {
+            continue;
+        }
+        joint.lower = joint.limitEnabled ? std::clamp(joint.lower, -kHeldTwist, kHeldTwist) : -kHeldTwist;
+        joint.upper = joint.limitEnabled ? std::clamp(joint.upper, -kHeldTwist, kHeldTwist) : kHeldTwist;
+        if (joint.upper < joint.lower) {
+            joint.lower = joint.upper = 0.0f;
+        }
+        joint.limitEnabled = true;
+        joint.motor = JointMotorMode::Off;
+        joint.maxMotorForce = 0.0f;
+        joint.angularSpring = JointSpring{};
+        ++held;
+    }
+    if (held != 0) {
+        out.info(DiagCode::PhysicsJointFieldDropped,
+                 std::to_string(held) + " shoulder joint(s) whose motor springs the twist back have it held, the "
+                                        "game having no joint spring",
+                 ElementRef(ElementKind::Document, 0), target);
+    }
+    return held;
+}
+
+/// Whether @p target fixes a body's gravity scale at 1, and @p model has a
+/// dynamic body it is not.
+bool ScalesGravity(const Model& model, ProfileId target) {
+    return GameOf(target) == Game::StarCraft && Profile(target).physics.any() &&
+           std::any_of(model.physics.bodies.begin(), model.physics.bodies.end(), [](const PhysicsBody& body) {
+               return body.motion == BodyMotion::Dynamic && std::abs(body.gravityScale - 1.0f) > 1e-4f;
+           });
+}
+
+/// Whether @p target has no joint spring (StarCraft II) and @p model a
+/// shoulder that springs its twist.
+bool SpringsTwists(const Model& model, ProfileId target) {
+    return GameOf(target) == Game::StarCraft && Profile(target).physics.any() &&
+           std::any_of(model.physics.joints.begin(), model.physics.joints.end(), SpringsTwist);
+}
+
+} // namespace
+
+u32 HoldSprungTwists(Document& document, ProfileId target, Diagnostics& out) {
+    u32 held = 0;
+    for (Model& model : document.models) {
+        if (SpringsTwists(model, target)) {
+            held += HoldModelTwists(model, target, out);
+        }
+    }
+    return held;
+}
+
+u32 CarryGravityScale(Document& document, ProfileId target, f32 gravity, Diagnostics& out) {
+    u32 made = 0;
+    for (Model& model : document.models) {
+        if (ScalesGravity(model, target)) {
+            made += CarryModelGravity(model, target, gravity, out);
+        }
+    }
+    return made;
+}
+
 bool NeedsPhysicsFit(const Document& document, ProfileId target) {
     const PhysicsCaps& caps = Profile(target).physics;
     if (!caps.any()) {
         return false;
     }
     for (const Model& model : document.models) {
+        if (ScalesGravity(model, target) || SpringsTwists(model, target)) {
+            return true;
+        }
         for (const PhysicsRig& rig : model.physics.rigs) {
             if (rig.start != RigStart::Animated) {
                 return true;
@@ -645,6 +939,15 @@ u32 FitPhysicsToProfile(Document& document, ProfileId target, Diagnostics& out) 
                 changed += ChooseSwitchedRigs(model, target, caps, states, out);
             }
             SwitchesFromRule(document, m, ids, states, target, out);
+            // In the units the export writes, the rescale coming after.
+            if (ScalesGravity(model, target)) {
+                const f32 factor = RescaleFactorBetween(document.defaultProfile, target);
+                changed += CarryModelGravity(model, target,
+                                             PhysicsHostFor(GameOf(target)).gravity.length() / std::max(factor, 1e-6f), out);
+            }
+            if (SpringsTwists(model, target)) {
+                changed += HoldModelTwists(model, target, out);
+            }
         } else if (!model.physics.rigs.empty()) {
             changed += ChooseRigs(model, target, caps, out);
         }

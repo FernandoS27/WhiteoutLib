@@ -303,6 +303,11 @@ std::vector<u32> UnbakedSetUpClips(const Document& document);
 /// Those of them a soft body acts in: what is baked even for a game that runs
 /// its own physics, since none runs a soft body.
 std::vector<u32> UnbakedSoftClips(const Document& document);
+/// The clips an export to a game without physics bakes (§8.6): the set-up ones
+/// not baked, and every other clip the rule hands a body with a shape to the
+/// simulation in. A World of Warcraft or Diablo III rig runs from the model's
+/// creation, so no clip of such a model needs setting up to be one.
+std::vector<u32> UnbakedPhysicsClips(const Document& document);
 /// The baked clips whose inputs no longer hold (§8.4).
 std::vector<u32> OutOfDateBakes(const Document& document);
 /// Whether @p clip's baked keys were edited since its bake (§8.4): a Rebake
@@ -325,7 +330,7 @@ void StampBakeWritten(Document& document, u32 clip);
 void MarkBakeStretches(Document& document);
 
 /**
- * @brief The export's bake (§8.6): every set-up clip not baked yet, in
+ * @brief The export's bake (§8.6): every clip `UnbakedPhysicsClips` lists, in
  *        `BakeOrder`, run and baked on @p document, the export's own copy.
  *
  * A recording in @p runs of a clip whose inputs still hold is written rather
@@ -336,6 +341,13 @@ void MarkBakeStretches(Document& document);
 u32 BakeForExport(Document& document, const BakeHooks& hooks,
                   std::span<const std::shared_ptr<const BakeRun>> runs, Diagnostics& out,
                   const std::vector<u32>* only = nullptr);
+/// As above, the runs made side by side on @p threads threads (0: half the
+/// hardware's count), each on hooks of its own from @p hooksFor, and the keys
+/// of every clip no other bake reads reduced together at the end: the same
+/// keys as one clip at a time, sooner.
+u32 BakeForExport(Document& document, const std::function<BakeHooks()>& hooksFor,
+                  std::span<const std::shared_ptr<const BakeRun>> runs, Diagnostics& out,
+                  const std::vector<u32>* only = nullptr, u32 threads = 0);
 
 } // namespace wem
 } // namespace models
