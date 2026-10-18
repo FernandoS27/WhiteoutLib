@@ -531,6 +531,13 @@ struct Cloth {
     }
 };
 
+/// Whether a bake keys @p cloth's particles as drivers (*Full detail*,
+/// EDIT_MODE_PHYSICS_CLOTH_DESIGN.md §10.3) rather than fitting its bones: an
+/// imported cloth names no bones to fit.
+inline bool BakesFullDetail(const Cloth& cloth) {
+    return !cloth.recipe || cloth.recipe->bakeInto == ClothBakeInto::FullDetail;
+}
+
 // ============================================================================
 // Rigs
 // ============================================================================

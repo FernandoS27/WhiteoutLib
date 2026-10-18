@@ -2010,8 +2010,7 @@ BakeReport BakeClipInto(Document& document, const BakeRun& run, const BakeRun* g
     // the cloth's own channels, which an Unbake takes away.
     for (u32 c = 0; c < run.cloths.size() && c < run.clothParticles.size(); ++c) {
         const Cloth* cloth = owner.physics.cloth(run.cloths[c]);
-        if (cloth == nullptr || !cloth->recipe || cloth->recipe->bakeInto != ClothBakeInto::FullDetail ||
-            cloth->cage.mesh >= owner.meshes.size()) {
+        if (cloth == nullptr || !BakesFullDetail(*cloth) || cloth->cage.mesh >= owner.meshes.size()) {
             continue;
         }
         const ClothDrivers drivers = ClothDriversOf(owner, *cloth);
@@ -2531,6 +2530,35 @@ bool BodiesActIn(const Document& document, u32 clip) {
     return false;
 }
 
+/// Whether a cloth draws somewhere in @p clip: read at 0 and at each of its
+/// *Active* keys, the only times that changes.
+bool ClothsActIn(const Document& document, u32 clip) {
+    const Clip& source = document.clips[clip];
+    if (source.model >= document.models.size() || document.models[source.model].physics.cloths.empty()) {
+        return false;
+    }
+    const Model& model = document.models[source.model];
+    std::vector<f32> times{0.0f};
+    for (const SubTrackContainer& container : source.containers) {
+        for (const SubTrack& track : container.subTracks) {
+            const AnimChannel* channel = model.animChannels.find(track.channel);
+            if (channel != nullptr && channel->target.kind == TrackTarget::Kind::Physics &&
+                channel->target.channel == Channel::ClothActive) {
+                times.insert(times.end(), track.times.begin(), track.times.end());
+            }
+        }
+    }
+    const SwitchReader reader(document, source.model, clip, SwitchScope::Clip);
+    for (u32 c = 0; c < model.physics.cloths.size(); ++c) {
+        for (const f32 t : times) {
+            if (t >= 0.0f && t <= source.duration && reader.clothActive(c, t)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 } // namespace
 
 std::vector<u32> UnbakedPhysicsClips(const Document& document) {
@@ -2539,7 +2567,8 @@ std::vector<u32> UnbakedPhysicsClips(const Document& document) {
         const Clip& clip = document.clips[c];
         const bool baked = clip.physics.has_value() && clip.physics->baked.has_value();
         if (!baked && !IsGlobalLoop(clip) &&
-            (clip.physics.has_value() || SoftActsIn(document, c) || BodiesActIn(document, c))) {
+            (clip.physics.has_value() || SoftActsIn(document, c) || BodiesActIn(document, c) ||
+             ClothsActIn(document, c))) {
             out.push_back(c);
         }
     }

@@ -139,6 +139,32 @@ void Thin(const std::vector<T>& values, f32 tolerance, Lerp lerp, Error error, s
     }
 }
 
+/// What a cloth's made bones are named after: its recipe's name, else the
+/// section its faces draw in (an imported cloth's), else its id.
+std::string ClothBoneStem(const Model& model, const Cloth& cloth) {
+    if (cloth.recipe && !cloth.recipe->name.empty()) {
+        return cloth.recipe->name;
+    }
+    const SectionRef at = cloth.bindings.empty() ? cloth.cage : cloth.bindings.front().section;
+    if (at.mesh < model.meshes.size() && at.section < model.meshes[at.mesh].sections.size() &&
+        !model.meshes[at.mesh].sections[at.section].name.empty()) {
+        return model.meshes[at.mesh].sections[at.section].name;
+    }
+    return "Cloth" + std::to_string(cloth.id);
+}
+
+/// Whether a clip of @p model keys @p cloth's drivers: a bake wrote them.
+bool DriversKeyed(const Document& document, u32 model, const Cloth& cloth) {
+    const u32 channel = FindClothDriverChannel(document.models[model], cloth.id, 0, Channel::ClothDriverTranslation);
+    if (channel == kInvalidIndex) {
+        return false;
+    }
+    return std::any_of(document.clips.begin(), document.clips.end(), [&](const Clip& clip) {
+        return clip.model == model && std::any_of(clip.containers.begin(), clip.containers.end(),
+                                                  [&](const SubTrackContainer& k) { return k.find(channel) != nullptr; });
+    });
+}
+
 } // namespace
 
 ClothDrivers ClothDriversOf(const Model& model, const Cloth& cloth) {
@@ -424,8 +450,12 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out) {
     for (u32 m = 0; m < document.models.size(); ++m) {
         for (u32 c = 0; c < document.models[m].physics.cloths.size(); ++c) {
             const Cloth cloth = document.models[m].physics.cloths[c];
-            if (!cloth.recipe || cloth.recipe->bakeInto != ClothBakeInto::FullDetail ||
-                cloth.cage.mesh >= document.models[m].meshes.size()) {
+            if (!BakesFullDetail(cloth) || cloth.cage.mesh >= document.models[m].meshes.size()) {
+                continue;
+            }
+            // An imported cloth no bake keyed goes as its faces' own skin, as it
+            // did before the export could bake it.
+            if (!cloth.recipe && !DriversKeyed(document, m, cloth)) {
                 continue;
             }
             const ClothDrivers drivers = ClothDriversOf(document.models[m], cloth);
@@ -477,10 +507,11 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out) {
             const std::span<const Vector3f> positions =
                 mesh.attributes.get<Vector3f>(geom::names::kPosition, geom::Domain::Vertex);
             // A bone per driver, under the holder, at its particle's rest.
+            const std::string stem = ClothBoneStem(owner, cloth);
             std::map<u32, u32> boneOf;
             for (u32 d = 0; d < drivers.vertices.size(); ++d) {
                 char name[96];
-                std::snprintf(name, sizeof name, "%s_%02u", cloth.recipe->name.c_str(), d + 1);
+                std::snprintf(name, sizeof name, "%s_%02u", stem.c_str(), d + 1);
                 Matrix44f rest = Matrix44f::identity();
                 const Vector3f at = drivers.vertices[d] < positions.size() ? positions[drivers.vertices[d]] : Vector3f{0, 0, 0};
                 rest.data[3][0] = at.x, rest.data[3][1] = at.y, rest.data[3][2] = at.z;
@@ -615,7 +646,7 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out) {
             }
             made += static_cast<u32>(drivers.vertices.size());
             out.info(DiagCode::PhysicsUnsupported,
-                     cloth.recipe->name + ": " + std::to_string(drivers.vertices.size()) +
+                     stem + ": " + std::to_string(drivers.vertices.size()) +
                          " bones made from its drivers, the target running no cloth",
                      ElementRef(ElementKind::PhysicsRecord, cloth.id), target);
         }

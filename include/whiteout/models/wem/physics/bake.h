@@ -305,8 +305,9 @@ std::vector<u32> UnbakedSetUpClips(const Document& document);
 std::vector<u32> UnbakedSoftClips(const Document& document);
 /// The clips an export to a game without physics bakes (§8.6): the set-up ones
 /// not baked, and every other clip the rule hands a body with a shape to the
-/// simulation in. A World of Warcraft or Diablo III rig runs from the model's
-/// creation, so no clip of such a model needs setting up to be one.
+/// simulation in, or a cloth draws in. A World of Warcraft or Diablo III rig
+/// runs from the model's creation, and a StarCraft II cloth in every clip it is
+/// active in, so no clip of such a model needs setting up to be one.
 std::vector<u32> UnbakedPhysicsClips(const Document& document);
 /// The baked clips whose inputs no longer hold (§8.4).
 std::vector<u32> OutOfDateBakes(const Document& document);
