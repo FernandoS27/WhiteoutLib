@@ -1355,12 +1355,20 @@ void CheckPhysicsForProfile(const Model& model, ProfileId profile, Diagnostics& 
                      "a joint's body is not the first on its node, which the profile binds", where,
                      profile);
         }
+        // A feature the caps say the format has no field for, once per joint.
+        const bool motor = !caps.motors && joint.motor != JointMotorMode::Off;
+        const bool breaks = !caps.jointBreaking && (joint.breakForce != 0.0f || joint.breakTorque != 0.0f);
+        if (motor || breaks) {
+            out.warn(DiagCode::PhysicsJointFieldDropped,
+                     std::string(motor && breaks ? "a joint's motor and breaking"
+                                 : motor         ? "a joint's motor"
+                                                 : "a joint's breaking") +
+                         ", which the profile cannot carry",
+                     where, profile);
+        }
         const bool dropped =
-            sc2 ? joint.linearSpring.hz != 0.0f || joint.restLength != 0.0f || joint.breakForce != 0.0f ||
-                      joint.breakTorque != 0.0f || joint.friction == JointFriction::Torque ||
-                      joint.motor != JointMotorMode::Off
-                : joint.collideConnected || joint.breakForce != 0.0f || joint.breakTorque != 0.0f ||
-                      joint.friction == JointFriction::GravityHold ||
+            sc2 ? joint.linearSpring.hz != 0.0f || joint.restLength != 0.0f || joint.friction == JointFriction::Torque
+                : joint.collideConnected || joint.friction == JointFriction::GravityHold ||
                       (HasRange(joint.kind) && joint.limitEnabled != (joint.upper > joint.lower));
         if (dropped) {
             out.info(DiagCode::PhysicsJointFieldDropped, "a joint field the profile cannot say", where,
@@ -1371,6 +1379,12 @@ void CheckPhysicsForProfile(const Model& model, ProfileId profile, Diagnostics& 
         out.warn(DiagCode::PhysicsUnsupported, "cloth the profile cannot carry",
                  ElementRef(ElementKind::Document, 0), profile);
         return;
+    }
+    for (const ClothCollider& collider : physics.colliders) {
+        if (caps.cloth && !caps.planeColliders && collider.kind == ClothColliderKind::Plane) {
+            out.warn(DiagCode::PhysicsUnsupported, "a plane cloth collider the profile cannot carry",
+                     ElementRef(ElementKind::PhysicsRecord, collider.id), profile);
+        }
     }
     for (const Cloth& cloth : physics.cloths) {
         if (cloth.cage.mesh >= model.meshes.size()) {

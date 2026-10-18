@@ -1039,6 +1039,9 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("maxHullHalfEdges", &whiteout::models::wem::PhysicsCaps::maxHullHalfEdges)
         .property("maxClothAnchorBone", &whiteout::models::wem::PhysicsCaps::maxClothAnchorBone)
         .property("switches", &whiteout::models::wem::PhysicsCaps::switches)
+        .property("motors", &whiteout::models::wem::PhysicsCaps::motors)
+        .property("jointBreaking", &whiteout::models::wem::PhysicsCaps::jointBreaking)
+        .property("planeColliders", &whiteout::models::wem::PhysicsCaps::planeColliders)
     ;
 
     class_<whiteout::models::wem::ProfileDesc>("WemProfileDesc")

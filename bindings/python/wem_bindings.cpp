@@ -1281,6 +1281,9 @@ Empty for a profile whose format has none: its exports bake physics into keys in
         .def_readwrite("max_hull_half_edges", &whiteout::models::wem::PhysicsCaps::maxHullHalfEdges)
         .def_readwrite("max_cloth_anchor_bone", &whiteout::models::wem::PhysicsCaps::maxClothAnchorBone, R"doc(The highest bone index a cloth anchor may name.)doc")
         .def_readwrite("switches", &whiteout::models::wem::PhysicsCaps::switches, R"doc(Whether animation switches a body or cloth on and off (StarCraft II's `PhysicsDynamic` and `ClothActive` keys). Without it, what the target builds simulates from creation.)doc")
+        .def_readwrite("motors", &whiteout::models::wem::PhysicsCaps::motors, R"doc(A joint's motor.)doc")
+        .def_readwrite("joint_breaking", &whiteout::models::wem::PhysicsCaps::jointBreaking, R"doc(A joint's break force and torque.)doc")
+        .def_readwrite("plane_colliders", &whiteout::models::wem::PhysicsCaps::planeColliders, R"doc(A plane cloth collider.)doc")
     ;
 
     py::class_<whiteout::models::wem::ProfileDesc>(m, "ProfileDesc", R"doc(Everything WEM knows about a profile, as data.)doc")

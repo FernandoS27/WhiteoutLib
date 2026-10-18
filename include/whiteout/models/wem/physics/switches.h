@@ -14,6 +14,9 @@
  * while it runs. On top of that sit StarCraft II's switches: a body's
  * `PhysicsDynamic` keys, its *Inherit*, and a rig's `PhysicsRagdoll` ("ragdoll
  * now"), each keyed per clip. A document with no keys plays as it always did.
+ * In a StarCraft II or Heroes document a body no rig holds switches as the
+ * game switches it, in every scope: by its key where a clip keys it, else by
+ * whether it `simulates`, whatever its creation type but Static.
  *
  * The driver, the timeline, the `.m3` export and Problems all read the rule
  * here, so none of them can disagree about a body.
@@ -80,10 +83,11 @@ constexpr bool RigRuns(RigStart start) {
 
 /// What a physics switch plays where its clip does not key it (§9.1): a
 /// body's `PhysicsDynamic` 1 when a rig holding it runs and it is Dynamic and
-/// simulates, a cloth's `ClothActive` its `active`, a rig's `PhysicsRagdoll`
+/// simulates (in @p game StarCraft, one no rig holds when it simulates and is
+/// not Static), a cloth's `ClothActive` its `active`, a rig's `PhysicsRagdoll`
 /// 0 and any `PhysicsBlend` 1. Two defaults depend on the clip and are the
 /// rule's, not this: an *On death* drop, and a drop carried into the clip.
-f32 PhysicsSwitchRest(const Model& model, const TrackTarget& target);
+f32 PhysicsSwitchRest(const Model& model, const TrackTarget& target, Game game);
 
 /// @p record's @p channel on @p model, or `kInvalidIndex` when it has none.
 u32 FindPhysicsChannel(const Model& model, u32 record, Channel channel);
@@ -121,7 +125,8 @@ public:
     bool keysRig(u32 rig) const;
 
     /// Whether @p body could move in some clip: a member of a rig that is not
-    /// *Never*, or a body no rig holds that some clip keys (§6).
+    /// *Never*, or a body no rig holds that some clip keys (§6) or, in a
+    /// StarCraft document, that is not Static.
     bool movable(u32 body) const;
 
     /// Whether @p cloth (an index into the cloths) draws at @p seconds: its

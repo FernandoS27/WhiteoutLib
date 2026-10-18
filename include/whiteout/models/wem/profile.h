@@ -296,6 +296,9 @@ struct PhysicsCaps {
     /// `PhysicsDynamic` and `ClothActive` keys). Without it, what the target
     /// builds simulates from creation.
     bool switches = false;
+    bool motors = false;         ///< A joint's motor.
+    bool jointBreaking = false;  ///< A joint's break force and torque.
+    bool planeColliders = false; ///< A plane cloth collider.
 
     bool any() const {
         return shapeKinds != 0 || cloth;

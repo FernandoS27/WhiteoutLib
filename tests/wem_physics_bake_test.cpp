@@ -298,14 +298,14 @@ TEST_CASE("G-SW the switches' rests are the rule's", "[physics][bake][switches]"
     target.kind = TrackTarget::Kind::Physics;
     target.channel = Channel::PhysicsDynamic;
     target.sub = always.bodies[0];
-    CHECK(PhysicsSwitchRest(always.model(), target) == 1.0f);
+    CHECK(PhysicsSwitchRest(always.model(), target, Game::Warcraft) == 1.0f);
     target.sub = always.bodies[1];
-    CHECK(PhysicsSwitchRest(always.model(), target) == 0.0f);
+    CHECK(PhysicsSwitchRest(always.model(), target, Game::Warcraft) == 0.0f);
     target.channel = Channel::PhysicsBlend;
-    CHECK(PhysicsSwitchRest(always.model(), target) == 1.0f);
+    CHECK(PhysicsSwitchRest(always.model(), target, Game::Warcraft) == 1.0f);
     target.channel = Channel::PhysicsRagdoll;
     target.sub = always.rig;
-    CHECK(PhysicsSwitchRest(always.model(), target) == 0.0f);
+    CHECK(PhysicsSwitchRest(always.model(), target, Game::Warcraft) == 0.0f);
     // What the Animator fills an unkeyed switch with.
     Rig onDeath(RigStart::OnDeath, {true}, {"Death"});
     target.channel = Channel::PhysicsDynamic;
@@ -317,6 +317,99 @@ TEST_CASE("G-SW the switches' rests are the rule's", "[physics][bake][switches]"
     target.sub = always.bodies[0];
     std::memcpy(&rest, RestsOf(always.document, 0, target, geom::AttrType::F32).unkeyed.data(), sizeof rest);
     CHECK(rest == 1.0f);
+}
+
+// ---- StarCraft II's own rule for a body no rig holds (SC2 physics plan U1) ----
+
+namespace {
+
+/// @p rig made a StarCraft II document with every body out of its rig, as an
+/// `.m3` import has them: created kinematic, `simulates` its authored state.
+void Shipped(Rig& rig) {
+    rig.document.profiles = {ProfileId::Sc2};
+    rig.document.defaultProfile = ProfileId::Sc2;
+    rig.model().physics.rigs.clear();
+    for (PhysicsBody& body : rig.model().physics.bodies) {
+        body.motion = BodyMotion::Kinematic;
+    }
+}
+
+} // namespace
+
+TEST_CASE("G-SW a StarCraft II body no rig holds follows its own key", "[physics][bake][switches][sc2]") {
+    Rig rig(RigStart::Always, {false}, {"Stand", "Death"});
+    Shipped(rig);
+    rig.model().physics.bodies[0].simulates = false;
+    rig.key(1, rig.bodies[0], Channel::PhysicsDynamic, {0.0f, 0.3f}, {0.0f, 1.0f});
+    CHECK(Actives(rig.at(0, 0.5f)) == std::vector<bool>{false});
+    CHECK(Actives(rig.at(1, 0.1f)) == std::vector<bool>{false});
+    const std::vector<BodySwitch> death = rig.at(1, 0.5f);
+    CHECK(Actives(death) == std::vector<bool>{true});
+    CHECK(death[0].why == SwitchWhy::Keyed);
+    // The Test reads the same keys.
+    CHECK(Actives(rig.at(0, 0.5f, SwitchScope::Test)) == std::vector<bool>{false});
+    CHECK(Actives(rig.at(1, 0.5f, SwitchScope::Test)) == std::vector<bool>{true});
+}
+
+TEST_CASE("G-SW an unkeyed StarCraft II body that simulates is on everywhere", "[physics][bake][switches][sc2]") {
+    Rig rig(RigStart::Always, {false}, {"Stand", "Death"});
+    Shipped(rig);
+    for (const SwitchScope scope : {SwitchScope::Clip, SwitchScope::Simulate, SwitchScope::Test}) {
+        for (const u32 clip : {0u, 1u, kInvalidIndex}) {
+            const std::vector<BodySwitch> now = rig.at(clip, 0.5f, scope);
+            CHECK(Actives(now) == std::vector<bool>{true});
+            CHECK(now[0].why == SwitchWhy::Rest);
+        }
+    }
+    CHECK(SwitchReader(rig.document, 0, 0, SwitchScope::Clip).movable(0));
+    TrackTarget target;
+    target.kind = TrackTarget::Kind::Physics;
+    target.channel = Channel::PhysicsDynamic;
+    target.sub = rig.bodies[0];
+    CHECK(PhysicsSwitchRest(rig.model(), target, Game::StarCraft) == 1.0f);
+    // The editor's rule reads the same record off: kinematic, in no rig.
+    CHECK(PhysicsSwitchRest(rig.model(), target, Game::Warcraft) == 0.0f);
+}
+
+TEST_CASE("G-SW a Static StarCraft II body is never on", "[physics][bake][switches][sc2]") {
+    Rig rig(RigStart::Always, {false}, {"Stand"});
+    Shipped(rig);
+    rig.model().physics.bodies[0].motion = BodyMotion::Static;
+    rig.key(0, rig.bodies[0], Channel::PhysicsDynamic, {0.0f}, {1.0f});
+    CHECK(Actives(rig.at(0, 0.5f)) == std::vector<bool>{false});
+    CHECK(Actives(rig.at(0, 0.5f, SwitchScope::Test)) == std::vector<bool>{false});
+    CHECK_FALSE(SwitchReader(rig.document, 0, 0, SwitchScope::Clip).movable(0));
+}
+
+TEST_CASE("G-SW a StarCraft II Inherit body follows its ancestor, or stays", "[physics][bake][switches][sc2]") {
+    Rig rig(RigStart::Always, {false, false}, {"Stand"});
+    Shipped(rig);
+    PhysicsSet& physics = rig.model().physics;
+    physics.bodies[1].inheritDynamic = true;
+    CHECK(Actives(rig.at(0, 0.5f)) == std::vector<bool>{true, true});
+    CHECK(rig.at(0, 0.5f)[1].why == SwitchWhy::Inherited);
+    physics.bodies[0].simulates = false;
+    CHECK(Actives(rig.at(0, 0.5f)) == std::vector<bool>{false, false});
+    // With no bodied ancestor it stays with its animation.
+    physics.bodies[0].inheritDynamic = true;
+    physics.bodies[0].simulates = true;
+    CHECK(Actives(rig.at(0, 0.5f)) == std::vector<bool>{false, false});
+}
+
+TEST_CASE("G-SW a StarCraft II rig member and a Warcraft III body read as before", "[physics][bake][switches][sc2]") {
+    // A rig member keeps the editor's rule: an On death ragdoll is still in Stand.
+    Rig member(RigStart::OnDeath, {true, false}, {"Stand"});
+    member.document.profiles = {ProfileId::Sc2};
+    member.document.defaultProfile = ProfileId::Sc2;
+    CHECK(Actives(member.at(0, 0.5f)) == std::vector<bool>{false, false});
+    CHECK(Actives(member.at(0, 0.5f, SwitchScope::Test)) == std::vector<bool>{true, false});
+    // The same loose bodies under Warcraft III: still outside the Test, and
+    // the Test runs only the Dynamic one.
+    Rig loose(RigStart::Always, {true, false}, {"Stand"});
+    loose.model().physics.rigs.clear();
+    CHECK(Actives(loose.at(0, 0.5f)) == std::vector<bool>{false, false});
+    CHECK(Actives(loose.at(0, 0.5f, SwitchScope::Test)) == std::vector<bool>{true, false});
+    CHECK_FALSE(SwitchReader(loose.document, 0, 0, SwitchScope::Clip).movable(0));
 }
 
 TEST_CASE("G-SW a switch on the wrong kind of record is invalid", "[physics][bake][switches]") {

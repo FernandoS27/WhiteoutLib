@@ -153,18 +153,23 @@ u32 FirstLoopNamed(const Document& document, u32 model, std::string_view base) {
 
 } // namespace
 
-f32 PhysicsSwitchRest(const Model& model, const TrackTarget& target) {
+f32 PhysicsSwitchRest(const Model& model, const TrackTarget& target, Game game) {
     const PhysicsSet& physics = model.physics;
     switch (target.channel) {
     case Channel::PhysicsDynamic: {
         const PhysicsBody* body = physics.body(target.sub);
-        if (body == nullptr || body->motion != BodyMotion::Dynamic || !body->simulates) {
+        if (body == nullptr || body->motion == BodyMotion::Static || !body->simulates) {
             return 0.0f;
+        }
+        const bool held = std::any_of(physics.rigs.begin(), physics.rigs.end(),
+                                      [&](const PhysicsRig& rig) { return Holds(rig, body->id); });
+        if (!held && game == Game::StarCraft) {
+            return 1.0f;
         }
         const bool runs = std::any_of(physics.rigs.begin(), physics.rigs.end(), [&](const PhysicsRig& rig) {
             return RigRuns(rig.start) && Holds(rig, body->id);
         });
-        return runs ? 1.0f : 0.0f;
+        return runs && body->motion == BodyMotion::Dynamic ? 1.0f : 0.0f;
     }
     case Channel::ClothActive: {
         const Cloth* cloth = physics.cloth(target.sub);
@@ -198,6 +203,7 @@ SwitchReader::SwitchReader(const Document& document, u32 model, u32 clip, Switch
     const Model& owner = document.models[model];
     const PhysicsSet& physics = owner.physics;
     const NodeTree& tree = owner.nodes;
+    const bool starcraft = GameOf(document.defaultProfile) == Game::StarCraft;
 
     rigs_.resize(physics.rigs.size());
     for (u32 r = 0; r < physics.rigs.size(); ++r) {
@@ -249,9 +255,11 @@ SwitchReader::SwitchReader(const Document& document, u32 model, u32 clip, Switch
         }
         const bool onlyNever = held && std::all_of(out.rigs.begin(), out.rigs.end(), [&](u32 r) { return rigs_[r].never; });
         out.still = body.motion == BodyMotion::Static || onlyNever;
-        // The Test runs a body no rig holds, as it always has.
+        // StarCraft II runs a body no rig holds by its own switch, never by its
+        // creation type (`simulationType`); elsewhere the Test runs one.
+        const bool own = !held && starcraft;
         const bool runs = heldRunning || (!held && scope == SwitchScope::Test);
-        out.rest = runs && body.motion == BodyMotion::Dynamic && body.simulates;
+        out.rest = own ? body.simulates : runs && body.motion == BodyMotion::Dynamic && body.simulates;
         out.exempt = body.exemptFromRagdoll;
         out.inherit = body.inheritDynamic;
         out.dynamic = Keyed(clip_, FindPhysicsChannel(owner, body.id, Channel::PhysicsDynamic));
@@ -271,7 +279,7 @@ SwitchReader::SwitchReader(const Document& document, u32 model, u32 clip, Switch
                 break;
             }
         }
-        out.movable = !out.still && (held || scope == SwitchScope::Test ||
+        out.movable = !out.still && (held || own || scope == SwitchScope::Test ||
                                      keyedSomewhere(FindPhysicsChannel(owner, body.id, Channel::PhysicsDynamic)));
     }
 }

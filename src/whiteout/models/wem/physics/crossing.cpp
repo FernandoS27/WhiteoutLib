@@ -232,7 +232,7 @@ void SwitchesFromRule(Document& document, u32 m, std::span<const u32> readIds, s
         rest.kind = TrackTarget::Kind::Physics;
         rest.sub = id;
         rest.channel = Channel::PhysicsDynamic;
-        body->simulates = PhysicsSwitchRest(model, rest) >= 0.5f;
+        body->simulates = PhysicsSwitchRest(model, rest, GameOf(document.defaultProfile)) >= 0.5f;
         const bool onDeath = std::any_of(physics.rigs.begin(), physics.rigs.end(), [&](const PhysicsRig& rig) {
             return rig.start == RigStart::OnDeath && std::find(rig.bodies.begin(), rig.bodies.end(), id) != rig.bodies.end();
         });

@@ -45,10 +45,15 @@ struct StageHooks {
     std::function<bool(StageKind kind)> steps;
 };
 
-/// 9.8 m/s² downward in @p game's own units, what a new physics stage falls
-/// by: Warcraft III has about 55 units a metre, Diablo III about 3.5, and
-/// StarCraft II and World of Warcraft one.
+/// The game's own gravity in its own units, what a new physics stage falls
+/// by: 9.8 m/s² for Warcraft III, Diablo III and World of Warcraft, and
+/// StarCraft II's 8.8 (`PhysicsHostFor`). A force's *g*; never a length.
 f32 DefaultGravity(Game game);
+
+/// How many of @p game's units make a metre: Warcraft III about 55, Diablo
+/// III about 3.5, StarCraft II and World of Warcraft one. What a tolerance or
+/// a size in metres is scaled by.
+f32 UnitsPerMetre(Game game);
 
 /// The weight channel of @p stage, or null: `Channel::StageWeight` on its
 /// first driven node, `sub` its id.

@@ -94,6 +94,7 @@ PhysicsCaps physicsOf(ProfileId id) {
     if (id == ProfileId::Wow) {
         caps.shapeKinds = 0x17u; // Box, Sphere, Capsule, ConvexHull
         caps.jointKinds = 0x3Fu; // all six
+        caps.motors = true;
         caps.maxHullVertices = 255; // the same u8 half-edge tables
         caps.maxHullFaces = 255;
         caps.maxHullHalfEdges = 256;

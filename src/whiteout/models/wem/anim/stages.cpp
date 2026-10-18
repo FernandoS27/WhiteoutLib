@@ -480,8 +480,21 @@ f32 DefaultGravity(Game game) {
         return 540.0f;
     case Game::Diablo:
         return 34.0f;
+    case Game::StarCraft:
+        return PhysicsHostFor(game).gravity.length();
     default:
         return 9.8f;
+    }
+}
+
+f32 UnitsPerMetre(Game game) {
+    switch (game) {
+    case Game::Warcraft:
+        return 540.0f / 9.8f;
+    case Game::Diablo:
+        return 34.0f / 9.8f;
+    default:
+        return 1.0f;
     }
 }
 

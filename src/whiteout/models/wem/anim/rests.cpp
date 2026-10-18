@@ -234,7 +234,7 @@ TrackRests WarcraftRests(const Document& document, u32 model, const TrackTarget&
     // A physics switch rests as the switch rule reads it where no clip keys it
     // (EDIT_MODE_PHYSICS_BAKE_DESIGN.md §9.1).
     if (target.kind == TrackTarget::Kind::Physics) {
-        return Same(AsType(type, PhysicsSwitchRest(source, target)));
+        return Same(AsType(type, PhysicsSwitchRest(source, target, GameOf(document.defaultProfile))));
     }
 
     switch (target.kind) {
