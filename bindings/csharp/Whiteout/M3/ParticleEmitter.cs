@@ -664,7 +664,7 @@ public sealed class ParticleEmitter : WhiteoutHandle
     }
 
 
-    /// <summary>Ribbon spawn probability on bounce (v23+)</summary>
+    /// <summary>The model particles' legacy orientation (v23+), read by the model pose (SC2_PARTICLE_RE.md §16.15); the community layout's "ribbon spawned on a bounce", which the runtime never spawns.</summary>
     public float SpawnRibbonOnBounceChance
     {
         get => NativeMethods.whiteout_m3_M3ParticleEmitter_get_spawnRibbonOnBounceChance(DangerousGet());
@@ -672,7 +672,7 @@ public sealed class ParticleEmitter : WhiteoutHandle
     }
 
 
-    /// <summary>Index into RIB_ array (-1 = none, v23+)</summary>
+    /// <summary>That orientation's variant, raw (v23+): no ribbon index, whatever the name says. A v22 or older record's instance type is moved here on read.</summary>
     public int RibbonLinkIndex
     {
         get => NativeMethods.whiteout_m3_M3ParticleEmitter_get_ribbonLinkIndex(DangerousGet());

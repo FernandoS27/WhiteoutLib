@@ -21,7 +21,7 @@ public sealed class SplineRibbon : WhiteoutHandle
         return true;
     }
 
-    /// <summary>Emission point offset from bone</summary>
+    /// <summary>Bezier C0: the start point, emitter-local</summary>
     public unsafe Vector3f EmissionOffset
     {
         get
@@ -45,7 +45,7 @@ public sealed class SplineRibbon : WhiteoutHandle
     }
 
 
-    /// <summary>Emission direction vector</summary>
+    /// <summary>The start tangent (C1)</summary>
     public unsafe Vector3f EmissionVector
     {
         get
@@ -69,11 +69,50 @@ public sealed class SplineRibbon : WhiteoutHandle
     }
 
 
-    /// <summary>Reserved (always 0)</summary>
-    public uint Reserved
+    /// <summary>The end tangent (C2) and the end point (C3), in the bone's frame: raw vectors the runtime reads as they are, where the community layout read an AnimRef and a reserved word (SC2_RIBBON_RE.md §1.2).</summary>
+    public unsafe Vector3f EndTangent
     {
-        get => NativeMethods.whiteout_m3_M3SplineRibbon_get_reserved(DangerousGet());
-        set => NativeMethods.whiteout_m3_M3SplineRibbon_set_reserved(DangerousGet(), value);
+        get
+        {
+            var __ptr = NativeMethods.whiteout_m3_M3SplineRibbon_get_endTangent(DangerousGet());
+            return System.Runtime.CompilerServices.Unsafe.Read<Vector3f>((void*)__ptr);
+        }
+        set
+        {
+            var __ptr = Whiteout.Common.NativeMath.whiteout_Vector3f_new();
+            try
+            {
+                System.Runtime.CompilerServices.Unsafe.Write((void*)__ptr, value);
+                NativeMethods.whiteout_m3_M3SplineRibbon_set_endTangent(DangerousGet(), __ptr);
+            }
+            finally
+            {
+                Whiteout.Common.NativeMath.whiteout_Vector3f_delete(__ptr);
+            }
+        }
+    }
+
+
+    public unsafe Vector3f EndOffset
+    {
+        get
+        {
+            var __ptr = NativeMethods.whiteout_m3_M3SplineRibbon_get_endOffset(DangerousGet());
+            return System.Runtime.CompilerServices.Unsafe.Read<Vector3f>((void*)__ptr);
+        }
+        set
+        {
+            var __ptr = Whiteout.Common.NativeMath.whiteout_Vector3f_new();
+            try
+            {
+                System.Runtime.CompilerServices.Unsafe.Write((void*)__ptr, value);
+                NativeMethods.whiteout_m3_M3SplineRibbon_set_endOffset(DangerousGet(), __ptr);
+            }
+            finally
+            {
+                Whiteout.Common.NativeMath.whiteout_Vector3f_delete(__ptr);
+            }
+        }
     }
 
 

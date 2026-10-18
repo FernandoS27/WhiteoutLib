@@ -404,22 +404,22 @@ impl TryFrom<i32> for RibbonType {
     }
 }
 
-/// Projector / decal projection type (PROJ)
+/// Projector / decal projection type (PROJ): from 1, as every shipped record reads (EDIT_MODE_SC2_PROFILE_PLAN.md S7.1).
 #[repr(i32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ProjectionType {
     /// Orthographic projection
-    Orthographic = 0,
+    Orthographic = 1,
     /// Perspective projection
-    Perspective = 1,
+    Perspective = 2,
 }
 
 impl TryFrom<i32> for ProjectionType {
     type Error = crate::Error;
     fn try_from(v: i32) -> Result<Self, crate::Error> {
         match v {
-            0 => Ok(ProjectionType::Orthographic),
-            1 => Ok(ProjectionType::Perspective),
+            1 => Ok(ProjectionType::Orthographic),
+            2 => Ok(ProjectionType::Perspective),
             other => Err(crate::Error::UnknownEnum {
                 name: "ProjectionType",
                 value: other,
@@ -1672,13 +1672,21 @@ pub struct ParticleRotationFlag(pub i32);
 
 impl ParticleRotationFlag {
     pub const NONE: Self = Self(0);
+    /// Each particle's UVs shifted by its own random tile
+    pub const RANDOM_UV_OFFSET: Self = Self(1);
     /// Relative rotation; the SC2 upgrade sets it from rotationRandomEnable (v≤18)
     pub const RELATIVE: Self = Self(2);
     /// Always set
     pub const ALWAYS_SET: Self = Self(4);
+    /// The launch velocity's z dropped, its xy rescaled to the speed
+    pub const FLATTEN_VELOCITY_XY: Self = Self(8);
+    /// A collision child takes this emitter's scale
+    pub const SCALE_COLLISION_CHILD: Self = Self(16);
+    /// A trail child takes this emitter's scale
+    pub const SCALE_TRAIL_CHILD: Self = Self(32);
     /// Force-set by the SC2 version upgrade for all v≤20 emitters (role TBD)
     pub const UNKNOWN_6: Self = Self(64);
-    /// Set by the SC2 upgrade for remapped Billboard model particles (role TBD)
+    /// Random spin axis (RE); set by the SC2 upgrade for remapped Billboard model particles
     pub const UNKNOWN_7: Self = Self(128);
 
     #[inline]
@@ -1755,10 +1763,10 @@ impl RibbonFlag {
     pub const USE_LENGTH_AND_TIME: Self = Self(4096);
     /// Accurate GPU tangents
     pub const ACCURATE_GPU_TANGENTS: Self = Self(8192);
-    /// Derive yaw from speed
-    pub const YAW_FROM_SPEED: Self = Self(16384);
-    /// Use locator node
-    pub const USE_LOCATOR: Self = Self(32768);
+    /// Collide through the terrain+objects collider (SC2_RIBBON_RE.md §1.3)
+    pub const DUAL_COLLISION: Self = Self(16384);
+    /// Exchange yaw and pitch in the emission basis (§3.2)
+    pub const SWAP_YAW_PITCH: Self = Self(32768);
 
     #[inline]
     pub const fn contains(self, other: Self) -> bool {
@@ -5802,7 +5810,7 @@ impl ParticleEmitter {
         unsafe { ffi::whiteout_m3_M3ParticleEmitter_resize_copyIndices(self.raw.as_ptr(), count) }
     }
 
-    /// Ribbon spawn probability on bounce (v23+)
+    /// The model particles' legacy orientation (v23+), read by the model pose (SC2_PARTICLE_RE.md §16.15); the community layout's "ribbon spawned on a bounce", which the runtime never spawns.
     pub fn spawn_ribbon_on_bounce_chance(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe {
@@ -5820,7 +5828,7 @@ impl ParticleEmitter {
         }
     }
 
-    /// Index into RIB_ array (-1 = none, v23+)
+    /// That orientation's variant, raw (v23+): no ribbon index, whatever the name says. A v22 or older record's instance type is moved here on read.
     pub fn ribbon_link_index(&self) -> i32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3ParticleEmitter_get_ribbonLinkIndex(self.raw.as_ptr()) }
@@ -6001,7 +6009,7 @@ impl SplineRibbon {
         }
     }
 
-    /// Emission point offset from bone
+    /// Bezier C0: the start point, emitter-local
     pub fn emission_offset(&self) -> crate::math::Vector3f {
         // SAFETY: the getter returns an interior pointer to a
         // layout-identical POD; we copy it out immediately.
@@ -6021,7 +6029,7 @@ impl SplineRibbon {
         }
     }
 
-    /// Emission direction vector
+    /// The start tangent (C1)
     pub fn emission_vector(&self) -> crate::math::Vector3f {
         // SAFETY: the getter returns an interior pointer to a
         // layout-identical POD; we copy it out immediately.
@@ -6041,40 +6049,43 @@ impl SplineRibbon {
         }
     }
 
-    /// Animated base velocity
-    /// Borrows the field in place — no copy, no allocation.
-    pub fn velocity(&self) -> crate::support::Ref<'_, AnimRefF32> {
-        // SAFETY: an interior pointer into `self`, valid for this
-        // borrow and never freed by the `Ref`.
+    /// The end tangent (C2) and the end point (C3), in the bone's frame: raw vectors the runtime reads as they are, where the community layout read an AnimRef and a reserved word (SC2_RIBBON_RE.md §1.2).
+    pub fn end_tangent(&self) -> crate::math::Vector3f {
+        // SAFETY: the getter returns an interior pointer to a
+        // layout-identical POD; we copy it out immediately.
         unsafe {
-            crate::support::Ref::new(AnimRefF32 {
-                raw: core::ptr::NonNull::new_unchecked(
-                    ffi::whiteout_m3_M3SplineRibbon_get_velocity(self.raw.as_ptr()),
-                ),
-            })
+            *(ffi::whiteout_m3_M3SplineRibbon_get_endTangent(self.raw.as_ptr())
+                as *const crate::math::Vector3f)
         }
     }
 
-    pub fn velocity_mut(&mut self) -> crate::support::RefMut<'_, AnimRefF32> {
-        // SAFETY: as above; `&mut self` guarantees exclusivity.
+    pub fn set_end_tangent(&mut self, value: crate::math::Vector3f) {
+        // SAFETY: as above, in the other direction.
         unsafe {
-            crate::support::RefMut::new(AnimRefF32 {
-                raw: core::ptr::NonNull::new_unchecked(
-                    ffi::whiteout_m3_M3SplineRibbon_get_velocity(self.raw.as_ptr()),
-                ),
-            })
+            ffi::whiteout_m3_M3SplineRibbon_set_endTangent(
+                self.raw.as_ptr(),
+                &value as *const crate::math::Vector3f as *const _,
+            )
         }
     }
 
-    /// Reserved (always 0)
-    pub fn reserved(&self) -> u32 {
-        // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3SplineRibbon_get_reserved(self.raw.as_ptr()) }
+    pub fn end_offset(&self) -> crate::math::Vector3f {
+        // SAFETY: the getter returns an interior pointer to a
+        // layout-identical POD; we copy it out immediately.
+        unsafe {
+            *(ffi::whiteout_m3_M3SplineRibbon_get_endOffset(self.raw.as_ptr())
+                as *const crate::math::Vector3f)
+        }
     }
 
-    pub fn set_reserved(&mut self, value: u32) {
-        // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m3_M3SplineRibbon_set_reserved(self.raw.as_ptr(), value) }
+    pub fn set_end_offset(&mut self, value: crate::math::Vector3f) {
+        // SAFETY: as above, in the other direction.
+        unsafe {
+            ffi::whiteout_m3_M3SplineRibbon_set_endOffset(
+                self.raw.as_ptr(),
+                &value as *const crate::math::Vector3f as *const _,
+            )
+        }
     }
 
     /// Index into BONE array
@@ -7114,7 +7125,7 @@ impl RibbonEmitter {
         unsafe { ffi::whiteout_m3_M3RibbonEmitter_set_indexPlusLength(self.raw.as_ptr(), value) }
     }
 
-    /// Emitter shape type
+    /// The cross-section, a `RibbonType` value: the community layout's names for these two words are each other's (SC2_RIBBON_RE.md §1.1).
     pub fn emitter_shape(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3RibbonEmitter_get_emitterShape(self.raw.as_ptr()) }
@@ -7125,7 +7136,7 @@ impl RibbonEmitter {
         unsafe { ffi::whiteout_m3_M3RibbonEmitter_set_emitterShape(self.raw.as_ptr(), value) }
     }
 
-    /// Ribbon cross-section type
+    /// The cull method: 0 time, 1 length (Infinite on a spline). Not a `RibbonType`, whatever the type says.
     pub fn ribbon_type(&self) -> RibbonType {
         // SAFETY: scalar read; the discriminant is validated below.
         unsafe { ffi::whiteout_m3_M3RibbonEmitter_get_ribbonType(self.raw.as_ptr()) }
@@ -15120,7 +15131,7 @@ impl Default for OneBoneSolver {
 
 /// SHBX — Shadow box (v0, 64 bytes)
 ///
-/// Axis-aligned shadow volume defined by a 4×4 transform matrix.
+/// The box a portrait or a set limits its shadows to: on a bone, a length, a width and a height, each animatable. Read off the shipped files (EDIT_MODE_SC2_PROFILE_PLAN.md S1.0): a u16 bone index and a u16 beside it, then three `AnimRef<f32>` under fixed ids (0x6B72DE65, 0x337A603E, 0x1F42A5D8), some keyed -- not the matrix this was once taken for.
 pub struct ShadowBox {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M3ShadowBox>,
 }
@@ -15162,6 +15173,103 @@ impl ShadowBox {
         unsafe {
             let raw = ffi::whiteout_m3_M3ShadowBox_new();
             Self::from_raw(raw).expect("native ShadowBox allocation failed")
+        }
+    }
+
+    /// Index into BONE array
+    pub fn bone_index(&self) -> u16 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m3_M3ShadowBox_get_boneIndex(self.raw.as_ptr()) }
+    }
+
+    pub fn set_bone_index(&mut self, value: u16) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m3_M3ShadowBox_set_boneIndex(self.raw.as_ptr(), value) }
+    }
+
+    /// 1 in three shipped story-mode sets, 0 in every other
+    pub fn unknown(&self) -> u16 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m3_M3ShadowBox_get_unknown(self.raw.as_ptr()) }
+    }
+
+    pub fn set_unknown(&mut self, value: u16) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m3_M3ShadowBox_set_unknown(self.raw.as_ptr(), value) }
+    }
+
+    /// Animated length
+    /// Borrows the field in place — no copy, no allocation.
+    pub fn length(&self) -> crate::support::Ref<'_, AnimRefF32> {
+        // SAFETY: an interior pointer into `self`, valid for this
+        // borrow and never freed by the `Ref`.
+        unsafe {
+            crate::support::Ref::new(AnimRefF32 {
+                raw: core::ptr::NonNull::new_unchecked(ffi::whiteout_m3_M3ShadowBox_get_length(
+                    self.raw.as_ptr(),
+                )),
+            })
+        }
+    }
+
+    pub fn length_mut(&mut self) -> crate::support::RefMut<'_, AnimRefF32> {
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            crate::support::RefMut::new(AnimRefF32 {
+                raw: core::ptr::NonNull::new_unchecked(ffi::whiteout_m3_M3ShadowBox_get_length(
+                    self.raw.as_ptr(),
+                )),
+            })
+        }
+    }
+
+    /// Animated width
+    /// Borrows the field in place — no copy, no allocation.
+    pub fn width(&self) -> crate::support::Ref<'_, AnimRefF32> {
+        // SAFETY: an interior pointer into `self`, valid for this
+        // borrow and never freed by the `Ref`.
+        unsafe {
+            crate::support::Ref::new(AnimRefF32 {
+                raw: core::ptr::NonNull::new_unchecked(ffi::whiteout_m3_M3ShadowBox_get_width(
+                    self.raw.as_ptr(),
+                )),
+            })
+        }
+    }
+
+    pub fn width_mut(&mut self) -> crate::support::RefMut<'_, AnimRefF32> {
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            crate::support::RefMut::new(AnimRefF32 {
+                raw: core::ptr::NonNull::new_unchecked(ffi::whiteout_m3_M3ShadowBox_get_width(
+                    self.raw.as_ptr(),
+                )),
+            })
+        }
+    }
+
+    /// Animated height
+    /// Borrows the field in place — no copy, no allocation.
+    pub fn height(&self) -> crate::support::Ref<'_, AnimRefF32> {
+        // SAFETY: an interior pointer into `self`, valid for this
+        // borrow and never freed by the `Ref`.
+        unsafe {
+            crate::support::Ref::new(AnimRefF32 {
+                raw: core::ptr::NonNull::new_unchecked(ffi::whiteout_m3_M3ShadowBox_get_height(
+                    self.raw.as_ptr(),
+                )),
+            })
+        }
+    }
+
+    pub fn height_mut(&mut self) -> crate::support::RefMut<'_, AnimRefF32> {
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            crate::support::RefMut::new(AnimRefF32 {
+                raw: core::ptr::NonNull::new_unchecked(ffi::whiteout_m3_M3ShadowBox_get_height(
+                    self.raw.as_ptr(),
+                )),
+            })
         }
     }
 }
@@ -17635,7 +17743,7 @@ impl Default for ClothCollider {
 
 /// PHAC — Cloth proxy (v0, 32 bytes)
 ///
-/// Binds one cloth-influenced region to its cage: per vertex of `clothIndex`, four cage-local `u16` lanes packed in a `u64` and four byte weights (/255) packed in a `u32`.
+/// Binds one cloth-influenced region to its cage: per vertex of `proxyIndex`, four cage-local `u16` lanes packed in a `u64` and four byte weights (/255) packed in a `u32`.
 pub struct ClothProxy {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M3ClothProxy>,
 }
@@ -17680,7 +17788,7 @@ impl ClothProxy {
         }
     }
 
-    /// The cage's region (REGN index)
+    /// The bound region (REGN index)
     pub fn proxy_index(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3ClothProxy_get_proxyIndex(self.raw.as_ptr()) }
@@ -17691,7 +17799,7 @@ impl ClothProxy {
         unsafe { ffi::whiteout_m3_M3ClothProxy_set_proxyIndex(self.raw.as_ptr(), value) }
     }
 
-    /// The bound region (REGN index)
+    /// The cage's region (REGN index)
     pub fn cloth_index(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3ClothProxy_get_clothIndex(self.raw.as_ptr()) }
@@ -24965,17 +25073,19 @@ pub mod ffi {
             self_: *mut whiteout_M3SplineRibbon,
             value: *const core::ffi::c_void,
         );
-        pub fn whiteout_m3_M3SplineRibbon_get_velocity(
+        pub fn whiteout_m3_M3SplineRibbon_get_endTangent(
             self_: *mut whiteout_M3SplineRibbon,
-        ) -> *mut whiteout_M3AnimRefF32;
-        pub fn whiteout_m3_M3SplineRibbon_set_velocity(
+        ) -> *mut core::ffi::c_void;
+        pub fn whiteout_m3_M3SplineRibbon_set_endTangent(
             self_: *mut whiteout_M3SplineRibbon,
-            value: *const whiteout_M3AnimRefF32,
+            value: *const core::ffi::c_void,
         );
-        pub fn whiteout_m3_M3SplineRibbon_get_reserved(self_: *mut whiteout_M3SplineRibbon) -> u32;
-        pub fn whiteout_m3_M3SplineRibbon_set_reserved(
+        pub fn whiteout_m3_M3SplineRibbon_get_endOffset(
             self_: *mut whiteout_M3SplineRibbon,
-            value: u32,
+        ) -> *mut core::ffi::c_void;
+        pub fn whiteout_m3_M3SplineRibbon_set_endOffset(
+            self_: *mut whiteout_M3SplineRibbon,
+            value: *const core::ffi::c_void,
         );
         pub fn whiteout_m3_M3SplineRibbon_get_boneIndex(self_: *mut whiteout_M3SplineRibbon)
             -> u32;
@@ -27662,6 +27772,31 @@ pub mod ffi {
         // ShadowBox
         pub fn whiteout_m3_M3ShadowBox_new() -> *mut whiteout_M3ShadowBox;
         pub fn whiteout_m3_M3ShadowBox_delete(self_: *mut whiteout_M3ShadowBox);
+        pub fn whiteout_m3_M3ShadowBox_get_boneIndex(self_: *mut whiteout_M3ShadowBox) -> u16;
+        pub fn whiteout_m3_M3ShadowBox_set_boneIndex(self_: *mut whiteout_M3ShadowBox, value: u16);
+        pub fn whiteout_m3_M3ShadowBox_get_unknown(self_: *mut whiteout_M3ShadowBox) -> u16;
+        pub fn whiteout_m3_M3ShadowBox_set_unknown(self_: *mut whiteout_M3ShadowBox, value: u16);
+        pub fn whiteout_m3_M3ShadowBox_get_length(
+            self_: *mut whiteout_M3ShadowBox,
+        ) -> *mut whiteout_M3AnimRefF32;
+        pub fn whiteout_m3_M3ShadowBox_set_length(
+            self_: *mut whiteout_M3ShadowBox,
+            value: *const whiteout_M3AnimRefF32,
+        );
+        pub fn whiteout_m3_M3ShadowBox_get_width(
+            self_: *mut whiteout_M3ShadowBox,
+        ) -> *mut whiteout_M3AnimRefF32;
+        pub fn whiteout_m3_M3ShadowBox_set_width(
+            self_: *mut whiteout_M3ShadowBox,
+            value: *const whiteout_M3AnimRefF32,
+        );
+        pub fn whiteout_m3_M3ShadowBox_get_height(
+            self_: *mut whiteout_M3ShadowBox,
+        ) -> *mut whiteout_M3AnimRefF32;
+        pub fn whiteout_m3_M3ShadowBox_set_height(
+            self_: *mut whiteout_M3ShadowBox,
+            value: *const whiteout_M3AnimRefF32,
+        );
         // ViewVolume
         pub fn whiteout_m3_M3ViewVolume_new() -> *mut whiteout_M3ViewVolume;
         pub fn whiteout_m3_M3ViewVolume_delete(self_: *mut whiteout_M3ViewVolume);

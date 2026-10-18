@@ -1807,20 +1807,20 @@ void whiteout_m3_M3SplineRibbon_set_emissionVector(whiteout_M3SplineRibbon* self
     reinterpret_cast<whiteout::m3::SplineRibbon*>(self)->emissionVector = *reinterpret_cast<const whiteout::Vector3f*>(value);
 }
 
-whiteout_M3AnimRefF32* whiteout_m3_M3SplineRibbon_get_velocity(whiteout_M3SplineRibbon* self) {
-    return reinterpret_cast<whiteout_M3AnimRefF32*>(&reinterpret_cast<whiteout::m3::SplineRibbon*>(self)->velocity);
+whiteout_Vector3f* whiteout_m3_M3SplineRibbon_get_endTangent(whiteout_M3SplineRibbon* self) {
+    return reinterpret_cast<whiteout_Vector3f*>(&reinterpret_cast<whiteout::m3::SplineRibbon*>(self)->endTangent);
 }
 
-void whiteout_m3_M3SplineRibbon_set_velocity(whiteout_M3SplineRibbon* self, const whiteout_M3AnimRefF32* value) {
-    reinterpret_cast<whiteout::m3::SplineRibbon*>(self)->velocity = *reinterpret_cast<const whiteout::m3::AnimRef<whiteout::f32>*>(value);
+void whiteout_m3_M3SplineRibbon_set_endTangent(whiteout_M3SplineRibbon* self, const whiteout_Vector3f* value) {
+    reinterpret_cast<whiteout::m3::SplineRibbon*>(self)->endTangent = *reinterpret_cast<const whiteout::Vector3f*>(value);
 }
 
-uint32_t whiteout_m3_M3SplineRibbon_get_reserved(const whiteout_M3SplineRibbon* self) {
-    return reinterpret_cast<const whiteout::m3::SplineRibbon*>(self)->reserved;
+whiteout_Vector3f* whiteout_m3_M3SplineRibbon_get_endOffset(whiteout_M3SplineRibbon* self) {
+    return reinterpret_cast<whiteout_Vector3f*>(&reinterpret_cast<whiteout::m3::SplineRibbon*>(self)->endOffset);
 }
 
-void whiteout_m3_M3SplineRibbon_set_reserved(whiteout_M3SplineRibbon* self, uint32_t value) {
-    reinterpret_cast<whiteout::m3::SplineRibbon*>(self)->reserved = value;
+void whiteout_m3_M3SplineRibbon_set_endOffset(whiteout_M3SplineRibbon* self, const whiteout_Vector3f* value) {
+    reinterpret_cast<whiteout::m3::SplineRibbon*>(self)->endOffset = *reinterpret_cast<const whiteout::Vector3f*>(value);
 }
 
 uint32_t whiteout_m3_M3SplineRibbon_get_boneIndex(const whiteout_M3SplineRibbon* self) {
@@ -5743,6 +5743,46 @@ whiteout_M3ShadowBox* whiteout_m3_M3ShadowBox_new(void) {
 
 void whiteout_m3_M3ShadowBox_delete(whiteout_M3ShadowBox* self) {
     delete reinterpret_cast<whiteout::m3::ShadowBox*>(self);
+}
+
+uint16_t whiteout_m3_M3ShadowBox_get_boneIndex(const whiteout_M3ShadowBox* self) {
+    return reinterpret_cast<const whiteout::m3::ShadowBox*>(self)->boneIndex;
+}
+
+void whiteout_m3_M3ShadowBox_set_boneIndex(whiteout_M3ShadowBox* self, uint16_t value) {
+    reinterpret_cast<whiteout::m3::ShadowBox*>(self)->boneIndex = value;
+}
+
+uint16_t whiteout_m3_M3ShadowBox_get_unknown(const whiteout_M3ShadowBox* self) {
+    return reinterpret_cast<const whiteout::m3::ShadowBox*>(self)->unknown;
+}
+
+void whiteout_m3_M3ShadowBox_set_unknown(whiteout_M3ShadowBox* self, uint16_t value) {
+    reinterpret_cast<whiteout::m3::ShadowBox*>(self)->unknown = value;
+}
+
+whiteout_M3AnimRefF32* whiteout_m3_M3ShadowBox_get_length(whiteout_M3ShadowBox* self) {
+    return reinterpret_cast<whiteout_M3AnimRefF32*>(&reinterpret_cast<whiteout::m3::ShadowBox*>(self)->length);
+}
+
+void whiteout_m3_M3ShadowBox_set_length(whiteout_M3ShadowBox* self, const whiteout_M3AnimRefF32* value) {
+    reinterpret_cast<whiteout::m3::ShadowBox*>(self)->length = *reinterpret_cast<const whiteout::m3::AnimRef<whiteout::f32>*>(value);
+}
+
+whiteout_M3AnimRefF32* whiteout_m3_M3ShadowBox_get_width(whiteout_M3ShadowBox* self) {
+    return reinterpret_cast<whiteout_M3AnimRefF32*>(&reinterpret_cast<whiteout::m3::ShadowBox*>(self)->width);
+}
+
+void whiteout_m3_M3ShadowBox_set_width(whiteout_M3ShadowBox* self, const whiteout_M3AnimRefF32* value) {
+    reinterpret_cast<whiteout::m3::ShadowBox*>(self)->width = *reinterpret_cast<const whiteout::m3::AnimRef<whiteout::f32>*>(value);
+}
+
+whiteout_M3AnimRefF32* whiteout_m3_M3ShadowBox_get_height(whiteout_M3ShadowBox* self) {
+    return reinterpret_cast<whiteout_M3AnimRefF32*>(&reinterpret_cast<whiteout::m3::ShadowBox*>(self)->height);
+}
+
+void whiteout_m3_M3ShadowBox_set_height(whiteout_M3ShadowBox* self, const whiteout_M3AnimRefF32* value) {
+    reinterpret_cast<whiteout::m3::ShadowBox*>(self)->height = *reinterpret_cast<const whiteout::m3::AnimRef<whiteout::f32>*>(value);
 }
 
 } // extern "C"

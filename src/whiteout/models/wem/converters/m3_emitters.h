@@ -187,6 +187,8 @@ struct ImportLinks {
     u32 particleCount = 0;
     u32 ribbonBase = 0;
     u32 ribbonCount = 0;
+    u32 projectorBase = 0;
+    u32 projectorCount = 0;
 
     u32 bone(u32 index) const {
         return index < boneCount ? index : kInvalidNode;
@@ -201,6 +203,11 @@ struct ImportLinks {
                    ? ribbonBase + static_cast<u32>(index)
                    : kInvalidNode;
     }
+    u32 projector(i32 index) const {
+        return index >= 0 && static_cast<u32>(index) < projectorCount
+                   ? projectorBase + static_cast<u32>(index)
+                   : kInvalidNode;
+    }
 };
 
 /// Node -> record index, for the export. Each vector is parallel to
@@ -210,9 +217,12 @@ struct ExportLinks {
     const std::vector<u32>* particleOf = nullptr;
     const std::vector<u32>* ribbonOf = nullptr;
     const std::vector<u32>* boneOf = nullptr;
+    /// The `PROJ` each `Projector` node became.
+    const std::vector<u32>* projectorOf = nullptr;
 
     i32 particle(u32 node) const;
     i32 ribbon(u32 node) const;
+    i32 projector(u32 node) const;
     u32 bone(u32 node) const;
 };
 

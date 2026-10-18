@@ -522,6 +522,9 @@ void CheckEmitterLinks(const NodeTree& tree, Diagnostics& out) {
                 fits = (target.kind == NodeKind::Bone || target.kind == NodeKind::Helper) &&
                        link != n;
                 break;
+            case EmitterLink::SplatProjector:
+                fits = target.kind == NodeKind::Projector;
+                break;
             }
             if (!fits) {
                 out.error(DiagCode::DanglingNodeReference,

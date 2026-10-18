@@ -942,10 +942,17 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial uint whiteout_m3_M3SplineRibbon_get_reserved(IntPtr self);
+    internal static partial IntPtr whiteout_m3_M3SplineRibbon_get_endTangent(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3SplineRibbon_set_reserved(IntPtr self, uint value);
+    internal static partial void whiteout_m3_M3SplineRibbon_set_endTangent(IntPtr self, IntPtr value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m3_M3SplineRibbon_get_endOffset(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m3_M3SplineRibbon_set_endOffset(IntPtr self, IntPtr value);
 
 
     [LibraryImport(Runtime.LibraryName)]
@@ -3180,6 +3187,20 @@ internal static partial class NativeMethods
 
     [LibraryImport(Runtime.LibraryName)]
     internal static partial void whiteout_m3_M3ShadowBox_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial ushort whiteout_m3_M3ShadowBox_get_boneIndex(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m3_M3ShadowBox_set_boneIndex(IntPtr self, ushort value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial ushort whiteout_m3_M3ShadowBox_get_unknown(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m3_M3ShadowBox_set_unknown(IntPtr self, ushort value);
+
 
     [LibraryImport(Runtime.LibraryName)]
     internal static partial IntPtr whiteout_m3_M3ViewVolume_new();

@@ -229,8 +229,13 @@ struct ParticleEmitter {
     std::vector<u32> copyIndices;        ///< Emitter copy indices (U32_)
 
     // Ribbon-on-bounce (v23+)
-    f32 spawnRibbonOnBounceChance = 0.0f; ///< Ribbon spawn probability on bounce (v23+)
-    i32 ribbonLinkIndex = -1;             ///< Index into RIB_ array (-1 = none, v23+)
+    /// The model particles' legacy orientation (v23+), read by the model pose
+    /// (SC2_PARTICLE_RE.md §16.15); the community layout's "ribbon spawned on a
+    /// bounce", which the runtime never spawns.
+    f32 spawnRibbonOnBounceChance = 0.0f;
+    /// That orientation's variant, raw (v23+): no ribbon index, whatever the
+    /// name says. A v22 or older record's instance type is moved here on read.
+    i32 ribbonLinkIndex = -1;
 
     /// Deprecated fields (cannot be migrated to canonical fields)
     struct {
@@ -358,8 +363,12 @@ struct RibbonEmitter {
     u32 indexPlusLength = 1; ///< Index + length
 
     // Ribbon shape
-    u32 emitterShape = 0;                          ///< Emitter shape type
-    RibbonType ribbonType = RibbonType::Billboard; ///< Ribbon cross-section type
+    /// The cross-section, a `RibbonType` value: the community layout's
+    /// names for these two words are each other's (SC2_RIBBON_RE.md §1.1).
+    u32 emitterShape = 0;
+    /// The cull method: 0 time, 1 length (Infinite on a spline). Not a
+    /// `RibbonType`, whatever the type says.
+    RibbonType ribbonType = RibbonType::Billboard;
     f32 divisions = 0.0f;                          ///< Number of ribbon divisions
     u32 edges = 0;                                 ///< Number of cross-section edges
     f32 innerRadius = 0.0f;                        ///< Inner radius

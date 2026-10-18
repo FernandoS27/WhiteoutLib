@@ -571,6 +571,7 @@ Deliberate: Reforged HD is the only shipped PBR content among the six games, so 
         .value("SPLINE_BONE", whiteout::models::wem::EmitterLink::SplineBone, R"doc(Any node; a bone in every shipped file.)doc")
         .value("SKIN_MIRROR", whiteout::models::wem::EmitterLink::SkinMirror, R"doc(Not an emitter link: `NodeSkinSetup::mirror`, the skin setup's override of §7.5's mirror map. It rides this walk because the referencer table is one walk, and it must name a `Bone`.)doc")
         .value("RIG_RIDES_WITH", whiteout::models::wem::EmitterLink::RigRidesWith, R"doc(Not an emitter link either: `NodeRig::ridesWith`, the node a rig record rides (EDIT_MODE_AUTO_IK_DESIGN.md §3.3). A bone or a helper, never the node itself.)doc")
+        .value("SPLAT_PROJECTOR", whiteout::models::wem::EmitterLink::SplatProjector, R"doc(`splatProjector`: a `Projector`, the splat a collision casts.)doc")
     ;
 
     py::enum_<whiteout::models::wem::Wc3Particle1Property>(m, "Wc3Particle1Property", R"doc(MDX `PREM` tracks (KPEE, KPEG, KPLN, KPLT, KPEL, KPES).)doc")
@@ -733,6 +734,24 @@ Deliberate: Reforged HD is the only shipped PBR content among the six games, so 
         .value("COUNT", whiteout::models::wem::M2ParticleProperty::Count)
     ;
 
+    py::enum_<whiteout::models::wem::Sc2WaveCurve>(m, "Sc2WaveCurve", R"doc(A variation channel's curve, by the file's own value (`M3_SampleAnimValue`). Sine and cosine run at `frequency` radians a second, sawtooth and square at `frequency` cycles; random draws once a sample, noise reads the noise table.)doc")
+        .value("NONE", whiteout::models::wem::Sc2WaveCurve::None)
+        .value("SINE", whiteout::models::wem::Sc2WaveCurve::Sine)
+        .value("COSINE", whiteout::models::wem::Sc2WaveCurve::Cosine)
+        .value("SAWTOOTH", whiteout::models::wem::Sc2WaveCurve::Sawtooth)
+        .value("SQUARE", whiteout::models::wem::Sc2WaveCurve::Square)
+        .value("RANDOM", whiteout::models::wem::Sc2WaveCurve::Random)
+        .value("NOISE", whiteout::models::wem::Sc2WaveCurve::Noise)
+    ;
+
+    py::enum_<whiteout::models::wem::Sc2VelocityType>(m, "Sc2VelocityType", R"doc(How a `PAR_` aims its particles at launch (SC2_PARTICLE_RE.md §5.7).)doc")
+        .value("CONE", whiteout::models::wem::Sc2VelocityType::Cone, R"doc(Yaw, pitch and the two spreads.)doc")
+        .value("RADIAL", whiteout::models::wem::Sc2VelocityType::Radial, R"doc(Out from the emitter, through the spawn point.)doc")
+        .value("AXIS", whiteout::models::wem::Sc2VelocityType::Axis, R"doc(Along the emitter's Z, up or down by the spawn point's side.)doc")
+        .value("RANDOM", whiteout::models::wem::Sc2VelocityType::Random, R"doc(Any direction.)doc")
+        .value("MESH_NORMAL", whiteout::models::wem::Sc2VelocityType::MeshNormal, R"doc(Along the Mesh shape's face normal.)doc")
+    ;
+
     py::enum_<whiteout::models::wem::Sc2EmitterShape>(m, "Sc2EmitterShape", R"doc(`PAR_` emission shapes, by the file's own value.)doc")
         .value("POINT", whiteout::models::wem::Sc2EmitterShape::Point)
         .value("PLANE", whiteout::models::wem::Sc2EmitterShape::Plane)
@@ -766,11 +785,16 @@ Deliberate: Reforged HD is the only shipped PBR content among the six games, so 
         .value("BEZIER_WITH_HOLD", whiteout::models::wem::Sc2Smoothing::BezierWithHold)
     ;
 
-    py::enum_<whiteout::models::wem::Sc2RibbonType>(m, "Sc2RibbonType")
+    py::enum_<whiteout::models::wem::Sc2RibbonType>(m, "Sc2RibbonType", R"doc(A ribbon's cross-section (`RIB_` +0x190).)doc")
         .value("BILLBOARD", whiteout::models::wem::Sc2RibbonType::Billboard)
         .value("PLANAR", whiteout::models::wem::Sc2RibbonType::Planar)
         .value("CYLINDER", whiteout::models::wem::Sc2RibbonType::Cylinder)
         .value("STAR", whiteout::models::wem::Sc2RibbonType::Star)
+    ;
+
+    py::enum_<whiteout::models::wem::Sc2RibbonCull>(m, "Sc2RibbonCull", R"doc(How a ribbon ends (`RIB_` +0x194): a segment lives its lifetime, or the strip is cut at its max length. A spline ribbon reads Length as Infinite: the whole curve lives while the emitter does (SC2_RIBBON_RE.md §1.1).)doc")
+        .value("TIME", whiteout::models::wem::Sc2RibbonCull::Time)
+        .value("LENGTH", whiteout::models::wem::Sc2RibbonCull::Length)
     ;
 
     py::enum_<whiteout::models::wem::ForceKind>(m, "ForceKind", R"doc(Appended, never reordered.)doc")
@@ -1632,13 +1656,6 @@ Deterministic and idempotent. Fails only on a non-manifold face set, which `Mesh
         .def_readwrite("spawn_model", &whiteout::models::wem::Wc3ParticleEmitter1Payload::spawnModel, R"doc(The model each particle is, by path.)doc")
         .def_readwrite("uses_mdl", &whiteout::models::wem::Wc3ParticleEmitter1Payload::usesMdl, R"doc(Node flag 0x8000.)doc")
         .def_readwrite("uses_tga", &whiteout::models::wem::Wc3ParticleEmitter1Payload::usesTga, R"doc(Node flag 0x10000.)doc")
-    ;
-
-    py::class_<whiteout::models::wem::Wc3ParticleSegment>(m, "Wc3ParticleSegment", R"doc(A particle's look at one of its three lifetime points: birth, `time`, death.)doc")
-        .def(py::init<>())
-        .def_readwrite("color", &whiteout::models::wem::Wc3ParticleSegment::color, R"doc(RGB, red first — the static-colour order.)doc")
-        .def_readwrite("alpha", &whiteout::models::wem::Wc3ParticleSegment::alpha)
-        .def_readwrite("scaling", &whiteout::models::wem::Wc3ParticleSegment::scaling, R"doc(The quad's size, in model units.)doc")
     ;
 
     bind_wem_1(m);

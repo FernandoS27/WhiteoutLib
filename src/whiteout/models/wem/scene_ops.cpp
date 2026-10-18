@@ -198,7 +198,8 @@ void KeyAtStart(SubTrack& track, const std::vector<u8>& rest, bool derivative) {
 
 } // namespace
 
-void TurnFrame(Document& document, u32 model, u32 node, const Quaternion& turn, f32 scale, FrameCounts& counts) {
+void TurnFrame(Document& document, u32 model, u32 node, const Quaternion& turn, f32 scale, FrameCounts& counts,
+               bool restOnly) {
     for (const Channel what : {Channel::Rotation, Channel::Scale}) {
         const bool rotation = what == Channel::Rotation;
         if (rotation ? !Turned(turn) : scale == 1.0f) {
@@ -261,6 +262,15 @@ void TurnFrame(Document& document, u32 model, u32 node, const Quaternion& turn, 
             clip.containers.front().subTracks.push_back(std::move(track));
             ++counts.keysAdded;
         };
+        if (!keyed && restOnly) {
+            Transform& local = host.nodes.nodes[node].local;
+            if (rotation) {
+                local.rotation = turn * local.rotation;
+            } else {
+                local.scale = local.scale * scale;
+            }
+            continue;
+        }
         if (!keyed) {
             add(document.clips[FrameLoop(document, model)]);
             continue;

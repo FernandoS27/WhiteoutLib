@@ -502,7 +502,7 @@ public final class RibbonEmitter implements AutoCloseable {
         handle.set(ValueLayout.JAVA_INT, 396L, value);
     }
     /**
-     * Emitter shape type
+     * The cross-section, a `RibbonType` value: the community layout's names for these two words are each other's (SC2_RIBBON_RE.md §1.1).
      * @return the emitterShape field of this M3RibbonEmitter.
      */
     public int getEmitterShape() {
@@ -512,7 +512,7 @@ public final class RibbonEmitter implements AutoCloseable {
         handle.set(ValueLayout.JAVA_INT, 400L, value);
     }
     /**
-     * Ribbon cross-section type
+     * The cull method: 0 time, 1 length (Infinite on a spline). Not a `RibbonType`, whatever the type says.
      * @return the ribbonType field of this M3RibbonEmitter.
      */
     public RibbonType getRibbonType() {

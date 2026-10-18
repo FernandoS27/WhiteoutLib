@@ -293,10 +293,15 @@ struct ChunkTagTraits<Matrix44f> {
 /// volumes and a hit test's role (EDIT_MODE_SC2_PROFILE_PLAN.md S1.3, S1.5);
 /// v23 no field: an `.m3` bone's scale in WEM's axes, its X and Y traded, where
 /// an older chunk kept the file's (the `Parser` trades it on read, with its
-/// keys); v24 a StarCraft II spline point's end tangent and end offset, which
-/// an older chunk kept three floats of under the community layout's names; v25
+/// keys); v24 no field: a StarCraft II spline point's end tangent and end
+/// offset were meant here, but the points are a chunk of their own and gate on
+/// `S2RS` v2; v25
 /// no field: an `.m3` light's kind from its `LITE` type, which an older chunk
-/// took one off (the `Parser` re-types it on read). An
+/// took one off (the `Parser` re-types it on read); v26 a StarCraft II
+/// particle system's model orientation variant, raw, which an older chunk kept
+/// as a link to the ribbon it indexed (the `Parser` turns it back), and its
+/// splat's projector as a node link, which an older chunk kept as the file's
+/// `PROJ` index (the `Parser` turns it into the node). An
 /// older chunk holds none of them, so it reads unchanged. A NEWER one does
 /// not: records sit back to back, and nothing checks a chunk's version against
 /// this, so a build older than a field misreads every node after the first
@@ -304,7 +309,7 @@ struct ChunkTagTraits<Matrix44f> {
 template <>
 struct ChunkTagTraits<Node> {
     static constexpr u32 value = kTag("NODE");
-    static constexpr u32 max_version = 25;
+    static constexpr u32 max_version = 26;
     static constexpr bool is_trivial = false;
 };
 
@@ -355,11 +360,14 @@ struct ChunkTagTraits<Sc2Property<Vector3f>> {
     static constexpr bool is_trivial = false;
 };
 
-/// `Sc2RibbonEmitterPayload::splinePoints` (`SRIB`).
+/// `Sc2RibbonEmitterPayload::splinePoints` (`SRIB`). v2 adds the end tangent
+/// and end offset. The points are a chunk of their own, so their fields gate on
+/// this version, not `NODE`'s: gated on `NODE` v24, a `.wem` read them back as
+/// zero, though every writer since has emitted them.
 template <>
 struct ChunkTagTraits<Sc2RibbonSplinePoint> {
     static constexpr u32 value = kTag("S2RS");
-    static constexpr u32 max_version = 1;
+    static constexpr u32 max_version = 2;
     static constexpr bool is_trivial = false;
 };
 

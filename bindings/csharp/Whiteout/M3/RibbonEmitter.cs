@@ -261,7 +261,7 @@ public sealed class RibbonEmitter : WhiteoutHandle
     }
 
 
-    /// <summary>Emitter shape type</summary>
+    /// <summary>The cross-section, a `RibbonType` value: the community layout's names for these two words are each other's (SC2_RIBBON_RE.md §1.1).</summary>
     public uint EmitterShape
     {
         get => NativeMethods.whiteout_m3_M3RibbonEmitter_get_emitterShape(DangerousGet());
@@ -269,7 +269,7 @@ public sealed class RibbonEmitter : WhiteoutHandle
     }
 
 
-    /// <summary>Ribbon cross-section type</summary>
+    /// <summary>The cull method: 0 time, 1 length (Infinite on a spline). Not a `RibbonType`, whatever the type says.</summary>
     public RibbonType RibbonType
     {
         get => (RibbonType)NativeMethods.whiteout_m3_M3RibbonEmitter_get_ribbonType(DangerousGet());

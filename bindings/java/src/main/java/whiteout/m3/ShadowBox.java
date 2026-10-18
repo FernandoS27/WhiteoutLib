@@ -13,7 +13,7 @@ import whiteout.m3.internal.Native;
 /**
  * SHBX — Shadow box (v0, 64 bytes)
  * 
- * Axis-aligned shadow volume defined by a 4×4 transform matrix.
+ * The box a portrait or a set limits its shadows to: on a bone, a length, a width and a height, each animatable. Read off the shipped files (EDIT_MODE_SC2_PROFILE_PLAN.md S1.0): a u16 bone index and a u16 beside it, then three `AnimRef<f32>` under fixed ids (0x6B72DE65, 0x337A603E, 0x1F42A5D8), some keyed -- not the matrix this was once taken for.
  *
  * <p><b>Lifecycle.</b> Instances hold a handle to a native
  * ShadowBox allocation. Always release them with
@@ -58,8 +58,61 @@ public final class ShadowBox implements AutoCloseable {
         }
     }
 
+    /**
+     * Index into BONE array
+     * @return the boneIndex field of this M3ShadowBox.
+     */
+    public short getBoneIndex() {
+        return handle.get(ValueLayout.JAVA_SHORT, 0L);
+    }
+    public void setBoneIndex(short value) {
+        handle.set(ValueLayout.JAVA_SHORT, 0L, value);
+    }
+    /**
+     * 1 in three shipped story-mode sets, 0 in every other
+     * @return the unknown field of this M3ShadowBox.
+     */
+    public short getUnknown() {
+        return handle.get(ValueLayout.JAVA_SHORT, 2L);
+    }
+    public void setUnknown(short value) {
+        handle.set(ValueLayout.JAVA_SHORT, 2L, value);
+    }
+    /**
+     * Animated length
+     * @return the length field of this M3ShadowBox.
+     */
+    public AnimRefF32 getLength() {
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ShadowBox_get_length, handle);
+        return new AnimRefF32(__h, false);
+    }
+    public void setLength(AnimRefF32 value) {
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ShadowBox_set_length, handle, value == null ? MemorySegment.NULL : value.handle);
+    }
+    /**
+     * Animated width
+     * @return the width field of this M3ShadowBox.
+     */
+    public AnimRefF32 getWidth() {
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ShadowBox_get_width, handle);
+        return new AnimRefF32(__h, false);
+    }
+    public void setWidth(AnimRefF32 value) {
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ShadowBox_set_width, handle, value == null ? MemorySegment.NULL : value.handle);
+    }
+    /**
+     * Animated height
+     * @return the height field of this M3ShadowBox.
+     */
+    public AnimRefF32 getHeight() {
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ShadowBox_get_height, handle);
+        return new AnimRefF32(__h, false);
+    }
+    public void setHeight(AnimRefF32 value) {
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ShadowBox_set_height, handle, value == null ? MemorySegment.NULL : value.handle);
+    }
     @Override public String toString() {
-        return "ShadowBox@" + Long.toHexString(handle == null ? 0 : handle.address());
+        return "ShadowBox(" + "boneIndex=" + getBoneIndex() + ", " + "unknown=" + getUnknown() + ")";
     }
 
 }

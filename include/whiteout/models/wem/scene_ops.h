@@ -80,8 +80,13 @@ struct FrameCounts {
  * same. A channel a global loop keys is then right everywhere. One no clip keys
  * gets a one-key track on the frame loop; one only some animations key gets one
  * in each animation that leaves it at rest, holding the turned rest.
+ *
+ * With @p restOnly, one no clip keys is turned at rest instead, its node's
+ * local transform and its `initValue` alike, and gains no key: StarCraft II's
+ * rest, which its runtime plays wherever no clip keys the channel.
  */
-void TurnFrame(Document& document, u32 model, u32 node, const Quaternion& turn, f32 scale, FrameCounts& counts);
+void TurnFrame(Document& document, u32 model, u32 node, const Quaternion& turn, f32 scale, FrameCounts& counts,
+               bool restOnly = false);
 
 /// Every node in the subtrees of @p roots, once each, ascending.
 std::vector<u32> SubtreeNodes(const NodeTree& tree, std::span<const u32> roots);

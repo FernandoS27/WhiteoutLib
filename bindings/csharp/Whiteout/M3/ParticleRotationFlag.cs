@@ -8,12 +8,20 @@ namespace Whiteout.M3;
 public enum ParticleRotationFlag : int
 {
     None = 0,
+    /// <summary>Each particle's UVs shifted by its own random tile</summary>
+    RandomUvOffset = 1,
     /// <summary>Relative rotation; the SC2 upgrade sets it from rotationRandomEnable (v≤18)</summary>
     Relative = 2,
     /// <summary>Always set</summary>
     AlwaysSet = 4,
+    /// <summary>The launch velocity's z dropped, its xy rescaled to the speed</summary>
+    FlattenVelocityXY = 8,
+    /// <summary>A collision child takes this emitter's scale</summary>
+    ScaleCollisionChild = 16,
+    /// <summary>A trail child takes this emitter's scale</summary>
+    ScaleTrailChild = 32,
     /// <summary>Force-set by the SC2 version upgrade for all v≤20 emitters (role TBD)</summary>
     Unknown6 = 64,
-    /// <summary>Set by the SC2 upgrade for remapped Billboard model particles (role TBD)</summary>
+    /// <summary>Random spin axis (RE); set by the SC2 upgrade for remapped Billboard model particles</summary>
     Unknown7 = 128,
 }

@@ -112,6 +112,14 @@ i32 ExportLinks::ribbon(u32 node) const {
     return static_cast<i32>((*ribbonOf)[node]);
 }
 
+i32 ExportLinks::projector(u32 node) const {
+    if (node == kInvalidNode || projectorOf == nullptr || node >= projectorOf->size() ||
+        (*projectorOf)[node] == kInvalidIndex) {
+        return -1;
+    }
+    return static_cast<i32>((*projectorOf)[node]);
+}
+
 u32 ExportLinks::bone(u32 node) const {
     if (node == kInvalidNode || boneOf == nullptr || node >= boneOf->size() ||
         (*boneOf)[node] == kInvalidIndex) {
@@ -164,7 +172,7 @@ Sc2ParticleEmitterPayload ImportParticle(const m3::ParticleEmitter& p, const Imp
     w.emitterShape = static_cast<Sc2EmitterShape>(p.emitterShape);
     // Regions of the first division; `fromM3` restates them as sections.
     w.shapeSections = p.shapeRegions;
-    w.velocityType = p.velocityType;
+    w.velocityType = static_cast<Sc2VelocityType>(p.velocityType);
     w.sizeRandomEnable = p.sizeRandomEnable;
     w.rotationRandomEnable = p.rotationRandomEnable;
     w.colorRandomEnable = p.colorRandomEnable;
@@ -190,15 +198,15 @@ Sc2ParticleEmitterPayload ImportParticle(const m3::ParticleEmitter& p, const Imp
     w.tailLength = p.tailLength;
     w.instanceAngle = p.instanceAngle;
     w.instanceDistance = p.instanceDistance;
-    w.pitch.type = p.pitchType;
-    w.yaw.type = p.yawType;
-    w.speed.type = p.speedType;
-    w.size.type = p.sizeType;
-    w.alpha.type = p.alphaType;
-    w.color.type = p.colorType;
-    w.rotation.type = p.rotationType;
-    w.horizontal.type = p.horizontalType;
-    w.vertical.type = p.verticalType;
+    w.pitch.type = static_cast<Sc2WaveCurve>(p.pitchType);
+    w.yaw.type = static_cast<Sc2WaveCurve>(p.yawType);
+    w.speed.type = static_cast<Sc2WaveCurve>(p.speedType);
+    w.size.type = static_cast<Sc2WaveCurve>(p.sizeType);
+    w.alpha.type = static_cast<Sc2WaveCurve>(p.alphaType);
+    w.color.type = static_cast<Sc2WaveCurve>(p.colorType);
+    w.rotation.type = static_cast<Sc2WaveCurve>(p.rotationType);
+    w.horizontal.type = static_cast<Sc2WaveCurve>(p.horizontalType);
+    w.vertical.type = static_cast<Sc2WaveCurve>(p.verticalType);
     w.flags = static_cast<u32>(p.flags);
     w.rotationFlags = static_cast<u32>(p.rotationFlags);
     w.colorSmoothing = static_cast<Sc2Smoothing>(p.colorSmoothing);
@@ -209,7 +217,7 @@ Sc2ParticleEmitterPayload ImportParticle(const m3::ParticleEmitter& p, const Imp
     w.lodCut = p.lodCut;
     w.trailLink = links.particle(p.trailLinkIndex);
     w.trailChance = p.trailChance;
-    w.splatProjectionIndex = p.splatProjectionIndex;
+    w.splatProjector = links.projector(p.splatProjectionIndex);
     w.splatChance = p.splatChance;
     w.models.reserve(p.modelPaths.size());
     for (const std::string& path : p.modelPaths) {
@@ -218,8 +226,8 @@ Sc2ParticleEmitterPayload ImportParticle(const m3::ParticleEmitter& p, const Imp
         key.path = path.substr(0, path.find('\0'));
         w.models.push_back(std::move(key));
     }
-    w.spawnRibbonOnBounceChance = p.spawnRibbonOnBounceChance;
-    w.ribbonLink = links.ribbon(p.ribbonLinkIndex);
+    w.modelOrientation = p.spawnRibbonOnBounceChance;
+    w.modelOrientationVariant = p.ribbonLinkIndex;
     w.noiseSmoothness = p.deprecated.noiseSmoothness;
     return w;
 }
@@ -244,9 +252,9 @@ Sc2RibbonEmitterPayload ImportRibbon(const m3::RibbonEmitter& r, const ImportLin
         point.emissionVector = source.emissionVector;
         point.endTangent = source.endTangent;
         point.endOffset = source.endOffset;
-        point.yawVariation.type = source.yawType;
-        point.pitchVariation.type = source.pitchType;
-        point.velocityVariation.type = source.velocityType;
+        point.yawVariation.type = static_cast<Sc2WaveCurve>(source.yawType);
+        point.pitchVariation.type = static_cast<Sc2WaveCurve>(source.pitchType);
+        point.velocityVariation.type = static_cast<Sc2WaveCurve>(source.velocityType);
         point.emissionVectorNormFactor = source.emissionVectorNormFactor;
         point.velocityNormFactor = source.velocityNormFactor;
     }
@@ -279,8 +287,9 @@ Sc2RibbonEmitterPayload ImportRibbon(const m3::RibbonEmitter& r, const ImportLin
     w.noiseCoherence = r.noiseCoherence;
     w.noiseEdge = r.noiseEdge;
     w.indexPlusLength = r.indexPlusLength;
-    w.emitterShape = r.emitterShape;
-    w.ribbonType = static_cast<Sc2RibbonType>(r.ribbonType);
+    // The record's two words carry each other's community names.
+    w.crossSection = static_cast<Sc2RibbonType>(r.emitterShape);
+    w.cullMethod = static_cast<Sc2RibbonCull>(r.ribbonType);
     w.divisions = r.divisions;
     w.edges = r.edges;
     w.innerRadius = r.innerRadius;
@@ -291,11 +300,11 @@ Sc2RibbonEmitterPayload ImportRibbon(const m3::RibbonEmitter& r, const ImportLin
     w.bounce = r.bounce;
     w.lodReduce = r.lodReduce;
     w.lodCut = r.lodCut;
-    w.yaw.type = r.yawType;
-    w.pitch.type = r.pitchType;
-    w.speed.type = r.speedType;
-    w.size.type = r.sizeType;
-    w.alpha.type = r.alphaType;
+    w.yaw.type = static_cast<Sc2WaveCurve>(r.yawType);
+    w.pitch.type = static_cast<Sc2WaveCurve>(r.pitchType);
+    w.speed.type = static_cast<Sc2WaveCurve>(r.speedType);
+    w.size.type = static_cast<Sc2WaveCurve>(r.sizeType);
+    w.alpha.type = static_cast<Sc2WaveCurve>(r.alphaType);
     w.deprecatedUnknown = r.deprecated.unknown3fbae7d6;
     return w;
 }
@@ -344,7 +353,7 @@ m3::ParticleEmitter ExportParticle(const Sc2ParticleEmitterPayload& w, const Exp
     p.emitterShape = static_cast<m3::EmitterShape>(w.emitterShape);
     // Restated as the regions the sections became once `toM3` writes them.
     p.shapeRegions.clear();
-    p.velocityType = w.velocityType;
+    p.velocityType = static_cast<u32>(w.velocityType);
     p.sizeRandomEnable = w.sizeRandomEnable;
     p.rotationRandomEnable = w.rotationRandomEnable;
     p.colorRandomEnable = w.colorRandomEnable;
@@ -370,15 +379,15 @@ m3::ParticleEmitter ExportParticle(const Sc2ParticleEmitterPayload& w, const Exp
     p.tailLength = w.tailLength;
     p.instanceAngle = w.instanceAngle;
     p.instanceDistance = w.instanceDistance;
-    p.pitchType = w.pitch.type;
-    p.yawType = w.yaw.type;
-    p.speedType = w.speed.type;
-    p.sizeType = w.size.type;
-    p.alphaType = w.alpha.type;
-    p.colorType = w.color.type;
-    p.rotationType = w.rotation.type;
-    p.horizontalType = w.horizontal.type;
-    p.verticalType = w.vertical.type;
+    p.pitchType = static_cast<u32>(w.pitch.type);
+    p.yawType = static_cast<u32>(w.yaw.type);
+    p.speedType = static_cast<u32>(w.speed.type);
+    p.sizeType = static_cast<u32>(w.size.type);
+    p.alphaType = static_cast<u32>(w.alpha.type);
+    p.colorType = static_cast<u32>(w.color.type);
+    p.rotationType = static_cast<u32>(w.rotation.type);
+    p.horizontalType = static_cast<u32>(w.horizontal.type);
+    p.verticalType = static_cast<u32>(w.vertical.type);
     p.flags = static_cast<m3::ParticleFlag>(w.flags);
     p.rotationFlags = static_cast<m3::ParticleRotationFlag>(w.rotationFlags);
     p.colorSmoothing = static_cast<m3::InterpolationMode>(w.colorSmoothing);
@@ -389,14 +398,14 @@ m3::ParticleEmitter ExportParticle(const Sc2ParticleEmitterPayload& w, const Exp
     p.lodCut = w.lodCut;
     p.trailLinkIndex = links.particle(w.trailLink);
     p.trailChance = w.trailChance;
-    p.splatProjectionIndex = w.splatProjectionIndex;
+    p.splatProjectionIndex = links.projector(w.splatProjector);
     p.splatChance = w.splatChance;
     p.modelPaths.reserve(w.models.size());
     for (const AssetKey& key : w.models) {
         p.modelPaths.push_back(key.path);
     }
-    p.spawnRibbonOnBounceChance = w.spawnRibbonOnBounceChance;
-    p.ribbonLinkIndex = links.ribbon(w.ribbonLink);
+    p.spawnRibbonOnBounceChance = w.modelOrientation;
+    p.ribbonLinkIndex = w.modelOrientationVariant;
     p.deprecated.noiseSmoothness = w.noiseSmoothness;
     return p;
 }
@@ -420,9 +429,9 @@ m3::RibbonEmitter ExportRibbon(const Sc2RibbonEmitterPayload& w, const ExportLin
         out.emissionVector = point.emissionVector;
         out.endTangent = point.endTangent;
         out.endOffset = point.endOffset;
-        out.yawType = point.yawVariation.type;
-        out.pitchType = point.pitchVariation.type;
-        out.velocityType = point.velocityVariation.type;
+        out.yawType = static_cast<u32>(point.yawVariation.type);
+        out.pitchType = static_cast<u32>(point.pitchVariation.type);
+        out.velocityType = static_cast<u32>(point.velocityVariation.type);
         out.emissionVectorNormFactor = point.emissionVectorNormFactor;
         out.velocityNormFactor = point.velocityNormFactor;
     }
@@ -455,8 +464,8 @@ m3::RibbonEmitter ExportRibbon(const Sc2RibbonEmitterPayload& w, const ExportLin
     r.noiseCoherence = w.noiseCoherence;
     r.noiseEdge = w.noiseEdge;
     r.indexPlusLength = w.indexPlusLength;
-    r.emitterShape = w.emitterShape;
-    r.ribbonType = static_cast<m3::RibbonType>(w.ribbonType);
+    r.emitterShape = static_cast<u32>(w.crossSection);
+    r.ribbonType = static_cast<m3::RibbonType>(w.cullMethod);
     r.divisions = w.divisions;
     r.edges = w.edges;
     r.innerRadius = w.innerRadius;
@@ -467,11 +476,11 @@ m3::RibbonEmitter ExportRibbon(const Sc2RibbonEmitterPayload& w, const ExportLin
     r.bounce = w.bounce;
     r.lodReduce = w.lodReduce;
     r.lodCut = w.lodCut;
-    r.yawType = w.yaw.type;
-    r.pitchType = w.pitch.type;
-    r.speedType = w.speed.type;
-    r.sizeType = w.size.type;
-    r.alphaType = w.alpha.type;
+    r.yawType = static_cast<u32>(w.yaw.type);
+    r.pitchType = static_cast<u32>(w.pitch.type);
+    r.speedType = static_cast<u32>(w.speed.type);
+    r.sizeType = static_cast<u32>(w.size.type);
+    r.alphaType = static_cast<u32>(w.alpha.type);
     // The half of the one `u32` bone index the editor reads, never set by a
     // shipped ribbon (see `Sc2RibbonEmitterPayload`).
     r.boneIndexFallback = 0;

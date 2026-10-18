@@ -34,8 +34,8 @@ public enum RibbonFlag : int
     UseLengthAndTime = 4096,
     /// <summary>Accurate GPU tangents</summary>
     AccurateGPUTangents = 8192,
-    /// <summary>Derive yaw from speed</summary>
-    YawFromSpeed = 16384,
-    /// <summary>Use locator node</summary>
-    UseLocator = 32768,
+    /// <summary>Collide through the terrain+objects collider (SC2_RIBBON_RE.md §1.3)</summary>
+    DualCollision = 16384,
+    /// <summary>Exchange yaw and pitch in the emission basis (§3.2)</summary>
+    SwapYawPitch = 32768,
 }

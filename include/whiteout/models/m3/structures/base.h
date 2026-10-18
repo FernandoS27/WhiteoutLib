@@ -504,10 +504,14 @@ M3_DEFINE_FLAG_OPS(ParticleAdditionalFlag, u32)
 /** @brief Particle rotation flags (PAR_.rotationFlags, v18+) */
 enum class ParticleRotationFlag : u32 {
     None = 0x0,
+    RandomUvOffset = 0x1, ///< Each particle's UVs shifted by its own random tile
     Relative = 0x2, ///< Relative rotation; the SC2 upgrade sets it from rotationRandomEnable (v≤18)
     AlwaysSet = 0x4, ///< Always set
+    FlattenVelocityXY = 0x8,    ///< The launch velocity's z dropped, its xy rescaled to the speed
+    ScaleCollisionChild = 0x10, ///< A collision child takes this emitter's scale
+    ScaleTrailChild = 0x20,     ///< A trail child takes this emitter's scale
     Unknown6 = 0x40, ///< Force-set by the SC2 version upgrade for all v≤20 emitters (role TBD)
-    Unknown7 = 0x80, ///< Set by the SC2 upgrade for remapped Billboard model particles (role TBD)
+    Unknown7 = 0x80, ///< Random spin axis (RE); set by the SC2 upgrade for remapped Billboard model particles
 };
 M3_DEFINE_FLAG_OPS(ParticleRotationFlag, u32)
 
@@ -527,8 +531,8 @@ enum class RibbonFlag : u32 {
     SimulateInit = 0x800,         ///< Simulate on init
     UseLengthAndTime = 0x1000,    ///< Use length and time
     AccurateGPUTangents = 0x2000, ///< Accurate GPU tangents
-    YawFromSpeed = 0x4000,        ///< Derive yaw from speed
-    UseLocator = 0x8000,          ///< Use locator node
+    DualCollision = 0x4000,       ///< Collide through the terrain+objects collider (SC2_RIBBON_RE.md §1.3)
+    SwapYawPitch = 0x8000,        ///< Exchange yaw and pitch in the emission basis (§3.2)
 };
 M3_DEFINE_FLAG_OPS(RibbonFlag, u32)
 

@@ -78,6 +78,8 @@ enum class EmitterLink : u8 {
     /// rides (EDIT_MODE_AUTO_IK_DESIGN.md §3.3). A bone or a helper, never the
     /// node itself.
     RigRidesWith,
+    /// `splatProjector`: a `Projector`, the splat a collision casts.
+    SplatProjector,
 };
 
 const char* ToString(EmitterLink link);
@@ -692,10 +694,32 @@ struct Sc2Property {
     }
 };
 
+/// A variation channel's curve, by the file's own value (`M3_SampleAnimValue`).
+/// Sine and cosine run at `frequency` radians a second, sawtooth and square at
+/// `frequency` cycles; random draws once a sample, noise reads the noise table.
+enum class Sc2WaveCurve : u32 {
+    None = 0,
+    Sine = 1,
+    Cosine = 2,
+    Sawtooth = 3,
+    Square = 4,
+    Random = 5,
+    Noise = 6,
+};
+
+/// How a `PAR_` aims its particles at launch (SC2_PARTICLE_RE.md §5.7).
+enum class Sc2VelocityType : u32 {
+    Cone = 0,       ///< Yaw, pitch and the two spreads.
+    Radial = 1,     ///< Out from the emitter, through the spawn point.
+    Axis = 2,       ///< Along the emitter's Z, up or down by the spawn point's side.
+    Random = 3,     ///< Any direction.
+    MeshNormal = 4, ///< Along the Mesh shape's face normal.
+};
+
 /// One of the per-particle variation channels: a curve type, and the amplitude
 /// and frequency it runs at.
 struct Sc2Variation {
-    u32 type = 0; ///< 0 = none.
+    Sc2WaveCurve type = Sc2WaveCurve::None;
     Sc2Property<f32> amplitude;
     Sc2Property<f32> frequency;
 
@@ -756,7 +780,13 @@ enum class Sc2Smoothing : u32 {
     BezierWithHold = 4,
 };
 
+/// A ribbon's cross-section (`RIB_` +0x190).
 enum class Sc2RibbonType : u32 { Billboard = 0, Planar = 1, Cylinder = 2, Star = 3 };
+
+/// How a ribbon ends (`RIB_` +0x194): a segment lives its lifetime, or the strip
+/// is cut at its max length. A spline ribbon reads Length as Infinite: the
+/// whole curve lives while the emitter does (SC2_RIBBON_RE.md §1.1).
+enum class Sc2RibbonCull : u32 { Time = 0, Length = 1 };
 
 /**
  * @brief `PAR_` — the StarCraft II particle system — or one `PARC` copy of it.
@@ -832,7 +862,7 @@ struct Sc2ParticleEmitterPayload {
     /// the export writes the regions they became.
     std::vector<u32> shapeSections;
 
-    u32 velocityType = 0;
+    Sc2VelocityType velocityType = Sc2VelocityType::Cone;
     u32 sizeRandomEnable = 0;
     Sc2Property<Vector3f> sizeRandomAnimation;
     u32 rotationRandomEnable = 0;
@@ -905,15 +935,25 @@ struct Sc2ParticleEmitterPayload {
     f32 trailChance = 0;
     Sc2Property<f32> trailEmissionRate;
 
-    /// A `PROJ` index. WEM holds no projectors, so the number is carried as the
-    /// file had it; -1 is none, which is every shipped emitter measured.
+    /// Retired at `NODE` v26: the `PROJ` index as the file had it. Written as
+    /// -1; an older chunk's becomes `splatProjector` on read.
     i32 splatProjectionIndex = -1;
     f32 splatChance = 0;
+    /// The `Projector` a collision casts its splat with; none on every shipped
+    /// emitter measured. `NODE` v26.
+    u32 splatProjector = kInvalidNode;
 
     std::vector<AssetKey> models; ///< Model particles, by path (`SCHR`).
 
-    f32 spawnRibbonOnBounceChance = 0;
-    u32 ribbonLink = kInvalidNode; ///< The ribbon a bounce spawns.
+    /// `PAR_+0x5D0` and `+0x5D4`, raw: the model particles' legacy orientation
+    /// and its variant (SC2_PARTICLE_RE.md §16.15), which the community layout
+    /// read as a ribbon a bounce spawns and nothing spawns. `NODE` v26.
+    f32 modelOrientation = 0;
+    i32 modelOrientationVariant = -1;
+    /// Retired at `NODE` v26: the variant word read as a link to the ribbon it
+    /// indexed. Written as none; an older chunk's turns back into that
+    /// ribbon's index on read, and one that indexed no ribbon into -1.
+    u32 ribbonLink = kInvalidNode;
 
     f32 noiseSmoothness = 0; ///< Pre-v12 only; the upgrade has nowhere to put it.
 
@@ -927,7 +967,7 @@ struct Sc2ParticleEmitterPayload {
         f(self.copyOf, EmitterLink::CopySource);
         f(self.collisionSpawn, EmitterLink::CollisionSpawn);
         f(self.trailLink, EmitterLink::Trail);
-        f(self.ribbonLink, EmitterLink::BounceRibbon);
+        f(self.splatProjector, EmitterLink::SplatProjector);
     }
 
     template <class Self, class F>
@@ -1051,10 +1091,19 @@ struct Sc2ParticleEmitterPayload {
         v.field("splatProjectionIndex", splatProjectionIndex);
         v.field("splatChance", splatChance);
         v.field("models", models);
-        v.field("spawnRibbonOnBounceChance", spawnRibbonOnBounceChance);
+        v.field("modelOrientation", modelOrientation);
         v.field("ribbonLink", ribbonLink);
         v.field("noiseSmoothness", noiseSmoothness);
+        // An older chunk held the link instead; the reader turns it back.
+        v.since(26).fieldOr("modelOrientationVariant", modelOrientationVariant,
+                            [this] { modelOrientationVariant = kVariantFromLink; });
+        // An older chunk kept the index; the reader turns it into the node.
+        v.since(26).fieldOr("splatProjector", splatProjector, [this] { splatProjector = kInvalidNode; });
     }
+
+    /// What an older chunk's variant reads as until the reader has the tree
+    /// to turn `ribbonLink` back into an index with.
+    static constexpr i32 kVariantFromLink = -0x7FFFFFFF - 1;
 };
 
 /// `SRIB`: one control point of a `RIB_`'s spline, riding a bone of its own.
@@ -1062,7 +1111,7 @@ struct Sc2RibbonSplinePoint {
     u32 node = kInvalidNode; ///< The bone it rides.
     Vector3f emissionOffset{0, 0, 0}; ///< The curve's start, emitter-local.
     Vector3f emissionVector{0, 0, 0}; ///< Its start tangent.
-    /// Retired at `NODE` v24: the community layout's reading of the bytes that
+    /// Retired at `S2RS` v2: the community layout's reading of the bytes that
     /// hold `endTangent` and `endOffset`, of which only these three floats
     /// crossed. Written as zero; an older chunk's are read into the two below.
     Sc2Property<f32> velocity;
@@ -1077,7 +1126,7 @@ struct Sc2RibbonSplinePoint {
     f32 emissionVectorNormFactor = 0; ///< Shipped as ~0.01 / |emissionVector|.
     f32 velocityNormFactor = 0;       ///< Shipped as ~0.01 / velocity.
     /// The end tangent and the end point, in the bone's frame: the curve's last
-    /// two control points (SC2_RIBBON_RE.md §1.2). `NODE` v24.
+    /// two control points (SC2_RIBBON_RE.md §1.2). `S2RS` v2.
     Vector3f endTangent{0, 0, 0};
     Vector3f endOffset{0, 0, 0};
 
@@ -1098,8 +1147,8 @@ struct Sc2RibbonSplinePoint {
         v.field("emissionVectorNormFactor", emissionVectorNormFactor);
         v.field("velocityNormFactor", velocityNormFactor);
         // An older chunk kept the end tangent's z, and the end offset's x and z.
-        v.since(24).fieldOr("endTangent", endTangent, [this] { endTangent = {0, 0, velocity.initValue}; });
-        v.since(24).fieldOr("endOffset", endOffset, [this] {
+        v.since(2).fieldOr("endTangent", endTangent, [this] { endTangent = {0, 0, velocity.initValue}; });
+        v.since(2).fieldOr("endOffset", endOffset, [this] {
             f32 z = 0;
             std::memcpy(&z, &reserved, sizeof z);
             endOffset = {velocity.nullValue, 0, z};
@@ -1164,8 +1213,8 @@ struct Sc2RibbonEmitterPayload {
     f32 noiseEdge = 0;
     u32 indexPlusLength = 1;
 
-    u32 emitterShape = 0;
-    Sc2RibbonType ribbonType = Sc2RibbonType::Billboard;
+    Sc2RibbonType crossSection = Sc2RibbonType::Billboard;
+    Sc2RibbonCull cullMethod = Sc2RibbonCull::Time;
     f32 divisions = 0;
     u32 edges = 0;
     f32 innerRadius = 0;
@@ -1250,8 +1299,8 @@ struct Sc2RibbonEmitterPayload {
         v.field("noiseCoherence", noiseCoherence);
         v.field("noiseEdge", noiseEdge);
         v.field("indexPlusLength", indexPlusLength);
-        v.field("emitterShape", emitterShape);
-        v.field("ribbonType", ribbonType);
+        v.field("crossSection", crossSection);
+        v.field("cullMethod", cullMethod);
         v.field("divisions", divisions);
         v.field("edges", edges);
         v.field("innerRadius", innerRadius);

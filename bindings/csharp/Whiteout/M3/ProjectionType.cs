@@ -4,11 +4,11 @@
 
 namespace Whiteout.M3;
 
-/// <summary>Projector / decal projection type (PROJ)</summary>
+/// <summary>Projector / decal projection type (PROJ): from 1, as every shipped record reads (EDIT_MODE_SC2_PROFILE_PLAN.md S7.1).</summary>
 public enum ProjectionType : int
 {
     /// <summary>Orthographic projection</summary>
-    Orthographic = 0,
+    Orthographic = 1,
     /// <summary>Perspective projection</summary>
-    Perspective = 1,
+    Perspective = 2,
 }

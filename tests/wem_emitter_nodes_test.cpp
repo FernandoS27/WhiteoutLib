@@ -391,7 +391,9 @@ m3::Model makeM3() {
     ribbon.materialIndex = 0;
     ribbon.active = ref<u32>(kActiveId, 1u, 0u);
     ribbon.lifetime = ref(0, 0.7f);
-    ribbon.ribbonType = m3::RibbonType::Cylinder;
+    // The record's `emitterShape` is the cross-section, `ribbonType` the cull word.
+    ribbon.emitterShape = static_cast<u32>(m3::RibbonType::Cylinder);
+    ribbon.ribbonType = static_cast<m3::RibbonType>(1);
     ribbon.edges = 6;
     ribbon.divisions = 20.0f;
     ribbon.yawType = 2;
@@ -595,7 +597,6 @@ TEST_CASE("wem an emitter's links name nodes of the kind they need", "[wem][node
     auto& copy = std::get<Sc2ParticleEmitterPayload>(model.nodes.nodes[3].payload);
     copy.copyOf = 1;
     auto& source = std::get<Sc2ParticleEmitterPayload>(model.nodes.nodes[1].payload);
-    source.ribbonLink = 2;
     source.materialSlot = 0;
     CHECK_FALSE(
         hasError(Validate(document, ValidateLevel::Structural), DiagCode::DanglingNodeReference));
@@ -607,11 +608,6 @@ TEST_CASE("wem an emitter's links name nodes of the kind they need", "[wem][node
     }
     SECTION("a copy of a copy") {
         source.copyOf = 3;
-        CHECK(hasError(Validate(document, ValidateLevel::Structural),
-                       DiagCode::DanglingNodeReference));
-    }
-    SECTION("a bounce that spawns a particle emitter") {
-        source.ribbonLink = 3;
         CHECK(hasError(Validate(document, ValidateLevel::Structural),
                        DiagCode::DanglingNodeReference));
     }
@@ -659,7 +655,7 @@ TEST_CASE("wem every emitter payload survives the binary round trip", "[wem][nod
     sp.splinePoints[1].initValue = Vector3f{4, 5, 6};
     sp.models.push_back(AssetKey{AssetKey::kNoId, AssetKey::kNoId, "rock.m3"});
     sp.shapeSections = {2, 3};
-    sp.horizontal.type = 7;
+    sp.horizontal.type = static_cast<Sc2WaveCurve>(7); // a word no curve names still crosses
     model.nodes.add(std::move(par));
 
     Node copy = makeNode("copy", NodeKind::Sc2ParticleEmitter, 0);
@@ -1098,12 +1094,14 @@ TEST_CASE("wem m3 carries PAR_, PARC and RIB_ both ways", "[wem][node][emitter]"
 
     const auto& p = std::get<Sc2ParticleEmitterPayload>(model.nodes.nodes[first].payload);
     CHECK(p.trailLink == second);
-    CHECK(p.ribbonLink == ribbonNode);
+    // The variant word is carried raw, never read as a ribbon (L2).
+    CHECK(p.modelOrientationVariant == 0);
+    CHECK(p.ribbonLink == kInvalidNode);
     CHECK(p.materialSlot == 0u);
     CHECK(p.initialSpeed.initValue == 3.5f);
     CHECK(p.colorStart.initValue.x == Catch::Approx(30.0f / 255.0f));
     CHECK(p.uvTiling.nullValue.x == 1.0f);
-    CHECK(p.pitch.type == 3u);
+    CHECK(p.pitch.type == Sc2WaveCurve::Sawtooth);
     CHECK(p.emitterShape == Sc2EmitterShape::Spline);
     REQUIRE(p.splinePoints.size() == 2u);
     CHECK(p.models.size() == 1u);
@@ -1117,6 +1115,9 @@ TEST_CASE("wem m3 carries PAR_, PARC and RIB_ both ways", "[wem][node][emitter]"
     CHECK(r.splinePoints[0].node == 0u);
     CHECK(r.active.initValue == 1u);
     CHECK(r.active.nullValue == 0u);
+    // The cross-section is the record's +0x190 word, the cull method +0x194.
+    CHECK(r.crossSection == Sc2RibbonType::Cylinder);
+    CHECK(r.cullMethod == Sc2RibbonCull::Length);
 
     // Every AnimRef with an id is a channel, keyed or not, typed by its property.
     const AnimChannel* rate = channelFor(model, first, Sub(Sc2ParticleProperty::EmissionRate));
@@ -1204,7 +1205,8 @@ TEST_CASE("wem m3 carries PAR_, PARC and RIB_ both ways", "[wem][node][emitter]"
     CHECK(rib.active.animId == kActiveId);
     CHECK(rib.active.initValue == 1u);
     CHECK(rib.active.nullValue == 0u);
-    CHECK(rib.ribbonType == m3::RibbonType::Cylinder);
+    CHECK(rib.emitterShape == static_cast<u32>(m3::RibbonType::Cylinder));
+    CHECK(static_cast<u32>(rib.ribbonType) == 1u);
     CHECK(rib.edges == 6u);
     CHECK(rib.yawType == 2u);
     REQUIRE(rib.splineRibbons.size() == 1u);

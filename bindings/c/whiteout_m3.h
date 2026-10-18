@@ -397,8 +397,12 @@ typedef enum {
 
 typedef enum {
     whiteout_m3_ParticleRotationFlag_None,
+    whiteout_m3_ParticleRotationFlag_RandomUvOffset,
     whiteout_m3_ParticleRotationFlag_Relative,
     whiteout_m3_ParticleRotationFlag_AlwaysSet,
+    whiteout_m3_ParticleRotationFlag_FlattenVelocityXY,
+    whiteout_m3_ParticleRotationFlag_ScaleCollisionChild,
+    whiteout_m3_ParticleRotationFlag_ScaleTrailChild,
     whiteout_m3_ParticleRotationFlag_Unknown6,
     whiteout_m3_ParticleRotationFlag_Unknown7,
 } whiteout_m3_ParticleRotationFlag;
@@ -418,8 +422,8 @@ typedef enum {
     whiteout_m3_RibbonFlag_SimulateInit,
     whiteout_m3_RibbonFlag_UseLengthAndTime,
     whiteout_m3_RibbonFlag_AccurateGPUTangents,
-    whiteout_m3_RibbonFlag_YawFromSpeed,
-    whiteout_m3_RibbonFlag_UseLocator,
+    whiteout_m3_RibbonFlag_DualCollision,
+    whiteout_m3_RibbonFlag_SwapYawPitch,
 } whiteout_m3_RibbonFlag;
 
 typedef enum {
@@ -1186,10 +1190,10 @@ size_t whiteout_m3_M3ParticleEmitter_get_copyIndices_count(const whiteout_M3Part
 void whiteout_m3_M3ParticleEmitter_resize_copyIndices(whiteout_M3ParticleEmitter* self, size_t count);
 const uint32_t* whiteout_m3_M3ParticleEmitter_get_copyIndices_data(const whiteout_M3ParticleEmitter* self);
 void whiteout_m3_M3ParticleEmitter_assign_copyIndices(whiteout_M3ParticleEmitter* self, const uint32_t* data, size_t count);
-/* Ribbon spawn probability on bounce (v23+) */
+/* The model particles' legacy orientation (v23+), read by the model pose (SC2_PARTICLE_RE.md §16.15); the community layout's "ribbon spawned on a bounce", which the runtime never spawns. */
 float whiteout_m3_M3ParticleEmitter_get_spawnRibbonOnBounceChance(const whiteout_M3ParticleEmitter* self);
 void whiteout_m3_M3ParticleEmitter_set_spawnRibbonOnBounceChance(whiteout_M3ParticleEmitter* self, float value);
-/* Index into RIB_ array (-1 = none, v23+) */
+/* That orientation's variant, raw (v23+): no ribbon index, whatever the name says. A v22 or older record's instance type is moved here on read. */
 int32_t whiteout_m3_M3ParticleEmitter_get_ribbonLinkIndex(const whiteout_M3ParticleEmitter* self);
 void whiteout_m3_M3ParticleEmitter_set_ribbonLinkIndex(whiteout_M3ParticleEmitter* self, int32_t value);
 
@@ -1219,18 +1223,17 @@ void whiteout_m3_M3ParticleEmitterCopy_set_boneIndex(whiteout_M3ParticleEmitterC
 whiteout_M3SplineRibbon* whiteout_m3_M3SplineRibbon_new(void);
 void whiteout_m3_M3SplineRibbon_delete(whiteout_M3SplineRibbon* self);
 
-/* Emission point offset from bone */
+/* Bezier C0: the start point, emitter-local */
 whiteout_Vector3f* whiteout_m3_M3SplineRibbon_get_emissionOffset(whiteout_M3SplineRibbon* self);
 void whiteout_m3_M3SplineRibbon_set_emissionOffset(whiteout_M3SplineRibbon* self, const whiteout_Vector3f* value);
-/* Emission direction vector */
+/* The start tangent (C1) */
 whiteout_Vector3f* whiteout_m3_M3SplineRibbon_get_emissionVector(whiteout_M3SplineRibbon* self);
 void whiteout_m3_M3SplineRibbon_set_emissionVector(whiteout_M3SplineRibbon* self, const whiteout_Vector3f* value);
-/* Animated base velocity */
-whiteout_M3AnimRefF32* whiteout_m3_M3SplineRibbon_get_velocity(whiteout_M3SplineRibbon* self);
-void whiteout_m3_M3SplineRibbon_set_velocity(whiteout_M3SplineRibbon* self, const whiteout_M3AnimRefF32* value);
-/* Reserved (always 0) */
-uint32_t whiteout_m3_M3SplineRibbon_get_reserved(const whiteout_M3SplineRibbon* self);
-void whiteout_m3_M3SplineRibbon_set_reserved(whiteout_M3SplineRibbon* self, uint32_t value);
+/* The end tangent (C2) and the end point (C3), in the bone's frame: raw vectors the runtime reads as they are, where the community layout read an AnimRef and a reserved word (SC2_RIBBON_RE.md §1.2). */
+whiteout_Vector3f* whiteout_m3_M3SplineRibbon_get_endTangent(whiteout_M3SplineRibbon* self);
+void whiteout_m3_M3SplineRibbon_set_endTangent(whiteout_M3SplineRibbon* self, const whiteout_Vector3f* value);
+whiteout_Vector3f* whiteout_m3_M3SplineRibbon_get_endOffset(whiteout_M3SplineRibbon* self);
+void whiteout_m3_M3SplineRibbon_set_endOffset(whiteout_M3SplineRibbon* self, const whiteout_Vector3f* value);
 /* Index into BONE array */
 uint32_t whiteout_m3_M3SplineRibbon_get_boneIndex(const whiteout_M3SplineRibbon* self);
 void whiteout_m3_M3SplineRibbon_set_boneIndex(whiteout_M3SplineRibbon* self, uint32_t value);
@@ -1417,10 +1420,10 @@ void whiteout_m3_M3RibbonEmitter_set_noiseEdge(whiteout_M3RibbonEmitter* self, f
 /* Index + length */
 uint32_t whiteout_m3_M3RibbonEmitter_get_indexPlusLength(const whiteout_M3RibbonEmitter* self);
 void whiteout_m3_M3RibbonEmitter_set_indexPlusLength(whiteout_M3RibbonEmitter* self, uint32_t value);
-/* Emitter shape type */
+/* The cross-section, a `RibbonType` value: the community layout's names for these two words are each other's (SC2_RIBBON_RE.md §1.1). */
 uint32_t whiteout_m3_M3RibbonEmitter_get_emitterShape(const whiteout_M3RibbonEmitter* self);
 void whiteout_m3_M3RibbonEmitter_set_emitterShape(whiteout_M3RibbonEmitter* self, uint32_t value);
-/* Ribbon cross-section type */
+/* The cull method: 0 time, 1 length (Infinite on a spline). Not a `RibbonType`, whatever the type says. */
 int32_t whiteout_m3_M3RibbonEmitter_get_ribbonType(const whiteout_M3RibbonEmitter* self);
 void whiteout_m3_M3RibbonEmitter_set_ribbonType(whiteout_M3RibbonEmitter* self, int32_t value);
 /* Number of ribbon divisions */
@@ -2804,10 +2807,25 @@ void whiteout_m3_M3OneBoneSolver_set_maxAngle(whiteout_M3OneBoneSolver* self, fl
 
 /* SHBX — Shadow box (v0, 64 bytes) */
 /*  */
-/* Axis-aligned shadow volume defined by a 4×4 transform matrix. */
+/* The box a portrait or a set limits its shadows to: on a bone, a length, a width and a height, each animatable. Read off the shipped files (EDIT_MODE_SC2_PROFILE_PLAN.md S1.0): a u16 bone index and a u16 beside it, then three `AnimRef<f32>` under fixed ids (0x6B72DE65, 0x337A603E, 0x1F42A5D8), some keyed -- not the matrix this was once taken for. */
 whiteout_M3ShadowBox* whiteout_m3_M3ShadowBox_new(void);
 void whiteout_m3_M3ShadowBox_delete(whiteout_M3ShadowBox* self);
 
+/* Index into BONE array */
+uint16_t whiteout_m3_M3ShadowBox_get_boneIndex(const whiteout_M3ShadowBox* self);
+void whiteout_m3_M3ShadowBox_set_boneIndex(whiteout_M3ShadowBox* self, uint16_t value);
+/* 1 in three shipped story-mode sets, 0 in every other */
+uint16_t whiteout_m3_M3ShadowBox_get_unknown(const whiteout_M3ShadowBox* self);
+void whiteout_m3_M3ShadowBox_set_unknown(whiteout_M3ShadowBox* self, uint16_t value);
+/* Animated length */
+whiteout_M3AnimRefF32* whiteout_m3_M3ShadowBox_get_length(whiteout_M3ShadowBox* self);
+void whiteout_m3_M3ShadowBox_set_length(whiteout_M3ShadowBox* self, const whiteout_M3AnimRefF32* value);
+/* Animated width */
+whiteout_M3AnimRefF32* whiteout_m3_M3ShadowBox_get_width(whiteout_M3ShadowBox* self);
+void whiteout_m3_M3ShadowBox_set_width(whiteout_M3ShadowBox* self, const whiteout_M3AnimRefF32* value);
+/* Animated height */
+whiteout_M3AnimRefF32* whiteout_m3_M3ShadowBox_get_height(whiteout_M3ShadowBox* self);
+void whiteout_m3_M3ShadowBox_set_height(whiteout_M3ShadowBox* self, const whiteout_M3AnimRefF32* value);
 
 /* ── M3ViewVolume ─────────────────────────────────────────────── */
 
@@ -3263,14 +3281,14 @@ void whiteout_m3_M3ClothCollider_set_bone(whiteout_M3ClothCollider* self, uint32
 
 /* PHAC — Cloth proxy (v0, 32 bytes) */
 /*  */
-/* Binds one cloth-influenced region to its cage: per vertex of `clothIndex`, four cage-local `u16` lanes packed in a `u64` and four byte weights (/255) packed in a `u32`. */
+/* Binds one cloth-influenced region to its cage: per vertex of `proxyIndex`, four cage-local `u16` lanes packed in a `u64` and four byte weights (/255) packed in a `u32`. */
 whiteout_M3ClothProxy* whiteout_m3_M3ClothProxy_new(void);
 void whiteout_m3_M3ClothProxy_delete(whiteout_M3ClothProxy* self);
 
-/* The cage's region (REGN index) */
+/* The bound region (REGN index) */
 uint32_t whiteout_m3_M3ClothProxy_get_proxyIndex(const whiteout_M3ClothProxy* self);
 void whiteout_m3_M3ClothProxy_set_proxyIndex(whiteout_M3ClothProxy* self, uint32_t value);
-/* The bound region (REGN index) */
+/* The cage's region (REGN index) */
 uint32_t whiteout_m3_M3ClothProxy_get_clothIndex(const whiteout_M3ClothProxy* self);
 void whiteout_m3_M3ClothProxy_set_clothIndex(whiteout_M3ClothProxy* self, uint32_t value);
 /* Four cage vertices per bound vertex (U64_) */

@@ -410,8 +410,12 @@ EMSCRIPTEN_BINDINGS(m3) {
 
     enum_<whiteout::m3::ParticleRotationFlag>("M3ParticleRotationFlag")
         .value("None", whiteout::m3::ParticleRotationFlag::None)
+        .value("RandomUvOffset", whiteout::m3::ParticleRotationFlag::RandomUvOffset)
         .value("Relative", whiteout::m3::ParticleRotationFlag::Relative)
         .value("AlwaysSet", whiteout::m3::ParticleRotationFlag::AlwaysSet)
+        .value("FlattenVelocityXY", whiteout::m3::ParticleRotationFlag::FlattenVelocityXY)
+        .value("ScaleCollisionChild", whiteout::m3::ParticleRotationFlag::ScaleCollisionChild)
+        .value("ScaleTrailChild", whiteout::m3::ParticleRotationFlag::ScaleTrailChild)
         .value("Unknown6", whiteout::m3::ParticleRotationFlag::Unknown6)
         .value("Unknown7", whiteout::m3::ParticleRotationFlag::Unknown7);
 
@@ -430,8 +434,8 @@ EMSCRIPTEN_BINDINGS(m3) {
         .value("SimulateInit", whiteout::m3::RibbonFlag::SimulateInit)
         .value("UseLengthAndTime", whiteout::m3::RibbonFlag::UseLengthAndTime)
         .value("AccurateGPUTangents", whiteout::m3::RibbonFlag::AccurateGPUTangents)
-        .value("YawFromSpeed", whiteout::m3::RibbonFlag::YawFromSpeed)
-        .value("UseLocator", whiteout::m3::RibbonFlag::UseLocator);
+        .value("DualCollision", whiteout::m3::RibbonFlag::DualCollision)
+        .value("SwapYawPitch", whiteout::m3::RibbonFlag::SwapYawPitch);
 
     enum_<whiteout::m3::RibbonAdditionalFlag>("M3RibbonAdditionalFlag")
         .value("None", whiteout::m3::RibbonAdditionalFlag::None)
@@ -712,8 +716,8 @@ EMSCRIPTEN_BINDINGS(m3) {
         .constructor<>()
         .property("emissionOffset", &whiteout::m3::SplineRibbon::emissionOffset)
         .property("emissionVector", &whiteout::m3::SplineRibbon::emissionVector)
-        .property("velocity", &whiteout::m3::SplineRibbon::velocity)
-        .property("reserved", &whiteout::m3::SplineRibbon::reserved)
+        .property("endTangent", &whiteout::m3::SplineRibbon::endTangent)
+        .property("endOffset", &whiteout::m3::SplineRibbon::endOffset)
         .property("boneIndex", &whiteout::m3::SplineRibbon::boneIndex)
         .property("velocityBaseFactor", &whiteout::m3::SplineRibbon::velocityBaseFactor)
         .property("velocityEndFactor", &whiteout::m3::SplineRibbon::velocityEndFactor)

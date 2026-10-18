@@ -7,13 +7,21 @@ package whiteout.m3;
  */
 public enum ParticleRotationFlag {
     None(0),
+    /** Each particle's UVs shifted by its own random tile */
+    RandomUvOffset(1),
     /** Relative rotation; the SC2 upgrade sets it from rotationRandomEnable (v≤18) */
     Relative(2),
     /** Always set */
     AlwaysSet(4),
+    /** The launch velocity's z dropped, its xy rescaled to the speed */
+    FlattenVelocityXY(8),
+    /** A collision child takes this emitter's scale */
+    ScaleCollisionChild(16),
+    /** A trail child takes this emitter's scale */
+    ScaleTrailChild(32),
     /** Force-set by the SC2 version upgrade for all v≤20 emitters (role TBD) */
     Unknown6(64),
-    /** Set by the SC2 upgrade for remapped Billboard model particles (role TBD) */
+    /** Random spin axis (RE); set by the SC2 upgrade for remapped Billboard model particles */
     Unknown7(128);
 
     public final int value;

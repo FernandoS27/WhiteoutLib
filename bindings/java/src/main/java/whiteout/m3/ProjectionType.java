@@ -3,13 +3,13 @@
 package whiteout.m3;
 
 /**
- * Projector / decal projection type (PROJ)
+ * Projector / decal projection type (PROJ): from 1, as every shipped record reads (EDIT_MODE_SC2_PROFILE_PLAN.md S7.1).
  */
 public enum ProjectionType {
     /** Orthographic projection */
-    Orthographic(0),
+    Orthographic(1),
     /** Perspective projection */
-    Perspective(1);
+    Perspective(2);
 
     public final int value;
     ProjectionType(int v) { this.value = v; }

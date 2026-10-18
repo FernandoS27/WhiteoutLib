@@ -33,10 +33,10 @@ public enum RibbonFlag {
     UseLengthAndTime(4096),
     /** Accurate GPU tangents */
     AccurateGPUTangents(8192),
-    /** Derive yaw from speed */
-    YawFromSpeed(16384),
-    /** Use locator node */
-    UseLocator(32768);
+    /** Collide through the terrain+objects collider (SC2_RIBBON_RE.md §1.3) */
+    DualCollision(16384),
+    /** Exchange yaw and pitch in the emission basis (§3.2) */
+    SwapYawPitch(32768);
 
     public final int value;
     RibbonFlag(int v) { this.value = v; }

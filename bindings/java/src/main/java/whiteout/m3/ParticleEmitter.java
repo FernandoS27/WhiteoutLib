@@ -1459,7 +1459,7 @@ public final class ParticleEmitter implements AutoCloseable {
         NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_resize_copyIndices, handle, (long) count);
     }
     /**
-     * Ribbon spawn probability on bounce (v23+)
+     * The model particles' legacy orientation (v23+), read by the model pose (SC2_PARTICLE_RE.md §16.15); the community layout's "ribbon spawned on a bounce", which the runtime never spawns.
      * @return the spawnRibbonOnBounceChance field of this M3ParticleEmitter.
      */
     public float getSpawnRibbonOnBounceChance() {
@@ -1469,7 +1469,7 @@ public final class ParticleEmitter implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 1544L, value);
     }
     /**
-     * Index into RIB_ array (-1 = none, v23+)
+     * That orientation's variant, raw (v23+): no ribbon index, whatever the name says. A v22 or older record's instance type is moved here on read.
      * @return the ribbonLinkIndex field of this M3ParticleEmitter.
      */
     public int getRibbonLinkIndex() {

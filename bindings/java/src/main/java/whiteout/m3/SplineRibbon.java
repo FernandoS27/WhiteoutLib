@@ -59,7 +59,7 @@ public final class SplineRibbon implements AutoCloseable {
     }
 
     /**
-     * Emission point offset from bone
+     * Bezier C0: the start point, emitter-local
      * @return the emissionOffset field of this M3SplineRibbon.
      */
     public Vector3f getEmissionOffset() {
@@ -73,7 +73,7 @@ public final class SplineRibbon implements AutoCloseable {
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 0L, 12L);
     }
     /**
-     * Emission direction vector
+     * The start tangent (C1)
      * @return the emissionVector field of this M3SplineRibbon.
      */
     public Vector3f getEmissionVector() {
@@ -87,25 +87,29 @@ public final class SplineRibbon implements AutoCloseable {
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 12L, 12L);
     }
     /**
-     * Animated base velocity
-     * @return the velocity field of this M3SplineRibbon.
+     * The end tangent (C2) and the end point (C3), in the bone's frame: raw vectors the runtime reads as they are, where the community layout read an AnimRef and a reserved word (SC2_RIBBON_RE.md §1.2).
+     * @return the endTangent field of this M3SplineRibbon.
      */
-    public AnimRefF32 getVelocity() {
-        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_get_velocity, handle);
-        return new AnimRefF32(__h, false);
+    public Vector3f getEndTangent() {
+        return Handles.wrapVector3f(handle.asSlice(24L, 12L), false);
     }
-    public void setVelocity(AnimRefF32 value) {
-        NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_set_velocity, handle, value == null ? MemorySegment.NULL : value.handle);
+    public void setEndTangent(Vector3f value) {
+        if (value == null) {
+            NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_set_endTangent, handle, MemorySegment.NULL);
+            return;
+        }
+        MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 24L, 12L);
     }
-    /**
-     * Reserved (always 0)
-     * @return the reserved field of this M3SplineRibbon.
-     */
-    public int getReserved() {
-        return handle.get(ValueLayout.JAVA_INT, 44L);
+    /** @return the endOffset field of this M3SplineRibbon. */
+    public Vector3f getEndOffset() {
+        return Handles.wrapVector3f(handle.asSlice(36L, 12L), false);
     }
-    public void setReserved(int value) {
-        handle.set(ValueLayout.JAVA_INT, 44L, value);
+    public void setEndOffset(Vector3f value) {
+        if (value == null) {
+            NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_set_endOffset, handle, MemorySegment.NULL);
+            return;
+        }
+        MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 36L, 12L);
     }
     /**
      * Index into BONE array
@@ -278,7 +282,7 @@ public final class SplineRibbon implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 268L, value);
     }
     @Override public String toString() {
-        return "SplineRibbon(" + "reserved=" + getReserved() + ", " + "boneIndex=" + getBoneIndex() + ", " + "yawType=" + getYawType() + ", " + "pitchType=" + getPitchType() + ", " + "velocityType=" + getVelocityType() + ", " + "emissionVectorNormFactor=" + getEmissionVectorNormFactor() + ", " + "velocityNormFactor=" + getVelocityNormFactor() + ")";
+        return "SplineRibbon(" + "boneIndex=" + getBoneIndex() + ", " + "yawType=" + getYawType() + ", " + "pitchType=" + getPitchType() + ", " + "velocityType=" + getVelocityType() + ", " + "emissionVectorNormFactor=" + getEmissionVectorNormFactor() + ", " + "velocityNormFactor=" + getVelocityNormFactor() + ")";
     }
 
 }

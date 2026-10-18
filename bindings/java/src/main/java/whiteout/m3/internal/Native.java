@@ -480,10 +480,10 @@ public final class Native {
     public static final MethodHandle whiteout_m3_M3SplineRibbon_set_emissionOffset = find("whiteout_m3_M3SplineRibbon_set_emissionOffset", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3SplineRibbon_get_emissionVector = find("whiteout_m3_M3SplineRibbon_get_emissionVector", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3SplineRibbon_set_emissionVector = find("whiteout_m3_M3SplineRibbon_set_emissionVector", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3SplineRibbon_get_velocity = find("whiteout_m3_M3SplineRibbon_get_velocity", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3SplineRibbon_set_velocity = find("whiteout_m3_M3SplineRibbon_set_velocity", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3SplineRibbon_get_reserved = find("whiteout_m3_M3SplineRibbon_get_reserved", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3SplineRibbon_set_reserved = find("whiteout_m3_M3SplineRibbon_set_reserved", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_m3_M3SplineRibbon_get_endTangent = find("whiteout_m3_M3SplineRibbon_get_endTangent", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3SplineRibbon_set_endTangent = find("whiteout_m3_M3SplineRibbon_set_endTangent", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3SplineRibbon_get_endOffset = find("whiteout_m3_M3SplineRibbon_get_endOffset", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3SplineRibbon_set_endOffset = find("whiteout_m3_M3SplineRibbon_set_endOffset", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3SplineRibbon_get_boneIndex = find("whiteout_m3_M3SplineRibbon_get_boneIndex", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3SplineRibbon_set_boneIndex = find("whiteout_m3_M3SplineRibbon_set_boneIndex", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
     public static final MethodHandle whiteout_m3_M3SplineRibbon_get_velocityBaseFactor = find("whiteout_m3_M3SplineRibbon_get_velocityBaseFactor", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
@@ -1551,6 +1551,16 @@ public final class Native {
         "whiteout_m3_M3ShadowBox_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3ShadowBox_delete = find(
         "whiteout_m3_M3ShadowBox_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3ShadowBox_get_boneIndex = find("whiteout_m3_M3ShadowBox_get_boneIndex", FunctionDescriptor.of(ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3ShadowBox_set_boneIndex = find("whiteout_m3_M3ShadowBox_set_boneIndex", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT));
+    public static final MethodHandle whiteout_m3_M3ShadowBox_get_unknown = find("whiteout_m3_M3ShadowBox_get_unknown", FunctionDescriptor.of(ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3ShadowBox_set_unknown = find("whiteout_m3_M3ShadowBox_set_unknown", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT));
+    public static final MethodHandle whiteout_m3_M3ShadowBox_get_length = find("whiteout_m3_M3ShadowBox_get_length", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3ShadowBox_set_length = find("whiteout_m3_M3ShadowBox_set_length", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3ShadowBox_get_width = find("whiteout_m3_M3ShadowBox_get_width", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3ShadowBox_set_width = find("whiteout_m3_M3ShadowBox_set_width", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3ShadowBox_get_height = find("whiteout_m3_M3ShadowBox_get_height", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3ShadowBox_set_height = find("whiteout_m3_M3ShadowBox_set_height", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
 
     // -- M3ViewVolume --
     public static final MethodHandle whiteout_m3_M3ViewVolume_new = find(

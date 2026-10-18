@@ -20,4 +20,20 @@ public sealed class ShadowBox : WhiteoutHandle
         NativeMethods.whiteout_m3_M3ShadowBox_delete(handle);
         return true;
     }
+
+    /// <summary>Index into BONE array</summary>
+    public ushort BoneIndex
+    {
+        get => NativeMethods.whiteout_m3_M3ShadowBox_get_boneIndex(DangerousGet());
+        set => NativeMethods.whiteout_m3_M3ShadowBox_set_boneIndex(DangerousGet(), value);
+    }
+
+
+    /// <summary>1 in three shipped story-mode sets, 0 in every other</summary>
+    public ushort Unknown
+    {
+        get => NativeMethods.whiteout_m3_M3ShadowBox_get_unknown(DangerousGet());
+        set => NativeMethods.whiteout_m3_M3ShadowBox_set_unknown(DangerousGet(), value);
+    }
+
 }

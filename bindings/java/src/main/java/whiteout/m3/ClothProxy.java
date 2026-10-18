@@ -13,7 +13,7 @@ import whiteout.m3.internal.Native;
 /**
  * PHAC — Cloth proxy (v0, 32 bytes)
  * 
- * Binds one cloth-influenced region to its cage: per vertex of `clothIndex`, four cage-local `u16` lanes packed in a `u64` and four byte weights (/255) packed in a `u32`.
+ * Binds one cloth-influenced region to its cage: per vertex of `proxyIndex`, four cage-local `u16` lanes packed in a `u64` and four byte weights (/255) packed in a `u32`.
  *
  * <p><b>Lifecycle.</b> Instances hold a handle to a native
  * ClothProxy allocation. Always release them with
@@ -59,7 +59,7 @@ public final class ClothProxy implements AutoCloseable {
     }
 
     /**
-     * The cage's region (REGN index)
+     * The bound region (REGN index)
      * @return the proxyIndex field of this M3ClothProxy.
      */
     public int getProxyIndex() {
@@ -69,7 +69,7 @@ public final class ClothProxy implements AutoCloseable {
         handle.set(ValueLayout.JAVA_INT, 0L, value);
     }
     /**
-     * The bound region (REGN index)
+     * The cage's region (REGN index)
      * @return the clothIndex field of this M3ClothProxy.
      */
     public int getClothIndex() {

@@ -18,6 +18,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <whiteout/models/m3/physics_upgrade.h>
 #include <whiteout/models/m3/writer.h>
 #include <whiteout/models/wem/anim/m3_math.h>
 #include <whiteout/models/wem/anim/stages.h>
@@ -1060,4 +1061,207 @@ TEST_CASE("wem m3 the export map names each emitter node's runtime emitter", "[w
     CHECK(map.nodeEmitter[particles[1]] == 1u);
     CHECK(map.nodeEmitter[copies[0]] == 1u);
     CHECK(map.nodeEmitter[ribbons[0]] == 0u);
+}
+
+TEST_CASE("wem m3 a model particle's orientation words cross raw, and an older file's link reads back as the index",
+          "[wem][m3][x0]") {
+    // EDIT_MODE_SC2_EFFECTS_PLAN.md X0 L2: PAR_+0x5D0 / +0x5D4 are the model
+    // pose's legacy orientation and its variant, whatever ribbon they index.
+    m3::Model model = shippedModel();
+    m3::ParticleEmitter oriented;
+    oriented.boneIndex = 4;
+    oriented.spawnRibbonOnBounceChance = 0.25f;
+    oriented.ribbonLinkIndex = 1;
+    m3::ParticleEmitter past;
+    past.boneIndex = 5;
+    past.ribbonLinkIndex = 7; // indexes no ribbon, and still crosses
+    model.particleEmitters = {oriented, past};
+    m3::RibbonEmitter ribbon;
+    ribbon.boneIndex = 3;
+    model.ribbonEmitters = {ribbon, ribbon};
+    const M3Converter converter;
+    Result<Document> read = converter.fromM3(model, ProfileId::Sc2);
+    REQUIRE(read.ok());
+    Document document = *read.value;
+    std::vector<u32> particles, ribbons;
+    for (u32 n = 0; n < document.models[0].nodes.size(); ++n) {
+        if (std::holds_alternative<Sc2ParticleEmitterPayload>(document.models[0].nodes.nodes[n].payload))
+            particles.push_back(n);
+        if (document.models[0].nodes.nodes[n].kind == NodeKind::Sc2RibbonEmitter)
+            ribbons.push_back(n);
+    }
+    REQUIRE(particles.size() == 2u);
+    REQUIRE(ribbons.size() == 2u);
+    auto& first = std::get<Sc2ParticleEmitterPayload>(document.models[0].nodes.nodes[particles[0]].payload);
+    auto& second = std::get<Sc2ParticleEmitterPayload>(document.models[0].nodes.nodes[particles[1]].payload);
+    CHECK(first.modelOrientation == 0.25f);
+    CHECK(first.modelOrientationVariant == 1);
+    CHECK(second.modelOrientationVariant == 7);
+    CHECK(first.ribbonLink == kInvalidNode);
+    const Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    REQUIRE(written->particleEmitters.size() == 2u);
+    CHECK(written->particleEmitters[0].spawnRibbonOnBounceChance == 0.25f);
+    CHECK(written->particleEmitters[0].ribbonLinkIndex == 1);
+    CHECK(written->particleEmitters[1].ribbonLinkIndex == 7);
+
+    // As a NODE v25 file kept it: the variant was a link to the ribbon it
+    // indexed, and none where it indexed none.
+    first.ribbonLink = ribbons[1];
+    second.ribbonLink = kInvalidNode;
+    // The variant follows the marker, and is cut: an older chunk had none.
+    constexpr f32 kMarker = 1234.5f;
+    constexpr i32 kCut = 3;
+    first.noiseSmoothness = second.noiseSmoothness = kMarker;
+    first.modelOrientationVariant = second.modelOrientationVariant = kCut;
+    std::vector<u8> bytes = writeWem(document);
+    // Both of v26's fields go: the variant, then the splat's projector (L4).
+    std::vector<u8> cut = bytesOf(kCut);
+    const std::vector<u8> projector = bytesOf(kInvalidNode);
+    cut.insert(cut.end(), projector.begin(), projector.end());
+    REQUIRE(forgeAfter(bytes, ChunkTagTraits<Node>::value, kMarker, cut, 25) == 2u);
+    const std::optional<Document> old = Parser().parse(std::span<const u8>(bytes.data(), bytes.size()));
+    REQUIRE(old);
+    const auto& oldFirst = std::get<Sc2ParticleEmitterPayload>(old->models[0].nodes.nodes[particles[0]].payload);
+    const auto& oldSecond = std::get<Sc2ParticleEmitterPayload>(old->models[0].nodes.nodes[particles[1]].payload);
+    CHECK(oldFirst.modelOrientationVariant == 1);
+    CHECK(oldSecond.modelOrientationVariant == -1);
+    CHECK(oldFirst.ribbonLink == kInvalidNode);
+    CHECK(oldFirst.modelOrientation == 0.25f);
+}
+
+TEST_CASE("wem m3 the export derives a system's local fallback channels from the model's own fields",
+          "[wem][m3][x0]") {
+    // EDIT_MODE_SC2_EFFECTS_PLAN.md X0 L6: the runtime collects fields through
+    // the fallback pair, and the exporter writes its local half as the local
+    // mask over the fields' channels. A field made in the editor pushes then.
+    m3::Model model = shippedModel();
+    m3::ParticleEmitter particle;
+    particle.boneIndex = 4;
+    particle.localForces = 0x3;
+    particle.worldForces = 0x10;
+    particle.worldForcesFallback = 0; // stale, as an edit leaves it
+    model.particleEmitters = {particle};
+    m3::RibbonEmitter ribbon;
+    ribbon.boneIndex = 3;
+    ribbon.localForces = 0x6;
+    model.ribbonEmitters = {ribbon};
+    m3::Force force;
+    force.boneIndex = 2;
+    force.localChannels = 0x2;
+    force.forceVersion(m3::kCurrentForceVersion);
+    model.forces = {force};
+    const M3Converter converter;
+    Result<Document> read = converter.fromM3(model, ProfileId::Sc2);
+    REQUIRE(read.ok());
+    const Result<m3::Model> written = converter.toM3(*read.value, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    REQUIRE(written->particleEmitters.size() == 1u);
+    REQUIRE(written->ribbonEmitters.size() == 1u);
+    CHECK(written->particleEmitters[0].localForcesFallback == 0x2u);
+    CHECK(written->particleEmitters[0].worldForcesFallback == 0x10u);
+    CHECK(written->ribbonEmitters[0].localForcesFallback == 0x2u);
+}
+
+TEST_CASE("wem m3 a spline point's end tangent and end offset cross whole, through a .wem too", "[wem][m3][x0]") {
+    m3::Model model = shippedModel();
+    m3::RibbonEmitter ribbon;
+    ribbon.boneIndex = 3;
+    m3::SplineRibbon point;
+    point.boneIndex = 2;
+    point.endTangent = Vector3f{0.25f, -0.5f, 1.44f};
+    point.endOffset = Vector3f{0.125f, 0.75f, -2.0f};
+    ribbon.splineRibbons = {point};
+    model.ribbonEmitters = {ribbon};
+    const M3Converter converter;
+    Result<Document> read = converter.fromM3(model, ProfileId::Sc2);
+    REQUIRE(read.ok());
+    const std::vector<u8> bytes = writeWem(*read.value);
+    const std::optional<Document> reread = Parser().parse(std::span<const u8>(bytes.data(), bytes.size()));
+    REQUIRE(reread);
+    for (const Document* document : {static_cast<const Document*>(&*read.value), static_cast<const Document*>(&*reread)}) {
+        const Result<m3::Model> written = converter.toM3(*document, ProfileId::Sc2, 29);
+        REQUIRE(written.ok());
+        REQUIRE(written->ribbonEmitters.size() == 1u);
+        REQUIRE(written->ribbonEmitters[0].splineRibbons.size() == 1u);
+        const m3::SplineRibbon& back = written->ribbonEmitters[0].splineRibbons[0];
+        CHECK(back.endTangent.x == 0.25f);
+        CHECK(back.endTangent.y == -0.5f);
+        CHECK(back.endTangent.z == 1.44f);
+        CHECK(back.endOffset.x == 0.125f);
+        CHECK(back.endOffset.y == 0.75f);
+        CHECK(back.endOffset.z == -2.0f);
+    }
+}
+
+TEST_CASE("wem m3 a splat's projector is a node link, and an older file's index reads back as that node",
+          "[wem][m3][x7]") {
+    // EDIT_MODE_SC2_EFFECTS_PLAN.md X7 L4: PAR_'s splatProjectionIndex names
+    // a PROJ, which WEM holds as a Projector node since NODE v22.
+    m3::Model model = shippedModel();
+    m3::ParticleEmitter splatting;
+    splatting.boneIndex = 4;
+    splatting.splatProjectionIndex = 1;
+    splatting.splatChance = 0.5f;
+    m3::ParticleEmitter plain;
+    plain.boneIndex = 5;
+    plain.splatProjectionIndex = 9; // past the projectors: none
+    model.particleEmitters = {splatting, plain};
+    m3::Projector projector;
+    projector.bone = 3;
+    model.projections = {projector, projector};
+    const M3Converter converter;
+    Result<Document> read = converter.fromM3(model, ProfileId::Sc2);
+    REQUIRE(read.ok());
+    Document document = *read.value;
+    std::vector<u32> particles, projectors;
+    for (u32 n = 0; n < document.models[0].nodes.size(); ++n) {
+        if (std::holds_alternative<Sc2ParticleEmitterPayload>(document.models[0].nodes.nodes[n].payload))
+            particles.push_back(n);
+        if (document.models[0].nodes.nodes[n].kind == NodeKind::Projector)
+            projectors.push_back(n);
+    }
+    REQUIRE(particles.size() == 2u);
+    REQUIRE(projectors.size() == 2u);
+    auto& first = std::get<Sc2ParticleEmitterPayload>(document.models[0].nodes.nodes[particles[0]].payload);
+    auto& second = std::get<Sc2ParticleEmitterPayload>(document.models[0].nodes.nodes[particles[1]].payload);
+    CHECK(first.splatProjector == projectors[1]);
+    CHECK(second.splatProjector == kInvalidNode);
+    CHECK(first.splatProjectionIndex == -1);
+    // A link names a projector, and nothing else.
+    {
+        Document wrong = document;
+        std::get<Sc2ParticleEmitterPayload>(wrong.models[0].nodes.nodes[particles[0]].payload).splatProjector =
+            particles[1];
+        CHECK(Validate(wrong, ValidateLevel::Structural).countOf(DiagCode::DanglingNodeReference) > 0u);
+        CHECK(Validate(document, ValidateLevel::Structural).countOf(DiagCode::DanglingNodeReference) == 0u);
+    }
+    const Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    REQUIRE(written->particleEmitters.size() == 2u);
+    CHECK(written->particleEmitters[0].splatProjectionIndex == 1);
+    CHECK(written->particleEmitters[1].splatProjectionIndex == -1);
+
+    // As a NODE v25 file kept it: the file's index, and neither v26 field
+    // (each record holds the same two, so one cut serves both).
+    constexpr f32 kMarker = 4321.5f;
+    constexpr i32 kVariant = 3;
+    first.noiseSmoothness = second.noiseSmoothness = kMarker;
+    first.modelOrientationVariant = second.modelOrientationVariant = kVariant;
+    first.splatProjector = second.splatProjector = kInvalidNode;
+    first.splatProjectionIndex = 1;
+    second.splatProjectionIndex = 9;
+    std::vector<u8> bytes = writeWem(document);
+    std::vector<u8> cut = bytesOf(kVariant);
+    const std::vector<u8> none = bytesOf(kInvalidNode);
+    cut.insert(cut.end(), none.begin(), none.end());
+    REQUIRE(forgeAfter(bytes, ChunkTagTraits<Node>::value, kMarker, cut, 25) == 2u);
+    const std::optional<Document> old = Parser().parse(std::span<const u8>(bytes.data(), bytes.size()));
+    REQUIRE(old);
+    const auto& oldFirst = std::get<Sc2ParticleEmitterPayload>(old->models[0].nodes.nodes[particles[0]].payload);
+    const auto& oldSecond = std::get<Sc2ParticleEmitterPayload>(old->models[0].nodes.nodes[particles[1]].payload);
+    CHECK(oldFirst.splatProjector == projectors[1]);
+    CHECK(oldSecond.splatProjector == kInvalidNode);
+    CHECK(oldFirst.splatProjectionIndex == -1);
+    CHECK(oldFirst.splatChance == 0.5f);
 }

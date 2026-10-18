@@ -272,7 +272,7 @@ These bitmask flags control the per-vertex data layout in the U8__ vertex blob. 
         .value("STAR", whiteout::m3::RibbonType::Star, R"doc(Star-shaped cross-section)doc")
     ;
 
-    py::enum_<whiteout::m3::ProjectionType>(m, "ProjectionType", R"doc(Projector / decal projection type (PROJ))doc")
+    py::enum_<whiteout::m3::ProjectionType>(m, "ProjectionType", R"doc(Projector / decal projection type (PROJ): from 1, as every shipped record reads (EDIT_MODE_SC2_PROFILE_PLAN.md S7.1).)doc")
         .value("ORTHOGRAPHIC", whiteout::m3::ProjectionType::Orthographic, R"doc(Orthographic projection)doc")
         .value("PERSPECTIVE", whiteout::m3::ProjectionType::Perspective, R"doc(Perspective projection)doc")
     ;
@@ -564,10 +564,14 @@ Recovered from `CBBSolver::ApplyBillboard` (SC2 `0x1027F1F30`). The aim directio
 
     py::enum_<whiteout::m3::ParticleRotationFlag>(m, "ParticleRotationFlag", R"doc(Particle rotation flags (PAR_.rotationFlags, v18+))doc")
         .value("NONE", whiteout::m3::ParticleRotationFlag::None)
+        .value("RANDOM_UV_OFFSET", whiteout::m3::ParticleRotationFlag::RandomUvOffset, R"doc(Each particle's UVs shifted by its own random tile)doc")
         .value("RELATIVE", whiteout::m3::ParticleRotationFlag::Relative, R"doc(Relative rotation; the SC2 upgrade sets it from rotationRandomEnable (v≤18))doc")
         .value("ALWAYS_SET", whiteout::m3::ParticleRotationFlag::AlwaysSet, R"doc(Always set)doc")
+        .value("FLATTEN_VELOCITY_XY", whiteout::m3::ParticleRotationFlag::FlattenVelocityXY, R"doc(The launch velocity's z dropped, its xy rescaled to the speed)doc")
+        .value("SCALE_COLLISION_CHILD", whiteout::m3::ParticleRotationFlag::ScaleCollisionChild, R"doc(A collision child takes this emitter's scale)doc")
+        .value("SCALE_TRAIL_CHILD", whiteout::m3::ParticleRotationFlag::ScaleTrailChild, R"doc(A trail child takes this emitter's scale)doc")
         .value("UNKNOWN6", whiteout::m3::ParticleRotationFlag::Unknown6, R"doc(Force-set by the SC2 version upgrade for all v≤20 emitters (role TBD))doc")
-        .value("UNKNOWN7", whiteout::m3::ParticleRotationFlag::Unknown7, R"doc(Set by the SC2 upgrade for remapped Billboard model particles (role TBD))doc")
+        .value("UNKNOWN7", whiteout::m3::ParticleRotationFlag::Unknown7, R"doc(Random spin axis (RE); set by the SC2 upgrade for remapped Billboard model particles)doc")
     ;
 
     py::enum_<whiteout::m3::RibbonFlag>(m, "RibbonFlag", R"doc(Ribbon emitter main flags (RIB_.flags))doc")
@@ -585,8 +589,8 @@ Recovered from `CBBSolver::ApplyBillboard` (SC2 `0x1027F1F30`). The aim directio
         .value("SIMULATE_INIT", whiteout::m3::RibbonFlag::SimulateInit, R"doc(Simulate on init)doc")
         .value("USE_LENGTH_AND_TIME", whiteout::m3::RibbonFlag::UseLengthAndTime, R"doc(Use length and time)doc")
         .value("ACCURATE_GPU_TANGENTS", whiteout::m3::RibbonFlag::AccurateGPUTangents, R"doc(Accurate GPU tangents)doc")
-        .value("YAW_FROM_SPEED", whiteout::m3::RibbonFlag::YawFromSpeed, R"doc(Derive yaw from speed)doc")
-        .value("USE_LOCATOR", whiteout::m3::RibbonFlag::UseLocator, R"doc(Use locator node)doc")
+        .value("DUAL_COLLISION", whiteout::m3::RibbonFlag::DualCollision, R"doc(Collide through the terrain+objects collider (SC2_RIBBON_RE.md §1.3))doc")
+        .value("SWAP_YAW_PITCH", whiteout::m3::RibbonFlag::SwapYawPitch, R"doc(Exchange yaw and pitch in the emission basis (§3.2))doc")
     ;
 
     py::enum_<whiteout::m3::RibbonAdditionalFlag>(m, "RibbonAdditionalFlag", R"doc(Ribbon emitter additional flags (RIB_.flags2, v8+))doc")
@@ -884,8 +888,8 @@ The most complex M3 chunk type. Contains bone/material binding, emission shape/r
         .def_readwrite("splat_chance", &whiteout::m3::ParticleEmitter::splatChance, R"doc(Splat spawn probability)doc")
         .def_readwrite("model_paths", &whiteout::m3::ParticleEmitter::modelPaths, R"doc(Model particle paths (SCHR))doc")
         .def_readwrite("copy_indices", &whiteout::m3::ParticleEmitter::copyIndices, R"doc(Emitter copy indices (U32_))doc")
-        .def_readwrite("spawn_ribbon_on_bounce_chance", &whiteout::m3::ParticleEmitter::spawnRibbonOnBounceChance, R"doc(Ribbon spawn probability on bounce (v23+))doc")
-        .def_readwrite("ribbon_link_index", &whiteout::m3::ParticleEmitter::ribbonLinkIndex, R"doc(Index into RIB_ array (-1 = none, v23+))doc")
+        .def_readwrite("spawn_ribbon_on_bounce_chance", &whiteout::m3::ParticleEmitter::spawnRibbonOnBounceChance, R"doc(The model particles' legacy orientation (v23+), read by the model pose (SC2_PARTICLE_RE.md §16.15); the community layout's "ribbon spawned on a bounce", which the runtime never spawns.)doc")
+        .def_readwrite("ribbon_link_index", &whiteout::m3::ParticleEmitter::ribbonLinkIndex, R"doc(That orientation's variant, raw (v23+): no ribbon index, whatever the name says. A v22 or older record's instance type is moved here on read.)doc")
     ;
 
     py::class_<whiteout::m3::ParticleEmitterCopy>(m, "ParticleEmitterCopy", R"doc(PARC — Particle emitter copy (v0, 40 bytes)
@@ -901,10 +905,10 @@ Lightweight copy of a particle emitter with overridden emission rate, squirt amo
 
 Defines a single segment of a spline-based ribbon with emission offset/vector, velocity, bone binding, and pitch/yaw/velocity variation channels.)doc")
         .def(py::init<>())
-        .def_readwrite("emission_offset", &whiteout::m3::SplineRibbon::emissionOffset, R"doc(Emission point offset from bone)doc")
-        .def_readwrite("emission_vector", &whiteout::m3::SplineRibbon::emissionVector, R"doc(Emission direction vector)doc")
-        .def_readwrite("velocity", &whiteout::m3::SplineRibbon::velocity, R"doc(Animated base velocity)doc")
-        .def_readwrite("reserved", &whiteout::m3::SplineRibbon::reserved, R"doc(Reserved (always 0))doc")
+        .def_readwrite("emission_offset", &whiteout::m3::SplineRibbon::emissionOffset, R"doc(Bezier C0: the start point, emitter-local)doc")
+        .def_readwrite("emission_vector", &whiteout::m3::SplineRibbon::emissionVector, R"doc(The start tangent (C1))doc")
+        .def_readwrite("end_tangent", &whiteout::m3::SplineRibbon::endTangent, R"doc(The end tangent (C2) and the end point (C3), in the bone's frame: raw vectors the runtime reads as they are, where the community layout read an AnimRef and a reserved word (SC2_RIBBON_RE.md §1.2).)doc")
+        .def_readwrite("end_offset", &whiteout::m3::SplineRibbon::endOffset)
         .def_readwrite("bone_index", &whiteout::m3::SplineRibbon::boneIndex, R"doc(Index into BONE array)doc")
         .def_readwrite("velocity_base_factor", &whiteout::m3::SplineRibbon::velocityBaseFactor, R"doc(Animated base velocity factor)doc")
         .def_readwrite("velocity_end_factor", &whiteout::m3::SplineRibbon::velocityEndFactor, R"doc(Animated end velocity factor)doc")
@@ -970,8 +974,8 @@ Ribbon strip effect with per-particle lifetime, velocity, color/size curves, phy
         .def_readwrite("noise_coherence", &whiteout::m3::RibbonEmitter::noiseCoherence, R"doc(Noise temporal coherence)doc")
         .def_readwrite("noise_edge", &whiteout::m3::RibbonEmitter::noiseEdge, R"doc(Noise edge sharpness)doc")
         .def_readwrite("index_plus_length", &whiteout::m3::RibbonEmitter::indexPlusLength, R"doc(Index + length)doc")
-        .def_readwrite("emitter_shape", &whiteout::m3::RibbonEmitter::emitterShape, R"doc(Emitter shape type)doc")
-        .def_readwrite("ribbon_type", &whiteout::m3::RibbonEmitter::ribbonType, R"doc(Ribbon cross-section type)doc")
+        .def_readwrite("emitter_shape", &whiteout::m3::RibbonEmitter::emitterShape, R"doc(The cross-section, a `RibbonType` value: the community layout's names for these two words are each other's (SC2_RIBBON_RE.md §1.1).)doc")
+        .def_readwrite("ribbon_type", &whiteout::m3::RibbonEmitter::ribbonType, R"doc(The cull method: 0 time, 1 length (Infinite on a spline). Not a `RibbonType`, whatever the type says.)doc")
         .def_readwrite("divisions", &whiteout::m3::RibbonEmitter::divisions, R"doc(Number of ribbon divisions)doc")
         .def_readwrite("edges", &whiteout::m3::RibbonEmitter::edges, R"doc(Number of cross-section edges)doc")
         .def_readwrite("inner_radius", &whiteout::m3::RibbonEmitter::innerRadius, R"doc(Inner radius)doc")

@@ -245,6 +245,8 @@ const char* ToString(EmitterLink link) {
         return "skin.mirror";
     case EmitterLink::RigRidesWith:
         return "rig.ridesWith";
+    case EmitterLink::SplatProjector:
+        return "splatProjector";
     }
     return "invalid";
 }

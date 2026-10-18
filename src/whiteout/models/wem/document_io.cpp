@@ -194,6 +194,58 @@ void RetypeLegacyM3Lights(Document& document) {
     }
 }
 
+/// A `NODE` written before v26 kept a particle system's orientation variant
+/// as a link to the ribbon it indexed (`ImportLinks::ribbon`): that ribbon's
+/// index among the model's again, or -1 where it named none, which is what the
+/// export wrote for it. What that reading had already lost stays lost.
+void RestoreOrientationVariants(Document& document) {
+    for (Model& model : document.models) {
+        std::vector<i32> ribbonIndex(model.nodes.size(), -1);
+        i32 ribbons = 0;
+        for (u32 n = 0; n < model.nodes.size(); ++n) {
+            if (model.nodes.nodes[n].kind == NodeKind::Sc2RibbonEmitter) {
+                ribbonIndex[n] = ribbons++;
+            }
+        }
+        for (Node& node : model.nodes.nodes) {
+            auto* particle = std::get_if<Sc2ParticleEmitterPayload>(&node.payload);
+            if (particle == nullptr) {
+                continue;
+            }
+            if (particle->modelOrientationVariant == Sc2ParticleEmitterPayload::kVariantFromLink) {
+                particle->modelOrientationVariant =
+                    particle->ribbonLink < ribbonIndex.size() ? ribbonIndex[particle->ribbonLink] : -1;
+            }
+            particle->ribbonLink = kInvalidNode;
+        }
+    }
+}
+
+/// A `NODE` written before v26 kept a particle system's splat as the file's
+/// `PROJ` index: the model's projector of that number, in node order (the
+/// order the import made them in), or none.
+void RestoreSplatProjectors(Document& document) {
+    for (Model& model : document.models) {
+        std::vector<u32> projectors;
+        for (u32 n = 0; n < model.nodes.size(); ++n) {
+            if (model.nodes.nodes[n].kind == NodeKind::Projector) {
+                projectors.push_back(n);
+            }
+        }
+        for (Node& node : model.nodes.nodes) {
+            auto* particle = std::get_if<Sc2ParticleEmitterPayload>(&node.payload);
+            if (particle == nullptr) {
+                continue;
+            }
+            const i32 index = particle->splatProjectionIndex;
+            particle->splatProjector = index >= 0 && static_cast<std::size_t>(index) < projectors.size()
+                                           ? projectors[static_cast<std::size_t>(index)]
+                                           : kInvalidNode;
+            particle->splatProjectionIndex = -1;
+        }
+    }
+}
+
 } // namespace
 
 class Parser::Impl {
@@ -256,6 +308,10 @@ public:
         }
         if (visitor.oldestVersion(ChunkTagTraits<Node>::value) < 25) {
             RetypeLegacyM3Lights(document);
+        }
+        if (visitor.oldestVersion(ChunkTagTraits<Node>::value) < 26) {
+            RestoreOrientationVariants(document);
+            RestoreSplatProjectors(document);
         }
         DropLevelsOfDetail(document, diagnostics);
         MarkBakeStretches(document);

@@ -657,6 +657,8 @@ NodeTree ImportNodes(const m3::Model& source) {
     links.particleCount = static_cast<u32>(source.particleEmitters.size());
     links.ribbonBase = bases.ribbon;
     links.ribbonCount = static_cast<u32>(source.ribbonEmitters.size());
+    links.projectorBase = bases.projector;
+    links.projectorCount = static_cast<u32>(source.projections.size());
 
     for (std::size_t p = 0; p < source.particleEmitters.size(); ++p) {
         const m3::ParticleEmitter& emitter = source.particleEmitters[p];
@@ -1990,6 +1992,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     std::vector<u32> particleOf(nodeCount, kInvalidIndex);
     std::vector<u32> copyRecordOf(nodeCount, kInvalidIndex);
     std::vector<u32> ribbonOf(nodeCount, kInvalidIndex);
+    std::vector<u32> projectorOf(nodeCount, kInvalidIndex);
     std::vector<u32> recordBone(nodeCount, kInvalidIndex);
     // The bone a node's records ride: its visibility leaf, its own bone, or --
     // for one drawn only while its parent is -- the bone that hides the
@@ -2030,6 +2033,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     {
         u32 particles = 0;
         u32 ribbons = 0;
+        u32 projectors = 0;
         for (const u32 n : recordOrder) {
             const Node& node = model.nodes.nodes[n];
             const u32 bone = recordBoneOf(n);
@@ -2039,6 +2043,9 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             } else if (node.kind == NodeKind::Sc2RibbonEmitter &&
                        std::holds_alternative<Sc2RibbonEmitterPayload>(node.payload)) {
                 ribbonOf[n] = ribbons++;
+            } else if (node.kind == NodeKind::Projector && std::holds_alternative<ProjectorPayload>(node.payload)) {
+                // The `PROJ` it becomes in the walk below, which a splat names.
+                projectorOf[n] = projectors++;
             }
         }
         for (const u32 n : recordOrder) {
@@ -2064,6 +2071,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     emitterLinks.particleOf = &particleOf;
     emitterLinks.ribbonOf = &ribbonOf;
     emitterLinks.boneOf = &recordBone;
+    emitterLinks.projectorOf = &projectorOf;
 
     for (const std::size_t n : recordOrder) {
         const Node& node = model.nodes.nodes[n];
@@ -2294,6 +2302,24 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         }
     }
 
+
+    // A system's fallback channels, which the runtime collects fields with, are
+    // the exporter's: the local mask over the channels of the model's own
+    // fields, and the world mask as it is (EDIT_MODE_SC2_EFFECTS_PLAN.md X0 L6;
+    // all of 65,133 StarCraft II and 37,015 Heroes systems hold exactly that).
+    // So a field made in the editor, or a mask edited, pushes in game.
+    u32 fieldChannels = 0;
+    for (const m3::Force& force : out.forces) {
+        fieldChannels |= force.localChannels;
+    }
+    for (m3::ParticleEmitter& particle : out.particleEmitters) {
+        particle.localForcesFallback = static_cast<u16>(particle.localForces & fieldChannels);
+        particle.worldForcesFallback = particle.worldForces;
+    }
+    for (m3::RibbonEmitter& ribbon : out.ribbonEmitters) {
+        ribbon.localForcesFallback = static_cast<u16>(ribbon.localForces & fieldChannels);
+        ribbon.worldForcesFallback = ribbon.worldForces;
+    }
 
     // --- materials ----------------------------------------------------------
     m3_core::Context context;

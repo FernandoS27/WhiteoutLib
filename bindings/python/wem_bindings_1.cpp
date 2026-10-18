@@ -171,6 +171,13 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 1 of bind_wem(), which calls the parts in order.
 void bind_wem_1(py::module_& m) {
+    py::class_<whiteout::models::wem::Wc3ParticleSegment>(m, "Wc3ParticleSegment", R"doc(A particle's look at one of its three lifetime points: birth, `time`, death.)doc")
+        .def(py::init<>())
+        .def_readwrite("color", &whiteout::models::wem::Wc3ParticleSegment::color, R"doc(RGB, red first — the static-colour order.)doc")
+        .def_readwrite("alpha", &whiteout::models::wem::Wc3ParticleSegment::alpha)
+        .def_readwrite("scaling", &whiteout::models::wem::Wc3ParticleSegment::scaling, R"doc(The quad's size, in model units.)doc")
+    ;
+
     py::class_<whiteout::models::wem::Wc3ParticleInterval>(m, "Wc3ParticleInterval", R"doc(A flipbook run: cells `start..end`, `repeat` times over the span.)doc")
         .def(py::init<>())
         .def_readwrite("start", &whiteout::models::wem::Wc3ParticleInterval::start)
@@ -324,7 +331,7 @@ The lifetime curves are the record's fake-animation blocks: times over the parti
 
     py::class_<whiteout::models::wem::Sc2Variation>(m, "Sc2Variation", R"doc(One of the per-particle variation channels: a curve type, and the amplitude and frequency it runs at.)doc")
         .def(py::init<>())
-        .def_readwrite("type", &whiteout::models::wem::Sc2Variation::type, R"doc(0 = none.)doc")
+        .def_readwrite("type", &whiteout::models::wem::Sc2Variation::type)
         .def_readwrite("amplitude", &whiteout::models::wem::Sc2Variation::amplitude)
         .def_readwrite("frequency", &whiteout::models::wem::Sc2Variation::frequency)
     ;
@@ -384,7 +391,7 @@ Field names are the M3 record's. The bit words keep the file's own bits: `flags`
         .def_readwrite("shape_inner", &whiteout::models::wem::Sc2ParticleEmitterPayload::shapeInner)
         .def_readwrite("outer_radius", &whiteout::models::wem::Sc2ParticleEmitterPayload::outerRadius)
         .def_readwrite("inner_radius", &whiteout::models::wem::Sc2ParticleEmitterPayload::innerRadius)
-        .def_readwrite("shape_sections", &whiteout::models::wem::Sc2ParticleEmitterPayload::shapeSections, R"doc(The mesh sections a `Mesh` shape emits from: sections of `Model::meshes[0]`, which is the one division StarCraft II draws, so a section index is the region index the file stores.)doc")
+        .def_readwrite("shape_sections", &whiteout::models::wem::Sc2ParticleEmitterPayload::shapeSections, R"doc(The mesh sections a `Mesh` shape emits from, each a `Sc2ShapeSection`; the export writes the regions they became.)doc")
         .def_readwrite("velocity_type", &whiteout::models::wem::Sc2ParticleEmitterPayload::velocityType)
         .def_readwrite("size_random_enable", &whiteout::models::wem::Sc2ParticleEmitterPayload::sizeRandomEnable)
         .def_readwrite("size_random_animation", &whiteout::models::wem::Sc2ParticleEmitterPayload::sizeRandomAnimation)
@@ -446,11 +453,13 @@ Field names are the M3 record's. The bit words keep the file's own bits: `flags`
         .def_readwrite("trail_link", &whiteout::models::wem::Sc2ParticleEmitterPayload::trailLink, R"doc(The emitter this one leaves trails with.)doc")
         .def_readwrite("trail_chance", &whiteout::models::wem::Sc2ParticleEmitterPayload::trailChance)
         .def_readwrite("trail_emission_rate", &whiteout::models::wem::Sc2ParticleEmitterPayload::trailEmissionRate)
-        .def_readwrite("splat_projection_index", &whiteout::models::wem::Sc2ParticleEmitterPayload::splatProjectionIndex, R"doc(A `PROJ` index. WEM holds no projectors, so the number is carried as the file had it; -1 is none, which is every shipped emitter measured.)doc")
+        .def_readwrite("splat_projection_index", &whiteout::models::wem::Sc2ParticleEmitterPayload::splatProjectionIndex, R"doc(Retired at `NODE` v26: the `PROJ` index as the file had it. Written as -1; an older chunk's becomes `splatProjector` on read.)doc")
         .def_readwrite("splat_chance", &whiteout::models::wem::Sc2ParticleEmitterPayload::splatChance)
+        .def_readwrite("splat_projector", &whiteout::models::wem::Sc2ParticleEmitterPayload::splatProjector, R"doc(The `Projector` a collision casts its splat with; none on every shipped emitter measured. `NODE` v26.)doc")
         .def_readwrite("models", &whiteout::models::wem::Sc2ParticleEmitterPayload::models, R"doc(Model particles, by path (`SCHR`).)doc")
-        .def_readwrite("spawn_ribbon_on_bounce_chance", &whiteout::models::wem::Sc2ParticleEmitterPayload::spawnRibbonOnBounceChance)
-        .def_readwrite("ribbon_link", &whiteout::models::wem::Sc2ParticleEmitterPayload::ribbonLink, R"doc(The ribbon a bounce spawns.)doc")
+        .def_readwrite("model_orientation", &whiteout::models::wem::Sc2ParticleEmitterPayload::modelOrientation, R"doc(`PAR_+0x5D0` and `+0x5D4`, raw: the model particles' legacy orientation and its variant (SC2_PARTICLE_RE.md §16.15), which the community layout read as a ribbon a bounce spawns and nothing spawns. `NODE` v26.)doc")
+        .def_readwrite("model_orientation_variant", &whiteout::models::wem::Sc2ParticleEmitterPayload::modelOrientationVariant)
+        .def_readwrite("ribbon_link", &whiteout::models::wem::Sc2ParticleEmitterPayload::ribbonLink, R"doc(Retired at `NODE` v26: the variant word read as a link to the ribbon it indexed. Written as none; an older chunk's turns back into that ribbon's index on read, and one that indexed no ribbon into -1.)doc")
         .def_readwrite("noise_smoothness", &whiteout::models::wem::Sc2ParticleEmitterPayload::noiseSmoothness, R"doc(Pre-v12 only; the upgrade has nowhere to put it.)doc")
     ;
 
@@ -459,7 +468,7 @@ Field names are the M3 record's. The bit words keep the file's own bits: `flags`
         .def_readwrite("node", &whiteout::models::wem::Sc2RibbonSplinePoint::node, R"doc(The bone it rides.)doc")
         .def_readwrite("emission_offset", &whiteout::models::wem::Sc2RibbonSplinePoint::emissionOffset, R"doc(The curve's start, emitter-local.)doc")
         .def_readwrite("emission_vector", &whiteout::models::wem::Sc2RibbonSplinePoint::emissionVector, R"doc(Its start tangent.)doc")
-        .def_readwrite("velocity", &whiteout::models::wem::Sc2RibbonSplinePoint::velocity, R"doc(Retired at `NODE` v24: the community layout's reading of the bytes that hold `endTangent` and `endOffset`, of which only these three floats crossed. Written as zero; an older chunk's are read into the two below.)doc")
+        .def_readwrite("velocity", &whiteout::models::wem::Sc2RibbonSplinePoint::velocity, R"doc(Retired at `S2RS` v2: the community layout's reading of the bytes that hold `endTangent` and `endOffset`, of which only these three floats crossed. Written as zero; an older chunk's are read into the two below.)doc")
         .def_readwrite("reserved", &whiteout::models::wem::Sc2RibbonSplinePoint::reserved)
         .def_readwrite("velocity_base_factor", &whiteout::models::wem::Sc2RibbonSplinePoint::velocityBaseFactor)
         .def_readwrite("velocity_end_factor", &whiteout::models::wem::Sc2RibbonSplinePoint::velocityEndFactor)
@@ -470,7 +479,7 @@ Field names are the M3 record's. The bit words keep the file's own bits: `flags`
         .def_readwrite("pitch", &whiteout::models::wem::Sc2RibbonSplinePoint::pitch)
         .def_readwrite("emission_vector_norm_factor", &whiteout::models::wem::Sc2RibbonSplinePoint::emissionVectorNormFactor, R"doc(Shipped as ~0.01 / |emissionVector|.)doc")
         .def_readwrite("velocity_norm_factor", &whiteout::models::wem::Sc2RibbonSplinePoint::velocityNormFactor, R"doc(Shipped as ~0.01 / velocity.)doc")
-        .def_readwrite("end_tangent", &whiteout::models::wem::Sc2RibbonSplinePoint::endTangent, R"doc(The end tangent and the end point, in the bone's frame: the curve's last two control points (SC2_RIBBON_RE.md §1.2). `NODE` v24.)doc")
+        .def_readwrite("end_tangent", &whiteout::models::wem::Sc2RibbonSplinePoint::endTangent, R"doc(The end tangent and the end point, in the bone's frame: the curve's last two control points (SC2_RIBBON_RE.md §1.2). `S2RS` v2.)doc")
         .def_readwrite("end_offset", &whiteout::models::wem::Sc2RibbonSplinePoint::endOffset)
     ;
 
@@ -519,8 +528,8 @@ Its bone is the node's parent. The record's second `u16` beside the bone is the 
         .def_readwrite("noise_coherence", &whiteout::models::wem::Sc2RibbonEmitterPayload::noiseCoherence)
         .def_readwrite("noise_edge", &whiteout::models::wem::Sc2RibbonEmitterPayload::noiseEdge)
         .def_readwrite("index_plus_length", &whiteout::models::wem::Sc2RibbonEmitterPayload::indexPlusLength)
-        .def_readwrite("emitter_shape", &whiteout::models::wem::Sc2RibbonEmitterPayload::emitterShape)
-        .def_readwrite("ribbon_type", &whiteout::models::wem::Sc2RibbonEmitterPayload::ribbonType)
+        .def_readwrite("cross_section", &whiteout::models::wem::Sc2RibbonEmitterPayload::crossSection)
+        .def_readwrite("cull_method", &whiteout::models::wem::Sc2RibbonEmitterPayload::cullMethod)
         .def_readwrite("divisions", &whiteout::models::wem::Sc2RibbonEmitterPayload::divisions)
         .def_readwrite("edges", &whiteout::models::wem::Sc2RibbonEmitterPayload::edges)
         .def_readwrite("inner_radius", &whiteout::models::wem::Sc2RibbonEmitterPayload::innerRadius)

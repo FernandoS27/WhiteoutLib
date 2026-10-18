@@ -412,7 +412,8 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("BounceRibbon", whiteout::models::wem::EmitterLink::BounceRibbon)
         .value("SplineBone", whiteout::models::wem::EmitterLink::SplineBone)
         .value("SkinMirror", whiteout::models::wem::EmitterLink::SkinMirror)
-        .value("RigRidesWith", whiteout::models::wem::EmitterLink::RigRidesWith);
+        .value("RigRidesWith", whiteout::models::wem::EmitterLink::RigRidesWith)
+        .value("SplatProjector", whiteout::models::wem::EmitterLink::SplatProjector);
 
     enum_<whiteout::models::wem::Wc3Particle1Property>("WemWc3Particle1Property")
         .value("EmissionRate", whiteout::models::wem::Wc3Particle1Property::EmissionRate)
@@ -565,6 +566,22 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("ZSource", whiteout::models::wem::M2ParticleProperty::ZSource)
         .value("Count", whiteout::models::wem::M2ParticleProperty::Count);
 
+    enum_<whiteout::models::wem::Sc2WaveCurve>("WemSc2WaveCurve")
+        .value("None", whiteout::models::wem::Sc2WaveCurve::None)
+        .value("Sine", whiteout::models::wem::Sc2WaveCurve::Sine)
+        .value("Cosine", whiteout::models::wem::Sc2WaveCurve::Cosine)
+        .value("Sawtooth", whiteout::models::wem::Sc2WaveCurve::Sawtooth)
+        .value("Square", whiteout::models::wem::Sc2WaveCurve::Square)
+        .value("Random", whiteout::models::wem::Sc2WaveCurve::Random)
+        .value("Noise", whiteout::models::wem::Sc2WaveCurve::Noise);
+
+    enum_<whiteout::models::wem::Sc2VelocityType>("WemSc2VelocityType")
+        .value("Cone", whiteout::models::wem::Sc2VelocityType::Cone)
+        .value("Radial", whiteout::models::wem::Sc2VelocityType::Radial)
+        .value("Axis", whiteout::models::wem::Sc2VelocityType::Axis)
+        .value("Random", whiteout::models::wem::Sc2VelocityType::Random)
+        .value("MeshNormal", whiteout::models::wem::Sc2VelocityType::MeshNormal);
+
     enum_<whiteout::models::wem::Sc2EmitterShape>("WemSc2EmitterShape")
         .value("Point", whiteout::models::wem::Sc2EmitterShape::Point)
         .value("Plane", whiteout::models::wem::Sc2EmitterShape::Plane)
@@ -600,6 +617,10 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("Planar", whiteout::models::wem::Sc2RibbonType::Planar)
         .value("Cylinder", whiteout::models::wem::Sc2RibbonType::Cylinder)
         .value("Star", whiteout::models::wem::Sc2RibbonType::Star);
+
+    enum_<whiteout::models::wem::Sc2RibbonCull>("WemSc2RibbonCull")
+        .value("Time", whiteout::models::wem::Sc2RibbonCull::Time)
+        .value("Length", whiteout::models::wem::Sc2RibbonCull::Length);
 
     enum_<whiteout::models::wem::ForceKind>("WemForceKind")
         .value("Directional", whiteout::models::wem::ForceKind::Directional)
@@ -1642,8 +1663,10 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("trailEmissionRate", &whiteout::models::wem::Sc2ParticleEmitterPayload::trailEmissionRate)
         .property("splatProjectionIndex", &whiteout::models::wem::Sc2ParticleEmitterPayload::splatProjectionIndex)
         .property("splatChance", &whiteout::models::wem::Sc2ParticleEmitterPayload::splatChance)
+        .property("splatProjector", &whiteout::models::wem::Sc2ParticleEmitterPayload::splatProjector)
         .property("models", &whiteout::models::wem::Sc2ParticleEmitterPayload::models)
-        .property("spawnRibbonOnBounceChance", &whiteout::models::wem::Sc2ParticleEmitterPayload::spawnRibbonOnBounceChance)
+        .property("modelOrientation", &whiteout::models::wem::Sc2ParticleEmitterPayload::modelOrientation)
+        .property("modelOrientationVariant", &whiteout::models::wem::Sc2ParticleEmitterPayload::modelOrientationVariant)
         .property("ribbonLink", &whiteout::models::wem::Sc2ParticleEmitterPayload::ribbonLink)
         .property("noiseSmoothness", &whiteout::models::wem::Sc2ParticleEmitterPayload::noiseSmoothness)
     ;
@@ -1711,8 +1734,8 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("noiseCoherence", &whiteout::models::wem::Sc2RibbonEmitterPayload::noiseCoherence)
         .property("noiseEdge", &whiteout::models::wem::Sc2RibbonEmitterPayload::noiseEdge)
         .property("indexPlusLength", &whiteout::models::wem::Sc2RibbonEmitterPayload::indexPlusLength)
-        .property("emitterShape", &whiteout::models::wem::Sc2RibbonEmitterPayload::emitterShape)
-        .property("ribbonType", &whiteout::models::wem::Sc2RibbonEmitterPayload::ribbonType)
+        .property("crossSection", &whiteout::models::wem::Sc2RibbonEmitterPayload::crossSection)
+        .property("cullMethod", &whiteout::models::wem::Sc2RibbonEmitterPayload::cullMethod)
         .property("divisions", &whiteout::models::wem::Sc2RibbonEmitterPayload::divisions)
         .property("edges", &whiteout::models::wem::Sc2RibbonEmitterPayload::edges)
         .property("innerRadius", &whiteout::models::wem::Sc2RibbonEmitterPayload::innerRadius)
