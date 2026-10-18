@@ -23,6 +23,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <thread>
@@ -2741,11 +2742,19 @@ void ForEachOn(std::size_t count, u32 threads, const std::function<void(std::siz
 
 u32 BakeForExportOn(Document& document, const std::function<BakeHooks()>& hooksFor, u32 runThreads,
                     u32 reduceThreads, std::span<const std::shared_ptr<const BakeRun>> runs, Diagnostics& out,
-                    const std::vector<u32>* only) {
+                    const std::vector<u32>* only, const BakeExportWatch* watch) {
     const std::vector<u32> order = BakeOrder(document, only != nullptr ? *only : UnbakedPhysicsClips(document));
     if (order.empty()) {
         return 0;
     }
+    const auto stopped = [watch] { return watch != nullptr && watch->cancelled && watch->cancelled(); };
+    std::mutex said;
+    const auto say = [&](bool reducing, u32 done, u32 total) {
+        if (watch != nullptr && watch->progress) {
+            const std::lock_guard<std::mutex> lock(said);
+            watch->progress(reducing, done, total);
+        }
+    };
     // A run reads every clip from its bake's source, which a bake here leaves
     // as it was: one copy with the sources put back serves every run, on any
     // thread. Settings a bake added go with their record, as `IsSetUp` reads
@@ -2794,9 +2803,10 @@ u32 BakeForExportOn(Document& document, const std::function<BakeHooks()>& hooksF
     };
     std::vector<DeferredReduction> deferred;
     u32 baked = 0;
+    u32 done = 0;
     // A few runs a thread at a time, made side by side and then baked in order.
     const std::size_t batch = static_cast<std::size_t>(threads) * 2;
-    for (std::size_t from = 0; from < order.size(); from += batch) {
+    for (std::size_t from = 0; from < order.size() && !stopped(); from += batch) {
         const std::size_t to = std::min(order.size(), from + batch);
         std::vector<std::optional<BakeRun>> fresh(to - from);
         std::vector<std::size_t> needed;
@@ -2806,10 +2816,14 @@ u32 BakeForExportOn(Document& document, const std::function<BakeHooks()>& hooksF
             }
         }
         ForEachOn(needed.size(), threads, [&](std::size_t job, u32 thread) {
+            if (stopped()) {
+                return;
+            }
             const std::size_t k = needed[job];
             fresh[k] = SimulateClip(sources, order[from + k], hooks[thread]);
         });
-        for (std::size_t i = from; i < to; ++i) {
+        for (std::size_t i = from; i < to && !stopped(); ++i) {
+            say(false, done++, static_cast<u32>(order.size()));
             const u32 clip = order[i];
             const u64 inputs = BakeInputs(document, clip);
             const BakeRun* use = recorded(clip, inputs);
@@ -2842,8 +2856,11 @@ u32 BakeForExportOn(Document& document, const std::function<BakeHooks()>& hooksF
             }
         }
     }
+    say(false, done, static_cast<u32>(order.size()));
     // One reduction per model and setting, its clips side by side.
-    while (!deferred.empty()) {
+    const u32 reducing = static_cast<u32>(deferred.size());
+    u32 reducedClips = 0;
+    while (!deferred.empty() && !stopped()) {
         const u32 model = document.clips[deferred.front().clip].model;
         const f32 tolerance = deferred.front().tolerance;
         const bool mesh = deferred.front().mesh;
@@ -2851,6 +2868,8 @@ u32 BakeForExportOn(Document& document, const std::function<BakeHooks()>& hooksF
         options.heightShare = tolerance;
         options.measure = mesh ? KeyReduceOptions::Measure::Mesh : KeyReduceOptions::Measure::Skeleton;
         options.threads = reduceThreads;
+        options.cancelled = stopped;
+        options.progress = [&, before = reducedClips](u32 d, u32) { say(true, before + d, reducing); };
         std::vector<DeferredReduction> rest;
         for (DeferredReduction& d : deferred) {
             if (document.clips[d.clip].model != model || d.tolerance != tolerance || d.mesh != mesh) {
@@ -2863,6 +2882,7 @@ u32 BakeForExportOn(Document& document, const std::function<BakeHooks()>& hooksF
                                 std::make_move_iterator(d.kept.end()));
         }
         deferred = std::move(rest);
+        reducedClips += static_cast<u32>(options.clips.size());
         KeyReduceReport reduced = ReduceKeys(document, model, options);
         out.append(reduced.diagnostics);
         for (const KeyErrorRow& row : reduced.clips) {
@@ -2878,16 +2898,16 @@ u32 BakeForExportOn(Document& document, const std::function<BakeHooks()>& hooksF
 
 u32 BakeForExport(Document& document, const BakeHooks& hooks, std::span<const std::shared_ptr<const BakeRun>> runs,
                   Diagnostics& out, const std::vector<u32>* only) {
-    return BakeForExportOn(document, [&] { return hooks; }, 1, 0, runs, out, only);
+    return BakeForExportOn(document, [&] { return hooks; }, 1, 0, runs, out, only, nullptr);
 }
 
 u32 BakeForExport(Document& document, const std::function<BakeHooks()>& hooksFor,
                   std::span<const std::shared_ptr<const BakeRun>> runs, Diagnostics& out,
-                  const std::vector<u32>* only, u32 threads) {
+                  const std::vector<u32>* only, u32 threads, const BakeExportWatch* watch) {
     // Sampling allocates as it goes, and past the cores the threads wait on
     // the heap more than they work (371 clips: 35 s on 16 threads, 44 on 32).
     const u32 count = threads != 0 ? threads : std::max(1u, std::thread::hardware_concurrency() / 2);
-    return BakeForExportOn(document, hooksFor, count, count, runs, out, only);
+    return BakeForExportOn(document, hooksFor, count, count, runs, out, only, watch);
 }
 
 } // namespace wem

@@ -24,6 +24,7 @@
  * not billboard (that needs a camera) and runs no pose stage.
  */
 
+#include <memory>
 #include <span>
 #include <vector>
 
@@ -109,6 +110,12 @@ public:
         return model_ == nullptr;
     }
 
+    /// Prepares each track the first time it is read and reads it from there
+    /// after, rather than preparing it at every read, which costs all its keys:
+    /// for a caller sampling a clip at many moments. A track edited in place
+    /// then still reads as it was, and a copy shares what was prepared.
+    void keepTracksPrepared();
+
     /// `sample` then `compose`.
     void evaluate(const Mix& mix, Pose& out) const;
 
@@ -185,7 +192,11 @@ private:
     std::vector<u8> held_;
     /// An explicit-bind rig's inverse binds, found once: every compose reads them.
     std::vector<Matrix44f> inverseBinds_;
+    /// A pivot rig's `MdxNodeFlags`, found once for the same reason.
+    std::vector<u32> nodeFlags_;
     mutable std::vector<ClipLayers> clips_;
+    struct PreparedTracks;
+    std::shared_ptr<PreparedTracks> prepared_;
 };
 
 } // namespace wem

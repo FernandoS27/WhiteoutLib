@@ -341,13 +341,25 @@ void MarkBakeStretches(Document& document);
 u32 BakeForExport(Document& document, const BakeHooks& hooks,
                   std::span<const std::shared_ptr<const BakeRun>> runs, Diagnostics& out,
                   const std::vector<u32>* only = nullptr);
+
+/// What an export's bake says as it goes, and asks.
+struct BakeExportWatch {
+    /// The clips baked so far of @p total; then, @p reducing, those whose keys
+    /// the end reduces together. One call at a time, from any of its threads.
+    std::function<void(bool reducing, u32 done, u32 total)> progress;
+    /// Asked before each clip runs and each reduction: true stops, and what
+    /// is not yet baked keeps its animation alone. From any of its threads.
+    std::function<bool()> cancelled;
+};
+
 /// As above, the runs made side by side on @p threads threads (0: half the
 /// hardware's count), each on hooks of its own from @p hooksFor, and the keys
 /// of every clip no other bake reads reduced together at the end: the same
 /// keys as one clip at a time, sooner.
 u32 BakeForExport(Document& document, const std::function<BakeHooks()>& hooksFor,
                   std::span<const std::shared_ptr<const BakeRun>> runs, Diagnostics& out,
-                  const std::vector<u32>* only = nullptr, u32 threads = 0);
+                  const std::vector<u32>* only = nullptr, u32 threads = 0,
+                  const BakeExportWatch* watch = nullptr);
 
 } // namespace wem
 } // namespace models

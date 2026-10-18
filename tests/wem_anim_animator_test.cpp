@@ -167,6 +167,32 @@ TEST_CASE("wem animator wraps an Sc2 track at its own last key and holds a Wc3 o
     CHECK(f.t(f.pose({Play{wc3, 1.5f}})).x == Approx(10.0f));
 }
 
+TEST_CASE("wem animator reads a track it keeps prepared as it reads one afresh",
+          "[wem][anim][animator]") {
+    Fixture f;
+    for (const ReadRule rule : {ReadRule::Wc3, ReadRule::Sc2, ReadRule::Wow}) {
+        const u32 c = f.clip(rule, 0, false, 2.0f);
+        f.key<Vector3f>(c, f.translation, {0.25f, 1.0f, 1.5f},
+                        {Vector3f{0, 0, 0}, Vector3f{10, 0, 0}, Vector3f{4, 2, 0}});
+        f.key<Quaternion>(c, f.rotation, {0.0f, 1.0f}, {AboutZ(0), AboutZ(120)});
+        f.key<u32>(c, f.texture, {0.0f, 0.75f}, {1u, 3u});
+    }
+    const Animator afresh(f.document, 0);
+    Animator kept(f.document, 0);
+    kept.keepTracksPrepared();
+    for (u32 c = 0; c < 3; ++c) {
+        for (const f32 seconds : {0.0f, 0.1f, 0.5f, 1.25f, 1.9f, 2.0f, 2.6f}) {
+            Mix mix;
+            mix.plays = {Play{c, seconds}, Play{(c + 1) % 3, seconds * 0.5f, 0.5f}};
+            Pose want;
+            Pose got;
+            afresh.evaluate(mix, want);
+            kept.evaluate(mix, got);
+            CHECK(got.channelValues == want.channelValues);
+        }
+    }
+}
+
 // ---- The budget walk ---------------------------------------------------------------
 
 TEST_CASE("wem animator spends the budget and smoothsteps two plays", "[wem][anim][animator]") {

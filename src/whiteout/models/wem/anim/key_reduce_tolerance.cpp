@@ -1330,7 +1330,9 @@ void Parallel(std::size_t count, u32 threads, F&& work) {
 void ReduceClip(const Document& document, Clip& own, u32 model, u32 clip,
                 const Animator::Rests& rests, const Skeleton& sk, f64 epsilon,
                 const std::set<u32>& agreeing, const KeyReduceOptions& options) {
-    const Animator animator(document, model, rests);
+    // The clip stands until `WriteBack`, past the last read.
+    Animator animator(document, model, rests);
+    animator.keepTracksPrepared();
     ClipWork w = BuildClip(document, model, clip, animator, agreeing, options);
     Context ctx;
     ctx.sk = &sk;
@@ -1376,7 +1378,8 @@ ClipOutcome ReduceCheckedClip(const Shared& shared, Clip& own, u32 c) {
     ClipOutcome out;
     const std::vector<i32> dense = DenseTimes(own);
     const auto palettes = [&] {
-        const Animator animator(shared.document, shared.model, shared.rests);
+        Animator animator(shared.document, shared.model, shared.rests);
+        animator.keepTracksPrepared();
         return Palettes(animator, c, dense);
     };
     const std::vector<std::vector<Matrix44f>> was = palettes();
@@ -1501,8 +1504,10 @@ KeyReduceReport MeasureKeyError(const Document& before, const Document& after, u
     Parallel(clips.size(), 0, [&](std::size_t i) {
         const u32 c = clips[i];
         const std::vector<i32> dense = DenseTimes(before.clips[c]);
-        const Animator a(before, model);
-        const Animator b(after, model);
+        Animator a(before, model);
+        Animator b(after, model);
+        a.keepTracksPrepared();
+        b.keepTracksPrepared();
         measured[i] = Compare(meshes, nodes, Palettes(a, c, dense), Palettes(b, c, dense));
     });
     report.tolerance = 1e-3f * ModelHeight(before.models[model]);

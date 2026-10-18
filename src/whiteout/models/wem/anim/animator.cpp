@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstring>
 #include <optional>
+#include <tuple>
 #include <unordered_map>
 
 #include "whiteout/models/mdx/structures.h"
@@ -14,6 +15,8 @@
 #include "whiteout/models/wem/anim/mdx_math.h"
 #include "whiteout/models/wem/anim/rests.h"
 #include "whiteout/models/wem/anim/track_read.h"
+
+#include "prepared_track.h"
 
 namespace whiteout {
 namespace models {
@@ -166,6 +169,11 @@ Animator::Animator(const Document& document, u32 model, Game storage) {
         for (u32 n = 0; n < tree.size(); ++n) {
             inverseBinds_[n] = tree.inverseBindMatrix(n);
         }
+    } else {
+        nodeFlags_.resize(tree.size());
+        for (u32 n = 0; n < tree.size(); ++n) {
+            nodeFlags_[n] = MdxNodeFlags(tree.nodes[n]);
+        }
     }
 }
 
@@ -298,6 +306,54 @@ std::vector<Animator::Layer> Animator::layersFor(const Mix& mix) const {
     return layers;
 }
 
+/// `ReadTrack`, from tracks prepared once each.
+struct Animator::PreparedTracks {
+    template <class T>
+    using Map = std::unordered_map<const SubTrack*, prepared::PreparedTrack<T>>;
+    std::tuple<Map<f32>, Map<Vector2f>, Map<Vector3f>, Map<Vector4f>, Map<Quaternion>, Map<u32>> maps;
+
+    template <class T>
+    std::optional<std::vector<u8>> read(const Clip& clip, const SubTrack& track, bool quat,
+                                        const SampleWindow& window, bool held) {
+        Map<T>& map = std::get<Map<T>>(maps);
+        auto found = map.find(&track);
+        if (found == map.end()) {
+            found = map.emplace(&track, prepared::Prepare<T>(clip, track, quat)).first;
+        }
+        const std::optional<T> value = prepared::Evaluate(found->second, window, held);
+        if (!value) {
+            return std::nullopt;
+        }
+        return Bytes(*value);
+    }
+
+    std::optional<std::vector<u8>> read(const Clip& clip, const SubTrack& track, geom::AttrType valueType,
+                                        const SampleWindow& window, bool held) {
+        switch (valueType) {
+        case geom::AttrType::F32:
+            return read<f32>(clip, track, false, window, held);
+        case geom::AttrType::F32x2:
+            return read<Vector2f>(clip, track, false, window, held);
+        case geom::AttrType::F32x3:
+            return read<Vector3f>(clip, track, false, window, held);
+        case geom::AttrType::F32x4:
+            return read<Vector4f>(clip, track, false, window, held);
+        case geom::AttrType::Quat:
+            return read<Quaternion>(clip, track, true, window, held);
+        case geom::AttrType::U32:
+            return read<u32>(clip, track, false, window, held);
+        default:
+            return std::nullopt;
+        }
+    }
+};
+
+void Animator::keepTracksPrepared() {
+    if (!prepared_) {
+        prepared_ = std::make_shared<PreparedTracks>();
+    }
+}
+
 void Animator::sample(const Mix& mix, Pose& out, bool nodesOnly) const {
     sampleOnly(mix, out, nodesOnly, nullptr);
 }
@@ -355,8 +411,10 @@ void Animator::sampleOnly(const Mix& mix, Pose& out, bool nodesOnly, const std::
                 if (!track->wellSized(channel.valueType)) {
                     unusable = true;
                 } else {
-                    read = ReadTrack(*layer.clip, *track, channel.valueType, layer.window,
-                                     held_[c] != 0);
+                    read = prepared_ ? prepared_->read(*layer.clip, *track, channel.valueType, layer.window,
+                                                       held_[c] != 0)
+                                     : ReadTrack(*layer.clip, *track, channel.valueType, layer.window,
+                                                 held_[c] != 0);
                     // Only keys the rule reads count: a `Wc3` track keyed
                     // only outside its window is no track at all.
                     if (!read) {
@@ -527,7 +585,7 @@ void Animator::composeNode(Pose& pose, u32 i, u32 parent) const {
         const Vector3f parentPivot = rooted ? pivotOf(parent) : Vector3f{0, 0, 0};
         const Vector3f pivot = pivotOf(i);
         pose.frame[i] = ComposeNode(parentFrame, parentPivot, pivot, trs.translation, trs.rotation,
-                                    trs.scale, MdxNodeFlags(node))
+                                    trs.scale, nodeFlags_[i])
                             .frame;
         pose.skinning[i] = SkinFromFrame(pose.frame[i], pivot);
     } else {
