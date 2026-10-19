@@ -1155,6 +1155,11 @@ bool IsWarcraftEngineBoneName(const std::string& name) {
     return HasBoneToken(name, kTokens);
 }
 
+bool IsStarCraftEngineBoneName(const std::string& name) {
+    static constexpr const char* kTokens[] = {"bone_chest", "bone_face", "bone_leg", "bone_turret"};
+    return HasBoneToken(name, kTokens);
+}
+
 bool IsWarcraftLookAtBoneName(const std::string& name) {
     static constexpr const char* kTokens[] = {"bone_head", "bone_chest", "bone_turret"};
     return HasBoneToken(name, kTokens);

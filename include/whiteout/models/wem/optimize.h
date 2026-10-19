@@ -118,6 +118,11 @@ OptimizeReport OptimizeDocument(Document& document, const OptimizeOptions& optio
 /// token of the name). Such a node is never reduced.
 bool IsWarcraftEngineBoneName(const std::string& name);
 
+/// Whether StarCraft II or Heroes finds @p name as one of its bones: the
+/// engines' table spells `Bone_Chest`, `Bone_Face`, `Bone_Leg` and
+/// `Bone_Turret`, each with or without a suffix word, as the name's token.
+bool IsStarCraftEngineBoneName(const std::string& name);
+
 /// Whether @p name is a bone the game aims (EDIT_MODE_BIND_ORIENTATION_DESIGN.md
 /// §4.1): `bone_head` or `bone_chest`, which `SetUnitLookAt` names, or
 /// `bone_turret`, which the attack turns. The game points its bind +X at the

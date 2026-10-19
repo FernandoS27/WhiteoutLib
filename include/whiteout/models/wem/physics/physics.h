@@ -538,6 +538,17 @@ inline bool BakesFullDetail(const Cloth& cloth) {
     return !cloth.recipe || cloth.recipe->bakeInto == ClothBakeInto::FullDetail;
 }
 
+/// How many bones a cloth baked in *Full detail* becomes for a target that
+/// runs no cloth (BONE_REDUCTION_RESEARCH.md §7.4): a tier fits at most its
+/// budget to the drawn faces' motion, within its error of the cloth's size.
+enum class ClothDetail : u8 {
+    Low,    ///< 24 bones, 0.5% RMS.
+    Medium, ///< 40 bones, 0.25%.
+    High,   ///< 64 bones, 0.1%.
+    Ultra,  ///< 128 bones, 0.05%.
+    Full,   ///< A bone per free particle.
+};
+
 // ============================================================================
 // Rigs
 // ============================================================================

@@ -36,6 +36,8 @@ namespace whiteout {
 namespace models {
 namespace wem {
 
+struct KeyReduceOptions;
+
 /// The vertices @p cloth draws: those of its bindings' faces, ascending.
 std::vector<u32> ClothDrawnVertices(const Model& model, const Cloth& cloth);
 
@@ -86,13 +88,23 @@ struct ClothDrawn {
 ClothDrawn SkinClothDrawn(const Model& model, const Cloth& cloth, std::span<const u32> particleVertex,
                           std::span<const Matrix44f> frames);
 
-/// *Full detail* made bones for a target that runs no cloth (§10.3), on the
-/// export's copy: a bone per driver under its holder at its particle's rest,
-/// the drawn faces skinned to them (a pinned particle's share going to its
-/// anchors, @p target's influences kept), and every clip of the model keyed:
-/// from the drivers where a bake wrote them, else "as authored" (§10.4). The
-/// cloth itself is left for `DropClothForProfile`. Returns the bones made.
-u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out);
+struct ClothBoneOptions {
+    ClothDetail detail = ClothDetail::Full;
+    /// The export's key reduction: a carried vertex strays by its ε at most,
+    /// at least the cloth's thousandth.
+    const KeyReduceOptions* reduce = nullptr;
+};
+
+/// The made bones for a target that runs no cloth (§10.3), on the export's
+/// copy: a bone per driver under its holder at its particle's rest, or a tier's
+/// fitted to the faces they draw; the drawn faces skinned to them (a pinned
+/// particle's share going to its anchors, @p target's influences kept), and
+/// every clip of the model keyed: from the drivers where a bake wrote them,
+/// else "as authored" (§10.4), at 30 Hz and thinned to what moves a vertex by
+/// ε. The cloth itself is left for `DropClothForProfile`. Returns the bones
+/// made.
+u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out,
+                       const ClothBoneOptions& options = {});
 
 /// A bone named @p name under @p parent, standing at model-space @p rest: its
 /// pivot on a pivot rig, its local and every pose entry on an explicit one.

@@ -238,6 +238,8 @@ whiteout_add_test(wem_skin_export_test wem_skin_export_test.cpp)
 target_include_directories(wem_skin_export_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # EDIT_MODE_SKIN S2/S3/S4: the weight algebra, the points and the BVH.
 whiteout_add_test(wem_skin_ops_test wem_skin_ops_test.cpp)
+whiteout_add_test(wem_skin_fit_test wem_skin_fit_test.cpp)
+whiteout_add_test(wem_skin_reduce_test wem_skin_reduce_test.cpp)
 whiteout_add_test(wem_skin_points_test wem_skin_points_test.cpp)
 whiteout_add_test(wem_bvh_test wem_bvh_test.cpp)
 # S7: Rigid per Island, and the share it agrees with the artist on.

@@ -488,6 +488,8 @@ add_library(whiteout_lib
     src/whiteout/models/wem/skinning/points.cpp
     src/whiteout/models/wem/skinning/ops.cpp
     src/whiteout/models/wem/skinning/deform.cpp
+    src/whiteout/models/wem/skinning/fit.cpp
+    src/whiteout/models/wem/skinning/reduce.cpp
     src/whiteout/models/wem/skinning/mirror.cpp
     src/whiteout/models/wem/skinning/generate.cpp
     src/whiteout/models/wem/skinning/generate_heat.cpp

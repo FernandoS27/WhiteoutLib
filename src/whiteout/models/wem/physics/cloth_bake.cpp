@@ -3,11 +3,13 @@
 
 #include <whiteout/models/wem/physics/cloth_bake.h>
 
+#include <whiteout/models/wem/anim/key_reduce.h>
 #include <whiteout/models/wem/anim/stages.h>
 #include <whiteout/models/wem/anim/track_read.h>
 #include <whiteout/models/wem/geometry/attributes.h>
 #include <whiteout/models/wem/nodes/node.h>
 #include <whiteout/models/wem/profile.h>
+#include <whiteout/models/wem/skinning/fit.h>
 
 #include "../geometry/fracture/parallel.h"
 
@@ -23,64 +25,13 @@
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 
 namespace whiteout {
 namespace models {
 namespace wem {
 
 namespace {
-
-/// The eigenvector of @p n's largest eigenvalue (cyclic Jacobi; @p n is
-/// symmetric).
-std::array<f64, 4> LargestEigenvector(std::array<std::array<f64, 4>, 4> n) {
-    std::array<std::array<f64, 4>, 4> v{};
-    for (int i = 0; i < 4; ++i) {
-        v[i][i] = 1.0;
-    }
-    for (int sweep = 0; sweep < 32; ++sweep) {
-        f64 off = 0.0;
-        for (int p = 0; p < 4; ++p) {
-            for (int q = p + 1; q < 4; ++q) {
-                off += n[p][q] * n[p][q];
-            }
-        }
-        if (off < 1e-24) {
-            break;
-        }
-        for (int p = 0; p < 4; ++p) {
-            for (int q = p + 1; q < 4; ++q) {
-                if (std::fabs(n[p][q]) < 1e-30) {
-                    continue;
-                }
-                const f64 theta = (n[q][q] - n[p][p]) / (2.0 * n[p][q]);
-                const f64 t = (theta >= 0.0 ? 1.0 : -1.0) / (std::fabs(theta) + std::sqrt(theta * theta + 1.0));
-                const f64 c = 1.0 / std::sqrt(t * t + 1.0), s = t * c;
-                for (int k = 0; k < 4; ++k) {
-                    const f64 a = n[k][p], b = n[k][q];
-                    n[k][p] = c * a - s * b;
-                    n[k][q] = s * a + c * b;
-                }
-                for (int k = 0; k < 4; ++k) {
-                    const f64 a = n[p][k], b = n[q][k];
-                    n[p][k] = c * a - s * b;
-                    n[q][k] = s * a + c * b;
-                }
-                for (int k = 0; k < 4; ++k) {
-                    const f64 a = v[k][p], b = v[k][q];
-                    v[k][p] = c * a - s * b;
-                    v[k][q] = s * a + c * b;
-                }
-            }
-        }
-    }
-    int best = 0;
-    for (int i = 1; i < 4; ++i) {
-        if (n[i][i] > n[best][best]) {
-            best = i;
-        }
-    }
-    return {v[0][best], v[1][best], v[2][best], v[3][best]};
-}
 
 u32 DepthOf(const NodeTree& tree, u32 node) {
     u32 depth = 0;
@@ -539,7 +490,7 @@ u32 AddBoneAt(NodeTree& tree, std::string name, u32 parent, const Matrix44f& res
     return tree.add(std::move(node));
 }
 
-u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out) {
+u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out, const ClothBoneOptions& options) {
     const ProfileDesc& profile = Profile(target);
     if (profile.physics.cloth) {
         return 0;
@@ -548,6 +499,16 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out) {
     // Sampling allocates as it goes: past the cores the threads wait on the
     // heap (`BakeForExport`).
     const u32 threads = std::max(1u, std::thread::hardware_concurrency() / 2);
+    // Each tier's RMS distance, of the cloth's size, and its most bones
+    // (BONE_REDUCTION_RESEARCH.md §7.4), Low to Ultra.
+    struct Tier {
+        f32 rms;
+        u32 budget;
+    };
+    static constexpr Tier kTiers[] = {{0.005f, 24}, {0.0025f, 40}, {0.001f, 64}, {0.0005f, 128}};
+    // Past the tiers (Full, or a number a script sent) is a bone per particle.
+    const u32 detail = static_cast<u32>(options.detail);
+    const Tier* tier = detail < std::size(kTiers) ? &kTiers[detail] : nullptr;
     u32 made = 0;
     for (u32 m = 0; m < document.models.size(); ++m) {
         for (u32 c = 0; c < document.models[m].physics.cloths.size(); ++c) {
@@ -564,12 +525,39 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out) {
             if (drivers.vertices.empty()) {
                 continue;
             }
+            // A tier fits fewer bones than there are particles, where there are
+            // more than it allows.
+            bool fits = tier != nullptr && drivers.vertices.size() > tier->budget;
+            // The skeleton bones the drawn faces also hang from: the holder, and
+            // the anchors of the particles pinned to it.
+            std::vector<u32> anchors;
+            if (fits) {
+                const Mesh& mesh = document.models[m].meshes[cloth.cage.mesh];
+                const auto lanes =
+                    mesh.attributes.get<std::array<u32, 4>>(geom::names::kClothBindVertex, geom::Domain::Vertex);
+                std::set<u32> held;
+                if (drivers.holder < document.models[m].nodes.size()) {
+                    held.insert(drivers.holder);
+                }
+                for (const u32 v : ClothDrawnVertices(document.models[m], cloth)) {
+                    for (u32 k = 0; v < lanes.size() && k < 4; ++k) {
+                        if (lanes[v][k] != geom::kInvalidId &&
+                            !std::binary_search(drivers.vertices.begin(), drivers.vertices.end(), lanes[v][k])) {
+                            for (const geom::Influence& influence : SkinOf(mesh, lanes[v][k])) {
+                                held.insert(influence.bone);
+                            }
+                        }
+                    }
+                }
+                anchors.assign(held.begin(), held.end());
+            }
             // Every clip's driver frames first, while the tree is the clips'.
             struct Sampled {
                 u32 clip = 0;
                 f32 dt = 0.0f;
                 std::vector<Matrix44f> holder;              ///< Per step.
-                std::vector<std::vector<Matrix44f>> frames; ///< Per step, per driver.
+                std::vector<std::vector<Matrix44f>> frames; ///< Per step, per bone made.
+                std::vector<Matrix44f> anchored;            ///< Per step, per anchor: its skinning.
             };
             std::vector<Sampled> sampled;
             for (u32 k = 0; k < document.clips.size(); ++k) {
@@ -600,13 +588,17 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out) {
                         animator.compose(pose);
                         return pose;
                     };
-                    const u32 steps = std::max<u32>(1, static_cast<u32>(std::ceil(clip.duration * 60.0f - 1e-3f)));
+                    const u32 steps = std::max<u32>(1, static_cast<u32>(std::ceil(clip.duration * 30.0f - 1e-3f)));
                     s.dt = clip.duration / static_cast<f32>(steps);
                     std::vector<i32> times;
                     for (u32 i = 0; i <= steps; ++i) {
                         const Pose pose = poseAt(static_cast<f32>(i) * s.dt);
                         s.holder.push_back(drivers.holder < pose.frame.size() ? pose.frame[drivers.holder]
                                                                                : Matrix44f::identity());
+                        for (const u32 anchor : anchors) {
+                            s.anchored.push_back(anchor < pose.skinning.size() ? pose.skinning[anchor]
+                                                                               : Matrix44f::identity());
+                        }
                         times.push_back(static_cast<i32>(Milliseconds(static_cast<f32>(i) * s.dt)));
                     }
                     s.frames = DriverFramesOver(document, m, cloth, drivers, k, times, s.holder);
@@ -625,27 +617,221 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out) {
             Mesh& mesh = owner.meshes[cloth.cage.mesh];
             const std::span<const Vector3f> positions =
                 mesh.attributes.get<Vector3f>(geom::names::kPosition, geom::Domain::Vertex);
-            // A bone per driver, under the holder, at its particle's rest.
-            const std::string stem = ClothBoneStem(owner, cloth);
-            std::map<u32, u32> boneOf, driverOf;
-            for (u32 d = 0; d < drivers.vertices.size(); ++d) {
-                char name[96];
-                std::snprintf(name, sizeof name, "%s_%02u", stem.c_str(), d + 1);
-                Matrix44f rest = Matrix44f::identity();
-                const Vector3f at = drivers.vertices[d] < positions.size() ? positions[drivers.vertices[d]] : Vector3f{0, 0, 0};
-                rest.data[3][0] = at.x, rest.data[3][1] = at.y, rest.data[3][2] = at.z;
-                boneOf[drivers.vertices[d]] = AddBoneAt(owner.nodes, name, drivers.holder, rest);
-                driverOf[drivers.vertices[d]] = d;
-            }
-            // Per bone, how far from it the farthest vertex it carries stands.
-            std::vector<f32> reach(drivers.vertices.size(), 0.0f);
-            // The drawn faces on the drivers; a pinned particle's share on its
-            // anchors, as it hangs.
             const auto lanes = mesh.attributes.get<std::array<u32, 4>>(geom::names::kClothBindVertex, geom::Domain::Vertex);
             const auto weights =
                 mesh.attributes.get<std::array<f32, 4>>(geom::names::kClothBindWeight, geom::Domain::Vertex);
-            for (const u32 v : ClothDrawnVertices(owner, cloth)) {
-                if (v >= lanes.size() || v >= weights.size()) {
+            const std::vector<u32> drawn = ClothDrawnVertices(owner, cloth);
+            const std::string stem = ClothBoneStem(owner, cloth);
+            std::map<u32, u32> driverOf;
+            for (u32 d = 0; d < drivers.vertices.size(); ++d) {
+                driverOf[drivers.vertices[d]] = d;
+            }
+            // Each bone's samples are thinned to what moves a vertex it carries
+            // by ε: a thousandth of the cloth's size, or the export's
+            // reduction's where that is more. A turn moves a vertex by its
+            // reach, and tilts the faces at the bone: ε over their edge is the
+            // tilt a move of ε gives them.
+            Vector3f lower{0, 0, 0}, upper{0, 0, 0};
+            bool any = false;
+            for (const u32 v : drawn) {
+                if (v < positions.size()) {
+                    const Vector3f& p = positions[v];
+                    lower = any ? Vector3f{std::min(lower.x, p.x), std::min(lower.y, p.y), std::min(lower.z, p.z)} : p;
+                    upper = any ? Vector3f{std::max(upper.x, p.x), std::max(upper.y, p.y), std::max(upper.z, p.z)} : p;
+                    any = true;
+                }
+            }
+            const f32 size = std::max((upper - lower).length(), 1e-3f);
+            f32 tolerance = size * 1e-3f;
+            if (options.reduce != nullptr) {
+                tolerance = std::max(tolerance, options.reduce->tolerance > 0.0f
+                                                    ? options.reduce->tolerance
+                                                    : options.reduce->heightShare * ModelHeight(owner));
+            }
+            // The cage's edge at each particle, and over the cloth.
+            std::vector<f32> edge(drivers.vertices.size(), size);
+            f32 meanEdge = size;
+            {
+                std::vector<f32> sum(drivers.vertices.size(), 0.0f);
+                std::vector<u32> edges(drivers.vertices.size(), 0);
+                f64 all = 0.0;
+                u32 counted = 0;
+                const geom::FaceSet& set = std::as_const(mesh).faceSet();
+                const std::span<const u32> sections = std::as_const(mesh).faceSections();
+                for (std::size_t f = 0, corner = 0; f < set.faceValence.size(); corner += set.faceValence[f], ++f) {
+                    for (u32 k = 0; f < sections.size() && sections[f] == cloth.cage.section && k < set.faceValence[f];
+                         ++k) {
+                        const u32 a = set.cornerVertex[corner + k];
+                        const u32 b = set.cornerVertex[corner + (k + 1) % set.faceValence[f]];
+                        if (a >= positions.size() || b >= positions.size()) {
+                            continue;
+                        }
+                        const f32 length = (positions[a] - positions[b]).length();
+                        all += length;
+                        ++counted;
+                        for (const u32 end : {a, b}) {
+                            if (const auto driver = driverOf.find(end); driver != driverOf.end()) {
+                                sum[driver->second] += length;
+                                ++edges[driver->second];
+                            }
+                        }
+                    }
+                }
+                for (u32 d = 0; d < drivers.vertices.size(); ++d) {
+                    edge[d] = edges[d] != 0 ? sum[d] / static_cast<f32>(edges[d]) : size;
+                }
+                meanEdge = counted != 0 ? static_cast<f32>(all / counted) : size;
+            }
+
+            // The bones: a tier's, fitted to where the drawn faces go, or one
+            // per driver. Either hangs under the holder, at rest where it
+            // stands, and `frames` becomes theirs.
+            std::vector<u32> bones;
+            std::vector<f32> lever;
+            std::set<u32> fitted;
+            f32 fitRms = 0.0f;
+            if (fits) {
+                // The faces as a bone per driver would draw them, every step of
+                // every clip: what the fewer bones reproduce.
+                std::vector<u32> points;
+                for (const u32 v : drawn) {
+                    for (u32 k = 0; v < lanes.size() && v < weights.size() && k < 4; ++k) {
+                        if (weights[v][k] > 0.0f && driverOf.count(lanes[v][k]) != 0 && v < positions.size()) {
+                            points.push_back(v);
+                            break;
+                        }
+                    }
+                }
+                std::map<u32, u32> anchorOf;
+                for (u32 a = 0; a < anchors.size(); ++a) {
+                    anchorOf[anchors[a]] = a;
+                }
+                u32 frames = 0;
+                for (const Sampled& s : sampled) {
+                    frames += static_cast<u32>(s.frames.size());
+                }
+                const std::size_t count = points.size(), held = anchors.size();
+                std::vector<Vector3f> rest(count), motion(static_cast<std::size_t>(frames) * count);
+                std::vector<Matrix44f> fixedMotion(static_cast<std::size_t>(frames) * held);
+                std::size_t f = 0;
+                for (const Sampled& s : sampled) {
+                    for (std::size_t i = 0; i < s.frames.size(); ++i, ++f) {
+                        for (std::size_t a = 0; a < held; ++a) {
+                            fixedMotion[f * held + a] = s.anchored[i * held + a];
+                        }
+                        for (std::size_t p = 0; p < count; ++p) {
+                            const u32 v = points[p];
+                            Vector3f at{0, 0, 0};
+                            f32 sum = 0.0f;
+                            for (u32 k = 0; k < 4; ++k) {
+                                const u32 lane = lanes[v][k];
+                                if (lane == geom::kInvalidId || !(weights[v][k] > 0.0f) || lane >= positions.size()) {
+                                    continue;
+                                }
+                                if (const auto driver = driverOf.find(lane); driver != driverOf.end()) {
+                                    at = at + transform_point(positions[v] - positions[lane],
+                                                              s.frames[i][driver->second]) *
+                                                  weights[v][k];
+                                } else {
+                                    for (const geom::Influence& influence : SkinOf(mesh, lane)) {
+                                        at = at + transform_point(positions[v],
+                                                                  fixedMotion[f * held + anchorOf[influence.bone]]) *
+                                                      (weights[v][k] * influence.weight);
+                                    }
+                                }
+                                sum += weights[v][k];
+                            }
+                            motion[f * count + p] = at / sum;
+                        }
+                    }
+                }
+                std::vector<std::vector<u32>> allowed(count);
+                for (std::size_t p = 0; p < count; ++p) {
+                    rest[p] = positions[points[p]];
+                    std::set<u32> own;
+                    if (const auto found = anchorOf.find(drivers.holder); found != anchorOf.end()) {
+                        own.insert(found->second);
+                    }
+                    for (u32 k = 0; k < 4; ++k) {
+                        const u32 lane = lanes[points[p]][k];
+                        if (lane != geom::kInvalidId && weights[points[p]][k] > 0.0f && driverOf.count(lane) == 0) {
+                            for (const geom::Influence& influence : SkinOf(mesh, lane)) {
+                                own.insert(anchorOf[influence.bone]);
+                            }
+                        }
+                    }
+                    allowed[p].assign(own.begin(), own.end());
+                }
+                skinning::FitOptions fit;
+                fit.maxBones = tier->budget;
+                fit.rmsTarget = tier->rms * size;
+                fit.maxInfluences = std::min<u32>(limit, 4);
+                // Rounded as the target's file will hold them (`SoftWeightsFor`'s rule).
+                fit.weights = target == ProfileId::Wc3Classic ? skinning::FitWeights::EqualShares
+                              : target == ProfileId::Generic  ? skinning::FitWeights::Exact
+                                                              : skinning::FitWeights::Bytes;
+                const skinning::FitResult result =
+                    skinning::FitBones(skinning::FitMotion{rest, motion, frames},
+                                       skinning::FitFixedBones{fixedMotion, static_cast<u32>(held), allowed}, fit);
+                fits = result.bones > 0;
+                if (fits) {
+                    fitRms = result.rms;
+                    const auto restOf = [&](u32 k) {
+                        Matrix44f at = Matrix44f::identity();
+                        at.data[3][0] = result.pivots[k].x, at.data[3][1] = result.pivots[k].y,
+                        at.data[3][2] = result.pivots[k].z;
+                        return at;
+                    };
+                    for (u32 k = 0; k < result.bones; ++k) {
+                        char name[96];
+                        std::snprintf(name, sizeof name, "%s_%02u", stem.c_str(), k + 1);
+                        bones.push_back(AddBoneAt(owner.nodes, name, drivers.holder, restOf(k)));
+                        lever.push_back(meanEdge);
+                    }
+                    for (std::size_t p = 0; p < count; ++p) {
+                        std::vector<geom::Influence> kept;
+                        for (const geom::Influence& influence : result.weights[p]) {
+                            const bool own = influence.bone < result.bones;
+                            kept.push_back(geom::Influence{
+                                own ? bones[influence.bone] : anchors[influence.bone - result.bones], influence.weight});
+                            if (own) {
+                                lever[influence.bone] =
+                                    std::max(lever[influence.bone], (rest[p] - result.pivots[influence.bone]).length());
+                            }
+                        }
+                        mesh.skin.assignVertex(points[p], kept);
+                        fitted.insert(points[p]);
+                    }
+                    // Each step's frames are the fitted bones' from here.
+                    f = 0;
+                    for (Sampled& s : sampled) {
+                        for (std::size_t i = 0; i < s.frames.size(); ++i, ++f) {
+                            s.frames[i].resize(result.bones);
+                            for (u32 k = 0; k < result.bones; ++k) {
+                                s.frames[i][k] = restOf(k) * result.skinning[f * result.bones + k];
+                            }
+                        }
+                    }
+                }
+            }
+            std::map<u32, u32> boneOf;
+            if (!fits) {
+                for (u32 d = 0; d < drivers.vertices.size(); ++d) {
+                    char name[96];
+                    std::snprintf(name, sizeof name, "%s_%02u", stem.c_str(), d + 1);
+                    Matrix44f rest = Matrix44f::identity();
+                    const Vector3f at =
+                        drivers.vertices[d] < positions.size() ? positions[drivers.vertices[d]] : Vector3f{0, 0, 0};
+                    rest.data[3][0] = at.x, rest.data[3][1] = at.y, rest.data[3][2] = at.z;
+                    bones.push_back(AddBoneAt(owner.nodes, name, drivers.holder, rest));
+                    boneOf[drivers.vertices[d]] = bones.back();
+                    lever.push_back(edge[d]);
+                }
+            }
+            // The other drawn faces on the drivers' bones; a pinned particle's
+            // share on its anchors, as it hangs.
+            for (const u32 v : drawn) {
+                if (v >= lanes.size() || v >= weights.size() || fitted.count(v) != 0) {
                     continue;
                 }
                 std::map<u32, f32> skin;
@@ -656,8 +842,8 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out) {
                     if (const auto driver = boneOf.find(lanes[v][k]); driver != boneOf.end()) {
                         skin[driver->second] += weights[v][k];
                         if (v < positions.size() && lanes[v][k] < positions.size()) {
-                            f32& farthest = reach[driverOf[lanes[v][k]]];
-                            farthest = std::max(farthest, (positions[v] - positions[lanes[v][k]]).length());
+                            f32& reach = lever[driverOf[lanes[v][k]]];
+                            reach = std::max(reach, (positions[v] - positions[lanes[v][k]]).length());
                         }
                         continue;
                     }
@@ -686,46 +872,26 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out) {
                 }
                 mesh.skin.assignVertex(v, kept);
             }
-            // Every clip keyed, its samples thinned to a thousandth of the
-            // cloth's size where its vertices are: a turn moves a carried
-            // vertex by its reach, and one on its bone (every D3 cloth's) only
-            // by its normal, held to half a degree.
-            constexpr f32 kNormalTolerance = 0.5f * 3.14159265f / 180.0f;
-            Vector3f lower{0, 0, 0}, upper{0, 0, 0};
-            bool any = false;
-            for (const u32 v : ClothDrawnVertices(owner, cloth)) {
-                if (v < positions.size()) {
-                    const Vector3f& p = positions[v];
-                    lower = any ? Vector3f{std::min(lower.x, p.x), std::min(lower.y, p.y), std::min(lower.z, p.z)} : p;
-                    upper = any ? Vector3f{std::max(upper.x, p.x), std::max(upper.y, p.y), std::max(upper.z, p.z)} : p;
-                    any = true;
-                }
-            }
-            const f32 size = std::max((upper - lower).length(), 1e-3f);
-            const f32 tolerance = size * 1e-3f;
             const NodeTree& tree = owner.nodes;
             // Each bone and its two channels, declared once for every clip.
-            std::vector<u32> boneNodes(drivers.vertices.size());
-            std::vector<std::array<u32, 2>> boneChannels(drivers.vertices.size(), {kInvalidIndex, kInvalidIndex});
-            for (u32 d = 0; d < drivers.vertices.size() && !sampled.empty(); ++d) {
-                const u32 node = boneOf[drivers.vertices[d]];
-                boneNodes[d] = node;
+            std::vector<std::array<u32, 2>> boneChannels(bones.size(), {kInvalidIndex, kInvalidIndex});
+            for (u32 b = 0; b < bones.size() && !sampled.empty(); ++b) {
                 for (u32 slot = 0; slot < 2; ++slot) {
                     const Channel which = slot == 0 ? Channel::Translation : Channel::Rotation;
                     for (const AnimChannel& entry : owner.animChannels.channels) {
-                        if (entry.target.kind == TrackTarget::Kind::Node && entry.target.node == node &&
+                        if (entry.target.kind == TrackTarget::Kind::Node && entry.target.node == bones[b] &&
                             entry.target.channel == which) {
-                            boneChannels[d][slot] = entry.id;
+                            boneChannels[b][slot] = entry.id;
                         }
                     }
-                    if (boneChannels[d][slot] == kInvalidIndex) {
+                    if (boneChannels[b][slot] == kInvalidIndex) {
                         AnimChannel declared;
                         declared.id = owner.animChannels.nextFreeId();
                         declared.target.kind = TrackTarget::Kind::Node;
-                        declared.target.node = node;
+                        declared.target.node = bones[b];
                         declared.target.channel = which;
                         declared.valueType = slot == 0 ? geom::AttrType::F32x3 : geom::AttrType::Quat;
-                        boneChannels[d][slot] = owner.animChannels.add(declared);
+                        boneChannels[b][slot] = owner.animChannels.add(declared);
                     }
                 }
             }
@@ -741,15 +907,14 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out) {
                 Pose holding;
                 holding.frame.assign(tree.size(), Matrix44f::identity());
                 holding.local.assign(tree.size(), Transform{});
-                for (u32 d = 0; d < drivers.vertices.size(); ++d) {
-                    const u32 node = boneNodes[d];
+                for (u32 b = 0; b < bones.size(); ++b) {
                     std::vector<Vector3f> moves;
                     std::vector<Quaternion> turns;
                     for (std::size_t i = 0; i < s.frames.size(); ++i) {
                         if (drivers.holder < tree.size()) {
                             holding.frame[drivers.holder] = s.holder[i];
                         }
-                        const Transform local = StageLocalFor(tree, holding, node, s.frames[i][d]);
+                        const Transform local = StageLocalFor(tree, holding, bones[b], s.frames[i][b]);
                         moves.push_back(local.translation);
                         Quaternion q = local.rotation;
                         if (!turns.empty() && q.dot(turns.back()) < 0.0f) {
@@ -764,8 +929,7 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out) {
                             Thin(moves, tolerance, [](const Vector3f& a, const Vector3f& b, f32 u) { return a + (b - a) * u; },
                                  [](const Vector3f& a, const Vector3f& b) { return (a - b).length(); }, keys);
                         } else {
-                            const f32 turned = std::min(kNormalTolerance, tolerance / std::max(reach[d], 1e-6f));
-                            Thin(turns, turned, [](const Quaternion& a, const Quaternion& b, f32 u) {
+                            Thin(turns, tolerance / std::max(lever[b], 1e-6f), [](const Quaternion& a, const Quaternion& b, f32 u) {
                                      return Quaternion::slerp(a, b, u);
                                  },
                                  [](const Quaternion& a, const Quaternion& b) {
@@ -774,7 +938,7 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out) {
                                  keys);
                         }
                         SubTrack track;
-                        track.channel = boneChannels[d][move ? 0 : 1];
+                        track.channel = boneChannels[b][move ? 0 : 1];
                         track.interp = move ? Interpolation::Linear : Interpolation::Slerp;
                         for (const u32 i : keys) {
                             track.times.push_back(static_cast<f32>(i) * s.dt);
@@ -787,10 +951,15 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out) {
                     }
                 }
             });
-            made += static_cast<u32>(drivers.vertices.size());
+            made += static_cast<u32>(bones.size());
+            char said[96] = "";
+            if (fits) {
+                std::snprintf(said, sizeof said, "' %zu particles, within %.2f RMS", drivers.vertices.size(),
+                              static_cast<double>(fitRms));
+            }
             out.info(DiagCode::PhysicsUnsupported,
-                     stem + ": " + std::to_string(drivers.vertices.size()) +
-                         " bones made from its drivers, the target running no cloth",
+                     stem + ": " + std::to_string(bones.size()) + " bones made from its drivers" + said +
+                         ", the target running no cloth",
                      ElementRef(ElementKind::PhysicsRecord, cloth.id), target);
         }
     }
@@ -832,25 +1001,8 @@ bool FitRigid(std::span<const Vector3f> from, std::span<const Vector3f> to, std:
             }
         }
     }
-    const std::array<std::array<f64, 4>, 4> n{{
-        {s[0][0] + s[1][1] + s[2][2], s[1][2] - s[2][1], s[2][0] - s[0][2], s[0][1] - s[1][0]},
-        {s[1][2] - s[2][1], s[0][0] - s[1][1] - s[2][2], s[0][1] + s[1][0], s[2][0] + s[0][2]},
-        {s[2][0] - s[0][2], s[0][1] + s[1][0], -s[0][0] + s[1][1] - s[2][2], s[1][2] + s[2][1]},
-        {s[0][1] - s[1][0], s[2][0] + s[0][2], s[1][2] + s[2][1], -s[0][0] - s[1][1] + s[2][2]},
-    }};
-    const std::array<f64, 4> q = LargestEigenvector(n);
-    const f64 length = std::sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
-    if (!(length > 0.0)) {
-        return false;
-    }
-    out.rotation = Quaternion{static_cast<f32>(q[1] / length), static_cast<f32>(q[2] / length),
-                              static_cast<f32>(q[3] / length), static_cast<f32>(q[0] / length)};
     out.scale = Vector3f{1, 1, 1};
-    const Vector3f turned = out.rotation.rotate_vector(
-        Vector3f{static_cast<f32>(a[0]), static_cast<f32>(a[1]), static_cast<f32>(a[2])});
-    out.translation = Vector3f{static_cast<f32>(b[0]) - turned.x, static_cast<f32>(b[1]) - turned.y,
-                               static_cast<f32>(b[2]) - turned.z};
-    return true;
+    return skinning::SolveRigid(a, b, s, out.rotation, out.translation);
 }
 
 ClothBoneFit::ClothBoneFit(const Document& document, u32 model, const Cloth& cloth,
