@@ -469,6 +469,30 @@ TEST_CASE("G-PO a bake loops by the flag or the name or as set", "[physics][bake
     CHECK_FALSE(BakeLoops(clip));
 }
 
+TEST_CASE("G-PO a Diablo III clip plays once by any of its words", "[physics][bake][names]") {
+    Clip clip;
+    clip.looping = true;
+    clip.native.set("animSnoId", i64{1});
+    for (const char* once : {"Zombie_Female_attack_01", "OmniNPC_Male_2HS_getHit_01", "Zombie_Female_death_explode",
+                             "OmniNPC_Male_BOW_cast_AOE_01", "Templar_HTH_Run_Outro_01", "Zombie_Female_spawn"}) {
+        INFO(once);
+        clip.name = once;
+        CHECK_FALSE(BakeLoops(clip));
+    }
+    for (const char* loops : {"Zombie_Female_walk", "OmniNPC_Male_BOW_idle_01", "OmniNPC_Male_on_edge_falling_loop"}) {
+        INFO(loops);
+        clip.name = loops;
+        CHECK(BakeLoops(clip));
+    }
+    // Elsewhere a name's first words say it.
+    Clip warcraft;
+    warcraft.looping = true;
+    warcraft.name = "Stand Hit Attack";
+    CHECK_FALSE(BakeLoops(warcraft));
+    warcraft.name = "Walk Attack";
+    CHECK(BakeLoops(warcraft));
+}
+
 // ---- The lead-ins (§7.2, §7.4) -------------------------------------------------
 
 TEST_CASE("a clip comes from Stand and a corpse from its death and a loop from itself", "[physics][bake][chain]") {

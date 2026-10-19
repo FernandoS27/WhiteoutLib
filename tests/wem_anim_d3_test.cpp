@@ -18,7 +18,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <whiteout/models/wem/anim/track_read.h>
 #include <whiteout/models/wem/d3_converter.h>
+#include <whiteout/models/wem/physics/switches.h>
 #include <whiteout/models/wem/validate.h>
 
 #include "whiteout/models/wem/converters/d3_anim.h"
@@ -294,6 +296,50 @@ TEST_CASE("wem d3 a keyframed attachment fires at its hardpoint", "[wem][anim][d
     CHECK(clip.events[0].value == 4242u);
     REQUIRE(clip.events[0].node != kInvalidNode);
     CHECK(document.models[0].nodes.nodes[clip.events[0].node].kind == NodeKind::Attachment);
+}
+
+TEST_CASE("wem d3 a collapse event drops the death rig there, and the clip holds while it falls", "[wem][anim][d3]") {
+    d3n::Anim anim = makeAnim();
+    d3n::KeyframedAttachment attachment;
+    attachment.flFrame = 15.0f;
+    attachment.tEvent.eTriggerType = static_cast<i32>(d3n::TriggerType::Ragdoll);
+    anim.arPermutations[0].arAttachments.push_back(attachment);
+    anim.arPermutations[0].dwAttachmentCount = 1;
+
+    // Without a death rig it is an event like any other.
+    Document plain = convertAppearance(makeAppearance());
+    Diagnostics report;
+    const std::vector<u32> unchanged = d3_anim::ImportAnim(anim, plain, 0, report);
+    REQUIRE(unchanged.size() == 1u);
+    CHECK(plain.clips[unchanged[0]].events.size() == 1u);
+    CHECK(plain.clips[unchanged[0]].looping);
+    CHECK(plain.clips[unchanged[0]].duration == 1.0f);
+
+    Document document = convertAppearance(makeAppearance());
+    PhysicsSet& physics = document.models[0].physics;
+    PhysicsBody body;
+    body.id = physics.allocateId();
+    body.node = 1;
+    physics.bodies.push_back(body);
+    PhysicsRig rig;
+    rig.id = physics.allocateId();
+    rig.start = RigStart::OnDeath;
+    rig.bodies = {body.id};
+    physics.rigs.push_back(rig);
+    const std::vector<u32> clips = d3_anim::ImportAnim(anim, document, 0, report);
+    REQUIRE(clips.size() == 1u);
+    const Clip& clip = document.clips[clips[0]];
+    CHECK(clip.events.empty());
+    CHECK_FALSE(clip.looping);
+    CHECK(clip.duration == 3.5f);
+    const SubTrack* drop =
+        FindSubTrack(clip, FindPhysicsChannel(document.models[0], rig.id, Channel::PhysicsRagdoll));
+    REQUIRE(drop != nullptr);
+    REQUIRE(drop->times.size() == 1u);
+    CHECK(drop->times[0] == 0.5f);
+    f32 value = 0.0f;
+    std::memcpy(&value, drop->values.data(), sizeof value);
+    CHECK(value == 1.0f);
 }
 
 TEST_CASE("wem d3 a permutation with no frame rate is reported, not divided by",

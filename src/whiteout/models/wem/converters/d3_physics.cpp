@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -439,7 +440,12 @@ u32 AddCage(geom::MeshBuilder& builder, const d3n::SubObject& sub, u32 bound, u3
     const u32 first = builder.vertexCount();
     for (std::size_t p = 0; p < particles; ++p) {
         const d3n::ClothVertex& particle = cloth.arVertices[p];
-        const geom::VertexId vertex = builder.addVertex(particle.vPosition);
+        // At the mesh vertex it names, where the client seeds it: the block's
+        // own `vPosition` stands units away on every shipped cloth.
+        const std::size_t seed = static_cast<std::size_t>(particle.nMeshVertexIndex);
+        const geom::VertexId vertex = builder.addVertex(
+            particle.nMeshVertexIndex >= 0 && seed < sub.arVertices.size() ? sub.arVertices[seed].vPosition
+                                                                           : particle.vPosition);
         builder.setVertexAttr(vertex, geom::names::kClothMovable, static_cast<u8>(particle.flInvMass != 0.0f ? 1 : 0));
         std::vector<std::pair<f32, u32>> anchors;
         if (p < cloth.arStaples.size() && cloth.arStaples[p].nVertexIndex == static_cast<i32>(p)) {
@@ -546,13 +552,21 @@ void ImportCloths(const d3n::Appearances& source, std::span<const ClothSite> sit
         return planes[slot] = 0;
     };
     u32 unbound = 0;
+    std::set<u32> cleaned;
     for (const ClothSite& site : sites) {
-        if (site.tuning == nullptr || site.mesh == kInvalidIndex) {
+        if (site.tuning == nullptr || site.mesh == kInvalidIndex || !cleaned.insert(site.mesh).second) {
             continue;
         }
-        // A cage vertex is one a cloth face uses. A render vertex drawing from a
-        // particle in no face -- one D3 keeps for its constraints alone, or one
-        // the repair left without a face -- draws skinned instead.
+        // A cage vertex is one a cloth face uses, any cloth's on the mesh: a
+        // geoset can carry several. A render vertex drawing from a particle in
+        // no face -- one D3 keeps for its constraints alone, or one the repair
+        // left without a face -- draws skinned instead.
+        std::set<u32> cages;
+        for (const ClothSite& other : sites) {
+            if (other.tuning != nullptr && other.mesh == site.mesh) {
+                cages.insert(other.cage);
+            }
+        }
         Mesh& mesh = model.meshes[site.mesh];
         std::vector<u8> inCage(mesh.faceSet().vertexCount, 0);
         {
@@ -562,7 +576,7 @@ void ImportCloths(const d3n::Appearances& source, std::span<const ClothSite> sit
             for (std::size_t f = 0; f < faces.faceValence.size(); ++f) {
                 for (u32 k = 0; k < faces.faceValence[f]; ++k) {
                     const u32 v = faces.cornerVertex[corner + k];
-                    if (f < sections.size() && sections[f] == site.cage && v < inCage.size()) {
+                    if (f < sections.size() && cages.count(sections[f]) != 0 && v < inCage.size()) {
                         inCage[v] = 1;
                     }
                 }
@@ -585,6 +599,11 @@ void ImportCloths(const d3n::Appearances& source, std::span<const ClothSite> sit
                 }
             }
         }
+    }
+    for (const ClothSite& site : sites) {
+        if (site.tuning == nullptr || site.mesh == kInvalidIndex) {
+            continue;
+        }
         const d3n::Cloth& t = *site.tuning;
         Cloth cloth;
         cloth.id = physics.allocateId();
@@ -597,6 +616,12 @@ void ImportCloths(const d3n::Appearances& source, std::span<const ClothSite> sit
         cloth.bendStiffness = t.flBendStiffness;
         cloth.gravityScale = (43.2f - t.flGravity * 3600.0f) / kHostGravity;
         cloth.wind = t.nUseCustomWind != 0 ? t.vWindVelocity : Vector3f{0, 0, 0};
+        // The share of its driving bones' motion a free particle takes each
+        // step (`ClothSim_BlendToSkinnedPose`) is what StarCraft II's tracking
+        // carries it with its root's bones by.
+        Sc2ClothParams carried;
+        carried.tracking = t.flSkinBlendRate;
+        cloth.sc2 = carried;
         if ((t.dwFlags & 4) != 0) {
             cloth.colliders = capsules;
         }

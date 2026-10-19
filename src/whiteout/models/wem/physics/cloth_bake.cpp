@@ -9,13 +9,20 @@
 #include <whiteout/models/wem/nodes/node.h>
 #include <whiteout/models/wem/profile.h>
 
+#include "../geometry/fracture/parallel.h"
+
 #include <cstdio>
 #include <cstring>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <map>
 #include <set>
+#include <span>
+#include <thread>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace whiteout {
 namespace models {
@@ -165,6 +172,96 @@ bool DriversKeyed(const Document& document, u32 model, const Cloth& cloth) {
     });
 }
 
+constexpr Channel kDriverChannels[2] = {Channel::ClothDriverTranslation, Channel::ClothDriverRotation};
+
+/// Each of @p cloth's first @p count drivers' keyed tracks in @p clip,
+/// translation then rotation, as `FindClothDriverChannel` and `FindSubTrack`
+/// find them; null where none. One pass over the table and the clip, not one
+/// a driver: a large cloth has thousands.
+std::vector<std::array<const SubTrack*, 2>> DriverTracks(const Model& owner, const Cloth& cloth, u32 count,
+                                                         const Clip& clip) {
+    std::vector<std::array<u32, 2>> channels(count, {kInvalidIndex, kInvalidIndex});
+    for (const AnimChannel& entry : owner.animChannels.channels) {
+        const u32 d = DriverOfSub(entry.target.sub);
+        for (u32 which = 0; which < 2; ++which) {
+            if (entry.target.kind == TrackTarget::Kind::Physics && entry.target.channel == kDriverChannels[which] &&
+                d < count && entry.target.sub == ClothDriverSub(cloth.id, d) && channels[d][which] == kInvalidIndex) {
+                channels[d][which] = entry.id;
+            }
+        }
+    }
+    // A container's first track of a channel, from the first container whose
+    // first has keys.
+    std::unordered_map<u32, const SubTrack*> keyed;
+    std::unordered_set<u32> seen;
+    for (const SubTrackContainer& container : clip.containers) {
+        seen.clear();
+        for (const SubTrack& track : container.subTracks) {
+            if (seen.insert(track.channel).second && !track.times.empty()) {
+                keyed.try_emplace(track.channel, &track);
+            }
+        }
+    }
+    std::vector<std::array<const SubTrack*, 2>> out(count, {nullptr, nullptr});
+    for (u32 d = 0; d < count; ++d) {
+        for (u32 which = 0; which < 2; ++which) {
+            const auto found = keyed.find(channels[d][which]);
+            out[d][which] = channels[d][which] != kInvalidIndex && found != keyed.end() ? found->second : nullptr;
+        }
+    }
+    return out;
+}
+
+/// `DriverFramesAt` at each of @p timesMs, the holder at @p holders' frame
+/// there, each track's keys prepared once rather than at every read. A step
+/// no track reads at is left empty.
+std::vector<std::vector<Matrix44f>> DriverFramesOver(const Document& document, u32 model, const Cloth& cloth,
+                                                     const ClothDrivers& drivers, u32 clip,
+                                                     std::span<const i32> timesMs, std::span<const Matrix44f> holders) {
+    const Clip& played = document.clips[clip];
+    const u32 count = static_cast<u32>(drivers.vertices.size());
+    const std::vector<std::array<const SubTrack*, 2>> tracks = DriverTracks(document.models[model], cloth, count, played);
+    std::vector<std::vector<Transform>> locals(timesMs.size(), std::vector<Transform>(count));
+    std::vector<u8> read(timesMs.size(), 0);
+    for (u32 d = 0; d < count; ++d) {
+        for (u32 which = 0; which < 2; ++which) {
+            if (tracks[d][which] == nullptr) {
+                continue;
+            }
+            const geom::AttrType type = DefaultValueType(kDriverChannels[which]);
+            const std::size_t size = geom::AttrTypeSize(type);
+            // NaN where the rule reads no key, which `ReadTrack` says as no value.
+            const std::vector<u8> nothing(size, 0xFF);
+            const std::vector<u8> values = SampleSubTrackBatch(played, *tracks[d][which], type, timesMs, nothing);
+            for (std::size_t i = 0; i < timesMs.size() && (i + 1) * size <= values.size(); ++i) {
+                const u8* at = values.data() + i * size;
+                f32 first = 0.0f;
+                std::memcpy(&first, at, sizeof(f32));
+                if (std::isnan(first)) {
+                    continue;
+                }
+                read[i] = 1;
+                if (which == 0 && size >= sizeof(Vector3f)) {
+                    std::memcpy(&locals[i][d].translation, at, sizeof(Vector3f));
+                } else if (which == 1 && size >= sizeof(Quaternion)) {
+                    std::memcpy(&locals[i][d].rotation, at, sizeof(Quaternion));
+                }
+            }
+        }
+    }
+    std::vector<std::vector<Matrix44f>> frames(timesMs.size());
+    for (std::size_t i = 0; i < timesMs.size() && i < holders.size(); ++i) {
+        if (read[i] == 0) {
+            continue;
+        }
+        frames[i].resize(count);
+        for (u32 d = 0; d < count; ++d) {
+            frames[i][d] = ToMatrix(locals[i][d]) * holders[i];
+        }
+    }
+    return frames;
+}
+
 } // namespace
 
 ClothDrivers ClothDriversOf(const Model& model, const Cloth& cloth) {
@@ -277,13 +374,15 @@ bool DriverFramesAt(const Document& document, u32 model, const Cloth& cloth, con
     const Matrix44f holder =
         drivers.holder < pose.frame.size() ? pose.frame[drivers.holder] : Matrix44f::identity();
     frames.assign(drivers.vertices.size(), Matrix44f::identity());
+    const std::vector<std::array<const SubTrack*, 2>> tracks =
+        DriverTracks(owner, cloth, static_cast<u32>(drivers.vertices.size()), played);
     bool any = false;
     for (u32 d = 0; d < drivers.vertices.size(); ++d) {
         Transform local;
-        for (const Channel which : {Channel::ClothDriverTranslation, Channel::ClothDriverRotation}) {
-            const u32 channel = FindClothDriverChannel(owner, cloth.id, d, which);
-            const SubTrack* track = channel != kInvalidIndex ? FindSubTrack(played, channel) : nullptr;
-            if (track == nullptr || track->times.empty()) {
+        for (u32 slot = 0; slot < 2; ++slot) {
+            const Channel which = kDriverChannels[slot];
+            const SubTrack* track = tracks[d][slot];
+            if (track == nullptr) {
                 continue;
             }
             const std::optional<std::vector<u8>> value =
@@ -446,6 +545,9 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out) {
         return 0;
     }
     const u32 limit = std::max<u32>(1, profile.maxBoneInfluences);
+    // Sampling allocates as it goes: past the cores the threads wait on the
+    // heap (`BakeForExport`).
+    const u32 threads = std::max(1u, std::thread::hardware_concurrency() / 2);
     u32 made = 0;
     for (u32 m = 0; m < document.models.size(); ++m) {
         for (u32 c = 0; c < document.models[m].physics.cloths.size(); ++c) {
@@ -470,36 +572,53 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out) {
                 std::vector<std::vector<Matrix44f>> frames; ///< Per step, per driver.
             };
             std::vector<Sampled> sampled;
+            for (u32 k = 0; k < document.clips.size(); ++k) {
+                if (document.clips[k].model == m && document.clips[k].duration > 0.0f) {
+                    sampled.emplace_back().clip = k;
+                }
+            }
             {
                 const Model& owner = document.models[m];
                 const Mesh& mesh = owner.meshes[cloth.cage.mesh];
-                const Animator animator(document, m);
-                for (u32 k = 0; k < document.clips.size(); ++k) {
+                // What the threads read and none writes, found before them.
+                owner.nodes.ensureHierarchy();
+                const Animator::Rests rests = Animator(document, m).resolveRests();
+                // Clip by clip, side by side, each its own animator: the bones
+                // alone, each track prepared once.
+                geom::fracture::Parallel(sampled.size(), threads, [&](std::size_t job) {
+                    Sampled& s = sampled[job];
+                    const u32 k = s.clip;
                     const Clip& clip = document.clips[k];
-                    if (clip.model != m || clip.duration <= 0.0f) {
-                        continue;
-                    }
-                    Sampled& s = sampled.emplace_back();
-                    s.clip = k;
-                    const u32 steps = std::max<u32>(1, static_cast<u32>(std::ceil(clip.duration * 60.0f - 1e-3f)));
-                    s.dt = clip.duration / static_cast<f32>(steps);
-                    for (u32 i = 0; i <= steps; ++i) {
+                    Animator animator(document, m, rests);
+                    animator.keepTracksPrepared();
+                    const auto poseAt = [&](f32 seconds) {
                         Mix mix;
-                        mix.plays.push_back(Play{k, static_cast<f32>(i) * s.dt, 1.0f, false});
+                        mix.plays.push_back(Play{k, seconds, 1.0f, false});
                         mix.globals = false;
                         Pose pose;
-                        animator.evaluate(mix, pose);
-                        std::vector<Matrix44f> frames;
-                        if (!DriverFramesAt(document, m, cloth, drivers, k, static_cast<f32>(i) * s.dt, pose, frames)) {
-                            for (const u32 v : drivers.vertices) {
-                                frames.push_back(AnchoredFrame(mesh, v, pose));
-                            }
-                        }
+                        animator.sample(mix, pose, true);
+                        animator.compose(pose);
+                        return pose;
+                    };
+                    const u32 steps = std::max<u32>(1, static_cast<u32>(std::ceil(clip.duration * 60.0f - 1e-3f)));
+                    s.dt = clip.duration / static_cast<f32>(steps);
+                    std::vector<i32> times;
+                    for (u32 i = 0; i <= steps; ++i) {
+                        const Pose pose = poseAt(static_cast<f32>(i) * s.dt);
                         s.holder.push_back(drivers.holder < pose.frame.size() ? pose.frame[drivers.holder]
                                                                                : Matrix44f::identity());
-                        s.frames.push_back(std::move(frames));
+                        times.push_back(static_cast<i32>(Milliseconds(static_cast<f32>(i) * s.dt)));
                     }
-                }
+                    s.frames = DriverFramesOver(document, m, cloth, drivers, k, times, s.holder);
+                    for (u32 i = 0; i <= steps; ++i) {
+                        if (s.frames[i].empty()) {
+                            const Pose pose = poseAt(static_cast<f32>(i) * s.dt);
+                            for (const u32 v : drivers.vertices) {
+                                s.frames[i].push_back(AnchoredFrame(mesh, v, pose));
+                            }
+                        }
+                    }
+                });
             }
 
             Model& owner = document.models[m];
@@ -508,7 +627,7 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out) {
                 mesh.attributes.get<Vector3f>(geom::names::kPosition, geom::Domain::Vertex);
             // A bone per driver, under the holder, at its particle's rest.
             const std::string stem = ClothBoneStem(owner, cloth);
-            std::map<u32, u32> boneOf;
+            std::map<u32, u32> boneOf, driverOf;
             for (u32 d = 0; d < drivers.vertices.size(); ++d) {
                 char name[96];
                 std::snprintf(name, sizeof name, "%s_%02u", stem.c_str(), d + 1);
@@ -516,7 +635,10 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out) {
                 const Vector3f at = drivers.vertices[d] < positions.size() ? positions[drivers.vertices[d]] : Vector3f{0, 0, 0};
                 rest.data[3][0] = at.x, rest.data[3][1] = at.y, rest.data[3][2] = at.z;
                 boneOf[drivers.vertices[d]] = AddBoneAt(owner.nodes, name, drivers.holder, rest);
+                driverOf[drivers.vertices[d]] = d;
             }
+            // Per bone, how far from it the farthest vertex it carries stands.
+            std::vector<f32> reach(drivers.vertices.size(), 0.0f);
             // The drawn faces on the drivers; a pinned particle's share on its
             // anchors, as it hangs.
             const auto lanes = mesh.attributes.get<std::array<u32, 4>>(geom::names::kClothBindVertex, geom::Domain::Vertex);
@@ -533,6 +655,10 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out) {
                     }
                     if (const auto driver = boneOf.find(lanes[v][k]); driver != boneOf.end()) {
                         skin[driver->second] += weights[v][k];
+                        if (v < positions.size() && lanes[v][k] < positions.size()) {
+                            f32& farthest = reach[driverOf[lanes[v][k]]];
+                            farthest = std::max(farthest, (positions[v] - positions[lanes[v][k]]).length());
+                        }
                         continue;
                     }
                     for (const geom::Influence& influence : SkinOf(mesh, lanes[v][k])) {
@@ -561,7 +687,10 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out) {
                 mesh.skin.assignVertex(v, kept);
             }
             // Every clip keyed, its samples thinned to a thousandth of the
-            // cloth's size.
+            // cloth's size where its vertices are: a turn moves a carried
+            // vertex by its reach, and one on its bone (every D3 cloth's) only
+            // by its normal, held to half a degree.
+            constexpr f32 kNormalTolerance = 0.5f * 3.14159265f / 180.0f;
             Vector3f lower{0, 0, 0}, upper{0, 0, 0};
             bool any = false;
             for (const u32 v : ClothDrawnVertices(owner, cloth)) {
@@ -575,23 +704,52 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out) {
             const f32 size = std::max((upper - lower).length(), 1e-3f);
             const f32 tolerance = size * 1e-3f;
             const NodeTree& tree = owner.nodes;
-            for (const Sampled& s : sampled) {
+            // Each bone and its two channels, declared once for every clip.
+            std::vector<u32> boneNodes(drivers.vertices.size());
+            std::vector<std::array<u32, 2>> boneChannels(drivers.vertices.size(), {kInvalidIndex, kInvalidIndex});
+            for (u32 d = 0; d < drivers.vertices.size() && !sampled.empty(); ++d) {
+                const u32 node = boneOf[drivers.vertices[d]];
+                boneNodes[d] = node;
+                for (u32 slot = 0; slot < 2; ++slot) {
+                    const Channel which = slot == 0 ? Channel::Translation : Channel::Rotation;
+                    for (const AnimChannel& entry : owner.animChannels.channels) {
+                        if (entry.target.kind == TrackTarget::Kind::Node && entry.target.node == node &&
+                            entry.target.channel == which) {
+                            boneChannels[d][slot] = entry.id;
+                        }
+                    }
+                    if (boneChannels[d][slot] == kInvalidIndex) {
+                        AnimChannel declared;
+                        declared.id = owner.animChannels.nextFreeId();
+                        declared.target.kind = TrackTarget::Kind::Node;
+                        declared.target.node = node;
+                        declared.target.channel = which;
+                        declared.valueType = slot == 0 ? geom::AttrType::F32x3 : geom::AttrType::Quat;
+                        boneChannels[d][slot] = owner.animChannels.add(declared);
+                    }
+                }
+            }
+            // Clip by clip, side by side: each writes its own clip alone.
+            geom::fracture::Parallel(sampled.size(), threads, [&](std::size_t job) {
+                const Sampled& s = sampled[job];
                 Clip& clip = document.clips[s.clip];
                 if (clip.containers.empty()) {
                     clip.containers.emplace_back();
                 }
+                // A made bone's parent is the holder, the one frame its local
+                // reads.
+                Pose holding;
+                holding.frame.assign(tree.size(), Matrix44f::identity());
+                holding.local.assign(tree.size(), Transform{});
                 for (u32 d = 0; d < drivers.vertices.size(); ++d) {
-                    const u32 node = boneOf[drivers.vertices[d]];
+                    const u32 node = boneNodes[d];
                     std::vector<Vector3f> moves;
                     std::vector<Quaternion> turns;
                     for (std::size_t i = 0; i < s.frames.size(); ++i) {
-                        Pose pose;
-                        pose.frame.assign(tree.size(), Matrix44f::identity());
-                        pose.local.assign(tree.size(), Transform{});
                         if (drivers.holder < tree.size()) {
-                            pose.frame[drivers.holder] = s.holder[i];
+                            holding.frame[drivers.holder] = s.holder[i];
                         }
-                        const Transform local = StageLocalFor(tree, pose, node, s.frames[i][d]);
+                        const Transform local = StageLocalFor(tree, holding, node, s.frames[i][d]);
                         moves.push_back(local.translation);
                         Quaternion q = local.rotation;
                         if (!turns.empty() && q.dot(turns.back()) < 0.0f) {
@@ -606,7 +764,8 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out) {
                             Thin(moves, tolerance, [](const Vector3f& a, const Vector3f& b, f32 u) { return a + (b - a) * u; },
                                  [](const Vector3f& a, const Vector3f& b) { return (a - b).length(); }, keys);
                         } else {
-                            Thin(turns, tolerance / size, [](const Quaternion& a, const Quaternion& b, f32 u) {
+                            const f32 turned = std::min(kNormalTolerance, tolerance / std::max(reach[d], 1e-6f));
+                            Thin(turns, turned, [](const Quaternion& a, const Quaternion& b, f32 u) {
                                      return Quaternion::slerp(a, b, u);
                                  },
                                  [](const Quaternion& a, const Quaternion& b) {
@@ -614,24 +773,8 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out) {
                                  },
                                  keys);
                         }
-                        AnimChannel made;
-                        made.id = owner.animChannels.nextFreeId();
-                        made.target.kind = TrackTarget::Kind::Node;
-                        made.target.node = node;
-                        made.target.channel = which;
-                        made.valueType = move ? geom::AttrType::F32x3 : geom::AttrType::Quat;
-                        u32 channel = kInvalidIndex;
-                        for (const AnimChannel& entry : owner.animChannels.channels) {
-                            if (entry.target.kind == TrackTarget::Kind::Node && entry.target.node == node &&
-                                entry.target.channel == which) {
-                                channel = entry.id;
-                            }
-                        }
-                        if (channel == kInvalidIndex) {
-                            channel = owner.animChannels.add(made);
-                        }
                         SubTrack track;
-                        track.channel = channel;
+                        track.channel = boneChannels[d][move ? 0 : 1];
                         track.interp = move ? Interpolation::Linear : Interpolation::Slerp;
                         for (const u32 i : keys) {
                             track.times.push_back(static_cast<f32>(i) * s.dt);
@@ -643,7 +786,7 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out) {
                         clip.containers.front().subTracks.push_back(std::move(track));
                     }
                 }
-            }
+            });
             made += static_cast<u32>(drivers.vertices.size());
             out.info(DiagCode::PhysicsUnsupported,
                      stem + ": " + std::to_string(drivers.vertices.size()) +

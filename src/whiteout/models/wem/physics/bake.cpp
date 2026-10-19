@@ -834,7 +834,8 @@ BakeRun SimulateClip(const Document& given, u32 clip, const BakeHooks& hooks, co
     hooks.reset(document, model, movable);
     std::vector<std::unique_ptr<ClothBoneFit>> fits;
 
-    const Animator animator(document, model);
+    Animator animator(document, model);
+    animator.keepTracksPrepared();
     // The constraints read the bodies where each step leaves them.
     SimulatedSteps kept;
     SimulatedStages around(document, model, kept);
@@ -1485,7 +1486,8 @@ BakeReport BakeClipInto(Document& document, const BakeRun& run, const BakeRun* g
     // compares with and splices into.
     std::vector<std::vector<Transform>> animation(steps + 1);
     {
-        const Animator animator(document, model);
+        Animator animator(document, model);
+        animator.keepTracksPrepared();
         for (u32 i = 0; i <= steps; ++i) {
             Mix mix;
             mix.plays.push_back(Play{clipIndex, static_cast<f32>(i) * dt, 1.0f, false});
@@ -2029,14 +2031,18 @@ BakeReport BakeClipInto(Document& document, const BakeRun& run, const BakeRun* g
         const Mesh& mesh = owner.meshes[cloth->cage.mesh];
         std::vector<std::vector<Vector3f>> moves(drivers.vertices.size());
         std::vector<std::vector<Quaternion>> turns(drivers.vertices.size());
-        const Animator animator(document, model);
+        // The bones alone, each track prepared once: a cloth baked before
+        // this one left two tracks a driver in the clip.
+        Animator animator(document, model);
+        animator.keepTracksPrepared();
         for (u32 i = 0; i <= steps; ++i) {
             const u32 at = run.first + i;
             Mix mix;
             mix.plays.push_back(Play{clipIndex, static_cast<f32>(i) * dt, 1.0f, false});
             mix.globals = false;
             Pose pose;
-            animator.evaluate(mix, pose);
+            animator.sample(mix, pose, true);
+            animator.compose(pose);
             RecordedPose(document, run, at, pose);
             const Matrix44f holder =
                 drivers.holder < pose.frame.size() ? pose.frame[drivers.holder] : Matrix44f::identity();

@@ -6,21 +6,27 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <map>
 #include <set>
+#include <span>
 #include <string>
 #include <vector>
 
 #include <catch2/catch_approx.hpp>
 
 #include <whiteout/models/wem/d3_converter.h>
+#include <whiteout/models/wem/geometry/attributes.h>
 #include <whiteout/models/wem/nodes/node.h>
+#include <whiteout/models/wem/physics/cloth_bake.h>
 #include <whiteout/models/wem/validate.h>
 #include <whiteout/sno/d3/native/d3_native.h>
+#include <whiteout/sno/d3/native/geometry.h>
 #include <whiteout/sno/d3/native/physics_rules.h>
 #include <whiteout/sno/d3/native/types.h>
 
@@ -122,6 +128,59 @@ d3n::Appearances Chain() {
     return app;
 }
 
+/// Serves one `.clt`, with mass, as `kClothSno`.
+constexpr i32 kClothSno = 7;
+class ClothProvider final : public d3n::AssetProvider {
+public:
+    std::vector<u8> load(d3n::Group group, i32 snoId) override {
+        if (group != d3n::Group::Cloth || snoId != kClothSno) {
+            return {};
+        }
+        std::vector<u8> bytes(16 + 100, 0);
+        const u32 magic = 0xDEADBEEF;
+        const f32 mass = 1.0f;
+        std::memcpy(bytes.data(), &magic, sizeof magic);
+        std::memcpy(bytes.data() + 16 + 20, &mass, sizeof mass); // `flMass`
+        return bytes;
+    }
+};
+
+/// A quad sub-object @p name hanging at @p x, its cloth one particle a render
+/// vertex: the top two stapled to the root, the bottom two free.
+d3n::SubObject ClothQuad(const char* name, f32 x) {
+    d3n::SubObject sub;
+    sub.szName = name;
+    sub.dwVertexFormat = static_cast<i32>(d3n::kSubObjectHasClothIndex);
+    sub.nBoneIndex = 0;
+    const Vector3f corners[4] = {{x, 0, 2}, {x + 1, 0, 2}, {x + 1, 0, 1}, {x, 0, 1}};
+    d3n::ClothStructure cloth;
+    for (u32 i = 0; i < 4; ++i) {
+        d3n::FatVertex vertex;
+        vertex.vPosition = corners[i];
+        vertex.dwClothVertexIndex = i;
+        sub.arVertices.push_back(vertex);
+        d3n::ClothVertex particle;
+        particle.vPosition = corners[i];
+        particle.nMeshVertexIndex = static_cast<i32>(i);
+        particle.flInvMass = i < 2 ? 0.0f : 1.0f;
+        cloth.arVertices.push_back(particle);
+        d3n::ClothStaple staple;
+        staple.nVertexIndex = static_cast<i32>(i);
+        staple.nBoneIndex0 = 0;
+        staple.nBoneIndex1 = staple.nBoneIndex2 = -1;
+        staple.flWeight0 = 1.0f;
+        cloth.arStaples.push_back(staple);
+    }
+    sub.arIndices = {0, 1, 2, 0, 2, 3};
+    for (const auto& [a, b, c] : {std::array<i32, 3>{0, 1, 2}, std::array<i32, 3>{0, 2, 3}}) {
+        d3n::ClothFace face;
+        face.nVertex0 = a, face.nVertex1 = b, face.nVertex2 = c;
+        cloth.arFaces.push_back(face);
+    }
+    sub.arClothData = {cloth};
+    return sub;
+}
+
 } // namespace
 
 TEST_CASE("wem physics a D3 appearance's two rigs come in as the client builds them", "[wem][physics][d3]") {
@@ -190,6 +249,48 @@ TEST_CASE("wem physics a D3 weld's spring is the one the client makes", "[wem][p
     CHECK(joint.kind == wem::JointKind::Weld);
     CHECK(joint.angularSpring.hz == Catch::Approx(0.4f * 15.0f + 1.0f));
     CHECK(joint.angularSpring.damping == 0.9f);
+}
+
+TEST_CASE("wem physics two D3 cloths in one geoset each keep their drawn vertices", "[wem][physics][d3]") {
+    d3n::Appearances app;
+    app.dwSnoId = 12346;
+    app.arBones = {Bone("root", -1)};
+    for (const char* name : {"drapeA", "drapeB"}) {
+        d3n::AppearanceMaterial material;
+        material.szName = name;
+        material.arVariants.emplace_back().snoCloth = d3n::AssetRef{kClothSno, d3n::Group::Cloth};
+        app.arMaterials.push_back(material);
+    }
+    app.tGeoSet0.arSubObjects = {ClothQuad("drapeA", 0.0f), ClothQuad("drapeB", 3.0f)};
+    ClothProvider provider;
+    wem::AssetSource assets(provider);
+    wem::D3Converter converter;
+    const wem::Result<wem::Document> imported = converter.fromAppearance(app, &assets);
+    REQUIRE(imported.ok());
+    const wem::Model& model = imported->models[0];
+    REQUIRE(model.physics.cloths.size() == 2);
+    // Each drawn vertex draws from a particle of its own cloth's cage, whatever
+    // the other cloth in the same mesh is.
+    for (const wem::Cloth& cloth : model.physics.cloths) {
+        const wem::Mesh& mesh = model.meshes[cloth.cage.mesh];
+        const auto lanes = mesh.attributes.get<std::array<u32, 4>>(wem::geom::names::kClothBindVertex,
+                                                                  wem::geom::Domain::Vertex);
+        std::set<u32> cage;
+        const wem::geom::FaceSet& faces = mesh.faceSet();
+        const std::span<const u32> sections = mesh.faceSections();
+        for (std::size_t f = 0, corner = 0; f < faces.faceValence.size(); corner += faces.faceValence[f], ++f) {
+            for (u32 k = 0; k < faces.faceValence[f] && sections[f] == cloth.cage.section; ++k) {
+                cage.insert(faces.cornerVertex[corner + k]);
+            }
+        }
+        const std::vector<u32> drawn = wem::ClothDrawnVertices(model, cloth);
+        REQUIRE(drawn.size() == 4);
+        for (const u32 v : drawn) {
+            REQUIRE(v < lanes.size());
+            CHECK(cage.count(lanes[v][0]) == 1);
+        }
+        CHECK(wem::ClothDriversOf(model, cloth).vertices.size() == 2);
+    }
 }
 
 TEST_CASE("wem physics G-D1 every D3 appearance's rigs come in", "[wem][physics][d3][corpus]") {

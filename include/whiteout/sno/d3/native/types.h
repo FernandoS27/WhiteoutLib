@@ -317,6 +317,7 @@ enum class TriggerType : i32 {
     PlayEffectGroup = 16,  ///< EffectGroup_Play. The only type a group 14 payload takes.
     SpawnAttached = 25,    ///< Spawn, plus a lifetime and a play-request reset.
     StopTaggedAlt = 26,    ///< The other stop.
+    Ragdoll = 27,          ///< The bone-body collapse (`sub_710021BAF0`), its animation stopped.
 };
 
 /// What kind of thing a TriggerEvent's payload is, in the dense enum the

@@ -198,7 +198,7 @@ bool IsCorpseClipName(std::string_view name);
 bool PlaysOnce(std::string_view name);
 
 /// Whether @p clip's bake runs it as a loop: as set, or from its flag and its
-/// name.
+/// name (a Diablo III clip's by any of its words: `Zombie_attack_01`).
 bool BakeLoops(const Clip& clip);
 
 /// What runs before a clip's frame 0, resolved: the clip itself (a loop),

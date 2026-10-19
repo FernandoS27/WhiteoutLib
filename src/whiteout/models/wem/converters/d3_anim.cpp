@@ -12,6 +12,7 @@
 #include <vector>
 
 #include <whiteout/models/wem/anim/clip.h>
+#include <whiteout/models/wem/physics/crossing.h>
 
 namespace whiteout {
 namespace models {
@@ -21,6 +22,11 @@ namespace d3_anim {
 namespace d3n = sno::d3::native;
 
 namespace {
+
+/// How long a clip that collapses the actor runs past the collapse: the client
+/// stops the animation there and lets the bodies fall (`sub_710021BAF0`), and
+/// such an `.ani` is a pose or two long.
+constexpr f32 kCollapseHold = 3.0f;
 
 bool IEquals(const std::string& a, const std::string& b) {
     if (a.size() != b.size()) {
@@ -231,6 +237,10 @@ private:
     /// where, so it becomes the event's node when the model carries one.
     void addAttachments(const d3n::AnimPermutation& permutation, f32 fps, Clip& clip) {
         for (const d3n::KeyframedAttachment& attachment : permutation.arAttachments) {
+            if (attachment.tEvent.eTriggerType == static_cast<i32>(d3n::TriggerType::Ragdoll) &&
+                dropDeathRigs(attachment.flFrame / fps, clip)) {
+                continue;
+            }
             ClipEvent event;
             event.time = attachment.flFrame / fps;
             // The name is the hardpoint's; the payload is a `(group, handle)`
@@ -242,6 +252,35 @@ private:
             event.node = attachmentNamed(attachment.tEvent.tHardpoint0.szName);
             clip.events.push_back(std::move(event));
         }
+    }
+
+    /// The collapse event as the client runs it: the model's death rigs
+    /// dropped at @p time, the clip played once and held while they fall.
+    /// False when the model has no death rig, and the event stays an event.
+    bool dropDeathRigs(f32 time, Clip& clip) {
+        bool dropped = false;
+        for (const PhysicsRig& rig : model_.physics.rigs) {
+            if (rig.start != RigStart::OnDeath || rig.bodies.empty()) {
+                continue;
+            }
+            const u32 channel = PhysicsSwitchChannel(model_, rig.id, Channel::PhysicsRagdoll);
+            std::vector<SubTrack>& tracks = clip.containers.front().subTracks;
+            dropped = true;
+            if (std::any_of(tracks.begin(), tracks.end(), [&](const SubTrack& t) { return t.channel == channel; })) {
+                continue; // The first collapse is the one that happens.
+            }
+            SubTrack track;
+            track.channel = channel;
+            track.interp = Interpolation::Step;
+            track.times.push_back(time);
+            AppendBytes(1.0f, track.values);
+            tracks.push_back(std::move(track));
+        }
+        if (dropped) {
+            clip.looping = false;
+            clip.duration = std::max(clip.duration, time + kCollapseHold);
+        }
+        return dropped;
     }
 
     u32 attachmentNamed(const std::string& name) {

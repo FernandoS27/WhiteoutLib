@@ -12,6 +12,7 @@
 #include <whiteout/models/wem/skinning/deform.h>
 
 #include <atomic>
+#include <cstring>
 #include <limits>
 #include <map>
 #include <mutex>
@@ -1072,7 +1073,42 @@ struct MeshData {
     std::vector<std::vector<geom::Influence>> bindings;
     std::vector<f32> area;     ///< Each vertex's share of face area.
     std::vector<u32> dominant; ///< The node weighing most on each vertex.
+    std::vector<u32> bones;    ///< Every node its deform can read: its skin's, its sections' rigid ones.
+    bool bounded = false;      ///< Every position small enough that no deform of it overflows.
 };
+
+/// Far below where a deform's products overflow a float.
+constexpr f32 kDeformBound = 1e15f;
+
+bool Bounded(f32 x) {
+    return std::fabs(x) < kDeformBound;
+}
+
+bool Bounded(const Matrix44f& m) {
+    for (const auto& row : m.data) {
+        for (const f32 x : row) {
+            if (!Bounded(x)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+/// Whether @p data deforms alike under @p was and @p now: every node it reads
+/// the same bits in both, and nothing it multiplies large enough to overflow.
+bool DeformsAlike(const MeshData& data, std::span<const Matrix44f> was, std::span<const Matrix44f> now) {
+    if (!data.bounded || was.size() != now.size()) {
+        return false;
+    }
+    for (const u32 bone : data.bones) {
+        if (bone < was.size() &&
+            (std::memcmp(&was[bone], &now[bone], sizeof(Matrix44f)) != 0 || !Bounded(was[bone]))) {
+            return false;
+        }
+    }
+    return true;
+}
 
 std::vector<MeshData> MeshesOf(const Model& model) {
     std::vector<MeshData> out;
@@ -1107,6 +1143,18 @@ std::vector<MeshData> MeshesOf(const Model& model) {
             }
             corner += valence;
         }
+        std::set<u32> read;
+        for (const geom::Influence& influence : mesh.skin.influences) {
+            read.insert(influence.bone);
+        }
+        for (const MeshSection& section : mesh.sections) {
+            if (section.rigidNode.has_value()) {
+                read.insert(*section.rigidNode);
+            }
+        }
+        data.bones.assign(read.begin(), read.end());
+        data.bounded = std::all_of(positions.begin(), positions.end(),
+                                   [](const Vector3f& at) { return Bounded(at.x) && Bounded(at.y) && Bounded(at.z); });
         data.dominant.assign(positions.size(), kInvalidNode);
         for (std::size_t v = 0; v < data.bindings.size() && v < data.dominant.size(); ++v) {
             f32 best = 0.0f;
@@ -1185,6 +1233,18 @@ Measured Compare(const std::vector<MeshData>& meshes, u32 nodes,
     for (std::size_t i = 0; i < was.size() && i < now.size(); ++i) {
         for (std::size_t m = 0; m < meshes.size(); ++m) {
             const MeshData& data = meshes[m];
+            // No vertex moved: each is 0 off, and its area still counts, in
+            // the order the loop below adds it.
+            if (DeformsAlike(data, was[i], now[i])) {
+                for (std::size_t v = 0; v < data.area.size(); ++v) {
+                    out.weight += data.area[v];
+                    const u32 node = v < data.dominant.size() ? data.dominant[v] : kInvalidNode;
+                    if (node < nodes) {
+                        out.nodeWeight[node] += data.area[v];
+                    }
+                }
+                continue;
+            }
             skinning::DeformMeshInto(*data.mesh, was[i], a);
             skinning::DeformMeshInto(*data.mesh, now[i], b);
             for (std::size_t v = 0; v < a.size() && v < b.size(); ++v) {

@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <iterator>
+#include <string_view>
 
 namespace whiteout {
 namespace models {
@@ -452,6 +454,27 @@ bool PlaysOnce(std::string_view name) {
     return first == "stand" && second == "hit";
 }
 
+namespace {
+
+/// Whether a Diablo III clip, named after its `.ani` (`<figure>_<weapon>_attack_01`,
+/// the import keeping its SNO id), plays once: a word of it names an action the
+/// game plays through, wherever it stands. The import marks every clip looping.
+bool DiabloPlaysOnce(const Clip& clip) {
+    if (clip.native.find("animSnoId") == nullptr) {
+        return false;
+    }
+    static constexpr std::string_view kOnce[] = {"attack", "cast",  "death", "hit",  "knockback",
+                                                 "parry",  "spawn", "intro", "outro"};
+    for (const std::string& word : Words(clip.name)) {
+        if (std::find(std::begin(kOnce), std::end(kOnce), word) != std::end(kOnce)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
+
 bool BakeLoops(const Clip& clip) {
     const BakePlays plays = clip.physics.has_value() ? clip.physics->plays : BakePlays::FromClip;
     switch (plays) {
@@ -460,7 +483,7 @@ bool BakeLoops(const Clip& clip) {
     case BakePlays::Once:
         return false;
     default:
-        return clip.looping && !PlaysOnce(clip.name);
+        return clip.looping && !PlaysOnce(clip.name) && !DiabloPlaysOnce(clip);
     }
 }
 
