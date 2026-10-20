@@ -713,6 +713,38 @@ TEST_CASE("wem d3 a section is a sub-object that owns its vertices", "[wem][conv
     CHECK(exported.value->sourceSections[1] == std::pair<u32, u32>{0, 1});
 }
 
+TEST_CASE("wem d3 both UV sets come back bit for bit", "[wem][convert][d3]") {
+    // The two sets decode the same word over different ranges ([-64, 64) and
+    // [-4, 4)), so each needs its own inverse: packing set 1 with set 0's
+    // would hand back a different word for every vertex. The words include
+    // both ends of a lane.
+    d3n::Appearances app = makeAppearance();
+    const u32 uv0[3] = {0x0000FFFFu, 0x80008000u, 0x12345678u};
+    const u32 uv1[3] = {0x00000000u, 0xFFFF0001u, 0x9000A000u};
+    for (d3n::SubObject& sub : app.tGeoSet0.arSubObjects) {
+        for (std::size_t i = 0; i < 3; ++i) {
+            sub.arVertices[i].dwTexCoord0 = uv0[i];
+            sub.arVertices[i].dwTexCoord1 = uv1[i];
+        }
+    }
+    D3Converter converter;
+    Result<Document> imported = converter.fromAppearance(app);
+    REQUIRE(imported.ok());
+    Result<D3AppearanceExport> exported = converter.toAppearance(*imported.value);
+    REQUIRE(exported.ok());
+    CHECK(exported.diagnostics.countOf(DiagCode::AttributeCountMismatch) == 0);
+
+    for (const d3n::SubObject& sub : exported.value->appearance.tGeoSet0.arSubObjects) {
+        REQUIRE(sub.arVertices.size() == 3);
+        for (const d3n::FatVertex& vertex : sub.arVertices) {
+            // The fixture's corners are told apart by position.
+            const std::size_t i = vertex.vPosition.x == 1.0f ? 1 : vertex.vPosition.y == 1.0f ? 2 : 0;
+            CHECK(vertex.dwTexCoord0 == uv0[i]);
+            CHECK(vertex.dwTexCoord1 == uv1[i]);
+        }
+    }
+}
+
 TEST_CASE("wem d3 the Maya shape name survives, because the dressing reads it",
           "[wem][convert][d3]") {
     const d3n::Appearances app = makeAppearance();

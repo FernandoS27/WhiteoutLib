@@ -269,6 +269,13 @@ target_compile_definitions(wem_convert_corpus_test
     PRIVATE WHITEOUT_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
 # SNO / Diablo Tests
+# The D3 [install] arms read the game through CASC (d3_install.h); without it
+# they compile out and the synthetic cases still run.
+if(WHITEOUT_ENABLE_CASC)
+    set(WHITEOUT_D3_INSTALL_LINK whiteout_casc)
+else()
+    set(WHITEOUT_D3_INSTALL_LINK whiteout_lib)
+endif()
 whiteout_add_test(d3_ani_corpus_test d3_ani_corpus_test.cpp)
 whiteout_add_test(d3_payload_test d3_payload_test.cpp)
 whiteout_add_test(d3_graphics_sno_test d3_graphics_sno_test.cpp)
@@ -276,7 +283,7 @@ whiteout_add_test(d3_sno_group_test d3_sno_group_test.cpp)
 whiteout_add_test(d3_character_test d3_character_test.cpp)
 whiteout_add_test(d3_gamebalance_test d3_gamebalance_test.cpp)
 whiteout_add_test(d3_stringlist_test d3_stringlist_test.cpp)
-whiteout_add_test(d3_native_test d3_native_test.cpp)
+whiteout_add_test(d3_native_test d3_native_test.cpp LINK ${WHITEOUT_D3_INSTALL_LINK})
 # The public D3 native headers live in include/ and need no help. This is for
 # the white-box half of the test, which includes the build-internal layout.h to
 # check parsed values against the raw on-disk image.
@@ -292,6 +299,11 @@ whiteout_add_test(d4_binary_types_test d4_binary_types_test.cpp)
 target_include_directories(d4_binary_types_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 whiteout_add_test(d4_tex_corpus_test d4_tex_corpus_test.cpp)
 whiteout_add_test(d4_tex_synth_test d4_tex_synth_test.cpp)
+# White-box like d3_native_test: the cube arm checks the written mip table
+# against the build-internal tex_internal.h constants.
+whiteout_add_test(d3_tex_test d3_tex_test.cpp LINK ${WHITEOUT_D3_INSTALL_LINK})
+target_include_directories(d3_tex_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+whiteout_add_test(d3_light_test d3_light_test.cpp LINK ${WHITEOUT_D3_INSTALL_LINK})
 
 # MDL Tests
 whiteout_add_test(mdl_parser_test mdl_parser_test.cpp)

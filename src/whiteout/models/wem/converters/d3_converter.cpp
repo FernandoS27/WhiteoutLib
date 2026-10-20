@@ -1326,19 +1326,28 @@ u32 PackVertexVector(const Vector3f& value) {
     return channel(value.x) | (channel(value.y) << 8) | (channel(value.z) << 16);
 }
 
-/// The inverse of `d3n::unpackTexCoord`: two u16 in 8.8 fixed point, biased 64.
-/// The range is [-64, 63.998]; a UV outside it wraps rather than clamping in the
-/// original, but a converter that wrapped would move a coordinate the source
-/// held exactly, so this clamps and the caller counts.
-u32 PackTexCoord(const Vector2f& value, bool& clamped) {
-    const auto channel = [&clamped](f32 v) -> u32 {
-        const f32 scaled = (v + 64.0f) * 512.0f;
+/// Two u16, `(v + bias) * steps` each. A UV outside the range wraps rather than
+/// clamping in the original, but a converter that wrapped would move a
+/// coordinate the source held exactly, so this clamps and the caller counts.
+u32 PackTexCoordWith(const Vector2f& value, f32 bias, f32 steps, bool& clamped) {
+    const auto channel = [&clamped, bias, steps](f32 v) -> u32 {
+        const f32 scaled = (v + bias) * steps;
         if (scaled < 0.0f || scaled > 65535.0f) {
             clamped = true;
         }
         return static_cast<u32>(std::clamp(scaled + 0.5f, 0.0f, 65535.0f));
     };
     return channel(value.x) | (channel(value.y) << 16);
+}
+
+/// The inverse of `d3n::unpackTexCoord`: range [-64, 63.998].
+u32 PackTexCoord(const Vector2f& value, bool& clamped) {
+    return PackTexCoordWith(value, 64.0f, 512.0f, clamped);
+}
+
+/// The inverse of `d3n::unpackTexCoord1`: range [-4, 3.9999].
+u32 PackTexCoord1(const Vector2f& value, bool& clamped) {
+    return PackTexCoordWith(value, 4.0f, 8192.0f, clamped);
 }
 
 u32 PackVertexColor(const std::array<u8, 4>& rgba) {
@@ -1802,8 +1811,8 @@ private:
 
         if (clamped) {
             out_.warn(DiagCode::AttributeCountMismatch,
-                      "a UV fell outside the [-64, 64) range a D3 texture coordinate encodes and "
-                      "was clamped",
+                      "a UV fell outside the range a D3 texture coordinate encodes ([-64, 64) "
+                      "for set 0, [-4, 4) for set 1) and was clamped",
                       ElementRef(), ProfileId::Diablo3);
         }
     }
@@ -1893,7 +1902,7 @@ private:
                 source < slices.normals.size() ? slices.normals[source] : Vector3f{0, 0, 1});
             vertex.dwTexCoord0 = PackTexCoord(
                 source < slices.uv0.size() ? slices.uv0[source] : Vector2f{0, 0}, clamped);
-            vertex.dwTexCoord1 = PackTexCoord(
+            vertex.dwTexCoord1 = PackTexCoord1(
                 source < slices.uv1.size() ? slices.uv1[source] : Vector2f{0, 0}, clamped);
             vertex.dwTangent = source < slices.tangents.size()
                                    ? PackVertexVector(Vector3f{slices.tangents[source].x,

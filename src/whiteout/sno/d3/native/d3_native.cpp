@@ -77,6 +77,13 @@ std::optional<GameBalance> parseGameBalance(std::span<const u8> file) {
     return out;
 }
 
+std::optional<Light> parseLight(std::span<const u8> file) {
+    BinaryParseVisitor v(file);
+    Light out;
+    if (!v.read(out)) return std::nullopt;
+    return out;
+}
+
 std::optional<Particle> parseParticle(std::span<const u8> file) {
     BinaryParseVisitor v(file);
     Particle out;
@@ -129,6 +136,13 @@ std::optional<Surface> parseSurface(std::span<const u8> file) {
 std::optional<Texture> parseTexture(std::span<const u8> file) {
     BinaryParseVisitor v(file);
     Texture out;
+    if (!v.read(out)) return std::nullopt;
+    return out;
+}
+
+std::optional<Weather> parseWeather(std::span<const u8> file) {
+    BinaryParseVisitor v(file);
+    Weather out;
     if (!v.read(out)) return std::nullopt;
     return out;
 }

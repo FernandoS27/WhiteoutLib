@@ -1826,6 +1826,63 @@ static_assert(offsetof(IntPath, tHeader) == 0, "IntPath.tHeader moved");
 static_assert(offsetof(IntPath, arNodes) == 40, "IntPath.arNodes moved");
 static_assert(sizeof(IntPath) == 48, "IntPath changed size");
 
+struct LightStateParams {
+    FloatPath tStart;
+    FloatPath tEnd;
+    FloatPath tAttenuation0;
+    FloatPath tAttenuation1;
+    FloatPath tAttenuation2;
+    AnglePath tConeAngle0;
+    AnglePath tConeAngle1;
+    ColorPath tAmbientColor;
+    FloatPath tAmbientIntensity;
+    ColorPath tDiffuseColor;
+    FloatPath tDiffuseIntensity;
+    ColorPath tSpecularColor;
+    FloatPath tSpecularIntensity;
+};
+static_assert(offsetof(LightStateParams, tStart) == 0, "LightStateParams.tStart moved");
+static_assert(offsetof(LightStateParams, tEnd) == 48, "LightStateParams.tEnd moved");
+static_assert(offsetof(LightStateParams, tAttenuation0) == 96, "LightStateParams.tAttenuation0 moved");
+static_assert(offsetof(LightStateParams, tAttenuation1) == 144, "LightStateParams.tAttenuation1 moved");
+static_assert(offsetof(LightStateParams, tAttenuation2) == 192, "LightStateParams.tAttenuation2 moved");
+static_assert(offsetof(LightStateParams, tConeAngle0) == 240, "LightStateParams.tConeAngle0 moved");
+static_assert(offsetof(LightStateParams, tConeAngle1) == 288, "LightStateParams.tConeAngle1 moved");
+static_assert(offsetof(LightStateParams, tAmbientColor) == 336, "LightStateParams.tAmbientColor moved");
+static_assert(offsetof(LightStateParams, tAmbientIntensity) == 384, "LightStateParams.tAmbientIntensity moved");
+static_assert(offsetof(LightStateParams, tDiffuseColor) == 432, "LightStateParams.tDiffuseColor moved");
+static_assert(offsetof(LightStateParams, tDiffuseIntensity) == 480, "LightStateParams.tDiffuseIntensity moved");
+static_assert(offsetof(LightStateParams, tSpecularColor) == 528, "LightStateParams.tSpecularColor moved");
+static_assert(offsetof(LightStateParams, tSpecularIntensity) == 576, "LightStateParams.tSpecularIntensity moved");
+static_assert(sizeof(LightStateParams) == 624, "LightStateParams changed size");
+
+struct Light {
+    i32 dwSnoId;
+    u8 _pad0[8];
+    i32 dwUnknown0C;
+    i32 dwUnknown10;
+    i32 eLightType;
+    i32 snoTexture;
+    u8 _pad1[148];
+    i32 dwUnknownB0;
+    i32 dwUnknownB4;
+    f32 flUnknownB8;
+    u8 _pad2[4];
+    LightStateParams tState0;
+    LightStateParams tState1;
+};
+static_assert(offsetof(Light, dwSnoId) == 0, "Light.dwSnoId moved");
+static_assert(offsetof(Light, dwUnknown0C) == 12, "Light.dwUnknown0C moved");
+static_assert(offsetof(Light, dwUnknown10) == 16, "Light.dwUnknown10 moved");
+static_assert(offsetof(Light, eLightType) == 20, "Light.eLightType moved");
+static_assert(offsetof(Light, snoTexture) == 24, "Light.snoTexture moved");
+static_assert(offsetof(Light, dwUnknownB0) == 176, "Light.dwUnknownB0 moved");
+static_assert(offsetof(Light, dwUnknownB4) == 180, "Light.dwUnknownB4 moved");
+static_assert(offsetof(Light, flUnknownB8) == 184, "Light.flUnknownB8 moved");
+static_assert(offsetof(Light, tState0) == 192, "Light.tState0 moved");
+static_assert(offsetof(Light, tState1) == 816, "Light.tState1 moved");
+static_assert(sizeof(Light) == 1440, "Light changed size");
+
 struct Material {
     i32 dwSnoId;
     u8 _pad0[8];
@@ -2339,6 +2396,34 @@ static_assert(offsetof(Texture, dwSamplerHint2) == 560, "Texture.dwSamplerHint2 
 static_assert(offsetof(Texture, dwHashArrayOffset) == 600, "Texture.dwHashArrayOffset moved");
 static_assert(offsetof(Texture, dwHashArraySize) == 604, "Texture.dwHashArraySize moved");
 static_assert(sizeof(Texture) == 608, "Texture changed size");
+
+struct WeatherStateParams {
+    u8 _pad0[40];
+    i32 snoSunLightScene;
+    i32 snoSunLightActor;
+    u8 _pad1[8];
+    i32 snoPlayerLightScene;
+    i32 snoPlayerLightActor;
+    i32 snoHeadLight;
+};
+static_assert(offsetof(WeatherStateParams, snoSunLightScene) == 40, "WeatherStateParams.snoSunLightScene moved");
+static_assert(offsetof(WeatherStateParams, snoSunLightActor) == 44, "WeatherStateParams.snoSunLightActor moved");
+static_assert(offsetof(WeatherStateParams, snoPlayerLightScene) == 56, "WeatherStateParams.snoPlayerLightScene moved");
+static_assert(offsetof(WeatherStateParams, snoPlayerLightActor) == 60, "WeatherStateParams.snoPlayerLightActor moved");
+static_assert(offsetof(WeatherStateParams, snoHeadLight) == 64, "WeatherStateParams.snoHeadLight moved");
+static_assert(sizeof(WeatherStateParams) == 68, "WeatherStateParams changed size");
+
+struct Weather {
+    i32 dwSnoId;
+    u8 _pad0[228];
+    WeatherStateParams tState0;
+    WeatherStateParams tState1;
+    u8 _pad1[48];
+};
+static_assert(offsetof(Weather, dwSnoId) == 0, "Weather.dwSnoId moved");
+static_assert(offsetof(Weather, tState0) == 232, "Weather.tState0 moved");
+static_assert(offsetof(Weather, tState1) == 300, "Weather.tState1 moved");
+static_assert(sizeof(Weather) == 416, "Weather changed size");
 
 #pragma pack(pop)
 } // namespace layout

@@ -41,8 +41,8 @@ std::vector<u8> Writer::Impl::write(const Texture& texture_in, const SaveOptions
 
     auto tex_format_opt = pixel_format_to_tex_format(texture.format());
     if (!tex_format_opt) {
-        fail("Pixel format not representable in TEX (only RGBA8, BC1, BC2, BC3, "
-             "BC4, BC5 are supported)");
+        fail("Pixel format not representable in TEX (only RGBA8, BC1, BC2 and BC3 are "
+             "supported)");
         return {};
     }
     const u32 tex_format = *tex_format_opt;
@@ -51,6 +51,12 @@ std::vector<u8> Writer::Impl::write(const Texture& texture_in, const SaveOptions
     const u32 face_count = is_cubemap ? 6u : 1u;
     const u32 mipCount = texture.mipCount();
     const bool is_shuffled = is_shuffled_bc_format(tex_format);
+
+    if (is_cubemap && mipCount > CUBE_MIP_SLOTS_PER_FACE) {
+        fail("TEX cubes hold at most " + std::to_string(CUBE_MIP_SLOTS_PER_FACE) +
+             " mips a face");
+        return {};
+    }
 
     u32 frame_count = static_cast<u32>(opts.frames.size());
     if (frame_count == 0) {
@@ -63,26 +69,35 @@ std::vector<u8> Writer::Impl::write(const Texture& texture_in, const SaveOptions
     const u32 frame_table_size = frame_count * FRAME_DESC_SIZE;
     const u32 pixel_data_offset = frame_table_offset + frame_table_size;
 
+    // One mip-table entry per (face, mip); a level's bytes sit at its offset
+    // plus the prefix. A 2D texture gives every level its own prefix. A cube
+    // is laid out as the game ships one: a single prefix, then each face's
+    // whole chain, so each entry's offset is where the previous one ended.
+    const u32 prefix = is_shuffled ? BC_MIP_PREFIX_SIZE : 0u;
     struct MipInfo {
+        u32 slot;
         u32 file_offset;
         u32 per_face_size;
     };
-    std::vector<MipInfo> mip_infos(mipCount);
+    std::vector<MipInfo> mip_infos(static_cast<size_t>(mipCount) * face_count);
 
     u32 current_offset = pixel_data_offset;
-    for (u32 mip = 0; mip < mipCount; ++mip) {
-        const u32 mip_width = std::max(texture.width() >> mip, 1u);
-        const u32 mip_height = std::max(texture.height() >> mip, 1u);
-        const u32 face_size =
-            static_cast<u32>(tex_compute_mip_size(tex_format, mip_width, mip_height));
-        const u32 face_disk_size = face_size + (is_shuffled ? BC_MIP_PREFIX_SIZE : 0);
+    for (u32 face = 0; face < face_count; ++face) {
+        for (u32 mip = 0; mip < mipCount; ++mip) {
+            const u32 mip_width = std::max(texture.width() >> mip, 1u);
+            const u32 mip_height = std::max(texture.height() >> mip, 1u);
+            const u32 face_size =
+                static_cast<u32>(tex_compute_mip_size(tex_format, mip_width, mip_height));
 
-        mip_infos[mip].file_offset = current_offset;
-        mip_infos[mip].per_face_size = face_size;
-        current_offset += face_disk_size * face_count;
+            MipInfo& info = mip_infos[static_cast<size_t>(face) * mipCount + mip];
+            info.slot = face * CUBE_MIP_SLOTS_PER_FACE + mip;
+            info.file_offset = current_offset;
+            info.per_face_size = face_size;
+            current_offset += face_size + (is_cubemap ? 0u : prefix);
+        }
     }
 
-    const u32 total_file_size = current_offset;
+    const u32 total_file_size = current_offset + (is_cubemap ? prefix : 0u);
 
     std::vector<u8> output(total_file_size, 0);
 
@@ -109,9 +124,11 @@ std::vector<u8> Writer::Impl::write(const Texture& texture_in, const SaveOptions
 
     {
         std::array<MipEntry, MIP_TABLE_ENTRIES> entries{};
-        for (u32 i = 0; i < mipCount && i < MIP_TABLE_ENTRIES; ++i) {
-            entries[i].fileOffset = mip_infos[i].file_offset;
-            entries[i].dataSize = mip_infos[i].per_face_size;
+        for (const MipInfo& info : mip_infos) {
+            if (info.slot < MIP_TABLE_ENTRIES) {
+                entries[info.slot].fileOffset = info.file_offset;
+                entries[info.slot].dataSize = info.per_face_size;
+            }
         }
         std::memcpy(output.data() + OFF_MIP_TABLE, entries.data(), MIP_TABLE_SIZE);
     }
@@ -164,17 +181,14 @@ std::vector<u8> Writer::Impl::write(const Texture& texture_in, const SaveOptions
 
     const bool needs_swizzle = (tex_format == TEX_FMT_A8R8G8B8);
 
-    for (u32 mip = 0; mip < mipCount; ++mip) {
-        const u32 face_data_size = mip_infos[mip].per_face_size;
-        const u32 face_disk_size = face_data_size + (is_shuffled ? BC_MIP_PREFIX_SIZE : 0);
-        const u32 mip_width = std::max(texture.width() >> mip, 1u);
-        const u32 mip_height = std::max(texture.height() >> mip, 1u);
-
-        for (u32 face = 0; face < face_count; ++face) {
-            auto source = texture.mipData(mip, face);
-            u8* destination = output.data() + mip_infos[mip].file_offset + face_disk_size * face;
-            encode_mip_face(tex_format, source, destination, mip_width, mip_height, face_data_size,
-                            needs_swizzle, is_shuffled);
+    for (u32 face = 0; face < face_count; ++face) {
+        for (u32 mip = 0; mip < mipCount; ++mip) {
+            const MipInfo& info = mip_infos[static_cast<size_t>(face) * mipCount + mip];
+            const u32 mip_width = std::max(texture.width() >> mip, 1u);
+            const u32 mip_height = std::max(texture.height() >> mip, 1u);
+            encode_mip_face(tex_format, texture.mipData(mip, face),
+                            output.data() + info.file_offset, mip_width, mip_height,
+                            info.per_face_size, needs_swizzle, is_shuffled);
         }
     }
 

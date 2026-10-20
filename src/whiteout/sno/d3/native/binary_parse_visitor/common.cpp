@@ -58,6 +58,35 @@ void BinaryParseVisitor::visit(const layout::GameBalance& src, GameBalance& dst)
     }
 }
 
+void BinaryParseVisitor::visit(const layout::LightStateParams& src, LightStateParams& dst) {
+    visit(src.tStart, dst.tStart);
+    visit(src.tEnd, dst.tEnd);
+    visit(src.tAttenuation0, dst.tAttenuation0);
+    visit(src.tAttenuation1, dst.tAttenuation1);
+    visit(src.tAttenuation2, dst.tAttenuation2);
+    visit(src.tConeAngle0, dst.tConeAngle0);
+    visit(src.tConeAngle1, dst.tConeAngle1);
+    visit(src.tAmbientColor, dst.tAmbientColor);
+    visit(src.tAmbientIntensity, dst.tAmbientIntensity);
+    visit(src.tDiffuseColor, dst.tDiffuseColor);
+    visit(src.tDiffuseIntensity, dst.tDiffuseIntensity);
+    visit(src.tSpecularColor, dst.tSpecularColor);
+    visit(src.tSpecularIntensity, dst.tSpecularIntensity);
+}
+
+void BinaryParseVisitor::visit(const layout::Light& src, Light& dst) {
+    dst.dwSnoId = src.dwSnoId;
+    dst.dwUnknown0C = src.dwUnknown0C;
+    dst.dwUnknown10 = src.dwUnknown10;
+    dst.eLightType = src.eLightType;
+    dst.snoTexture = AssetRef{src.snoTexture, Group::Textures};
+    dst.dwUnknownB0 = src.dwUnknownB0;
+    dst.dwUnknownB4 = src.dwUnknownB4;
+    dst.flUnknownB8 = src.flUnknownB8;
+    visit(src.tState0, dst.tState0);
+    visit(src.tState1, dst.tState1);
+}
+
 void BinaryParseVisitor::visit(const layout::RenderParams& src, RenderParams& dst) {
     dst.dwCullMode = src.dwCullMode;
     dst.dwZWriteEnable = src.dwZWriteEnable;
@@ -191,6 +220,20 @@ void BinaryParseVisitor::visit(const layout::Surface& src, Surface& dst) {
             for (size_t i = 0; i < n; ++i) visit(p[i], dst.arSurfaceParams[i]);
         }
     }
+}
+
+void BinaryParseVisitor::visit(const layout::WeatherStateParams& src, WeatherStateParams& dst) {
+    dst.snoSunLightScene = AssetRef{src.snoSunLightScene, Group::Light};
+    dst.snoSunLightActor = AssetRef{src.snoSunLightActor, Group::Light};
+    dst.snoPlayerLightScene = AssetRef{src.snoPlayerLightScene, Group::Light};
+    dst.snoPlayerLightActor = AssetRef{src.snoPlayerLightActor, Group::Light};
+    dst.snoHeadLight = AssetRef{src.snoHeadLight, Group::Light};
+}
+
+void BinaryParseVisitor::visit(const layout::Weather& src, Weather& dst) {
+    dst.dwSnoId = src.dwSnoId;
+    visit(src.tState0, dst.tState0);
+    visit(src.tState1, dst.tState1);
 }
 
 } // namespace native

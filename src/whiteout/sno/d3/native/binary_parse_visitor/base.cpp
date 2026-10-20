@@ -139,6 +139,20 @@ bool BinaryParseVisitor::read(StringList& out) {
     return true;
 }
 
+bool BinaryParseVisitor::read(Light& out) {
+    const layout::Light* img = image<layout::Light>();
+    if (!img) return false;
+    visit(*img, out);
+    return true;
+}
+
+bool BinaryParseVisitor::read(Weather& out) {
+    const layout::Weather* img = image<layout::Weather>();
+    if (!img) return false;
+    visit(*img, out);
+    return true;
+}
+
 } // namespace native
 } // namespace d3
 } // namespace sno

@@ -14,14 +14,16 @@
 //   +16  color     R,G,B,A in memory order
 //   +20  auxcolor  second colour channel
 //   +24  texcoord0 two u16, coord = u16 / 512 - 64
-//   +28  texcoord1
+//   +28  texcoord1 two u16, coord = u16 / 8192 - 4
 //   +32  tangent   packed like the normal, aligned with +dP/du
 //   +36  binormal  packed like the normal, aligned with -dP/dv
 //   +40  cloth vertex index, non-zero only when the SubObject carries cloth
 //
-// The engine's own shaders spell the two decodes out:
+// The engine's own shaders spell the decodes out:
 //   MUL R.xyz, vertex.attrib[2], 0.0078431377 ; ADD R.xyz, R, -1
 //   MAD R.y, a8.x, 0.00390625, a8.y ; MUL R,0.5 ; ADD R,-64
+// and Actor.fx's main_vs decodes the second set with mad 0.03125, -4 where the
+// first takes mad 0.5, -64 (same 8.8 word, 16x finer step).
 
 #pragma once
 
@@ -48,6 +50,13 @@ inline Vector2f unpackTexCoord(u32 packed) {
             static_cast<f32>(packed >> 16) / 512.0f - 64.0f};
 }
 
+/// The second UV set's decode: two u16 over [-4, 4), so raw 0 (-4, -4) is
+/// what a mesh without a second set carries.
+inline Vector2f unpackTexCoord1(u32 packed) {
+    return {static_cast<f32>(packed & 0xFFFFu) / 8192.0f - 4.0f,
+            static_cast<f32>(packed >> 16) / 8192.0f - 4.0f};
+}
+
 /// A vertex colour. The bytes are R, G, B, A in memory order.
 struct VertexColor {
     u8 r{}, g{}, b{}, a{};
@@ -71,6 +80,11 @@ inline Vector2f vertexTexCoord0(const FatVertex& v) {
     return unpackTexCoord(v.dwTexCoord0);
 }
 inline Vector2f vertexTexCoord1(const FatVertex& v) {
+    return unpackTexCoord1(v.dwTexCoord1);
+}
+/// The second set read with the first set's range: Legacy texcoord function 8
+/// samples it that way on purpose, 16x the coordinate every other reader sees.
+inline Vector2f vertexTexCoord1Raw(const FatVertex& v) {
     return unpackTexCoord(v.dwTexCoord1);
 }
 inline VertexColor vertexColor(const FatVertex& v) {

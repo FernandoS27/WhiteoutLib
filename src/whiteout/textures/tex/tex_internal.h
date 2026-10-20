@@ -45,6 +45,12 @@ static constexpr u32 TEX_FMT_ATI2 = 43;
 
 static constexpr u32 BC_MIP_PREFIX_SIZE = 16;
 
+/// A cube's mip table is face-major, this many slots a face (60 = 6 x 10). Its
+/// data is ONE prefix, then each face's whole mip chain in turn: every entry's
+/// bytes sit at its fileOffset + the prefix, exactly as a 2D mip's do. All 34
+/// shipped cubes close that way.
+static constexpr u32 CUBE_MIP_SLOTS_PER_FACE = 10;
+
 // ============================================================================
 // D4 TEX pixel format IDs
 // ============================================================================

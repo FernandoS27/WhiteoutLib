@@ -198,6 +198,8 @@ struct Item;
 struct GameBalance;
 struct IntNode;
 struct IntPath;
+struct LightStateParams;
+struct Light;
 struct Material;
 struct TimeNode;
 struct TimePath;
@@ -220,6 +222,8 @@ struct StringList;
 struct SurfaceTagMapEntry;
 struct Surface;
 struct Texture;
+struct WeatherStateParams;
+struct Weather;
 
 /// AABB -- 24 bytes on disk.
 struct AABB {
@@ -1293,6 +1297,63 @@ struct IntPath {
     std::vector<IntNode> arNodes;
 };
 
+/// LightStateParams -- 624 bytes on disk.
+///
+/// One light state, as the Switch reflection registers it (the same 624
+/// bytes in the PC files). A colour is the ColorPath's bytes, R,G,B,A in
+/// memory order, over 255, times its FloatPath intensity (S:0x71000A8B30).
+/// A point light falls off as 1 / (k0 + k1 d + k2 d^2) from the three
+/// attenuation paths; point-linear and cylinder lights fall off linearly
+/// from tStart to tEnd, and a spot uploads 1 / (tEnd - tStart), tEnd,
+/// cos(tConeAngle1) and cos(tConeAngle0).
+struct LightStateParams {
+    FloatPath tStart{};
+    FloatPath tEnd{};
+    FloatPath tAttenuation0{};
+    FloatPath tAttenuation1{};
+    FloatPath tAttenuation2{};
+    AnglePath tConeAngle0{};
+    AnglePath tConeAngle1{};
+    ColorPath tAmbientColor{};
+    FloatPath tAmbientIntensity{};
+    ColorPath tDiffuseColor{};
+    FloatPath tDiffuseIntensity{};
+    ColorPath tSpecularColor{};
+    FloatPath tSpecularIntensity{};
+};
+
+/// What a Light is, from the switch in `Render_UploadLightConstants`
+/// (S:0x71001DE680). The counts are over the 1466 shipped .lit.
+enum class LightType : i32 {
+    Directional = 0,  ///< Demoted into the primary point slot: no shipped program reads a directional. 321.
+    Point = 1,        ///< Falls off as 1 / (k0 + k1 d + k2 d^2). 4.
+    Spot = 2,         ///< 6.
+    Cylindrical = 3,  ///< Falls off with the distance from its vertical axis. 414.
+    PointLinear = 4,  ///< Falls off linearly with distance. 721.
+};
+
+/// Light -- 1440 bytes on disk.
+///
+/// The Light root (group 23, .lit), re-derived from the 2.8 PC files: the
+/// Switch reflection registers 1312 bytes, but the texture block at +24 is
+/// 152 bytes here and the first path's nodes start at +1440 in all 1466
+/// .lit. Only its first word, a texture reference, is ever set (2 files).
+///
+/// @ref eLightType holds a @ref LightType. The two states are what
+/// `Render_UploadLightConstants` (S:0x71001DE680) reads a light from.
+struct Light {
+    i32 dwSnoId{};
+    i32 dwUnknown0C{};
+    i32 dwUnknown10{};
+    i32 eLightType{};
+    AssetRef snoTexture;
+    i32 dwUnknownB0{};
+    i32 dwUnknownB4{};
+    f32 flUnknownB8{};
+    LightStateParams tState0{};
+    LightStateParams tState1{};
+};
+
 /// Material -- 136 bytes on disk.
 struct Material {
     i32 dwSnoId{};
@@ -1591,6 +1652,33 @@ struct Texture {
     std::vector<u8> frameTablePayload;
     /// Payload bytes addressed by dwHashArrayOffset/dwHashArraySize.
     std::vector<u8> hashArrayPayload;
+};
+
+/// WeatherStateParams -- 68 bytes on disk.
+///
+/// One weather state. The reflection types all five slots as Light
+/// references; the names are what 1366 shipped states put in them
+/// (`*_Sun_Scene`, `*_Sun_Actor`, `*_PlayerLight_Scene`,
+/// `*_PlayerLight_Actor`, `*_HeadLight`).
+struct WeatherStateParams {
+    AssetRef snoSunLightScene;
+    AssetRef snoSunLightActor;
+    AssetRef snoPlayerLightScene;
+    /// The hero light. Where it is -1 (41 of 1366 shipped states) the
+    /// engine's default is `D3PlayerLight_Actor` (S:0x71001C46B0).
+    AssetRef snoPlayerLightActor;
+    AssetRef snoHeadLight;
+};
+
+/// Weather -- 416 bytes on disk.
+///
+/// The Weather root (group 47, .wth): 416 bytes in the PC files where the
+/// reflection registers 432, because each WeatherStateParams is 68 bytes
+/// here, not 76 (all 683 .wth). Only the light references are named.
+struct Weather {
+    i32 dwSnoId{};
+    WeatherStateParams tState0{};
+    WeatherStateParams tState1{};
 };
 
 } // namespace native

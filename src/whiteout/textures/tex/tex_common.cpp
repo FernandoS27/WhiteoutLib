@@ -23,9 +23,11 @@ std::optional<FormatMapping> tex_format_to_pixel_format(u32 tex_fmt) {
     case TEX_FMT_DXT3:
         return FormatMapping{PixelFormat::BC2, false};
     case TEX_FMT_DXT5:
-        return FormatMapping{PixelFormat::BC3, false};
+    // Not BC5 despite the id: in all 835 shipped 43s the colour half of over
+    // 99% of blocks is a 565 pair with R = 31, B = 0 -- DXT5nm normal maps, X
+    // in alpha and Y in green, which is why Scene.fx reads its normal as .wy.
     case TEX_FMT_ATI2:
-        return FormatMapping{PixelFormat::BC5, false};
+        return FormatMapping{PixelFormat::BC3, false};
     default:
         return std::nullopt;
     }
@@ -42,9 +44,8 @@ std::optional<u32> pixel_format_to_tex_format(PixelFormat fmt) {
     case PixelFormat::BC3:
         return TEX_FMT_DXT5;
     case PixelFormat::BC4:
-        return std::nullopt; // No BC4/ATI1 in TEX format
     case PixelFormat::BC5:
-        return TEX_FMT_ATI2;
+        return std::nullopt; // No BC4/BC5 in TEX: 43 is DXT5nm, see above
     default:
         return std::nullopt;
     }

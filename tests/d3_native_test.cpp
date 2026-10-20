@@ -31,6 +31,10 @@
 // against a second table built by a different generator from the same dump.
 #include "whiteout/sno/d3/sno_defs.h"
 
+#if defined(WHITEOUT_HAS_CASC)
+#include "d3_install.h"
+#endif
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -266,7 +270,7 @@ TEST_CASE("D3 native: Appearance vertex packing", "[d3][native]") {
     i64 badNormal = 0, badTangent = 0, badBinormal = 0, badPadByte = 0;
     i64 clothSubs = 0, clothFlagWrong = 0, clothIndexOutOfRange = 0;
     i64 opaqueColors = 0, colorTotal = 0;
-    f64 uvMin = 1e30, uvMax = -1e30;
+    f64 uvMin = 1e30, uvMax = -1e30, uv1Min = 1e30, uv1Max = -1e30;
     f64 tangentDot = 0.0, binormalDot = 0.0;
     i64 frames = 0;
 
@@ -305,6 +309,9 @@ TEST_CASE("D3 native: Appearance vertex packing", "[d3][native]") {
                 auto uv = nat::unpackTexCoord(v.dwTexCoord0);
                 uvMin = std::min({uvMin, f64(uv.x), f64(uv.y)});
                 uvMax = std::max({uvMax, f64(uv.x), f64(uv.y)});
+                auto uv1 = nat::vertexTexCoord1(v);
+                uv1Min = std::min({uv1Min, f64(uv1.x), f64(uv1.y)});
+                uv1Max = std::max({uv1Max, f64(uv1.x), f64(uv1.y)});
                 ++colorTotal;
                 if (nat::vertexColor(v).a == 255) ++opaqueColors;
             }
@@ -349,7 +356,8 @@ TEST_CASE("D3 native: Appearance vertex packing", "[d3][native]") {
               << badBinormal << "   non-zero pad byte: " << badPadByte << "\n"
               << "cloth sub-objects " << clothSubs << "   format-bit 0x100 wrong "
               << clothFlagWrong << "   cloth index out of range " << clothIndexOutOfRange << "\n"
-              << "texcoord0 range " << uvMin << " .. " << uvMax << "\n"
+              << "texcoord0 range " << uvMin << " .. " << uvMax << "   texcoord1 range " << uv1Min
+              << " .. " << uv1Max << "\n"
               << "mean cos(derived T, stored tangent)  " << (tangentDot / std::max<i64>(1, frames))
               << "\n"
               << "mean cos(derived B, stored binormal) " << (binormalDot / std::max<i64>(1, frames))
@@ -371,12 +379,84 @@ TEST_CASE("D3 native: Appearance vertex packing", "[d3][native]") {
     // [-64, +64 - 1/512], and the corpus reaches both ends of it.
     CHECK(uvMin >= -64.0);
     CHECK(uvMax <= 64.0 - 1.0 / 512.0);
+    // The second set is the same word at 16x the step: [-4, +4 - 1/8192].
+    CHECK(uv1Min >= -4.0);
+    CHECK(uv1Max <= 4.0 - 1.0 / 8192.0);
     // Tangent follows +dP/du, binormal follows -dP/dv. Getting either the UV
     // decode or the tangent/binormal order wrong flips or zeroes these.
     CHECK(tangentDot / frames > 0.5);
     CHECK(binormalDot / frames < -0.5);
     CHECK(opaqueColors > colorTotal / 2);
 }
+
+/// The second UV set is decoded with mad 0.03125, -4 where the first takes
+/// mad 0.5, -64 (Actor.fx main_vs). Legacy texcoord function 8 alone reads it
+/// with the first set's range, hence the raw accessor.
+TEST_CASE("D3 native: the second UV set has its own decode", "[d3][native]") {
+    const auto word = [](u32 u, u32 v) { return u | (v << 16); };
+    const Vector2f lo = nat::unpackTexCoord1(word(0, 0));
+    CHECK(lo.x == -4.0f);
+    CHECK(lo.y == -4.0f);
+    const Vector2f mid = nat::unpackTexCoord1(word(32768, 40960));
+    CHECK(mid.x == 0.0f);
+    CHECK(mid.y == 1.0f);
+    const Vector2f hi = nat::unpackTexCoord1(word(65535, 65535));
+    CHECK(hi.x == 4.0f - 1.0f / 8192.0f);
+
+    nat::FatVertex v{};
+    v.dwTexCoord0 = word(32768, 33280);
+    v.dwTexCoord1 = word(36864, 12345);
+    CHECK(nat::vertexTexCoord0(v).y == 1.0f);
+    const Vector2f uv1 = nat::vertexTexCoord1(v);
+    const Vector2f raw = nat::vertexTexCoord1Raw(v);
+    CHECK(uv1.x == 0.5f);
+    // Same word, 16x the coordinate, exactly.
+    CHECK(raw.x == 16.0f * uv1.x);
+    CHECK(raw.y == 16.0f * uv1.y);
+}
+
+#if defined(WHITEOUT_HAS_CASC)
+/// Set 1 is the lightmap atlas coordinate, which lives in [0, 1]. Under the
+/// first set's decode its median sat near 7.7, 16x the retail value.
+TEST_CASE("D3 native: shipped UV set 1 is a lightmap coordinate", "[d3][native][install]") {
+    auto storage = test::d3::openInstall();
+    if (!storage) {
+        WARN("no Diablo III install found (set WHITEOUT_CASC_D3); skipping");
+        return;
+    }
+    std::vector<f32> us;
+    size_t apps = 0, unset = 0;
+    for (const std::string& path : storage->listFiles()) {
+        if (!path.ends_with(".app") || apps >= 300) {
+            continue;
+        }
+        auto app = nat::parseAppearances(test::d3::readInstallFile(*storage, path));
+        if (!app) {
+            continue;
+        }
+        ++apps;
+        for (const auto& sub : app->tGeoSet0.arSubObjects) {
+            for (const auto& vertex : sub.arVertices) {
+                // Raw 0 is what a mesh without a second set carries.
+                if (vertex.dwTexCoord1 == 0) {
+                    ++unset;
+                    continue;
+                }
+                us.push_back(nat::vertexTexCoord1(vertex).x);
+            }
+        }
+    }
+    REQUIRE(us.size() > 10000);
+    std::sort(us.begin(), us.end());
+    const f32 p50 = us[us.size() / 2];
+    const f32 p99 = us[us.size() * 99 / 100];
+    INFO(apps << " appearances, " << us.size() << " vertices with a set 1 (" << unset
+              << " without); u p50 " << p50 << ", p99 " << p99);
+    CHECK(p50 > 0.0f);
+    CHECK(p50 < 1.0f);
+    CHECK(p99 <= 1.01f);
+}
+#endif
 
 /// Material: the standalone .mat carries the same `UberMaterial` body that an
 /// .app embeds, and its shader-parameter block is a D3 TagMap -- a count-prefixed

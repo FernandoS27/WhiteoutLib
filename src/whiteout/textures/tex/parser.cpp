@@ -113,8 +113,9 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer, TexInfo* 
     std::array<MipEntry, MIP_TABLE_ENTRIES> mip_table{};
     std::memcpy(mip_table.data(), buffer_.data() + OFF_MIP_TABLE, MIP_TABLE_SIZE);
 
+    const u32 slots_per_face = is_cubemap ? CUBE_MIP_SLOTS_PER_FACE : MIP_TABLE_ENTRIES;
     u32 mipCount = 0;
-    for (u32 i = 0; i < MIP_TABLE_ENTRIES; ++i) {
+    for (u32 i = 0; i < slots_per_face; ++i) {
         if (mip_table[i].dataSize == 0) {
             break;
         }
@@ -170,30 +171,38 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer, TexInfo* 
     const bool is_shuffled = is_shuffled_bc_format(texture_desc.pixelFormat);
     const u32 face_count = is_cubemap ? 6u : 1u;
 
-    for (u32 mip = 0; mip < mipCount; ++mip) {
-        const u32 mip_width = std::max(texture_desc.width >> mip, 1u);
-        const u32 mip_height = std::max(texture_desc.height >> mip, 1u);
-        const u32 disk_prefix = is_shuffled ? BC_MIP_PREFIX_SIZE : 0u;
-        const u64 face_disk_size = static_cast<u64>(mip_table[mip].dataSize) + disk_prefix;
+    const u32 disk_prefix = is_shuffled ? BC_MIP_PREFIX_SIZE : 0u;
+    for (u32 face = 0; face < face_count; ++face) {
+        for (u32 mip = 0; mip < mipCount; ++mip) {
+            const MipEntry& entry = mip_table[face * slots_per_face + mip];
+            if (entry.dataSize == 0) {
+                fail("TEX cube face " + std::to_string(face) + " has no mip " +
+                     std::to_string(mip));
+                return std::nullopt;
+            }
+            if (static_cast<u64>(entry.fileOffset) + disk_prefix + entry.dataSize >
+                buffer_.size()) {
+                fail("TEX mip " + std::to_string(mip) + " face " + std::to_string(face) +
+                     " data out of bounds");
+                return std::nullopt;
+            }
 
-        if (mip_table[mip].fileOffset + face_disk_size * face_count > buffer_.size()) {
-            fail("TEX mip " + std::to_string(mip) + " data out of bounds");
-            return std::nullopt;
-        }
-
-        for (u32 face = 0; face < face_count; ++face) {
+            const u32 mip_width = std::max(texture_desc.width >> mip, 1u);
+            const u32 mip_height = std::max(texture_desc.height >> mip, 1u);
             auto destination = result.mipData(mip, face);
 
-            if (needs_conversion &&
-                destination.size() != static_cast<u64>(mip_width) * mip_height * 4) {
+            // The unshuffle writes the entry's full size, so a table that claims
+            // more than the level holds would overrun it.
+            if (needs_conversion
+                    ? destination.size() != static_cast<u64>(mip_width) * mip_height * 4
+                    : entry.dataSize > destination.size()) {
                 fail("Internal mip size mismatch");
                 return std::nullopt;
             }
 
-            const u8* face_data =
-                buffer_.data() + mip_table[mip].fileOffset + face_disk_size * face;
-            decode_mip_face(texture_desc.pixelFormat, face_data, destination, mip_width, mip_height,
-                            mip_table[mip].dataSize, needs_conversion, is_shuffled);
+            decode_mip_face(texture_desc.pixelFormat, buffer_.data() + entry.fileOffset,
+                            destination, mip_width, mip_height, entry.dataSize, needs_conversion,
+                            is_shuffled);
         }
     }
 

@@ -71,6 +71,10 @@ public:
     bool read(GameBalance& out);
     /// Parse into `out`; false if the header or length is invalid.
     bool read(StringList& out);
+    /// Parse into `out`; false if the header or length is invalid.
+    bool read(Light& out);
+    /// Parse into `out`; false if the header or length is invalid.
+    bool read(Weather& out);
 
 protected:
     void visit(const layout::AABB& src, AABB& dst);
@@ -163,6 +167,8 @@ protected:
     void visit(const layout::GameBalance& src, GameBalance& dst);
     void visit(const layout::IntNode& src, IntNode& dst);
     void visit(const layout::IntPath& src, IntPath& dst);
+    void visit(const layout::LightStateParams& src, LightStateParams& dst);
+    void visit(const layout::Light& src, Light& dst);
     void visit(const layout::Material& src, Material& dst);
     void visit(const layout::TimeNode& src, TimeNode& dst);
     void visit(const layout::TimePath& src, TimePath& dst);
@@ -185,6 +191,8 @@ protected:
     void visit(const layout::SurfaceTagMapEntry& src, SurfaceTagMapEntry& dst);
     void visit(const layout::Surface& src, Surface& dst);
     void visit(const layout::Texture& src, Texture& dst);
+    void visit(const layout::WeatherStateParams& src, WeatherStateParams& dst);
+    void visit(const layout::Weather& src, Weather& dst);
 
     /// Point at a variable array's elements, rejecting any range that would
     /// run past the end of the file.  Returns false on an out-of-range
