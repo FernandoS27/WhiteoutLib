@@ -144,11 +144,20 @@ struct Matrix3x2f {
 /// `TextureInput::uvSet` now, so this is only the projection family.
 enum class UVMappingMode : u8 {
     ExplicitUV, ///< Read `uvSet` from the mesh.
-    EnvSphere,  ///< MDX SphereEnvMap, M3 spherical environment.
+    EnvSphere,  ///< MDX SphereEnvMap, M3 spherical environment reflection.
     EnvCube,    ///< M3 cubic environment reflection.
+    /// A sphere map aimed along the NORMAL, not the reflection: M3's
+    /// non-reflect `SphericalEnvio`, and Diablo III's `0.5 - 0.5 * viewN.xy`
+    /// (its gloss reflection and texcoord code 2). Appended; a byte on disk.
+    EnvSphereNormal,
 };
 
 const char* ToString(UVMappingMode mode);
+
+/// Whether @p mode is an environment lookup rather than mesh coordinates.
+inline bool IsEnvironmentMapping(UVMappingMode mode) {
+    return mode != UVMappingMode::ExplicitUV;
+}
 
 /**
  * @brief One texture input, wherever a kind body wants one.
@@ -407,6 +416,10 @@ enum class LegacySlot : u8 {
     /// M3's decal layer, which folds the same way. Appended because the enum
     /// is a byte on disk.
     Detail,
+    /// A per-texel weight on the environment layer — M3's envio mask, and
+    /// Diablo III's gloss map (type 5), which weights its sphere-mapped
+    /// reflection and lights nothing else. Appended for the same reason.
+    EnvironmentMask,
     Count
 };
 

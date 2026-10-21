@@ -33,6 +33,8 @@ const char* ToString(UVMappingMode mode) {
         return "env_sphere";
     case UVMappingMode::EnvCube:
         return "env_cube";
+    case UVMappingMode::EnvSphereNormal:
+        return "env_sphere_normal";
     }
     return "invalid";
 }
@@ -133,6 +135,8 @@ const char* ToString(LegacySlot slot) {
         return "lightmap";
     case LegacySlot::Detail:
         return "detail";
+    case LegacySlot::EnvironmentMask:
+        return "environment_mask";
     case LegacySlot::Count:
         break;
     }
@@ -358,6 +362,7 @@ ColorSpace AutoColorSpaceFor(LegacySlot slot) {
     case LegacySlot::Gloss:
     case LegacySlot::AmbientOcclusion:
     case LegacySlot::Height:
+    case LegacySlot::EnvironmentMask:
     case LegacySlot::Count:
         break;
     }

@@ -8,14 +8,17 @@
 #include <whiteout/models/wem/anim/key_reduce.h>
 
 #include <whiteout/models/wem/anim/animator.h>
+#include <whiteout/models/wem/anim/mdx_math.h>
 #include <whiteout/models/wem/optimize.h>
 #include <whiteout/models/wem/skinning/deform.h>
 
 #include <atomic>
 #include <cstring>
+#include <functional>
 #include <limits>
 #include <map>
 #include <mutex>
+#include <numeric>
 #include <optional>
 #include <queue>
 #include <set>
@@ -219,6 +222,9 @@ struct Rep {
 struct Skeleton {
     Animator::Composition order;
     std::vector<std::vector<u32>> subtree; ///< Each node and its descendants, parents first.
+    /// Every descendant takes the node's frame whole (no don't-inherit flag,
+    /// no camera), so a change of it moves them all by one matrix.
+    std::vector<u8> carries;
     std::vector<f64> reach;
     std::vector<f64> share; ///< The node's share of ε.
     std::vector<u8> floored; ///< Carries what the file does not describe.
@@ -325,6 +331,17 @@ Skeleton SkeletonOf(const Document& document, u32 model, const Animator& animato
             }
         }
     }
+    constexpr u32 kStrips = kMdxDontInheritTranslation | kMdxDontInheritRotation | kMdxDontInheritScaling;
+    std::vector<u8> strips(count, 0);
+    for (u32 n = 0; pivoted && n < count; ++n) {
+        strips[n] = (MdxNodeFlags(tree.nodes[n]) & kStrips) != 0 || tree.nodes[n].kind == NodeKind::Camera;
+    }
+    out.carries.assign(count, 1);
+    for (u32 n = 0; n < count; ++n) {
+        for (std::size_t k = 1; k < out.subtree[n].size() && out.carries[n] != 0; ++k) {
+            out.carries[n] = strips[out.subtree[n][k]] == 0;
+        }
+    }
     // Reach and the extreme vertices, over what each node carries directly:
     // every vertex it weighs on at all, since a blend moves with each bone.
     std::vector<std::vector<Rep>> carried(count);
@@ -413,6 +430,7 @@ struct Context {
     const Animator* animator = nullptr;
     f64 epsilon = 0.0;
     KeyReduceOptions::Measure measure = KeyReduceOptions::Measure::Skeleton;
+    const std::function<bool()>* cancelled = nullptr;
 };
 
 struct ClipWork {
@@ -425,7 +443,17 @@ struct ClipWork {
     // Scratch for a candidate's trial composition.
     std::vector<Matrix44f> savedFrame;
     std::vector<Matrix44f> savedSkin;
+    bool cancelled = false; ///< Stopped part way: the clip stays as it was.
 };
+
+/// Asked every so many removals: a clip of a long cloth takes minutes, and a
+/// Cancel waits no longer than this.
+bool Cancelled(ClipWork& w, const Context& ctx, u64& steps) {
+    if (ctx.cancelled != nullptr && *ctx.cancelled && ++steps % 4096 == 0 && (*ctx.cancelled)()) {
+        w.cancelled = true;
+    }
+    return w.cancelled;
+}
 
 void SetLocal(Transform& local, const Track& t, const FValue& v) {
     switch (t.channel->target.channel) {
@@ -457,6 +485,40 @@ f64 NodeCost(ClipWork& w, const Context& ctx, const Track& t, const FKey& a, con
     const std::vector<u32>& under = sk.subtree[t.node];
     const auto [lo, hi] = CheckRange(w, a.ms, c.ms);
     f64 cost = 0.0;
+    // Under a node that carries its descendants whole, each moves by the
+    // node's own change, rather than being composed again: a cloth strand is
+    // every bone of it under its first.
+    if (ctx.measure == KeyReduceOptions::Measure::Skeleton && sk.carries[t.node] != 0) {
+        const u32 n = t.node;
+        for (std::size_t i = lo; i < hi; ++i) {
+            Pose& pose = w.cur[i];
+            const Transform savedLocal = pose.local[n];
+            const Matrix44f savedFrame = pose.frame[n];
+            const Matrix44f savedSkin = pose.skinning[n];
+            SetLocal(pose.local[n], t, PairF(t, a, c, w.checkMs[i] + w.origin));
+            ctx.animator->composeNode(pose, n, sk.order.parent[n]);
+            const Matrix44f change = Matrix44f::inverse(savedFrame) * pose.frame[n];
+            cost = std::max(cost, BoundError(sk, n, w.origSkin[i][n], pose.skinning[n]) / (ctx.epsilon * sk.share[n]));
+            for (std::size_t k = 1; k < under.size(); ++k) {
+                const u32 d = under[k];
+                const Matrix44f moved = pose.skinning[d] * change;
+                cost = std::max(cost, BoundError(sk, d, w.origSkin[i][d], moved) / (ctx.epsilon * sk.share[d]));
+                if (commit) {
+                    pose.frame[d] = pose.frame[d] * change;
+                    pose.skinning[d] = moved;
+                }
+            }
+            if (!commit) {
+                pose.local[n] = savedLocal;
+                pose.frame[n] = savedFrame;
+                pose.skinning[n] = savedSkin;
+                if (cost > 1.0) {
+                    return cost;
+                }
+            }
+        }
+        return cost;
+    }
     w.savedFrame.resize(under.size());
     w.savedSkin.resize(under.size());
     for (std::size_t i = lo; i < hi; ++i) {
@@ -528,10 +590,10 @@ std::vector<i32> Between(std::vector<i32> knots) {
 std::vector<i32> ChannelSamples(const Track& t, i32 from, i32 to) {
     std::vector<i32> out{from};
     std::vector<i32> knots{from};
-    for (const FKey& k : t.orig) {
-        if (k.ms > from && k.ms < to) {
-            knots.push_back(k.ms);
-        }
+    const auto byMs = [](const FKey& k, i32 ms) { return k.ms < ms; };
+    for (auto k = std::lower_bound(t.orig.begin(), t.orig.end(), from + 1, byMs);
+         k != t.orig.end() && k->ms < to; ++k) {
+        knots.push_back(k->ms);
     }
     knots.push_back(to);
     for (std::size_t i = 0; i + 1 < knots.size(); ++i) {
@@ -685,12 +747,16 @@ void Push(Queue& queue, ClipWork& w, const Context& ctx, u32 index, u32 k) {
 /// Balanced: the cheapest removal anywhere first, re-costed when popped.
 void Balanced(ClipWork& w, const Context& ctx) {
     Queue queue;
+    u64 steps = 0;
     for (u32 i = 0; i < w.tracks.size(); ++i) {
         for (u32 k = 0; k < w.tracks[i].kept.size(); ++k) {
+            if (Cancelled(w, ctx, steps)) {
+                return;
+            }
             Push(queue, w, ctx, i, k);
         }
     }
-    while (!queue.empty()) {
+    while (!queue.empty() && !Cancelled(w, ctx, steps)) {
         const Entry top = queue.top();
         queue.pop();
         Track& t = w.tracks[top.track];
@@ -734,6 +800,7 @@ void Maximum(ClipWork& w, const Context& ctx) {
         const u32 ry = y.kind == Kind::Node ? rank[y.node] : ~0u;
         return rx < ry;
     });
+    u64 steps = 0;
     for (const u32 index : order) {
         Track& t = w.tracks[index];
         std::vector<u32> alive;
@@ -750,6 +817,9 @@ void Maximum(ClipWork& w, const Context& ctx) {
         std::vector<std::size_t> from(n, 0);
         best[0] = 0;
         for (std::size_t j = 1; j < n; ++j) {
+            if (Cancelled(w, ctx, steps)) {
+                return;
+            }
             u32 misses = 0;
             for (std::size_t i = j; i-- > 0;) {
                 if (best[i] != ~0u && (i + 1 == j || SpanCost(w, ctx, t, alive[i], alive[j]) <= 1.0)) {
@@ -1387,7 +1457,8 @@ void Parallel(std::size_t count, u32 threads, F&& work) {
 /// Reduces one clip at @p epsilon; its keys only, from the document as it is.
 /// @p own is that clip, and the one thing of @p document this writes: the
 /// clips are reduced side by side, each by a thread that reads no other.
-void ReduceClip(const Document& document, Clip& own, u32 model, u32 clip,
+/// False when cancelled part way, the clip left as it was.
+bool ReduceClip(const Document& document, Clip& own, u32 model, u32 clip,
                 const Animator::Rests& rests, const Skeleton& sk, f64 epsilon,
                 const std::set<u32>& agreeing, const KeyReduceOptions& options) {
     // The clip stands until `WriteBack`, past the last read.
@@ -1399,6 +1470,7 @@ void ReduceClip(const Document& document, Clip& own, u32 model, u32 clip,
     ctx.animator = &animator;
     ctx.epsilon = epsilon;
     ctx.measure = options.measure;
+    ctx.cancelled = &options.cancelled;
     if (options.alignPoses) {
         AlignPoses(w, ctx);
     }
@@ -1407,7 +1479,11 @@ void ReduceClip(const Document& document, Clip& own, u32 model, u32 clip,
     } else {
         Balanced(w, ctx);
     }
+    if (w.cancelled) {
+        return false;
+    }
     WriteBack(own, w);
+    return true;
 }
 
 /// What every clip's reduction reads and none writes.
@@ -1446,8 +1522,15 @@ ClipOutcome ReduceCheckedClip(const Shared& shared, Clip& own, u32 c) {
     const std::vector<SubTrackContainer> original = own.containers;
     const auto measure = [&] { return Compare(shared.meshes, shared.nodes, was, palettes()); };
     const f64 slack = shared.epsilon * (1.0 + 1e-3) + 1e-6 * shared.height;
-    ReduceClip(shared.document, own, shared.model, c, shared.rests, shared.sk, shared.epsilon,
-               shared.agreeing, options);
+    const auto stopped = [&] {
+        own.containers = original;
+        out.kept = true;
+        return out;
+    };
+    if (!ReduceClip(shared.document, own, shared.model, c, shared.rests, shared.sk, shared.epsilon,
+                    shared.agreeing, options)) {
+        return stopped();
+    }
     out.measured = measure();
     // Again from the clip's own keys: the Mesh measure's sampled vertices
     // missed one, so the bound over all of them; then the bound missed a
@@ -1459,8 +1542,10 @@ ClipOutcome ReduceCheckedClip(const Shared& shared, Clip& own, u32 c) {
             break;
         }
         own.containers = original;
-        ReduceClip(shared.document, own, shared.model, c, shared.rests, shared.sk,
-                   shared.epsilon * share, shared.agreeing, retry);
+        if (!ReduceClip(shared.document, own, shared.model, c, shared.rests, shared.sk,
+                        shared.epsilon * share, shared.agreeing, retry)) {
+            return stopped();
+        }
         out.measured = measure();
         out.repaired = true;
         if (share == 0.5) {
@@ -1525,7 +1610,14 @@ KeyReduceReport ReduceKeys(Document& document, u32 model, const KeyReduceOptions
     std::vector<u8> kept(clips.size(), 0);
     std::mutex progressLock;
     u32 done = 0;
-    Parallel(clips.size(), options.threads, [&](std::size_t i) {
+    // The most keys first, so that the longest clip is not the last begun and
+    // the only one left running.
+    std::vector<std::size_t> order(clips.size());
+    std::iota(order.begin(), order.end(), std::size_t{0});
+    std::stable_sort(order.begin(), order.end(),
+                     [&](std::size_t a, std::size_t b) { return before.clips[a] > before.clips[b]; });
+    Parallel(clips.size(), options.threads, [&](std::size_t at) {
+        const std::size_t i = order[at];
         if (options.cancelled && options.cancelled()) {
             kept[i] = 1;
             return;

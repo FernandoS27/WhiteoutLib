@@ -96,8 +96,9 @@ struct ClothBoneOptions {
 };
 
 /// The made bones for a target that runs no cloth (§10.3), on the export's
-/// copy: a bone per driver under its holder at its particle's rest, or a tier's
-/// fitted to the faces they draw; the drawn faces skinned to them (a pinned
+/// copy: a bone per driver at its particle's rest, or a tier's fitted to the
+/// faces they draw, hung in strands off the bones the pins hang from; the
+/// drawn faces skinned to them (a pinned
 /// particle's share going to its anchors, @p target's influences kept), and
 /// every clip of the model keyed: from the drivers where a bake wrote them,
 /// else "as authored" (§10.4), at 30 Hz and thinned to what moves a vertex by

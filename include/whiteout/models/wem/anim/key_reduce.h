@@ -144,8 +144,8 @@ struct KeyReduceOptions {
     KeyCompanionTolerances companions;
     /// Threads to spread the clips over; 0 picks the hardware's count.
     u32 threads = 0;
-    /// Asked before each clip: true stops, and the clips not yet begun stay
-    /// as they were.
+    /// Asked before each clip and every few thousand keys of one: true stops,
+    /// and the clips not yet done stay as they were. From several threads.
     std::function<bool()> cancelled;
     /// Clips done of the clips in scope, one call at a time whichever thread
     /// finished one.

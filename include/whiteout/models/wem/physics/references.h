@@ -121,6 +121,14 @@ void DetachPoseStages(std::span<PoseStage> stages, std::span<const u32> removed)
 /// nothing.
 void RebasePhysicsFrames(PhysicsSet& physics, std::span<const Matrix44f> change);
 
+struct Clip;
+
+/// The same for a baked cloth's drivers (`Channel::ClothDriverTranslation` /
+/// `ClothDriverRotation`) in @p clips: their keys are relative to the cloth's
+/// holder's frame, so a rig restatement that moves it must carry them, or the
+/// cloth turns about the holder by the difference.
+void RebaseClothDrivers(Model& model, std::span<Clip* const> clips, std::span<const Matrix44f> change);
+
 /// The inverse of an affine row-vector matrix (`p * M`).
 Matrix44f AffineInverse(const Matrix44f& m);
 

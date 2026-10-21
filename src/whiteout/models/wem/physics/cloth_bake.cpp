@@ -19,7 +19,9 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 #include <map>
+#include <numeric>
 #include <set>
 #include <span>
 #include <thread>
@@ -95,6 +97,102 @@ void Thin(const std::vector<T>& values, f32 tolerance, Lerp lerp, Error error, s
             kept.push_back(i);
         }
     }
+}
+
+/// @p values at sample @p i as the keys @p kept of them play it back.
+template <class T, class Lerp>
+T Played(const std::vector<T>& values, const std::vector<u32>& kept, u32 i, Lerp lerp) {
+    const auto after = std::upper_bound(kept.begin(), kept.end(), i);
+    if (after == kept.begin()) {
+        return values[kept.front()];
+    }
+    if (after == kept.end()) {
+        return values[kept.back()];
+    }
+    const u32 a = *(after - 1), b = *after;
+    return lerp(values[a], values[b], static_cast<f32>(i - a) / static_cast<f32>(b - a));
+}
+
+/// The cage vertices of @p cloth: its cage section's.
+std::set<u32> CageOf(const Mesh& mesh, const Cloth& cloth) {
+    const geom::FaceSet& set = mesh.faceSet();
+    const std::span<const u32> sections = mesh.faceSections();
+    std::set<u32> cage;
+    for (std::size_t f = 0, corner = 0; f < set.faceValence.size(); corner += set.faceValence[f], ++f) {
+        if (f < sections.size() && sections[f] == cloth.cage.section) {
+            for (u32 k = 0; k < set.faceValence[f]; ++k) {
+                cage.insert(set.cornerVertex[corner + k]);
+            }
+        }
+    }
+    return cage;
+}
+
+/// A pinned particle: where it stands at rest and the skeleton bone it hangs
+/// from most.
+struct Pin {
+    Vector3f at;
+    u32 bone = kInvalidIndex;
+};
+
+/// Where a made bone hangs: from a bone made before it, or a skeleton node.
+struct Hang {
+    u32 made = kInvalidIndex;
+    u32 node = kInvalidIndex;
+};
+
+/// Each made bone at @p pivots hangs from the nearest bone made before it that
+/// stands nearer it than any pinned particle does, else from the bone pinning
+/// the nearest one, else from @p holder. The bones run in strands off the
+/// bones the cloth is pinned to, as a rigger hangs them, instead of all
+/// from the holder. @p order lists them parents first.
+std::vector<Hang> HangBones(std::span<const Vector3f> pivots, std::span<const Pin> pins, u32 holder,
+                            std::vector<u32>& order) {
+    const std::size_t count = pivots.size();
+    std::vector<f32> reach(count, std::numeric_limits<f32>::max());
+    std::vector<u32> nearest(count, kInvalidIndex);
+    for (std::size_t b = 0; b < count; ++b) {
+        for (u32 p = 0; p < pins.size(); ++p) {
+            const f32 d = (pivots[b] - pins[p].at).length();
+            if (d < reach[b]) {
+                reach[b] = d;
+                nearest[b] = p;
+            }
+        }
+    }
+    order.resize(count);
+    std::iota(order.begin(), order.end(), 0u);
+    std::stable_sort(order.begin(), order.end(), [&](u32 a, u32 b) { return reach[a] < reach[b]; });
+    std::vector<Hang> hang(count);
+    for (std::size_t k = 0; k < count; ++k) {
+        const u32 b = order[k];
+        f32 best = reach[b];
+        for (std::size_t j = 0; j < k; ++j) {
+            const u32 c = order[j];
+            const f32 d = (pivots[b] - pivots[c]).length();
+            if (reach[c] < reach[b] && d < best) {
+                best = d;
+                hang[b].made = c;
+            }
+        }
+        if (hang[b].made == kInvalidIndex) {
+            hang[b].node = nearest[b] != kInvalidIndex && pins[nearest[b]].bone != kInvalidIndex
+                               ? pins[nearest[b]].bone
+                               : holder;
+        }
+    }
+    return hang;
+}
+
+/// Where @p node stands with @p local under a parent at @p parent: the
+/// inverse of `StageLocalFor`.
+Matrix44f FrameOfLocal(const NodeTree& tree, u32 node, Transform local, const Matrix44f& parent) {
+    const Node& self = tree.nodes[node];
+    const bool rooted = self.parent < tree.size() && self.parent != node;
+    if (tree.rig == RigConvention::PivotRelative) {
+        local.translation = local.translation + self.pivot - (rooted ? tree.nodes[self.parent].pivot : Vector3f{0, 0, 0});
+    }
+    return rooted ? ToMatrix(local) * parent : ToMatrix(local);
 }
 
 /// What a cloth's made bones are named after: its recipe's name, else the
@@ -222,16 +320,7 @@ ClothDrivers ClothDriversOf(const Model& model, const Cloth& cloth) {
     }
     const Mesh& mesh = model.meshes[cloth.cage.mesh];
     const auto movable = mesh.attributes.get<u8>(geom::names::kClothMovable, geom::Domain::Vertex);
-    const geom::FaceSet& set = mesh.faceSet();
-    const std::span<const u32> sections = mesh.faceSections();
-    std::set<u32> cage;
-    for (std::size_t f = 0, corner = 0; f < set.faceValence.size(); corner += set.faceValence[f], ++f) {
-        if (f < sections.size() && sections[f] == cloth.cage.section) {
-            for (u32 k = 0; k < set.faceValence[f]; ++k) {
-                cage.insert(set.cornerVertex[corner + k]);
-            }
-        }
-    }
+    const std::set<u32> cage = CageOf(mesh, cloth);
     std::set<u32> own;
     if (cloth.recipe) {
         own.insert(cloth.recipe->bones.begin(), cloth.recipe->bones.end());
@@ -525,6 +614,43 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out, c
             if (drivers.vertices.empty()) {
                 continue;
             }
+            // The pinned particles, and the skeleton bones a made bone can hang
+            // from: theirs and the holder (`HangBones`).
+            std::vector<Pin> pins;
+            std::vector<u32> hangNodes;
+            {
+                const Model& owner = document.models[m];
+                const Mesh& mesh = owner.meshes[cloth.cage.mesh];
+                const auto positions = mesh.attributes.get<Vector3f>(geom::names::kPosition, geom::Domain::Vertex);
+                std::set<u32> own;
+                if (cloth.recipe) {
+                    own.insert(cloth.recipe->bones.begin(), cloth.recipe->bones.end());
+                }
+                std::set<u32> nodes;
+                if (drivers.holder < owner.nodes.size()) {
+                    nodes.insert(drivers.holder);
+                }
+                for (const u32 v : CageOf(mesh, cloth)) {
+                    if (v >= positions.size() ||
+                        std::binary_search(drivers.vertices.begin(), drivers.vertices.end(), v)) {
+                        continue;
+                    }
+                    Pin pin{positions[v], drivers.holder};
+                    f32 most = 0.0f;
+                    for (const geom::Influence& influence : SkinOf(mesh, v)) {
+                        if (own.count(influence.bone) == 0 && influence.bone < owner.nodes.size() &&
+                            influence.weight > most) {
+                            most = influence.weight;
+                            pin.bone = influence.bone;
+                        }
+                    }
+                    if (pin.bone < owner.nodes.size()) {
+                        nodes.insert(pin.bone);
+                    }
+                    pins.push_back(pin);
+                }
+                hangNodes.assign(nodes.begin(), nodes.end());
+            }
             // A tier fits fewer bones than there are particles, where there are
             // more than it allows.
             bool fits = tier != nullptr && drivers.vertices.size() > tier->budget;
@@ -558,6 +684,7 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out, c
                 std::vector<Matrix44f> holder;              ///< Per step.
                 std::vector<std::vector<Matrix44f>> frames; ///< Per step, per bone made.
                 std::vector<Matrix44f> anchored;            ///< Per step, per anchor: its skinning.
+                std::vector<Matrix44f> hung;                ///< Per step, per hang node: its frame.
             };
             std::vector<Sampled> sampled;
             for (u32 k = 0; k < document.clips.size(); ++k) {
@@ -598,6 +725,9 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out, c
                         for (const u32 anchor : anchors) {
                             s.anchored.push_back(anchor < pose.skinning.size() ? pose.skinning[anchor]
                                                                                : Matrix44f::identity());
+                        }
+                        for (const u32 node : hangNodes) {
+                            s.hung.push_back(node < pose.frame.size() ? pose.frame[node] : Matrix44f::identity());
                         }
                         times.push_back(static_cast<i32>(Milliseconds(static_cast<f32>(i) * s.dt)));
                     }
@@ -684,12 +814,26 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out, c
             }
 
             // The bones: a tier's, fitted to where the drawn faces go, or one
-            // per driver. Either hangs under the holder, at rest where it
-            // stands, and `frames` becomes theirs.
+            // per driver. Each hangs in a strand off the pins (`HangBones`), at
+            // rest where it stands, and `frames` becomes theirs.
             std::vector<u32> bones;
             std::vector<f32> lever;
             std::set<u32> fitted;
             f32 fitRms = 0.0f;
+            std::vector<Hang> hang;
+            std::vector<u32> order;
+            const auto addBones = [&](const std::vector<Vector3f>& pivots) {
+                hang = HangBones(pivots, pins, drivers.holder, order);
+                bones.assign(pivots.size(), kInvalidIndex);
+                for (const u32 b : order) {
+                    char name[96];
+                    std::snprintf(name, sizeof name, "%s_%02u", stem.c_str(), b + 1);
+                    Matrix44f rest = Matrix44f::identity();
+                    rest.data[3][0] = pivots[b].x, rest.data[3][1] = pivots[b].y, rest.data[3][2] = pivots[b].z;
+                    const u32 parent = hang[b].made != kInvalidIndex ? bones[hang[b].made] : hang[b].node;
+                    bones[b] = AddBoneAt(owner.nodes, name, parent, rest);
+                }
+            };
             if (fits) {
                 // The faces as a bone per driver would draw them, every step of
                 // every clip: what the fewer bones reproduce.
@@ -782,12 +926,12 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out, c
                         at.data[3][2] = result.pivots[k].z;
                         return at;
                     };
+                    std::vector<Vector3f> pivots;
                     for (u32 k = 0; k < result.bones; ++k) {
-                        char name[96];
-                        std::snprintf(name, sizeof name, "%s_%02u", stem.c_str(), k + 1);
-                        bones.push_back(AddBoneAt(owner.nodes, name, drivers.holder, restOf(k)));
-                        lever.push_back(meanEdge);
+                        pivots.push_back(result.pivots[k]);
                     }
+                    addBones(pivots);
+                    lever.assign(result.bones, meanEdge);
                     for (std::size_t p = 0; p < count; ++p) {
                         std::vector<geom::Influence> kept;
                         for (const geom::Influence& influence : result.weights[p]) {
@@ -816,17 +960,15 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out, c
             }
             std::map<u32, u32> boneOf;
             if (!fits) {
-                for (u32 d = 0; d < drivers.vertices.size(); ++d) {
-                    char name[96];
-                    std::snprintf(name, sizeof name, "%s_%02u", stem.c_str(), d + 1);
-                    Matrix44f rest = Matrix44f::identity();
-                    const Vector3f at =
-                        drivers.vertices[d] < positions.size() ? positions[drivers.vertices[d]] : Vector3f{0, 0, 0};
-                    rest.data[3][0] = at.x, rest.data[3][1] = at.y, rest.data[3][2] = at.z;
-                    bones.push_back(AddBoneAt(owner.nodes, name, drivers.holder, rest));
-                    boneOf[drivers.vertices[d]] = bones.back();
-                    lever.push_back(edge[d]);
+                std::vector<Vector3f> pivots;
+                for (const u32 v : drivers.vertices) {
+                    pivots.push_back(v < positions.size() ? positions[v] : Vector3f{0, 0, 0});
                 }
+                addBones(pivots);
+                for (u32 d = 0; d < drivers.vertices.size(); ++d) {
+                    boneOf[drivers.vertices[d]] = bones[d];
+                }
+                lever = edge;
             }
             // The other drawn faces on the drivers' bones; a pinned particle's
             // share on its anchors, as it hangs.
@@ -895,6 +1037,13 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out, c
                     }
                 }
             }
+            // The bones another made bone hangs from: their frames as played are kept.
+            std::vector<u8> carries(bones.size(), 0);
+            for (const Hang& up : hang) {
+                if (up.made != kInvalidIndex) {
+                    carries[up.made] = 1;
+                }
+            }
             // Clip by clip, side by side: each writes its own clip alone.
             geom::fracture::Parallel(sampled.size(), threads, [&](std::size_t job) {
                 const Sampled& s = sampled[job];
@@ -902,17 +1051,29 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out, c
                 if (clip.containers.empty()) {
                     clip.containers.emplace_back();
                 }
-                // A made bone's parent is the holder, the one frame its local
-                // reads.
+                // A made bone's local reads its parent's frame as the file plays
+                // it: a skeleton node's as sampled, a made bone's off its own
+                // kept keys, so no bone's thinning is carried down its strand.
                 Pose holding;
                 holding.frame.assign(tree.size(), Matrix44f::identity());
                 holding.local.assign(tree.size(), Transform{});
-                for (u32 b = 0; b < bones.size(); ++b) {
+                const std::size_t held = hangNodes.size();
+                std::vector<std::vector<Matrix44f>> played(bones.size());
+                for (const u32 b : order) {
+                    const u32 parent = tree.nodes[bones[b]].parent;
+                    const std::size_t at = static_cast<std::size_t>(
+                        std::lower_bound(hangNodes.begin(), hangNodes.end(), hang[b].node) - hangNodes.begin());
+                    const auto parentAt = [&](std::size_t i) {
+                        if (hang[b].made != kInvalidIndex) {
+                            return played[hang[b].made][i];
+                        }
+                        return at < held && hangNodes[at] == hang[b].node ? s.hung[i * held + at] : Matrix44f::identity();
+                    };
                     std::vector<Vector3f> moves;
                     std::vector<Quaternion> turns;
                     for (std::size_t i = 0; i < s.frames.size(); ++i) {
-                        if (drivers.holder < tree.size()) {
-                            holding.frame[drivers.holder] = s.holder[i];
+                        if (parent < tree.size()) {
+                            holding.frame[parent] = parentAt(i);
                         }
                         const Transform local = StageLocalFor(tree, holding, bones[b], s.frames[i][b]);
                         moves.push_back(local.translation);
@@ -922,25 +1083,28 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out, c
                         }
                         turns.push_back(q);
                     }
-                    std::vector<u32> keys;
+                    const auto lerp = [](const Vector3f& a, const Vector3f& b, f32 u) { return a + (b - a) * u; };
+                    const auto slerp = [](const Quaternion& a, const Quaternion& b, f32 u) {
+                        return Quaternion::slerp(a, b, u);
+                    };
+                    std::array<std::vector<u32>, 2> keys;
                     for (const Channel which : {Channel::Translation, Channel::Rotation}) {
                         const bool move = which == Channel::Translation;
+                        std::vector<u32>& kept = keys[move ? 0 : 1];
                         if (move) {
-                            Thin(moves, tolerance, [](const Vector3f& a, const Vector3f& b, f32 u) { return a + (b - a) * u; },
-                                 [](const Vector3f& a, const Vector3f& b) { return (a - b).length(); }, keys);
+                            Thin(moves, tolerance, lerp, [](const Vector3f& a, const Vector3f& b) { return (a - b).length(); },
+                                 kept);
                         } else {
-                            Thin(turns, tolerance / std::max(lever[b], 1e-6f), [](const Quaternion& a, const Quaternion& b, f32 u) {
-                                     return Quaternion::slerp(a, b, u);
-                                 },
+                            Thin(turns, tolerance / std::max(lever[b], 1e-6f), slerp,
                                  [](const Quaternion& a, const Quaternion& b) {
                                      return 2.0f * std::acos(std::min(1.0f, std::abs(a.dot(b))));
                                  },
-                                 keys);
+                                 kept);
                         }
                         SubTrack track;
                         track.channel = boneChannels[b][move ? 0 : 1];
                         track.interp = move ? Interpolation::Linear : Interpolation::Slerp;
-                        for (const u32 i : keys) {
+                        for (const u32 i : kept) {
                             track.times.push_back(static_cast<f32>(i) * s.dt);
                             const u8* bytes = move ? reinterpret_cast<const u8*>(&moves[i])
                                                    : reinterpret_cast<const u8*>(&turns[i]);
@@ -948,6 +1112,16 @@ u32 ExpandClothToBones(Document& document, ProfileId target, Diagnostics& out, c
                                                 bytes + (move ? sizeof(Vector3f) : sizeof(Quaternion)));
                         }
                         clip.containers.front().subTracks.push_back(std::move(track));
+                    }
+                    if (!carries[b]) {
+                        continue;
+                    }
+                    played[b].resize(s.frames.size());
+                    for (u32 i = 0; i < s.frames.size(); ++i) {
+                        Transform local;
+                        local.translation = Played(moves, keys[0], i, lerp);
+                        local.rotation = Played(turns, keys[1], i, slerp);
+                        played[b][i] = FrameOfLocal(tree, bones[b], local, parentAt(i));
                     }
                 }
             });

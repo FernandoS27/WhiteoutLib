@@ -167,8 +167,10 @@ void applyMapping(m3::UVMappingMode mode, TextureInput& input) {
         input.mapping = UVMappingMode::EnvCube;
         break;
     case m3::UVMappingMode::ReflectSphericalEnvio:
-    case m3::UVMappingMode::SphericalEnvio:
         input.mapping = UVMappingMode::EnvSphere;
+        break;
+    case m3::UVMappingMode::SphericalEnvio:
+        input.mapping = UVMappingMode::EnvSphereNormal;
         break;
     default:
         // The planar and flipbook families have no `UVMappingMode` and no
@@ -953,6 +955,9 @@ m3::TextureLayer layerFrom(const TextureInput& input, const Context& context) {
     case UVMappingMode::EnvSphere:
         layer.uvMapping = m3::UVMappingMode::ReflectSphericalEnvio;
         break;
+    case UVMappingMode::EnvSphereNormal:
+        layer.uvMapping = m3::UVMappingMode::SphericalEnvio;
+        break;
     default:
         layer.uvMapping = static_cast<m3::UVMappingMode>(
             input.uvSet <= 1 ? input.uvSet : (input.uvSet == 2 ? 9 : 10));
@@ -1016,8 +1021,7 @@ void exportCombiners(const CombinersBody& body, const CommonMaterial& common,
         }
     };
     const auto isEnv = [](const CombinerStage& stage) {
-        return stage.input.mapping == UVMappingMode::EnvSphere ||
-               stage.input.mapping == UVMappingMode::EnvCube;
+        return IsEnvironmentMapping(stage.input.mapping);
     };
 
     // The diffuse seed: the first surface-mapped stage. WoW's env-first
@@ -1265,6 +1269,9 @@ void exportCombiners(const CombinersBody& body, const CommonMaterial& common,
 ///   `actor2` adds it inside, and the two differ only where the albedo is
 ///   dark. The default `emissiveBlendMode` is Mod, which multiplies the lit
 ///   colour by a mostly-black map — the Sorceress-silhouette trap.
+/// * **An environment mask is ApplyEnv's mask.** Diablo III's gloss map is one
+///   (`color += gloss.rgb * env.rgb * 0.5`), and it carries no highlight, so a
+///   Diablo III body has no specular slot at all.
 void exportLegacy(const LegacyDeferredBody& body, const CommonMaterial& common,
                   const Context& context, ProfileId profile, m3::StandardMaterial& standard,
                   Diagnostics& out, std::vector<u32>* layerOrdinals) {
@@ -1278,6 +1285,7 @@ void exportLegacy(const LegacyDeferredBody& body, const CommonMaterial& common,
     standard.hdrSpecularMultiplier = 1.0f; // the shipped floor; a specular slot overrides it
     standard.hdrEmissiveMultiplier = 0.0f;
     standard.hdrEnvironmentConstant = 0.0f;
+    std::size_t mask = body.slots.size();
 
     for (std::size_t ordinal = 0; ordinal < body.slots.size(); ++ordinal) {
         const LegacySlot slot = body.slots[ordinal].first;
@@ -1357,11 +1365,26 @@ void exportLegacy(const LegacyDeferredBody& body, const CommonMaterial& common,
         case LegacySlot::Height:
             standard.heightLayer = layerFrom(input, context);
             break;
+        case LegacySlot::EnvironmentMask:
+            mask = ordinal; // placed once the environment is known to be live
+            break;
         default:
             out.warn(DiagCode::LayerDropped,
                      std::string("legacy slot '") + ToString(slot) + "' has no M3 slot",
                      ElementRef(), profile);
             break;
+        }
+    }
+    if (mask < body.slots.size()) {
+        if (standard.environmentLayer.has_value()) {
+            // RGB: `mask = m * env.a` multiplies the reflection channel by channel.
+            standard.environmentMaskLayer = layerFrom(body.slots[mask].second, context);
+            standard.environmentMaskLayer->colorType = m3::ColorChannelSelect::RGB;
+            record(StandardLayer::EnvironmentMask, mask);
+        } else {
+            out.info(DiagCode::LayerDropped,
+                     "the environment mask has no live environment layer to weigh",
+                     ElementRef(), profile);
         }
     }
 
@@ -1416,8 +1439,7 @@ struct Pass {
         return op == CompositeOp::Modulate || op == CompositeOp::Modulate2x;
     }
     bool env() const {
-        return input.mapping == UVMappingMode::EnvSphere ||
-               input.mapping == UVMappingMode::EnvCube;
+        return IsEnvironmentMapping(input.mapping);
     }
     /// Whether the pass's own alpha ever leaves 1: a track, or a static weight.
     bool fades() const {

@@ -64,6 +64,8 @@ void FlattenLegacy(const Document& document, const LegacyDeferredBody& body, Fla
             Bind(out, SurfaceRole::Occlusion, input);
             break;
         case LegacySlot::Specular:
+        // The nearest flat role: interchange carries a gloss map as specular.
+        case LegacySlot::EnvironmentMask:
             Bind(out, SurfaceRole::Specular, input);
             break;
         case LegacySlot::Gloss:

@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 
 namespace whiteout {
 namespace models {
@@ -21,12 +22,11 @@ namespace {
 // The shader tag vocabulary
 // ---------------------------------------------------------------------------
 
-/// `ShaderMap_ResolveShaderOpaque`'s probe order. The head is chosen by the
-/// global view mode; only the tail plus its `0x30502` head is walked, and
-/// `0x30500` — the last-resort base shader — is what shipped content
-/// overwhelmingly carries. The MSAA band (`0x30861`) is skipped: taking its
-/// program would be claiming a pass nothing here binds.
-constexpr u32 kOpaqueTagChain[] = {0x30502u, 0x30850u, 0x30830u, 0x30600u, 0x30500u};
+/// The PC client's opaque probe (`sub_905830`) with reflections off, no MSAA
+/// and D3D11: HIGH_PP_DEFAULT, HIGH, MED. `0x30830` is CONSOLE_DEFAULT, which
+/// a PC never probes, and `0x30861` the MSAA alpha-mask band. The renderer
+/// walks the same chain (`kD3OpaqueTagChain`).
+constexpr u32 kOpaqueTagChain[] = {0x30850u, 0x30600u, 0x30500u};
 
 /// TAG_VS_LIGHTING, "Enable Lighting". Its neighbours are the five per-type
 /// light counts; this one gates the lot, and 0 makes the vertex colour the light
@@ -35,12 +35,19 @@ constexpr u32 kTagLightingEnable = 0xA000Fu;
 
 /// The Legacy stage block: three groups of six, one entry per texture stage.
 /// The two combine groups track the stage count exactly (827 passes carry entry
-/// 0, 659 entry 1, 435 entry 2, 255 entry 3, 78 entry 4, 25 entry 5); the op
-/// group at `0xA0010 + i` does not, and is undecoded, which is why only the
-/// combines are read.
+/// 0, 659 entry 1, 435 entry 2, 255 entry 3, 78 entry 4, 25 entry 5). The group
+/// at `0xA0010 + i` is `TAG_VS_TEXCOORD{i}_FUNC`, the coordinate stage i
+/// samples at (on geometry the slot is the stage), with the registry's
+/// defaults where a pass leaves it out.
+constexpr u32 kTagTexcoordFunc = 0xA0010u;
 constexpr u32 kTagColorCombine = 0xA0016u;
 constexpr u32 kTagAlphaCombine = 0xA001Cu;
 constexpr u32 kStageBlockWidth = 6;
+constexpr u32 kTexcoordDefault[kStageBlockWidth] = {1u, 1u, 1u, 8u, 10u, 10u};
+
+/// The packed UV1 stream decoded with UV0's range is sixteen times the one
+/// `vertexTexCoord1` decodes; texcoord codes 3 and 8 read it that way.
+constexpr f32 kUv1AtUv0Range = 16.0f;
 
 /// D3D9 blend factors, the only ones the corpus uses.
 constexpr i32 kBlendZero = 1;
@@ -81,39 +88,129 @@ constexpr i32 kCullClockwise = 2;
  * 14)` and its program is four multiplies closing on `c[0] = {4, 2}`; Cain's
  * plume is `3 3 3 10` and adds its glow. Both said so.
  *
- * Only the classes those two pin are decoded. Tens 3, 4, 7 and 8 are observed
- * (33, 34, 41, 43, 71, 75, 80..85) and undecoded, and the whole `0xA0010` op
- * group with them; an undecoded code reads as a replace and says so, which is
- * the one reading that cannot invent a term the original did not have.
+ * The rest is the current-register reading the retail programs bear out
+ * (`D3_RENDER_AUDIT/legacy.md` F3, 712 of 741 passes): the units digit of a
+ * modulate names its second argument or its gain, `TFACTOR` is the draw's
+ * colour and `appearanceFX.x` its pulse, both white at rest, and the classes
+ * that fold the light, a second layer or an alpha tail back in have no chain op.
+ * A code with no reading here is a replace and says so, the one reading that
+ * cannot invent a term the original did not have.
  */
 CombinerOp DecodeCombine(u32 code, const std::string& where, Diagnostics& out) {
-    if (code == 0) {
-        return CombinerOp::Pass;
-    }
     const u32 tens = code / 10;
     const u32 units = code % 10;
+    const auto lossy = [&](const char* what, CombinerOp as) {
+        out.warn(DiagCode::LossyBlendMode,
+                 where + ": combine " + std::to_string(code) + " " + what);
+        return as;
+    };
     switch (tens) {
     case 0:
-        return CombinerOp::Opaque; // replace
+        // 0 and 1 leave the register alone and 3 selects the texture.
+        if (units <= 1) {
+            return CombinerOp::Pass;
+        }
+        if (units == 2) {
+            return lossy("selects the draw colour, which no op says; left as the identity",
+                         CombinerOp::Pass);
+        }
+        if (units == 3) {
+            return CombinerOp::Opaque;
+        }
+        break;
     case 1:
         return CombinerOp::Add;
     case 2:
-        if (units == 4) {
+        switch (units) {
+        case 2: // x the draw colour, white at rest: the texture alone.
+            return CombinerOp::Opaque;
+        case 3:
+            return lossy("squares the texture, written as a replace", CombinerOp::Opaque);
+        case 4:
+        case 6:
             return CombinerOp::Mod2x;
-        }
-        if (units == 5) {
+        case 5:
+        case 7:
             // A x4 modulate, which the vocabulary stops one doubling short of.
-            out.warn(DiagCode::LossyBlendMode,
-                     where + ": combine " + std::to_string(code) +
-                         " is a x4 modulate, written as mod2x");
-            return CombinerOp::Mod2x;
+            return lossy("is a x4 modulate, written as mod2x", CombinerOp::Mod2x);
+        default:
+            return CombinerOp::Mod;
         }
-        return CombinerOp::Mod;
+    case 4:
+        // x the light (40) or the draw colour (41), which a consumer applies to
+        // the whole material already; 42 squares the register and 43
+        // premultiplies it by its own alpha, neither of which an op can say.
+        if (units >= 2) {
+            return lossy("folds the register into itself; left as the identity",
+                         CombinerOp::Pass);
+        }
+        return CombinerOp::Pass;
+    case 7:
+        // x appearanceFX.x, of the register (71) or of the texture (75).
+        return units == 5 ? CombinerOp::Opaque : CombinerOp::Pass;
+    case 8:
+        return lossy("opens or folds a second layer or an alpha tail, which a chain has no op "
+                     "for; left as the identity",
+                     CombinerOp::Pass);
     default:
-        out.warn(DiagCode::LossyBlendMode,
-                 where + ": combine class " + std::to_string(tens) + " is undecoded (code " +
-                     std::to_string(code) + "), written as a replace");
-        return CombinerOp::Opaque;
+        break;
+    }
+    return lossy("is undecoded, written as a replace", CombinerOp::Opaque);
+}
+
+/// What `TAG_VS_TEXCOORD{i}_FUNC` makes of a stage's coordinate (`legacy.md`
+/// F1/F2, a bijection over the joined programs): the uv set, whether the
+/// entry's matrix applies, the sphere map, and UV1 read at UV0's range.
+void ApplyTexcoordFunc(u32 code, TextureInput& input, bool& animates,
+                       const TextureInput* stage0, const std::string& where, Diagnostics& out) {
+    const auto raw = [&] {
+        input.uvTransform = Matrix3x2f{};
+        animates = false;
+    };
+    const auto uv0Range = [&] {
+        for (u32 r = 0; r < 2; ++r) {
+            for (u32 c = 0; c < 2; ++c) {
+                input.uvTransform.m[r][c] *= kUv1AtUv0Range;
+            }
+        }
+    };
+    switch (code) {
+    case 0:
+        raw();
+        break;
+    case 2:
+        raw();
+        input.mapping = UVMappingMode::EnvSphereNormal;
+        break;
+    case 3:
+        raw();
+        input.uvSet = 1;
+        uv0Range();
+        break;
+    case 8:
+        input.uvSet = 1;
+        uv0Range();
+        break;
+    case 11:
+        if (stage0 != nullptr) {
+            input.uvTransform = stage0->uvTransform;
+        }
+        break;
+    case 17:
+        raw();
+        input.uvSet = 1;
+        break;
+    case 18:
+        input.uvSet = 1;
+        break;
+    case 9:
+    case 16:
+        out.info(DiagCode::LossyKindConversion,
+                 where + ": an eye-linear or camera-plane coordinate has no mesh spelling; "
+                         "sampled at uv set 0");
+        break;
+    default:
+        break; // 1, and 10 (no slot): the entry's matrix over uv set 0.
     }
 }
 
@@ -131,9 +228,9 @@ CombinerOp DecodeCombine(u32 code, const std::string& where, Diagnostics& out) {
  * `environmentMapSampler`, 5 `glossMapSampler`, 6 `glowSampler`, 12/14/19
  * `alphaMap0/1/2Sampler`, over 285 alignments.
  *
- * Type 5 is a *substitution* worth naming: the shipped shader modulates an
- * environment reflection with it, and this slot vocabulary's nearest term is
- * specular strength. Type 8 (irradiance) and the three alpha masks have no
+ * Type 5 lights nothing: the retail programs weight the type-4 reflection by
+ * it and draw no highlight at all (`D3_RENDER_AUDIT.md` §2.1), so it is the
+ * environment's mask. Type 8 (irradiance) and the three alpha masks have no
  * legacy slot at all — a mask multiplies into alpha, which is a chain operation,
  * so a material that needs them is one the stage block was going to claim.
  */
@@ -154,7 +251,7 @@ LegacySlot SlotOfType(i32 type) {
     case 4:
         return LegacySlot::Environment;
     case 5:
-        return LegacySlot::Specular;
+        return LegacySlot::EnvironmentMask;
     case 6:
         return LegacySlot::Emissive;
     // A second base map lerped over the diffuse by its own alpha
@@ -166,6 +263,26 @@ LegacySlot SlotOfType(i32 type) {
         return LegacySlot::Count;
     }
 }
+
+/// A declared type whose term is zero on a model at rest, so a slot map loses
+/// nothing by leaving it out: the irradiance cube and the two shadow maps
+/// (scene inputs), the overlay bank, the death layers, and the hero tint's
+/// mask and ramp, which tint nothing until a dye is set.
+bool RestsAtZero(i32 type) {
+    return type == 8 || type == 22 || type == 23 || (type >= 26 && type <= 38) || type == 40 ||
+           type == 41 || type == 54 || type == 56;
+}
+
+/// The actor families, whose secondary maps sample at the diffuse's coordinate
+/// (matTex0) and whose reflection rests at half weight (`D3_RENDER_AUDIT/actor.md`
+/// A2, A11).
+bool ActorFamily(const native::D3RenderState& pass) {
+    return pass.effectFile == "ActorIrrad.fx" || pass.effectFile == "Actor.fx";
+}
+
+/// pvdo's `gloss * env * (0.5 + 0.5 * spec)`: the point lights' specular is
+/// scaled by M2, which is zero on 93.8% of records, so the weight rests at a half.
+constexpr f32 kActorReflectionWeight = 0.5f;
 
 // ---------------------------------------------------------------------------
 // One texture entry -> a TextureInput
@@ -330,6 +447,43 @@ void ApplyPass(const native::D3RenderState& pass, CommonMaterial& common, Diagno
     }
 }
 
+/**
+ * @brief The material the engine draws for @p variant.
+ *
+ * `Appearance_CreateRuntimeInstance` takes the variant's Material SNO when it
+ * names one — its ShaderMap, colours and texture list — and lays the embedded
+ * entries of five per-instance types over it (mask 0x4800000000C0004). 96% of
+ * scene sub-objects and 35 of 402 sampled actor ones name one, and the two
+ * routinely differ (`D3_RENDER_AUDIT.md` §1.4). The renderer builds the same
+ * (`D3RuntimeMaterial`).
+ */
+d3n::UberMaterial RuntimeMaterial(const d3n::SubObjectAppearance& variant,
+                                  const Context& context) {
+    if (context.assets == nullptr || !variant.snoMaterial.valid()) {
+        return variant.tMaterial;
+    }
+    const d3n::Material* base = context.assets->material(variant.snoMaterial.id);
+    if (base == nullptr) {
+        return variant.tMaterial;
+    }
+    d3n::UberMaterial out = base->tMaterial;
+    for (const d3n::MaterialTextureEntry& entry : variant.tMaterial.arTextures) {
+        // `dwSlotIndex` is the type (`reference_d3_material_fields`).
+        const i32 type = entry.dwSlotIndex;
+        if (type != 2 && type != 18 && type != 19 && type != 55 && type != 58) {
+            continue;
+        }
+        const auto same = std::find_if(out.arTextures.begin(), out.arTextures.end(),
+                                       [type](const auto& e) { return e.dwSlotIndex == type; });
+        if (same != out.arTextures.end()) {
+            *same = entry;
+        } else {
+            out.arTextures.push_back(entry);
+        }
+    }
+    return out;
+}
+
 } // namespace
 
 // ============================================================================
@@ -401,6 +555,12 @@ Material ImportVariant(const d3n::SubObjectAppearance& variant, const std::strin
         block.shaderParams.push_back(value);
     }
 
+    // The block keeps the embedded copy, which is what the appearance holds and
+    // what a round trip writes back; everything below reads the material the
+    // engine draws.
+    native::D3UberMaterial live;
+    CopyToNative(RuntimeMaterial(variant, context), live);
+
     // --- the render state, which is on another asset -------------------------
     //
     // Two `Shaders` assets in the shipped record, opaque and translucent, and
@@ -408,11 +568,11 @@ Material ImportVariant(const d3n::SubObjectAppearance& variant, const std::strin
     // recovered (`ShaderMap_ResolveShaderOpaque`); the translucent resolution's
     // tag chain is not, so `translucentPasses` stays empty rather than being
     // filled with a copy of the opaque one.
-    if (context.assets != nullptr && block.uber.shaderMap.id >= 0) {
-        const d3n::ShaderMap* map = context.assets->shaderMap(block.uber.shaderMap.id);
+    if (context.assets != nullptr && live.shaderMap.id >= 0) {
+        const d3n::ShaderMap* map = context.assets->shaderMap(live.shaderMap.id);
         if (map == nullptr) {
             out.warn(DiagCode::AssetUnresolved,
-                     name + ": shader map " + std::to_string(block.uber.shaderMap.id) +
+                     name + ": shader map " + std::to_string(live.shaderMap.id) +
                          " did not load");
         } else {
             const i32 shadersId = ResolveShadersId(*map);
@@ -461,7 +621,11 @@ Material ImportVariant(const d3n::SubObjectAppearance& variant, const std::strin
         }
     }
 
-    const native::D3MaterialColors& colors = block.uber.colors;
+    // MaterialColors scale the LIGHTS (`D3_RENDER_AUDIT.md` §1.3) — ambient,
+    // diffuse, specular, a base ambient, the power — and are never an albedo or
+    // an emissive term, so no factor below is read off them but the power and
+    // the specular scale a non-actor reflection rides.
+    const native::D3MaterialColors& colors = live.colors;
 
     // Which texture entries the resolved pass actually declares. A material
     // routinely carries types its pass never asks for -- Cain's book ships a
@@ -482,7 +646,7 @@ Material ImportVariant(const d3n::SubObjectAppearance& variant, const std::strin
 
     const native::D3TextureEntry* entryOfType = nullptr;
     const auto findEntry = [&](i32 type) -> const native::D3TextureEntry* {
-        for (const native::D3TextureEntry& entry : block.uber.textures) {
+        for (const native::D3TextureEntry& entry : live.textures) {
             if (entry.type == type) {
                 return &entry;
             }
@@ -508,8 +672,15 @@ Material ImportVariant(const d3n::SubObjectAppearance& variant, const std::strin
     if (first != nullptr && findPassTag(kTagColorCombine) != nullptr) {
         // --- Combiners: the stage block IS an ordered chain -------------------
         CombinersBody body;
-        body.diffuseFactor = colors.diffuse;
-        body.emissiveFactor = colors.emissive;
+        // Stage 0's input, which code 11 samples every unit at (matTex0).
+        std::optional<TextureInput> stage0;
+        const native::D3TextureEntry* stage0Entry = nullptr;
+        if (!first->textureStages.empty()) {
+            stage0Entry = findEntry(first->textureStages.front().contentStage);
+            if (stage0Entry != nullptr) {
+                stage0 = InputOf(*stage0Entry, context);
+            }
+        }
         for (std::size_t s = 0; s < first->textureStages.size() && s < kStageBlockWidth; ++s) {
             const i32 type = first->textureStages[s].contentStage;
             if (type == 0) {
@@ -529,12 +700,26 @@ Material ImportVariant(const d3n::SubObjectAppearance& variant, const std::strin
                 continue;
             }
             entryOfType = findEntry(type);
+            const std::string where = name + " stage " + std::to_string(s);
             CombinerStage stage;
             if (entryOfType != nullptr) {
                 stage.input = InputOf(*entryOfType, context);
-                if (HasUvAnimation(*entryOfType)) {
+                const native::D3ShaderTagValue* func =
+                    findPassTag(kTagTexcoordFunc + static_cast<u32>(s));
+                const u32 code = func != nullptr ? static_cast<u32>(func->value)
+                                                 : kTexcoordDefault[s];
+                bool animates = HasUvAnimation(*entryOfType);
+                ApplyTexcoordFunc(code, stage.input, animates, stage0 ? &*stage0 : nullptr,
+                                  where, out);
+                // Code 11 scrolls with stage 0, whose matrix it samples through.
+                const native::D3TextureEntry* clock =
+                    code == 11 && stage0Entry != nullptr ? stage0Entry : entryOfType;
+                if (code == 11) {
+                    animates = HasUvAnimation(*clock);
+                }
+                if (animates) {
                     common.features.push_back(
-                        UvAnimationOf(*entryOfType, static_cast<u32>(body.stages.size()),
+                        UvAnimationOf(*clock, static_cast<u32>(body.stages.size()),
                                       static_cast<u32>(common.features.size())));
                 }
             } else {
@@ -542,7 +727,6 @@ Material ImportVariant(const d3n::SubObjectAppearance& variant, const std::strin
                          name + ": pass declares stage type " + std::to_string(type) +
                              ", which the material has no entry for");
             }
-            const std::string where = name + " stage " + std::to_string(s);
             // A missing code on one channel is a zero on that channel, which
             // `DecodeCombine` reads as the identity -- the same thing the engine
             // does with an absent tag.
@@ -569,19 +753,27 @@ Material ImportVariant(const d3n::SubObjectAppearance& variant, const std::strin
     } else {
         // --- LegacyDeferred: the shader-named types are a slot map -----------
         LegacyDeferredBody body;
-        body.diffuseFactor = colors.diffuse;
-        body.emissiveFactor = colors.emissive;
-        body.specularFactor = colors.specular;
-        body.specularExponent = colors.shininess;
-        for (const native::D3TextureEntry& entry : block.uber.textures) {
+        // `SpecularPower`, 0 read as 1. No program draws a highlight with it.
+        body.specularExponent = colors.shininess != 0.0f ? colors.shininess : 1.0f;
+        const bool actor = first != nullptr && ActorFamily(*first);
+        // The actor programs sample every secondary map at the diffuse's
+        // coordinate (TEXCOORD0 = matTex0), whatever its own entry says.
+        const native::D3TextureEntry* diffuse = actor ? findEntry(1) : nullptr;
+        for (const native::D3TextureEntry& entry : live.textures) {
             if (!declared(entry.type)) {
                 continue;
             }
             const LegacySlot slot = SlotOfType(entry.type);
             if (slot == LegacySlot::Count) {
-                out.warn(DiagCode::LayerDropped,
-                         name + ": texture type " + std::to_string(entry.type) +
-                             " has no legacy slot");
+                if (RestsAtZero(entry.type)) {
+                    out.info(DiagCode::LayerDropped,
+                             name + ": texture type " + std::to_string(entry.type) +
+                                 " contributes nothing at rest");
+                } else {
+                    out.warn(DiagCode::LayerDropped,
+                             name + ": texture type " + std::to_string(entry.type) +
+                                 " has no legacy slot");
+                }
                 continue;
             }
             if (body.find(slot) != nullptr) {
@@ -590,11 +782,39 @@ Material ImportVariant(const d3n::SubObjectAppearance& variant, const std::strin
                 continue;
             }
             const u32 layer = static_cast<u32>(body.slots.size());
-            body.set(slot, InputOf(entry, context));
-            if (HasUvAnimation(entry)) {
-                common.features.push_back(
-                    UvAnimationOf(entry, layer, static_cast<u32>(common.features.size())));
+            TextureInput input = InputOf(entry, context);
+            const native::D3TextureEntry* clock = &entry;
+            if (slot == LegacySlot::Environment) {
+                // `0.5 - 0.5 * viewN.xy`: a normal-aimed sphere map, no matrix.
+                input.mapping = UVMappingMode::EnvSphereNormal;
+                input.uvTransform = Matrix3x2f{};
+                clock = nullptr;
+            } else if (slot == LegacySlot::Lightmap && !actor) {
+                // The surface programs read it at raw UV set 1 (`surface.md` 3.1).
+                input.uvSet = 1;
+                input.uvTransform = Matrix3x2f{};
+                clock = nullptr;
+            } else if (diffuse != nullptr && slot != LegacySlot::Diffuse) {
+                input.uvTransform = UvTransformOf(*diffuse);
+                clock = diffuse;
             }
+            body.set(slot, input);
+            if (clock != nullptr && HasUvAnimation(*clock)) {
+                common.features.push_back(
+                    UvAnimationOf(*clock, layer, static_cast<u32>(common.features.size())));
+            }
+        }
+        // The glow enters at appearanceFX.x, which rests at 1.
+        if (body.find(LegacySlot::Emissive) != nullptr) {
+            body.emissiveFactor = Vector4f{1, 1, 1, 1};
+        }
+        // The reflection: gloss x env. An actor weights it by a half at rest;
+        // the surface programs by the specular scale (M2), zero almost always.
+        if (body.find(LegacySlot::Environment) != nullptr &&
+            body.find(LegacySlot::EnvironmentMask) != nullptr) {
+            body.environmentFactor =
+                actor ? kActorReflectionWeight
+                      : std::max({colors.emissive.x, colors.emissive.y, colors.emissive.z});
         }
         common.body = std::move(body);
     }

@@ -3,6 +3,7 @@
 
 #include <whiteout/models/wem/physics/references.h>
 
+#include <whiteout/models/wem/anim/clip.h>
 #include <whiteout/models/wem/nodes/references.h>
 #include <whiteout/models/wem/physics/cloth_bake.h>
 #include <whiteout/models/wem/physics/soft_region.h>
@@ -10,9 +11,11 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
@@ -746,6 +749,78 @@ void RebasePhysicsFrames(PhysicsSet& physics, std::span<const Matrix44f> change)
     }
     for (ClothCollider& collider : physics.colliders) {
         through(collider.transform, collider.node);
+    }
+}
+
+void RebaseClothDrivers(Model& model, std::span<Clip* const> clips, std::span<const Matrix44f> change) {
+    for (const Cloth& cloth : model.physics.cloths) {
+        const u32 holder = ClothDriversOf(model, cloth).holder;
+        if (holder >= change.size()) {
+            continue;
+        }
+        // A key `L` placed the driver at `L * H_old`, and `H_old = change * H_new`.
+        const Matrix44f& by = change[holder];
+        bool moves = false;
+        for (int r = 0; r < 4; ++r) {
+            for (int c = 0; c < 4; ++c) {
+                moves = moves || std::fabs(by.data[r][c] - (r == c ? 1.0f : 0.0f)) > 1e-6f;
+            }
+        }
+        if (!moves) {
+            continue;
+        }
+        std::unordered_map<u32, bool> translation; // channel id -> a translation channel
+        for (const AnimChannel& entry : model.animChannels.channels) {
+            if (entry.target.kind == TrackTarget::Kind::Physics && ClothOfDriverSub(entry.target.sub) == cloth.id &&
+                (entry.target.channel == Channel::ClothDriverTranslation ||
+                 entry.target.channel == Channel::ClothDriverRotation)) {
+                translation[entry.id] = entry.target.channel == Channel::ClothDriverTranslation;
+            }
+        }
+        Matrix44f linear = by;
+        linear.data[3][0] = linear.data[3][1] = linear.data[3][2] = 0.0f;
+        for (Clip* clip : clips) {
+            for (SubTrackContainer& container : clip->containers) {
+                for (SubTrack& track : container.subTracks) {
+                    const auto found = translation.find(track.channel);
+                    if (found == translation.end()) {
+                        continue;
+                    }
+                    // A smooth key holds {value, inTan, outTan}: a tangent is a direction.
+                    const u32 per = ValuesPerKey(track.interp);
+                    if (found->second) {
+                        for (std::size_t k = 0; (k + 1) * sizeof(Vector3f) <= track.values.size(); ++k) {
+                            Vector3f v;
+                            std::memcpy(&v, track.values.data() + k * sizeof(Vector3f), sizeof(Vector3f));
+                            const Matrix44f& m = k % per == 0 ? by : linear;
+                            const Vector3f out{v.x * m.data[0][0] + v.y * m.data[1][0] + v.z * m.data[2][0] + m.data[3][0],
+                                               v.x * m.data[0][1] + v.y * m.data[1][1] + v.z * m.data[2][1] + m.data[3][1],
+                                               v.x * m.data[0][2] + v.y * m.data[1][2] + v.z * m.data[2][2] + m.data[3][2]};
+                            std::memcpy(track.values.data() + k * sizeof(Vector3f), &out, sizeof(Vector3f));
+                        }
+                        continue;
+                    }
+                    Quaternion before{0, 0, 0, 1}, after{0, 0, 0, 1};
+                    for (std::size_t k = 0; (k + 1) * sizeof(Quaternion) <= track.values.size(); ++k) {
+                        Quaternion q;
+                        std::memcpy(&q, track.values.data() + k * sizeof(Quaternion), sizeof(Quaternion));
+                        Transform turn;
+                        turn.rotation = q;
+                        Quaternion out = FromMatrix(ToMatrix(turn) * linear).rotation;
+                        // Signed as the source was against its neighbour, so the
+                        // slerp between them takes the same way round.
+                        if (k % per == 0) {
+                            if (k > 0 && (q.dot(before) < 0.0f) != (out.dot(after) < 0.0f)) {
+                                out = out * -1.0f;
+                            }
+                            before = q;
+                            after = out;
+                        }
+                        std::memcpy(track.values.data() + k * sizeof(Quaternion), &out, sizeof(Quaternion));
+                    }
+                }
+            }
+        }
     }
 }
 

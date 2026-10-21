@@ -113,6 +113,9 @@ std::optional<SurfaceChannel> channelOf(LegacySlot slot) {
     case LegacySlot::Normal:
         return SurfaceChannel::Normal;
     case LegacySlot::Specular:
+    // A channel has no mask of its own, and a gloss map read as specular is
+    // what every interchange format did with it before the slot existed.
+    case LegacySlot::EnvironmentMask:
         return SurfaceChannel::Specular;
     case LegacySlot::Emissive:
         return SurfaceChannel::Emissive;

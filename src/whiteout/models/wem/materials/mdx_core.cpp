@@ -920,7 +920,8 @@ void exportComposite(const CompositeBody& body, const CommonMaterial& common,
         layer.textureId = context.toMdx(entry.input.texture);
         layer.coordId = entry.input.uvSet;
         layer.alpha = entry.input.weight * std::min(factor, 1.0f);
-        if (entry.input.mapping == UVMappingMode::EnvSphere) {
+        if (entry.input.mapping == UVMappingMode::EnvSphere ||
+            entry.input.mapping == UVMappingMode::EnvSphereNormal) {
             layer.shadingFlags |= Layer::ShadingFlag::SphereEnvMap;
         }
         if (entry.input.wrapU == WrapMode::Repeat) {
@@ -947,6 +948,10 @@ void exportComposite(const CompositeBody& body, const CommonMaterial& common,
         } else if (entry.op == CompositeOp::Modulate || entry.op == CompositeOp::Modulate2x ||
                    entry.op == CompositeOp::AlphaBlend) {
             passMode = filterModeFor(entry.op);
+        } else if (entry.target == SurfaceChannel::Emissive) {
+            // Light it gives, not light it takes: lit, the pass would scale
+            // the glow by the very light it stands in for.
+            layer.shadingFlags |= Layer::ShadingFlag::Unshaded;
         }
         pushLayer(std::move(layer), passMode, common.blend, dst, layerOfOrdinal,
                   static_cast<u32>(i));
@@ -1059,7 +1064,8 @@ void exportCombiners(const CombinersBody& body, const CommonMaterial& common,
         layer.alpha = stage.input.weight;
         // A sphere-mapped stage says so, as `exportComposite`'s layers do;
         // without the flag the layer reads `coordId` as the mesh's own UVs.
-        if (stage.input.mapping == UVMappingMode::EnvSphere) {
+        if (stage.input.mapping == UVMappingMode::EnvSphere ||
+            stage.input.mapping == UVMappingMode::EnvSphereNormal) {
             layer.shadingFlags |= Layer::ShadingFlag::SphereEnvMap;
         }
         // The same two flags `exportComposite` writes. A scrolling stage is the
