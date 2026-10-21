@@ -329,6 +329,40 @@ TEST_CASE("wem mdx uv a constant rate is keys on a global sequence", "[wem][mdx]
     CHECK_FALSE(animation.scalingTracks.isUsed);
 }
 
+TEST_CASE("wem mdx uv a turn of several a period is keyed a quarter turn apart", "[wem][mdx][uv]") {
+    // Two turns a second over a scroll of one tile a second: every key a
+    // quarter turn on from the last, so the short way round is always forward.
+    for (const f32 turnsPerSecond : {2.0f, 3.0f, 4.0f}) {
+        const mdx_uv::TurnKeys keys = mdx_uv::TurnKeysOf(turnsPerSecond * 6.28318531f, 0.0f, 1000u);
+        const std::size_t steps = static_cast<std::size_t>(4.0f * turnsPerSecond);
+        REQUIRE(keys.angles.size() == steps + 1);
+        REQUIRE(keys.times.size() == steps + 1);
+        for (std::size_t k = 1; k < keys.angles.size(); ++k) {
+            CHECK(keys.angles[k] - keys.angles[k - 1] == Catch::Approx(1.57079633f));
+        }
+        CHECK(keys.times.back() == 1000u);
+    }
+}
+
+TEST_CASE("wem mdx uv a slow turn keeps its own period beside a scroll", "[wem][mdx][uv]") {
+    // A tenth of a turn a second beside a one-tile-in-five-seconds scroll: half
+    // a turn in the scroll's period, which no whole number of turns fits.
+    Document document = blocklessDocument();
+    UvAnimationFeature rate;
+    rate.scrollRate = Vector2f{0.2f, 0.0f};
+    rate.rotateRate = 0.1f * 6.28318531f;
+    uvFeature(document, ProfileId::Wc3Classic, 0).payload = rate;
+
+    MdxConverter converter;
+    const Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic);
+    REQUIRE(exported.ok());
+    const mdx::TextureAnimation& animation = onlyTextureAnimation(*exported);
+    REQUIRE(animation.translationTracks.isUsed);
+    REQUIRE(animation.rotationTracks.isUsed);
+    CHECK(exported->globalSequences[animation.translationTracks.globalSequenceId] == 5000u);
+    CHECK(exported->globalSequences[animation.rotationTracks.globalSequenceId] == 10000u);
+}
+
 // ============================================================================
 // mdx_uv: the arithmetic itself
 // ============================================================================

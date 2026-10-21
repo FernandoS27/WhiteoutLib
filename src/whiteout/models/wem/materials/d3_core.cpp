@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <optional>
 
 namespace whiteout {
@@ -288,12 +289,65 @@ constexpr f32 kActorReflectionWeight = 0.5f;
 // One texture entry -> a TextureInput
 // ---------------------------------------------------------------------------
 
-/// Bits 0 and 1 of the UV flags word are the U and V address modes, set = wrap.
-/// The corpus bit population settles the field's shape on its own: bit 0 on
-/// 67,577 entries, bit 1 on 66,604, bit 2 on **3** and bit 3 on 26 — a bitfield,
-/// and nothing like the 62-valued enum this field was once read as.
-WrapMode WrapOf(i32 uvFlags, u32 bit) {
-    return ((uvFlags >> bit) & 1) != 0 ? WrapMode::Repeat : WrapMode::Clamp;
+/// The UV flags word. The corpus bit population settles the field's shape on
+/// its own: bit 0 on 67,577 entries, bit 1 on 66,604, bit 2 on **3** and bit 3
+/// on 26 — a bitfield, and nothing like the 62-valued enum this field was once
+/// read as.
+///
+/// It is not the sampler's address mode, though it was read as one. Bits 0 and
+/// 1 draw the U and V phase at random (`MatTex_InitUvState` @0x71000F7C60) and
+/// bit 3 turns the transform about the tile's centre; the address modes are
+/// the pass's own, `TextureStageParams` +0x04 and +0x08 (1 clamp, 2 wrap), and a
+/// type the pass does not list wraps.
+constexpr i32 kUvRandomPhaseU = 0x1;
+constexpr i32 kUvRandomPhaseV = 0x2;
+constexpr i32 kUvAboutCentre = 0x8;
+
+WrapMode WrapOf(const native::D3RenderState* pass, i32 type, u32 axis) {
+    if (pass != nullptr) {
+        for (const native::D3TextureStage& stage : pass->textureStages) {
+            if (stage.contentStage == type) {
+                const i32 mode = axis == 0 ? stage.dwAddressU : stage.dwAddressV;
+                return mode == 2 ? WrapMode::Repeat : WrapMode::Clamp;
+            }
+        }
+    }
+    return WrapMode::Repeat;
+}
+
+/// `tAnim3.flAmount`, tested as an integer by `MatTex_TickUvStateEntry`
+/// @0x71000F8310 (so `-0.0f` is set): the scroll is clamped into [0,1] instead
+/// of wrapped, a one-way reveal that stops at its end.
+bool ClampsUv(const native::D3TextureEntry& entry) {
+    u32 bits = 0;
+    std::memcpy(&bits, &entry.anim3.amount, sizeof(bits));
+    return bits != 0;
+}
+
+/// The engine's per-frame fold (`MatTex_TickUvStateEntry`), whose boundary
+/// test is a strict `> 1`: a whole number folds to 1.
+f32 FoldUv(f32 v) {
+    if (v >= 0.0f && v <= 1.0f) {
+        return v;
+    }
+    f32 r = std::fmod(v, 1.0f);
+    if (r < 0.0f) {
+        r += 1.0f;
+    }
+    return r == 0.0f ? (v > 0.0f ? 1.0f : 0.0f) : r;
+}
+
+/// `MatTex_InitUvState`'s angle: pinned to 8 turns, then folded into one.
+f32 WrapAngle(f32 a) {
+    constexpr f32 kTwoPi = 6.28318530717958647692f;
+    a = std::clamp(a, -kTwoPi * 8.0f, kTwoPi * 8.0f);
+    while (a < 0.0f) {
+        a += kTwoPi;
+    }
+    while (a > kTwoPi) {
+        a -= kTwoPi;
+    }
+    return a;
 }
 
 /**
@@ -301,42 +355,93 @@ WrapMode WrapOf(i32 uvFlags, u32 bit) {
  *
  * `MatTex_BuildUvMatrix4x4` switches on the mode, 0..6, and the corpus
  * population is exactly the switch's own case list: 0 x 9,052, 1 x 32,139,
- * 2 x 159,000, 3 x 35, 5 x 14. Mode 1 is a verbatim matrix; mode 2 — 82.7% of
- * the corpus — is `scale * rotate` whose rotation and translation come from the
- * per-draw animation state, so only its scale is static and the motion becomes a
- * `UvAnimation` feature. Modes 3..6 are 49 entries in the whole corpus and are
- * not reproduced; identity is what an unreproduced one has to be.
+ * 2 x 159,000, 3 x 35, 5 x 14. The engine feeds `(u, v, 0, 1)` from the left,
+ * so `u'` takes the rows' x and `v'` their y. Mode 1 is that matrix verbatim;
+ * mode 2 — 82.7% of the corpus — is `scale * rotate` with the animation state's
+ * phase as the translation, so its start is static here and its motion becomes
+ * a `UvAnimation` feature. Modes 3..6 are 49 entries in the whole corpus and
+ * are not reproduced; identity is what an unreproduced one has to be.
  */
 Matrix3x2f UvTransformOf(const native::D3TextureEntry& entry) {
     Matrix3x2f matrix;
     if (entry.uvTransformMode == 1) {
-        matrix.m[0][0] = entry.uvRow0.x;
-        matrix.m[0][1] = entry.uvRow0.y;
-        matrix.m[0][2] = entry.uvRow3.x;
-        matrix.m[1][0] = entry.uvRow1.x;
-        matrix.m[1][1] = entry.uvRow1.y;
-        matrix.m[1][2] = entry.uvRow3.y;
+        // All zero is an entry with no authored matrix, and would collapse
+        // every coordinate onto the origin.
+        const bool authored = entry.uvRow0 != Vector4f{} || entry.uvRow1 != Vector4f{} ||
+                              entry.uvRow3 != Vector4f{};
+        if (authored) {
+            matrix.m[0][0] = entry.uvRow0.x;
+            matrix.m[0][1] = entry.uvRow1.x;
+            matrix.m[0][2] = entry.uvRow3.x;
+            matrix.m[1][0] = entry.uvRow0.y;
+            matrix.m[1][1] = entry.uvRow1.y;
+            matrix.m[1][2] = entry.uvRow3.y;
+        }
     } else if (entry.uvTransformMode == 2) {
-        matrix.m[0][0] = entry.uvRow0.x;
-        matrix.m[1][1] = entry.uvRow1.y;
+        // Both scales fall back to 1 when either is not positive.
+        f32 sx = 1.0f;
+        f32 sy = 1.0f;
+        if (entry.uvRow0.x > 0.0f && entry.uvRow1.y > 0.0f) {
+            sx = entry.uvRow0.x;
+            sy = entry.uvRow1.y;
+        }
+        const f32 angle = WrapAngle(entry.animRotate.amount);
+        const f32 c = std::cos(angle);
+        const f32 s = std::sin(angle);
+        const f32 m00 = c * sx;
+        const f32 m01 = s * sx;
+        const f32 m10 = -s * sy;
+        const f32 m11 = c * sy;
+        // The phase the state starts at: `flAmount`, or a random draw this has
+        // no instance to make. A one-way reveal is held where it stops.
+        f32 tu = (entry.uvFlags & kUvRandomPhaseU) != 0 ? 0.0f : entry.animU.amount;
+        f32 tv = (entry.uvFlags & kUvRandomPhaseV) != 0 ? 0.0f : entry.animV.amount;
+        if (ClampsUv(entry)) {
+            const auto end = [](f32 phase, f32 rate) {
+                return rate > 0.0f ? 1.0f : rate < 0.0f ? 0.0f : std::clamp(phase, 0.0f, 1.0f);
+            };
+            tu = end(tu, entry.animU.rate0);
+            tv = end(tv, entry.animV.rate0);
+        } else {
+            tu = FoldUv(tu);
+            tv = FoldUv(tv);
+        }
+        if ((entry.uvFlags & kUvAboutCentre) != 0) {
+            const f32 ou = tu - 0.5f;
+            const f32 ov = tv - 0.5f;
+            tu = ou * m00 + ov * m10 + 0.5f;
+            tv = ov * m11 + ou * m01 + 0.5f;
+        }
+        matrix.m[0][0] = m00;
+        matrix.m[0][1] = m10;
+        matrix.m[0][2] = tu;
+        matrix.m[1][0] = m01;
+        matrix.m[1][1] = m11;
+        matrix.m[1][2] = tv;
     }
     return matrix;
 }
 
-TextureInput InputOf(const native::D3TextureEntry& entry, const Context& context) {
+TextureInput InputOf(const native::D3TextureEntry& entry, const Context& context,
+                     const native::D3RenderState* pass) {
     TextureInput input;
     input.texture = context.toDocument(entry.texture);
-    input.wrapU = WrapOf(entry.uvFlags, 0);
-    input.wrapV = WrapOf(entry.uvFlags, 1);
+    input.wrapU = WrapOf(pass, entry.type, 0);
+    input.wrapV = WrapOf(pass, entry.type, 1);
     input.uvTransform = UvTransformOf(entry);
     return input;
 }
 
+/// Only mode 2 reads the animation state; rates on any other entry are dead
+/// data. A one-way reveal's scroll stops, so only its turn can run on.
 bool HasUvAnimation(const native::D3TextureEntry& entry) {
-    const auto live = [](const native::D3TexAnim& anim) {
-        return anim.amount != 0.0f || anim.rate0 != 0.0f || anim.rate1 != 0.0f;
+    if (entry.uvTransformMode != 2) {
+        return false;
+    }
+    const auto moves = [](const native::D3TexAnim& anim) {
+        return anim.rate0 != 0.0f || anim.rate1 != 0.0f;
     };
-    return live(entry.animU) || live(entry.animV) || live(entry.animRotate);
+    return moves(entry.animRotate) || (!ClampsUv(entry) && (moves(entry.animU) || moves(entry.animV)));
 }
 
 /// @p id must be unique within the material and is never reused: §10.8's
@@ -356,10 +461,16 @@ MaterialFeature UvAnimationOf(const native::D3TextureEntry& entry, u32 layer, u3
     MaterialFeature feature;
     feature.id = id;
     feature.layer = layer;
+    // `flRate1` is a per-instance jitter, `rate0 + rate1 * U`; one document
+    // has no instance to draw for, so it takes the mean.
+    const auto rate = [](const native::D3TexAnim& anim) {
+        return (anim.rate0 + 0.5f * anim.rate1) * kTicksPerSecond;
+    };
     UvAnimationFeature body;
-    body.scrollRate =
-        Vector2f{entry.animU.rate0 * kTicksPerSecond, entry.animV.rate0 * kTicksPerSecond};
-    body.rotateRate = entry.animRotate.rate0 * kTicksPerSecond;
+    if (!ClampsUv(entry)) {
+        body.scrollRate = Vector2f{rate(entry.animU), rate(entry.animV)};
+    }
+    body.rotateRate = rate(entry.animRotate);
     feature.payload = body;
     return feature;
 }
@@ -678,7 +789,7 @@ Material ImportVariant(const d3n::SubObjectAppearance& variant, const std::strin
         if (!first->textureStages.empty()) {
             stage0Entry = findEntry(first->textureStages.front().contentStage);
             if (stage0Entry != nullptr) {
-                stage0 = InputOf(*stage0Entry, context);
+                stage0 = InputOf(*stage0Entry, context, first);
             }
         }
         for (std::size_t s = 0; s < first->textureStages.size() && s < kStageBlockWidth; ++s) {
@@ -703,7 +814,7 @@ Material ImportVariant(const d3n::SubObjectAppearance& variant, const std::strin
             const std::string where = name + " stage " + std::to_string(s);
             CombinerStage stage;
             if (entryOfType != nullptr) {
-                stage.input = InputOf(*entryOfType, context);
+                stage.input = InputOf(*entryOfType, context, first);
                 const native::D3ShaderTagValue* func =
                     findPassTag(kTagTexcoordFunc + static_cast<u32>(s));
                 const u32 code = func != nullptr ? static_cast<u32>(func->value)
@@ -782,7 +893,7 @@ Material ImportVariant(const d3n::SubObjectAppearance& variant, const std::strin
                 continue;
             }
             const u32 layer = static_cast<u32>(body.slots.size());
-            TextureInput input = InputOf(entry, context);
+            TextureInput input = InputOf(entry, context, first);
             const native::D3TextureEntry* clock = &entry;
             if (slot == LegacySlot::Environment) {
                 // `0.5 - 0.5 * viewN.xy`: a normal-aimed sphere map, no matrix.

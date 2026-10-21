@@ -87,14 +87,17 @@ ScrollKeys ScrollKeysOf(const UvState& standing, const Vector2f& scrollRate);
 /// a turning layer loops on when no scroll sets a period.
 u32 TurnPeriod(f32 radiansPerSecond);
 
-/// A constant turn over @p milliseconds as five Linear `KTAR` keys a quarter
-/// of the way apart, which is what a slerp needs to know which way round: the
-/// turn is rounded to a whole number of turns within the period.
+/// A constant turn over @p milliseconds as Linear `KTAR` keys a quarter turn
+/// apart, which is what a slerp needs to know which way round: the turn is
+/// rounded to a whole number of turns within the period, at least one.
 struct TurnKeys {
-    std::array<u32, 5> times{};
-    std::array<f32, 5> angles{}; ///< Radians about z.
+    std::vector<u32> times;
+    std::vector<f32> angles; ///< Radians about z.
 };
 TurnKeys TurnKeysOf(f32 radiansPerSecond, f32 standingAngle, u32 milliseconds);
+
+/// How many turns @p radiansPerSecond makes in @p milliseconds.
+f32 TurnsIn(f32 radiansPerSecond, u32 milliseconds);
 
 /// A turn of @p angle radians about z as `KTAR` keys it.
 Quaternion TurnAboutZ(f32 angle);

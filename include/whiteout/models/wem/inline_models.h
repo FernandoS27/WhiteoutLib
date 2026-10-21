@@ -14,8 +14,11 @@
  * in: its nodes, meshes and emitters where the attachment puts them, its
  * materials once per model.
  *
- * A pivot rig has no rest rotation to parent a placement under, so the
- * placement is baked: points move by it and every key is conjugated by it,
+ * An explicit bind (`.m3`, Diablo III) parents the placed model under the
+ * attachment and moves its points and model-space poses by the attachment's
+ * world bind, its keys as they were. A pivot rig has no rest rotation to parent
+ * a placement under, so there the placement is baked: points move by it and
+ * every key is conjugated by it,
  * which is exact for a uniform scale. That keeps an emitter's frame on the
  * model's axes, and its frame is where it emits, so an emitter (or any leaf
  * whose frame matters) takes the placement onto its own rotation instead, by a
@@ -44,8 +47,8 @@ struct InlineReport {
 };
 
 /// Copies the model every attachment of @p into names into @p into, at the
-/// attachment, which then names none. Both must be pivot rigs; a model that is
-/// not stays out, and so do its physics and pose stages, and its cameras
+/// attachment, which then names none. Both must be rigs of one convention; a
+/// model that is not stays out, and so do its physics and pose stages, and its cameras
 /// become helpers. Its attachments keep their names behind the placing
 /// attachment's, where no lookup by name finds them.
 InlineReport InlineAttachedModels(Document& document, u32 into);

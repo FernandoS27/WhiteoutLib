@@ -457,11 +457,16 @@ bool PlaysOnce(std::string_view name) {
 namespace {
 
 /// Whether a Diablo III clip, named after its `.ani` (`<figure>_<weapon>_attack_01`,
-/// the import keeping its SNO id), plays once: a word of it names an action the
-/// game plays through, wherever it stands. The import marks every clip looping.
+/// the import keeping its SNO id), plays once. The import keeps the clip's own
+/// loop mode (`Anim+16`, 0 once, 2 loop); a document written before it did
+/// marked every clip looping, and for those a word of the name that names an
+/// action the game plays through stands in.
 bool DiabloPlaysOnce(const Clip& clip) {
     if (clip.native.find("animSnoId") == nullptr) {
         return false;
+    }
+    if (clip.native.find("loopMode") != nullptr) {
+        return clip.native.value("loopMode", 2) != 2;
     }
     static constexpr std::string_view kOnce[] = {"attack", "cast",  "death", "hit",  "knockback",
                                                  "parry",  "spawn", "intro", "outro"};

@@ -127,13 +127,22 @@ u32 TurnPeriod(f32 radiansPerSecond) {
     return radiansPerSecond != 0.0f ? Milliseconds(kTwoPi / std::abs(radiansPerSecond)) : 0u;
 }
 
+f32 TurnsIn(f32 radiansPerSecond, u32 milliseconds) {
+    return std::abs(radiansPerSecond) * (static_cast<f32>(milliseconds) / kMilliseconds) / kTwoPi;
+}
+
 TurnKeys TurnKeysOf(f32 radiansPerSecond, f32 standingAngle, u32 milliseconds) {
-    const f32 period = static_cast<f32>(milliseconds) / kMilliseconds;
-    const f32 turns = std::max(1.0f, std::round(std::abs(radiansPerSecond) * period / kTwoPi));
+    const f32 turns = std::max(1.0f, std::round(TurnsIn(radiansPerSecond, milliseconds)));
     const f32 total = turns * kTwoPi * (radiansPerSecond < 0.0f ? -1.0f : 1.0f);
+    // A quarter turn a key: the lerp between two keys takes the short way
+    // round, so a half turn between them has no direction and more runs
+    // backwards.
+    const u32 steps = 4u * static_cast<u32>(turns);
     TurnKeys keys;
-    for (u32 step = 0; step <= 4; ++step) {
-        const f32 fraction = static_cast<f32>(step) / 4.0f;
+    keys.times.resize(steps + 1);
+    keys.angles.resize(steps + 1);
+    for (u32 step = 0; step <= steps; ++step) {
+        const f32 fraction = static_cast<f32>(step) / static_cast<f32>(steps);
         keys.times[step] = static_cast<u32>(static_cast<f32>(milliseconds) * fraction);
         keys.angles[step] = standingAngle + total * fraction;
     }

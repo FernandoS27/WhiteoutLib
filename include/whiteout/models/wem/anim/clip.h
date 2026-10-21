@@ -673,8 +673,9 @@ struct AnimTag {
  * core when the weapon's map has no row for a tag. That is **one `AnimSet` per
  * map**, with `baseAnimSet` pointing at the core one — the fallback field
  * spelling the fallback, rather than a 30-wide struct nothing else could use.
- * The same field carries `.ans`'s own `snoBaseAnimSet` link on the core set,
- * because it means the same thing one level up.
+ * `.ans`'s own `snoBaseAnimSet` link is not a set of its own: the import folds
+ * the base chain's rows into these maps, in the order the runtime would reach
+ * them.
  */
 struct AnimSet {
     std::string name;

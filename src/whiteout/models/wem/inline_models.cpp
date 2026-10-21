@@ -423,6 +423,151 @@ void Place(Document& document, u32 into, u32 attachment, u32 from, Adopted& adop
     FinishExtent(host.bounds);
 }
 
+/// Two explicit-bind trees can hold each other's poses only by the same schema.
+bool SameSchema(const NodeTree& a, const NodeTree& b) {
+    if (a.poseSchema.size() != b.poseSchema.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < a.poseSchema.size(); ++i) {
+        const PoseSchema& x = a.poseSchema[i];
+        const PoseSchema& y = b.poseSchema[i];
+        if (x.name != y.name || x.space != y.space || x.inverse != y.inverse || x.storage != y.storage) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// An explicit bind has rest rotations to parent under, so the model goes
+/// under the attachment itself and follows it, keys untouched. What moves is
+/// what is stated in model space — the points and every model-space pose — by
+/// the attachment's world bind W, the shipped binds composed rather than
+/// rederived: `p W` skinned by `W^-1 B^-1` and `world * A(t)` is `p B^-1 world
+/// A(t)`, the model riding the attachment, whatever W the bind took.
+void PlaceExplicit(Document& document, u32 into, u32 attachment, u32 from, Adopted& adopted, u32& nextChannel,
+                   Diagnostics& diagnostics) {
+    const Model& model = document.models[from];
+    NodeTree nodes = model.nodes;
+    std::vector<Mesh> meshes = model.meshes;
+    AnimChannelTable channels = model.animChannels;
+
+    Model& host = document.models[into];
+    const u32 base = host.nodes.size();
+    const u32 meshBase = static_cast<u32>(host.meshes.size());
+    std::vector<u32> remap(nodes.size());
+    std::iota(remap.begin(), remap.end(), base);
+    NodeReferencers referencers;
+    referencers.meshes = meshes;
+    referencers.channels = &channels;
+    RemapNodeReferencers(nodes, remap, referencers, diagnostics);
+
+    const std::string prefix = host.nodes.nodes[attachment].name;
+    const Matrix44f placed = ToMatrix(host.nodes.worldBind(attachment));
+    const Matrix44f unplaced = Matrix44f::inverse(placed);
+    const Quaternion turn = FromMatrix(placed).rotation.normalized();
+    const bool schema = SameSchema(host.nodes, nodes);
+
+    for (u32 k = 0; k < nodes.size(); ++k) {
+        Node node = std::move(nodes.nodes[k]);
+        node.parent = node.parent >= nodes.size() ? attachment : base + node.parent;
+        node.name = Behind(prefix, node.name);
+        if (!schema) {
+            // Rebuilt from the rest chain under the attachment by `conformPoses`.
+            node.poses.clear();
+            node.poseMatrices.clear();
+        }
+        for (std::size_t i = 0; schema && i < host.nodes.poseSchema.size() && i < node.poses.size(); ++i) {
+            const PoseSchema& entry = host.nodes.poseSchema[i];
+            if (entry.space != PoseSpace::Model) {
+                continue; // parent-relative: the attachment is the root's parent now
+            }
+            const bool stored = entry.storage == PoseStorage::Matrix && i < node.poseMatrices.size();
+            const Matrix44f value = stored ? node.poseMatrices[i] : ToMatrix(node.poses[i]);
+            const Matrix44f moved = entry.inverse ? unplaced * value : value * placed;
+            if (stored) {
+                node.poseMatrices[i] = moved;
+            }
+            node.poses[i] = FromMatrix(moved);
+        }
+        if (node.kind == NodeKind::Camera) {
+            node.kind = NodeKind::Helper;
+            node.resetPayloadForKind();
+        } else if (auto* attached = std::get_if<AttachmentPayload>(&node.payload)) {
+            attached->model = kInvalidIndex;
+        } else if (auto* ribbon = std::get_if<Wc3RibbonEmitterPayload>(&node.payload)) {
+            ribbon->materialSlot =
+                ribbon->materialSlot < adopted.slots.size() ? adopted.slots[ribbon->materialSlot] : 0u;
+        }
+        host.nodes.add(std::move(node));
+    }
+    if (!schema) {
+        host.nodes.conformPoses();
+    }
+
+    for (Mesh& mesh : meshes) {
+        mesh.name = Behind(prefix, mesh.name);
+        DropSoftLayers(mesh);
+        for (Vector3f& p : mesh.attributes.get<Vector3f>(geom::names::kPosition, geom::Domain::Vertex)) {
+            p = whiteout::transform_point(p, placed);
+        }
+        for (const geom::Domain domain : {geom::Domain::Vertex, geom::Domain::Halfedge}) {
+            for (Vector3f& n : mesh.attributes.get<Vector3f>(geom::names::kNormal, domain)) {
+                n = turn.rotate_vector(n);
+            }
+            for (std::array<f32, 4>& t : mesh.attributes.get<std::array<f32, 4>>(geom::names::kTangent, domain)) {
+                const Vector3f axis = turn.rotate_vector(Vector3f{t[0], t[1], t[2]});
+                t = {axis.x, axis.y, axis.z, t[3]};
+            }
+        }
+        for (MeshSection& section : mesh.sections) {
+            section.materialSlot = section.materialSlot < adopted.slots.size() ? adopted.slots[section.materialSlot] : 0u;
+            if (!section.name.empty()) {
+                section.name = Behind(prefix, section.name);
+            }
+        }
+        mesh.recomputeBounds();
+        host.meshes.push_back(std::move(mesh));
+    }
+
+    // Its node and section channels as they are: the keys are its parent's
+    // frame, which the attachment now is. The material ones came in once.
+    std::unordered_map<u32, u32> ids;
+    for (AnimChannel channel : channels.channels) {
+        if (IsMaterialTarget(channel.target.kind) || IsPhysicsChannel(channel.target) ||
+            IsStageChannel(channel.target)) {
+            continue;
+        }
+        if (channel.target.kind == TrackTarget::Kind::Section) {
+            channel.target.mesh += meshBase;
+        } else if (channel.target.kind == TrackTarget::Kind::Node &&
+                   (channel.target.node < base || channel.target.node - base >= nodes.size())) {
+            continue;
+        }
+        ids[channel.id] = nextChannel;
+        channel.id = nextChannel++;
+        host.animChannels.add(channel);
+    }
+    for (const auto& [source, loop] : adopted.loops) {
+        for (std::size_t c = 0; c < document.clips[source].containers.size(); ++c) {
+            for (SubTrack track : document.clips[source].containers[c].subTracks) {
+                if (const auto it = ids.find(track.channel); it != ids.end()) {
+                    track.channel = it->second;
+                    document.clips[loop].containers[c].subTracks.push_back(std::move(track));
+                }
+            }
+        }
+    }
+
+    for (u32 m = meshBase; m < host.meshes.size(); ++m) {
+        const Extent& bounds = host.meshes[m].bounds;
+        if (bounds.valid()) {
+            GrowExtent(host.bounds, bounds.minimum);
+            GrowExtent(host.bounds, bounds.maximum);
+        }
+    }
+    FinishExtent(host.bounds);
+}
+
 } // namespace
 
 InlineReport InlineAttachedModels(Document& document, u32 into) {
@@ -443,12 +588,7 @@ InlineReport InlineAttachedModels(Document& document, u32 into) {
     if (placements.empty()) {
         return report;
     }
-    if (tree.rig != RigConvention::PivotRelative) {
-        report.diagnostics.warn(DiagCode::OperationUnsupported,
-                                "the attached models stay out: the model is not a pivot rig",
-                                ElementRef(ElementKind::Document, 0));
-        return report;
-    }
+    const RigConvention rig = tree.rig;
 
     u32 nextChannel = document.models[into].animChannels.nextFreeId();
     std::map<u32, Adopted> adopted;
@@ -456,7 +596,7 @@ InlineReport InlineAttachedModels(Document& document, u32 into) {
     u32 unplayed = 0;
     for (const auto& [attachment, from] : placements) {
         const Model& model = document.models[from];
-        if (model.nodes.rig != RigConvention::PivotRelative) {
+        if (model.nodes.rig != rig) {
             ++skipped;
             continue;
         }
@@ -466,7 +606,11 @@ InlineReport InlineAttachedModels(Document& document, u32 into) {
             ++report.models;
             unplayed += model.physics.empty() && model.poseStages.empty() ? 0u : 1u;
         }
-        Place(document, into, attachment, from, it->second, nextChannel, report.diagnostics);
+        if (rig == RigConvention::PivotRelative) {
+            Place(document, into, attachment, from, it->second, nextChannel, report.diagnostics);
+        } else {
+            PlaceExplicit(document, into, attachment, from, it->second, nextChannel, report.diagnostics);
+        }
         std::get<AttachmentPayload>(document.models[into].nodes.nodes[attachment].payload).model = kInvalidIndex;
         ++report.placements;
     }
@@ -481,7 +625,8 @@ InlineReport InlineAttachedModels(Document& document, u32 into) {
     }
     if (skipped != 0) {
         report.diagnostics.warn(DiagCode::OperationUnsupported,
-                                std::to_string(skipped) + " placement(s) stay out: their model is not a pivot rig",
+                                std::to_string(skipped) +
+                                    " placement(s) stay out: their model's rig is not the host's kind",
                                 ElementRef(ElementKind::Document, 0));
     }
     if (unplayed != 0) {

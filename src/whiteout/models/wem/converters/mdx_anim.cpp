@@ -2680,10 +2680,17 @@ private:
     }
 
     /// A turning UV, keyed at the quarter turns a slerp needs
-    /// (`mdx_uv::TurnKeysOf`). The turn shares whatever period the scroll
-    /// chose, and takes one whole turn's when nothing scrolls.
+    /// (`mdx_uv::TurnKeysOf`). The turn shares the period the scroll chose
+    /// when it makes a whole number of turns in it, and otherwise takes one
+    /// whole turn's: rounding it onto the scroll's would change its speed.
     void emitUvRotation(mdx::TextureAnimation& animation, f32 radiansPerSecond, f32 standingAngle,
                         u32 globalSequence) {
+        if (globalSequence != kNoGlobalSequence) {
+            const f32 turns = mdx_uv::TurnsIn(radiansPerSecond, out_.globalSequences[globalSequence]);
+            if (turns < 0.5f || std::abs(turns - std::round(turns)) > 0.02f * turns) {
+                globalSequence = kNoGlobalSequence;
+            }
+        }
         if (globalSequence == kNoGlobalSequence) {
             globalSequence = globalSequenceOf(mdx_uv::TurnPeriod(radiansPerSecond));
         }

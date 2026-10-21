@@ -716,3 +716,97 @@ TEST_CASE("an attached model goes into the model where it stands, keyed on a glo
     near(whiteout::transform_point({1.0f, 0.0f, 0.0f}, Matrix44f::rotation(*frameKey).transpose()),
          {0.0f, 1.0f, 0.0f});
 }
+
+TEST_CASE("an attached model goes under the attachment of an explicit bind, its binds composed", "[wem][inline]") {
+    const auto explicitBind = [](NodeTree& tree) {
+        tree.rig = RigConvention::ExplicitBind;
+        PoseSchema inverse;
+        inverse.name = "bindInverse";
+        inverse.space = PoseSpace::Model;
+        inverse.inverse = true;
+        inverse.storage = PoseStorage::Matrix;
+        tree.poseSchema = {inverse};
+        tree.authoritativePose = 0;
+    };
+    const auto bind = [](Node& node, const Matrix44f& world) {
+        node.poseMatrices = {Matrix44f::inverse(world)};
+        node.poses = {FromMatrix(node.poseMatrices[0])};
+    };
+
+    // The host: a bone a quarter turn about +Z at (0, 0, 2), and a hand one unit
+    // along it that carries the model.
+    Document document;
+    document.models.resize(2);
+    Model& host = document.models[0];
+    explicitBind(host.nodes);
+    Node root;
+    root.name = "root";
+    root.kind = NodeKind::Bone;
+    root.resetPayloadForKind();
+    root.local.translation = {0.0f, 0.0f, 2.0f};
+    root.local.rotation = {0.0f, 0.0f, 0.70710678f, 0.70710678f};
+    bind(root, ToMatrix(root.local));
+    host.nodes.add(root);
+    Node hand;
+    hand.name = "hand";
+    hand.kind = NodeKind::Attachment;
+    hand.resetPayloadForKind();
+    hand.parent = 0;
+    hand.local.translation = {1.0f, 0.0f, 0.0f};
+    bind(hand, ToMatrix(hand.local) * ToMatrix(root.local));
+    std::get<AttachmentPayload>(hand.payload).model = 1;
+    const u32 attachment = host.nodes.add(hand);
+
+    // The child: a bone whose shipped bind is off its rest chain, as Diablo
+    // III's often are, and a point it carries.
+    Model& child = document.models[1];
+    child.name = "wings";
+    explicitBind(child.nodes);
+    Node wing;
+    wing.name = "wing";
+    wing.kind = NodeKind::Bone;
+    wing.resetPayloadForKind();
+    wing.local.translation = {0.0f, 1.0f, 0.0f};
+    bind(wing, Matrix44f::translation({0.0f, 1.5f, 0.0f}));
+    child.nodes.add(wing);
+    Mesh mesh;
+    geom::FaceSet faces;
+    faces.vertexCount = 3;
+    faces.addTriangle(0, 1, 2);
+    mesh.setFaceSet(faces);
+    const std::span<Vector3f> points =
+        mesh.attributes.getOrCreate<Vector3f>(geom::names::kPosition, geom::Domain::Vertex, geom::AttrType::F32x3);
+    REQUIRE(points.size() == 3);
+    points[0] = {0.0f, 2.0f, 0.0f};
+    points[1] = {1.0f, 2.0f, 0.0f};
+    points[2] = {0.0f, 2.0f, 1.0f};
+    child.meshes.push_back(mesh);
+    const Vector3f point = points[1];
+    const Matrix44f childSkin = child.nodes.inverseBindMatrix(0) * ToMatrix(child.nodes.worldBind(0));
+
+    const InlineReport report = InlineAttachedModels(document, 0);
+    CHECK(report.placements == 1);
+    const Model& model = document.models[0];
+    REQUIRE(model.nodes.size() == 3);
+    REQUIRE(model.meshes.size() == 1);
+    const u32 placed = 2;
+    CHECK(model.nodes.nodes[placed].parent == attachment);
+    CHECK(model.nodes.nodes[placed].name == "hand wing");
+
+    // At rest the inlined point skins to where the child's own skin puts it,
+    // carried by the hand.
+    const Vector3f moved =
+        model.meshes[0].attributes.get<const Vector3f>(geom::names::kPosition, geom::Domain::Vertex)[1];
+    const Vector3f skinned = whiteout::transform_point(
+        moved, model.nodes.inverseBindMatrix(placed) * ToMatrix(model.nodes.worldBind(placed)));
+    const Vector3f expected =
+        whiteout::transform_point(point, childSkin * ToMatrix(model.nodes.worldBind(attachment)));
+    CHECK(skinned.x == Catch::Approx(expected.x).margin(1e-4));
+    CHECK(skinned.y == Catch::Approx(expected.y).margin(1e-4));
+    CHECK(skinned.z == Catch::Approx(expected.z).margin(1e-4));
+    // The shipped bind is kept, not rederived from the rest chain.
+    const Vector3f restSkinned = whiteout::transform_point(
+        moved, Matrix44f::inverse(ToMatrix(model.nodes.worldBind(placed))) *
+                   ToMatrix(model.nodes.worldBind(placed)));
+    CHECK(std::abs(restSkinned.y - skinned.y) + std::abs(restSkinned.x - skinned.x) > 0.1f);
+}

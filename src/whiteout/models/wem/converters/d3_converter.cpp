@@ -272,17 +272,23 @@ NodeBuild ImportNodes(const d3n::Appearances& source, Diagnostics& out) {
     }
 
     // A hardpoint is skeleton-relative data shipped with the skeleton, so it is
-    // a node of the model and not a field of whatever rides it.
+    // a node of the model and not a field of whatever rides it. Its frame is
+    // stated in bind A's space, and the engine composes it against its bone's
+    // `tTransform1` first (`d3_effect_resolver`); `local` holds it inside the
+    // bone, as every reader of `local` takes it. Read as it ships, every
+    // hardpoint sat at twice its height: Hope's wings hung above her head.
     for (const d3n::Hardpoint& hardpoint : source.arHardpoints) {
         Node node;
         node.name = hardpoint.szName;
         node.kind = NodeKind::Attachment;
         node.resetPayloadForKind();
-        node.parent =
-            hardpoint.nBoneIndex >= 0 && static_cast<u32>(hardpoint.nBoneIndex) < boneCount
-                ? build.boneToNode[static_cast<u32>(hardpoint.nBoneIndex)]
-                : kInvalidNode;
+        const bool onBone = hardpoint.nBoneIndex >= 0 && static_cast<u32>(hardpoint.nBoneIndex) < boneCount;
+        node.parent = onBone ? build.boneToNode[static_cast<u32>(hardpoint.nBoneIndex)] : kInvalidNode;
         node.local = ToTransform(hardpoint.tTransform);
+        if (onBone) {
+            node.local = Compose(ToTransform(source.arBones[static_cast<u32>(hardpoint.nBoneIndex)].tTransform1),
+                                 node.local);
+        }
         tree.add(std::move(node));
     }
 
@@ -1217,10 +1223,52 @@ Result<u32> D3Converter::importAnimSet(Document& document, u32 model, i32 snoId,
         return first;
     };
 
+    // A tag no map of this set names falls through to its base set
+    // (`AnimSet_ResolveAnimByTag` @0x710060C5D0: the weapon map, then core, then
+    // the same in the set at +12), and 378 of 3,212 shipped sets name one. The
+    // chain is folded in here: a base row joins a map when nothing earlier in
+    // the chain answered its tag — for a weapon map, neither that map nor the
+    // core of a set before it, since core is what a weapon map falls back to.
+    std::vector<const d3n::AnimSet*> chain{source};
+    while (chain.size() < 8) {
+        const d3n::AnimSet* back = chain.back();
+        if (!back->snoBaseAnimSet.valid() || back->snoBaseAnimSet.id == back->dwSnoId) {
+            break;
+        }
+        const d3n::AnimSet* base = assets.animSet(back->snoBaseAnimSet.id);
+        if (base == nullptr || std::find(chain.begin(), chain.end(), base) != chain.end()) {
+            break;
+        }
+        chain.push_back(base);
+    }
+    const auto rowsOf = [&](std::size_t m) {
+        std::vector<d3n::AnimSetTagMapEntry> rows;
+        std::vector<i32> answered;
+        const auto taken = [&](i32 tag) {
+            return std::find(answered.begin(), answered.end(), tag) != answered.end();
+        };
+        for (const d3n::AnimSet* set : chain) {
+            for (const d3n::AnimSetTagMapEntry& row : set->*(kTagMaps[m].field)) {
+                if (row.snoAnim.valid() && !taken(row.dwTagId)) {
+                    rows.push_back(row);
+                    answered.push_back(row.dwTagId);
+                }
+            }
+            if (m != 0) {
+                for (const d3n::AnimSetTagMapEntry& row : set->tCoreTagMap) {
+                    if (row.snoAnim.valid() && !taken(row.dwTagId)) {
+                        answered.push_back(row.dwTagId);
+                    }
+                }
+            }
+        }
+        return rows;
+    };
+
     const u32 core = static_cast<u32>(document.animSets.size());
     u32 unresolved = 0;
     for (std::size_t m = 0; m < sizeof(kTagMaps) / sizeof(kTagMaps[0]); ++m) {
-        const std::vector<d3n::AnimSetTagMapEntry>& rows = source->*(kTagMaps[m].field);
+        const std::vector<d3n::AnimSetTagMapEntry> rows = rowsOf(m);
         if (m != 0 && rows.empty()) {
             continue; // Only the core map is worth an empty set.
         }
@@ -1230,9 +1278,6 @@ Result<u32> D3Converter::importAnimSet(Document& document, u32 model, i32 snoId,
         // a tag uses core's, which is what `baseAnimSet` means.
         set.baseAnimSet = m == 0 ? kInvalidIndex : core;
         for (const d3n::AnimSetTagMapEntry& row : rows) {
-            if (!row.snoAnim.valid()) {
-                continue;
-            }
             const u32 clip = clipFor(row.snoAnim.id);
             if (clip == kInvalidIndex) {
                 ++unresolved;
@@ -1567,7 +1612,18 @@ private:
             d3n::Hardpoint point;
             point.szName = node.name;
             point.nBoneIndex = static_cast<i32>(nearestBone(n));
-            point.tTransform = FromTransformPR(node.local);
+            // Back into bind A's space, through what stands between it and
+            // its bone (the import's inverse).
+            Transform frame = node.local;
+            u32 up = node.parent;
+            while (up < tree.size() && boneOf_[up] == kInvalidIndex) {
+                frame = Compose(tree.nodes[up].local, frame);
+                up = tree.nodes[up].parent;
+            }
+            if (up < tree.size()) {
+                frame = Compose(Inverse(ToTransform(appearance.arBones[boneOf_[up]].tTransform1)), frame);
+            }
+            point.tTransform = FromTransformPR(frame);
             appearance.arHardpoints.push_back(std::move(point));
         }
 

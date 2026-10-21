@@ -539,6 +539,12 @@ private:
             for (int round = 0; round < 3; ++round) {
                 reassign();
             }
+            // The rounds drop a bone nobody chose: when they took back every
+            // bone this split made, the next split is the same one again, and
+            // the stage has what it can hold.
+            if (bones() <= before) {
+                break;
+            }
         }
         if (seeds_.size() < bones()) {
             updatePivots();

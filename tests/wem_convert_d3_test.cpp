@@ -253,6 +253,9 @@ TEST_CASE("wem d3 hardpoints and static lights are nodes", "[wem][convert][d3]")
     // A hardpoint is skeleton-relative, so it is a child of its bone.
     CHECK(hardpoint->parent == 1);
     CHECK(hardpoint->local.translation.z == 5.0f);
+    // Stated in bind A's space, it is held inside its bone: composed against
+    // the bone's `tTransform1` (here a move of 11 along x).
+    CHECK(hardpoint->local.translation.x == 11.0f);
     // Nothing rides it yet: the asset is what an actor's event supplies.
     const AttachmentPayload& payload = std::get<AttachmentPayload>(hardpoint->payload);
     CHECK(payload.asset.empty());
@@ -659,6 +662,8 @@ TEST_CASE("wem d3 a model comes back as an appearance", "[wem][convert][d3]") {
     CHECK(back.arHardpoints[0].szName == "HP_head");
     CHECK(back.arHardpoints[0].nBoneIndex == 1);
     CHECK(back.arHardpoints[0].tTransform.vTranslation.z == Catch::Approx(5.0f));
+    // Back out of its bone into bind A's space.
+    CHECK(back.arHardpoints[0].tTransform.vTranslation.x == Catch::Approx(0.0f));
 
     REQUIRE(back.arStaticLights.size() == 1);
     CHECK(back.arStaticLights[0].nType == 1);

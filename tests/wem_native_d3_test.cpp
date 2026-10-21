@@ -168,7 +168,8 @@ TEST_CASE("wem the d3 converter emits an authoritative block", "[wem][materials]
     variant.tMaterial.arTextures[0].dwSlotIndex = 1;  // diffuse
     variant.tMaterial.arTextures[0].snoTexture.id = 500;
     variant.tMaterial.arTextures[0].snoTexture.group = d3n::Group::Textures;
-    variant.tMaterial.arTextures[0].dwTextureType = 0x3; // wrap, wrap
+    // Random U and V phase (`MatTex_InitUvState`), not the address modes.
+    variant.tMaterial.arTextures[0].dwTextureType = 0x3;
     variant.tMaterial.arTextures[1].dwSlotIndex = 3;  // normal
     variant.tMaterial.arTextures[1].snoTexture.id = 501;
     variant.tMaterial.arTextures[1].snoTexture.group = d3n::Group::Textures;
@@ -202,8 +203,9 @@ TEST_CASE("wem the d3 converter emits an authoritative block", "[wem][materials]
     REQUIRE(body != nullptr);
     REQUIRE(body->find(LegacySlot::Diffuse) != nullptr);
     REQUIRE(body->find(LegacySlot::Normal) != nullptr);
+    // The address modes are the pass's, and a type no pass lists wraps.
     CHECK(body->find(LegacySlot::Diffuse)->wrapU == WrapMode::Repeat);
-    CHECK(body->find(LegacySlot::Normal)->wrapU == WrapMode::Clamp);
+    CHECK(body->find(LegacySlot::Normal)->wrapU == WrapMode::Repeat);
     // Two textures, two document entries, in first-use order.
     REQUIRE(context.texturesBySno.size() == 2);
     CHECK(context.texturesBySno[0].first == 500u);

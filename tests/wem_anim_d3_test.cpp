@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <whiteout/models/wem/anim/track_read.h>
@@ -76,6 +77,7 @@ d3n::Appearances makeAppearance() {
 d3n::Anim makeAnim() {
     d3n::Anim anim;
     anim.dwSnoId = 2000;
+    anim.dwFlags2 = 2; // an idle loops: the loop mode, `Anim+16`
 
     d3n::AnimPermutation permutation;
     permutation.szName = "Idle_01";
@@ -169,6 +171,83 @@ TEST_CASE("wem d3 a permutation's speed scalar survives the round trip", "[wem][
     REQUIRE(back.size() == 1u);
     REQUIRE(back[0].arPermutations.size() == 1u);
     CHECK(back[0].arPermutations[0].flSpeedScalar == 0.75f);
+}
+
+TEST_CASE("wem d3 a clip loops by its anim's loop mode, both ways", "[wem][anim][d3]") {
+    for (const i32 mode : {0, 2}) {
+        d3n::Anim anim = makeAnim();
+        anim.dwFlags2 = mode;
+        Document document = convertAppearance(makeAppearance());
+        Diagnostics report;
+        const std::vector<u32> clips = d3_anim::ImportAnim(anim, document, 0, report);
+        REQUIRE(clips.size() == 1u);
+        CHECK(document.clips[clips[0]].looping == (mode == 2));
+        // The bake reads the same answer, not the clip's name.
+        CHECK(BakeLoops(document.clips[clips[0]]) == (mode == 2));
+        const std::vector<d3n::Anim> back = d3_anim::ExportAnims(document, 0, report);
+        REQUIRE(back.size() == 1u);
+        CHECK(back[0].dwFlags2 == mode);
+    }
+}
+
+TEST_CASE("wem d3 a clip keeps its rate when its duration changes", "[wem][anim][d3]") {
+    Document document = convertAppearance(makeAppearance());
+    Diagnostics report;
+    const std::vector<u32> clips = d3_anim::ImportAnim(makeAnim(), document, 0, report);
+    REQUIRE(clips.size() == 1u);
+    // An edit, or a collapse's hold, lengthens it to two seconds.
+    document.clips[clips[0]].duration = 2.0f;
+
+    const std::vector<d3n::Anim> back = d3_anim::ExportAnims(document, 0, report);
+    REQUIRE(back.size() == 1u);
+    REQUIRE(back[0].arPermutations.size() == 1u);
+    const d3n::AnimPermutation& permutation = back[0].arPermutations[0];
+    CHECK(permutation.flFramesPerTick == 0.5f);
+    CHECK(permutation.dwFrameCount == 61);
+    // The last key stays on frame 30, where it was.
+    REQUIRE_FALSE(permutation.arTranslationCurves.empty());
+    CHECK(permutation.arTranslationCurves[0].arKeys.back().nFrame == 30);
+}
+
+TEST_CASE("wem d3 a keyframed attachment keeps its dispatch through a round trip",
+          "[wem][anim][d3]") {
+    d3n::Anim anim = makeAnim();
+    d3n::KeyframedAttachment attachment;
+    attachment.flFrame = 15.0f;
+    attachment.tEvent.eTriggerType = 25;
+    attachment.tEvent.ePayloadKind = 1;
+    attachment.tEvent.tConditions.nChance = 200;
+    attachment.tEvent.tPayload.eSnoGroup = 27;
+    attachment.tEvent.tPayload.dwNameHandle = 4242;
+    attachment.tEvent.tHardpoint0.szName = "HP_Right_Hand";
+    anim.arPermutations[0].arAttachments.push_back(attachment);
+    anim.arPermutations[0].dwAttachmentCount = 1;
+
+    Document document = convertAppearance(makeAppearance());
+    Diagnostics report;
+    REQUIRE(d3_anim::ImportAnim(anim, document, 0, report).size() == 1u);
+    const std::vector<d3n::Anim> back = d3_anim::ExportAnims(document, 0, report);
+    REQUIRE(back.size() == 1u);
+    REQUIRE(back[0].arPermutations[0].arAttachments.size() == 1u);
+    const d3n::TriggerEvent& event = back[0].arPermutations[0].arAttachments[0].tEvent;
+    CHECK(event.eTriggerType == 25);
+    CHECK(event.ePayloadKind == 1);
+    CHECK(event.tConditions.nChance == 200);
+    CHECK(event.tPayload.eSnoGroup == 27);
+    CHECK(event.tPayload.dwNameHandle == 4242);
+}
+
+TEST_CASE("wem d3 a clip states its travel and its blend", "[wem][anim][d3]") {
+    d3n::Anim anim = makeAnim();
+    anim.arPermutations[0].vMovementVelocity = Vector3f{0.1f, 0.0f, 0.0f}; // per tick
+    anim.arPermutations[0].nBlendTicksFromOtherAnim = 8;
+    Document document = convertAppearance(makeAppearance());
+    Diagnostics report;
+    const std::vector<u32> clips = d3_anim::ImportAnim(anim, document, 0, report);
+    REQUIRE(clips.size() == 1u);
+    const Clip& clip = document.clips[clips[0]];
+    CHECK(ClipMoveSpeed(clip) == Catch::Approx(6.0f));
+    CHECK(clip.native.value("blendTime", 0) == 133);
 }
 
 TEST_CASE("wem d3 bones bind by name, case-insensitively, and a miss is skipped",

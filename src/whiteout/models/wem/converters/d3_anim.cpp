@@ -67,6 +67,32 @@ void AppendBytes(const T& value, std::vector<u8>& out) {
     out.insert(out.end(), raw, raw + sizeof(T));
 }
 
+/// A keyframed event's dispatch, a byte each into `ClipEvent::extra` (an `.m3`
+/// key's spare word, which no D3 field otherwise fills): trigger type, payload
+/// group, payload kind, chance. Bit 7 marks it written (trigger types stop at
+/// 27), so an event from another format reads as an always-firing spawn rather
+/// than as never.
+constexpr u32 kTriggerPacked = 0x80u;
+
+u32 PackTrigger(const d3n::TriggerEvent& event) {
+    return kTriggerPacked | (static_cast<u32>(event.eTriggerType) & 0x7Fu) |
+           ((static_cast<u32>(event.tPayload.eSnoGroup) & 0xFFu) << 8) |
+           ((static_cast<u32>(event.ePayloadKind) & 0xFFu) << 16) |
+           ((static_cast<u32>(event.tConditions.nChance) & 0xFFu) << 24);
+}
+
+void UnpackTrigger(u32 packed, d3n::TriggerEvent& event) {
+    if ((packed & kTriggerPacked) == 0) {
+        event.tConditions.nChance = 255;
+        return;
+    }
+    event.eTriggerType = static_cast<i32>(packed & 0x7Fu);
+    const u32 group = (packed >> 8) & 0xFFu;
+    event.tPayload.eSnoGroup = group == 0xFFu ? -1 : static_cast<i32>(group);
+    event.ePayloadKind = static_cast<i32>((packed >> 16) & 0xFFu);
+    event.tConditions.nChance = static_cast<i32>((packed >> 24) & 0xFFu);
+}
+
 class Builder {
 public:
     Builder(const d3n::Anim& source, Document& document, u32 modelIndex, Diagnostics& out)
@@ -100,7 +126,11 @@ private:
         clip.duration = permutation.dwFrameCount > 1
                             ? static_cast<f32>(permutation.dwFrameCount - 1) / fps
                             : 0.0f;
-        clip.looping = true;
+        // The loop mode, `Anim+16`: 2 wraps, 0 plays once and holds its last
+        // frame (`sub_710041A420` copies it into the play request). 10,932 of
+        // 15,235 shipped clips play once; no other value ships.
+        clip.looping = source_.dwFlags2 == 2;
+        clip.native.set("loopMode", static_cast<i64>(source_.dwFlags2));
         clip.native.set("animSnoId", static_cast<i64>(source_.dwSnoId));
         clip.native.set("flags", static_cast<i64>(permutation.dwFlags));
         clip.native.set("selectionWeight", static_cast<i64>(permutation.dwSelectionWeight));
@@ -108,8 +138,21 @@ private:
                         static_cast<i64>(permutation.nBlendTicksFromOtherAnim));
         clip.native.set("blendTicksSamePermSwap",
                         static_cast<i64>(permutation.nBlendTicksSamePermSwap));
+        // What a switch into this clip blends over, in the milliseconds the
+        // other formats' exports read: ticks at 1/60 s, clamped to the clip.
+        clip.native.set("blendTime",
+                        static_cast<i64>(std::min(
+                            static_cast<f32>(std::max(0, permutation.nBlendTicksFromOtherAnim)) *
+                                (1000.0f / 60.0f),
+                            clip.duration * 1000.0f)));
         SetMilli(clip.native, "speedScalarMilli", permutation.flSpeedScalar);
         clip.native.set("frameCount", static_cast<i64>(permutation.dwFrameCount));
+        // The rate itself, so a clip whose duration an edit (or a collapse's
+        // hold) changes still writes back at the rate it was keyed at.
+        SetMilli(clip.native, "framesPerSecondMilli", fps);
+        // Per tick, as `Anim_GetMovementVelocity` @0x710041A8E0 reads it: the
+        // walk that drives a gait threshold, in document units a second.
+        SetClipMoveSpeed(clip, permutation.vMovementVelocity.x * 60.0f);
 
         SubTrackContainer container;
         container.name = "base";
@@ -250,6 +293,10 @@ private:
             event.name = attachment.tEvent.tHardpoint0.szName;
             event.value = static_cast<u32>(attachment.tEvent.tPayload.dwNameHandle);
             event.node = attachmentNamed(attachment.tEvent.tHardpoint0.szName);
+            // What the runtime dispatches on beside the payload, a byte each:
+            // the trigger type, the payload's group, its kind and the chance
+            // (`nChance` 0 never fires). A replay that drops them fires nothing.
+            event.extra = PackTrigger(attachment.tEvent);
             clip.events.push_back(std::move(event));
         }
     }
@@ -378,20 +425,20 @@ public:
             static_cast<i32>(clip_.native.value("blendTicksSamePermSwap", 0));
         out.flSpeedScalar = Milli(clip_.native, "speedScalarMilli", 1.0f);
 
-        // The rate the import derived the times with, recovered from the frame
-        // count and the duration rather than stored: `fps = flFramesPerTick*60`
-        // is what turned frames into seconds, and `(frameCount - 1) / fps` is
-        // the duration, so the pair inverts exactly. A clip that never came
-        // from an `.ani` has no frame count, and 30 fps is then the rate the
-        // times are quantised at — stated, not inferred.
+        // The rate the import keyed the times at, stored with it; the frame
+        // count follows the duration as it is now, which an edit or a
+        // collapse's hold may have moved. A document written before the rate
+        // was stored recovers it from the frame count and the duration it
+        // imported with, and a clip that never came from an `.ani` takes 30
+        // fps — stated, not inferred.
         const i64 frames = clip_.native.value("frameCount", 0);
-        f32 fps = kDefaultFps;
-        if (frames > 1 && clip_.duration > 0.0f) {
-            fps = static_cast<f32>(frames - 1) / clip_.duration;
+        f32 fps = Milli(clip_.native, "framesPerSecondMilli", 0.0f);
+        if (fps <= 0.0f) {
+            fps = frames > 1 && clip_.duration > 0.0f ? static_cast<f32>(frames - 1) / clip_.duration
+                                                      : kDefaultFps;
         }
         out.flFramesPerTick = fps / 60.0f;
-        out.dwFrameCount =
-            frames > 0 ? static_cast<i32>(frames) : static_cast<i32>(clip_.duration * fps) + 1;
+        out.dwFrameCount = static_cast<i32>(std::lround(clip_.duration * fps)) + 1;
 
         bool snapped = false;
         for (const SubTrackContainer& container : clip_.containers) {
@@ -508,6 +555,7 @@ private:
             attachment.flFrame = event.time * fps;
             attachment.tEvent.tHardpoint0.szName = event.name;
             attachment.tEvent.tPayload.dwNameHandle = static_cast<i32>(event.value);
+            UnpackTrigger(event.extra, attachment.tEvent);
             out.arAttachments.push_back(std::move(attachment));
         }
     }
@@ -558,6 +606,8 @@ std::vector<d3n::Anim> ExportAnims(const Document& document, u32 model, Diagnost
         if (!found) {
             d3n::Anim anim;
             anim.dwSnoId = id;
+            // The loop mode is the animation's, its permutations' alike.
+            anim.dwFlags2 = clip.looping ? 2 : 0;
             anims.push_back(std::move(anim));
             byId.emplace_back(id, at);
         }
