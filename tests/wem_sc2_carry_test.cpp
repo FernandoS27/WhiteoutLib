@@ -597,10 +597,11 @@ TEST_CASE("wem a .wem written before S1 reads with none of its blocks", "[wem][f
     // CTSU v1: no opacity, after the priority.
     CHECK(forgeAfter(bytes, ChunkTagTraits<ClipTrackSet>::value, kSetMarker, std::vector<u8>{0}, 1) == 1u);
     // CLEV v1: none of the rest of the key, after the value: an empty option,
-    // the identity, then extra, unknown and rtt.
+    // the identity, then extra, unknown and rtt, and v3's empty bag.
     std::vector<u8> eventTail(sizeof(Reference), 0);
     const Matrix44f identity = Matrix44f::identity();
-    for (const std::vector<u8>& part : {bytesOf(identity), bytesOf(0u), bytesOf(0xFFFFFFFFu), bytesOf(0u)}) {
+    for (const std::vector<u8>& part : {bytesOf(identity), bytesOf(0u), bytesOf(0xFFFFFFFFu), bytesOf(0u),
+                                        std::vector<u8>(sizeof(Reference), 0)}) {
         eventTail.insert(eventTail.end(), part.begin(), part.end());
     }
     CHECK(forgeAfter(bytes, ChunkTagTraits<ClipEvent>::value, kEventMarker, eventTail, 1) == 1u);

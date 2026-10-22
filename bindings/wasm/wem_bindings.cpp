@@ -330,7 +330,8 @@ EMSCRIPTEN_BINDINGS(wem) {
     enum_<whiteout::models::wem::UVMappingMode>("WemUVMappingMode")
         .value("ExplicitUV", whiteout::models::wem::UVMappingMode::ExplicitUV)
         .value("EnvSphere", whiteout::models::wem::UVMappingMode::EnvSphere)
-        .value("EnvCube", whiteout::models::wem::UVMappingMode::EnvCube);
+        .value("EnvCube", whiteout::models::wem::UVMappingMode::EnvCube)
+        .value("EnvSphereNormal", whiteout::models::wem::UVMappingMode::EnvSphereNormal);
 
     enum_<whiteout::models::wem::SurfaceChannel>("WemSurfaceChannel")
         .value("Color", whiteout::models::wem::SurfaceChannel::Color)
@@ -377,6 +378,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("Height", whiteout::models::wem::LegacySlot::Height)
         .value("Lightmap", whiteout::models::wem::LegacySlot::Lightmap)
         .value("Detail", whiteout::models::wem::LegacySlot::Detail)
+        .value("EnvironmentMask", whiteout::models::wem::LegacySlot::EnvironmentMask)
         .value("Count", whiteout::models::wem::LegacySlot::Count);
 
     enum_<whiteout::models::wem::PbrSlot>("WemPbrSlot")
@@ -1007,6 +1009,13 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("Bones", whiteout::models::wem::ClothBakeInto::Bones)
         .value("FullDetail", whiteout::models::wem::ClothBakeInto::FullDetail)
         .value("Count", whiteout::models::wem::ClothBakeInto::Count);
+
+    enum_<whiteout::models::wem::ClothDetail>("WemClothDetail")
+        .value("Low", whiteout::models::wem::ClothDetail::Low)
+        .value("Medium", whiteout::models::wem::ClothDetail::Medium)
+        .value("High", whiteout::models::wem::ClothDetail::High)
+        .value("Ultra", whiteout::models::wem::ClothDetail::Ultra)
+        .value("Full", whiteout::models::wem::ClothDetail::Full);
 
     enum_<whiteout::models::wem::RigStart>("WemRigStart")
         .value("Animated", whiteout::models::wem::RigStart::Animated)
@@ -2023,6 +2032,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("extra", &whiteout::models::wem::ClipEvent::extra)
         .property("unknown", &whiteout::models::wem::ClipEvent::unknown)
         .property("rtt", &whiteout::models::wem::ClipEvent::rtt)
+        .property("native", &whiteout::models::wem::ClipEvent::native)
     ;
 
     class_<whiteout::models::wem::ClipTrackSet>("WemClipTrackSet")

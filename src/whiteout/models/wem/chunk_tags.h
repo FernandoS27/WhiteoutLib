@@ -520,7 +520,8 @@ template <>
 struct ChunkTagTraits<ClipEvent> {
     static constexpr u32 value = kTag("CLEV");
     // v2: the rest of an `.m3` event key (EDIT_MODE_SC2_PROFILE_PLAN.md S1.5).
-    static constexpr u32 max_version = 2;
+    // v3: `native`, the trigger a Diablo III key plays by.
+    static constexpr u32 max_version = 3;
     static constexpr bool is_trivial = false;
 };
 

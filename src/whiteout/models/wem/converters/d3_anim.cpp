@@ -297,6 +297,7 @@ private:
             // the trigger type, the payload's group, its kind and the chance
             // (`nChance` 0 never fires). A replay that drops them fires nothing.
             event.extra = PackTrigger(attachment.tEvent);
+            WriteTriggerNatives(attachment.tEvent, event.native);
             clip.events.push_back(std::move(event));
         }
     }
@@ -556,6 +557,7 @@ private:
             attachment.tEvent.tHardpoint0.szName = event.name;
             attachment.tEvent.tPayload.dwNameHandle = static_cast<i32>(event.value);
             UnpackTrigger(event.extra, attachment.tEvent);
+            ReadTriggerNatives(event.native, attachment.tEvent);
             out.arAttachments.push_back(std::move(attachment));
         }
     }
@@ -625,6 +627,34 @@ std::vector<d3n::Anim> ExportAnims(const Document& document, u32 model, Diagnost
                  ElementRef(), ProfileId::Diablo3);
     }
     return anims;
+}
+
+void WriteTriggerNatives(const d3n::TriggerEvent& event, NativeBag& bag) {
+    const d3n::TriggerConditions& c = event.tConditions;
+    if (c.tmDelayMin != 0) {
+        bag.set("d3DelayTicks", static_cast<i64>(c.tmDelayMin));
+    }
+    if (c.tmDelayRange > 0) {
+        bag.set("d3DelayRangeTicks", static_cast<i64>(c.tmDelayRange));
+    }
+    if (event.dwUnknown34 != 0) {
+        bag.set("d3Key", static_cast<i64>(static_cast<u32>(event.dwUnknown34)));
+    }
+    // `dwUnknown170 ? flUnknown174 : 1` is what `TriggerEvent_Spawn` hands the
+    // system as its mode-1 driver t.
+    if (event.dwUnknown170 != 0) {
+        SetMilli(bag, "d3DriverT", event.flUnknown174);
+    }
+}
+
+void ReadTriggerNatives(const NativeBag& bag, d3n::TriggerEvent& event) {
+    event.tConditions.tmDelayMin = static_cast<i32>(bag.value("d3DelayTicks", 0));
+    event.tConditions.tmDelayRange = static_cast<i32>(bag.value("d3DelayRangeTicks", 0));
+    event.dwUnknown34 = static_cast<i32>(static_cast<u32>(bag.value("d3Key", 0)));
+    if (bag.find("d3DriverT") != nullptr) {
+        event.dwUnknown170 = 1;
+        event.flUnknown174 = Milli(bag, "d3DriverT", 1.0f);
+    }
 }
 
 } // namespace d3_anim

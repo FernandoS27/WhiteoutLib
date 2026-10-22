@@ -220,6 +220,9 @@ struct ClipEvent {
     u32 extra = 0;                                 ///< `extraParameter`.
     u32 unknown = 0xFFFFFFFFu;                     ///< As read; -1 on every shipped key.
     u32 rtt = 0;                                   ///< `rttChannelIndex`.
+    /// What a format plays the event by beside the above, format-prefixed
+    /// (`CLEV` v3): a Diablo III trigger's delay, its stop key, its driver.
+    NativeBag native{};
 
     template <class V>
     void reflect(V& v) {
@@ -232,6 +235,7 @@ struct ClipEvent {
         v.since(2).field("extra", extra);
         v.since(2).field("unknown", unknown);
         v.since(2).field("rtt", rtt);
+        v.since(3).field("native", native);
     }
 };
 

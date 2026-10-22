@@ -73,6 +73,15 @@ inline constexpr f32 kDefaultFps = 30.0f;
 std::vector<sno::d3::native::Anim> ExportAnims(const Document& document, u32 model,
                                                Diagnostics& out);
 
+/// The parts of @p event a player times and stops it by, into @p bag:
+/// `d3DelayTicks` and `d3DelayRangeTicks`, `d3Key` (what a stop of the same key
+/// ends), `d3DriverT` in thousandths when the event overrides the spawned
+/// system's mode-1 driver. Each only when it is not the default.
+void WriteTriggerNatives(const sno::d3::native::TriggerEvent& event, NativeBag& bag);
+
+/// The inverse of @ref WriteTriggerNatives.
+void ReadTriggerNatives(const NativeBag& bag, sno::d3::native::TriggerEvent& event);
+
 } // namespace d3_anim
 } // namespace wem
 } // namespace models

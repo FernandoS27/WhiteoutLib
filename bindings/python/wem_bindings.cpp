@@ -467,8 +467,9 @@ Not the same thing as a hidden *section* (`SectionFlags::Hidden`), which is why 
 
     py::enum_<whiteout::models::wem::UVMappingMode>(m, "UVMappingMode", R"doc(How a texture's coordinates are produced. Revision 2's `UVMappingMode` had one enumerator per explicit UV set *and* the projections; the set is `TextureInput::uvSet` now, so this is only the projection family.)doc")
         .value("EXPLICIT_UV", whiteout::models::wem::UVMappingMode::ExplicitUV, R"doc(Read `uvSet` from the mesh.)doc")
-        .value("ENV_SPHERE", whiteout::models::wem::UVMappingMode::EnvSphere, R"doc(MDX SphereEnvMap, M3 spherical environment.)doc")
+        .value("ENV_SPHERE", whiteout::models::wem::UVMappingMode::EnvSphere, R"doc(MDX SphereEnvMap, M3 spherical environment reflection.)doc")
         .value("ENV_CUBE", whiteout::models::wem::UVMappingMode::EnvCube, R"doc(M3 cubic environment reflection.)doc")
+        .value("ENV_SPHERE_NORMAL", whiteout::models::wem::UVMappingMode::EnvSphereNormal, R"doc(A sphere map aimed along the NORMAL, not the reflection: M3's non-reflect `SphericalEnvio`, and Diablo III's `0.5 - 0.5 * viewN.xy` (its gloss reflection and texcoord code 2). Appended; a byte on disk.)doc")
     ;
 
     py::enum_<whiteout::models::wem::SurfaceChannel>(m, "SurfaceChannel")
@@ -529,7 +530,8 @@ The kind is named for the **lighting family** (a legacy spec/gloss G-buffer), no
         .value("HEIGHT", whiteout::models::wem::LegacySlot::Height)
         .value("LIGHTMAP", whiteout::models::wem::LegacySlot::Lightmap)
         .value("DETAIL", whiteout::models::wem::LegacySlot::Detail, R"doc(A second base map lerped over the diffuse by its own alpha — Diablo III's texture type 25 (`actor2_opaque_glow_skin`: `lerp(diffuse, t25, t25.a·k)`, on 3,992 of 6,920 shipped variants) and M3's decal layer, which folds the same way. Appended because the enum is a byte on disk.)doc")
-        .value("COUNT", whiteout::models::wem::LegacySlot::Count, R"doc(A second base map lerped over the diffuse by its own alpha — Diablo III's texture type 25 (`actor2_opaque_glow_skin`: `lerp(diffuse, t25, t25.a·k)`, on 3,992 of 6,920 shipped variants) and M3's decal layer, which folds the same way. Appended because the enum is a byte on disk.)doc")
+        .value("ENVIRONMENT_MASK", whiteout::models::wem::LegacySlot::EnvironmentMask, R"doc(A per-texel weight on the environment layer — M3's envio mask, and Diablo III's gloss map (type 5), which weights its sphere-mapped reflection and lights nothing else. Appended for the same reason.)doc")
+        .value("COUNT", whiteout::models::wem::LegacySlot::Count, R"doc(A per-texel weight on the environment layer — M3's envio mask, and Diablo III's gloss map (type 5), which weights its sphere-mapped reflection and lights nothing else. Appended for the same reason.)doc")
     ;
 
     py::enum_<whiteout::models::wem::PbrSlot>(m, "PbrSlot", R"doc(Reforged's `SlotType` enum, nearly verbatim.
@@ -1244,6 +1246,14 @@ Stored, because a conversion rewrites the keys for another game and the rule has
         .value("BONES", whiteout::models::wem::ClothBakeInto::Bones)
         .value("FULL_DETAIL", whiteout::models::wem::ClothBakeInto::FullDetail)
         .value("COUNT", whiteout::models::wem::ClothBakeInto::Count)
+    ;
+
+    py::enum_<whiteout::models::wem::ClothDetail>(m, "ClothDetail", R"doc(How many bones a cloth baked in *Full detail* becomes for a target that runs no cloth (BONE_REDUCTION_RESEARCH.md §7.4): a tier fits at most its budget to the drawn faces' motion, within its error of the cloth's size.)doc")
+        .value("LOW", whiteout::models::wem::ClothDetail::Low, R"doc(24 bones, 0.5% RMS.)doc")
+        .value("MEDIUM", whiteout::models::wem::ClothDetail::Medium, R"doc(40 bones, 0.25%.)doc")
+        .value("HIGH", whiteout::models::wem::ClothDetail::High, R"doc(64 bones, 0.1%.)doc")
+        .value("ULTRA", whiteout::models::wem::ClothDetail::Ultra, R"doc(128 bones, 0.05%.)doc")
+        .value("FULL", whiteout::models::wem::ClothDetail::Full, R"doc(A bone per free particle.)doc")
     ;
 
     py::enum_<whiteout::models::wem::RigStart>(m, "RigStart", R"doc(When a rig starts simulating.)doc")

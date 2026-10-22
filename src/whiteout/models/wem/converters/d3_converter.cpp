@@ -90,6 +90,8 @@ constexpr const char* kDefaultLookName = "A";
 /// is what turns a *stop* (type 7, 2,496 actor events) into a spawn.
 constexpr i32 kTriggerSpawn = 0;
 constexpr i32 kTriggerSpawnAttached = 25;
+/// `EffectGroup_Play`, the only trigger an EffectGroup payload takes.
+constexpr i32 kTriggerPlayEffectGroup = 16;
 
 bool IEquals(const std::string& a, const std::string& b) {
     if (a.size() != b.size()) {
@@ -112,18 +114,22 @@ bool IEquals(const std::string& a, const std::string& b) {
 /// wrong: 813 shipped items are authored with `nChance == 0` and never fire at
 /// all (a decision, not a die roll); a Particle or Actor payload only ever rides
 /// trigger 0 or 25, so reading the group without the trigger turns a *stop* into
-/// a spawn; and a payload handle of -1 is no payload.
+/// a spawn; and a payload handle of -1 is no payload. An EffectGroup played
+/// there is one too: its items are what spawn.
 bool IsSpawn(const d3n::TriggerEvent& event) {
     if ((event.tConditions.nChance & 0xFF) == 0) {
-        return false;
-    }
-    if (event.eTriggerType != kTriggerSpawn && event.eTriggerType != kTriggerSpawnAttached) {
         return false;
     }
     if (event.tPayload.dwNameHandle == -1) {
         return false;
     }
     const i32 group = event.tPayload.eSnoGroup;
+    if (event.eTriggerType == kTriggerPlayEffectGroup) {
+        return group == static_cast<i32>(d3n::Group::EffectGroup);
+    }
+    if (event.eTriggerType != kTriggerSpawn && event.eTriggerType != kTriggerSpawnAttached) {
+        return false;
+    }
     return group == static_cast<i32>(d3n::Group::Actor) ||
            group == static_cast<i32>(d3n::Group::Particle);
 }
@@ -1102,6 +1108,13 @@ Result<u32> D3Converter::appendActor(Document& document, const d3n::Actor& sourc
         auto& attachPayload = std::get<AttachmentPayload>(attach.payload);
         attachPayload.asset.group = static_cast<u32>(group);
         attachPayload.asset.id = static_cast<u32>(payload);
+        // What plays it beside the payload: 25 leaves it where it spawned, the
+        // chance is out of 255, the delays are in ticks.
+        attach.native.set("d3TriggerType", static_cast<i64>(event.eTriggerType));
+        if ((event.tConditions.nChance & 0xFF) != 255) {
+            attach.native.set("d3Chance", static_cast<i64>(event.tConditions.nChance & 0xFF));
+        }
+        d3_anim::WriteTriggerNatives(event, attach.native);
 
         if (group == static_cast<i32>(d3n::Group::Actor)) {
             const d3n::Actor* child = assets.actor(payload);

@@ -34,6 +34,11 @@ constexpr u32 kOpaqueTagChain[] = {0x30850u, 0x30600u, 0x30500u};
 /// rather than a tint.
 constexpr u32 kTagLightingEnable = 0xA000Fu;
 
+/// TAG_VS_EDGEALPHA, "Vertex Alpha Function": 0 the vertex attribute, else a
+/// facing term in COLOR0.a -- 1 and 4 the rim `dot(-V, N)^2`, 2 and 5 its
+/// inverse (the renderer's `D3PassState::edgeAlpha`).
+constexpr u32 kTagEdgeAlpha = 0xA0005u;
+
 /// The Legacy stage block: three groups of six, one entry per texture stage.
 /// The two combine groups track the stage count exactly (827 passes carry entry
 /// 0, 659 entry 1, 435 entry 2, 255 entry 3, 78 entry 4, 25 entry 5). The group
@@ -779,6 +784,35 @@ Material ImportVariant(const d3n::SubObjectAppearance& variant, const std::strin
         }
         return nullptr;
     };
+
+    // A facing term in the vertex alpha fades a glow to nothing at its
+    // silhouette. The targets have only Reforged's rim, `lerp(lit, tint,
+    // w (1 - n.v)^2)`, and on an additive pass a black tint fades the same way:
+    // to nothing at the edge, if later towards the middle.
+    if (const native::D3ShaderTagValue* edge = findPassTag(kTagEdgeAlpha);
+        edge != nullptr && edge->value != 0) {
+        const bool rim = edge->value == 1 || edge->value == 4;
+        const bool adds =
+            common.blend == BlendMode::Additive || common.blend == BlendMode::AdditiveAlpha;
+        if (rim && adds) {
+            FresnelFeature fresnel;
+            fresnel.color = Vector3f{0.0f, 0.0f, 0.0f};
+            fresnel.exponent = 2.0f;
+            fresnel.outMin = 0.0f;
+            fresnel.outMax = 1.0f;
+            MaterialFeature feature;
+            feature.id = NextFeatureId(common.features);
+            feature.layer = kWholeMaterial;
+            feature.payload = fresnel;
+            common.features.push_back(feature);
+            out.info(DiagCode::FresnelFolded,
+                     name + ": its silhouette fade is a black rim, which fades later towards the middle");
+        } else {
+            out.info(DiagCode::FeatureDropped,
+                     name + ": its facing alpha (TAG_VS_EDGEALPHA " + std::to_string(edge->value) +
+                         ") has no carrier" + (rim ? " on a blended pass" : ", an inverse rim"));
+        }
+    }
 
     if (first != nullptr && findPassTag(kTagColorCombine) != nullptr) {
         // --- Combiners: the stage block IS an ordered chain -------------------

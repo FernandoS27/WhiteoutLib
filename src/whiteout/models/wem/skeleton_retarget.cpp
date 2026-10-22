@@ -584,10 +584,15 @@ void ToPivotRelative(Model& model, std::vector<Clip*>& clips, const ElementRef& 
             plan[n].inverseConjugate = Matrix44f::inverse(plan[n].conjugate);
             plan[n].pivot = TranslationOf(plan[n].inverseConjugate);
         } else {
-            // A non-bone has no bind to preserve, only its animated frame; `B = I`
-            // keeps it, and the conjugation on the parent's side is what stops
-            // that frame moving when the bones' do not.
+            // A non-bone has no bind to preserve, only its animated frame, so
+            // `B = T(-pivot)` keeps its turn and makes the pivot where it sits,
+            // as a bone's is: what hangs on it at `pivot * world` lands on it.
+            // (`B = I` parked its world bind in its keys, and that put every
+            // attachment at twice its offset.) The conjugation on the parent's
+            // side is what stops the frame moving when the bones' do not.
             plan[n].pivot = model.nodes.worldBind(n).translation;
+            SetTranslation(plan[n].conjugate, Vector3f{-plan[n].pivot.x, -plan[n].pivot.y, -plan[n].pivot.z});
+            SetTranslation(plan[n].inverseConjugate, plan[n].pivot);
         }
     }
     for (u32 n = 0; n < sourceCount; ++n) {

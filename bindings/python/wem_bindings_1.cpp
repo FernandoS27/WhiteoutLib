@@ -856,6 +856,7 @@ The node's **kind is not fixed**: MDX and `.m2` name a dedicated `Event` node, `
         .def_readwrite("extra", &whiteout::models::wem::ClipEvent::extra, R"doc(`extraParameter`.)doc")
         .def_readwrite("unknown", &whiteout::models::wem::ClipEvent::unknown, R"doc(As read; -1 on every shipped key.)doc")
         .def_readwrite("rtt", &whiteout::models::wem::ClipEvent::rtt, R"doc(`rttChannelIndex`.)doc")
+        .def_readwrite("native", &whiteout::models::wem::ClipEvent::native, R"doc(What a format plays the event by beside the above, format-prefixed (`CLEV` v3): a Diablo III trigger's delay, its stop key, its driver.)doc")
     ;
 
     py::class_<whiteout::models::wem::ClipTrackSet>(m, "ClipTrackSet", R"doc(One of the model's `TrackSet`s this clip plays on a layer of its own.
@@ -970,7 +971,7 @@ The one place WEM stores a bound it does not recompute. All four formats ship on
 
     py::class_<whiteout::models::wem::AnimSet>(m, "AnimSet", R"doc(A named (tag -> clip) map, with a fallback.
 
-D3's `.ans` is the shape this exists for: 30 tag maps in one asset, one core and 29 keyed by what the character is holding, and the runtime falls back to core when the weapon's map has no row for a tag. That is **one `AnimSet` per map**, with `baseAnimSet` pointing at the core one — the fallback field spelling the fallback, rather than a 30-wide struct nothing else could use. The same field carries `.ans`'s own `snoBaseAnimSet` link on the core set, because it means the same thing one level up.)doc")
+D3's `.ans` is the shape this exists for: 30 tag maps in one asset, one core and 29 keyed by what the character is holding, and the runtime falls back to core when the weapon's map has no row for a tag. That is **one `AnimSet` per map**, with `baseAnimSet` pointing at the core one — the fallback field spelling the fallback, rather than a 30-wide struct nothing else could use. `.ans`'s own `snoBaseAnimSet` link is not a set of its own: the import folds the base chain's rows into these maps, in the order the runtime would reach them.)doc")
         .def(py::init<>())
         .def_readwrite("name", &whiteout::models::wem::AnimSet::name)
         .def_readwrite("by_tag", &whiteout::models::wem::AnimSet::byTag)

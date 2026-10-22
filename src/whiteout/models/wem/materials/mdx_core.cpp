@@ -993,9 +993,25 @@ std::optional<Layer::FilterMode> passModeFor(CombinerOp op) {
     return std::nullopt;
 }
 
+void exportPbr(const PbrDeferredBody& body, const CommonMaterial& common, const Context& context,
+               u32 modelVersion, mdx::Material& dst, Diagnostics& out,
+               std::vector<u32>& layerOfOrdinal);
+
 void exportCombiners(const CombinersBody& body, const CommonMaterial& common,
                      const Context& context, mdx::Material& dst, Diagnostics& out,
                      std::vector<u32>& layerOfOrdinal) {
+    // A rim is an HD term, and the classic passes have none: a chain of one
+    // stage is a colour map the HD shader draws as well, so it goes out HD and
+    // keeps its rim (a Diablo III glow's silhouette fade).
+    if (common.feature(FeatureKind::Fresnel) != nullptr && body.stages.size() == 1 &&
+        body.stages[0].input.hasTexture() && body.stages[0].rgb != CombinerOp::MaskedMod &&
+        body.stages[0].rgb != CombinerOp::MaskedMod2x) {
+        PbrDeferredBody colour;
+        colour.set(PbrSlot::BaseColor, body.stages[0].input);
+        colour.emissiveFactor = Vector3f{0.0f, 0.0f, 0.0f};
+        exportPbr(colour, common, context, context.modelVersion, dst, out, layerOfOrdinal);
+        return;
+    }
     // The §7.2.2 inverse: a stage becomes a layer with the matching filter mode,
     // and the layer that starts the stack takes the material's blend rather than
     // an unconditional `None` — a chain seeded by an opaque stage still meets the
@@ -1154,8 +1170,8 @@ void exportPbr(const PbrDeferredBody& body, const CommonMaterial& common, const 
     // material's worth of vocabulary Warcraft III has and the PBR slot map does
     // not: one textured pass, lit the classic way. Crystal is left alone -- it
     // is an HD shader with a look of its own, not a default unit with fewer
-    // maps.
-    if (!crystal && isPlainColour(body)) {
+    // maps. Nor is a surface with a rim, which only the HD shader draws.
+    if (!crystal && isPlainColour(body) && common.feature(FeatureKind::Fresnel) == nullptr) {
         const TextureInput* base = textured(Layer::SlotType::DiffuseMap);
         dst.shader = kSdOnHdShader;
         layer.is_hd = false;
