@@ -325,6 +325,27 @@ TEST_CASE("wem a rescale carries a clip's move speed", "[wem][rescale]") {
     CHECK(silent.clips[0].native.empty());
 }
 
+TEST_CASE("wem a move speed keeps StarCraft II's scale, which is Warcraft III's", "[wem][rescale]") {
+    // An .m3 Walk at 180 walks at 180 in an .mdx, the model restated 100x.
+    CHECK(MoveSpeedUnitsBetween(ProfileId::Sc2, ProfileId::Wc3Reforged) == 0.01f);
+    CHECK(MoveSpeedUnitsBetween(ProfileId::Wc3Classic, ProfileId::Heroes) == 100.0f);
+    CHECK(MoveSpeedUnitsBetween(ProfileId::Wow, ProfileId::Wc3Reforged) == 1.0f);
+
+    Document document = makeRescaleDocument();
+    SetClipMoveSpeed(document.clips[0], 180.0f);
+    const f32 factor = RescaleFactorBetween(ProfileId::Sc2, ProfileId::Wc3Reforged);
+    REQUIRE(RescaleDocument(document, factor, factor * MoveSpeedUnitsBetween(ProfileId::Sc2, ProfileId::Wc3Reforged)).ok);
+    CHECK_THAT(ClipMoveSpeed(document.clips[0]), WithinAbs(180.0f, 1e-3f));
+    CHECK_THAT(document.models[0].nodes.nodes[1].local.translation.x, WithinAbs(400.0f, 1e-2f));
+
+    // Two games at one scale whose speeds are not: the speed alone moves.
+    Document wow = makeRescaleDocument();
+    SetClipMoveSpeed(wow.clips[0], 180.0f);
+    REQUIRE(RescaleDocument(wow, 1.0f, MoveSpeedUnitsBetween(ProfileId::Sc2, ProfileId::Wow)).ok);
+    CHECK_THAT(ClipMoveSpeed(wow.clips[0]), WithinAbs(1.8f, 1e-3f));
+    CHECK(wow.models[0].nodes.nodes[1].local.translation.x == 4.0f);
+}
+
 TEST_CASE("wem a rescale leaves rotation and scale alone", "[wem][rescale]") {
     // The half a size check cannot see. A rescale that multiplied the whole
     // `Transform` would leave the model the right size and every joint at the

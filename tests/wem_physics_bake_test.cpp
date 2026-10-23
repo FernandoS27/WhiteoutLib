@@ -412,6 +412,36 @@ TEST_CASE("G-SW a StarCraft II rig member and a Warcraft III body read as before
     CHECK_FALSE(SwitchReader(loose.document, 0, 0, SwitchScope::Clip).movable(0));
 }
 
+TEST_CASE("G-SW a StarCraft II death model drops every body throughout", "[physics][bake][switches][sc2]") {
+    // A `*_deathragdoll.m3`: off, or following an ancestor that is, until the
+    // game drops the whole model as it spawns it.
+    Rig rig(RigStart::Always, {false, false}, {"Death", "Dead"});
+    Shipped(rig);
+    PhysicsSet& physics = rig.model().physics;
+    physics.bodies[0].simulates = false;
+    physics.bodies[1].inheritDynamic = true;
+    rig.key(0, rig.bodies[0], Channel::PhysicsDynamic, {0.0f}, {0.0f});
+    REQUIRE(IsDeathModel(rig.document, 0));
+    for (const SwitchScope scope : {SwitchScope::Clip, SwitchScope::Simulate, SwitchScope::Test}) {
+        for (const u32 clip : {0u, 1u}) {
+            const std::vector<BodySwitch> now = rig.at(clip, 0.0f, scope);
+            CHECK(Actives(now) == std::vector<bool>{true, true});
+            CHECK(now[1].why == SwitchWhy::Death);
+        }
+    }
+    // A model that stands too is the unit's, and reads its own switches.
+    Rig unit(RigStart::Always, {false, false}, {"Stand", "Death"});
+    Shipped(unit);
+    unit.model().physics.bodies[0].simulates = false;
+    unit.model().physics.bodies[1].inheritDynamic = true;
+    CHECK_FALSE(IsDeathModel(unit.document, 0));
+    CHECK(Actives(unit.at(1, 0.5f)) == std::vector<bool>{false, false});
+    // Warcraft III spawns no death model: a loose body moves where keyed.
+    Rig warcraft(RigStart::Always, {true}, {"Death"});
+    warcraft.model().physics.rigs.clear();
+    CHECK(Actives(warcraft.at(0, 0.5f)) == std::vector<bool>{false});
+}
+
 TEST_CASE("G-SW a switch on the wrong kind of record is invalid", "[physics][bake][switches]") {
     Rig rig(RigStart::Always, {true}, {"Stand"});
     rig.key(0, rig.bodies[0], Channel::PhysicsRagdoll, {0.0f}, {1.0f});
@@ -522,6 +552,19 @@ TEST_CASE("a clip comes from Stand and a corpse from its death and a loop from i
     CHECK(BakeComesFrom(rig.document, 2).clip == 6u);
     clips[1].name = "Idle";
     CHECK(BakeComesFrom(rig.document, 3).kind == BakeFrom::FirstFrame);
+}
+
+TEST_CASE("a Dead lies where its death left it, though it loops", "[physics][bake][chain]") {
+    Rig rig(RigStart::OnDeath, {true}, {"Death", "Dead"});
+    rig.document.clips[0].looping = false;
+    CHECK(IsCorpseClipName("Dead"));
+    CHECK_FALSE(IsCorpseClipName("Deadly Strike"));
+    CHECK_FALSE(BakeLoops(rig.document.clips[1]));
+    const BakeLeadIn dead = BakeComesFrom(rig.document, 1);
+    CHECK(dead.kind == BakeFrom::Clip);
+    CHECK(dead.clip == 0u);
+    CHECK(BakeGoesTo(rig.document, 1) == kInvalidIndex);
+    CHECK(IsDeathModel(rig.document, 0));
 }
 
 TEST_CASE("a lead-in chain that comes back on itself stops", "[physics][bake][chain]") {
@@ -869,6 +912,33 @@ TEST_CASE("a corpse's clip starts where its death's own bake ended", "[physics][
     CHECK(Degrees(handed.localsAt(handed.first)[1].rotation, left) < 0.01f);
     const u32 over = handed.first + 12;
     CHECK(Degrees(handed.localsAt(over)[1].rotation, RotationAt(rig.document, 2, 1, handed.localTimes[over])) < 0.01f);
+}
+
+TEST_CASE("a death with no Stand starts from its first frame, and its corpse from its end", "[physics][bake][run]") {
+    // Held, what the death drops would fall before its frame 0.
+    Rig rig = Tailed({"Death", "Dead", "Attack"});
+    std::vector<Clip>& clips = rig.document.clips;
+    clips[0].looping = clips[2].looping = false;
+    clips[0].physics.emplace().preheat = 2;
+    clips[2].physics.emplace().preheat = 2;
+    Swing swing;
+    const BakeRun death = SimulateClip(rig.document, 0, swing.Hooks());
+    REQUIRE(death.complete);
+    CHECK(death.pieces.size() == 1u);
+    CHECK(death.first == 0u);
+    // Any other clip still settles on its first frame.
+    const BakeRun attack = SimulateClip(rig.document, 2, swing.Hooks());
+    CHECK(attack.pieces.front().held);
+    CHECK(attack.first == 120u);
+    // The Dead runs on from the Death's own run, step for step.
+    const BakeRun dead = SimulateClip(rig.document, 1, swing.Hooks());
+    REQUIRE(dead.complete);
+    REQUIRE(dead.pieces.size() == 2u);
+    CHECK(dead.pieces[0].clip == 0u);
+    CHECK(dead.first == death.steps);
+    const std::size_t shared = static_cast<std::size_t>(dead.first) * dead.nodes.size();
+    REQUIRE(death.locals.size() >= shared);
+    CHECK(std::memcmp(death.locals.data(), dead.locals.data(), shared * sizeof(Transform)) == 0);
 }
 
 TEST_CASE("G-B2 the bake writes only where the body simulated", "[physics][bake][splice]") {

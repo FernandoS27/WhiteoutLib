@@ -3,6 +3,7 @@
 
 #include <whiteout/models/wem/physics/bake.h>
 #include <whiteout/models/wem/physics/cloth_bake.h>
+#include <whiteout/models/wem/physics/crossing.h>
 #include <whiteout/models/wem/physics/soft_step.h>
 
 #include "soft_pass.h"
@@ -462,6 +463,13 @@ f32 LocalTime(const Document& document, const Piece& piece, u32 k, f32 dt) {
     }
 }
 
+/// Whether @p clip's first frame is held @p preheat seconds before it: never a
+/// death's, which starts from its pose there; held, what it drops would have
+/// fallen before its frame 0.
+bool HoldsFirstFrame(const Clip& clip, u32 preheat) {
+    return preheat > 0 && !IsDeathClipName(clip.name);
+}
+
 } // namespace
 
 u32 BakeRun::stepAt(f32 seconds) const {
@@ -637,6 +645,16 @@ u64 Inputs(const Document& document, u32 clip, bool bounds) {
         const u8 unset = 0x5u;
         Hash(hash, std::span<const u8>(&unset, 1));
     }
+    // A death's first frame is no longer held, and a StarCraft II death model
+    // drops every body (2026-10-23). Said only of a run either changes.
+    const bool heldDeath = std::any_of(clips.begin(), clips.end(), [&](u32 c) {
+        return IsDeathClipName(document.clips[c].name) && BakeComesFrom(document, c).kind == BakeFrom::FirstFrame &&
+               SettingsOf(document.clips[c]).preheat > 0;
+    });
+    if (heldDeath || (GameOf(document.defaultProfile) == Game::StarCraft && IsDeathModel(document, owner))) {
+        const u8 death = 1;
+        Hash(hash, std::span<const u8>(&death, 1));
+    }
     // How a soft body's lumps are fitted is the library's, and a clip baked by
     // a fit since changed holds keys the tool no longer shows (soft design §7).
     // Said only of a model with a soft body, so every other key reads as it did.
@@ -733,7 +751,7 @@ BakeRun SimulateClip(const Document& given, u32 clip, const BakeHooks& hooks, co
             add(clip, preheat * run.steps, Piece::Kind::Loops, dt);
         }
     } else if (from.kind == BakeFrom::FirstFrame) {
-        if (preheat > 0) {
+        if (HoldsFirstFrame(baked, preheat)) {
             add(clip, stepsOf(static_cast<f32>(preheat), dt), Piece::Kind::Held, dt);
         }
     } else {
@@ -758,7 +776,7 @@ BakeRun SimulateClip(const Document& given, u32 clip, const BakeHooks& hooks, co
                 if (BakeComesFrom(document, chain[i]).kind == BakeFrom::Itself) {
                     leadLoops = own;
                     add(chain[i], own * steps, Piece::Kind::Loops, step);
-                } else {
+                } else if (HoldsFirstFrame(lead, own)) {
                     add(chain[i], stepsOf(static_cast<f32>(own), step), Piece::Kind::Held, step);
                 }
             }

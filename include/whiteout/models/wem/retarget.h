@@ -172,6 +172,11 @@ struct RescaleResult {
  */
 RescaleResult RescaleDocument(Document& document, f32 factor);
 
+/// As above, a clip's move speed multiplied by @p moveSpeedFactor rather than
+/// @p factor: a restatement into another game's units, whose speeds may not be
+/// stated in its lengths (`MoveSpeedUnitsBetween`).
+RescaleResult RescaleDocument(Document& document, f32 factor, f32 moveSpeedFactor);
+
 /**
  * @brief The factor that carries geometry authored for @p from into @p to's
  *        units, from the profile registry's `sceneScale`.
@@ -184,6 +189,12 @@ RescaleResult RescaleDocument(Document& document, f32 factor);
  * the viewer draws it.
  */
 f32 RescaleFactorBetween(ProfileId from, ProfileId to);
+
+/// What a clip's move speed takes on the way from @p from to @p to beyond its
+/// lengths' factor. StarCraft II and Heroes state a sequence's speed in
+/// hundredths of their unit, Warcraft III's scale: an `.m3` Walk at 180 walks
+/// at 180 in an `.mdx`, though the model is restated 100x.
+f32 MoveSpeedUnitsBetween(ProfileId from, ProfileId to);
 
 /// The lengths @p payload holds, restated at @p factor as `RescaleDocument`
 /// restates a node's — its one table, for a caller rescaling part of a model.

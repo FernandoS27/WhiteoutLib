@@ -33,6 +33,16 @@ void scale(Sphere& sphere, f32 factor) {
     sphere.radius *= factor;
 }
 
+/// A move speed is a length per second and the second does not change, so it
+/// rides the geometry's factor (a model restated 100x larger walks 100x faster,
+/// or its feet slide), times the change of unit a game states it in. A clip
+/// that states no travel acquires none.
+void scaleMoveSpeed(Clip& clip, f32 factor) {
+    if (const f32 speed = ClipMoveSpeed(clip); speed != 0.0f && factor != 1.0f) {
+        SetClipMoveSpeed(clip, speed * factor);
+    }
+}
+
 /// The translation row of a bind matrix, in `ToMatrix`'s row-vector convention.
 /// The 3x3 is a rotation-scale and is dimensionless, so it is left alone —
 /// which is also why this is exact for an `IREF` carrying shear.
@@ -275,11 +285,25 @@ f32 RescaleFactorBetween(ProfileId from, ProfileId to) {
     return source / target;
 }
 
+f32 MoveSpeedUnitsBetween(ProfileId from, ProfileId to) {
+    // How many of a profile's speed units its length unit a second makes.
+    const auto units = [](ProfileId profile) {
+        return static_cast<u32>(profile) < static_cast<u32>(ProfileId::Count) && GameOf(profile) == Game::StarCraft
+                   ? 100.0f
+                   : 1.0f;
+    };
+    return units(to) / units(from);
+}
+
 RescaleResult RescaleDocument(Document& document, f32 factor) {
+    return RescaleDocument(document, factor, factor);
+}
+
+RescaleResult RescaleDocument(Document& document, f32 factor, f32 moveSpeedFactor) {
     RescaleResult result;
     result.factor = factor;
 
-    if (!std::isfinite(factor) || factor <= 0.0f) {
+    if (!std::isfinite(factor) || factor <= 0.0f || !std::isfinite(moveSpeedFactor) || moveSpeedFactor <= 0.0f) {
         result.diagnostics.error(DiagCode::GeometryRescaled,
                                  "a rescale factor must be finite and positive");
         return result;
@@ -288,6 +312,9 @@ RescaleResult RescaleDocument(Document& document, f32 factor) {
         // Not a no-op call to be reported as an error: a pair of profiles at the
         // same `sceneScale` asks for exactly this, and the caller should not
         // have to special-case it.
+        for (Clip& clip : document.clips) {
+            scaleMoveSpeed(clip, moveSpeedFactor);
+        }
         result.ok = true;
         return result;
     }
@@ -343,12 +370,7 @@ RescaleResult RescaleDocument(Document& document, f32 factor) {
 
     for (Clip& clip : document.clips) {
         scale(clip.bounds, factor);
-        // A move speed is a length per second and the second does not change,
-        // so it rides the same factor the geometry does: a model restated 100x
-        // larger walks 100x faster, or its feet slide.
-        if (const f32 speed = ClipMoveSpeed(clip); speed != 0.0f) {
-            SetClipMoveSpeed(clip, speed * factor);
-        }
+        scaleMoveSpeed(clip, moveSpeedFactor);
         if (clip.model >= document.models.size()) {
             continue;
         }

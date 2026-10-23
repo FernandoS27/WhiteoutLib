@@ -206,6 +206,8 @@ SwitchReader::SwitchReader(const Document& document, u32 model, u32 clip, Switch
     const PhysicsSet& physics = owner.physics;
     const NodeTree& tree = owner.nodes;
     const bool starcraft = GameOf(document.defaultProfile) == Game::StarCraft;
+    // The game spawns a death model as its unit dies, every body dropped.
+    const bool whole = starcraft && IsDeathModel(document, model);
 
     rigs_.resize(physics.rigs.size());
     for (u32 r = 0; r < physics.rigs.size(); ++r) {
@@ -257,6 +259,7 @@ SwitchReader::SwitchReader(const Document& document, u32 model, u32 clip, Switch
         }
         const bool onlyNever = held && std::all_of(out.rigs.begin(), out.rigs.end(), [&](u32 r) { return rigs_[r].never; });
         out.still = body.motion == BodyMotion::Static || onlyNever;
+        out.whole = whole;
         // StarCraft II runs a body no rig holds by its own switch, never by its
         // creation type (`simulationType`); elsewhere the Test runs one.
         const bool own = !held && starcraft;
@@ -344,6 +347,11 @@ void SwitchReader::read(f32 seconds, std::span<const BodySwitch> previous, std::
         const Body& body = bodies_[i];
         BodySwitch& now = out[i];
         if (body.still) {
+            continue;
+        }
+        if (body.whole) {
+            now.active = true;
+            now.why = SwitchWhy::Death;
             continue;
         }
         // Dropped by a rig holding it, unless it ignores the drop.
@@ -434,7 +442,21 @@ bool IsDecayClipName(std::string_view name) {
 }
 
 bool IsCorpseClipName(std::string_view name) {
-    return IsDecayClipName(name) || NamedWord(name, "dissipate");
+    return IsDecayClipName(name) || NamedWord(name, "dissipate") || NamedWord(name, "dead");
+}
+
+bool IsDeathModel(const Document& document, u32 model) {
+    bool any = false;
+    for (const Clip& clip : document.clips) {
+        if (clip.model != model || IsGlobalLoop(clip)) {
+            continue;
+        }
+        if (!IsDeathClipName(clip.name) && !IsCorpseClipName(clip.name)) {
+            return false;
+        }
+        any = true;
+    }
+    return any;
 }
 
 bool PlaysOnce(std::string_view name) {
@@ -488,7 +510,8 @@ bool BakeLoops(const Clip& clip) {
     case BakePlays::Once:
         return false;
     default:
-        return clip.looping && !PlaysOnce(clip.name) && !DiabloPlaysOnce(clip);
+        // A corpse's clip runs on from its death, though a Dead loops its pose.
+        return clip.looping && !PlaysOnce(clip.name) && !DiabloPlaysOnce(clip) && !IsCorpseClipName(clip.name);
     }
 }
 
@@ -520,7 +543,8 @@ BakeLeadIn BakeComesFrom(const Document& document, u32 clip) {
         found = FindClipNamed(document, owner.model, owner.physics->comesFromClip);
     } else {
         // A corpse continues its death: Decay Bone after Decay Flesh, and
-        // Decay Flesh, a lone Decay or a hero's Dissipate after the first Death.
+        // Decay Flesh, a lone Decay, a hero's Dissipate or a Dead after the
+        // first Death.
         const std::vector<std::string> words = Words(BaseSequenceName(owner.name));
         if (IsCorpseClipName(owner.name)) {
             if (IsDecayClipName(owner.name) && words.size() > 1 && words[1] == "bone") {

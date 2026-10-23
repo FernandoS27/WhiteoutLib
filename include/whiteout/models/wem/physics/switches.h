@@ -16,7 +16,8 @@
  * now"), each keyed per clip. A document with no keys plays as it always did.
  * In a StarCraft II or Heroes document a body no rig holds switches as the
  * game switches it, in every scope: by its key where a clip keys it, else by
- * whether it `simulates`, whatever its creation type but Static.
+ * whether it `simulates`, whatever its creation type but Static. A death
+ * model's are all on, as the game drops them (`IsDeathModel`).
  *
  * The driver, the timeline, the `.m3` export and Problems all read the rule
  * here, so none of them can disagree about a body.
@@ -41,7 +42,7 @@ enum class SwitchWhy : u8 {
     Rest,      ///< Its State, while its ragdoll runs; no key.
     Keyed,     ///< This clip's own switch key.
     Dropped,   ///< Its ragdoll's *Ragdoll now* key.
-    Death,     ///< An *On death* ragdoll, in a clip named Death.
+    Death,     ///< An *On death* ragdoll in a clip named Death, or any body of a StarCraft II death model.
     Carried,   ///< A drop, or in a corpse's clip the body's own key, carried from the clip this one comes from.
     Inherited, ///< Its nearest bodied ancestor's state.
     Exempt,    ///< Its ragdoll is dropped, and it ignores the drop.
@@ -143,6 +144,7 @@ private:
         bool carried = false; ///< A corpse's clip: on, as the clip it continues ends by the body's key.
         bool exempt = false;
         bool inherit = false;
+        bool whole = false; ///< A StarCraft II death model's: on throughout.
         u32 ancestor = kInvalidIndex; ///< The nearest bodied ancestor, by index.
         std::vector<u32> rigs;         ///< The rigs holding it, in rig order.
         const SubTrack* dynamic = nullptr;
@@ -188,8 +190,14 @@ std::string BaseSequenceName(std::string_view name);
 /// death (§4.3).
 bool IsDecayClipName(std::string_view name);
 
-/// A Decay, or a hero's "Dissipate": the clips that continue a death (§4.3).
+/// A Decay, a hero's "Dissipate" or a "Dead": the clips that continue a death
+/// (§4.3).
 bool IsCorpseClipName(std::string_view name);
+
+/// Whether every clip of @p model is a death or continues one, and it has one:
+/// a StarCraft II death model (`*_deathragdoll.m3`, a lone Death), which the
+/// game spawns as its unit dies with every body dropped. Global loops aside.
+bool IsDeathModel(const Document& document, u32 model);
 
 /// Whether the games play a clip of @p name once, whatever its loop flag says
 /// (§7.1): Attack, Spell but Spell Channel, Death, Decay, Birth, Dissipate,
@@ -198,7 +206,8 @@ bool IsCorpseClipName(std::string_view name);
 bool PlaysOnce(std::string_view name);
 
 /// Whether @p clip's bake runs it as a loop: as set, or from its flag and its
-/// name (a Diablo III clip's by any of its words: `Zombie_attack_01`).
+/// name (a Diablo III clip's by any of its words: `Zombie_attack_01`). A
+/// corpse's clip never, by default: it runs on from its death.
 bool BakeLoops(const Clip& clip);
 
 /// What runs before a clip's frame 0, resolved: the clip itself (a loop),
@@ -210,8 +219,8 @@ struct BakeLeadIn {
 
 /// @p clip's *Comes from* (§7.2). A loop comes from itself; a once-played
 /// clip from Stand (the model's first looping clip whose base name is Stand),
-/// else its first frame. Decay Flesh, a lone Decay or a Dissipate comes from
-/// the first death clip, and Decay Bone from Decay Flesh. A name the model
+/// else its first frame. Decay Flesh, a lone Decay, a Dissipate or a Dead comes
+/// from the first death clip, and Decay Bone from Decay Flesh. A name the model
 /// lacks is its first frame.
 BakeLeadIn BakeComesFrom(const Document& document, u32 clip);
 
