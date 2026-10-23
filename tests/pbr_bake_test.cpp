@@ -465,6 +465,20 @@ TEST_CASE("no base colour is nothing to rewrite", "[pbr_bake]") {
     REQUIRE_FALSE(pbr::BakeBaseColor(recipe).has_value());
 }
 
+TEST_CASE("a constant base colour takes the mask's grid and cutout", "[pbr_bake]") {
+    // A StarCraft II glow with no diffuse: its albedo is black, its coverage a
+    // mask, and Reforged needs both in one map.
+    const Texture mask = solid(255, 255, 255, 96, 4);
+    pbr::BaseColorRecipe recipe;
+    recipe.coverage1.texture = &mask;
+    recipe.coverage1.channel = Channel::A;
+    const std::optional<Texture> base = pbr::BakeBaseColor(recipe);
+    REQUIRE(base.has_value());
+    CHECK(base->width() == 4);
+    CHECK(channelOf(*base, Channel::R) == 0);
+    CHECK(channelOf(*base, Channel::A) == 96);
+}
+
 TEST_CASE("what decides the mask is how dark the paint under it is", "[pbr_bake]") {
     // The same weight lands on either side of the line depending on the albedo:
     // `lerp(team, diffuse, a)` shows mostly team colour when `1-a` outweighs

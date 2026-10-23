@@ -386,6 +386,51 @@ TEST_CASE("skeleton retarget splits a bone whose bind frame shears") {
     CHECK(WorstSkinError(before, after, kProbeTimes) < 1e-3f);
 }
 
+TEST_CASE("a split non-bone stays where it sits") {
+    // A turned attachment under a bone whose bind scales one axis shears, so it
+    // splits and its pivot becomes zero -- and what it carries is found at
+    // `pivot * world`. On StarCraft II's SCV that put four jet glows a metre off.
+    Document before = MakeExplicitRig(Vector3f{1.5f, 1.5f, 1.5f});
+    Model& source = before.models[0];
+    Transform bind;
+    bind.translation = Vector3f{0, 0, 2};
+    bind.rotation = Quaternion{0.0f, 0.2588f, 0.0f, 0.9659f}.normalized();
+    bind.scale = Vector3f{1, 1, 3};
+    source.nodes.nodes[1].poseMatrices[0] = Matrix44f::inverse(ToMatrix(bind));
+    Node mount;
+    mount.name = "mount";
+    mount.kind = NodeKind::Attachment;
+    mount.parent = 1;
+    mount.resetPayloadForKind();
+    mount.local.translation = Vector3f{0.5f, 0.25f, 0.5f};
+    mount.local.rotation = Quaternion{0.3827f, 0.0f, 0.0f, 0.9239f};
+    source.nodes.add(std::move(mount));
+
+    Document after = before;
+    REQUIRE(RetargetSkeleton(after, ProfileId::Wc3Classic).ok);
+    const NodeTree& tree = after.models[0].nodes;
+    u32 moved = kInvalidNode;
+    bool stretched = false;
+    for (u32 n = 0; n < tree.size(); ++n) {
+        moved = tree.nodes[n].name == "mount" ? n : moved;
+        stretched = stretched || tree.nodes[n].name == "mount_stretch";
+    }
+    REQUIRE(moved != kInvalidNode);
+    REQUIRE(stretched);
+
+    const SubTrackContainer& was = before.clips[0].containers[0];
+    const SubTrackContainer& now = after.clips[0].containers[0];
+    for (const f32 time : kProbeTimes) {
+        Matrix44f chain = Matrix44f::identity();
+        for (u32 walk = 3; walk != kInvalidNode; walk = source.nodes.nodes[walk].parent) {
+            chain = chain * ToMatrix(NodeTrsAt(source, was, walk, time, source.nodes.nodes[walk].local));
+        }
+        const Vector3f want = RowMultiply(chain, Vector3f{0, 0, 0});
+        const Vector3f got = RowMultiply(SkinAt(after.models[0], now, time)[moved], tree.nodes[moved].pivot);
+        CHECK(Distance(want, got) < 1e-3f);
+    }
+}
+
 TEST_CASE("skeleton retarget carries a section's visibility gate with the nodes") {
     // The fifth referencer of section 10.6, and the only one that is a bag key
     // rather than a field. The split below inserts a helper, every node after it

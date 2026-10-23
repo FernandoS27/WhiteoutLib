@@ -70,6 +70,13 @@ ExactKeyReport ReduceKeysExactly(Document& document, u32 model);
  */
 ExactKeyReport DropRestTracks(Document& document, u32 model);
 
+/**
+ * @brief The same, by the rules of @p storage, the game whose file the copy is
+ *        written as: an `.m3` source staged for `.mdx` still says StarCraft II,
+ *        and the two games play an unkeyed clip differently.
+ */
+ExactKeyReport DropRestTracks(Document& document, u32 model, Game storage);
+
 // ============================================================================
 // Tier 2: within a tolerance
 // ============================================================================

@@ -452,19 +452,26 @@ void DropUnkeyed(Document& document, u32 model, ExactKeyReport& report) {
 /// Step 2, where the storage's rests are known. WoW's and Diablo III's writers
 /// fill a clip that keys nothing with rests of their own, which the design has
 /// not audited.
-void DropRestsOfStorage(Document& document, u32 model, ExactKeyReport& report) {
-    const Game storage = GameOf(document.defaultProfile);
+void DropRestsOf(Document& document, u32 model, Game storage, ExactKeyReport& report) {
     if (storage == Game::Warcraft || storage == Game::StarCraft) {
         DropRests(document, model, storage, report);
     }
 }
 
+void DropRestsOfStorage(Document& document, u32 model, ExactKeyReport& report) {
+    DropRestsOf(document, model, GameOf(document.defaultProfile), report);
+}
+
 } // namespace
 
 ExactKeyReport DropRestTracks(Document& document, u32 model) {
+    return DropRestTracks(document, model, GameOf(document.defaultProfile));
+}
+
+ExactKeyReport DropRestTracks(Document& document, u32 model, Game storage) {
     ExactKeyReport report;
     if (model < document.models.size()) {
-        DropRestsOfStorage(document, model, report);
+        DropRestsOf(document, model, storage, report);
     }
     return report;
 }

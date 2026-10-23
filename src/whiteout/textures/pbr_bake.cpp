@@ -481,14 +481,16 @@ std::optional<Texture> BakeOrm(const OrmRecipe& recipe) {
 
 std::optional<Texture> BakeBaseColor(const BaseColorRecipe& recipe) {
     const Plane baseColor = decode(recipe.baseColor.texture);
-    if (baseColor.empty()) {
+    const Plane coverage1 = decode(recipe.coverage1.texture);
+    const Plane coverage2 = decode(recipe.coverage2.texture);
+    // With no map the base colour is its constant, laid on the masks' grid: an
+    // unlit glow's albedo is a colour and its cutout a mask.
+    if (recipe.baseColor.present() ? baseColor.empty() : coverage1.empty() && coverage2.empty()) {
         return std::nullopt;
     }
     const Plane teamMask = decode(recipe.teamMask.texture);
     const Plane teamMaskAlt = decode(recipe.teamMaskAlt.texture);
     const Plane decal = decode(recipe.decal.texture);
-    const Plane coverage1 = decode(recipe.coverage1.texture);
-    const Plane coverage2 = decode(recipe.coverage2.texture);
     const Plane specular = decode(recipe.reflectance.specular.texture);
     const Plane exponentScale = decode(recipe.reflectance.exponentScale.texture);
     const Plane envMask = decode(recipe.reflectance.envMask.texture);

@@ -539,8 +539,11 @@ std::optional<Texture> BakeOrm(const OrmRecipe& recipe);
  * which no unbaked export could carry at all (the mask lives in its own
  * texture there, and Reforged has no slot for it).
  *
+ * A recipe with no base colour map bakes its constant on the coverage masks'
+ * grid, which is how a material that never had a diffuse still gets a cutout.
+ *
  * @return The rewritten albedo as RGBA8, or `std::nullopt` if the base colour
- *         is absent or empty.
+ *         map does not decode, or if there is neither a map nor a mask.
  */
 std::optional<Texture> BakeBaseColor(const BaseColorRecipe& recipe);
 

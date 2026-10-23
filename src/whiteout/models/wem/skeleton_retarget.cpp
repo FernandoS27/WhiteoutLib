@@ -645,10 +645,26 @@ void ToPivotRelative(Model& model, std::vector<Clip*>& clips, const ElementRef& 
     // Which nodes split is settled, so the pivots they compose about are too.
     const bool split = options.splitShearedNodes;
     if (split) {
+        bool rebased = false;
         for (u32 n = 0; n < sourceCount; ++n) {
             if (plan[n].sheared) {
                 plan[n].composePivot = Vector3f{0, 0, 0};
+                // What a non-bone carries sits at `pivot * world`, and with the
+                // pivot now zero `B = T(-pivot)` would put it at `-pivot` in its
+                // own frame. `B = I` keeps it at its origin; the shear is the
+                // same, since only the translation moved.
+                if (model.nodes.nodes[n].kind != NodeKind::Bone) {
+                    plan[n].conjugate = Matrix44f::identity();
+                    plan[n].inverseConjugate = Matrix44f::identity();
+                    rebased = true;
+                }
             }
+        }
+        for (u32 n = 0; rebased && n < sourceCount; ++n) {
+            plan[n].rest = plan[n].conjugate * ToMatrix(model.nodes.nodes[n].local) *
+                           plan[n].parentConjugateInverse(plan);
+            plan[n].restIsIdentity = NearlyIdentity(plan[n].rest, 1e-5f);
+            plan[n].needsTracks = plan[n].needsTracks || !plan[n].restIsIdentity;
         }
     }
 
