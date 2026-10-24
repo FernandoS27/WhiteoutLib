@@ -17,6 +17,7 @@ static constexpr u32 DDS_MAGIC = 0x20534444u;
 static constexpr u32 DDPF_ALPHAPIXELS = 0x00000001u;
 static constexpr u32 DDPF_FOURCC = 0x00000004u;
 static constexpr u32 DDPF_RGB = 0x00000040u;
+static constexpr u32 DDPF_LUMINANCE = 0x00020000u;
 
 static constexpr u32 DDSD_CAPS = 0x00000001u;
 static constexpr u32 DDSD_HEIGHT = 0x00000002u;
@@ -252,11 +253,29 @@ inline bool is_dxgi_srgb(u32 dxgi_format) {
     }
 }
 
-enum class LegacyChannelOrder { Rgba, Bgra };
+// How a legacy payload becomes RGBA8: as it is, with R and B swapped, or texel
+// by texel through its bit masks.
+enum class LegacyLayout { Rgba, Bgra, Masked };
+
+// An uncompressed layout the masks fully describe: 24-bit RGB, 565, 1555, 4444,
+// L8, A8L8 and the like, which D3D9-era tools write and the games load.
+inline bool legacy_masks_readable(const DDS_PIXELFORMAT& pixel_format) {
+    const u32 bits = pixel_format.rgbBitCount;
+    if (bits != 8 && bits != 16 && bits != 24 && bits != 32)
+        return false;
+    const u32 used = pixel_format.rBitMask | pixel_format.gBitMask | pixel_format.bBitMask |
+                     ((pixel_format.flags & DDPF_ALPHAPIXELS) ? pixel_format.aBitMask : 0u);
+    if (bits < 32 && (used >> bits) != 0)
+        return false;
+    if (pixel_format.flags & DDPF_LUMINANCE)
+        return pixel_format.rBitMask != 0;
+    return (pixel_format.flags & DDPF_RGB) &&
+           (pixel_format.rBitMask | pixel_format.gBitMask | pixel_format.bBitMask) != 0;
+}
 
 inline std::optional<PixelFormat> legacy_pixfmt_to_pixel_format(const DDS_PIXELFORMAT& pixel_format,
-                                                                LegacyChannelOrder& order) {
-    order = LegacyChannelOrder::Rgba;
+                                                                LegacyLayout& order) {
+    order = LegacyLayout::Rgba;
     if (pixel_format.flags & DDPF_FOURCC) {
         switch (pixel_format.fourCC) {
         case make_fourcc('D', 'X', 'T', '1'):
@@ -289,9 +308,14 @@ inline std::optional<PixelFormat> legacy_pixfmt_to_pixel_format(const DDS_PIXELF
         // D3DFMT_A8R8G8B8 / X8R8G8B8 — same 32bpp layout with R and B swapped.
         if (is_32bpp && pixel_format.rBitMask == 0x00FF0000u &&
             pixel_format.bBitMask == 0x000000FFu) {
-            order = LegacyChannelOrder::Bgra;
+            order = LegacyLayout::Bgra;
             return PixelFormat::RGBA8;
         }
+    }
+
+    if (legacy_masks_readable(pixel_format)) {
+        order = LegacyLayout::Masked;
+        return PixelFormat::RGBA8;
     }
 
     return std::nullopt;

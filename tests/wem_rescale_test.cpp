@@ -467,3 +467,153 @@ TEST_CASE("wem a rescale is a conjugation, so skinning still lands", "[wem][resc
     CHECK_THAT(posedAfter.y, WithinAbs(posedBefore.y * k, 1e-1f));
     CHECK_THAT(posedAfter.z, WithinAbs(posedBefore.z * k, 1e-1f));
 }
+
+// ============================================================================
+// StarCraft II's records and native streams
+// ============================================================================
+
+namespace {
+
+/// A native stream (`TrackTarget::Kind::Native`) under @p animId, keyed with
+/// @p values at one time, the way an `.m3` import declares one: its slot, never
+/// its field, and the `channel` it defaulted to.
+void addNative(Model& model, Clip& clip, u32 animId, u32 slot, geom::AttrType type,
+               const std::vector<f32>& values) {
+    AnimChannel channel;
+    channel.id = animId;
+    channel.target.kind = TrackTarget::Kind::Native;
+    channel.target.sub = slot;
+    channel.valueType = type;
+    model.animChannels.add(channel);
+
+    SubTrack track;
+    track.channel = animId;
+    track.times = {0.0f};
+    track.values.resize(values.size() * sizeof(f32));
+    std::memcpy(track.values.data(), values.data(), track.values.size());
+    clip.containers[0].subTracks.push_back(std::move(track));
+}
+
+template <class T>
+native::M3AnimRef<T> ref(u32 animId, T init, T null) {
+    native::M3AnimRef<T> out;
+    out.animId = animId;
+    out.initValue = init;
+    out.nullValue = null;
+    return out;
+}
+
+} // namespace
+
+TEST_CASE("wem a rescale restates StarCraft II's records and only their lengths' streams",
+          "[wem][rescale]") {
+    // A native stream's slot is its value type, so a camera's field of view and
+    // its far clip are both an `F32` in slot 5: only the record says which is a
+    // length (EDIT_MODE_SC2_SCENE_TOOLS_DESIGN.md F2).
+    Document document = makeRescaleDocument();
+    Model& model = document.models[0];
+    Clip& clip = document.clips[0];
+
+    const u32 camera = addNode(model, "sc2 camera", NodeKind::Camera);
+    native::M3Camera cam;
+    cam.fieldOfView = ref<f32>(0x100, 0.9f, 0.9f);
+    cam.farClip = ref<f32>(0x101, 400.0f, 400.0f);
+    cam.nearClip = ref<f32>(0, 0.5f, 0.5f);
+    cam.dofAmount = ref<f32>(0x102, 0.25f, 0.0f);
+    std::get<CameraPayload>(model.nodes.nodes[camera].payload).sc2 = cam;
+    addNative(model, clip, 0x100, 5, geom::AttrType::F32, {1.2f});
+    addNative(model, clip, 0x101, 5, geom::AttrType::F32, {600.0f});
+    addNative(model, clip, 0x102, 5, geom::AttrType::F32, {0.5f});
+
+    const u32 projector = addNode(model, "sc2 projector", NodeKind::Projector);
+    native::M3Projector& proj = std::get<ProjectorPayload>(model.nodes.nodes[projector].payload).record;
+    proj.yaw = ref<f32>(0x110, 0.3f, 0.3f);
+    proj.offset = ref<Vector3f>(0x111, Vector3f{1, 2, 3}, Vector3f{0, 0, 0});
+    proj.far = ref<f32>(0, 50.0f, 50.0f);
+    addNative(model, clip, 0x110, 5, geom::AttrType::F32, {0.6f});
+    addNative(model, clip, 0x111, 2, geom::AttrType::F32x3, {4, 5, 6});
+
+    Node& bone = model.nodes.nodes[0];
+    native::M3ShadowBox box;
+    box.length = ref<f32>(0x120, 7.0f, 7.0f);
+    box.width = ref<f32>(0, 8.0f, 8.0f);
+    bone.sc2ShadowBox = box;
+    addNative(model, clip, 0x120, 5, geom::AttrType::F32, {9.0f});
+
+    const u32 light = addNode(model, "sc2 light", NodeKind::Light);
+    native::M3Light lite;
+    lite.decay = ref<f32>(0x130, 12.0f, 12.0f);
+    lite.attenuationEnd = 12.0f;
+    lite.specularColor = ref<Vector3f>(0x131, Vector3f{1, 1, 1}, Vector3f{1, 1, 1});
+    std::get<LightPayload>(model.nodes.nodes[light].payload).sc2 = lite;
+    addNative(model, clip, 0x131, 2, geom::AttrType::F32x3, {0.5f, 0.5f, 0.5f});
+
+    native::M3MeshSection bounds;
+    bounds.nodeIndex = 0;
+    native::M3Extent extent{Vector3f{-1, -2, -3}, Vector3f{1, 2, 3}, 4.0f};
+    bounds.bounds = ref<native::M3Extent>(0x140, extent, extent);
+    model.meshes[0].sc2Bounds.push_back(bounds);
+    addNative(model, clip, 0x140, 12, geom::AttrType::Extent, {-1, -1, -1, 1, 1, 1, 2});
+
+    native::M3HitTest hit;
+    hit.sizeX = 2.0f;
+    hit.transform = Matrix44f::identity();
+    hit.transform.data[3][0] = 3.0f;
+    hit.vertexPositions = {Vector3f{1, 0, 0}};
+    std::get<CollisionPayload>(model.nodes.nodes[4].payload).shape.sc2 = hit;
+
+    PoseStage stage;
+    stage.kind = StageKind::Sc2LegIk;
+    stage.legIk = Sc2LegIkParams{};
+    model.poseStages.push_back(stage);
+
+    ClipEvent event;
+    event.transform.data[3][2] = 5.0f;
+    clip.events.push_back(event);
+
+    REQUIRE(NativeChannelLength(model, 0x101).power == 1);
+    REQUIRE(NativeChannelLength(model, 0x100).power == 0);
+    REQUIRE(NativeChannelLength(model, 0x140).node == 0);
+
+    constexpr f32 k = 2.0f;
+    REQUIRE(RescaleDocument(document, k).ok);
+
+    // Angles, strengths and colours keyed natively are left alone...
+    CHECK(readTrack(clip, 0x100) == std::vector<f32>{1.2f});
+    CHECK(readTrack(clip, 0x102) == std::vector<f32>{0.5f});
+    CHECK(readTrack(clip, 0x110) == std::vector<f32>{0.6f});
+    CHECK(readTrack(clip, 0x131) == std::vector<f32>{0.5f, 0.5f, 0.5f});
+    // ...and the lengths are restated, a section's bounds as a whole extent.
+    CHECK(readTrack(clip, 0x101) == std::vector<f32>{1200.0f});
+    // A projector's offset the Art Tools exporter never scales.
+    CHECK(readTrack(clip, 0x111) == std::vector<f32>{4, 5, 6});
+    CHECK(readTrack(clip, 0x120) == std::vector<f32>{18.0f});
+    CHECK(readTrack(clip, 0x140) == std::vector<f32>{-2, -2, -2, 2, 2, 2, 4});
+
+    // The records' own rests and null values, which `toM3` writes back.
+    const auto& camOut = *std::get<CameraPayload>(model.nodes.nodes[camera].payload).sc2;
+    CHECK(camOut.fieldOfView.initValue == 0.9f);
+    CHECK(camOut.farClip.initValue == 800.0f);
+    CHECK(camOut.farClip.nullValue == 800.0f);
+    CHECK(camOut.nearClip.initValue == 1.0f);
+    CHECK(camOut.dofAmount.initValue == 0.25f);
+    const auto& projOut = std::get<ProjectorPayload>(model.nodes.nodes[projector].payload).record;
+    CHECK(projOut.yaw.initValue == 0.3f);
+    CHECK(projOut.far.initValue == 100.0f);
+    CHECK(projOut.offset.initValue.z == 3.0f);
+    CHECK(model.nodes.nodes[0].sc2ShadowBox->width.nullValue == 16.0f);
+    const auto& liteOut = *std::get<LightPayload>(model.nodes.nodes[light].payload).sc2;
+    CHECK(liteOut.decay.initValue == 24.0f);
+    CHECK(liteOut.attenuationEnd == 24.0f);
+    CHECK(liteOut.specularColor.initValue.x == 1.0f);
+    const native::M3Extent& extentOut = model.meshes[0].sc2Bounds[0].bounds.nullValue;
+    CHECK(extentOut.max.z == 6.0f);
+    CHECK(extentOut.radius == 8.0f);
+    const auto& hitOut = *std::get<CollisionPayload>(model.nodes.nodes[4].payload).shape.sc2;
+    CHECK(hitOut.sizeX == 4.0f);
+    CHECK(hitOut.transform.data[3][0] == 6.0f);
+    CHECK(hitOut.transform.data[0][0] == 1.0f);
+    CHECK(hitOut.vertexPositions[0].x == 2.0f);
+    CHECK(model.poseStages[0].legIk->probeUp == 3.0f);
+    CHECK(clip.events[0].transform.data[3][2] == 10.0f);
+}

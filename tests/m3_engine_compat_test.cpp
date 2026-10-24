@@ -309,6 +309,80 @@ TEST_CASE("M3 a parsed chunk keeps the version it was read with", "[m3][compat][
     CHECK(versions.at("MD34").front() == ROOT_CHUNK_VERSION);
 }
 
+TEST_CASE("M3 a beta region keeps its face range", "[m3][compat][version]") {
+    // REGN v2 (28 bytes, every MD33 beta model) has the face range as u32s
+    // after its u16 vertex range; reading 20 left every region empty. Its
+    // faces index the whole vertex buffer, and a model holds them per region.
+    Model model;
+    MeshDivision& division = model.divisions.emplace_back();
+    for (u16 i = 0; i < 30; ++i)
+        division.faces.push_back(i % 6);
+    for (u32 r = 0; r < 2; ++r) {
+        Region& region = division.regions.emplace_back();
+        region.setVersion(2);
+        region.firstVertex = 100 * r;
+        region.vertexCount = 100;
+        region.firstIndex = 12 * r;
+        region.indexCount = 12 + 6 * r;
+        region.firstBoneLookup = 14 * r;
+        region.boneLookupCount = 14;
+        region.rootBone = 3;
+    }
+
+    const std::vector<u8> bytes = Writer().write(model);
+    Parser parser;
+    const Model back = parser.parse(std::span<const u8>(bytes.data(), bytes.size()));
+    REQUIRE(back.divisions.size() == 1);
+    REQUIRE(back.divisions[0].regions.size() == 2);
+    const Region& second = back.divisions[0].regions[1];
+    CHECK(second.getVersion() == 2);
+    CHECK(second.firstVertex == 100);
+    CHECK(second.firstIndex == 12);
+    CHECK(second.indexCount == 18);
+    CHECK(second.firstBoneLookup == 14);
+    CHECK(second.rootBone == 3);
+    CHECK(back.divisions[0].faces == division.faces);
+
+    // On disk the second region's corners are 100 on.
+    u32 offset = 0;
+    u32 count = 0;
+    std::memcpy(&offset, bytes.data() + 4, sizeof(offset));
+    std::memcpy(&count, bytes.data() + 8, sizeof(count));
+    bool found = false;
+    for (u32 i = 0; i < count; ++i) {
+        const u8* entry = bytes.data() + offset + i * 16;
+        u32 at = 0;
+        u32 entries = 0;
+        std::memcpy(&at, entry + 4, sizeof(at));
+        std::memcpy(&entries, entry + 8, sizeof(entries));
+        if (std::string(reinterpret_cast<const char*>(entry), 4) != "_61U" || entries != 30)
+            continue;
+        u16 corner = 0;
+        std::memcpy(&corner, bytes.data() + at + 12 * sizeof(u16), sizeof(corner));
+        CHECK(corner == 100);
+        found = true;
+    }
+    CHECK(found);
+
+    const std::string base = test::findCorpusBase("Corpus");
+    const fs::path path = fs::path(base) / "Sc2BetaM3" / "InfestedMarinePortrait.m3";
+    if (base.empty() || !fs::is_regular_file(path)) {
+        SKIP("no Sc2BetaM3/InfestedMarinePortrait.m3");
+    }
+    Parser shipped;
+    const Model portrait = shipped.parse(path.string());
+    REQUIRE(portrait.divisions.size() == 1);
+    const MeshDivision& shippedDivision = portrait.divisions[0];
+    REQUIRE(shippedDivision.regions.size() == 7);
+    u32 indices = 0;
+    for (const Region& region : shippedDivision.regions) {
+        indices += region.indexCount;
+        const auto first = shippedDivision.faces.begin() + region.firstIndex;
+        CHECK(*std::max_element(first, first + region.indexCount) + 1u == region.vertexCount);
+    }
+    CHECK(indices == shippedDivision.faces.size());
+}
+
 TEST_CASE("M3 toStarCraft2 on synthetic models", "[m3][compat]") {
     SECTION("an already-compatible model is returned unchanged") {
         const EngineConversion result = toStarCraft2(modelAt(29));

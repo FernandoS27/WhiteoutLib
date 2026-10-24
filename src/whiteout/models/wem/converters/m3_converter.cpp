@@ -89,11 +89,6 @@ constexpr u32 kModelBoundsAnimId = 0x001F9BD2;
 /// shipped attachment addons and every camera one measured is 0xFFFF.
 constexpr u16 kNoAddon = 0xFFFFu;
 
-/// A node native key: where a record's node stood before `FoldRecordBones`
-/// moved it into its bone's place -- the order `toM3` writes each kind's
-/// records in, which is the file's.
-constexpr const char* kNodeM3Place = "m3Place";
-
 /// Reorders `MATM` so every composite follows the entries its sections name,
 /// and repoints everything that indexes the map. The editor builds the map in
 /// index order and resolves a section through the material it already built at

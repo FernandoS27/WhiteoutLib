@@ -5,7 +5,10 @@
 
 #include <whiteout/models/wem/physics/references.h>
 
+#include "../native/m3_walk.h"
+
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <iterator>
 #include <string>
@@ -556,7 +559,7 @@ namespace {
 /// Every texture index in @p document the §7.4 table lists, as `f(u32&)`.
 /// One walk for the removal and the check, so the two cannot list different
 /// rows. @p f also receives what the row is, for the check's message.
-enum class TextureRow : u8 { CommonInput, NativeLayer, PayloadLink, FlipbookKey };
+enum class TextureRow : u8 { CommonInput, NativeLayer, PayloadLink, FlipbookKey, NativePath };
 
 /// What one call of the walker is visiting. `mirrored` marks a common input of
 /// a material whose native block names the same texture on the same layer: a
@@ -566,6 +569,43 @@ struct TextureReferencer {
     ElementRef where;
     bool mirrored = false;
 };
+
+/// The document texture an `.m3` layer names by @p path, or `kInvalidIndex`.
+/// The case and the slashes are the file's own and may differ.
+u32 textureByPath(const Document& document, const std::string& path) {
+    const auto fold = [](char c) {
+        return c == '/' ? '\\' : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    };
+    const auto same = [&](const std::string& a, const std::string& b) {
+        return a.size() == b.size() &&
+               std::equal(a.begin(), a.end(), b.begin(), [&](char x, char y) { return fold(x) == fold(y); });
+    };
+    for (u32 t = 0; t < document.textures.size(); ++t) {
+        if (same(document.textures[t].path, path)) {
+            return t;
+        }
+    }
+    return kInvalidIndex;
+}
+
+/// Every texture path an `.m3` block names: its layers', and a `MADD`'s list.
+template <class F>
+void forEachM3TexturePath(const native::M3Material& block, F&& f) {
+    // Read only: the walk reaches the mirrors through their `reflect`.
+    native::M3Material& walked = const_cast<native::M3Material&>(block);
+    native::WalkM3Material(walked, [&](native::M3TextureLayer& layer) {
+        if (!layer.texturePath.empty()) {
+            f(layer.texturePath);
+        }
+    });
+    if (const auto* madd = std::get_if<native::M3DataDriven>(&block.body)) {
+        for (const std::string& path : madd->texturePaths) {
+            if (!path.empty()) {
+                f(path);
+            }
+        }
+    }
+}
 
 template <class DocumentT, class F>
 void forEachTextureReferencer(DocumentT& document, F&& f) {
@@ -585,13 +625,30 @@ void forEachTextureReferencer(DocumentT& document, F&& f) {
                 const u32 index = static_cast<u32>(&material - set.materials.data());
                 const native::MdxMaterial* block =
                     std::get_if<native::MdxMaterial>(&material.Native());
+                // An `.m3` block names its textures by path, so a renumbering
+                // never reaches it; it is counted while it is not stale.
+                const native::M3Material* m3 = material.sync() != NativeSync::CommonEdited
+                                                   ? std::get_if<native::M3Material>(&material.Native())
+                                                   : nullptr;
                 for (u32 ordinal = 0; ordinal < common.ordinalCount(); ++ordinal) {
                     if (auto* input = common.inputAt(ordinal)) {
                         f(input->texture,
                           TextureReferencer{TextureRow::CommonInput,
                                             ElementRef(ElementKind::Layer, index, ordinal),
-                                            block != nullptr});
+                                            block != nullptr || m3 != nullptr});
                     }
+                }
+                if (m3 != nullptr) {
+                    if constexpr (std::is_const_v<DocumentT>) {
+                        const TextureReferencer where{TextureRow::NativePath,
+                                                      ElementRef(ElementKind::Material, index)};
+                        forEachM3TexturePath(*m3, [&](const std::string& path) {
+                            if (const u32 texture = textureByPath(document, path); texture != kInvalidIndex) {
+                                f(texture, where);
+                            }
+                        });
+                    }
+                    continue;
                 }
                 if (block == nullptr) {
                     continue;
@@ -688,7 +745,7 @@ const ProfileMaterialSet* unauditedSet(const Document& document) {
         for (const ProfileMaterialSet& set : model.profileSets) {
             for (const Material& material : set.materials) {
                 const NativeKind kind = material.nativeKind();
-                if (kind != NativeKind::None && kind != NativeKind::Mdx) {
+                if (kind != NativeKind::None && kind != NativeKind::Mdx && kind != NativeKind::M3) {
                     return &set;
                 }
             }
@@ -707,6 +764,8 @@ const char* rowName(TextureRow row) {
         return "an emitter";
     case TextureRow::FlipbookKey:
         return "a flipbook key";
+    case TextureRow::NativePath:
+        return "an .m3 layer";
     }
     return "?";
 }
@@ -718,7 +777,9 @@ u32 AppendDocument(Document& into, Document&& from, Diagnostics& out) {
         for (const ProfileMaterialSet& set : model.profileSets) {
             for (const Material& material : set.materials) {
                 const NativeKind kind = material.nativeKind();
-                if (kind == NativeKind::M3 || kind == NativeKind::D3) {
+                // An `.m3` block names its textures by path, which the
+                // appended table keeps; a Diablo III block by index.
+                if (kind == NativeKind::D3) {
                     out.error(DiagCode::OperationUnsupported,
                               std::string("a ") + ToString(kind) +
                                   " native block names textures this operation does not know",
@@ -818,11 +879,20 @@ RemovalResult RemoveTexture(Document& document, u32 texture, u32 replacement) {
     }
 
     u32 users = 0;
+    u32 byPath = 0;
     forEachTextureReferencer(static_cast<const Document&>(document),
-                             [&](const u32& index, const TextureReferencer&) {
+                             [&](const u32& index, const TextureReferencer& ref) {
                                  users += index == texture;
+                                 byPath += index == texture && ref.row == TextureRow::NativePath;
                              });
     const bool named = replacement != kInvalidIndex && replacement < count && replacement != texture;
+    // A path is not an index: no renumbering reaches it.
+    if (byPath != 0) {
+        result.diagnostics.error(DiagCode::OperationUnsupported,
+                                 number(byPath) + " .m3 layer(s) name texture " + number(texture) + " by its path",
+                                 ElementRef(ElementKind::Texture, texture));
+        return result;
+    }
     if (users != 0 && !named) {
         result.diagnostics.error(DiagCode::TextureUnresolved,
                                  number(users) + " reference(s) name texture " + number(texture) +
@@ -874,6 +944,7 @@ TextureReferencerCount CountTextureReferencers(const Document& document, u32 tex
         switch (ref.row) {
         case TextureRow::CommonInput:
         case TextureRow::NativeLayer:
+        case TextureRow::NativePath:
             ++count.materialLayers;
             break;
         case TextureRow::PayloadLink:

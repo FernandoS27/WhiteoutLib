@@ -885,9 +885,11 @@ struct MSEC {
 
 ### 9.4 REGN — Region / Submesh
 
-**Tag**: `REGN` | **Versions**: v3=36, v4=40, v5=48 bytes
+**Tag**: `REGN` | **Versions**: v2=28 (beta), v3=36, v4=40, v5=48 bytes
 
 Each region defines a submesh within the vertex/index buffers.
+
+v2 (beta, MD33 only) is `id u32, firstVertex u16, vertexCount u16, firstIndex u32, indexCount u32`, then the fields from `boneCount` to `rootBone`. Its faces index the whole vertex buffer; from v3 they index the region's own slice (`firstVertex` is added at draw time).
 
 ```cpp
 struct REGN {

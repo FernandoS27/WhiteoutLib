@@ -5,6 +5,7 @@
 #include "binary_parse_visitor.h"
 #include "chunk_traits.h"
 
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <type_traits>

@@ -215,7 +215,8 @@ TextureReferencerCount CountTextureReferencers(const Document& document, u32 tex
  *
  * The profiles @p from declares are declared. Returns the index @p from's first
  * model now has; `kInvalidIndex`, with nothing moved, when @p from holds a
- * native block whose textures the table has no rows for (M3, D3).
+ * native block whose textures the table has no rows for (D3). An `.m3` block
+ * names its textures by path and moves as it is.
  */
 u32 AppendDocument(Document& into, Document&& from, Diagnostics& out);
 

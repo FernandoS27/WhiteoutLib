@@ -8,15 +8,19 @@
  * @brief What an editor does to a model as a scene: rescale all of it, move a
  *        part of it, and bring another model into it.
  *
- * All three are pivot-rig operations, and they share one problem
- * `inline_models.h` met first: a pivot rig has no rest rotation or scale, so a
- * part that turns or grows is BAKED — points move, every key of its nodes is
- * conjugated — which is exact for a uniform scale. A conjugated frame stays on
- * the model's axes, though, and a leaf whose own axes say where something goes
- * (an emitter's direction, a box's sides) has to take the turn onto its frame
- * instead, by a key where it had none. A PopcornFX emitter takes the scale the
- * same way: the game runs its effect at the node's world scale, which a bake
- * that moves only lengths leaves at 1.
+ * On a pivot rig all three share one problem `inline_models.h` met first: the
+ * rig has no rest rotation or scale, so a part that turns or grows is BAKED —
+ * points move, every key of its nodes is conjugated — which is exact for a
+ * uniform scale. A conjugated frame stays on the model's axes, though, and a
+ * leaf whose own axes say where something goes (an emitter's direction, a box's
+ * sides) has to take the turn onto its frame instead, by a key where it had
+ * none. A PopcornFX emitter takes the scale the same way: the game runs its
+ * effect at the node's world scale, which a bake that moves only lengths leaves
+ * at 1.
+ *
+ * An explicit rig (StarCraft II's) has a rest rotation, so a part turns and
+ * moves by its roots' rests and keys alone, and grows by a restatement of its
+ * lengths and binds (EDIT_MODE_SC2_SCENE_TOOLS_DESIGN.md §4): no key is added.
  */
 
 #include <span>
@@ -67,6 +71,10 @@ struct SceneRescaleResult {
 /// `RescaleDocument`, and every PopcornFX emitter of a pivot rig scaled on its
 /// own frame by @p factor, so its effect grows with the model.
 SceneRescaleResult RescaleScene(Document& document, f32 factor);
+
+/// As above, a clip's move speed taking @p moveSpeedFactor (`RescaleDocument`'s
+/// overload): a restatement into another game's units.
+SceneRescaleResult RescaleScene(Document& document, f32 factor, f32 moveSpeedFactor);
 
 /// What `TurnFrame` wrote.
 struct FrameCounts {
@@ -119,6 +127,12 @@ struct PlaceResult {
  * rewritten, a sequence's as a global loop's. A node outside the subtrees is
  * not touched, and neither is the model's extent, which the editor measures
  * again before a write.
+ *
+ * On an explicit rig each root's rest, `initValue` and keys take the placement
+ * as its parent's rest frame sees it, an inner node's translations the scale,
+ * and every bind `P⁻¹ · IREF · K`; the records and bodies riding the subtree
+ * take the scale as lengths. No node carries the scale, which StarCraft II's
+ * ribbons would ignore.
  */
 PlaceResult PlaceNodes(Document& document, u32 model, std::span<const u32> roots, const Placement& placement);
 
@@ -218,7 +232,14 @@ struct MergeResult {
  * is left behind used stay behind; and an event's global loop, numbered by the
  * donor, is dropped.
  *
- * Both models must be pivot rigs.
+ * Both models must be pivot rigs, or both explicit ones. On an explicit rig the
+ * donor's nodes go in parents first, so `toM3` keeps our bone numbers; its
+ * records follow ours in its own order (`kNodeM3Place`); a channel keeps its id
+ * where ours has none, so an `.m3` record still names its stream; and under a
+ * StarCraft profile a section with no gate gates on the group's helper.
+ * Between two StarCraft games its physics, pose stages and track sets come too.
+ * *Match units* restates its clips' move speed in our speed unit
+ * (`MoveSpeedUnitsBetween`).
  */
 MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, const MergeOptions& options = {});
 

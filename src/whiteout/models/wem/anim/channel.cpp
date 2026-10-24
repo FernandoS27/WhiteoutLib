@@ -164,7 +164,8 @@ constexpr EmitterPropertyDesc kSc2Ribbon[] = {
     {"splinePoints.yawVariation.frequency", AttrType::F32, kPerElement},
     {"splinePoints.pitchVariation.amplitude", AttrType::F32, kPerElement},
     {"splinePoints.pitchVariation.frequency", AttrType::F32, kPerElement},
-    {"splinePoints.velocityVariation.amplitude", AttrType::F32, kPerElement, kLength},
+    // The Art Tools exporter writes the overlay as it is: not a length.
+    {"splinePoints.velocityVariation.amplitude", AttrType::F32, kPerElement},
     {"splinePoints.velocityVariation.frequency", AttrType::F32, kPerElement},
     {"splinePoints.yaw", AttrType::F32, kPerElement},
     {"splinePoints.pitch", AttrType::F32, kPerElement},
@@ -181,7 +182,8 @@ static_assert(std::size(kForceField) == static_cast<std::size_t>(ForceFieldPrope
 
 constexpr EmitterPropertyDesc kVertexWarp[] = {
     {"radius", AttrType::F32, false, kLength},
-    {"height", AttrType::F32, false, kLength},
+    // Written as it is by the Art Tools exporter, which scales the radius.
+    {"height", AttrType::F32},
     {"strength", AttrType::F32},
     {"angular", AttrType::F32},
     {"axial", AttrType::F32},

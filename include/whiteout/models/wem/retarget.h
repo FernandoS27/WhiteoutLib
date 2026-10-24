@@ -158,14 +158,22 @@ struct RescaleResult {
  * collision shape's box, sphere and height, and the sub-track keys and
  * `initValue`s of `Translation`, `AttenuationStart` and `AttenuationEnd`.
  *
+ * So is every length a StarCraft II record kept beside the document holds, since
+ * `toM3` writes those records back: a light's, a camera's, a projector's, a hit
+ * test's, an attachment volume's, a shadow box's, a mesh's section bounds, the
+ * leg-IK and turret stages, an event's frame and the `.m3` material blocks. A
+ * native channel (`TrackTarget::Kind::Native`) scales as the record field that
+ * names it does (`NativeChannelLength`).
+ *
  * ### What it does not touch
  *
- * **Native blocks.** A `NativeBag` holds the source format's own leftovers under
+ * **Native bags.** A `NativeBag` holds the source format's own leftovers under
  * the source format's own names, and a bag entry that happens to be a length —
  * an `.m2` `boundsRadius` — belongs to a set this operation is not restating. A
  * document rescaled and then exported through its ORIGINAL profile therefore
- * writes a stale native length; rescale on the way to a *different* profile,
- * which is the case this exists for, and the block is never read.
+ * writes a stale bag length; rescale on the way to a *different* profile, which
+ * is the case this exists for, and the bag is never read. The typed StarCraft II
+ * records above are not bag entries.
  *
  * @param factor must be finite and greater than zero. A factor of exactly 1
  *        succeeds and does nothing, which is what a same-scale pair asks for.
@@ -202,12 +210,31 @@ f32 MoveSpeedUnitsBetween(ProfileId from, ProfileId to);
 /// scaled about the origin.
 void RescaleNodePayload(NodePayload& payload, f32 factor);
 
+/// `RescaleNodePayload`, and the StarCraft II records @p node carries itself
+/// (its shadow box): every length that rides the node's frame.
+void RescaleNodeRecords(Node& node, f32 factor);
+
+/// The lengths a game stage's record holds (`IKJT`, `PATU`), restated at
+/// @p factor as `RescaleDocument` restates them.
+void RescaleGameStage(PoseStage& stage, f32 factor);
+
 /// The power of length @p channel's values carry: 1 for a distance, 0 for
 /// everything dimensionless — a rotation, a scale, a colour, an alpha, a UV, a
 /// texture index — and negative for a falloff or an f-stop. An emitter property
-/// says for itself (`EmitterPropertyDesc::length`), which is why @p model is
-/// asked.
+/// says for itself (`EmitterPropertyDesc::length`), and a native channel by its
+/// record (`NativeChannelLength`), which is why @p model is asked.
 int ChannelLengthPower(const Model& model, const AnimChannel& channel);
+
+/// What a native channel's (`TrackTarget::Kind::Native`) values are: the power
+/// of length of the StarCraft II record field whose AnimRef names its id, and
+/// the node that record rides — `kInvalidNode` for a material's. A slot holds a
+/// value type, not a field, so no other place can say; a stream no length field
+/// names is 0.
+struct NativeLength {
+    int power = 0;
+    u32 node = kInvalidNode;
+};
+NativeLength NativeChannelLength(const Model& model, u32 animId);
 
 /**
  * @brief Brings @p imported's material sets over @p document's geometry as

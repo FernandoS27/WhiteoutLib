@@ -6,6 +6,7 @@
 #include "dds_internal.h"
 
 #include <algorithm>
+#include <bit>
 #include <cstring>
 #include <memory>
 #include <stdexcept>
@@ -13,6 +14,36 @@
 #include "../issue_sink.h"
 
 namespace whiteout::textures::dds {
+
+namespace {
+
+// One channel of a texel, widened to 8 bits; `missing` when the layout has none.
+u8 expand_channel(u32 texel, u32 mask, u8 missing) {
+    if (mask == 0)
+        return missing;
+    const u32 bits = static_cast<u32>(std::popcount(mask));
+    const u32 value = (texel & mask) >> std::countr_zero(mask);
+    if (bits >= 8)
+        return static_cast<u8>(value >> (bits - 8));
+    const u32 max = (1u << bits) - 1u;
+    return static_cast<u8>((value * 255u + max / 2u) / max);
+}
+
+void expand_masked(const DDS_PIXELFORMAT& pf, const u8* src, u8* dst, size_t texels) {
+    const size_t stride = pf.rgbBitCount / 8;
+    const bool luminance = (pf.flags & DDPF_LUMINANCE) != 0;
+    const u32 alpha_mask = (pf.flags & DDPF_ALPHAPIXELS) ? pf.aBitMask : 0u;
+    for (size_t i = 0; i < texels; ++i, src += stride, dst += 4) {
+        u32 texel = 0;
+        std::memcpy(&texel, src, stride);
+        dst[0] = expand_channel(texel, pf.rBitMask, 0);
+        dst[1] = luminance ? dst[0] : expand_channel(texel, pf.gBitMask, 0);
+        dst[2] = luminance ? dst[0] : expand_channel(texel, pf.bBitMask, 0);
+        dst[3] = expand_channel(texel, alpha_mask, 255);
+    }
+}
+
+} // namespace
 
 class Parser::Impl : public IssueSink {
 public:
@@ -63,7 +94,7 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
 
     std::optional<PixelFormat> pixel_format;
     bool srgb = false;
-    LegacyChannelOrder channel_order = LegacyChannelOrder::Rgba;
+    LegacyLayout channel_order = LegacyLayout::Rgba;
     if (has_dx10_header) {
         pixel_format = dxgi_to_pixel_format(dx10_header.dxgiFormat);
         srgb = is_dxgi_srgb(dx10_header.dxgiFormat);
@@ -123,10 +154,20 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
 
     texture.setSrgb(srgb);
 
-    if (buffer_.size() < data_offset + texture.dataSize()) {
-        fail("DDS file truncated: need " + std::to_string(data_offset + texture.dataSize()) +
+    // A masked payload is the same texels as the RGBA8 texture, packed tighter.
+    const bool masked = channel_order == LegacyLayout::Masked;
+    const u32 source_bytes = masked ? header.ddspf.rgbBitCount / 8 : 4;
+    const u64 payload = masked ? texture.dataSize() / 4 * source_bytes : texture.dataSize();
+    if (buffer_.size() < data_offset + payload) {
+        fail("DDS file truncated: need " + std::to_string(data_offset + payload) +
              " bytes, got " + std::to_string(buffer_.size()));
         return std::nullopt;
+    }
+
+    if (masked) {
+        expand_masked(header.ddspf, buffer_.data() + data_offset, texture.dataPtr(),
+                      static_cast<size_t>(texture.dataSize() / 4));
+        return texture;
     }
 
     std::memcpy(texture.dataPtr(), buffer_.data() + data_offset,
@@ -134,7 +175,7 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
 
     // BGRA -> RGBA. Every pixel is 4 bytes regardless of mip level, face or
     // array slice, so one pass over the whole payload covers them all.
-    if (channel_order == LegacyChannelOrder::Bgra) {
+    if (channel_order == LegacyLayout::Bgra) {
         u8* texels = texture.dataPtr();
         const size_t byte_count = static_cast<size_t>(texture.dataSize());
         for (size_t i = 0; i + 3 < byte_count; i += 4) {

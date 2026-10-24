@@ -19,6 +19,8 @@ void BinaryParseVisitor::visit(Region& value, u32 version) {
     } else {
         value.firstVertex = reader.read<u16>();
         value.vertexCount = reader.read<u16>();
+        value.firstIndex = reader.read<u32>();
+        value.indexCount = reader.read<u32>();
     }
     value.unknown2 = reader.read<u16>();
     value.firstBoneLookup = reader.read<u16>();
@@ -58,5 +60,16 @@ void BinaryParseVisitor::visit(MeshDivision& value, u32 version) {
     visit(value.batches);
     visit(value.msec);
     value.instances = reader.read<u32>();
+
+    // A REGN v2 (beta) face names a vertex of the whole buffer, from v3 one of
+    // its region's slice (2,750 of 2,750 beta regions past vertex 0). Rebased
+    // here so every reader sees the v3 form; the writer adds it back.
+    for (const Region& region : value.regions) {
+        if (region.getVersion() >= 3)
+            continue;
+        const size_t end = std::min<size_t>(size_t{region.firstIndex} + region.indexCount, value.faces.size());
+        for (size_t i = region.firstIndex; i < end; ++i)
+            value.faces[i] = static_cast<u16>(value.faces[i] - region.firstVertex);
+    }
 }
 

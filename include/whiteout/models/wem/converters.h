@@ -524,6 +524,10 @@ inline constexpr const char* kNodeSharesParentVisibility = "sharesParentVisibili
 inline constexpr const char* kNodeM3Bone = "m3Bone";
 /// Its text: that bone's name, where it is not the node's.
 inline constexpr const char* kNodeM3BoneName = "m3BoneName";
+/// A node native key: where its record stood among its kind's in the file,
+/// which is the order `toM3` writes them in; a node without one goes after
+/// every node with one, in node order.
+inline constexpr const char* kNodeM3Place = "m3Place";
 
 /// How `fromM3` lays a model out. Both off, the document is the file's own
 /// shape -- every record a node under its bone, a mesh per division, a section

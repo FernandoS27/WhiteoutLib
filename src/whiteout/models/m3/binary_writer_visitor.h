@@ -115,6 +115,8 @@ protected:
     // Stands in for a `MAT_` layer slot the model leaves empty. A member
     // because the deferred chunk writes capture their container by reference.
     const std::optional<TextureLayer> emptyLayer{TextureLayer{}};
+    // A REGN v2 division's faces as written, for the same reason.
+    std::deque<std::vector<u16>> absoluteFaces;
 
     common::BinaryWriter& writer;
     bool ismd33;

@@ -8,12 +8,16 @@
 #include <whiteout/models/wem/materials/ops.h>
 #include <whiteout/models/wem/nodes/remove.h>
 #include <whiteout/models/wem/physics/references.h>
+#include <whiteout/models/wem/converters.h>
+
+#include "native/m3_walk.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
 #include <numeric>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -349,6 +353,372 @@ void PlacePoints(NodePayload& payload, const Placement& placement, bool frame, c
     }
 }
 
+/// Every vertex of @p model riding a @p member node, placed, with its normals
+/// and tangents turned. A mesh that rides whole turns its every corner; one
+/// that rides in part, the corners of its riding vertices.
+void PlaceVertices(Model& model, const std::vector<u8>& member, const Placement& placement, PlaceResult& result) {
+    for (Mesh& mesh : model.meshes) {
+        const std::vector<u32> owner = VertexOwners(mesh);
+        std::vector<u8> rides(owner.size(), 0);
+        u32 riding = 0;
+        for (u32 v = 0; v < owner.size(); ++v) {
+            rides[v] = owner[v] < member.size() && member[owner[v]] != 0 ? 1 : 0;
+            riding += rides[v];
+        }
+        if (riding == 0) {
+            continue;
+        }
+        const bool whole = riding == owner.size();
+        const std::span<Vector3f> positions =
+            mesh.attributes.get<Vector3f>(geom::names::kPosition, geom::Domain::Vertex);
+        for (u32 v = 0; v < positions.size() && v < rides.size(); ++v) {
+            if (rides[v] != 0) {
+                positions[v] = placement.point(positions[v]);
+            }
+        }
+        std::vector<u8> cornerRides;
+        if (!whole && mesh.attributes.has(geom::names::kNormal, geom::Domain::Halfedge)) {
+            mesh.ensureConnectivity();
+            const geom::Topology& topology = mesh.topology();
+            cornerRides.assign(topology.halfedgeCount(), 0);
+            for (u32 h = 0; h < topology.halfedgeCount(); ++h) {
+                const u32 v = static_cast<u32>(topology.from(geom::HalfedgeId(h)).index());
+                cornerRides[h] = v < rides.size() ? rides[v] : 0;
+            }
+        }
+        const auto turnsAt = [&](geom::Domain domain, u32 i) {
+            if (whole) {
+                return true;
+            }
+            const std::vector<u8>& of = domain == geom::Domain::Vertex ? rides : cornerRides;
+            return i < of.size() && of[i] != 0;
+        };
+        for (const geom::Domain domain : {geom::Domain::Vertex, geom::Domain::Halfedge}) {
+            const std::span<Vector3f> normals = mesh.attributes.get<Vector3f>(geom::names::kNormal, domain);
+            for (u32 i = 0; i < normals.size(); ++i) {
+                if (turnsAt(domain, i)) {
+                    normals[i] = placement.rotation.rotate_vector(normals[i]);
+                }
+            }
+            const std::span<std::array<f32, 4>> tangents =
+                mesh.attributes.get<std::array<f32, 4>>(geom::names::kTangent, domain);
+            for (u32 i = 0; i < tangents.size(); ++i) {
+                if (turnsAt(domain, i)) {
+                    std::array<f32, 4>& t = tangents[i];
+                    const Vector3f axis = placement.rotation.rotate_vector(Vector3f{t[0], t[1], t[2]});
+                    t = {axis.x, axis.y, axis.z, t[3]};
+                }
+            }
+        }
+        mesh.recomputeBounds();
+        result.verticesPlaced += riding;
+    }
+}
+
+/// The frame @p node rests at, composed as `Animator::composeNode` composes
+/// it: its locals as matrices, child first. The identity for no node.
+Matrix44f RestFrame(const NodeTree& tree, u32 node) {
+    Matrix44f frame = Matrix44f::identity();
+    for (u32 n = node, steps = 0; n < tree.size() && steps <= tree.size(); ++steps) {
+        frame = frame * ToMatrix(tree.nodes[n].local);
+        if (tree.nodes[n].parent == n) {
+            break;
+        }
+        n = tree.nodes[n].parent;
+    }
+    return frame;
+}
+
+bool NearlyEqual(const Matrix44f& a, const Matrix44f& b, f32 tolerance) {
+    for (u32 i = 0; i < 4; ++i) {
+        for (u32 j = 0; j < 4; ++j) {
+            if (std::abs(a.data[i][j] - b.data[i][j]) > tolerance) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+/// A root of a placed subtree on an explicit rig: the placement as its parent's
+/// frame sees it, `Q = Wp · P · Wp⁻¹` (EDIT_MODE_SC2_SCENE_TOOLS_DESIGN.md §4).
+struct RootPlacement {
+    Matrix44f q = Matrix44f::identity();
+    Quaternion turn{0, 0, 0, 1};
+    /// `Q` is not a similarity: the parent's rest frame scales unevenly.
+    bool approximated = false;
+};
+
+RootPlacement PlacementUnder(const NodeTree& tree, u32 parent, const Matrix44f& p) {
+    const Matrix44f wp = parent < tree.size() ? RestFrame(tree, parent) : Matrix44f::identity();
+    RootPlacement out;
+    out.q = wp * p * Matrix44f::inverse(wp);
+    const Transform similarity = FromMatrix(out.q);
+    out.turn = similarity.rotation.normalized();
+    const f32 s = (similarity.scale.x + similarity.scale.y + similarity.scale.z) / 3.0f;
+    Transform uniform = similarity;
+    uniform.scale = Vector3f{s, s, s};
+    out.approximated = !NearlyEqual(ToMatrix(uniform), out.q, 1e-4f * std::max(1.0f, s));
+    return out;
+}
+
+/// `PlaceNodes` on an explicit rig: the turn and the move go onto each
+/// subtree root's rest, keys and `initValue`, the scale is a restatement of the
+/// subtree's lengths, and the binds take `IREF' = P⁻¹ · IREF · K`. No node
+/// carries the scale and no key is added, which is exact at every key: the
+/// skin `v·P · IREF' · F'(t)` is `v · IREF · F(t) · X(t)`, the old pose moved
+/// by the placement carried in the parent's frame.
+void PlaceExplicit(Document& document, u32 model, const std::vector<u32>& nodes, const Placement& placement,
+                   PlaceResult& result) {
+    Model& host = document.models[model];
+    NodeTree& tree = host.nodes;
+    const f32 s = placement.scale;
+    std::vector<u8> member(tree.size(), 0);
+    for (const u32 n : nodes) {
+        member[n] = 1;
+    }
+    const auto isRoot = [&](u32 n) {
+        const u32 parent = tree.nodes[n].parent;
+        return !(parent < tree.size() && parent != n && member[parent] != 0);
+    };
+
+    Matrix44f p = ToMatrix(Transform{placement.translation, placement.rotation, Vector3f{s, s, s}});
+    const Matrix44f pInverse = Matrix44f::inverse(p);
+    const Matrix44f k = Matrix44f::scaling(Vector3f{s, s, s});
+    const Matrix44f kInverse = Matrix44f::scaling(Vector3f{1.0f / s, 1.0f / s, 1.0f / s});
+
+    // Each root's placement, read before any rest moves.
+    std::unordered_map<u32, RootPlacement> roots;
+    for (const u32 n : nodes) {
+        if (isRoot(n)) {
+            const u32 parent = tree.nodes[n].parent;
+            RootPlacement root = PlacementUnder(tree, parent != n ? parent : kInvalidNode, p);
+            result.approximated += root.approximated ? 1u : 0u;
+            roots.emplace(n, root);
+        }
+    }
+
+    Placement rigid = placement;
+    rigid.scale = 1.0f;
+    for (const u32 n : nodes) {
+        Node& node = tree.nodes[n];
+        const auto found = roots.find(n);
+        const RootPlacement* root = found != roots.end() ? &found->second : nullptr;
+        if (root != nullptr) {
+            node.local.translation = transform_point(node.local.translation, root->q);
+            node.local.rotation = root->turn * node.local.rotation;
+        } else {
+            node.local.translation = node.local.translation * s;
+        }
+        node.pivot = placement.point(node.pivot);
+        for (u32 schema = 0; schema < tree.poseSchema.size(); ++schema) {
+            const PoseSchema& entry = tree.poseSchema[schema];
+            // A bind in model space: `B' = K⁻¹ · B · P`, its inverse
+            // `P⁻¹ · B⁻¹ · K`. One in the parent's, as the rest is placed.
+            const auto place = [&](const Matrix44f& m) -> Matrix44f {
+                if (entry.space == PoseSpace::Model) {
+                    return entry.inverse ? pInverse * m * k : kInverse * m * p;
+                }
+                if (root != nullptr) {
+                    return entry.inverse ? Matrix44f::inverse(kInverse * Matrix44f::inverse(m) * root->q)
+                                         : kInverse * m * root->q;
+                }
+                return entry.inverse ? Matrix44f::inverse(kInverse * Matrix44f::inverse(m) * k) : kInverse * m * k;
+            };
+            if (entry.storage == PoseStorage::Matrix && schema < node.poseMatrices.size()) {
+                node.poseMatrices[schema] = place(node.poseMatrices[schema]);
+                if (schema < node.poses.size()) {
+                    node.poses[schema] = FromMatrix(node.poseMatrices[schema]);
+                }
+            } else if (schema < node.poses.size()) {
+                node.poses[schema] = FromMatrix(place(ToMatrix(node.poses[schema])));
+            }
+        }
+        if (s != 1.0f) {
+            RescaleNodeRecords(node, s);
+        }
+        // What a payload holds in model space rather than in its node's frame.
+        if (auto* bone = std::get_if<BonePayload>(&node.payload)) {
+            GrowBox(bone->bounds, rigid);
+            bone->sphere.center = rigid.point(bone->sphere.center);
+        } else if (auto* camera = std::get_if<CameraPayload>(&node.payload)) {
+            camera->target = rigid.point(camera->target);
+        }
+        ++result.nodesPlaced;
+    }
+
+    // Their keys and rest values, in the same terms. A native stream scales as
+    // the record naming it, when that record rides a placed node.
+    std::unordered_map<u32, f32> nativeScale;
+    if (s != 1.0f) {
+        for (const AnimChannel& channel : host.animChannels.channels) {
+            if (channel.target.kind != TrackTarget::Kind::Native) {
+                continue;
+            }
+            const NativeLength length = NativeChannelLength(host, channel.id);
+            if (length.power != 0 && length.node < member.size() && member[length.node] != 0) {
+                nativeScale.emplace(channel.id, std::pow(s, static_cast<f32>(length.power)));
+            }
+        }
+    }
+    const auto mapKeys = [&](const AnimChannel& channel, std::vector<u8>& bytes, Interpolation interp) -> bool {
+        const TrackTarget& target = channel.target;
+        const geom::AttrType type = channel.valueType;
+        if (target.kind == TrackTarget::Kind::Native) {
+            const auto found = nativeScale.find(channel.id);
+            if (found == nativeScale.end()) {
+                return false;
+            }
+            ScaleFloats(bytes, found->second);
+            return true;
+        }
+        if (target.kind != TrackTarget::Kind::Node || target.node >= member.size() || member[target.node] == 0) {
+            return false;
+        }
+        const auto found = roots.find(target.node);
+        const RootPlacement* root = found != roots.end() ? &found->second : nullptr;
+        switch (target.channel) {
+        case Channel::Translation: {
+            if (type != geom::AttrType::F32x3) {
+                return false;
+            }
+            if (root == nullptr) {
+                ScaleFloats(bytes, s);
+                return true;
+            }
+            // A key's value is a point of the parent's frame; a Hermite or
+            // Bezier key's tangents beside it are vectors.
+            const std::size_t stride = ValuesPerKey(interp);
+            u32 value = 0;
+            MapValues<Vector3f>(bytes, [&](const Vector3f& v) {
+                const bool point = value++ % stride == 0;
+                return point ? transform_point(v, root->q) : transform_normal(v, root->q);
+            });
+            return true;
+        }
+        case Channel::Rotation:
+            if (root == nullptr || !IsQuat(type)) {
+                return false;
+            }
+            MapValues<Quaternion>(bytes, [&](const Quaternion& q) { return root->turn * q; });
+            return true;
+        case Channel::Scale:
+            return false;
+        case Channel::Target:
+            return type == geom::AttrType::F32x3 &&
+                   MapValues<Vector3f>(bytes, [&](const Vector3f& v) { return placement.vector(v); }) != 0;
+        default: {
+            const int power = ChannelLengthPower(host, channel);
+            if (power == 0 || s == 1.0f || !IsFloat(type)) {
+                return false;
+            }
+            ScaleFloats(bytes, std::pow(s, static_cast<f32>(power)));
+            return true;
+        }
+        }
+    };
+    std::unordered_map<u32, u32> channelAt;
+    for (u32 c = 0; c < host.animChannels.channels.size(); ++c) {
+        AnimChannel& channel = host.animChannels.channels[c];
+        channelAt.emplace(channel.id, c);
+        if (channel.hasInitValue()) {
+            mapKeys(channel, channel.initValue, Interpolation::Linear);
+        }
+    }
+    for (Clip& clip : document.clips) {
+        if (clip.model != model) {
+            continue;
+        }
+        for (SubTrackContainer& container : clip.containers) {
+            for (SubTrack& track : container.subTracks) {
+                const auto it = channelAt.find(track.channel);
+                if (it != channelAt.end() && mapKeys(host.animChannels.channels[it->second], track.values, track.interp)) {
+                    result.keysRewritten += static_cast<u32>(track.times.size());
+                }
+            }
+        }
+        // An event's frame is in its bone's.
+        for (ClipEvent& event : clip.events) {
+            if (event.node < member.size() && member[event.node] != 0) {
+                event.transform.data[3][0] *= s;
+                event.transform.data[3][1] *= s;
+                event.transform.data[3][2] *= s;
+            }
+        }
+    }
+
+    // The records that name a placed node from outside it.
+    if (s != 1.0f) {
+        for (Mesh& mesh : host.meshes) {
+            for (native::M3MeshSection& bounds : mesh.sc2Bounds) {
+                if (bounds.nodeIndex < member.size() && member[bounds.nodeIndex] != 0) {
+                    for (native::M3Extent* extent : {&bounds.bounds.initValue, &bounds.bounds.nullValue}) {
+                        extent->min = extent->min * s;
+                        extent->max = extent->max * s;
+                        extent->radius *= s;
+                    }
+                }
+            }
+        }
+        for (PoseStage& stage : host.poseStages) {
+            if (!stage.driven.empty() && stage.driven.front() < member.size() && member[stage.driven.front()] != 0) {
+                RescaleGameStage(stage, s);
+            }
+        }
+    }
+
+    // A body rides its node's frame, so its shapes take the scale alone. A
+    // joint is exact only between two bodies that both moved.
+    PhysicsSet& physics = host.physics;
+    const auto placed = [&](u32 id) {
+        const PhysicsBody* body = physics.body(id);
+        return body != nullptr && body->node < member.size() && member[body->node] != 0;
+    };
+    for (PhysicsBody& body : physics.bodies) {
+        if (s == 1.0f || body.node >= member.size() || member[body.node] == 0) {
+            continue;
+        }
+        for (PhysicsShape& shape : body.shapes) {
+            shape.transform.data[3][0] *= s;
+            shape.transform.data[3][1] *= s;
+            shape.transform.data[3][2] *= s;
+            shape.halfExtents = shape.halfExtents * s;
+            shape.radius *= s;
+            shape.length *= s;
+            for (Vector3f& point : shape.points) {
+                point = point * s;
+            }
+            for (Vector3f& vertex : shape.vertices) {
+                vertex = vertex * s;
+            }
+        }
+    }
+    u32 split = 0;
+    for (PhysicsJoint& joint : physics.joints) {
+        const bool a = placed(joint.bodyA);
+        const bool b = placed(joint.bodyB);
+        if (a != b) {
+            ++split;
+        }
+        if (a && b && s != 1.0f) {
+            for (Matrix44f* frame : {&joint.frameA, &joint.frameB}) {
+                frame->data[3][0] *= s;
+                frame->data[3][1] *= s;
+                frame->data[3][2] *= s;
+            }
+            joint.restLength *= s;
+        }
+    }
+    if (split != 0) {
+        result.approximated += split;
+        result.diagnostics.warn(DiagCode::OperationUnsupported,
+                                std::to_string(split) + " joint(s) between a placed body and one left in place",
+                                ElementRef(ElementKind::Document, model));
+    }
+
+    PlaceVertices(host, member, placement, result);
+}
+
 } // namespace
 
 bool Placement::moves() const {
@@ -357,8 +727,12 @@ bool Placement::moves() const {
 }
 
 SceneRescaleResult RescaleScene(Document& document, f32 factor) {
+    return RescaleScene(document, factor, factor);
+}
+
+SceneRescaleResult RescaleScene(Document& document, f32 factor, f32 moveSpeedFactor) {
     SceneRescaleResult result;
-    result.rescale = RescaleDocument(document, factor);
+    result.rescale = RescaleDocument(document, factor, moveSpeedFactor);
     if (!result.rescale.ok || factor == 1.0f) {
         return result;
     }
@@ -471,8 +845,9 @@ PlaceResult PlaceNodes(Document& document, u32 model, std::span<const u32> roots
         result.diagnostics.error(DiagCode::IndexOutOfRange, "no model " + std::to_string(model));
         return result;
     }
-    if (document.models[model].nodes.rig != RigConvention::PivotRelative) {
-        result.diagnostics.error(DiagCode::OperationUnsupported, "a placement moves a pivot rig only",
+    const RigConvention rig = document.models[model].nodes.rig;
+    if (rig != RigConvention::PivotRelative && rig != RigConvention::ExplicitBind) {
+        result.diagnostics.error(DiagCode::OperationUnsupported, "a placement moves a pivot or explicit rig only",
                                  ElementRef(ElementKind::Document, model));
         return result;
     }
@@ -483,6 +858,10 @@ PlaceResult PlaceNodes(Document& document, u32 model, std::span<const u32> roots
     const std::vector<u32> nodes = SubtreeNodes(document.models[model].nodes, roots);
     result.ok = true;
     if (nodes.empty() || !placement.moves()) {
+        return result;
+    }
+    if (rig == RigConvention::ExplicitBind) {
+        PlaceExplicit(document, model, nodes, placement, result);
         return result;
     }
 
@@ -621,64 +1000,7 @@ PlaceResult PlaceNodes(Document& document, u32 model, std::span<const u32> roots
     result.keysRewritten += counts.keysRewritten;
     result.keysAdded = counts.keysAdded;
 
-    // The vertices riding them. A mesh that rides whole turns its every corner;
-    // one that rides in part, the corners of its riding vertices.
-    for (Mesh& mesh : document.models[model].meshes) {
-        const std::vector<u32> owner = VertexOwners(mesh);
-        std::vector<u8> rides(owner.size(), 0);
-        u32 riding = 0;
-        for (u32 v = 0; v < owner.size(); ++v) {
-            rides[v] = owner[v] < member.size() && member[owner[v]] != 0 ? 1 : 0;
-            riding += rides[v];
-        }
-        if (riding == 0) {
-            continue;
-        }
-        const bool whole = riding == owner.size();
-        const std::span<Vector3f> positions =
-            mesh.attributes.get<Vector3f>(geom::names::kPosition, geom::Domain::Vertex);
-        for (u32 v = 0; v < positions.size() && v < rides.size(); ++v) {
-            if (rides[v] != 0) {
-                positions[v] = placement.point(positions[v]);
-            }
-        }
-        std::vector<u8> cornerRides;
-        if (!whole && mesh.attributes.has(geom::names::kNormal, geom::Domain::Halfedge)) {
-            mesh.ensureConnectivity();
-            const geom::Topology& topology = mesh.topology();
-            cornerRides.assign(topology.halfedgeCount(), 0);
-            for (u32 h = 0; h < topology.halfedgeCount(); ++h) {
-                const u32 v = static_cast<u32>(topology.from(geom::HalfedgeId(h)).index());
-                cornerRides[h] = v < rides.size() ? rides[v] : 0;
-            }
-        }
-        const auto turnsAt = [&](geom::Domain domain, u32 i) {
-            if (whole) {
-                return true;
-            }
-            const std::vector<u8>& of = domain == geom::Domain::Vertex ? rides : cornerRides;
-            return i < of.size() && of[i] != 0;
-        };
-        for (const geom::Domain domain : {geom::Domain::Vertex, geom::Domain::Halfedge}) {
-            const std::span<Vector3f> normals = mesh.attributes.get<Vector3f>(geom::names::kNormal, domain);
-            for (u32 i = 0; i < normals.size(); ++i) {
-                if (turnsAt(domain, i)) {
-                    normals[i] = placement.rotation.rotate_vector(normals[i]);
-                }
-            }
-            const std::span<std::array<f32, 4>> tangents =
-                mesh.attributes.get<std::array<f32, 4>>(geom::names::kTangent, domain);
-            for (u32 i = 0; i < tangents.size(); ++i) {
-                if (turnsAt(domain, i)) {
-                    std::array<f32, 4>& t = tangents[i];
-                    const Vector3f axis = placement.rotation.rotate_vector(Vector3f{t[0], t[1], t[2]});
-                    t = {axis.x, axis.y, axis.z, t[3]};
-                }
-            }
-        }
-        mesh.recomputeBounds();
-        result.verticesPlaced += riding;
-    }
+    PlaceVertices(document.models[model], member, placement, result);
 
     const PhysicsSet& physics = document.models[model].physics;
     const bool riders = std::any_of(physics.bodies.begin(), physics.bodies.end(), [&](const PhysicsBody& body) {
@@ -699,9 +1021,22 @@ T OptionAt(const std::vector<T>& values, u32 index, T fallback) {
     return index < values.size() ? values[index] : fallback;
 }
 
+/// A mesh-shaped StarCraft II emitter's sections through @p remap (per old
+/// mesh, its new index or `kInvalidIndex`); one of a mesh left out goes.
+void ShiftShapeSections(Sc2ParticleEmitterPayload& particle, std::span<const u32> remap) {
+    std::vector<u32> kept;
+    for (const u32 entry : particle.shapeSections) {
+        const u32 mesh = Sc2ShapeSectionMesh(entry);
+        if (mesh < remap.size() && remap[mesh] != kInvalidIndex) {
+            kept.push_back(Sc2ShapeSection(remap[mesh], Sc2ShapeSectionIndex(entry)));
+        }
+    }
+    particle.shapeSections = std::move(kept);
+}
+
 /// @p model's meshes less the ones @p keep refuses, every index that named one
-/// renumbered — a section channel's, a bone's gate. Per old mesh, its new
-/// index or `kInvalidIndex`.
+/// renumbered — a section channel's, a bone's gate, a mesh emitter's section,
+/// a cloth's. Per old mesh, its new index or `kInvalidIndex`.
 std::vector<u32> KeepMeshes(Model& model, const std::vector<u8>& keep) {
     std::vector<u32> remap(model.meshes.size(), kInvalidIndex);
     std::vector<Mesh> kept;
@@ -725,9 +1060,39 @@ std::vector<u32> KeepMeshes(Model& model, const std::vector<u8>& keep) {
     for (Node& node : model.nodes.nodes) {
         if (auto* bone = std::get_if<BonePayload>(&node.payload); bone != nullptr && bone->gateMesh < remap.size()) {
             bone->gateMesh = remap[bone->gateMesh];
+        } else if (auto* particle = std::get_if<Sc2ParticleEmitterPayload>(&node.payload)) {
+            ShiftShapeSections(*particle, remap);
         }
     }
+    const std::vector<u32> lost = RemapPhysicsMeshes(model.physics, remap);
+    std::erase_if(model.animChannels.channels, [&](const AnimChannel& channel) {
+        return IsPhysicsChannel(channel.target) &&
+               std::find(lost.begin(), lost.end(), channel.target.sub) != lost.end();
+    });
     return remap;
+}
+
+/// @p edit over @p material's `.m3` block, when it holds one and @p edit says
+/// it changed it: the sync state carries over, both halves moving together.
+template <class F>
+void EditM3Block(Material& material, F&& edit) {
+    const auto* found = std::get_if<native::M3Material>(&material.Native());
+    if (found == nullptr) {
+        return;
+    }
+    native::M3Material block = *found;
+    if (!edit(block)) {
+        return;
+    }
+    const NativeSync sync = material.sync();
+    if (sync == NativeSync::NativeAuthoritative) {
+        material.SetNativeAuthoritative(std::move(block));
+    } else {
+        material.SetNativeInSync(std::move(block));
+        if (sync == NativeSync::CommonEdited) {
+            material.MutableCommon();
+        }
+    }
 }
 
 /// The channel of @p table on @p target's node, sub and channel, or null.
@@ -749,11 +1114,17 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
         result.diagnostics.error(DiagCode::IndexOutOfRange, "no such model to merge into or from");
         return result;
     }
-    if (into.models[model].nodes.rig != RigConvention::PivotRelative ||
-        donor.models[from].nodes.rig != RigConvention::PivotRelative) {
-        result.diagnostics.error(DiagCode::OperationUnsupported, "a merge joins two pivot rigs only");
+    const RigConvention rig = into.models[model].nodes.rig;
+    if (donor.models[from].nodes.rig != rig ||
+        (rig != RigConvention::PivotRelative && rig != RigConvention::ExplicitBind)) {
+        result.diagnostics.error(DiagCode::OperationUnsupported,
+                                 "a merge joins two pivot rigs or two explicit ones");
         return result;
     }
+    const bool explicitRig = rig == RigConvention::ExplicitBind;
+    // Between two StarCraft games what only the game runs comes too: its
+    // physics, its two stages and its layered clips (EDIT_MODE_SC2_SCENE_TOOLS_DESIGN.md Q1).
+    const bool carry = explicitRig && IsStarCraft(donor.defaultProfile) && IsStarCraft(options.profile);
     // Any choice at all: what is left behind takes what only it used along.
     const bool choosing = !options.nodes.empty() || !options.meshes.empty() || !options.slots.empty() ||
                           !options.clips.empty() || !options.asHelper.empty();
@@ -783,22 +1154,25 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
             brought.push_back(std::move(clip));
             clipOrigin.push_back(c);
         }
-        if (!kept.physics.empty() || !kept.poseStages.empty()) {
+        if (!carry && (!kept.physics.empty() || !kept.poseStages.empty())) {
             result.diagnostics.info(DiagCode::FeatureDropped,
                                     "the merged model's physics and pose stages stay behind");
         }
-        kept.physics = PhysicsSet{};
         for (Mesh& mesh : kept.meshes) {
             DropSoftLayers(mesh);
         }
-        kept.poseStages.clear();
+        kept.physics.soft.clear();
+        if (!carry) {
+            kept.physics = PhysicsSet{};
+            kept.poseStages.clear();
+            kept.trackSets.clear();
+            std::erase_if(kept.animChannels.channels, [](const AnimChannel& channel) {
+                return IsPhysicsChannel(channel.target) || IsStageChannel(channel.target);
+            });
+        }
         kept.testPoses.clear();
         kept.tPose = kInvalidIndex;
-        kept.trackSets.clear();
         kept.animSet = kInvalidIndex;
-        std::erase_if(kept.animChannels.channels, [](const AnimChannel& channel) {
-            return IsPhysicsChannel(channel.target) || IsStageChannel(channel.target);
-        });
         for (Node& node : kept.nodes.nodes) {
             node.skin.poseDeltas.clear();
             node.skin.poseSources.clear();
@@ -852,6 +1226,8 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
             referencers.meshes = kept.meshes;
             referencers.channels = &kept.animChannels;
             referencers.clips = donor.clips;
+            referencers.stages = &kept.poseStages;
+            referencers.physics = &kept.physics;
             for (u32 n = tree.size(); n-- > 0;) {
                 if (skipped[n] != 0) {
                     RemoveNode(tree, n, RemovePolicy::ReparentChildren, SkinPolicy::ReassignToParent,
@@ -869,11 +1245,13 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
         }
     }
 
-    // 2. Its units.
+    // 2. Its units. A StarCraft II speed is stated at Warcraft III's scale, so
+    // a clip's move speed takes the change of speed unit beside the lengths'.
     if (options.matchUnits) {
         const f32 factor = RescaleFactorBetween(donor.defaultProfile, options.profile);
-        if (factor != 1.0f) {
-            SceneRescaleResult rescaled = RescaleScene(donor, factor);
+        const f32 speed = factor * MoveSpeedUnitsBetween(donor.defaultProfile, options.profile);
+        if (factor != 1.0f || speed != 1.0f) {
+            SceneRescaleResult rescaled = RescaleScene(donor, factor, speed);
             if (rescaled.rescale.ok) {
                 result.unitScale = factor;
             }
@@ -983,6 +1361,8 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
     const Model& source = into.models[appended];
     const std::string group = UniqueName(host.nodes, options.name.empty() ? std::string("Merged") : options.name);
     {
+        // On an explicit rig its rest and bind are the identity: derived, as a
+        // node with no stored pose answers them.
         Node helper;
         helper.name = group;
         helper.kind = NodeKind::Helper;
@@ -995,12 +1375,15 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
     const u32 meshBase = static_cast<u32>(host.meshes.size());
 
     // Where each node goes: a node of its own, or the one of ours it becomes.
+    // On an explicit rig they go in parents first, siblings in the donor's
+    // order: `toM3` renumbers every bone of a tree that is not, ours with them.
     NodeTree nodes = source.nodes;
     const u32 count = nodes.size();
     std::vector<u32> remap(count, kInvalidNode);
     std::vector<u8> becomes(count, 0);
+    std::vector<u32> order;
     {
-        u32 next = base;
+        std::vector<u8> added(count, 0);
         for (u32 i = 0; i < count; ++i) {
             const u32 origin = nodeOrigin[i];
             const u32 target = OptionAt(options.into, origin, kInvalidNode);
@@ -1014,6 +1397,46 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
                                         "'" + nodes.nodes[i].name + "' had no node of ours to become; it is added",
                                         ElementRef(ElementKind::Node, origin));
             }
+            added[i] = 1;
+        }
+        if (explicitRig) {
+            std::vector<u8> placed(count, 0);
+            std::set<u32> ready;
+            const auto waits = [&](u32 i) {
+                const u32 parent = nodes.nodes[i].parent;
+                return parent < count && parent != i && added[parent] != 0 && placed[parent] == 0;
+            };
+            for (u32 i = 0; i < count; ++i) {
+                if (added[i] != 0 && !waits(i)) {
+                    ready.insert(i);
+                }
+            }
+            while (!ready.empty()) {
+                const u32 i = *ready.begin();
+                ready.erase(ready.begin());
+                placed[i] = 1;
+                order.push_back(i);
+                for (const u32 child : nodes.children(i)) {
+                    if (child < count && added[child] != 0 && placed[child] == 0 && !waits(child)) {
+                        ready.insert(child);
+                    }
+                }
+            }
+            // A loop in the donor's tree: what is left keeps its own order.
+            for (u32 i = 0; i < count; ++i) {
+                if (added[i] != 0 && placed[i] == 0) {
+                    order.push_back(i);
+                }
+            }
+        } else {
+            for (u32 i = 0; i < count; ++i) {
+                if (added[i] != 0) {
+                    order.push_back(i);
+                }
+            }
+        }
+        u32 next = base;
+        for (const u32 i : order) {
             remap[i] = next++;
         }
     }
@@ -1041,6 +1464,28 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
                     }
                 });
             }
+            // A composite draws with the slots its sections name.
+            const std::vector<u8> drawn = used;
+            for (const ProfileMaterialSet& own : source.profileSets) {
+                for (u32 s = 0; s < drawn.size() && s < own.slotBindings.size(); ++s) {
+                    if (drawn[s] == 0 || !own.slotBindings[s].bound(own.defaultLook)) {
+                        continue;
+                    }
+                    const u32 material = own.slotBindings[s].byLook[own.defaultLook];
+                    const auto* block = material < own.materials.size()
+                                            ? std::get_if<native::M3Material>(&own.materials[material].Native())
+                                            : nullptr;
+                    const auto* composite = block != nullptr ? std::get_if<native::M3Composite>(&block->body) : nullptr;
+                    if (composite == nullptr) {
+                        continue;
+                    }
+                    for (const native::M3CompositeSection& section : composite->sections) {
+                        if (section.materialIndex < used.size()) {
+                            used[section.materialIndex] = 1;
+                        }
+                    }
+                }
+            }
         }
         for (u32 s = 0; s < source.materialSlots.size(); ++s) {
             const u32 ourSlot = choosing ? OptionAt(options.slots, s, kInvalidIndex) : kInvalidIndex;
@@ -1061,7 +1506,10 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
         }
     }
     const auto slotOf = [&](u32 slot) { return slot < slots.size() ? slots[slot] : slot; };
-    for (ProfileMaterialSet& set : host.profileSets) {
+    // Per set of ours, where the materials it took from the donor start.
+    std::vector<u32> materialsFrom(host.profileSets.size(), kInvalidIndex);
+    for (u32 setIndex = 0; setIndex < host.profileSets.size(); ++setIndex) {
+        ProfileMaterialSet& set = host.profileSets[setIndex];
         set.resizeBindings(host.materialSlots.size());
         const ProfileMaterialSet* own = source.setFor(set.profile);
         if (own == nullptr) {
@@ -1072,6 +1520,7 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
             }
             continue;
         }
+        materialsFrom[setIndex] = static_cast<u32>(set.materials.size());
         if (!choosing) {
             const u32 materialBase = static_cast<u32>(set.materials.size());
             set.materials.insert(set.materials.end(), own->materials.begin(), own->materials.end());
@@ -1104,6 +1553,22 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
             }
         }
     }
+    // A composite's sections name slots, which are ours now.
+    for (u32 setIndex = 0; setIndex < host.profileSets.size(); ++setIndex) {
+        ProfileMaterialSet& set = host.profileSets[setIndex];
+        for (u32 m = materialsFrom[setIndex]; m < set.materials.size(); ++m) {
+            EditM3Block(set.materials[m], [&](native::M3Material& block) {
+                auto* composite = std::get_if<native::M3Composite>(&block.body);
+                if (composite == nullptr) {
+                    return false;
+                }
+                for (native::M3CompositeSection& section : composite->sections) {
+                    section.materialIndex = slotOf(section.materialIndex);
+                }
+                return true;
+            });
+        }
+    }
 
     std::vector<Mesh> meshes = source.meshes;
     AnimChannelTable channels = source.animChannels;
@@ -1113,18 +1578,45 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
         return target.kind == TrackTarget::Kind::Node && target.node < count && becomes[target.node] != 0 &&
                OptionAt<u8>(options.pair, nodeOrigin[target.node], 0) == 0;
     });
+    std::vector<PoseStage> stages;
+    PhysicsSet physics;
+    if (carry) {
+        stages = source.poseStages;
+        physics = source.physics;
+    }
     const u32 clipCount = static_cast<u32>(into.clips.size()) - clipBase;
     NodeReferencers referencers;
     referencers.meshes = meshes;
     referencers.channels = &channels;
     referencers.clips = std::span<Clip>(into.clips.data() + clipBase, clipCount);
+    referencers.stages = &stages;
+    referencers.physics = &physics;
     RemapNodeReferencers(nodes, remap, referencers, result.diagnostics);
+
+    // Where a record of the file stands among its kind's: after all of ours,
+    // in the donor's own order.
+    std::vector<i64> placeOf(count, 0);
+    if (explicitRig) {
+        i64 last = -1;
+        for (u32 n = 0; n < host.nodes.size(); ++n) {
+            last = std::max(last, host.nodes.nodes[n].native.value(kNodeM3Place, (i64{1} << 32) + n));
+        }
+        std::vector<u32> byPlace(count);
+        std::iota(byPlace.begin(), byPlace.end(), 0u);
+        std::stable_sort(byPlace.begin(), byPlace.end(), [&](u32 a, u32 b) {
+            return nodes.nodes[a].native.value(kNodeM3Place, (i64{1} << 32) + a) <
+                   nodes.nodes[b].native.value(kNodeM3Place, (i64{1} << 32) + b);
+        });
+        for (u32 rank = 0; rank < count; ++rank) {
+            placeOf[byPlace[rank]] = last + 1 + rank;
+        }
+    }
+
     u32 eventLoops = 0;
     for (u32 i = 0; i < count; ++i) {
         result.nodeOf[nodeOrigin[i]] = remap[i];
-        if (becomes[i] != 0) {
-            continue;
-        }
+    }
+    for (const u32 i : order) {
         const u32 origin = nodeOrigin[i];
         Node node = std::move(nodes.nodes[i]);
         const bool root = node.parent >= count || node.parent == i;
@@ -1135,6 +1627,12 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
         }
         if (OptionAt<u8>(options.keepName, origin, 0) == 0) {
             node.name = Behind(group, node.name);
+            if (const std::string bone = node.native.text(kNodeM3BoneName); !bone.empty()) {
+                node.native.setText(kNodeM3BoneName, Behind(group, bone));
+            }
+        }
+        if (explicitRig && node.kind != NodeKind::Bone) {
+            node.native.set(kNodeM3Place, placeOf[i]);
         }
         if (auto* attached = std::get_if<AttachmentPayload>(&node.payload)) {
             // Its id would break the climb `toMdx` gives ours.
@@ -1144,6 +1642,10 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
         } else if (auto* bone = std::get_if<BonePayload>(&node.payload)) {
             if (bone->gateMesh != kInvalidIndex) {
                 bone->gateMesh += meshBase;
+            }
+        } else if (auto* particle = std::get_if<Sc2ParticleEmitterPayload>(&node.payload)) {
+            for (u32& entry : particle->shapeSections) {
+                entry = Sc2ShapeSection(Sc2ShapeSectionMesh(entry) + meshBase, Sc2ShapeSectionIndex(entry));
             }
         } else if (auto* event = std::get_if<EventPayload>(&node.payload); event != nullptr && choosing) {
             // The donor numbered its loops, and ours number them afresh.
@@ -1161,12 +1663,17 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
                                 std::to_string(eventLoops) + " events fire in the animations, not on the merged loops");
     }
 
+    // Under StarCraft II a section is hidden by the bone that gates it. One
+    // with neither a gate nor a visibility of its own gates on the group's
+    // helper, so the whole group hides by one key there.
+    const bool gateOnGroup = explicitRig && IsStarCraft(options.profile);
     for (u32 m = 0; m < meshes.size(); ++m) {
         Mesh& mesh = meshes[m];
         mesh.name = Behind(group, mesh.name);
         const std::vector<u32> owners = VertexOwners(mesh);
         const bool bound = std::any_of(owners.begin(), owners.end(), [](u32 n) { return n != kInvalidNode; });
-        for (MeshSection& section : mesh.sections) {
+        for (u32 s = 0; s < mesh.sections.size(); ++s) {
+            MeshSection& section = mesh.sections[s];
             section.materialSlot = slotOf(section.materialSlot);
             if (!section.name.empty()) {
                 section.name = Behind(group, section.name);
@@ -1174,6 +1681,13 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
             // A mesh bound to nothing rides the group.
             if (!bound) {
                 section.rigidNode = result.group;
+            }
+            const bool keyed = std::any_of(channels.channels.begin(), channels.channels.end(), [&](const AnimChannel& c) {
+                return c.target.kind == TrackTarget::Kind::Section && c.target.mesh == m && c.target.sub == s;
+            });
+            if (gateOnGroup && !keyed &&
+                section.native.value(kSectionVisibilityNode, kSectionAlwaysDrawn) == kSectionAlwaysDrawn) {
+                section.native.set(kSectionVisibilityNode, static_cast<i64>(result.group));
             }
         }
         mesh.recomputeBounds();
@@ -1189,6 +1703,64 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
     FinishExtent(host.bounds);
     result.meshes = static_cast<u32>(meshes.size());
 
+    // The game's records it brings: stages numbered after ours, physics records
+    // after ours, their channels with them.
+    u32 stageBase = 0;
+    u32 physicsBase = 0;
+    if (carry) {
+        for (const PoseStage& stage : host.poseStages) {
+            stageBase = std::max(stageBase, stage.id + 1);
+        }
+        physicsBase = host.physics.nextId - 1;
+        const auto shift = [&](u32& id) {
+            if (id != 0) {
+                id += physicsBase;
+            }
+        };
+        for (PoseStage& stage : stages) {
+            stage.id += stageBase;
+            shift(stage.rig);
+            shift(stage.cloth);
+            host.poseStages.push_back(std::move(stage));
+        }
+        std::vector<u32> meshShift(meshes.size());
+        std::iota(meshShift.begin(), meshShift.end(), meshBase);
+        RemapPhysicsMeshes(physics, meshShift);
+        for (PhysicsBody& body : physics.bodies) {
+            shift(body.id);
+        }
+        for (PhysicsJoint& joint : physics.joints) {
+            shift(joint.id);
+            shift(joint.bodyA);
+            shift(joint.bodyB);
+        }
+        for (ClothCollider& collider : physics.colliders) {
+            shift(collider.id);
+            shift(collider.body);
+        }
+        for (Cloth& cloth : physics.cloths) {
+            shift(cloth.id);
+            for (u32& collider : cloth.colliders) {
+                shift(collider);
+            }
+        }
+        for (PhysicsRig& set : physics.rigs) {
+            shift(set.id);
+            for (u32& body : set.bodies) {
+                shift(body);
+            }
+        }
+        const auto append = [](auto& to, auto& from) {
+            to.insert(to.end(), std::make_move_iterator(from.begin()), std::make_move_iterator(from.end()));
+        };
+        append(host.physics.bodies, physics.bodies);
+        append(host.physics.joints, physics.joints);
+        append(host.physics.colliders, physics.colliders);
+        append(host.physics.cloths, physics.cloths);
+        append(host.physics.rigs, physics.rigs);
+        host.physics.nextId = std::max(host.physics.nextId, physics.nextId + physicsBase);
+    }
+
     // A channel nothing brought keys, and which holds no value of its own,
     // stays behind with what keyed it.
     std::unordered_set<u32> keyed;
@@ -1203,12 +1775,32 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
             }
         }
     }
+    // An explicit rig's channel keeps its id where ours has no such channel: an
+    // `.m3` stream's id is the one its record names (a native channel's) and
+    // the one the file wrote.
     std::unordered_map<u32, u32> ids;
+    std::unordered_map<u32, u32> renamedStreams;
+    std::unordered_set<u32> taken;
+    for (const AnimChannel& own : host.animChannels.channels) {
+        taken.insert(own.id);
+    }
     u32 nextId = host.animChannels.nextFreeId();
+    const auto newId = [&](u32 wanted) {
+        if (explicitRig && wanted != 0 && taken.insert(wanted).second) {
+            return wanted;
+        }
+        while (nextId == 0 || !taken.insert(nextId).second) {
+            ++nextId;
+        }
+        return nextId++;
+    };
     for (AnimChannel channel : channels.channels) {
         TrackTarget& target = channel.target;
         if (target.kind == TrackTarget::Kind::Physics) {
-            continue;
+            if (!carry) {
+                continue;
+            }
+            target.sub += physicsBase;
         }
         if (target.kind == TrackTarget::Kind::Node && target.node >= host.nodes.size()) {
             continue;
@@ -1226,6 +1818,12 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
             target.material.slot = slotOf(slot);
             target.material.look = 0;
         }
+        if (IsStageChannel(target)) {
+            if (!carry) {
+                continue;
+            }
+            target.sub = StageSub(StageOfSub(target.sub) + stageBase, SourceOfSub(target.sub));
+        }
         // A pair's channel lands on our node's own, where it has one.
         if (target.kind == TrackTarget::Kind::Node && target.node < result.group) {
             if (const AnimChannel* own = NodeChannel(host.animChannels, target)) {
@@ -1233,9 +1831,52 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
                 continue;
             }
         }
-        ids[channel.id] = nextId;
-        channel.id = nextId++;
+        const u32 id = newId(channel.id);
+        if (target.kind == TrackTarget::Kind::Native && id != channel.id) {
+            renamedStreams.emplace(channel.id, id);
+        }
+        ids[channel.id] = id;
+        channel.id = id;
         host.animChannels.add(channel);
+    }
+    // A record naming a stream whose id was taken names it by its new one.
+    if (!renamedStreams.empty()) {
+        const auto rename = [&]<class T>(native::M3AnimRef<T>& ref) {
+            if (const auto it = renamedStreams.find(ref.animId); it != renamedStreams.end()) {
+                ref.animId = it->second;
+            }
+        };
+        for (u32 n = base; n < host.nodes.size(); ++n) {
+            native::WalkM3NodeRecords(host.nodes.nodes[n], rename);
+        }
+        for (u32 m = meshBase; m < host.meshes.size(); ++m) {
+            for (native::M3MeshSection& bounds : host.meshes[m].sc2Bounds) {
+                rename(bounds.bounds);
+            }
+        }
+        for (u32 setIndex = 0; setIndex < host.profileSets.size(); ++setIndex) {
+            ProfileMaterialSet& set = host.profileSets[setIndex];
+            for (u32 m = materialsFrom[setIndex]; m < set.materials.size(); ++m) {
+                EditM3Block(set.materials[m], [&](native::M3Material& block) {
+                    native::WalkM3Material(block, rename);
+                    return true;
+                });
+            }
+        }
+    }
+    // Its layered clips' sets, which name channels.
+    const u32 trackSetBase = static_cast<u32>(host.trackSets.size());
+    if (carry) {
+        for (TrackSet set : source.trackSets) {
+            std::vector<u32> named;
+            for (const u32 id : set.channels) {
+                if (const auto it = ids.find(id); it != ids.end()) {
+                    named.push_back(it->second);
+                }
+            }
+            set.channels = std::move(named);
+            host.trackSets.push_back(std::move(set));
+        }
     }
 
     for (u32 c = clipBase; c < clipBase + clipCount; ++c) {
@@ -1243,7 +1884,13 @@ MergeResult MergeModel(Document& into, u32 model, Document donor, u32 from, cons
         const u32 origin = clipOrigin[c - clipBase];
         const bool loop = IsGlobalLoop(clip);
         clip.model = model;
-        clip.trackSets.clear();
+        if (carry) {
+            for (ClipTrackSet& use : clip.trackSets) {
+                use.set += trackSetBase;
+            }
+        } else {
+            clip.trackSets.clear();
+        }
         clip.physics.reset();
         if (loop) {
             clip.name = Behind(group, clip.name);
