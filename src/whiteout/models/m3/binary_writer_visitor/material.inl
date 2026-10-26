@@ -57,7 +57,7 @@ void BinaryWriterVisitor::visit(const TextureLayer& layer, u32 version) {
     }
 }
 
-/// Writes one of a `StandardMaterial`'s layer slots, empty ones included.
+/// Writes one of a material's layer slots, empty ones included.
 ///
 /// The client's material fixup walks every layer `Reference` a `MAT_` has
 /// without checking, and shipped content never leaves one null: 29,214 unused
@@ -65,6 +65,9 @@ void BinaryWriterVisitor::visit(const TextureLayer& layer, u32 version) {
 /// texture path. Only a material this library *builds* has empty slots -- a
 /// parsed one already carries all of them -- so a shipped model round-trips
 /// byte for byte and a converted one stops handing the client a null layer.
+/// The other kinds the Art Tools make are written so too: Star2Exporter gives
+/// every texmap slot a layer (`ExportMaterialTextureSlot`), and no shipped
+/// `DIS_` holds a null one.
 void BinaryWriterVisitor::visitLayerSlot(const std::optional<TextureLayer>& layer) {
     visit(layer.has_value() ? layer : emptyLayer);
 }
@@ -127,8 +130,8 @@ void BinaryWriterVisitor::visit(const DisplacementMaterial& material, u32 versio
     visit(material.name);
     writer.write(material.unknown);
     writer.write(material.strength);
-    visit(material.normalMap);
-    visit(material.strengthMap);
+    visitLayerSlot(material.normalMap);
+    visitLayerSlot(material.strengthMap);
     writer.write(material.flags);
     writer.write(material.priority);
 }
@@ -148,7 +151,7 @@ void BinaryWriterVisitor::visit(const CompositeMaterial& material, u32 version) 
 
 void BinaryWriterVisitor::visit(const TerrainMaterial& material, u32 version) {
     visit(material.name);
-    visit(material.terrainMap);
+    visitLayerSlot(material.terrainMap);
     if (version >= 1) {
         writer.write(material.unknown);
     }
@@ -160,9 +163,9 @@ void BinaryWriterVisitor::visit(const VolumeMaterial& material, u32 version) {
     writer.write(material.blendMode);
     writer.write(material.falloffType);
     writer.write(material.density);
-    visit(material.colorMap);
-    visit(material.noiseMap1);
-    visit(material.noiseMap2);
+    visitLayerSlot(material.colorMap);
+    visitLayerSlot(material.noiseMap1);
+    visitLayerSlot(material.noiseMap2);
     writer.write(material.alphaThreshold);
     writer.write(material.flags);
 }
@@ -190,9 +193,9 @@ void BinaryWriterVisitor::visit(const VolumeNoiseMaterial& material, u32 version
     writer.write(material.density);
     writer.write(material.nearPlane);
     writer.write(material.falloff);
-    visit(material.colorMap);
-    visit(material.noiseMap1);
-    visit(material.noiseMap2);
+    visitLayerSlot(material.colorMap);
+    visitLayerSlot(material.noiseMap1);
+    visitLayerSlot(material.noiseMap2);
     writer.write(material.scrollRate);
     writer.write(material.position);
     writer.write(material.scale);
@@ -203,7 +206,7 @@ void BinaryWriterVisitor::visit(const VolumeNoiseMaterial& material, u32 version
 
 void BinaryWriterVisitor::visit(const CreepMaterial& material, u32 version) {
     visit(material.name);
-    visit(material.maskMap);
+    visitLayerSlot(material.maskMap);
     if (version >= 1) {
         writer.write(material.creepLow);
     }
@@ -212,9 +215,9 @@ void BinaryWriterVisitor::visit(const CreepMaterial& material, u32 version) {
 void BinaryWriterVisitor::visit(const STBMaterial& material, u32 version) {
     (void)version;
     visit(material.name);
-    visit(material.diffuseMap);
-    visit(material.normalMap);
-    visit(material.specularMap);
+    visitLayerSlot(material.diffuseMap);
+    visitLayerSlot(material.normalMap);
+    visitLayerSlot(material.specularMap);
 }
 
 void BinaryWriterVisitor::visit(const ReflectionMaterial& material, u32 version) {

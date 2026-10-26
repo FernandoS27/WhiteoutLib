@@ -112,7 +112,7 @@ protected:
     std::deque<std::function<void()>> deferredWrites;
     std::vector<IndexEntry> indexTable;
 
-    // Stands in for a `MAT_` layer slot the model leaves empty. A member
+    // Stands in for a layer slot a material leaves empty. A member
     // because the deferred chunk writes capture their container by reference.
     const std::optional<TextureLayer> emptyLayer{TextureLayer{}};
     // A REGN v2 division's faces as written, for the same reason.

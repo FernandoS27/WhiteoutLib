@@ -41,6 +41,7 @@
 #include "whiteout/models/wem/geometry/builder.h"
 #include "whiteout/models/wem/geometry/render_view.h"
 #include "whiteout/models/wem/meshes/remove.h"
+#include "whiteout/models/wem/nodes/presence.h"
 #include "whiteout/models/wem/nodes/remove.h"
 #include "whiteout/models/wem/physics/references.h"
 #include "whiteout/models/wem/skinning/quantize.h"
@@ -2728,7 +2729,10 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             }
             if (range.section < mesh.sections.size() && !cageRange && !boundRange) {
                 const MeshSection& skipTest = mesh.sections[range.section];
-                if (hasFlag(skipTest.flags, SectionFlags::Hidden) &&
+                // A profile mask that leaves this profile out draws it nowhere
+                // here, as `toMdx` reads it (a fracture's whole mesh behind its
+                // pieces). An m3-native one keeps its region, batchless below.
+                if ((hasFlag(skipTest.flags, SectionFlags::Hidden) || !SectionDrawnIn(skipTest, profile)) &&
                     skipTest.native.find("regionFlags") == nullptr) {
                     continue;
                 }
@@ -3134,6 +3138,11 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                 division.regions.push_back(std::move(region));
             }
             const std::size_t regionCount = division.regions.size() - firstRegion;
+            // A region no batch names, as the import read it: kept, never submitted.
+            if (range.section < mesh.sections.size() && !cageRange && !boundRange &&
+                !SectionDrawnIn(mesh.sections[range.section], profile)) {
+                continue;
+            }
 
             const auto drawn = sectionDrawSlot.find({static_cast<u32>(m), range.section});
             const u32 drawSlot = drawn != sectionDrawSlot.end() ? drawn->second : range.materialSlot;

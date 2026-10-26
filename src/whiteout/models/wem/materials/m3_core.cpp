@@ -288,10 +288,11 @@ void addFresnel(const m3::TextureLayer& layer, u32 ordinal, CommonMaterial& comm
     }
     FresnelFeature fresnel;
     fresnel.exponent = layer.fresnelExponent;
-    // min/max are an OUTPUT range, not a clamp on the input: the shipped values
-    // routinely run max < min, which only means the ramp is inverted.
+    // The pair is the shader's bias and scale (`p_v<L>FresnelExponentBiasScale`,
+    // uploaded verbatim; Star2Exporter writes max - min as the scale), so the
+    // output range is bias to bias + scale.
     fresnel.outMin = layer.fresnelMin;
-    fresnel.outMax = layer.fresnelMax;
+    fresnel.outMax = layer.fresnelMin + layer.fresnelMax;
     // Inverted runs `1 - term` through the same ramp, which is the Standard
     // ramp with its ends swapped: `(1-t)(max-min)+min == t(min-max)+max`. One
     // spelling in WEM; the export writes Standard.
@@ -1577,13 +1578,13 @@ m3::TextureLayer tintCarrier(const Vector3f& rgb, f32 alpha) {
     return layer;
 }
 
-/// `(1 - |n.v|)^exponent` remapped onto [from, to]: the layer's min/max are the
-/// ramp's ends, not a clamp on the term (`fresnelExponentBiasScale`).
+/// `(1 - |n.v|)^exponent` remapped onto [from, to]: the layer's pair is the
+/// ramp's bias and scale (`fresnelExponentBiasScale`), not a clamp on the term.
 void fresnelRamp(m3::TextureLayer& layer, f32 exponent, f32 from, f32 to) {
     layer.fresnelMode = m3::FresnelMode::Standard;
     layer.fresnelExponent = exponent;
     layer.fresnelMin = from;
-    layer.fresnelMax = to;
+    layer.fresnelMax = to - from;
     // The view-vector transform stays off (flag 0x4000 clear); its fields are
     // written at their identity rather than whatever the stack held.
     layer.fresnelTranslation = Vector3f{0.0f, 0.0f, 0.0f};

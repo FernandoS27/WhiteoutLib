@@ -1980,7 +1980,8 @@ TEST_CASE("wem m3 a whole-material fresnel is a rim over the lit colour",
         CHECK(out.emissiveLayer1->fresnelMode == m3::FresnelMode::Standard);
         CHECK(out.emissiveLayer1->fresnelExponent == Catch::Approx(2.0f));
         CHECK(out.emissiveLayer1->fresnelMin == Catch::Approx(1.0f));
-        CHECK(out.emissiveLayer1->fresnelMax == Catch::Approx(0.15f));
+        // Bias and scale: from 1 down to 0.15.
+        CHECK(out.emissiveLayer1->fresnelMax == Catch::Approx(-0.85f));
         CHECK(out.emissiveLayer1->color.initValue.r == 255);
         REQUIRE(out.emissiveLayer2.has_value());
         CHECK(out.emissiveBlendMode2 == m3::LayerBlendOp::AddNoAlpha);
@@ -2010,7 +2011,7 @@ TEST_CASE("wem m3 a whole-material fresnel is a rim over the lit colour",
         REQUIRE(out.decalLayer.has_value());
         CHECK(out.layerBlendMode == m3::LayerBlendOp::Mod);
         CHECK(out.decalLayer->fresnelMin == Catch::Approx(1.0f));
-        CHECK(out.decalLayer->fresnelMax == Catch::Approx(0.15f));
+        CHECK(out.decalLayer->fresnelMax == Catch::Approx(-0.85f));
         REQUIRE(out.emissiveLayer2.has_value());
         CHECK(out.emissiveBlendMode2 == m3::LayerBlendOp::AddNoAlpha);
         // The add slots' sum is scaled by the HDR multiplier of 2, so the tint
@@ -2024,6 +2025,7 @@ TEST_CASE("wem m3 a whole-material fresnel is a rim over the lit colour",
 TEST_CASE("wem m3 a layer's own fresnel survives an edit", "[wem][convert][m3][fresnel]") {
     // Inverted runs `1 - term` through the ramp -- the Standard ramp with its
     // ends swapped -- so WEM keeps one spelling and the export writes Standard.
+    // The pair is bias and scale: this one runs from 1.1 at the edge to 0.2.
     m3::Model model = makeModel(29);
     m3::TextureLayer& diffuse = *model.standardMaterials[0].diffuseLayer;
     diffuse.fresnelMode = m3::FresnelMode::Inverted;
@@ -2037,7 +2039,7 @@ TEST_CASE("wem m3 a layer's own fresnel survives an edit", "[wem][convert][m3][f
     const MaterialFeature* feature = mat.Common().feature(FeatureKind::Fresnel, 0);
     REQUIRE(feature != nullptr);
     REQUIRE(feature->fresnel() != nullptr);
-    CHECK(feature->fresnel()->outMin == Catch::Approx(0.9f));
+    CHECK(feature->fresnel()->outMin == Catch::Approx(1.1f));
     CHECK(feature->fresnel()->outMax == Catch::Approx(0.2f));
 
     mat.MutableCommon(); // an edit: the fold answers, not the native block
@@ -2046,8 +2048,8 @@ TEST_CASE("wem m3 a layer's own fresnel survives an edit", "[wem][convert][m3][f
     REQUIRE(out.diffuseLayer.has_value());
     CHECK(out.diffuseLayer->fresnelMode == m3::FresnelMode::Standard);
     CHECK(out.diffuseLayer->fresnelExponent == Catch::Approx(3.0f));
-    CHECK(out.diffuseLayer->fresnelMin == Catch::Approx(0.9f));
-    CHECK(out.diffuseLayer->fresnelMax == Catch::Approx(0.2f));
+    CHECK(out.diffuseLayer->fresnelMin == Catch::Approx(1.1f));
+    CHECK(out.diffuseLayer->fresnelMax == Catch::Approx(-0.9f));
 }
 
 TEST_CASE("wem m3 a built material states that its geometry is visible",
