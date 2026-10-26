@@ -197,6 +197,12 @@ native::M3Material StandardBlock(const m3::StandardMaterial& record, u32 sourceV
 /// the rests every shipped textured layer states, wrapping both ways.
 m3::TextureLayer TexturedLayer(u32 texture, const Context& context);
 
+/// What a section that wears no material draws with, `toMdx`'s blank as
+/// StarCraft says it: a Standard material at the floor
+/// `M3Converter::defaultMaterialBlock` gives a new one, its diffuse a white
+/// colour layer. Written into @p model; the entry naming it is returned.
+m3::MaterialMap ExportBlankMaterial(m3::Model& model, ProfileId profile, Diagnostics& out);
+
 /// One `MaterialMap` entry -> one `wem::Material`.
 ///
 /// Yields a `Composite` (§7.2.6) with the native block attached `InSync`. A map

@@ -38,6 +38,7 @@
 #include "whiteout/models/m3/writer.h"
 #include "whiteout/models/wem/anim/rests.h"
 #include "whiteout/models/wem/converters.h"
+#include "whiteout/models/wem/game_minimum.h"
 #include "whiteout/models/wem/geometry/builder.h"
 #include "whiteout/models/wem/geometry/render_view.h"
 #include "whiteout/models/wem/meshes/remove.h"
@@ -61,6 +62,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <optional>
 #include <set>
 #include <span>
 #include <string>
@@ -2342,10 +2344,22 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     // look this export wears (`D3ImportOptions::materialLook` set it).
     const ProfileMaterialSet* exportSet = model.setFor(profile);
     const u32 exportLook = exportSet != nullptr ? exportSet->defaultLook : 0u;
+    // What a section that wears no material draws with, as `toMdx` writes one
+    // blank for them: a slot this profile binds nothing to, and (below) a
+    // section naming no slot, an editor's new mesh. A batch names a map entry;
+    // 0xFFFF named none, so the region drew nowhere, and an unbound slot's empty
+    // entry drew the first standard material, another slot's.
+    std::optional<m3::MaterialMap> blank;
+    const auto blankMap = [&]() {
+        if (!blank) {
+            blank = m3_core::ExportBlankMaterial(out, profile, diagnostics);
+        }
+        return *blank;
+    };
     for (std::size_t slot = 0; slot < model.materialSlots.size(); ++slot) {
         const Material* material = Resolve(model, static_cast<u32>(slot), profile, exportLook);
         if (material == nullptr) {
-            out.materialMaps.push_back(m3::MaterialMap{});
+            out.materialMaps.push_back(blankMap());
             animContext.materialOrdinals.emplace_back();
             diagnostics.warn(DiagCode::SlotNotBound,
                              "slot " + model.materialSlots[slot] + " has no material",
@@ -2386,6 +2400,23 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         animContext.materialOrdinals.emplace_back();
     }
     context.trailingMaps.clear();
+    // A section naming no slot draws the blank through an entry after every
+    // other, so that no slot's index moves.
+    const u32 slotCount = static_cast<u32>(model.materialSlots.size());
+    u32 blankEntry = kInvalidIndex;
+    for (const Mesh& mesh : model.meshes) {
+        bool unmaterialed = mesh.sections.empty() && slotCount == 0;
+        for (const MeshSection& section : mesh.sections) {
+            unmaterialed |= section.materialSlot >= slotCount && SectionDrawnIn(section, profile);
+        }
+        if (unmaterialed && blankEntry == kInvalidIndex) {
+            blankEntry = static_cast<u32>(out.materialMaps.size());
+            out.materialMaps.push_back(blankMap());
+            animContext.materialOrdinals.emplace_back();
+        }
+    }
+    // The entry a section's slot draws, before a tint's copy.
+    const auto slotEntry = [slotCount, blankEntry](u32 slot) { return slot < slotCount ? slot : blankEntry; };
 
     // --- geometry -----------------------------------------------------------
     //
@@ -2514,7 +2545,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     for (std::size_t m = 0; m < model.meshes.size(); ++m) {
         const Mesh& mesh = model.meshes[m];
         for (std::size_t s = 0; s < mesh.sections.size(); ++s) {
-            const u32 slot = mesh.sections[s].materialSlot;
+            const u32 slot = slotEntry(mesh.sections[s].materialSlot);
             const std::string signature =
                 tintOf(mesh.sections[s], static_cast<u32>(m), static_cast<u32>(s)) +
                 (warcraftMaterials ? fadeOf(static_cast<u32>(m), static_cast<u32>(s))
@@ -3145,7 +3176,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             }
 
             const auto drawn = sectionDrawSlot.find({static_cast<u32>(m), range.section});
-            const u32 drawSlot = drawn != sectionDrawSlot.end() ? drawn->second : range.materialSlot;
+            const u32 drawSlot = drawn != sectionDrawSlot.end() ? drawn->second : slotEntry(range.materialSlot);
             m3::Batch batch;
             batch.regionIndex = static_cast<u16>(firstRegion);
             batch.materialIndex = static_cast<u16>(drawSlot);
@@ -3583,8 +3614,17 @@ Result<Document> M3Converter::importFromBytes(std::span<const u8> data) const {
 
 Result<std::vector<u8>> M3Converter::exportToBytes(const Document& document, ProfileId profile,
                                                    u32 version) const {
+    // A file: the bone and the animation every game needs, on a copy only
+    // when the model lacks one.
+    std::optional<Document> writable;
+    Diagnostics minimum;
+    if (NeedsGameMinimum(document, profile)) {
+        writable = document;
+        AddGameMinimum(*writable, profile, minimum);
+    }
     Result<m3::Model> converted =
-        toM3(document, profile, version);
+        toM3(writable ? *writable : document, profile, version);
+    converted.diagnostics.append(minimum);
     Result<std::vector<u8>> result;
     result.diagnostics = std::move(converted.diagnostics);
     if (!converted.ok()) {

@@ -541,6 +541,7 @@ add_library(whiteout_lib
     src/whiteout/models/wem/skeleton_retarget.cpp
     src/whiteout/models/wem/rescale.cpp
     src/whiteout/models/wem/inline_models.cpp
+    src/whiteout/models/wem/game_minimum.cpp
     src/whiteout/models/wem/scene_ops.cpp
     src/whiteout/models/wem/native_bag.cpp
     src/whiteout/models/wem/binary_read_visitor.cpp

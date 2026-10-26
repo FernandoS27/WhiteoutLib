@@ -37,6 +37,7 @@
 #include "whiteout/models/mdx/prune.h"
 #include "whiteout/models/mdx/writer.h"
 #include "whiteout/models/wem/converters.h"
+#include "whiteout/models/wem/game_minimum.h"
 #include "whiteout/models/wem/geometry/builder.h"
 #include "whiteout/models/wem/geometry/render_view.h"
 #include "whiteout/models/wem/meshes/remove.h"
@@ -3585,6 +3586,12 @@ Result<std::vector<u8>> MdxConverter::exportToBytes(const Document& document, Pr
             writable = document;
         }
         DropUnfiredEvents(*writable, result.diagnostics);
+    }
+    if (NeedsGameMinimum(writable ? *writable : document, profile)) {
+        if (!writable) {
+            writable = document;
+        }
+        AddGameMinimum(*writable, profile, result.diagnostics);
     }
     Result<mdx::Model> converted = toMdx(writable ? *writable : document, profile, version);
     result.diagnostics.append(converted.diagnostics);

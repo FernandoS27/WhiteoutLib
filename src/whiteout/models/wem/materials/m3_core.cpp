@@ -2604,6 +2604,17 @@ m3::TextureLayer TexturedLayer(u32 texture, const Context& context) {
     return layerFrom(input, context);
 }
 
+m3::MaterialMap ExportBlankMaterial(m3::Model& model, ProfileId profile, Diagnostics& out) {
+    m3::StandardMaterial standard;
+    standard.name = "Default";
+    standard.specularExponent = 20.0f;
+    standard.hdrSpecularMultiplier = 1.0f;
+    // A colour layer, not a layer naming no texture: both engines draw its
+    // colour, where an empty path is a slot each may read as absent.
+    standard.diffuseLayer = carrierLayer(1.0f);
+    return pushStandard(std::move(standard), model, profile, out);
+}
+
 m3::MaterialMap ExportMaterial(const Material& material, ProfileId profile, const Context& context,
                                m3::Model& model, Diagnostics& out,
                                std::vector<u32>* layerOrdinals, const ExportHints* hints,
