@@ -1313,16 +1313,16 @@ pub struct ReflectionMaterialFlag(pub i32);
 
 impl ReflectionMaterialFlag {
     pub const NONE: Self = Self(0);
-    /// Use reflection map
-    pub const USE_REFLECTION_MAP: Self = Self(1);
-    /// Use displacement map
-    pub const USE_DISPLACEMENT_MAP: Self = Self(2);
+    /// Bend the mirror image by the normal map
+    pub const USE_DISPLACEMENT: Self = Self(1);
+    /// Scale the strength by the strength map's alpha
+    pub const USE_STRENGTH_MAP: Self = Self(2);
     /// Render in transparent pass
     pub const RENDER_IN_TRANSPARENT_PASS: Self = Self(4);
-    /// Enable blurring
+    /// Blur the mirror image with distance
     pub const BLURRING: Self = Self(8);
-    /// Use blur map
-    pub const USE_BLUR_MAP: Self = Self(16);
+    /// Limit the blur by the blur mask's alpha
+    pub const USE_BLUR_MASK: Self = Self(16);
 
     #[inline]
     pub const fn contains(self, other: Self) -> bool {
@@ -10764,7 +10764,7 @@ impl Default for STBMaterial {
 
 /// REF_ — Reflection material (v0–v3, 84–160 bytes)
 ///
-/// Planar or cube-map reflection material with animated reflection/displacement strength, blur, and multiple texture layers.
+/// Planar mirror: the scene rendered again mirrored in the model's own XY plane, added over the surface, optionally bent by a normal map and blurred with distance.
 pub struct ReflectionMaterial {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M3ReflectionMaterial>,
 }
@@ -10890,7 +10890,7 @@ impl ReflectionMaterial {
         }
     }
 
-    /// Animated reflection offset (v2+)
+    /// Animated mirror plane offset along local Z (v2+)
     /// Borrows the field in place — no copy, no allocation.
     pub fn reflection_offset(&self) -> crate::support::Ref<'_, AnimRefF32> {
         // SAFETY: an interior pointer into `self`, valid for this
@@ -11043,7 +11043,7 @@ impl SubFlare {
         }
     }
 
-    /// Flare element index
+    /// Atlas frame
     pub fn index(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3SubFlare_get_index(self.raw.as_ptr()) }
@@ -11054,7 +11054,7 @@ impl SubFlare {
         unsafe { ffi::whiteout_m3_M3SubFlare_set_index(self.raw.as_ptr(), value) }
     }
 
-    /// Position along the flare axis (0–1)
+    /// Along the light-to-screen-centre axis; 1 = at the light
     pub fn position(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3SubFlare_get_position(self.raw.as_ptr()) }
@@ -11105,7 +11105,7 @@ impl SubFlare {
         }
     }
 
-    /// Fade-in range (start, end)
+    /// Fade-in (start, 1 / (end − start), or 0)
     pub fn fade_in(&self) -> crate::math::Vector2f {
         // SAFETY: the getter returns an interior pointer to a
         // layout-identical POD; we copy it out immediately.
@@ -11125,7 +11125,7 @@ impl SubFlare {
         }
     }
 
-    /// Fade-out range (start, end)
+    /// Fade-out (start, 1 / (end − start), or 0)
     pub fn fade_out(&self) -> crate::math::Vector2f {
         // SAFETY: the getter returns an interior pointer to a
         // layout-identical POD; we copy it out immediately.
@@ -11181,7 +11181,7 @@ impl SubFlare {
         unsafe { ffi::whiteout_m3_M3SubFlare_set_faceCenter(self.raw.as_ptr(), value) }
     }
 
-    /// Offset from flare center
+    /// distance · (cos, sin)(angle)
     pub fn offset(&self) -> crate::math::Vector2f {
         // SAFETY: the getter returns an interior pointer to a
         // layout-identical POD; we copy it out immediately.
@@ -11210,7 +11210,7 @@ impl Default for SubFlare {
 
 /// LFLR — Lens flare material (v0–v3, 152 bytes)
 ///
-/// Lens flare effect with animated intensity, color, HDR, size, sub-flare elements, and flipbook texture grid parameters.
+/// Lens flare effect with animated HDR scale, color, intensity, size, sub-flare elements, and flipbook texture grid parameters.
 pub struct LensFlare {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M3LensFlare>,
 }
@@ -11338,7 +11338,7 @@ impl LensFlare {
         unsafe { ffi::whiteout_m3_M3LensFlare_set_rows(self.raw.as_ptr(), value) }
     }
 
-    /// Distance fade start
+    /// Fade = distanceFade / view depth², at most 1
     pub fn distance_fade(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3LensFlare_get_distanceFade(self.raw.as_ptr()) }
@@ -11363,25 +11363,25 @@ impl LensFlare {
         unsafe { ffi::whiteout_m3_M3LensFlare_set_libName(self.raw.as_ptr(), value.as_ptr()) }
     }
 
-    /// Animated intensity
+    /// Animated HDR scale
     /// Borrows the field in place — no copy, no allocation.
-    pub fn intensity(&self) -> crate::support::Ref<'_, AnimRefF32> {
+    pub fn hdr_scale(&self) -> crate::support::Ref<'_, AnimRefF32> {
         // SAFETY: an interior pointer into `self`, valid for this
         // borrow and never freed by the `Ref`.
         unsafe {
             crate::support::Ref::new(AnimRefF32 {
-                raw: core::ptr::NonNull::new_unchecked(ffi::whiteout_m3_M3LensFlare_get_intensity(
+                raw: core::ptr::NonNull::new_unchecked(ffi::whiteout_m3_M3LensFlare_get_hdrScale(
                     self.raw.as_ptr(),
                 )),
             })
         }
     }
 
-    pub fn intensity_mut(&mut self) -> crate::support::RefMut<'_, AnimRefF32> {
+    pub fn hdr_scale_mut(&mut self) -> crate::support::RefMut<'_, AnimRefF32> {
         // SAFETY: as above; `&mut self` guarantees exclusivity.
         unsafe {
             crate::support::RefMut::new(AnimRefF32 {
-                raw: core::ptr::NonNull::new_unchecked(ffi::whiteout_m3_M3LensFlare_get_intensity(
+                raw: core::ptr::NonNull::new_unchecked(ffi::whiteout_m3_M3LensFlare_get_hdrScale(
                     self.raw.as_ptr(),
                 )),
             })
@@ -11413,25 +11413,25 @@ impl LensFlare {
         }
     }
 
-    /// Animated HDR multiplier
+    /// Animated intensity (v3+)
     /// Borrows the field in place — no copy, no allocation.
-    pub fn hdr(&self) -> crate::support::Ref<'_, AnimRefF32> {
+    pub fn intensity(&self) -> crate::support::Ref<'_, AnimRefF32> {
         // SAFETY: an interior pointer into `self`, valid for this
         // borrow and never freed by the `Ref`.
         unsafe {
             crate::support::Ref::new(AnimRefF32 {
-                raw: core::ptr::NonNull::new_unchecked(ffi::whiteout_m3_M3LensFlare_get_hdr(
+                raw: core::ptr::NonNull::new_unchecked(ffi::whiteout_m3_M3LensFlare_get_intensity(
                     self.raw.as_ptr(),
                 )),
             })
         }
     }
 
-    pub fn hdr_mut(&mut self) -> crate::support::RefMut<'_, AnimRefF32> {
+    pub fn intensity_mut(&mut self) -> crate::support::RefMut<'_, AnimRefF32> {
         // SAFETY: as above; `&mut self` guarantees exclusivity.
         unsafe {
             crate::support::RefMut::new(AnimRefF32 {
-                raw: core::ptr::NonNull::new_unchecked(ffi::whiteout_m3_M3LensFlare_get_hdr(
+                raw: core::ptr::NonNull::new_unchecked(ffi::whiteout_m3_M3LensFlare_get_intensity(
                     self.raw.as_ptr(),
                 )),
             })
@@ -26775,10 +26775,10 @@ pub mod ffi {
             self_: *mut whiteout_M3LensFlare,
             value: *const core::ffi::c_char,
         );
-        pub fn whiteout_m3_M3LensFlare_get_intensity(
+        pub fn whiteout_m3_M3LensFlare_get_hdrScale(
             self_: *mut whiteout_M3LensFlare,
         ) -> *mut whiteout_M3AnimRefF32;
-        pub fn whiteout_m3_M3LensFlare_set_intensity(
+        pub fn whiteout_m3_M3LensFlare_set_hdrScale(
             self_: *mut whiteout_M3LensFlare,
             value: *const whiteout_M3AnimRefF32,
         );
@@ -26789,10 +26789,10 @@ pub mod ffi {
             self_: *mut whiteout_M3LensFlare,
             value: *const whiteout_M3AnimRefM3ColorBGRA,
         );
-        pub fn whiteout_m3_M3LensFlare_get_hdr(
+        pub fn whiteout_m3_M3LensFlare_get_intensity(
             self_: *mut whiteout_M3LensFlare,
         ) -> *mut whiteout_M3AnimRefF32;
-        pub fn whiteout_m3_M3LensFlare_set_hdr(
+        pub fn whiteout_m3_M3LensFlare_set_intensity(
             self_: *mut whiteout_M3LensFlare,
             value: *const whiteout_M3AnimRefF32,
         );

@@ -320,11 +320,11 @@ typedef enum {
 
 typedef enum {
     whiteout_m3_ReflectionMaterialFlag_None,
-    whiteout_m3_ReflectionMaterialFlag_UseReflectionMap,
-    whiteout_m3_ReflectionMaterialFlag_UseDisplacementMap,
+    whiteout_m3_ReflectionMaterialFlag_UseDisplacement,
+    whiteout_m3_ReflectionMaterialFlag_UseStrengthMap,
     whiteout_m3_ReflectionMaterialFlag_RenderInTransparentPass,
     whiteout_m3_ReflectionMaterialFlag_Blurring,
-    whiteout_m3_ReflectionMaterialFlag_UseBlurMap,
+    whiteout_m3_ReflectionMaterialFlag_UseBlurMask,
 } whiteout_m3_ReflectionMaterialFlag;
 
 typedef enum {
@@ -2045,7 +2045,7 @@ void whiteout_m3_M3STBMaterial_set_name(whiteout_M3STBMaterial* self, const char
 
 /* REF_ — Reflection material (v0–v3, 84–160 bytes) */
 /*  */
-/* Planar or cube-map reflection material with animated reflection/displacement strength, blur, and multiple texture layers. */
+/* Planar mirror: the scene rendered again mirrored in the model's own XY plane, added over the surface, optionally bent by a normal map and blurred with distance. */
 whiteout_M3ReflectionMaterial* whiteout_m3_M3ReflectionMaterial_new(void);
 void whiteout_m3_M3ReflectionMaterial_delete(whiteout_M3ReflectionMaterial* self);
 
@@ -2061,7 +2061,7 @@ void whiteout_m3_M3ReflectionMaterial_set_reflectionStrength(whiteout_M3Reflecti
 /* Animated displacement strength (v2+) */
 whiteout_M3AnimRefF32* whiteout_m3_M3ReflectionMaterial_get_displacementStrength(whiteout_M3ReflectionMaterial* self);
 void whiteout_m3_M3ReflectionMaterial_set_displacementStrength(whiteout_M3ReflectionMaterial* self, const whiteout_M3AnimRefF32* value);
-/* Animated reflection offset (v2+) */
+/* Animated mirror plane offset along local Z (v2+) */
 whiteout_M3AnimRefF32* whiteout_m3_M3ReflectionMaterial_get_reflectionOffset(whiteout_M3ReflectionMaterial* self);
 void whiteout_m3_M3ReflectionMaterial_set_reflectionOffset(whiteout_M3ReflectionMaterial* self, const whiteout_M3AnimRefF32* value);
 /* Animated blur angle (v2+) */
@@ -2085,10 +2085,10 @@ void whiteout_m3_M3ReflectionMaterial_set_unknown2(whiteout_M3ReflectionMaterial
 whiteout_M3SubFlare* whiteout_m3_M3SubFlare_new(void);
 void whiteout_m3_M3SubFlare_delete(whiteout_M3SubFlare* self);
 
-/* Flare element index */
+/* Atlas frame */
 uint32_t whiteout_m3_M3SubFlare_get_index(const whiteout_M3SubFlare* self);
 void whiteout_m3_M3SubFlare_set_index(whiteout_M3SubFlare* self, uint32_t value);
-/* Position along the flare axis (0–1) */
+/* Along the light-to-screen-centre axis; 1 = at the light */
 float whiteout_m3_M3SubFlare_get_position(const whiteout_M3SubFlare* self);
 void whiteout_m3_M3SubFlare_set_position(whiteout_M3SubFlare* self, float value);
 /* Base size (width, height) */
@@ -2097,10 +2097,10 @@ void whiteout_m3_M3SubFlare_set_sizeXY(whiteout_M3SubFlare* self, const whiteout
 /* Scale multiplier (width, height) */
 whiteout_Vector2f* whiteout_m3_M3SubFlare_get_scaleXY(whiteout_M3SubFlare* self);
 void whiteout_m3_M3SubFlare_set_scaleXY(whiteout_M3SubFlare* self, const whiteout_Vector2f* value);
-/* Fade-in range (start, end) */
+/* Fade-in (start, 1 / (end − start), or 0) */
 whiteout_Vector2f* whiteout_m3_M3SubFlare_get_fadeIn(whiteout_M3SubFlare* self);
 void whiteout_m3_M3SubFlare_set_fadeIn(whiteout_M3SubFlare* self, const whiteout_Vector2f* value);
-/* Fade-out range (start, end) */
+/* Fade-out (start, 1 / (end − start), or 0) */
 whiteout_Vector2f* whiteout_m3_M3SubFlare_get_fadeOut(whiteout_M3SubFlare* self);
 void whiteout_m3_M3SubFlare_set_fadeOut(whiteout_M3SubFlare* self, const whiteout_Vector2f* value);
 /* Flare color and alpha */
@@ -2109,7 +2109,7 @@ void whiteout_m3_M3SubFlare_set_colorAlpha(whiteout_M3SubFlare* self, const whit
 /* Whether to face the flare center */
 uint32_t whiteout_m3_M3SubFlare_get_faceCenter(const whiteout_M3SubFlare* self);
 void whiteout_m3_M3SubFlare_set_faceCenter(whiteout_M3SubFlare* self, uint32_t value);
-/* Offset from flare center */
+/* distance · (cos, sin)(angle) */
 whiteout_Vector2f* whiteout_m3_M3SubFlare_get_offset(whiteout_M3SubFlare* self);
 void whiteout_m3_M3SubFlare_set_offset(whiteout_M3SubFlare* self, const whiteout_Vector2f* value);
 
@@ -2117,7 +2117,7 @@ void whiteout_m3_M3SubFlare_set_offset(whiteout_M3SubFlare* self, const whiteout
 
 /* LFLR — Lens flare material (v0–v3, 152 bytes) */
 /*  */
-/* Lens flare effect with animated intensity, color, HDR, size, sub-flare elements, and flipbook texture grid parameters. */
+/* Lens flare effect with animated HDR scale, color, intensity, size, sub-flare elements, and flipbook texture grid parameters. */
 whiteout_M3LensFlare* whiteout_m3_M3LensFlare_new(void);
 void whiteout_m3_M3LensFlare_delete(whiteout_M3LensFlare* self);
 
@@ -2134,21 +2134,21 @@ void whiteout_m3_M3LensFlare_set_columns(whiteout_M3LensFlare* self, uint32_t va
 /* Flipbook grid rows */
 uint32_t whiteout_m3_M3LensFlare_get_rows(const whiteout_M3LensFlare* self);
 void whiteout_m3_M3LensFlare_set_rows(whiteout_M3LensFlare* self, uint32_t value);
-/* Distance fade start */
+/* Fade = distanceFade / view depth², at most 1 */
 float whiteout_m3_M3LensFlare_get_distanceFade(const whiteout_M3LensFlare* self);
 void whiteout_m3_M3LensFlare_set_distanceFade(whiteout_M3LensFlare* self, float value);
 /* Library name (Ref<CHAR>) */
 whiteout_CString whiteout_m3_M3LensFlare_get_libName(const whiteout_M3LensFlare* self);
 void whiteout_m3_M3LensFlare_set_libName(whiteout_M3LensFlare* self, const char* value);
-/* Animated intensity */
-whiteout_M3AnimRefF32* whiteout_m3_M3LensFlare_get_intensity(whiteout_M3LensFlare* self);
-void whiteout_m3_M3LensFlare_set_intensity(whiteout_M3LensFlare* self, const whiteout_M3AnimRefF32* value);
+/* Animated HDR scale */
+whiteout_M3AnimRefF32* whiteout_m3_M3LensFlare_get_hdrScale(whiteout_M3LensFlare* self);
+void whiteout_m3_M3LensFlare_set_hdrScale(whiteout_M3LensFlare* self, const whiteout_M3AnimRefF32* value);
 /* Animated color */
 whiteout_M3AnimRefM3ColorBGRA* whiteout_m3_M3LensFlare_get_color(whiteout_M3LensFlare* self);
 void whiteout_m3_M3LensFlare_set_color(whiteout_M3LensFlare* self, const whiteout_M3AnimRefM3ColorBGRA* value);
-/* Animated HDR multiplier */
-whiteout_M3AnimRefF32* whiteout_m3_M3LensFlare_get_hdr(whiteout_M3LensFlare* self);
-void whiteout_m3_M3LensFlare_set_hdr(whiteout_M3LensFlare* self, const whiteout_M3AnimRefF32* value);
+/* Animated intensity (v3+) */
+whiteout_M3AnimRefF32* whiteout_m3_M3LensFlare_get_intensity(whiteout_M3LensFlare* self);
+void whiteout_m3_M3LensFlare_set_intensity(whiteout_M3LensFlare* self, const whiteout_M3AnimRefF32* value);
 /* Animated size */
 whiteout_M3AnimRefF32* whiteout_m3_M3LensFlare_get_size(whiteout_M3LensFlare* self);
 void whiteout_m3_M3LensFlare_set_size(whiteout_M3LensFlare* self, const whiteout_M3AnimRefF32* value);

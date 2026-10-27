@@ -941,29 +941,29 @@ inline void CopyToNative(const whiteout::m3::ReflectionMaterial& src, native::M3
     CopyToNative(src.reflectionOffset, dst.reflectionOffset);
     CopyToNative(src.blurAngle, dst.blurAngle);
     CopyToNative(src.blurDistanceMax, dst.blurDistanceMax);
-    if (src.reflectionMap.has_value()) {
-        dst.reflectionMap.emplace();
-        const auto& src_opt = src.reflectionMap;
-        auto& dst_opt = dst.reflectionMap;
+    if (src.normalMap.has_value()) {
+        dst.normalMap.emplace();
+        const auto& src_opt = src.normalMap;
+        auto& dst_opt = dst.normalMap;
         CopyToNative(*src_opt, *dst_opt);
     } else {
-        dst.reflectionMap.reset();
+        dst.normalMap.reset();
     }
-    if (src.displacementMap.has_value()) {
-        dst.displacementMap.emplace();
-        const auto& src_opt = src.displacementMap;
-        auto& dst_opt = dst.displacementMap;
+    if (src.strengthMap.has_value()) {
+        dst.strengthMap.emplace();
+        const auto& src_opt = src.strengthMap;
+        auto& dst_opt = dst.strengthMap;
         CopyToNative(*src_opt, *dst_opt);
     } else {
-        dst.displacementMap.reset();
+        dst.strengthMap.reset();
     }
-    if (src.blurMap.has_value()) {
-        dst.blurMap.emplace();
-        const auto& src_opt = src.blurMap;
-        auto& dst_opt = dst.blurMap;
+    if (src.blurMask.has_value()) {
+        dst.blurMask.emplace();
+        const auto& src_opt = src.blurMask;
+        auto& dst_opt = dst.blurMask;
         CopyToNative(*src_opt, *dst_opt);
     } else {
-        dst.blurMap.reset();
+        dst.blurMask.reset();
     }
     dst.flags = static_cast<native::M3ReflectionMaterialFlag>(static_cast<u32>(src.flags));
     dst.unknown2 = src.unknown2;
@@ -977,29 +977,29 @@ inline void CopyFromNative(const native::M3Reflection& src, whiteout::m3::Reflec
     CopyFromNative(src.reflectionOffset, dst.reflectionOffset);
     CopyFromNative(src.blurAngle, dst.blurAngle);
     CopyFromNative(src.blurDistanceMax, dst.blurDistanceMax);
-    if (src.reflectionMap.has_value()) {
-        dst.reflectionMap.emplace();
-        const auto& src_opt = src.reflectionMap;
-        auto& dst_opt = dst.reflectionMap;
+    if (src.normalMap.has_value()) {
+        dst.normalMap.emplace();
+        const auto& src_opt = src.normalMap;
+        auto& dst_opt = dst.normalMap;
         CopyFromNative(*src_opt, *dst_opt);
     } else {
-        dst.reflectionMap.reset();
+        dst.normalMap.reset();
     }
-    if (src.displacementMap.has_value()) {
-        dst.displacementMap.emplace();
-        const auto& src_opt = src.displacementMap;
-        auto& dst_opt = dst.displacementMap;
+    if (src.strengthMap.has_value()) {
+        dst.strengthMap.emplace();
+        const auto& src_opt = src.strengthMap;
+        auto& dst_opt = dst.strengthMap;
         CopyFromNative(*src_opt, *dst_opt);
     } else {
-        dst.displacementMap.reset();
+        dst.strengthMap.reset();
     }
-    if (src.blurMap.has_value()) {
-        dst.blurMap.emplace();
-        const auto& src_opt = src.blurMap;
-        auto& dst_opt = dst.blurMap;
+    if (src.blurMask.has_value()) {
+        dst.blurMask.emplace();
+        const auto& src_opt = src.blurMask;
+        auto& dst_opt = dst.blurMask;
         CopyFromNative(*src_opt, *dst_opt);
     } else {
-        dst.blurMap.reset();
+        dst.blurMask.reset();
     }
     dst.flags = static_cast<whiteout::m3::ReflectionMaterialFlag>(static_cast<u32>(src.flags));
     dst.unknown2 = src.unknown2;
@@ -1059,9 +1059,9 @@ inline void CopyToNative(const whiteout::m3::LensFlare& src, native::M3LensFlare
     dst.rows = src.rows;
     dst.distanceFade = src.distanceFade;
     dst.libName = src.libName;
-    CopyToNative(src.intensity, dst.intensity);
+    CopyToNative(src.hdrScale, dst.hdrScale);
     CopyToNative(src.color, dst.color);
-    CopyToNative(src.hdr, dst.hdr);
+    CopyToNative(src.intensity, dst.intensity);
     CopyToNative(src.size, dst.size);
 }
 
@@ -1095,9 +1095,9 @@ inline void CopyFromNative(const native::M3LensFlare& src, whiteout::m3::LensFla
     dst.rows = src.rows;
     dst.distanceFade = src.distanceFade;
     dst.libName = src.libName;
-    CopyFromNative(src.intensity, dst.intensity);
+    CopyFromNative(src.hdrScale, dst.hdrScale);
     CopyFromNative(src.color, dst.color);
-    CopyFromNative(src.hdr, dst.hdr);
+    CopyFromNative(src.intensity, dst.intensity);
     CopyFromNative(src.size, dst.size);
 }
 

@@ -147,8 +147,8 @@
         "hash": "bd2b67386843b22a"
       },
       "M3LensFlare": {
-        "version": 1,
-        "hash": "0b2265c2778ba9e7"
+        "version": 2,
+        "hash": "c281e1ff035b8323"
       },
       "M3Light": {
         "version": 1,
@@ -199,12 +199,12 @@
         "hash": "ae3e7d41c12b52a3"
       },
       "M3Reflection": {
-        "version": 1,
-        "hash": "9cc3cea663183867"
+        "version": 2,
+        "hash": "697ce477045cc980"
       },
       "M3ReflectionMaterialFlag": {
-        "version": 1,
-        "hash": "c937f75354efeb3c"
+        "version": 2,
+        "hash": "6a9fb0dd873b7fec"
       },
       "M3ShadowBox": {
         "version": 1,

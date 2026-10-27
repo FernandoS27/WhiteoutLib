@@ -1553,10 +1553,10 @@ struct REF {
         AnimRef<f32> blurAngle;
         AnimRef<f32> blurDistanceMax;
     }
-    Ref<LAYR>       reflectionMap;
-    Ref<LAYR>       displacementMap;
+    Ref<LAYR>       normalMap;      // bends the mirror image (flag 0x1)
+    Ref<LAYR>       strengthMap;    // alpha scales reflectionStrength (flag 0x2)
     if (version >= 2) {
-        Ref<LAYR>   blurMap;
+        Ref<LAYR>   blurMask;       // alpha limits the blur (flag 0x10)
     }
     Flag            flags;
     if (version >= 3) {
@@ -1574,11 +1574,11 @@ v ≤ 2 records. It is meaningless in a file that carries no `MADD` chunk.
 
 | Mask | Name | Description |
 |------|------|-------------|
-| 0x1 | UseReflectionMap | Enable the reflection map layer |
-| 0x2 | UseDisplacementMap | Enable the displacement map layer |
+| 0x1 | UseDisplacement | Bend the mirror image by `normalMap` ("Enable Displacement") |
+| 0x2 | UseStrengthMap | Scale the strength by `strengthMap`'s alpha |
 | 0x4 | RenderInTransparentPass | Render in the transparent pass |
-| 0x8 | Blurring | Enable blurring effect |
-| 0x10 | UseBlurMap | Enable the blur map layer (v2+) |
+| 0x8 | Blurring | Blur the mirror image with distance ("Enable Blur") |
+| 0x10 | UseBlurMask | Limit the blur by `blurMask`'s alpha; needs 0x8 (v2+) |
 
 ### 11.12 LFLR — Lens Flare Material
 
@@ -1593,11 +1593,13 @@ struct LFLR {
     u32                 columns;
     u32                 rows;
     f32                 distanceFade;
-    AnimRef<f32>        intensity;
     if (version >= 3) {
         Ref<CHAR>       libName;
+    }
+    AnimRef<f32>        hdrScale;
+    if (version >= 3) {
         AnimRef<ColorBGRA> color;
-        AnimRef<f32>    hdr;
+        AnimRef<f32>    intensity;
         AnimRef<f32>    size;
     }
 };

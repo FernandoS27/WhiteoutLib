@@ -7,16 +7,16 @@ package whiteout.m3;
  */
 public enum ReflectionMaterialFlag {
     None(0),
-    /** Use reflection map */
-    UseReflectionMap(1),
-    /** Use displacement map */
-    UseDisplacementMap(2),
+    /** Bend the mirror image by the normal map */
+    UseDisplacement(1),
+    /** Scale the strength by the strength map's alpha */
+    UseStrengthMap(2),
     /** Render in transparent pass */
     RenderInTransparentPass(4),
-    /** Enable blurring */
+    /** Blur the mirror image with distance */
     Blurring(8),
-    /** Use blur map */
-    UseBlurMap(16);
+    /** Limit the blur by the blur mask's alpha */
+    UseBlurMask(16);
 
     public final int value;
     ReflectionMaterialFlag(int v) { this.value = v; }

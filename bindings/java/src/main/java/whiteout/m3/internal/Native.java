@@ -1088,12 +1088,12 @@ public final class Native {
     public static final MethodHandle whiteout_m3_M3LensFlare_set_distanceFade = find("whiteout_m3_M3LensFlare_set_distanceFade", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
     public static final MethodHandle whiteout_m3_M3LensFlare_get_libName = find("whiteout_m3_M3LensFlare_get_libName", FunctionDescriptor.of(CSTRING_LAYOUT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3LensFlare_set_libName = find("whiteout_m3_M3LensFlare_set_libName", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3LensFlare_get_intensity = find("whiteout_m3_M3LensFlare_get_intensity", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3LensFlare_set_intensity = find("whiteout_m3_M3LensFlare_set_intensity", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3LensFlare_get_hdrScale = find("whiteout_m3_M3LensFlare_get_hdrScale", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3LensFlare_set_hdrScale = find("whiteout_m3_M3LensFlare_set_hdrScale", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3LensFlare_get_color = find("whiteout_m3_M3LensFlare_get_color", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3LensFlare_set_color = find("whiteout_m3_M3LensFlare_set_color", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3LensFlare_get_hdr = find("whiteout_m3_M3LensFlare_get_hdr", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3LensFlare_set_hdr = find("whiteout_m3_M3LensFlare_set_hdr", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3LensFlare_get_intensity = find("whiteout_m3_M3LensFlare_get_intensity", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3LensFlare_set_intensity = find("whiteout_m3_M3LensFlare_set_intensity", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3LensFlare_get_size = find("whiteout_m3_M3LensFlare_get_size", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3LensFlare_set_size = find("whiteout_m3_M3LensFlare_set_size", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
 

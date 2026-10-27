@@ -340,11 +340,11 @@ EMSCRIPTEN_BINDINGS(m3) {
 
     enum_<whiteout::m3::ReflectionMaterialFlag>("M3ReflectionMaterialFlag")
         .value("None", whiteout::m3::ReflectionMaterialFlag::None)
-        .value("UseReflectionMap", whiteout::m3::ReflectionMaterialFlag::UseReflectionMap)
-        .value("UseDisplacementMap", whiteout::m3::ReflectionMaterialFlag::UseDisplacementMap)
+        .value("UseDisplacement", whiteout::m3::ReflectionMaterialFlag::UseDisplacement)
+        .value("UseStrengthMap", whiteout::m3::ReflectionMaterialFlag::UseStrengthMap)
         .value("RenderInTransparentPass", whiteout::m3::ReflectionMaterialFlag::RenderInTransparentPass)
         .value("Blurring", whiteout::m3::ReflectionMaterialFlag::Blurring)
-        .value("UseBlurMap", whiteout::m3::ReflectionMaterialFlag::UseBlurMap);
+        .value("UseBlurMask", whiteout::m3::ReflectionMaterialFlag::UseBlurMask);
 
     enum_<whiteout::m3::VolumeNoiseMaterialFlag>("M3VolumeNoiseMaterialFlag")
         .value("None", whiteout::m3::VolumeNoiseMaterialFlag::None)
@@ -1045,9 +1045,9 @@ EMSCRIPTEN_BINDINGS(m3) {
         .property("reflectionOffset", &whiteout::m3::ReflectionMaterial::reflectionOffset)
         .property("blurAngle", &whiteout::m3::ReflectionMaterial::blurAngle)
         .property("blurDistanceMax", &whiteout::m3::ReflectionMaterial::blurDistanceMax)
-        .property("reflectionMap", &whiteout::m3::ReflectionMaterial::reflectionMap)
-        .property("displacementMap", &whiteout::m3::ReflectionMaterial::displacementMap)
-        .property("blurMap", &whiteout::m3::ReflectionMaterial::blurMap)
+        .property("normalMap", &whiteout::m3::ReflectionMaterial::normalMap)
+        .property("strengthMap", &whiteout::m3::ReflectionMaterial::strengthMap)
+        .property("blurMask", &whiteout::m3::ReflectionMaterial::blurMask)
         .property("flags", &whiteout::m3::ReflectionMaterial::flags)
         .property("unknown2", &whiteout::m3::ReflectionMaterial::unknown2)
     ;
@@ -1075,9 +1075,9 @@ EMSCRIPTEN_BINDINGS(m3) {
         .property("rows", &whiteout::m3::LensFlare::rows)
         .property("distanceFade", &whiteout::m3::LensFlare::distanceFade)
         .property("libName", &whiteout::m3::LensFlare::libName)
-        .property("intensity", &whiteout::m3::LensFlare::intensity)
+        .property("hdrScale", &whiteout::m3::LensFlare::hdrScale)
         .property("color", &whiteout::m3::LensFlare::color)
-        .property("hdr", &whiteout::m3::LensFlare::hdr)
+        .property("intensity", &whiteout::m3::LensFlare::intensity)
         .property("size", &whiteout::m3::LensFlare::size)
     ;
 

@@ -800,7 +800,7 @@ Material ImportMaterial(const m3::Model& model, const m3::MaterialMap& entry, Pr
         const m3::ReflectionMaterial& source = model.reflectionMaterials[index];
         result.name = source.name;
         importBestEffort("reflection",
-                         {&source.reflectionMap, &source.displacementMap, &source.blurMap}, context,
+                         {&source.normalMap, &source.strengthMap, &source.blurMask}, context,
                          common, out);
         native::M3Reflection mirror;
         CopyToNative(source, mirror);

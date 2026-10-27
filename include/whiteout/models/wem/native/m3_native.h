@@ -526,11 +526,11 @@ inline const char* ToString(M3VolumeNoiseMaterialFlag value) {
 /// Reflection material flags (REF_.flags, v2+)
 enum class M3ReflectionMaterialFlag : u32 {
     None = 0,
-    UseReflectionMap = 0x1,        ///< Use reflection map
-    UseDisplacementMap = 0x2,      ///< Use displacement map
+    UseDisplacement = 0x1,         ///< Bend the mirror image by the normal map
+    UseStrengthMap = 0x2,          ///< Scale the strength by the strength map's alpha
     RenderInTransparentPass = 0x4, ///< Render in transparent pass
-    Blurring = 0x8,                ///< Enable blurring
-    UseBlurMap = 0x10,             ///< Use blur map
+    Blurring = 0x8,                ///< Blur the mirror image with distance
+    UseBlurMask = 0x10,            ///< Limit the blur by the blur mask's alpha
 };
 WHITEOUT_WEM_DEFINE_FLAG_OPERATORS(M3ReflectionMaterialFlag)
 
@@ -538,16 +538,16 @@ inline const char* ToString(M3ReflectionMaterialFlag value) {
     switch (value) {
     case M3ReflectionMaterialFlag::None:
         return "None";
-    case M3ReflectionMaterialFlag::UseReflectionMap:
-        return "UseReflectionMap";
-    case M3ReflectionMaterialFlag::UseDisplacementMap:
-        return "UseDisplacementMap";
+    case M3ReflectionMaterialFlag::UseDisplacement:
+        return "UseDisplacement";
+    case M3ReflectionMaterialFlag::UseStrengthMap:
+        return "UseStrengthMap";
     case M3ReflectionMaterialFlag::RenderInTransparentPass:
         return "RenderInTransparentPass";
     case M3ReflectionMaterialFlag::Blurring:
         return "Blurring";
-    case M3ReflectionMaterialFlag::UseBlurMap:
-        return "UseBlurMap";
+    case M3ReflectionMaterialFlag::UseBlurMask:
+        return "UseBlurMask";
     default:
         return "?";
     }
@@ -1255,8 +1255,8 @@ struct M3Stb {
 
 /// REF_ — Reflection material (v0–v3, 84–160 bytes)
 ///
-/// Planar or cube-map reflection material with animated reflection/displacement
-/// strength, blur, and multiple texture layers.
+/// Planar mirror: the scene rendered again mirrored in the model's own XY plane, added
+/// over the surface, optionally bent by a normal map and blurred with distance.
 struct M3Reflection {
     /// Material name (Ref<CHAR>)
     std::string name;
@@ -1266,18 +1266,18 @@ struct M3Reflection {
     M3AnimRef<f32> reflectionStrength{};
     /// Animated displacement strength (v2+)
     M3AnimRef<f32> displacementStrength{};
-    /// Animated reflection offset (v2+)
+    /// Animated mirror plane offset along local Z (v2+)
     M3AnimRef<f32> reflectionOffset{};
     /// Animated blur angle (v2+)
     M3AnimRef<f32> blurAngle{};
     /// Animated max blur distance (v2+)
     M3AnimRef<f32> blurDistanceMax{};
-    /// Reflection map texture
-    std::optional<M3TextureLayer> reflectionMap;
-    /// Displacement map texture
-    std::optional<M3TextureLayer> displacementMap;
-    /// Blur map texture
-    std::optional<M3TextureLayer> blurMap;
+    /// Normal map that bends the mirror image
+    std::optional<M3TextureLayer> normalMap;
+    /// Strength map (alpha)
+    std::optional<M3TextureLayer> strengthMap;
+    /// Blur mask (alpha, v2+)
+    std::optional<M3TextureLayer> blurMask;
     /// Reflection flags (v2+)
     M3ReflectionMaterialFlag flags{};
     /// Index of the DataDrivenMaterial this was converted into, 0xFFFFFFFF if none
@@ -1296,9 +1296,9 @@ struct M3Reflection {
         v.field("reflectionOffset", reflectionOffset);
         v.field("blurAngle", blurAngle);
         v.field("blurDistanceMax", blurDistanceMax);
-        v.optional("reflectionMap", reflectionMap);
-        v.optional("displacementMap", displacementMap);
-        v.optional("blurMap", blurMap);
+        v.optional("normalMap", normalMap);
+        v.optional("strengthMap", strengthMap);
+        v.optional("blurMask", blurMask);
         v.field("flags", flags);
         v.field("unknown2", unknown2);
     }
@@ -1309,23 +1309,23 @@ struct M3Reflection {
 /// A single flare element within a LensFlare material, with position, size, scale,
 /// fade, color, and offset parameters.
 struct M3SubFlare {
-    /// Flare element index
+    /// Atlas frame
     u32 index{};
-    /// Position along the flare axis (0–1)
+    /// Along the light-to-screen-centre axis; 1 = at the light
     f32 position{};
     /// Base size (width, height)
     Vector2f sizeXY{};
     /// Scale multiplier (width, height)
     Vector2f scaleXY{};
-    /// Fade-in range (start, end)
+    /// Fade-in (start, 1 / (end − start), or 0)
     Vector2f fadeIn{};
-    /// Fade-out range (start, end)
+    /// Fade-out (start, 1 / (end − start), or 0)
     Vector2f fadeOut{};
     /// Flare color and alpha
     M3ColorBGRA colorAlpha{};
     /// Whether to face the flare center
     u32 faceCenter{};
-    /// Offset from flare center
+    /// distance · (cos, sin)(angle)
     Vector2f offset{};
 
     template <class V>
@@ -1344,14 +1344,14 @@ struct M3SubFlare {
 
 /// LFLR — Lens flare material (v0–v3, 152 bytes)
 ///
-/// Lens flare effect with animated intensity, color, HDR, size, sub-flare elements, and
-/// flipbook texture grid parameters.
+/// Lens flare effect with animated HDR scale, color, intensity, size, sub-flare
+/// elements, and flipbook texture grid parameters.
 struct M3LensFlare {
     /// Flare name (Ref<CHAR>)
     std::string name;
     /// Flare texture atlas
     std::optional<M3TextureLayer> flareMap;
-    /// Flare mask texture
+    /// Dirty lens mask
     std::optional<M3TextureLayer> maskMap;
     /// Sub-flare elements (LFSB)
     std::vector<M3SubFlare> subFlares;
@@ -1359,16 +1359,16 @@ struct M3LensFlare {
     u32 columns{};
     /// Flipbook grid rows
     u32 rows{};
-    /// Distance fade start
+    /// Fade = distanceFade / view depth², at most 1
     f32 distanceFade{};
     /// Library name (Ref<CHAR>)
     std::string libName;
-    /// Animated intensity
-    M3AnimRef<f32> intensity{};
+    /// Animated HDR scale
+    M3AnimRef<f32> hdrScale{};
     /// Animated color
     M3AnimRef<M3ColorBGRA> color{};
-    /// Animated HDR multiplier
-    M3AnimRef<f32> hdr{};
+    /// Animated intensity (v3+)
+    M3AnimRef<f32> intensity{};
     /// Animated size
     M3AnimRef<f32> size{};
 
@@ -1382,9 +1382,9 @@ struct M3LensFlare {
         v.field("rows", rows);
         v.field("distanceFade", distanceFade);
         v.field("libName", libName);
-        v.field("intensity", intensity);
+        v.field("hdrScale", hdrScale);
         v.field("color", color);
-        v.field("hdr", hdr);
+        v.field("intensity", intensity);
         v.field("size", size);
     }
 };

@@ -487,11 +487,11 @@ Recovered from `CBBSolver::ApplyBillboard` (SC2 `0x1027F1F30`). The aim directio
 
     py::enum_<whiteout::m3::ReflectionMaterialFlag>(m, "ReflectionMaterialFlag", R"doc(Reflection material flags (REF_.flags, v2+))doc")
         .value("NONE", whiteout::m3::ReflectionMaterialFlag::None)
-        .value("USE_REFLECTION_MAP", whiteout::m3::ReflectionMaterialFlag::UseReflectionMap, R"doc(Use reflection map)doc")
-        .value("USE_DISPLACEMENT_MAP", whiteout::m3::ReflectionMaterialFlag::UseDisplacementMap, R"doc(Use displacement map)doc")
+        .value("USE_DISPLACEMENT", whiteout::m3::ReflectionMaterialFlag::UseDisplacement, R"doc(Bend the mirror image by the normal map)doc")
+        .value("USE_STRENGTH_MAP", whiteout::m3::ReflectionMaterialFlag::UseStrengthMap, R"doc(Scale the strength by the strength map's alpha)doc")
         .value("RENDER_IN_TRANSPARENT_PASS", whiteout::m3::ReflectionMaterialFlag::RenderInTransparentPass, R"doc(Render in transparent pass)doc")
-        .value("BLURRING", whiteout::m3::ReflectionMaterialFlag::Blurring, R"doc(Enable blurring)doc")
-        .value("USE_BLUR_MAP", whiteout::m3::ReflectionMaterialFlag::UseBlurMap, R"doc(Use blur map)doc")
+        .value("BLURRING", whiteout::m3::ReflectionMaterialFlag::Blurring, R"doc(Blur the mirror image with distance)doc")
+        .value("USE_BLUR_MASK", whiteout::m3::ReflectionMaterialFlag::UseBlurMask, R"doc(Limit the blur by the blur mask's alpha)doc")
     ;
 
     py::enum_<whiteout::m3::VolumeNoiseMaterialFlag>(m, "VolumeNoiseMaterialFlag", R"doc(Volume noise material flags (VON_.flags))doc")

@@ -414,11 +414,11 @@ enum class FresnelMode : u32 {
 /** @brief Reflection material flags (REF_.flags, v2+) */
 enum class ReflectionMaterialFlag : u32 {
     None = 0x0,
-    UseReflectionMap = 0x1,        ///< Use reflection map
-    UseDisplacementMap = 0x2,      ///< Use displacement map
+    UseDisplacement = 0x1,         ///< Bend the mirror image by the normal map
+    UseStrengthMap = 0x2,          ///< Scale the strength by the strength map's alpha
     RenderInTransparentPass = 0x4, ///< Render in transparent pass
-    Blurring = 0x8,                ///< Enable blurring
-    UseBlurMap = 0x10,             ///< Use blur map
+    Blurring = 0x8,                ///< Blur the mirror image with distance
+    UseBlurMask = 0x10,            ///< Limit the blur by the blur mask's alpha
 };
 
 /** @brief Volume noise material flags (VON_.flags) */

@@ -337,8 +337,9 @@ struct STBMaterial {
 /**
  * @brief REF_ — Reflection material (v0–v3, 84–160 bytes)
  *
- * Planar or cube-map reflection material with animated reflection/displacement
- * strength, blur, and multiple texture layers.
+ * Planar mirror: the scene rendered again mirrored in the model's own XY plane,
+ * added over the surface, optionally bent by a normal map and blurred with
+ * distance.
  */
 /// @wem rename=M3Reflection
 struct ReflectionMaterial {
@@ -346,12 +347,12 @@ struct ReflectionMaterial {
     u32 unknown = 0;                             ///< Unknown field
     AnimRef<f32> reflectionStrength;             ///< Animated reflection strength (v2+)
     AnimRef<f32> displacementStrength;           ///< Animated displacement strength (v2+)
-    AnimRef<f32> reflectionOffset;               ///< Animated reflection offset (v2+)
+    AnimRef<f32> reflectionOffset;               ///< Animated mirror plane offset along local Z (v2+)
     AnimRef<f32> blurAngle;                      ///< Animated blur angle (v2+)
     AnimRef<f32> blurDistanceMax;                ///< Animated max blur distance (v2+)
-    std::optional<TextureLayer> reflectionMap;   ///< Reflection map texture
-    std::optional<TextureLayer> displacementMap; ///< Displacement map texture
-    std::optional<TextureLayer> blurMap;         ///< Blur map texture
+    std::optional<TextureLayer> normalMap;       ///< Normal map that bends the mirror image
+    std::optional<TextureLayer> strengthMap;     ///< Strength map (alpha)
+    std::optional<TextureLayer> blurMask;        ///< Blur mask (alpha, v2+)
     ReflectionMaterialFlag flags = ReflectionMaterialFlag::None;                ///< Reflection flags (v2+)
     /// Index of the DataDrivenMaterial this was converted into, 0xFFFFFFFF if none (v3+).
     /// Written by the Heroes load-time conversion pass, not a material parameter;
@@ -370,37 +371,37 @@ struct ReflectionMaterial {
  */
 /// @wem rename=M3SubFlare
 struct SubFlare {
-    u32 index = 0;        ///< Flare element index
-    f32 position = 0.0f;  ///< Position along the flare axis (0–1)
+    u32 index = 0;        ///< Atlas frame
+    f32 position = 0.0f;  ///< Along the light-to-screen-centre axis; 1 = at the light
     Vector2f sizeXY{};    ///< Base size (width, height)
     Vector2f scaleXY{};   ///< Scale multiplier (width, height)
-    Vector2f fadeIn{};    ///< Fade-in range (start, end)
-    Vector2f fadeOut{};   ///< Fade-out range (start, end)
+    Vector2f fadeIn{};    ///< Fade-in (start, 1 / (end − start), or 0)
+    Vector2f fadeOut{};   ///< Fade-out (start, 1 / (end − start), or 0)
     ColorBGRA colorAlpha{}; ///< Flare color and alpha
     u32 faceCenter = 0;   ///< Whether to face the flare center
-    Vector2f offset{};    ///< Offset from flare center
+    Vector2f offset{};    ///< distance · (cos, sin)(angle)
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
 /**
  * @brief LFLR — Lens flare material (v0–v3, 152 bytes)
  *
- * Lens flare effect with animated intensity, color, HDR, size, sub-flare
+ * Lens flare effect with animated HDR scale, color, intensity, size, sub-flare
  * elements, and flipbook texture grid parameters.
  */
 /// @wem rename=M3LensFlare
 struct LensFlare {
     std::string name;                     ///< Flare name (Ref<CHAR>)
     std::optional<TextureLayer> flareMap; ///< Flare texture atlas
-    std::optional<TextureLayer> maskMap;  ///< Flare mask texture
+    std::optional<TextureLayer> maskMap;  ///< Dirty lens mask
     std::vector<SubFlare> subFlares;      ///< Sub-flare elements (LFSB)
     u32 columns = 0;                      ///< Flipbook grid columns
     u32 rows = 0;                         ///< Flipbook grid rows
-    f32 distanceFade = 0.0f;              ///< Distance fade start
+    f32 distanceFade = 0.0f;              ///< Fade = distanceFade / view depth², at most 1
     std::string libName;                  ///< Library name (Ref<CHAR>)
-    AnimRef<f32> intensity;               ///< Animated intensity
+    AnimRef<f32> hdrScale;                ///< Animated HDR scale
     AnimRef<ColorBGRA> color;             ///< Animated color
-    AnimRef<f32> hdr;                     ///< Animated HDR multiplier
+    AnimRef<f32> intensity;               ///< Animated intensity (v3+)
     AnimRef<f32> size;                    ///< Animated size
     M3_DEFINE_VERSION_ACCESSORS()
 };

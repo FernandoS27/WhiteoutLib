@@ -8,14 +8,14 @@ namespace Whiteout.M3;
 public enum ReflectionMaterialFlag : int
 {
     None = 0,
-    /// <summary>Use reflection map</summary>
-    UseReflectionMap = 1,
-    /// <summary>Use displacement map</summary>
-    UseDisplacementMap = 2,
+    /// <summary>Bend the mirror image by the normal map</summary>
+    UseDisplacement = 1,
+    /// <summary>Scale the strength by the strength map's alpha</summary>
+    UseStrengthMap = 2,
     /// <summary>Render in transparent pass</summary>
     RenderInTransparentPass = 4,
-    /// <summary>Enable blurring</summary>
+    /// <summary>Blur the mirror image with distance</summary>
     Blurring = 8,
-    /// <summary>Use blur map</summary>
-    UseBlurMap = 16,
+    /// <summary>Limit the blur by the blur mask's alpha</summary>
+    UseBlurMask = 16,
 }

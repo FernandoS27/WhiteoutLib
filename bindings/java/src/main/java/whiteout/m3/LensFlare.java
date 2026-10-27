@@ -13,7 +13,7 @@ import whiteout.m3.internal.Native;
 /**
  * LFLR — Lens flare material (v0–v3, 152 bytes)
  * 
- * Lens flare effect with animated intensity, color, HDR, size, sub-flare elements, and flipbook texture grid parameters.
+ * Lens flare effect with animated HDR scale, color, intensity, size, sub-flare elements, and flipbook texture grid parameters.
  *
  * <p><b>Lifecycle.</b> Instances hold a handle to a native
  * LensFlare allocation. Always release them with
@@ -123,7 +123,7 @@ public final class LensFlare implements AutoCloseable {
         handle.set(ValueLayout.JAVA_INT, 1068L, value);
     }
     /**
-     * Distance fade start
+     * Fade = distanceFade / view depth², at most 1
      * @return the distanceFade field of this M3LensFlare.
      */
     public float getDistanceFade() {
@@ -157,15 +157,15 @@ public final class LensFlare implements AutoCloseable {
         }
     }
     /**
-     * Animated intensity
-     * @return the intensity field of this M3LensFlare.
+     * Animated HDR scale
+     * @return the hdrScale field of this M3LensFlare.
      */
-    public AnimRefF32 getIntensity() {
-        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3LensFlare_get_intensity, handle);
+    public AnimRefF32 getHdrScale() {
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3LensFlare_get_hdrScale, handle);
         return new AnimRefF32(__h, false);
     }
-    public void setIntensity(AnimRefF32 value) {
-        NativeCommon.invokeNative(Native.whiteout_m3_M3LensFlare_set_intensity, handle, value == null ? MemorySegment.NULL : value.handle);
+    public void setHdrScale(AnimRefF32 value) {
+        NativeCommon.invokeNative(Native.whiteout_m3_M3LensFlare_set_hdrScale, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated color
@@ -179,15 +179,15 @@ public final class LensFlare implements AutoCloseable {
         NativeCommon.invokeNative(Native.whiteout_m3_M3LensFlare_set_color, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
-     * Animated HDR multiplier
-     * @return the hdr field of this M3LensFlare.
+     * Animated intensity (v3+)
+     * @return the intensity field of this M3LensFlare.
      */
-    public AnimRefF32 getHdr() {
-        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3LensFlare_get_hdr, handle);
+    public AnimRefF32 getIntensity() {
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3LensFlare_get_intensity, handle);
         return new AnimRefF32(__h, false);
     }
-    public void setHdr(AnimRefF32 value) {
-        NativeCommon.invokeNative(Native.whiteout_m3_M3LensFlare_set_hdr, handle, value == null ? MemorySegment.NULL : value.handle);
+    public void setIntensity(AnimRefF32 value) {
+        NativeCommon.invokeNative(Native.whiteout_m3_M3LensFlare_set_intensity, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated size

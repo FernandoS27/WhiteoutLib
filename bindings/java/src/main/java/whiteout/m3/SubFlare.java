@@ -59,7 +59,7 @@ public final class SubFlare implements AutoCloseable {
     }
 
     /**
-     * Flare element index
+     * Atlas frame
      * @return the index field of this M3SubFlare.
      */
     public int getIndex() {
@@ -69,7 +69,7 @@ public final class SubFlare implements AutoCloseable {
         handle.set(ValueLayout.JAVA_INT, 0L, value);
     }
     /**
-     * Position along the flare axis (0–1)
+     * Along the light-to-screen-centre axis; 1 = at the light
      * @return the position field of this M3SubFlare.
      */
     public float getPosition() {
@@ -107,7 +107,7 @@ public final class SubFlare implements AutoCloseable {
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 16L, 8L);
     }
     /**
-     * Fade-in range (start, end)
+     * Fade-in (start, 1 / (end − start), or 0)
      * @return the fadeIn field of this M3SubFlare.
      */
     public Vector2f getFadeIn() {
@@ -121,7 +121,7 @@ public final class SubFlare implements AutoCloseable {
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 24L, 8L);
     }
     /**
-     * Fade-out range (start, end)
+     * Fade-out (start, 1 / (end − start), or 0)
      * @return the fadeOut field of this M3SubFlare.
      */
     public Vector2f getFadeOut() {
@@ -155,7 +155,7 @@ public final class SubFlare implements AutoCloseable {
         handle.set(ValueLayout.JAVA_INT, 44L, value);
     }
     /**
-     * Offset from flare center
+     * distance · (cos, sin)(angle)
      * @return the offset field of this M3SubFlare.
      */
     public Vector2f getOffset() {

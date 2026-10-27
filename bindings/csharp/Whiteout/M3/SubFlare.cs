@@ -21,7 +21,7 @@ public sealed class SubFlare : WhiteoutHandle
         return true;
     }
 
-    /// <summary>Flare element index</summary>
+    /// <summary>Atlas frame</summary>
     public uint Index
     {
         get => NativeMethods.whiteout_m3_M3SubFlare_get_index(DangerousGet());
@@ -29,7 +29,7 @@ public sealed class SubFlare : WhiteoutHandle
     }
 
 
-    /// <summary>Position along the flare axis (0–1)</summary>
+    /// <summary>Along the light-to-screen-centre axis; 1 = at the light</summary>
     public float Position
     {
         get => NativeMethods.whiteout_m3_M3SubFlare_get_position(DangerousGet());
@@ -85,7 +85,7 @@ public sealed class SubFlare : WhiteoutHandle
     }
 
 
-    /// <summary>Fade-in range (start, end)</summary>
+    /// <summary>Fade-in (start, 1 / (end − start), or 0)</summary>
     public unsafe Vector2f FadeIn
     {
         get
@@ -109,7 +109,7 @@ public sealed class SubFlare : WhiteoutHandle
     }
 
 
-    /// <summary>Fade-out range (start, end)</summary>
+    /// <summary>Fade-out (start, 1 / (end − start), or 0)</summary>
     public unsafe Vector2f FadeOut
     {
         get
@@ -141,7 +141,7 @@ public sealed class SubFlare : WhiteoutHandle
     }
 
 
-    /// <summary>Offset from flare center</summary>
+    /// <summary>distance · (cos, sin)(angle)</summary>
     public unsafe Vector2f Offset
     {
         get

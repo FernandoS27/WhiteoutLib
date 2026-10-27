@@ -4082,12 +4082,12 @@ void whiteout_m3_M3LensFlare_set_libName(whiteout_M3LensFlare* self, const char*
     reinterpret_cast<whiteout::m3::LensFlare*>(self)->libName = (value ? value : "");
 }
 
-whiteout_M3AnimRefF32* whiteout_m3_M3LensFlare_get_intensity(whiteout_M3LensFlare* self) {
-    return reinterpret_cast<whiteout_M3AnimRefF32*>(&reinterpret_cast<whiteout::m3::LensFlare*>(self)->intensity);
+whiteout_M3AnimRefF32* whiteout_m3_M3LensFlare_get_hdrScale(whiteout_M3LensFlare* self) {
+    return reinterpret_cast<whiteout_M3AnimRefF32*>(&reinterpret_cast<whiteout::m3::LensFlare*>(self)->hdrScale);
 }
 
-void whiteout_m3_M3LensFlare_set_intensity(whiteout_M3LensFlare* self, const whiteout_M3AnimRefF32* value) {
-    reinterpret_cast<whiteout::m3::LensFlare*>(self)->intensity = *reinterpret_cast<const whiteout::m3::AnimRef<whiteout::f32>*>(value);
+void whiteout_m3_M3LensFlare_set_hdrScale(whiteout_M3LensFlare* self, const whiteout_M3AnimRefF32* value) {
+    reinterpret_cast<whiteout::m3::LensFlare*>(self)->hdrScale = *reinterpret_cast<const whiteout::m3::AnimRef<whiteout::f32>*>(value);
 }
 
 whiteout_M3AnimRefM3ColorBGRA* whiteout_m3_M3LensFlare_get_color(whiteout_M3LensFlare* self) {
@@ -4098,12 +4098,12 @@ void whiteout_m3_M3LensFlare_set_color(whiteout_M3LensFlare* self, const whiteou
     reinterpret_cast<whiteout::m3::LensFlare*>(self)->color = *reinterpret_cast<const whiteout::m3::AnimRef<whiteout::m3::ColorBGRA>*>(value);
 }
 
-whiteout_M3AnimRefF32* whiteout_m3_M3LensFlare_get_hdr(whiteout_M3LensFlare* self) {
-    return reinterpret_cast<whiteout_M3AnimRefF32*>(&reinterpret_cast<whiteout::m3::LensFlare*>(self)->hdr);
+whiteout_M3AnimRefF32* whiteout_m3_M3LensFlare_get_intensity(whiteout_M3LensFlare* self) {
+    return reinterpret_cast<whiteout_M3AnimRefF32*>(&reinterpret_cast<whiteout::m3::LensFlare*>(self)->intensity);
 }
 
-void whiteout_m3_M3LensFlare_set_hdr(whiteout_M3LensFlare* self, const whiteout_M3AnimRefF32* value) {
-    reinterpret_cast<whiteout::m3::LensFlare*>(self)->hdr = *reinterpret_cast<const whiteout::m3::AnimRef<whiteout::f32>*>(value);
+void whiteout_m3_M3LensFlare_set_intensity(whiteout_M3LensFlare* self, const whiteout_M3AnimRefF32* value) {
+    reinterpret_cast<whiteout::m3::LensFlare*>(self)->intensity = *reinterpret_cast<const whiteout::m3::AnimRef<whiteout::f32>*>(value);
 }
 
 whiteout_M3AnimRefF32* whiteout_m3_M3LensFlare_get_size(whiteout_M3LensFlare* self) {

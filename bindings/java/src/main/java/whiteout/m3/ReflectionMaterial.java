@@ -13,7 +13,7 @@ import whiteout.m3.internal.Native;
 /**
  * REF_ — Reflection material (v0–v3, 84–160 bytes)
  * 
- * Planar or cube-map reflection material with animated reflection/displacement strength, blur, and multiple texture layers.
+ * Planar mirror: the scene rendered again mirrored in the model's own XY plane, added over the surface, optionally bent by a normal map and blurred with distance.
  *
  * <p><b>Lifecycle.</b> Instances hold a handle to a native
  * ReflectionMaterial allocation. Always release them with
@@ -115,7 +115,7 @@ public final class ReflectionMaterial implements AutoCloseable {
         NativeCommon.invokeNative(Native.whiteout_m3_M3ReflectionMaterial_set_displacementStrength, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
-     * Animated reflection offset (v2+)
+     * Animated mirror plane offset along local Z (v2+)
      * @return the reflectionOffset field of this M3ReflectionMaterial.
      */
     public AnimRefF32 getReflectionOffset() {

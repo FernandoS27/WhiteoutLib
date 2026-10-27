@@ -67,7 +67,7 @@ void BinaryWriterVisitor::visit(const TextureLayer& layer, u32 version) {
 /// byte for byte and a converted one stops handing the client a null layer.
 /// The other kinds the Art Tools make are written so too: Star2Exporter gives
 /// every texmap slot a layer (`ExportMaterialTextureSlot`), and no shipped
-/// `DIS_` holds a null one.
+/// `DIS_` or `LFLR` holds a null one.
 void BinaryWriterVisitor::visitLayerSlot(const std::optional<TextureLayer>& layer) {
     visit(layer.has_value() ? layer : emptyLayer);
 }
@@ -230,10 +230,10 @@ void BinaryWriterVisitor::visit(const ReflectionMaterial& material, u32 version)
         writer.write(material.blurAngle);
         writer.write(material.blurDistanceMax);
     }
-    visit(material.reflectionMap);
-    visit(material.displacementMap);
+    visitLayerSlot(material.normalMap);
+    visitLayerSlot(material.strengthMap);
     if (version >= 2) {
-        visit(material.blurMap);
+        visitLayerSlot(material.blurMask);
     }
     writer.write(material.flags);
     if (version >= 3) {
@@ -256,8 +256,8 @@ void BinaryWriterVisitor::visit(const SubFlare& flare, u32 version) {
 
 void BinaryWriterVisitor::visit(const LensFlare& flare, u32 version) {
     visit(flare.name);
-    visit(flare.flareMap);
-    visit(flare.maskMap);
+    visitLayerSlot(flare.flareMap);
+    visitLayerSlot(flare.maskMap);
     visit(flare.subFlares);
     writer.write(flare.columns);
     writer.write(flare.rows);
@@ -265,10 +265,10 @@ void BinaryWriterVisitor::visit(const LensFlare& flare, u32 version) {
     if (version >= 3) {
         visit(flare.libName);
     }
-    writer.write(flare.intensity);
+    writer.write(flare.hdrScale);
     if (version >= 3) {
         writer.write(flare.color);
-        writer.write(flare.hdr);
+        writer.write(flare.intensity);
         writer.write(flare.size);
     }
 }

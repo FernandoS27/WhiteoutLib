@@ -215,10 +215,10 @@ void BinaryParseVisitor::visit(ReflectionMaterial& value, u32 version) {
         value.blurAngle = reader.read<AnimRef<f32>>();
         value.blurDistanceMax = reader.read<AnimRef<f32>>();
     }
-    visit(value.reflectionMap);
-    visit(value.displacementMap);
+    visit(value.normalMap);
+    visit(value.strengthMap);
     if (version >= 2) {
-        visit(value.blurMap);
+        visit(value.blurMask);
     }
     value.flags = reader.read<ReflectionMaterialFlag>();
     if (version >= 3) {
@@ -250,10 +250,10 @@ void BinaryParseVisitor::visit(LensFlare& value, u32 version) {
     if (version >= 3) {
         visit(value.libName);
     }
-    value.intensity = reader.read<AnimRef<f32>>();
+    value.hdrScale = reader.read<AnimRef<f32>>();
     if (version >= 3) {
         value.color = reader.read<AnimRef<ColorBGRA>>();
-        value.hdr = reader.read<AnimRef<f32>>();
+        value.intensity = reader.read<AnimRef<f32>>();
         value.size = reader.read<AnimRef<f32>>();
     }
 }

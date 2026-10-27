@@ -53,7 +53,7 @@ public sealed class LensFlare : WhiteoutHandle
     }
 
 
-    /// <summary>Distance fade start</summary>
+    /// <summary>Fade = distanceFade / view depth², at most 1</summary>
     public float DistanceFade
     {
         get => NativeMethods.whiteout_m3_M3LensFlare_get_distanceFade(DangerousGet());
