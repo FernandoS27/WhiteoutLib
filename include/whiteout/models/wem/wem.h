@@ -7,7 +7,9 @@
  * @file wem.h
  * @brief Main header for the WEM (Whiteout Edit Model) intermediate format
  *
- * Include this single header to access all WEM types and data structures.
+ * Include this single header to access all WEM types and data structures of
+ * the WEM core (`whiteout_wem`). `wem_convert.h` adds the converters and
+ * `wem_edit.h` the editing tools.
  *
  * WEM is a format-agnostic intermediate representation for 3D model data,
  * designed as a superset of the MDX, M2, M3 and Diablo III model formats.
@@ -47,7 +49,8 @@
 #include "anim/clip.h"
 #include "document.h"
 #include "geometry/builder.h"
-#include "geometry/ops.h"
+#include "geometry/kernel.h"
+#include "geometry/merge.h"
 #include "geometry/render_view.h"
 #include "materials/ops.h"
 #include "meshes/remove.h"
@@ -55,18 +58,12 @@
 #include "nodes/remove.h"
 #include "nodes/visitor.h"
 #include "retarget.h"
-#include "geometry/bvh.h"
-#include "rigging/detect.h"
 #include "rigging/record.h"
 #include "skinning/deform.h"
-#include "skinning/mirror.h"
-#include "skinning/ops.h"
 #include "skinning/points.h"
 #include "skinning/quantize.h"
 #include "skinning/setup.h"
 
-#include "converters.h"
-#include "d3_converter.h"
 #include "diagnostics.h"
 #include "parser.h"
 #include "profile.h"

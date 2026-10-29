@@ -18,11 +18,15 @@ vcpkg_from_github(
 
 vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
     FEATURES
-        casc     WHITEOUT_ENABLE_CASC
-        mpq      WHITEOUT_ENABLE_MPQ
-        database WHITEOUT_ENABLE_DATABASE
-        curl     WHITEOUT_ENABLE_CURL_HTTP
-        zlib-ng  WHITEOUT_USE_ZLIBNG
+        textures    WHITEOUT_ENABLE_TEXTURES
+        models      WHITEOUT_ENABLE_MODELS
+        wem-convert WHITEOUT_WEM_CONVERT
+        wem-edit    WHITEOUT_WEM_EDIT
+        casc        WHITEOUT_ENABLE_CASC
+        mpq         WHITEOUT_ENABLE_MPQ
+        database    WHITEOUT_ENABLE_DATABASE
+        curl        WHITEOUT_ENABLE_CURL_HTTP
+        zlib-ng     WHITEOUT_USE_ZLIBNG
 )
 
 vcpkg_cmake_configure(

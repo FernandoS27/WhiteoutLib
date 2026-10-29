@@ -13,6 +13,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <whiteout/models/wem/anim/animator.h>
+#include <whiteout/models/wem/anim/stage_bake.h>
 #include <whiteout/models/wem/anim/stages.h>
 #include <whiteout/models/wem/document.h>
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-#include <whiteout/models/wem/anim/key_reduce.h>
+#include <whiteout/models/wem/anim/key_exact.h>
 #include <whiteout/models/wem/meshes/remove.h>
 
 #include <map>

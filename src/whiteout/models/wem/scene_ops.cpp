@@ -8,7 +8,7 @@
 #include <whiteout/models/wem/materials/ops.h>
 #include <whiteout/models/wem/nodes/remove.h>
 #include <whiteout/models/wem/physics/references.h>
-#include <whiteout/models/wem/converters.h>
+#include <whiteout/models/wem/native/m3_native.h>
 
 #include "native/m3_walk.h"
 

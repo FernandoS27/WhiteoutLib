@@ -41,8 +41,10 @@
 #include <vector>
 
 #include <whiteout/common_types.h>
+#include <whiteout/vector_types.h>
 
 #include "../diagnostics.h"
+#include "../geometry/skin.h"
 #include "../model.h"
 
 namespace whiteout {
@@ -155,6 +157,46 @@ std::string SoftEffectFault(const Model& model, const SoftBody& body, const Soft
 
 /// The profile rules of §3.11: what @p profile's format can carry.
 void CheckPhysicsForProfile(const Model& model, ProfileId profile, Diagnostics& out);
+
+/// A *Full detail* cloth's drivers (§10.3): its free particles, by cage
+/// vertex ascending, and the holder they hang from, the bone outside the
+/// cloth's own its pins' anchors weigh most on (`kInvalidNode`, the model
+/// root, when none does).
+struct ClothDrivers {
+    u32 holder = kInvalidNode;
+    std::vector<u32> vertices;
+};
+ClothDrivers ClothDriversOf(const Model& model, const Cloth& cloth);
+
+/**
+ * @brief Each vertex's skin as a file holding @p cap weights a point writes it.
+ *
+ * Normalised; a vertex of a rigid section that binds nothing rides that
+ * section's node whole; more than @p cap influences are folded over the
+ * skeleton (`geom::FoldInfluences`), which is what an export does. The count
+ * by bones a point (§5.3) and the lanes (§6.4) are for this skin, never the
+ * document's wider one.
+ */
+class SoftSkinSource {
+public:
+    SoftSkinSource(const Model& model, u32 cap);
+
+    /// Vertex @p vertex of mesh @p mesh: heaviest first, ties by bone. Valid
+    /// until the next call.
+    std::span<const geom::Influence> of(u32 mesh, u32 vertex);
+
+    u32 cap() const {
+        return cap_;
+    }
+
+private:
+    const Model* model_ = nullptr;
+    u32 cap_ = 4;
+    std::vector<u32> parents_;
+    std::vector<Vector3f> pivots_;
+    std::vector<std::vector<u32>> rigidOf_; ///< Per mesh, per vertex; empty when no section is rigid.
+    std::vector<geom::Influence> scratch_;
+};
 
 } // namespace wem
 } // namespace models

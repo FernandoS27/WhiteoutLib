@@ -22,6 +22,7 @@
 
 #include "../geometry/skin.h"
 #include "../model.h"
+#include "references.h"
 
 namespace whiteout {
 namespace models {
@@ -39,36 +40,6 @@ SoftMeshPoints SoftPointsOfFaces(const Model& model, u32 mesh, std::span<const u
 
 /// Every vertex a face of mesh @p mesh draws.
 SoftMeshPoints SoftPointsOfMesh(const Model& model, u32 mesh);
-
-/**
- * @brief Each vertex's skin as a file holding @p cap weights a point writes it.
- *
- * Normalised; a vertex of a rigid section that binds nothing rides that
- * section's node whole; more than @p cap influences are folded over the
- * skeleton (`geom::FoldInfluences`), which is what an export does. The count
- * by bones a point (§5.3) and the lanes (§6.4) are for this skin, never the
- * document's wider one.
- */
-class SoftSkinSource {
-public:
-    SoftSkinSource(const Model& model, u32 cap);
-
-    /// Vertex @p vertex of mesh @p mesh: heaviest first, ties by bone. Valid
-    /// until the next call.
-    std::span<const geom::Influence> of(u32 mesh, u32 vertex);
-
-    u32 cap() const {
-        return cap_;
-    }
-
-private:
-    const Model* model_ = nullptr;
-    u32 cap_ = 4;
-    std::vector<u32> parents_;
-    std::vector<Vector3f> pivots_;
-    std::vector<std::vector<u32>> rigidOf_; ///< Per mesh, per vertex; empty when no section is rigid.
-    std::vector<geom::Influence> scratch_;
-};
 
 /// What a bone is to a region that rides it (§6.2).
 struct SoftBoneCount {

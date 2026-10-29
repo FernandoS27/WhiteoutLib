@@ -22,6 +22,7 @@
 #include <whiteout/common_types.h>
 
 #include "../skinning/points.h"
+#include "element_set.h"
 #include "ids.h"
 #include "mesh.h"
 
@@ -31,21 +32,6 @@ namespace wem {
 namespace geom {
 
 using skinning::PointTable;
-
-/// Elements of one mesh, each list sorted and without repeats. A Border-level
-/// selection is its border edges, in `edges`.
-struct ElementSet {
-    std::vector<u32> vertices;
-    std::vector<u32> edges;
-    std::vector<u32> faces;
-
-    bool empty() const {
-        return vertices.empty() && edges.empty() && faces.empty();
-    }
-
-    /// Sorts each list and drops repeats.
-    void normalise();
-};
 
 /// The level a selection is at (the viewer's Vertex, Edge, Border and Polygon).
 enum class ElementLevel : u8 {

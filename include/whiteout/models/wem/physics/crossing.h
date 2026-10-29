@@ -28,6 +28,7 @@
 
 #include "../diagnostics.h"
 #include "../document.h"
+#include "switch_rule.h"
 
 namespace whiteout {
 namespace models {
@@ -104,9 +105,6 @@ u32 DropSoftForProfile(Document& document, ProfileId target, Diagnostics& out);
 
 /// "Death", or "Death" and then a space: a clip StarCraft II plays as one.
 bool IsDeathClipName(std::string_view name);
-
-/// @p record's @p channel switch on @p model, declared when it has none.
-u32 PhysicsSwitchChannel(Model& model, u32 record, Channel channel);
 
 } // namespace wem
 } // namespace models

@@ -4,20 +4,24 @@
 #include <whiteout/models/wem/physics/references.h>
 
 #include <whiteout/models/wem/anim/clip.h>
+#include <whiteout/models/wem/geometry/attributes.h>
+#include <whiteout/models/wem/geometry/render_view.h>
 #include <whiteout/models/wem/nodes/references.h>
-#include <whiteout/models/wem/physics/cloth_bake.h>
-#include <whiteout/models/wem/physics/soft_region.h>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <map>
 #include <set>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+
+#include "cloth_common.h"
+#include "soft_common.h"
 
 namespace whiteout {
 namespace models {
@@ -1491,6 +1495,137 @@ void CheckPhysicsForProfile(const Model& model, ProfileId profile, Diagnostics& 
             }
         }
     }
+}
+
+// ============================================================================
+// What a cloth's and a soft body's references read
+// ============================================================================
+
+using clothdetail::CageOf;
+using clothdetail::SkinOf;
+using softdetail::kNoWeight;
+using softdetail::PositionsOf;
+
+ClothDrivers ClothDriversOf(const Model& model, const Cloth& cloth) {
+    ClothDrivers out;
+    if (cloth.cage.mesh >= model.meshes.size()) {
+        return out;
+    }
+    const Mesh& mesh = model.meshes[cloth.cage.mesh];
+    const auto movable = mesh.attributes.get<u8>(geom::names::kClothMovable, geom::Domain::Vertex);
+    const std::set<u32> cage = CageOf(mesh, cloth);
+    std::set<u32> own;
+    if (cloth.recipe) {
+        own.insert(cloth.recipe->bones.begin(), cloth.recipe->bones.end());
+    }
+    std::map<u32, f32> weigh;
+    for (const u32 v : cage) {
+        const bool free = v < movable.size() && movable[v] != 0;
+        if (free) {
+            out.vertices.push_back(v);
+            continue;
+        }
+        for (const geom::Influence& influence : SkinOf(mesh, v)) {
+            if (own.count(influence.bone) == 0) {
+                weigh[influence.bone] += influence.weight;
+            }
+        }
+    }
+    f32 most = 0.0f;
+    for (const auto& [bone, weight] : weigh) {
+        if (weight > most) {
+            most = weight;
+            out.holder = bone;
+        }
+    }
+    return out;
+}
+
+SoftSkinSource::SoftSkinSource(const Model& model, u32 cap) : model_(&model), cap_(std::max<u32>(1, cap)) {
+    rigidOf_.resize(model.meshes.size());
+    for (std::size_t m = 0; m < model.meshes.size(); ++m) {
+        const Mesh& mesh = model.meshes[m];
+        bool anyRigid = false;
+        for (const MeshSection& section : mesh.sections) {
+            anyRigid = anyRigid || section.rigidNode.has_value();
+        }
+        if (!anyRigid) {
+            continue;
+        }
+        const geom::FaceSet& faces = mesh.faceSet();
+        std::vector<u32>& rigid = rigidOf_[m];
+        rigid.assign(faces.vertexCount, kInvalidNode);
+        const std::span<const u32> sectionOf = mesh.faceSections();
+        std::size_t corner = 0;
+        for (std::size_t f = 0; f < faces.faceCount(); ++f) {
+            const u32 valence = faces.faceValence[f];
+            const u32 section = f < sectionOf.size() ? sectionOf[f] : 0;
+            if (section < mesh.sections.size() && mesh.sections[section].rigidNode.has_value()) {
+                for (u32 k = 0; k < valence; ++k) {
+                    const u32 vertex = faces.cornerVertex[corner + k];
+                    if (vertex < rigid.size()) {
+                        rigid[vertex] = *mesh.sections[section].rigidNode;
+                    }
+                }
+            }
+            corner += valence;
+        }
+    }
+}
+
+std::span<const geom::Influence> SoftSkinSource::of(u32 mesh, u32 vertex) {
+    scratch_.clear();
+    if (mesh >= model_->meshes.size()) {
+        return scratch_;
+    }
+    const Mesh& source = model_->meshes[mesh];
+    if (!source.skin.empty() && vertex < source.skin.vertexCount()) {
+        for (const geom::Influence& influence : source.skin.forVertex(vertex)) {
+            if (influence.weight > 0.0f) {
+                scratch_.push_back(influence);
+            }
+        }
+    }
+    if (scratch_.empty()) {
+        const std::vector<u32>& rigid = rigidOf_[mesh];
+        if (vertex < rigid.size() && rigid[vertex] != kInvalidNode) {
+            scratch_.push_back({rigid[vertex], 1.0f});
+        }
+        return scratch_;
+    }
+    if (scratch_.size() > cap_) {
+        if (parents_.empty()) {
+            // The skeleton an export folds over (`SkinSkeleton`): each node's
+            // parent, and where its bind frame puts its origin.
+            const NodeTree& tree = model_->nodes;
+            parents_.reserve(tree.size());
+            pivots_.reserve(tree.size());
+            for (u32 n = 0; n < tree.size(); ++n) {
+                parents_.push_back(tree.nodes[n].parent);
+                const Matrix44f bind = Matrix44f::inverse(tree.inverseBindMatrix(n));
+                pivots_.push_back(Vector3f{bind.data[3][0], bind.data[3][1], bind.data[3][2]});
+            }
+        }
+        const std::span<const Vector3f> positions = PositionsOf(source);
+        const Vector3f at = vertex < positions.size() ? positions[vertex] : Vector3f{0, 0, 0};
+        scratch_ = geom::FoldInfluences(scratch_, cap_, at, parents_, pivots_);
+    }
+    f32 total = 0.0f;
+    for (const geom::Influence& influence : scratch_) {
+        total += influence.weight;
+    }
+    if (total > 0.0f) {
+        for (geom::Influence& influence : scratch_) {
+            influence.weight /= total;
+        }
+    }
+    scratch_.erase(std::remove_if(scratch_.begin(), scratch_.end(),
+                                  [](const geom::Influence& i) { return i.weight <= kNoWeight; }),
+                   scratch_.end());
+    std::sort(scratch_.begin(), scratch_.end(), [](const geom::Influence& a, const geom::Influence& b) {
+        return a.weight != b.weight ? a.weight > b.weight : a.bone < b.bone;
+    });
+    return scratch_;
 }
 
 } // namespace wem

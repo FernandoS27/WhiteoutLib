@@ -21,6 +21,7 @@
 #include <whiteout/models/m3/physics_upgrade.h>
 #include <whiteout/models/m3/writer.h>
 #include <whiteout/models/wem/anim/m3_math.h>
+#include <whiteout/models/wem/anim/stage_bake.h>
 #include <whiteout/models/wem/anim/stages.h>
 #include <whiteout/models/wem/converters.h>
 #include <whiteout/models/wem/geometry/attributes.h>

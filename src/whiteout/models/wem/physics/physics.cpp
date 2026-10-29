@@ -3,10 +3,15 @@
 
 #include <whiteout/models/wem/physics/physics.h>
 
+#include <whiteout/models/wem/anim/curve_keys.h>
+#include <whiteout/models/wem/document.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <numbers>
+
+#include "bake_record.h"
 
 namespace whiteout {
 namespace models {
@@ -378,6 +383,145 @@ PhysicsHost PhysicsHostFor(Game game) {
         break;
     }
     return host;
+}
+
+// ============================================================================
+// What a read of a `.wem` runs
+// ============================================================================
+
+using bakedetail::Hash;
+using bakedetail::HashKeys;
+using bakedetail::InsideHash;
+using bakedetail::kEver;
+using bakedetail::kStretchPad;
+using bakedetail::OutsideHash;
+using bakedetail::Stretch;
+using bakedetail::StretchesOf;
+using bakedetail::Within;
+using bakedetail::WrittenHash;
+
+namespace {
+
+/// The stretches an older bake keyed on a node's channel, read off @p now's
+/// keys: a key @p source does not hold is the bake's, with every key between
+/// two of them, and a source key it left out is in the stretch nearest it.
+template <class T>
+std::vector<Stretch> ReadStretches(const SubTrack& now, const SubTrack* source, f32 duration) {
+    const std::vector<CurveKey<T>> ours = DecodeKeys<T>(now);
+    const std::vector<CurveKey<T>> theirs = source != nullptr ? DecodeKeys<T>(*source) : std::vector<CurveKey<T>>{};
+    const auto held = [&](const CurveKey<T>& key) {
+        return std::any_of(theirs.begin(), theirs.end(), [&](const CurveKey<T>& other) {
+            return other.time == key.time && std::memcmp(&other.value, &key.value, sizeof(T)) == 0;
+        });
+    };
+    std::vector<Stretch> out;
+    for (std::size_t i = 0; i < ours.size(); ++i) {
+        if (held(ours[i])) {
+            continue;
+        }
+        std::size_t last = i;
+        while (last + 1 < ours.size() && !held(ours[last + 1])) {
+            ++last;
+        }
+        Stretch stretch;
+        stretch.from = i == 0 ? -kEver : ours[i].time - kStretchPad;
+        stretch.to = last + 1 == ours.size() && ours[last].time >= duration - 0.001f ? kEver
+                                                                                     : ours[last].time + kStretchPad;
+        // An edge key leads the simulation's, where the clip's own go on before it.
+        stretch.first = last == i ? stretch.from - 1.0f : ours[i == 0 ? i : i + 1].time;
+        out.push_back(stretch);
+        i = last;
+    }
+    for (const CurveKey<T>& key : theirs) {
+        if (out.empty() || Within(out, key.time) ||
+            std::any_of(ours.begin(), ours.end(), [&](const CurveKey<T>& other) { return other.time == key.time; })) {
+            continue;
+        }
+        Stretch* nearest = &out.front();
+        const auto apart = [&](const Stretch& s) { return std::max(s.from - key.time, key.time - s.to); };
+        for (Stretch& s : out) {
+            if (apart(s) < apart(*nearest)) {
+                nearest = &s;
+            }
+        }
+        nearest->from = std::min(nearest->from, key.time - kStretchPad);
+        nearest->to = std::max(nearest->to, key.time + kStretchPad);
+    }
+    return out;
+}
+
+} // namespace
+
+void MarkBakeStretches(Document& document) {
+    std::vector<Stretch> stretches;
+    for (Clip& clip : document.clips) {
+        if (!clip.physics.has_value() || !clip.physics->baked.has_value() || clip.model >= document.models.size()) {
+            continue;
+        }
+        PhysicsBake& record = *clip.physics->baked;
+        if (record.stretchInside != 0) {
+            continue;
+        }
+        // Keys edited since cannot be told from the bake's, channel by channel.
+        const bool edited = WrittenHash(clip, record) != record.written;
+        const AnimChannelTable& table = document.models[clip.model].animChannels;
+        for (const u32 channel : record.channels) {
+            const AnimChannel* declared = table.find(channel);
+            if (declared == nullptr || declared->target.kind != TrackTarget::Kind::Node ||
+                std::find(record.softChannels.begin(), record.softChannels.end(), channel) != record.softChannels.end() ||
+                StretchesOf(record, channel, stretches).has_value()) {
+                continue;
+            }
+            const bool turns =
+                declared->target.channel == Channel::Rotation && declared->valueType == geom::AttrType::Quat;
+            const bool moves =
+                declared->target.channel == Channel::Translation && declared->valueType == geom::AttrType::F32x3;
+            // One layer's keys, as `OwnAnimations` puts them back.
+            const SubTrack* now = nullptr;
+            const SubTrack* source = nullptr;
+            u32 layers = 0;
+            for (const SubTrackContainer& container : clip.containers) {
+                if (const SubTrack* found = container.find(channel); found != nullptr && now == nullptr) {
+                    now = found;
+                }
+            }
+            for (const SubTrackContainer& container : record.source) {
+                if (const SubTrack* found = container.find(channel); found != nullptr) {
+                    source = found;
+                    ++layers;
+                }
+            }
+            // Every key of it taken away since: the bake's are gone, and what
+            // it replaced is not put back under them. The track is the clip's
+            // own from here on, with no stretch.
+            const bool gone = edited && (now == nullptr || now->times.empty());
+            if ((!turns && !moves) || layers > 1 || (!gone && (now == nullptr || now->times.empty())) ||
+                (!gone && !now->wellSized(declared->valueType)) ||
+                (source != nullptr && !source->wellSized(declared->valueType))) {
+                continue;
+            }
+            stretches.clear();
+            if (!gone) {
+                stretches = turns ? ReadStretches<Quaternion>(*now, source, clip.duration)
+                                  : ReadStretches<Vector3f>(*now, source, clip.duration);
+                if (stretches.empty()) {
+                    continue;
+                }
+            }
+            record.stretchChannels.push_back(channel);
+            record.stretchCounts.push_back(static_cast<u32>(stretches.size()));
+            for (const Stretch& stretch : stretches) {
+                record.stretchTimes.insert(record.stretchTimes.end(), {stretch.from, stretch.first, stretch.to});
+            }
+            // 0 is no track's keys: one with no stretch is never as the bake left it.
+            record.stretchOutside.push_back(gone ? 0 : OutsideHash(clip, channel, stretches));
+        }
+        record.stretchInside = InsideHash(clip, record);
+        // Edited before it was read: it goes on reading so.
+        if (edited) {
+            record.stretchInside = ~record.stretchInside != 0 ? ~record.stretchInside : 1;
+        }
+    }
 }
 
 } // namespace wem

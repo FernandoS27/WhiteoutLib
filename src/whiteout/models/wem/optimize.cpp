@@ -3,7 +3,7 @@
 
 #include <whiteout/models/wem/optimize.h>
 
-#include <whiteout/models/wem/anim/key_reduce.h>
+#include <whiteout/models/wem/anim/key_exact.h>
 #include <whiteout/models/wem/converters.h>
 #include <whiteout/models/wem/geometry/render_view.h>
 #include <whiteout/models/wem/materials/draw_order.h>
@@ -1119,51 +1119,6 @@ bool ReducesNodes(const Document& document, const OptimizeOptions& options) {
 }
 
 } // namespace
-
-namespace {
-
-/// Whether a token of @p name is one of @p tokens: `LookupBoneId`'s tokenizer
-/// separators, matched without case as `TknzFindTokenId` does.
-template <std::size_t N>
-bool HasBoneToken(const std::string& name, const char* const (&tokens)[N]) {
-    std::size_t start = 0;
-    while (start <= name.size()) {
-        std::size_t end = name.find_first_of(" \t\r\n\",;", start);
-        if (end == std::string::npos) {
-            end = name.size();
-        }
-        if (end > start) {
-            std::string token = name.substr(start, end - start);
-            std::transform(token.begin(), token.end(), token.begin(),
-                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            for (const char* known : tokens) {
-                if (token == known) {
-                    return true;
-                }
-            }
-        }
-        start = end + 1;
-    }
-    return false;
-}
-
-} // namespace
-
-bool IsWarcraftEngineBoneName(const std::string& name) {
-    static constexpr const char* kTokens[] = {"bone_head", "bone_chest", "bone_foot", "bone_hand",
-                                              "bone_turret"};
-    return HasBoneToken(name, kTokens);
-}
-
-bool IsStarCraftEngineBoneName(const std::string& name) {
-    static constexpr const char* kTokens[] = {"bone_chest", "bone_face", "bone_leg", "bone_turret"};
-    return HasBoneToken(name, kTokens);
-}
-
-bool IsWarcraftLookAtBoneName(const std::string& name) {
-    static constexpr const char* kTokens[] = {"bone_head", "bone_chest", "bone_turret"};
-    return HasBoneToken(name, kTokens);
-}
 
 OptimizeReport OptimizeDocument(Document& document, const OptimizeOptions& options) {
     OptimizeReport report;

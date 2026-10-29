@@ -25,9 +25,9 @@
 #include <unordered_map>
 
 #include "whiteout/models/fbx/eval.h"
-#include "whiteout/models/wem/anim/key_reduce.h"
+#include "whiteout/models/wem/anim/key_exact.h"
 #include "whiteout/models/wem/geometry/builder.h"
-#include "whiteout/models/wem/geometry/ops.h"
+#include "whiteout/models/wem/geometry/kernel.h"
 #include "whiteout/models/wem/materials/surface_flatten.h"
 
 #include "interchange_mesh.h"

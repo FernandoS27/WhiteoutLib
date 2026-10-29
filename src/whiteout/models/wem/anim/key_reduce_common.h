@@ -18,7 +18,7 @@
 #include <type_traits>
 #include <vector>
 
-#include <whiteout/models/wem/anim/key_reduce.h>
+#include <whiteout/models/wem/anim/key_exact.h>
 #include <whiteout/models/wem/anim/rests.h>
 #include <whiteout/models/wem/nodes/emitters.h>
 

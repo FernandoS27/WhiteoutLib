@@ -9,7 +9,7 @@
 #include <whiteout/models/wem/meshes/remove.h>
 #include <whiteout/models/wem/nodes/remove.h>
 #include <whiteout/models/wem/nodes/references.h>
-#include <whiteout/models/wem/optimize.h>
+#include <whiteout/models/wem/rigging/engine_names.h>
 #include <whiteout/models/wem/skinning/fit.h>
 
 #include "../geometry/fracture/parallel.h"

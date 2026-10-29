@@ -646,6 +646,9 @@ ColorSpace ResolvedColorSpace(const TextureInput& input, PbrSlot slot);
  */
 std::optional<LegacyDeferredBody> Flatten(const CompositeBody& composite);
 
+/// Specular exponent to a perceptual roughness; exponent 0 (no highlight) is 1.
+f32 InterchangeRoughness(f32 specularExponent);
+
 } // namespace wem
 } // namespace models
 } // namespace whiteout

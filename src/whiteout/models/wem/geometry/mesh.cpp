@@ -3,7 +3,7 @@
 
 #include <whiteout/models/wem/geometry/mesh.h>
 
-#include <whiteout/models/wem/geometry/ops.h>
+#include <whiteout/models/wem/geometry/kernel.h>
 
 #include <cmath>
 #include <limits>

@@ -568,22 +568,6 @@ bool IsDeathClipName(std::string_view name) {
     return name.size() == kDeath.size() || name[kDeath.size()] == ' ';
 }
 
-u32 PhysicsSwitchChannel(Model& model, u32 record, Channel channel) {
-    for (const AnimChannel& entry : model.animChannels.channels) {
-        if (entry.target.kind == TrackTarget::Kind::Physics && entry.target.sub == record &&
-            entry.target.channel == channel) {
-            return entry.id;
-        }
-    }
-    AnimChannel made;
-    made.id = model.animChannels.nextFreeId();
-    made.target.kind = TrackTarget::Kind::Physics;
-    made.target.sub = record;
-    made.target.channel = channel;
-    made.valueType = geom::AttrType::F32;
-    return model.animChannels.add(made);
-}
-
 namespace {
 
 /// @p p through @p m, row-vector, as a node's frame places it.

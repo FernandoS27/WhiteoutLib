@@ -34,7 +34,7 @@
 #include "whiteout/models/wem/anim/pose.h"
 #include "whiteout/models/wem/geometry/triangulation.h"
 #include "whiteout/models/wem/materials/surface_flatten.h"
-#include "whiteout/textures/pbr_bake.h"
+#include "whiteout/specular.h"
 
 #include "export_sections.h"
 #include "interchange_mesh.h"

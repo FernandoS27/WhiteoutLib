@@ -12,7 +12,7 @@
 #include <vector>
 
 #include <whiteout/models/wem/anim/clip.h>
-#include <whiteout/models/wem/physics/crossing.h>
+#include <whiteout/models/wem/physics/switch_rule.h>
 
 namespace whiteout {
 namespace models {

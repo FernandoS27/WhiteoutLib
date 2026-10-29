@@ -177,52 +177,6 @@ u8 WeightByte(f32 weight) {
 } // namespace
 
 // ============================================================================
-// The basis
-// ============================================================================
-
-// R = {{0,1,0,0},{-1,0,0,0},{0,0,1,0},{0,0,0,1}} (`v * R == Rebase(v)`), so
-// `m * R` moves column 1 into column 0 negated and column 0 into column 1, and
-// `R^T * m` does the same to the rows. Negation and moves are exact.
-
-Matrix44f RebaseFrame(const Matrix44f& m) {
-    Matrix44f out = m;
-    for (int r = 0; r < 4; ++r) {
-        out.data[r][0] = -m.data[r][1];
-        out.data[r][1] = m.data[r][0];
-    }
-    return out;
-}
-
-Matrix44f UnrebaseFrame(const Matrix44f& m) {
-    Matrix44f out = m;
-    for (int r = 0; r < 4; ++r) {
-        out.data[r][0] = m.data[r][1];
-        out.data[r][1] = -m.data[r][0];
-    }
-    return out;
-}
-
-Matrix44f RebaseConjugate(const Matrix44f& m) {
-    const Matrix44f cols = RebaseFrame(m);
-    Matrix44f out = cols;
-    for (int c = 0; c < 4; ++c) {
-        out.data[0][c] = -cols.data[1][c];
-        out.data[1][c] = cols.data[0][c];
-    }
-    return out;
-}
-
-Matrix44f UnrebaseConjugate(const Matrix44f& m) {
-    const Matrix44f cols = UnrebaseFrame(m);
-    Matrix44f out = cols;
-    for (int c = 0; c < 4; ++c) {
-        out.data[0][c] = cols.data[1][c];
-        out.data[1][c] = -cols.data[0][c];
-    }
-    return out;
-}
-
-// ============================================================================
 // Force fields and vertex warps
 // ============================================================================
 

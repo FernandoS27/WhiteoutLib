@@ -1934,6 +1934,22 @@ inline constexpr std::size_t kM3ManualFieldCount = 0;
 
 } // namespace native
 
+/// A node native key: this node draws only while its parent does, so a
+/// visibility on the parent needs no leaf bone to keep it off this node --
+/// the helper an effect crossing plants under its emitter says so.
+inline constexpr const char* kNodeSharesParentVisibility = "sharesParentVisibility";
+
+/// A node native key: the node is a `BONE` of the file as well as its own
+/// record -- `M3ImportOptions::foldRecordBones` made the two one -- so `toM3`
+/// writes it a bone whatever its transform says.
+inline constexpr const char* kNodeM3Bone = "m3Bone";
+/// Its text: that bone's name, where it is not the node's.
+inline constexpr const char* kNodeM3BoneName = "m3BoneName";
+/// A node native key: where its record stood among its kind's in the file,
+/// which is the order `toM3` writes them in; a node without one goes after
+/// every node with one, in node order.
+inline constexpr const char* kNodeM3Place = "m3Place";
+
 } // namespace wem
 } // namespace models
 } // namespace whiteout

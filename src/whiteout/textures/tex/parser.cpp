@@ -13,14 +13,10 @@
 #include "../io_helpers.h"
 #include "../issue_sink.h"
 
+#include "d4_parser.h"
 #include "tex_internal.h"
 
 namespace whiteout::textures::tex {
-
-// Defined in d4_parser.cpp
-std::optional<Texture> parseD4Impl(std::span<const u8> texData, std::span<const u8> payloadData,
-                                   std::span<const u8> lowResPayloadData, D4TexInfo* outInfo,
-                                   IssueSink& sink);
 
 static Parser::FileKind detect_tex_kind(std::span<const u8> buffer) {
     if (buffer.size() < 8)

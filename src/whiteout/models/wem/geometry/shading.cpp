@@ -13,8 +13,8 @@
 #include <utility>
 
 #include <whiteout/models/wem/geometry/attributes.h>
-#include <whiteout/models/wem/geometry/modelling.h>
-#include <whiteout/models/wem/geometry/ops.h>
+#include <whiteout/models/wem/geometry/kernel.h>
+#include <whiteout/models/wem/geometry/prepare.h>
 #include <whiteout/models/wem/skinning/points.h>
 
 namespace whiteout {

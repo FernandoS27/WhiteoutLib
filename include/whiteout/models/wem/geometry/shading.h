@@ -32,7 +32,7 @@
 #include <vector>
 
 #include "mesh.h"
-#include "select.h"
+#include "element_set.h"
 
 namespace whiteout {
 namespace models {

@@ -484,46 +484,6 @@ f32 SoftDampingOf(f32 bounce) {
     return std::pow(0.06f, std::pow(b, 0.532f));
 }
 
-SoftJiggle SoftJigglePresetOf(SoftJigglePreset preset) {
-    SoftJiggle out;
-    out.preset = preset;
-    const auto set = [&](f32 looseness, f32 bounce, f32 weight, f32 holdShape, f32 keepVolume) {
-        out.looseness = looseness;
-        out.bounce = bounce;
-        out.weight = weight;
-        out.holdShape = holdShape;
-        out.keepVolume = keepVolume;
-    };
-    switch (preset) {
-    case SoftJigglePreset::Jelly:
-        set(1.6f, 0.7f, 0.3f, 0.5f, 0.9f);
-        break;
-    case SoftJigglePreset::Muscle:
-        set(4.0f, 0.2f, 0.2f, 0.8f, 0.9f);
-        break;
-    case SoftJigglePreset::Rubber:
-        set(3.0f, 0.8f, 0.2f, 0.9f, 0.9f);
-        break;
-    case SoftJigglePreset::WaterBalloon:
-        set(1.4f, 0.6f, 0.8f, 0.4f, 1.0f);
-        break;
-    case SoftJigglePreset::Water:
-        // Loose and slow to settle, and moving as a few large swings.
-        set(0.9f, 0.8f, 0.6f, 0.85f, 0.7f);
-        break;
-    case SoftJigglePreset::Slime:
-        // Loose, and settling at once.
-        set(1.0f, 0.0f, 0.7f, 0.2f, 0.8f);
-        break;
-    case SoftJigglePreset::Fat:
-    case SoftJigglePreset::Custom:
-    case SoftJigglePreset::Count:
-        set(2.2f, 0.35f, 0.5f, 0.6f, 0.8f);
-        break;
-    }
-    return out;
-}
-
 SoftModes MakeSoftModes(const SoftRig& rig, const SoftVolume& volume, const SoftJiggle& settings) {
     SoftModes modes;
     if (rig.empty()) {

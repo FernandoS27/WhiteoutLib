@@ -28,28 +28,13 @@
 #include "../ids.h"
 #include "../mesh.h"
 #include "islands.h"
+#include "../prepare.h"
 
 namespace whiteout {
 namespace models {
 namespace wem {
 namespace geom {
 namespace uv {
-
-/// Rewrites `seam` over every interior edge of @p mesh from `SeamBetween`: set
-/// where the two faces' corners differ in anything the surface holds, cleared
-/// where they no longer do. A border edge is left alone (it is a border, not a
-/// seam) and `sharp` is never touched, because that is the normals' answer and
-/// not the corners'. Returns how many interior edges carry `seam` afterwards.
-///
-/// This is what a UV commit re-derives through: moving a corner's UV can make a
-/// delimit and undoing it can take one away, and a modelling walk that stopped
-/// where the old layout happened to split would be stopping at history.
-u32 MarkDelimitSeams(Mesh& mesh);
-
-/// The same rule over @p edges alone, and set-only: what the prepare marks the
-/// edges a weld closed by, an edge that was already interior keeping the flags
-/// it had. Returns how many of @p edges it marked.
-u32 MarkDelimitSeams(Mesh& mesh, std::span<const u32> edges);
 
 /// Sets or clears `uvSeamN` on @p edges. The one writer of a mark, so the
 /// layer's creation and the set's numbering live in one place; every edge it

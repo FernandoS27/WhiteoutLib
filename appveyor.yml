@@ -63,6 +63,17 @@ environment:
       WHITEOUT_TARGET: native
     - APPVEYOR_BUILD_WORKER_IMAGE: macos-sonoma
       WHITEOUT_TARGET: native
+    # The module switches (WHITEOUTLIB_MODULES_DESIGN.md §8.3): the library and
+    # its tests in one configuration each, with GNU ld (tools/build-ci-modules.sh).
+    - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu2204
+      WHITEOUT_TARGET: modules
+      WHITEOUT_MODULE_ARGS: "-DWHITEOUT_WEM_EDIT=OFF"
+    - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu2204
+      WHITEOUT_TARGET: modules
+      WHITEOUT_MODULE_ARGS: "-DWHITEOUT_WEM_CONVERT=OFF"
+    - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu2204
+      WHITEOUT_TARGET: modules
+      WHITEOUT_MODULE_ARGS: "-DWHITEOUT_ENABLE_MODELS=OFF -DWHITEOUT_WEM_CONVERT=OFF -DWHITEOUT_WEM_EDIT=OFF"
     # Packaging fan-in — runs last. Polls every native job (windows,
     # linux, macos) for success, downloads their `native-binary` +
     # `python-wheels` + `java-natives` + `java-jars` artifacts, then
@@ -714,6 +725,21 @@ for:
     artifacts:
       - path: codegen-sources.tar.gz
         name: codegen-sources
+
+# ─── Module-switch job overrides ────────────────────────────────────────────
+# One module configuration each (WHITEOUT_MODULE_ARGS): the library and its
+# tests built, the module graph checked, nothing packaged. The image's own
+# gcc, cmake and python3 are all it needs.
+  - matrix:
+      only:
+        - WHITEOUT_TARGET: modules
+
+    install: []
+    before_build: []
+    build_script:
+      - sh: bash tools/build-ci-modules.sh ${WHITEOUT_MODULE_ARGS}
+    after_build: []
+    artifacts: []
 
 # ─── WASM job overrides ─────────────────────────────────────────────────────
 # When WHITEOUT_TARGET=wasm, replace the native build's install / build /

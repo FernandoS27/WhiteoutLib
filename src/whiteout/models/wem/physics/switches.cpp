@@ -12,18 +12,18 @@
 #include <iterator>
 #include <string_view>
 
+#include "switch_rule_common.h"
+
 namespace whiteout {
 namespace models {
 namespace wem {
 
 namespace {
 
+using switchdetail::Holds;
+
 /// A clip chain deeper than this is a cycle, whatever it names.
 constexpr u32 kMaxChain = 16;
-
-bool Holds(const PhysicsRig& rig, u32 body) {
-    return std::find(rig.bodies.begin(), rig.bodies.end(), body) != rig.bodies.end();
-}
 
 /// @p clip's keyed track of @p channel, or null.
 const SubTrack* Keyed(const Clip* clip, u32 channel) {
@@ -154,35 +154,6 @@ u32 FirstLoopNamed(const Document& document, u32 model, std::string_view base) {
 }
 
 } // namespace
-
-f32 PhysicsSwitchRest(const Model& model, const TrackTarget& target, Game game) {
-    const PhysicsSet& physics = model.physics;
-    switch (target.channel) {
-    case Channel::PhysicsDynamic: {
-        const PhysicsBody* body = physics.body(target.sub);
-        if (body == nullptr || body->motion == BodyMotion::Static || !body->simulates) {
-            return 0.0f;
-        }
-        const bool held = std::any_of(physics.rigs.begin(), physics.rigs.end(),
-                                      [&](const PhysicsRig& rig) { return Holds(rig, body->id); });
-        if (!held && game == Game::StarCraft) {
-            return 1.0f;
-        }
-        const bool runs = std::any_of(physics.rigs.begin(), physics.rigs.end(), [&](const PhysicsRig& rig) {
-            return RigRuns(rig.start) && Holds(rig, body->id);
-        });
-        return runs && body->motion == BodyMotion::Dynamic ? 1.0f : 0.0f;
-    }
-    case Channel::ClothActive: {
-        const Cloth* cloth = physics.cloth(target.sub);
-        return cloth != nullptr && cloth->active ? 1.0f : 0.0f;
-    }
-    case Channel::PhysicsBlend:
-        return 1.0f;
-    default:
-        return 0.0f;
-    }
-}
 
 u32 FindPhysicsChannel(const Model& model, u32 record, Channel channel) {
     for (const AnimChannel& entry : model.animChannels.channels) {

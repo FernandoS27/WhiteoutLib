@@ -3,6 +3,8 @@
 
 #include <whiteout/models/wem/materials/common.h>
 
+#include <whiteout/specular.h>
+
 namespace whiteout {
 namespace models {
 namespace wem {
@@ -467,6 +469,16 @@ std::optional<LegacyDeferredBody> Flatten(const CompositeBody& composite) {
     out.specularExponent = composite.specularExponent;
     out.environmentFactor = composite.environmentFactor;
     return out;
+}
+
+f32 InterchangeRoughness(f32 specularExponent) {
+    // Perceptual roughness, as Reforged's `ggxNDF` and glTF read it: the bake's
+    // `sqrt(sqrt(2 / (n + 2)))`, not the lobe-width alpha, which put exponent 20
+    // at 0.30 and exported every surface lacquered.
+    if (specularExponent <= 0.0f) {
+        return 1.0f;
+    }
+    return textures::pbr::RoughnessFromExponent(specularExponent);
 }
 
 } // namespace wem

@@ -3,8 +3,6 @@
 
 #include "whiteout/models/wem/materials/surface_flatten.h"
 
-#include <whiteout/textures/pbr_bake.h>
-
 namespace whiteout {
 namespace models {
 namespace wem {
@@ -256,16 +254,6 @@ bool TextureExportable(const Document& document, const TextureInput& input) {
     return input.hasTexture() && input.texture < document.textures.size() &&
            document.textures[input.texture].replaceableId == 0 &&
            input.mapping == UVMappingMode::ExplicitUV;
-}
-
-f32 InterchangeRoughness(f32 specularExponent) {
-    // Perceptual roughness, as Reforged's `ggxNDF` and glTF read it: the bake's
-    // `sqrt(sqrt(2 / (n + 2)))`, not the lobe-width alpha, which put exponent 20
-    // at 0.30 and exported every surface lacquered.
-    if (specularExponent <= 0.0f) {
-        return 1.0f;
-    }
-    return textures::pbr::RoughnessFromExponent(specularExponent);
 }
 
 FlatSurface FlattenSurface(const Document& document, const Material& material) {

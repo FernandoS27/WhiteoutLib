@@ -234,9 +234,6 @@ f32 SoftKickPush(f32 strength, f32 size, f32 dt);
 /// about a dozen swings to settle at 1.
 f32 SoftDampingOf(f32 bounce);
 
-/// @p preset's settings (§8.3's table); `Custom` gives the defaults.
-SoftJiggle SoftJigglePresetOf(SoftJigglePreset preset);
-
 } // namespace wem
 } // namespace models
 } // namespace whiteout

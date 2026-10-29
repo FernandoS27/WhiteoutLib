@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 #include <whiteout/models/wem/retarget.h>
-#include <whiteout/models/wem/materials/surface_flatten.h>
+#include <whiteout/models/wem/materials/common.h>
 #include <whiteout/models/wem/nodes/presence.h>
 
 #include <algorithm>

@@ -12,6 +12,7 @@
 #include <whiteout/models/wem/skinning/fit.h>
 
 #include "../geometry/fracture/parallel.h"
+#include "cloth_common.h"
 
 #include <cstdio>
 #include <cstring>
@@ -43,24 +44,8 @@ u32 DepthOf(const NodeTree& tree, u32 node) {
     return depth;
 }
 
-/// A vertex's normalised skin.
-std::vector<geom::Influence> SkinOf(const Mesh& mesh, u32 vertex) {
-    std::vector<geom::Influence> out;
-    if (vertex >= mesh.skin.vertexCount()) {
-        return out;
-    }
-    f32 total = 0.0f;
-    for (const geom::Influence& influence : mesh.skin.forVertex(vertex)) {
-        if (influence.weight > 0.0f) {
-            out.push_back(influence);
-            total += influence.weight;
-        }
-    }
-    for (geom::Influence& influence : out) {
-        influence.weight /= total;
-    }
-    return out;
-}
+using clothdetail::CageOf;
+using clothdetail::SkinOf;
 
 /// Times and values thinned to the keys that keep every dropped sample within
 /// @p error of its interpolation (Douglas-Peucker over the samples).
@@ -111,21 +96,6 @@ T Played(const std::vector<T>& values, const std::vector<u32>& kept, u32 i, Lerp
     }
     const u32 a = *(after - 1), b = *after;
     return lerp(values[a], values[b], static_cast<f32>(i - a) / static_cast<f32>(b - a));
-}
-
-/// The cage vertices of @p cloth: its cage section's.
-std::set<u32> CageOf(const Mesh& mesh, const Cloth& cloth) {
-    const geom::FaceSet& set = mesh.faceSet();
-    const std::span<const u32> sections = mesh.faceSections();
-    std::set<u32> cage;
-    for (std::size_t f = 0, corner = 0; f < set.faceValence.size(); corner += set.faceValence[f], ++f) {
-        if (f < sections.size() && sections[f] == cloth.cage.section) {
-            for (u32 k = 0; k < set.faceValence[f]; ++k) {
-                cage.insert(set.cornerVertex[corner + k]);
-            }
-        }
-    }
-    return cage;
 }
 
 /// A pinned particle: where it stands at rest and the skeleton bone it hangs
@@ -312,41 +282,6 @@ std::vector<std::vector<Matrix44f>> DriverFramesOver(const Document& document, u
 }
 
 } // namespace
-
-ClothDrivers ClothDriversOf(const Model& model, const Cloth& cloth) {
-    ClothDrivers out;
-    if (cloth.cage.mesh >= model.meshes.size()) {
-        return out;
-    }
-    const Mesh& mesh = model.meshes[cloth.cage.mesh];
-    const auto movable = mesh.attributes.get<u8>(geom::names::kClothMovable, geom::Domain::Vertex);
-    const std::set<u32> cage = CageOf(mesh, cloth);
-    std::set<u32> own;
-    if (cloth.recipe) {
-        own.insert(cloth.recipe->bones.begin(), cloth.recipe->bones.end());
-    }
-    std::map<u32, f32> weigh;
-    for (const u32 v : cage) {
-        const bool free = v < movable.size() && movable[v] != 0;
-        if (free) {
-            out.vertices.push_back(v);
-            continue;
-        }
-        for (const geom::Influence& influence : SkinOf(mesh, v)) {
-            if (own.count(influence.bone) == 0) {
-                weigh[influence.bone] += influence.weight;
-            }
-        }
-    }
-    f32 most = 0.0f;
-    for (const auto& [bone, weight] : weigh) {
-        if (weight > most) {
-            most = weight;
-            out.holder = bone;
-        }
-    }
-    return out;
-}
 
 u32 FindClothDriverChannel(const Model& model, u32 cloth, u32 driver, Channel channel) {
     for (const AnimChannel& entry : model.animChannels.channels) {

@@ -3,7 +3,7 @@
 
 #include <whiteout/models/wem/skinning/points.h>
 
-#include <whiteout/models/wem/geometry/modelling.h>
+#include <whiteout/models/wem/geometry/prepare.h>
 #include <whiteout/models/wem/geometry/triangulation.h>
 
 #include <algorithm>

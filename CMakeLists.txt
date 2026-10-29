@@ -39,6 +39,25 @@ set(WHITEOUT_ZLIBNG_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/externals/zlib-ng"
 option(WHITEOUT_INSTALL
     "Generate install/export rules for find_package(WhiteoutLib)" ON)
 
+# The modules (WHITEOUTLIB_MODULES_DESIGN.md). A switch decides whether a module's
+# target exists; it never compiles code out. Every default is ON, so a configure
+# that names none of them builds what it always has.
+option(WHITEOUT_ENABLE_TEXTURES "Build whiteout_textures" ON)
+option(WHITEOUT_ENABLE_MODELS "Build whiteout_models and the WEM core (whiteout_wem)" ON)
+option(WHITEOUT_WEM_CONVERT "Build whiteout_wem_convert: format converters and export passes" ON)
+option(WHITEOUT_WEM_EDIT
+    "Build whiteout_wem_edit: modelling, rigging, skinning, UV, physics and its bakes" ON)
+option(WHITEOUT_TEXTURES_D4 "Read Diablo IV .tex in whiteout_textures (builds whiteout_sno)" ON)
+# A module asked for without what it needs is a configure error, not a silent OFF.
+if(WHITEOUT_WEM_CONVERT AND NOT WHITEOUT_ENABLE_MODELS)
+    message(FATAL_ERROR "WHITEOUT_WEM_CONVERT needs WHITEOUT_ENABLE_MODELS. "
+                        "Configure with -DWHITEOUT_WEM_CONVERT=OFF as well.")
+endif()
+if(WHITEOUT_WEM_EDIT AND NOT (WHITEOUT_ENABLE_MODELS AND WHITEOUT_ENABLE_TEXTURES))
+    message(FATAL_ERROR "WHITEOUT_WEM_EDIT needs WHITEOUT_ENABLE_MODELS and WHITEOUT_ENABLE_TEXTURES. "
+                        "Configure with -DWHITEOUT_WEM_EDIT=OFF as well.")
+endif()
+
 # Always emit compile_commands.json — drives clangd, clang-tidy, IWYU, ...
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "" FORCE)
 
@@ -351,396 +370,37 @@ else()
 endif()
 endif() # WHITEOUT_USE_ZLIBNG
 
-# Whiteout Library
-add_library(whiteout_lib
-    # Common
-    src/whiteout/common_types.cpp
-    src/whiteout/utils/vertex_buffer.cpp
-    src/whiteout/utils/job_group.cpp
-    src/whiteout/utils/timeline_semaphore.cpp
-    src/whiteout/vector_types.cpp
-    src/whiteout/common/bit_io.cpp
-    src/whiteout/common/text.cpp
-    src/whiteout/common/huffman_table.cpp
+# =============================================================================
+# The modules, one file each under cmake/modules/, in dependency order:
+# whiteout_define_mt_variant swaps a dependency for its `_mt` twin only when
+# that twin already exists.
+# =============================================================================
+include(cmake/WhiteoutModules.cmake)
+set(_whiteout_all_modules core sno textures models wem wem_convert wem_edit)
+foreach(_whiteout_module ${_whiteout_all_modules})
+    include(cmake/modules/whiteout_${_whiteout_module}.cmake)
+endforeach()
 
-    # MDX
-    src/whiteout/models/mdx/parser.cpp
-    src/whiteout/models/mdx/writer.cpp
-    src/whiteout/models/mdx/loadable.cpp
-    src/whiteout/models/mdx/prune.cpp
-    src/whiteout/models/mdx/mdl_tokenizer.cpp
-    src/whiteout/models/mdx/mdl_parser.cpp
-    src/whiteout/models/mdx/mdl_converter.cpp
-    src/whiteout/models/mdx/mdl_writer.cpp
-
-    # M2
-    src/whiteout/models/m2/parser.cpp
-    src/whiteout/models/m2/chunk_parser.cpp
-    src/whiteout/models/m2/phys_file.cpp
-    src/whiteout/models/m2/bone_file.cpp
-    src/whiteout/models/m2/writer.cpp
-    src/whiteout/models/m2/binary_parse_visitor/base.cpp
-    src/whiteout/models/m2/binary_parse_visitor/chunk.cpp
-    src/whiteout/models/m2/binary_parse_visitor/phys.cpp
-    src/whiteout/models/m2/binary_parse_visitor/extensions.cpp
-    src/whiteout/models/m2/binary_parse_visitor/skin.cpp
-    src/whiteout/models/m2/binary_parse_visitor/anim.cpp
-    src/whiteout/models/m2/binary_writer_visitor/base.cpp
-    src/whiteout/models/m2/binary_writer_visitor/chunk.cpp
-    src/whiteout/models/m2/binary_writer_visitor/phys.cpp
-    src/whiteout/models/m2/binary_writer_visitor/extensions.cpp
-    src/whiteout/models/m2/binary_writer_visitor/skin.cpp
-    src/whiteout/models/m2/binary_writer_visitor/anim.cpp
-    src/whiteout/models/m2/file_system.cpp
-    src/whiteout/models/m2/sequence_loader.cpp
-    src/whiteout/models/m2/animation_names.cpp
-    src/whiteout/models/m2/wow_file_system.cpp
-
-    # WoW WMO
-    src/whiteout/models/wow/wmo/parser.cpp
-    src/whiteout/models/wow/wmo/runtime.cpp
-    src/whiteout/models/wow/wmo/cull.cpp
-
-    # M3
-    src/whiteout/models/m3/types.cpp
-    src/whiteout/models/m3/data_driven_material.cpp
-    src/whiteout/models/m3/data_driven_to_standard.cpp
-    src/whiteout/models/m3/engine_compat.cpp
-    src/whiteout/models/m3/physics_cook.cpp
-    src/whiteout/models/m3/physics_upgrade.cpp
-    src/whiteout/models/m3/parser.cpp
-    src/whiteout/models/m3/writer.cpp
-    src/whiteout/models/m3/binary_parse_visitor.cpp
-    src/whiteout/models/m3/binary_writer_visitor.cpp
-
-    # glTF
-    src/whiteout/models/gltf/json.cpp
-    src/whiteout/models/gltf/gltf.cpp
-    src/whiteout/models/gltf/parser.cpp
-    src/whiteout/models/gltf/writer.cpp
-
-    # FBX
-    src/whiteout/models/fbx/fbx.cpp
-    src/whiteout/models/fbx/binary.cpp
-    src/whiteout/models/fbx/ascii.cpp
-    src/whiteout/models/fbx/scene.cpp
-    src/whiteout/models/fbx/eval.cpp
-
-    # OBJ
-    src/whiteout/models/obj/parser.cpp
-    src/whiteout/models/obj/writer.cpp
-
-    # WEM
-    src/whiteout/models/wem/diagnostics.cpp
-    src/whiteout/models/wem/profile.cpp
-    src/whiteout/models/wem/validate.cpp
-    src/whiteout/models/wem/geometry/attributes.cpp
-    src/whiteout/models/wem/geometry/topology.cpp
-    src/whiteout/models/wem/geometry/repair.cpp
-    src/whiteout/models/wem/geometry/skin.cpp
-    src/whiteout/models/wem/geometry/mesh.cpp
-    src/whiteout/models/wem/geometry/builder.cpp
-    src/whiteout/models/wem/geometry/checks.cpp
-    src/whiteout/models/wem/geometry/ops.cpp
-    src/whiteout/models/wem/geometry/shading.cpp
-    src/whiteout/models/wem/geometry/render_view.cpp
-    src/whiteout/models/wem/geometry/interpolate.cpp
-    src/whiteout/models/wem/geometry/modelling.cpp
-    src/whiteout/models/wem/geometry/lattice.cpp
-    src/whiteout/models/wem/geometry/triangulation.cpp
-    src/whiteout/models/wem/geometry/select.cpp
-    src/whiteout/models/wem/geometry/hull.cpp
-    src/whiteout/models/wem/geometry/fit.cpp
-    src/whiteout/models/wem/geometry/primitives.cpp
-    src/whiteout/models/wem/geometry/refine.cpp
-    src/whiteout/models/wem/geometry/uv/islands.cpp
-    src/whiteout/models/wem/geometry/uv/seams.cpp
-    src/whiteout/models/wem/geometry/uv/flatten.cpp
-    src/whiteout/models/wem/geometry/uv/layout.cpp
-    src/whiteout/models/wem/geometry/uv/transfer.cpp
-    src/whiteout/models/wem/geometry/uv/checks.cpp
-    src/whiteout/models/wem/geometry/retopo/quantize.cpp
-    src/whiteout/models/wem/geometry/retopo/sparse.cpp
-    src/whiteout/models/wem/geometry/retopo/surface.cpp
-    src/whiteout/models/wem/geometry/retopo/work_mesh.cpp
-    src/whiteout/models/wem/geometry/retopo/cross_field.cpp
-    src/whiteout/models/wem/geometry/retopo/layout.cpp
-    src/whiteout/models/wem/geometry/retopo/patch_map.cpp
-    src/whiteout/models/wem/geometry/retopo/extract.cpp
-    src/whiteout/models/wem/geometry/retopo/position_field.cpp
-    src/whiteout/models/wem/geometry/retopo/field_extract.cpp
-    src/whiteout/models/wem/geometry/retopo/retopology.cpp
-    src/whiteout/models/wem/geometry/cdt.cpp
-    src/whiteout/models/wem/geometry/fracture/seeds.cpp
-    src/whiteout/models/wem/geometry/fracture/cells.cpp
-    src/whiteout/models/wem/geometry/fracture/winding.cpp
-    src/whiteout/models/wem/geometry/fracture/cut.cpp
-    src/whiteout/models/wem/geometry/fracture/fracture.cpp
-    src/whiteout/models/wem/nodes/node.cpp
-    src/whiteout/models/wem/nodes/tree.cpp
-    src/whiteout/models/wem/nodes/visitor.cpp
-    src/whiteout/models/wem/nodes/remove.cpp
-    src/whiteout/models/wem/nodes/presence.cpp
-    src/whiteout/models/wem/meshes/remove.cpp
-    src/whiteout/models/wem/optimize.cpp
-    src/whiteout/models/wem/geometry/bvh.cpp
-    src/whiteout/models/wem/skinning/quantize.cpp
-    src/whiteout/models/wem/skinning/points.cpp
-    src/whiteout/models/wem/skinning/ops.cpp
-    src/whiteout/models/wem/skinning/deform.cpp
-    src/whiteout/models/wem/skinning/fit.cpp
-    src/whiteout/models/wem/skinning/reduce.cpp
-    src/whiteout/models/wem/skinning/mirror.cpp
-    src/whiteout/models/wem/skinning/generate.cpp
-    src/whiteout/models/wem/skinning/generate_heat.cpp
-    src/whiteout/models/wem/skinning/generate_geodesic.cpp
-    src/whiteout/models/wem/skinning/solid.cpp
-    src/whiteout/models/wem/skinning/transfer.cpp
-    src/whiteout/models/wem/rigging/record.cpp
-    src/whiteout/models/wem/rigging/ik.cpp
-    src/whiteout/models/wem/rigging/limbs.cpp
-    src/whiteout/models/wem/rigging/tpose.cpp
-    src/whiteout/models/wem/rigging/rebind.cpp
-    src/whiteout/models/wem/rigging/detect.cpp
-    src/whiteout/models/wem/rigging/names.cpp
-    src/whiteout/models/wem/rigging/shape.cpp
-    src/whiteout/models/wem/anim/animator.cpp
-    src/whiteout/models/wem/anim/channel.cpp
-    src/whiteout/models/wem/anim/clip.cpp
-    src/whiteout/models/wem/anim/crossing.cpp
-    src/whiteout/models/wem/anim/curve_keys.cpp
-    src/whiteout/models/wem/anim/curves.cpp
-    src/whiteout/models/wem/anim/detach.cpp
-    src/whiteout/models/wem/anim/key_reduce.cpp
-    src/whiteout/models/wem/anim/key_reduce_tolerance.cpp
-    src/whiteout/models/wem/anim/m3_math.cpp
-    src/whiteout/models/wem/anim/m3_uv.cpp
-    src/whiteout/models/wem/anim/mdx_uv.cpp
-    src/whiteout/models/wem/anim/pose.cpp
-    src/whiteout/models/wem/anim/rests.cpp
-    src/whiteout/models/wem/anim/stages.cpp
-    src/whiteout/models/wem/anim/track_read.cpp
-    src/whiteout/models/wem/anim/transition.cpp
-    src/whiteout/models/wem/materials/texture.cpp
-    src/whiteout/models/wem/materials/common.cpp
-    src/whiteout/models/wem/materials/material.cpp
-    src/whiteout/models/wem/materials/ops.cpp
-    src/whiteout/models/wem/materials/draw_order.cpp
-    src/whiteout/models/wem/materials/mdx_core.cpp
-    src/whiteout/models/wem/materials/m2_shader_table.cpp
-    src/whiteout/models/wem/materials/m2_core.cpp
-    src/whiteout/models/wem/materials/m3_core.cpp
-    src/whiteout/models/wem/materials/d3_core.cpp
-    src/whiteout/models/wem/materials/gltf_core.cpp
-    src/whiteout/models/wem/materials/surface_flatten.cpp
-    src/whiteout/models/wem/model.cpp
-    src/whiteout/models/wem/physics/physics.cpp
-    src/whiteout/models/wem/physics/references.cpp
-    src/whiteout/models/wem/physics/materials.cpp
-    src/whiteout/models/wem/retarget.cpp
-    src/whiteout/models/wem/skeleton_retarget.cpp
-    src/whiteout/models/wem/rescale.cpp
-    src/whiteout/models/wem/inline_models.cpp
-    src/whiteout/models/wem/game_minimum.cpp
-    src/whiteout/models/wem/scene_ops.cpp
-    src/whiteout/models/wem/native_bag.cpp
-    src/whiteout/models/wem/binary_read_visitor.cpp
-    src/whiteout/models/wem/binary_write_visitor.cpp
-    src/whiteout/models/wem/text_dump.cpp
-    src/whiteout/models/wem/document_io.cpp
-    src/whiteout/models/wem/converter_registry.cpp
-    src/whiteout/models/wem/converters/mdx_converter.cpp
-    src/whiteout/models/wem/converters/mdx_anim.cpp
-    src/whiteout/models/wem/converters/m2_converter.cpp
-    src/whiteout/models/wem/converters/m2_anim.cpp
-    src/whiteout/models/wem/converters/wmo_converter.cpp
-    src/whiteout/models/wem/converters/m3_converter.cpp
-    src/whiteout/models/wem/converters/m3_anim.cpp
-    src/whiteout/models/wem/converters/m3_emitters.cpp
-    src/whiteout/models/wem/converters/m3_physics.cpp
-    src/whiteout/models/wem/converters/m3_behaviors.cpp
-    src/whiteout/models/wem/converters/m2_physics.cpp
-    src/whiteout/models/wem/converters/d3_physics.cpp
-    src/whiteout/models/wem/physics/crossing.cpp
-    src/whiteout/models/wem/physics/switches.cpp
-    src/whiteout/models/wem/physics/bake.cpp
-    src/whiteout/models/wem/physics/cloth_bake.cpp
-    src/whiteout/models/wem/physics/cloth_cage.cpp
-    src/whiteout/models/wem/physics/soft.cpp
-    src/whiteout/models/wem/physics/soft_region.cpp
-    src/whiteout/models/wem/physics/soft_lumps.cpp
-    src/whiteout/models/wem/physics/soft_run.cpp
-    src/whiteout/models/wem/physics/soft_fit.cpp
-    src/whiteout/models/wem/physics/soft_fields.cpp
-    src/whiteout/models/wem/physics/soft_step.cpp
-    src/whiteout/models/wem/physics/soft_bake.cpp
-    src/whiteout/models/wem/physics/soft_pass.cpp
-    src/whiteout/models/wem/physics/soft_modes.cpp
-    src/whiteout/models/wem/physics/soft_shapes.cpp
-    src/whiteout/models/wem/physics/soft_drip.cpp
-    src/whiteout/models/wem/physics/soft_contact.cpp
-    src/whiteout/models/wem/converters/m3_track_sink.cpp
-    src/whiteout/models/cross/mdx_m3_effects.cpp
-    src/whiteout/models/cross/wc3_sc2_emitters.cpp
-    src/whiteout/models/cross/m2_wc3_emitters.cpp
-    src/whiteout/models/cross/m2_wc3_sequences.cpp
-    src/whiteout/models/cross/m2_wc3_attachments.cpp
-    src/whiteout/models/cross/m2_wc3_lights.cpp
-    src/whiteout/models/wem/converters/d3_converter.cpp
-    src/whiteout/models/wem/converters/d3_anim.cpp
-    src/whiteout/models/wem/converters/gltf_converter.cpp
-    src/whiteout/models/wem/converters/gltf_anim.cpp
-    src/whiteout/models/wem/converters/export_sections.cpp
-    src/whiteout/models/wem/converters/interchange_mesh.cpp
-    src/whiteout/models/wem/converters/obj_converter.cpp
-    src/whiteout/models/wem/converters/fbx_import.cpp
-    src/whiteout/models/wem/converters/fbx_export.cpp
-    src/whiteout/models/wem/interchange.cpp
-
-    # Textures
-    src/whiteout/textures/texture.cpp
-    src/whiteout/textures/pbr_bake.cpp
-    src/whiteout/textures/environment_map.cpp
-    src/whiteout/textures/dds/parser.cpp
-    src/whiteout/textures/dds/writer.cpp
-    src/whiteout/textures/blp/parser.cpp
-    src/whiteout/textures/blp/writer.cpp
-    src/whiteout/textures/tex/parser.cpp
-    src/whiteout/textures/tex/d4_parser.cpp
-    src/whiteout/textures/tex/writer.cpp
-    src/whiteout/textures/tex/tex_common.cpp
-    src/whiteout/textures/d2r_texture/parser.cpp
-    src/whiteout/textures/d2r_texture/writer.cpp
-    src/whiteout/textures/txtr/parser.cpp
-    src/whiteout/textures/bmp/parser.cpp
-    src/whiteout/textures/bmp/writer.cpp
-    src/whiteout/textures/tga/parser.cpp
-    src/whiteout/textures/tga/writer.cpp
-    src/whiteout/textures/tiff/parser.cpp
-    src/whiteout/textures/tiff/writer.cpp
-    src/whiteout/textures/tiff/packbits.cpp
-    src/whiteout/textures/tiff/lzw.cpp
-    src/whiteout/textures/gif/writer.cpp
-    src/whiteout/textures/utils/quantize.cpp
-    src/whiteout/textures/utils/blue_noise.cpp
-    src/whiteout/textures/utils/pixel_convert.cpp
-    src/whiteout/textures/utils/color_convert.cpp
-    src/whiteout/textures/utils/srgb_linearize.cpp
-    src/whiteout/textures/bcn.cpp
-    src/whiteout/textures/bcn/bc1.cpp
-    src/whiteout/textures/bcn/bc2.cpp
-    src/whiteout/textures/bcn/bc3.cpp
-    src/whiteout/textures/bcn/bc4.cpp
-    src/whiteout/textures/bcn/bc5.cpp
-    src/whiteout/textures/bcn/bc6h.cpp
-    src/whiteout/textures/bcn/bc7.cpp
-    src/whiteout/textures/bcn/bcn_common.cpp
-    src/whiteout/textures/mipmap/filters.cpp
-    src/whiteout/textures/mipmap/stages.cpp
-    src/whiteout/textures/mipmap/generator.cpp
-    src/whiteout/textures/jpeg/jpeg_decode.cpp
-    src/whiteout/textures/jpeg/jpeg_encode.cpp
-    src/whiteout/textures/jpeg/parser.cpp
-    src/whiteout/textures/jpeg/writer.cpp
-    # DEFLATE codec backend (deflate.cpp/deflate_zlibng.cpp) added conditionally
-    # below, keyed on WHITEOUT_USE_ZLIBNG.
-    src/whiteout/textures/png/parser.cpp
-    src/whiteout/textures/png/writer.cpp
-
-    # Diablo IV
-    src/whiteout/sno/sno_types.cpp
-    src/whiteout/sno/core_toc.cpp
-    src/whiteout/sno/d4/binary_types.cpp
-    src/whiteout/sno/d4/sno_defs.cpp
-    src/whiteout/sno/sno_value.cpp
-    src/whiteout/sno/sno_reader.cpp
-
-    # Diablo III
-    src/whiteout/sno/d3/sno_defs.cpp
-    src/whiteout/sno/d3/native/binary_parse_visitor/actor.cpp
-    src/whiteout/sno/d3/native/binary_parse_visitor/anim.cpp
-    src/whiteout/sno/d3/native/binary_parse_visitor/appearance.cpp
-    src/whiteout/sno/d3/native/binary_parse_visitor/base.cpp
-    src/whiteout/sno/d3/native/binary_parse_visitor/common.cpp
-    src/whiteout/sno/d3/native/binary_parse_visitor/material.cpp
-    src/whiteout/sno/d3/native/binary_parse_visitor/particle.cpp
-    src/whiteout/sno/d3/native/binary_parse_visitor/physics.cpp
-    src/whiteout/sno/d3/native/character.cpp
-    src/whiteout/sno/d3/native/d3_native.cpp
-)
-
-if(NOT EMSCRIPTEN)
-    # Host-only helpers: native threading, disk I/O, OS discovery, HTTP.
-    # Models and textures only depend on these via abstract interfaces, so
-    # the WASM build provides its own implementations in bindings/wasm/.
-    target_sources(whiteout_lib PRIVATE
-        src/whiteout/utils/simple_thread_pool.cpp
-        src/whiteout/utils/os_file_system.cpp
-        src/whiteout/utils/simple_http_handler.cpp
-        src/whiteout/utils/blizzard_game_finder.cpp
-        src/whiteout/utils/cdn_product_finder.cpp
-    )
-endif()
-
-target_include_directories(whiteout_lib PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
-)
-
-target_link_libraries(whiteout_lib PRIVATE whiteout_strict_flags)
-
-# DEFLATE codec backend selection.
-if(WHITEOUT_USE_ZLIBNG)
-    # zlib-ng variant — the only TU that includes <zlib-ng.h>. Linked PUBLIC so
-    # the dependency flows into WhiteoutLib's install/export interface (an
-    # installed static lib must resolve zng_ symbols downstream). The target
-    # carries its own include dirs (build/install interface) + ZLIBNG_NATIVE_API.
-    target_sources(whiteout_lib PRIVATE src/whiteout/common/deflate_zlibng.cpp)
-    target_link_libraries(whiteout_lib PUBLIC ${WHITEOUT_ZLIBNG_TARGET})
-else()
-    # Built-in codec — no external dependency.
-    target_sources(whiteout_lib PRIVATE
-        src/whiteout/common/deflate.cpp
-        src/whiteout/storages/common/inflate_fast_builtin.cpp)
-endif()
-
-whiteout_apply_clang_tidy(whiteout_lib)
-# These static libraries are linked into shared consumers — the C ABI's
-# libwhiteout_native.so, the pybind11 module, the WASM build. On ELF
-# targets that requires position-independent code: without it the linker
-# rejects a TLS relocation (R_X86_64_TPOFF32) against a thread_local such
-# as casc's s_lastError. Cheap on x86-64, and MSVC ignores the property.
-set_property(TARGET whiteout_lib PROPERTY POSITION_INDEPENDENT_CODE ON)
-
-
-if(WIN32 AND NOT EMSCRIPTEN)
-    # MSVC pulls winhttp via #pragma comment(lib, ...). MinGW/clang-mingw need
-    # it linked explicitly.
-    target_link_libraries(whiteout_lib PRIVATE winhttp)
-elseif(NOT EMSCRIPTEN)
-    # Non-Windows: SimpleHttpHandler can optionally use libcurl as its backend.
-    # If libcurl headers are absent the class still compiles, but its methods
-    # return an error response — apps that need real HTTP on these platforms
-    # should provide their own HttpHandler implementation.
-    option(WHITEOUT_ENABLE_CURL_HTTP
-        "Enable libcurl backend for SimpleHttpHandler on non-Windows hosts" ON)
-    if(WHITEOUT_ENABLE_CURL_HTTP)
-        find_package(CURL)
-        if(CURL_FOUND)
-            target_link_libraries(whiteout_lib PRIVATE CURL::libcurl)
-            target_compile_definitions(whiteout_lib PRIVATE WHITEOUT_HAVE_CURL=1)
-            message(STATUS "WhiteoutLib: SimpleHttpHandler using libcurl ${CURL_VERSION_STRING}")
-        else()
-            message(STATUS
-                "WhiteoutLib: libcurl not found — SimpleHttpHandler will stub "
-                "HTTP requests on this platform. Install libcurl-dev "
-                "(libcurl4-openssl-dev on Debian/Ubuntu, libcurl-devel on RHEL) "
-                "or provide your own HttpHandler implementation.")
-        endif()
+# The modules this configure built.
+set(WHITEOUT_MODULES "")
+foreach(_whiteout_module ${_whiteout_all_modules})
+    if(TARGET whiteout_${_whiteout_module})
+        list(APPEND WHITEOUT_MODULES whiteout_${_whiteout_module})
     endif()
-endif()
+endforeach()
 
-whiteout_define_mt_variant(whiteout_lib)
+# whiteout_lib: every module that is ON, so a `target_link_libraries(... whiteout_lib)`
+# links what it always has.
+add_library(whiteout_lib INTERFACE)
+target_link_libraries(whiteout_lib INTERFACE ${WHITEOUT_MODULES})
+if(WHITEOUT_BUILD_WASM_NODE_BINDINGS AND EMSCRIPTEN)
+    # whiteout_define_mt_variant copies a target's sources, so it cannot twin an
+    # INTERFACE library: the umbrella's twin is written out here.
+    add_library(whiteout_lib_mt INTERFACE)
+    foreach(_whiteout_module ${WHITEOUT_MODULES})
+        target_link_libraries(whiteout_lib_mt INTERFACE ${_whiteout_module}_mt)
+    endforeach()
+endif()
 
 # Binding subdirectories are added at the END of this file, after
 # whiteout_casc / whiteout_mpq are defined so the pthread `_mt` variants
@@ -861,7 +521,7 @@ if(WHITEOUT_ENABLE_CASC)
     )
 
     add_library(whiteout_casc STATIC ${CASC_SOURCES})
-    # See the note on whiteout_lib above.
+    # See the note in cmake/WhiteoutModules.cmake.
     set_property(TARGET whiteout_casc PROPERTY POSITION_INDEPENDENT_CODE ON)
 
     target_include_directories(whiteout_casc PUBLIC
@@ -869,7 +529,8 @@ if(WHITEOUT_ENABLE_CASC)
         $<INSTALL_INTERFACE:include>
     )
 
-    target_link_libraries(whiteout_casc PUBLIC whiteout_lib)
+    # d3_root reads the SNO TOC.
+    target_link_libraries(whiteout_casc PUBLIC whiteout_core whiteout_sno)
     target_link_libraries(whiteout_casc PRIVATE whiteout_strict_flags)
     whiteout_apply_clang_tidy(whiteout_casc)
 
@@ -931,7 +592,7 @@ if(WHITEOUT_ENABLE_MPQ)
         # MPQ filesystem utility
         src/whiteout/utils/mpq_file_system.cpp
     )
-    # See the note on whiteout_lib above.
+    # See the note in cmake/WhiteoutModules.cmake.
     set_property(TARGET whiteout_mpq PROPERTY POSITION_INDEPENDENT_CODE ON)
 
     target_include_directories(whiteout_mpq PUBLIC
@@ -939,9 +600,7 @@ if(WHITEOUT_ENABLE_MPQ)
         $<INSTALL_INTERFACE:include>
     )
 
-    target_link_libraries(whiteout_mpq
-        PUBLIC whiteout_lib
-    )
+    target_link_libraries(whiteout_mpq PUBLIC whiteout_core)
     target_link_libraries(whiteout_mpq PRIVATE whiteout_strict_flags)
     whiteout_apply_clang_tidy(whiteout_mpq)
 
@@ -983,7 +642,7 @@ if(WHITEOUT_ENABLE_DATABASE)
         src/whiteout/database/row.cpp
         src/whiteout/database/schema.cpp
     )
-    # See the note on whiteout_lib above.
+    # See the note in cmake/WhiteoutModules.cmake.
     set_property(TARGET whiteout_database PROPERTY POSITION_INDEPENDENT_CODE ON)
 
     target_include_directories(whiteout_database PUBLIC
@@ -991,7 +650,7 @@ if(WHITEOUT_ENABLE_DATABASE)
         $<INSTALL_INTERFACE:include>
     )
 
-    target_link_libraries(whiteout_database PUBLIC whiteout_lib)
+    target_link_libraries(whiteout_database PUBLIC whiteout_core)
     target_link_libraries(whiteout_database PRIVATE whiteout_strict_flags)
     whiteout_apply_clang_tidy(whiteout_database)
 
@@ -1049,7 +708,7 @@ if(WHITEOUT_INSTALL)
     include(GNUInstallDirs)
     include(CMakePackageConfigHelpers)
 
-    set(_whiteout_install_targets whiteout_lib whiteout_strict_flags)
+    set(_whiteout_install_targets whiteout_lib ${WHITEOUT_MODULES} whiteout_strict_flags)
     if(TARGET whiteout_casc)
         list(APPEND _whiteout_install_targets whiteout_casc)
     endif()

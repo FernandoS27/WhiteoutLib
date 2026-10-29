@@ -37,6 +37,7 @@
 #include <whiteout/common_types.h>
 #include <whiteout/vector_types.h>
 
+#include "../fwd.h"
 #include "../profile.h"
 #include "soft.h"
 
@@ -903,6 +904,14 @@ struct PhysicsHost {
 
 /// The host policy of @p game's physics.
 PhysicsHost PhysicsHostFor(Game game);
+
+/// Gives each bake record made before the stretches were kept
+/// (`PhysicsBake::stretchChannels`) those of its nodes' channels, read off the
+/// keys, so a key set beside them afterwards stays (§8.4). In a record whose
+/// keys were edited before: a channel left with no key has no stretch, and
+/// what the bake replaced on it is not put back; a key edited on any other
+/// reads as the bake's. What a read of a `.wem` runs.
+void MarkBakeStretches(Document& document);
 
 } // namespace wem
 } // namespace models

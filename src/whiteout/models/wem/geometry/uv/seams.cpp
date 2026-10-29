@@ -17,55 +17,6 @@ namespace wem {
 namespace geom {
 namespace uv {
 
-u32 MarkDelimitSeams(Mesh& mesh) {
-    if (!mesh.hasConnectivity()) {
-        return 0;
-    }
-    const Topology& topology = std::as_const(mesh).topology();
-    const u32 edgeCount = topology.edgeCount();
-    if (edgeCount == 0) {
-        return 0;
-    }
-    const std::span<u8> seam =
-        mesh.attributes.getOrCreate<u8>(names::kSeam, Domain::Edge, AttrType::Bool);
-    u32 marked = 0;
-    for (u32 e = 0; e < edgeCount && e < seam.size(); ++e) {
-        const EdgeId edge(e);
-        if (topology.isDeleted(edge) || topology.isBoundary(edge)) {
-            // A border does not delimit anything: there is only one side of it.
-            continue;
-        }
-        const u8 value = SeamBetween(mesh, Topology::halfedge(edge, 0)) ? 1 : 0;
-        seam[e] = value;
-        marked += value;
-    }
-    return marked;
-}
-
-u32 MarkDelimitSeams(Mesh& mesh, std::span<const u32> edges) {
-    if (!mesh.hasConnectivity() || edges.empty()) {
-        return 0;
-    }
-    std::vector<u32> marked;
-    marked.reserve(edges.size());
-    for (const u32 e : edges) {
-        if (SeamBetween(mesh, Topology::halfedge(EdgeId(e), 0))) {
-            marked.push_back(e);
-        }
-    }
-    if (marked.empty()) {
-        return 0;
-    }
-    const std::span<u8> seam =
-        mesh.attributes.getOrCreate<u8>(names::kSeam, Domain::Edge, AttrType::Bool);
-    for (const u32 e : marked) {
-        if (e < seam.size()) {
-            seam[e] = 1;
-        }
-    }
-    return static_cast<u32>(marked.size());
-}
-
 void ApplyMarks(Mesh& mesh, u32 set, std::span<const EdgeId> edges, bool mark) {
     if (edges.empty()) {
         return;

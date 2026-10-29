@@ -37,23 +37,12 @@
 #include <whiteout/models/wem/diagnostics.h>
 #include <whiteout/models/wem/model.h>
 
+#include "../anim/m3_rebase.h"
+
 namespace whiteout {
 namespace models {
 namespace wem {
 namespace m3_physics {
-
-// ============================================================================
-// The basis, exactly
-// ============================================================================
-
-/// A record frame from StarCraft II's bone basis into WEM's: `m * R`.
-Matrix44f RebaseFrame(const Matrix44f& m);
-/// The inverse: `m * R^T`.
-Matrix44f UnrebaseFrame(const Matrix44f& m);
-/// A model-space matrix conjugated into WEM's basis: `R^T * m * R` (`IREF`).
-Matrix44f RebaseConjugate(const Matrix44f& m);
-/// The inverse: `R * m * R^T`.
-Matrix44f UnrebaseConjugate(const Matrix44f& m);
 
 // ============================================================================
 // Force fields and vertex warps

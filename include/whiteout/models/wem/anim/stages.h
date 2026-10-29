@@ -285,8 +285,11 @@ private:
 /// without them is reported (`AnimStageNotBaked`) and left out. Idempotent: a
 /// document with nothing to bake comes back unchanged. Returns the clips
 /// rewritten.
-u32 BakeStages(Document& document, ProfileId target, const StageHooks* hooks,
-               Diagnostics& diagnostics);
+///
+/// The physics is left as it stands: `BakeStages` (`stage_bake.h`, the editing
+/// module) fits it to @p target first and then runs this.
+u32 BakeStageKeys(Document& document, ProfileId target, const StageHooks* hooks,
+                  Diagnostics& diagnostics);
 
 } // namespace wem
 } // namespace models

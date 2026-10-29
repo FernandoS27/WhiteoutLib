@@ -10,7 +10,7 @@
 
 #include "whiteout/models/wem/anim/crossing.h"
 #include "whiteout/models/wem/anim/track_read.h"
-#include "whiteout/models/wem/physics/crossing.h"
+#include "whiteout/models/wem/physics/switch_rule.h"
 #include "whiteout/models/wem/rigging/ik.h"
 
 namespace whiteout {
@@ -1434,10 +1434,8 @@ void RemoveStages(Document& document, u32 model, ProfileId target) {
 
 } // namespace
 
-u32 BakeStages(Document& document, ProfileId target, const StageHooks* hooks, Diagnostics& diagnostics) {
+u32 BakeStageKeys(Document& document, ProfileId target, const StageHooks* hooks, Diagnostics& diagnostics) {
     u32 rewritten = 0;
-    // The rigs and cages first, so a stage over a rig overrides its start.
-    rewritten += FitPhysicsToProfile(document, target, diagnostics);
     // StarCraft II plays every layer itself (§4): its clips go out as
     // authored. Anything else has one layer, flattened first so the stages
     // below write over the whole pose.

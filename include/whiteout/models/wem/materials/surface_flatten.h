@@ -89,9 +89,6 @@ struct FlatSurface {
 /// replaceable slot, on explicit UVs.
 bool TextureExportable(const Document& document, const TextureInput& input);
 
-/// Specular exponent to a perceptual roughness; exponent 0 (no highlight) is 1.
-f32 InterchangeRoughness(f32 specularExponent);
-
 FlatSurface FlattenSurface(const Document& document, const Material& material);
 
 } // namespace wem

@@ -3,13 +3,23 @@ The package whiteoutlib provides CMake targets:
     find_package(WhiteoutLib CONFIG REQUIRED)
     target_link_libraries(main PRIVATE WhiteoutLib::whiteout_lib)
 
-When installed with features:
+`whiteout_lib` links every module the port was built with. A consumer that
+needs less links the modules themselves, and names them as components so a
+missing one fails at configure time:
 
-    find_package(WhiteoutLib CONFIG REQUIRED COMPONENTS casc mpq)
+    find_package(WhiteoutLib CONFIG REQUIRED COMPONENTS wem_convert casc)
     target_link_libraries(main PRIVATE
-        WhiteoutLib::whiteout_lib
-        WhiteoutLib::whiteout_casc
-        WhiteoutLib::whiteout_mpq)
+        WhiteoutLib::whiteout_wem_convert
+        WhiteoutLib::whiteout_casc)
 
-Each component corresponds to the matching vcpkg feature
-(`whiteoutlib[casc]`, `whiteoutlib[mpq]`).
+Modules and their features (all four are default features):
+
+    whiteout_core           always
+    whiteout_textures       whiteoutlib[textures]
+    whiteout_models         whiteoutlib[models]
+    whiteout_wem            whiteoutlib[models]
+    whiteout_wem_convert    whiteoutlib[wem-convert]
+    whiteout_wem_edit       whiteoutlib[wem-edit]
+
+Each storage component corresponds to the matching vcpkg feature
+(`whiteoutlib[casc]`, `whiteoutlib[mpq]`, `whiteoutlib[database]`).

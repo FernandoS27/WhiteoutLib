@@ -89,12 +89,20 @@ WhiteoutLib/
 
 ## 3. Build Targets
 
-All defined in the single `CMakeLists.txt`:
+The modules are defined in `cmake/modules/<target>.cmake` (one source list each),
+the rest in `CMakeLists.txt`:
 
 | Target | Type | Description |
 |--------|------|-------------|
-| `whiteout_lib` | Static library | Core library — all formats except CASC |
-| `whiteout_casc` | Static library | CASC wrapper, links `whiteout_lib` + `casc_static` |
+| `whiteout_lib` | Interface | Every module this configure built (`WHITEOUT_MODULES`) |
+| `whiteout_core` | Static library | Common types, vector maths, DEFLATE, host helpers |
+| `whiteout_sno` | Static library | SNO container and Diablo III/IV tables |
+| `whiteout_textures` | Static library | Texture formats, BCn, mipmaps, PBR bake |
+| `whiteout_models` | Static library | MDX/MDL, M2, WMO, M3, glTF, FBX, OBJ, Diablo III models |
+| `whiteout_wem` | Static library | WEM core: the document, `.wem` I/O, validate, play, geometry kernel |
+| `whiteout_wem_convert` | Static library | WEM converters and export passes (`WHITEOUT_WEM_CONVERT`) |
+| `whiteout_wem_edit` | Static library | WEM modelling, rigging, skinning, UV, physics (`WHITEOUT_WEM_EDIT`) |
+| `whiteout_casc` | Static library | CASC storage, links `whiteout_core` + `whiteout_sno` |
 | `*_example` | Executables | Example programs in `examples/` (gated by `WHITEOUT_BUILD_EXAMPLES`) |
 
 **Options:**
@@ -436,4 +444,5 @@ std::vector<u8> ddsBytes = dds::write(tex)     // → re-encode as DDS
 5. **Auto-generated `sno_defs.cpp` files are huge** (thousands of lines). Don't edit them by hand — modify the generator script.
 6. **The JPEG codec is fully custom** (no libjpeg). It lives in `textures/jpeg/` and handles byte-stuffing, restart markers, DHT/DQT tables.
 7. **M3 `.inl` files are not standalone** — they're `#include`d into `binary_parse_visitor.cpp` / `binary_writer_visitor.cpp`.
-8. **`whiteout_casc` is a separate library target** that links both `whiteout_lib` and CascLib. Examples needing CASC link against `whiteout_casc`, not `whiteout_lib`.
+8. **`whiteout_casc` is a separate library target** that links `whiteout_core` and `whiteout_sno` only. Examples needing CASC link against `whiteout_casc`, and whatever module they read the files with.
+9. **A module never includes a header of a module it may not depend on** (`tools/module_graph.py check`, the `module_graph` test). Edit and convert are siblings: what both need moves down into `whiteout_wem`, the old header including the new one.

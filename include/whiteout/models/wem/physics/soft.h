@@ -252,6 +252,9 @@ struct SoftJiggle {
     }
 };
 
+/// @p preset's settings (§8.3's table); `Custom` gives the defaults.
+SoftJiggle SoftJigglePresetOf(SoftJigglePreset preset);
+
 enum class SoftWobblePattern : u8 { Jelly, Sway, Roll, Random, Count };
 
 const char* ToString(SoftWobblePattern pattern);

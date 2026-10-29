@@ -15,13 +15,6 @@ namespace models {
 namespace wem {
 namespace geom {
 
-void ElementSet::normalise() {
-    for (std::vector<u32>* list : {&vertices, &edges, &faces}) {
-        std::sort(list->begin(), list->end());
-        list->erase(std::unique(list->begin(), list->end()), list->end());
-    }
-}
-
 namespace {
 
 u64 pairKey(u32 a, u32 b) {

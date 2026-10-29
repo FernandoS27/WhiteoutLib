@@ -4,9 +4,9 @@
 #include <whiteout/models/wem/parser.h>
 #include <whiteout/models/wem/writer.h>
 
-#include <whiteout/models/wem/geometry/ops.h>
+#include <whiteout/models/wem/geometry/kernel.h>
 #include <whiteout/models/wem/meshes/remove.h>
-#include <whiteout/models/wem/physics/bake.h>
+#include <whiteout/models/wem/physics/physics.h>
 
 #include "../../common/binary_reader.h"
 #include "../../common/binary_writer.h"

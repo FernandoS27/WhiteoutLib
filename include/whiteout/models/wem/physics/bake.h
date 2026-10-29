@@ -27,6 +27,7 @@
 #include "../anim/animator.h"
 #include "../diagnostics.h"
 #include "../document.h"
+#include "physics.h"
 #include "switches.h"
 
 namespace whiteout {
@@ -322,14 +323,6 @@ u64 BakeWrittenNow(const Document& document, u32 clip);
 /// (`PhysicsBake::written` and `stretchInside`): for an edit that changes
 /// what a bake wrote and stands by it.
 void StampBakeWritten(Document& document, u32 clip);
-/// Gives each bake record made before the stretches were kept
-/// (`PhysicsBake::stretchChannels`) those of its nodes' channels, read off the
-/// keys, so a key set beside them afterwards stays (§8.4). In a record whose
-/// keys were edited before: a channel left with no key has no stretch, and
-/// what the bake replaced on it is not put back; a key edited on any other
-/// reads as the bake's. What a read of a `.wem` runs.
-void MarkBakeStretches(Document& document);
-
 /**
  * @brief The export's bake (§8.6): every clip `UnbakedPhysicsClips` lists, in
  *        `BakeOrder`, run and baked on @p document, the export's own copy.

@@ -269,6 +269,11 @@ Useful options:
 
 | Option | Default | What it does |
 |---|---|---|
+| `WHITEOUT_ENABLE_TEXTURES` | `ON` | Build `whiteout_textures` |
+| `WHITEOUT_ENABLE_MODELS` | `ON` | Build `whiteout_models` and the WEM core, `whiteout_wem` |
+| `WHITEOUT_WEM_CONVERT` | `ON` | Build `whiteout_wem_convert`, the WEM converters and export passes (needs models) |
+| `WHITEOUT_WEM_EDIT` | `ON` | Build `whiteout_wem_edit`: modelling, rigging, skinning, UV, physics and its bakes (needs models and textures) |
+| `WHITEOUT_TEXTURES_D4` | `ON` | Read Diablo IV `.tex` (builds `whiteout_sno`); off, a D4 `.tex` fails to parse |
 | `WHITEOUT_ENABLE_CASC` | `OFF` | Build the `whiteout_casc` static library |
 | `WHITEOUT_ENABLE_MPQ` | `OFF` | Build the `whiteout_mpq` static library |
 | `WHITEOUT_ENABLE_DATABASE` | `OFF` | Build the `whiteout_database` static library (DBC/DB2) |
@@ -279,6 +284,29 @@ Useful options:
 | `WHITEOUT_ENABLE_CLANG_TIDY` | `OFF` | Run clang-tidy during the build |
 | `WHITEOUT_WARNINGS_AS_ERRORS` | `ON` for master project | Treat warnings as errors |
 | `WHITEOUT_INSTALL` | `ON` | Generate install + export rules for `find_package(WhiteoutLib)` |
+
+### Library targets
+
+WhiteoutLib is a set of static libraries, so a consumer compiles and links only
+what it uses. `whiteout_lib` is an interface target over every module the
+configure built, so linking it gets everything, as before.
+
+| Target | Holds | Links |
+|---|---|---|
+| `whiteout_core` | common types, vector maths, DEFLATE, host helpers | |
+| `whiteout_sno` | the SNO container and the Diablo III/IV tables | core |
+| `whiteout_textures` | every texture format, BCn, mipmaps, the PBR bake | core (+ sno for D4 `.tex`) |
+| `whiteout_models` | MDX/MDL, M2, WMO, M3, glTF, FBX, OBJ, the Diablo III model reader | core |
+| `whiteout_wem` | the WEM document: read, write, validate, play, the geometry kernel | core, models |
+| `whiteout_wem_convert` | the converters between WEM and every format, the export passes | wem, models |
+| `whiteout_wem_edit` | modelling, retopology, UV, rigging, skinning, physics and its bakes | wem, models, textures |
+| `whiteout_casc` / `whiteout_mpq` / `whiteout_database` | storage and client databases | core (+ sno for CASC) |
+
+Each module defines `WHITEOUT_HAS_<MODULE>=1` for its consumers. Turning a
+module off removes its target; its headers stay installed, and calling into
+one fails at the consumer's link. `python tools/module_graph.py check` (the
+`module_graph` test) fails when a file includes a header of a module its own
+may not depend on.
 
 ## Install / `find_package`
 
@@ -293,7 +321,7 @@ target_link_libraries(myapp PRIVATE
 )
 ```
 
-`COMPONENTS casc` / `mpq` are optional; ask for them only if the install was built with the matching `-DWHITEOUT_ENABLE_*=ON` flag (the config script will fail loudly otherwise).
+Components are optional: `casc`, `mpq`, `database`, and one per module (`sno`, `textures`, `models`, `wem`, `wem_convert`, `wem_edit`). Ask for one only if the install was built with it (the config script will fail loudly otherwise).
 
 ## vcpkg
 
@@ -311,7 +339,7 @@ target_link_libraries(app PRIVATE
     WhiteoutLib::whiteout_lib WhiteoutLib::whiteout_casc WhiteoutLib::whiteout_mpq)
 ```
 
-Features map directly to CMake flags: `whiteoutlib[casc]` ⇒ `WHITEOUT_ENABLE_CASC=ON`, `whiteoutlib[mpq]` ⇒ `WHITEOUT_ENABLE_MPQ=ON`, `whiteoutlib[curl]` ⇒ `WHITEOUT_ENABLE_CURL_HTTP=ON` + pulls `curl` from vcpkg (no-op on Windows, which always uses WinHTTP).
+Features map directly to CMake flags: `whiteoutlib[textures]`, `[models]`, `[wem-convert]` and `[wem-edit]` ⇒ the module switches (all four are default features), `whiteoutlib[casc]` ⇒ `WHITEOUT_ENABLE_CASC=ON`, `whiteoutlib[mpq]` ⇒ `WHITEOUT_ENABLE_MPQ=ON`, `whiteoutlib[curl]` ⇒ `WHITEOUT_ENABLE_CURL_HTTP=ON` + pulls `curl` from vcpkg (no-op on Windows, which always uses WinHTTP).
 
 When publishing the port to a custom vcpkg registry, bump `version` in `ports/whiteoutlib/vcpkg.json` and replace the `SHA512 0` placeholder in `portfile.cmake` with the real SHA — `vcpkg install` will print the expected value on first run.
 

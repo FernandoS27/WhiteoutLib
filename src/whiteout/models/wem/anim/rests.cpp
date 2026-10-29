@@ -10,9 +10,9 @@
 
 #include "whiteout/models/wem/anim/mdx_uv.h"
 #include "whiteout/models/wem/anim/track_read.h"
-#include "whiteout/models/wem/converters.h"
+#include "whiteout/models/wem/native/mdx_bag.h"
 #include "whiteout/models/wem/native/mdx_native.h"
-#include "whiteout/models/wem/physics/switches.h"
+#include "whiteout/models/wem/physics/switch_rule.h"
 
 namespace whiteout {
 namespace models {
@@ -44,11 +44,10 @@ Vector3f NativeColour(const NativeBag& bag, const char* r, const char* g, const 
     return x && y && z ? Vector3f{*x, *y, *z} : otherwise;
 }
 
-/// A section's static tint, read through the converter that writes it: the
-/// geoset's bag layout is the MDX converter's to know (L1).
+/// A section's static tint. The geoset's bag layout belongs to the MDX native
+/// mirror (`native/mdx_bag.h`), and the MDX converter is its only writer.
 GeosetTint SectionTint(const MeshSection& section) {
-    static const MdxConverter converter;
-    return converter.geosetTint(section);
+    return GeosetTintOf(section);
 }
 
 /// The static field of an emitter's property, read where `toMdx` writes it

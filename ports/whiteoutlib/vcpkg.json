@@ -5,8 +5,44 @@
     "homepage": "https://github.com/fsahmkow/WhiteoutLib",
     "license": "BSD-3-Clause",
     "supports": "!uwp",
-    "default-features": [],
+    "default-features": [
+        "textures",
+        "models",
+        "wem-convert",
+        "wem-edit"
+    ],
     "features": {
+        "textures": {
+            "description": "Build whiteout_textures: BLP, DDS, TEX, PNG, JPEG, TGA, TIFF, BMP and the other texture formats, the BCn codecs and the PBR bake."
+        },
+        "models": {
+            "description": "Build whiteout_models (MDX/MDL, M2, WMO, M3, glTF, FBX, OBJ and the Diablo III model reader) and the WEM core, whiteout_wem."
+        },
+        "wem-convert": {
+            "description": "Build whiteout_wem_convert: the converters between WEM and every model format, and the export passes.",
+            "dependencies": [
+                {
+                    "name": "whiteoutlib",
+                    "default-features": false,
+                    "features": [
+                        "models"
+                    ]
+                }
+            ]
+        },
+        "wem-edit": {
+            "description": "Build whiteout_wem_edit: modelling, retopology, fracture, UV, rigging, skinning, and physics simulation and its bakes.",
+            "dependencies": [
+                {
+                    "name": "whiteoutlib",
+                    "default-features": false,
+                    "features": [
+                        "models",
+                        "textures"
+                    ]
+                }
+            ]
+        },
         "zlib-ng": {
             "description": "Use zlib-ng as the DEFLATE backend (faster compression/decompression; adds a zlib-ng dependency). Without this feature the dependency-free built-in codec is used.",
             "dependencies": [

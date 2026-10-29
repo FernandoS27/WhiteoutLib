@@ -3,7 +3,7 @@
 
 #include <whiteout/models/wem/geometry/checks.h>
 
-#include <whiteout/models/wem/geometry/ops.h>
+#include <whiteout/models/wem/geometry/kernel.h>
 #include <whiteout/models/wem/geometry/triangulation.h>
 
 #include <algorithm>

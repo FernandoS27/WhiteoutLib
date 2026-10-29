@@ -31,6 +31,7 @@
 #include "../document.h"
 #include "../profile.h"
 #include "bake.h"
+#include "references.h"
 
 namespace whiteout {
 namespace models {
@@ -40,16 +41,6 @@ struct KeyReduceOptions;
 
 /// The vertices @p cloth draws: those of its bindings' faces, ascending.
 std::vector<u32> ClothDrawnVertices(const Model& model, const Cloth& cloth);
-
-/// A *Full detail* cloth's drivers (§10.3): its free particles, by cage
-/// vertex ascending, and the holder they hang from, the bone outside the
-/// cloth's own its pins' anchors weigh most on (`kInvalidNode`, the model
-/// root, when none does).
-struct ClothDrivers {
-    u32 holder = kInvalidNode;
-    std::vector<u32> vertices;
-};
-ClothDrivers ClothDriversOf(const Model& model, const Cloth& cloth);
 
 /// @p cloth's driver @p driver's @p channel (`ClothDriverTranslation` or
 /// `ClothDriverRotation`) on @p model, declared when missing.

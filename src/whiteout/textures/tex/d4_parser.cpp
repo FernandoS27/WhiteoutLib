@@ -22,6 +22,7 @@
 #include "../bcn/bc6h.h"
 #include "../io_helpers.h"
 #include "../issue_sink.h"
+#include "d4_parser.h"
 #include "tex_internal.h"
 
 namespace whiteout::textures::tex {

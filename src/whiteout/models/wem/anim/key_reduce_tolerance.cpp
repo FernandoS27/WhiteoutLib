@@ -9,7 +9,7 @@
 
 #include <whiteout/models/wem/anim/animator.h>
 #include <whiteout/models/wem/anim/mdx_math.h>
-#include <whiteout/models/wem/optimize.h>
+#include <whiteout/models/wem/rigging/engine_names.h>
 #include <whiteout/models/wem/skinning/deform.h>
 
 #include <atomic>

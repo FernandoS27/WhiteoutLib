@@ -6,6 +6,7 @@
 #include <whiteout/models/wem/physics/crossing.h>
 #include <whiteout/models/wem/physics/soft_step.h>
 
+#include "bake_record.h"
 #include "soft_pass.h"
 
 #include <whiteout/models/wem/anim/clip.h>
@@ -37,85 +38,20 @@ namespace {
 
 constexpr f32 kDegrees = 57.29577951308232f;
 
-void Hash(u64& hash, std::span<const u8> bytes) {
-    for (const u8 b : bytes) {
-        hash ^= b;
-        hash *= 1099511628211ull;
-    }
-}
+using bakedetail::Hash;
+using bakedetail::HashKeys;
+using bakedetail::InsideHash;
+using bakedetail::kEver;
+using bakedetail::kStretchPad;
+using bakedetail::OutsideHash;
+using bakedetail::Stretch;
+using bakedetail::StretchesOf;
+using bakedetail::Within;
+using bakedetail::WrittenHash;
 
 const ClipPhysics& SettingsOf(const Clip& clip) {
     static const ClipPhysics kNone;
     return clip.physics.has_value() ? *clip.physics : kNone;
-}
-
-/// One stretch of a clip a bake keyed on a channel (`PhysicsBake::stretchTimes`):
-/// its keys run from @p from to @p to, the simulation's own from @p first
-/// (before @p from where none of them is).
-struct Stretch {
-    f32 from = 0.0f;
-    f32 first = 0.0f;
-    f32 to = 0.0f;
-};
-
-/// A stretch's end at the clip's own: no key lies beyond.
-constexpr f32 kEver = std::numeric_limits<f32>::max();
-/// What a stretch reaches past its last key, so a key on its edge is inside.
-constexpr f32 kStretchPad = 1e-5f;
-
-/// @p channel's stretches in @p record and its place in the record's lists;
-/// none for a channel the bake keys whole.
-std::optional<std::size_t> StretchesOf(const PhysicsBake& record, u32 channel, std::vector<Stretch>& out) {
-    out.clear();
-    std::size_t at = 0;
-    for (std::size_t i = 0; i < record.stretchChannels.size() && i < record.stretchCounts.size(); ++i) {
-        const std::size_t count = record.stretchCounts[i];
-        if (record.stretchChannels[i] != channel) {
-            at += count;
-            continue;
-        }
-        for (std::size_t k = at; k < at + count && k * 3 + 2 < record.stretchTimes.size(); ++k) {
-            out.push_back(
-                Stretch{record.stretchTimes[k * 3], record.stretchTimes[k * 3 + 1], record.stretchTimes[k * 3 + 2]});
-        }
-        return i;
-    }
-    return std::nullopt;
-}
-
-bool Within(const std::vector<Stretch>& stretches, f32 time) {
-    return std::any_of(stretches.begin(), stretches.end(),
-                       [&](const Stretch& s) { return time >= s.from && time <= s.to; });
-}
-
-/// @p track's keys inside @p stretches, or those outside, hashed with its
-/// controller.
-void HashKeys(u64& hash, const SubTrack& track, const std::vector<Stretch>& stretches, bool inside) {
-    const u8 interp = static_cast<u8>(track.interp);
-    Hash(hash, std::span<const u8>(&interp, 1));
-    const std::size_t count = track.times.size();
-    const std::size_t each = count != 0 ? track.values.size() / count : 0;
-    for (std::size_t k = 0; k < count; ++k) {
-        if (Within(stretches, track.times[k]) != inside) {
-            continue;
-        }
-        Hash(hash, std::span<const u8>(reinterpret_cast<const u8*>(&track.times[k]), sizeof(f32)));
-        Hash(hash, std::span<const u8>(track.values.data() + k * each, each));
-    }
-}
-
-/// @p channel's keys in @p clip outside @p stretches, hashed: the clip's own
-/// animation beside a bake's keys (`PhysicsBake::stretchOutside`).
-u64 OutsideHash(const Clip& clip, u32 channel, const std::vector<Stretch>& stretches) {
-    u64 hash = 1469598103934665603ull;
-    for (const SubTrackContainer& container : clip.containers) {
-        for (const SubTrack& track : container.subTracks) {
-            if (track.channel == channel) {
-                HashKeys(hash, track, stretches, false);
-            }
-        }
-    }
-    return hash;
 }
 
 /// A baked channel's own animation as it now stands, on what the bake replaced
@@ -487,41 +423,6 @@ void RestoreBakeSources(Document& document) {
 }
 
 namespace {
-
-/// What a bake wrote into @p clip, hashed: the tracks of the channels @p record
-/// lists, as they stand.
-u64 WrittenHash(const Clip& clip, const PhysicsBake& record) {
-    u64 hash = 1469598103934665603ull;
-    for (const SubTrackContainer& container : clip.containers) {
-        for (const SubTrack& track : container.subTracks) {
-            if (std::find(record.channels.begin(), record.channels.end(), track.channel) != record.channels.end()) {
-                Hash(hash, ReflectBytes(track));
-            }
-        }
-    }
-    return hash;
-}
-
-/// What a bake wrote into @p clip and no one else keys, hashed as it stands
-/// (`PhysicsBake::stretchInside`): a channel keyed in stretches by its keys
-/// inside them, any other whole.
-u64 InsideHash(const Clip& clip, const PhysicsBake& record) {
-    u64 hash = 1469598103934665603ull;
-    std::vector<Stretch> stretches;
-    for (const SubTrackContainer& container : clip.containers) {
-        for (const SubTrack& track : container.subTracks) {
-            if (std::find(record.channels.begin(), record.channels.end(), track.channel) == record.channels.end()) {
-                continue;
-            }
-            if (StretchesOf(record, track.channel, stretches).has_value()) {
-                HashKeys(hash, track, stretches, true);
-            } else {
-                Hash(hash, ReflectBytes(track));
-            }
-        }
-    }
-    return hash;
-}
 
 /// Where a record's bake keyed, and what it left (`PhysicsBake::stretchChannels`
 /// on): nothing a bake reads, and a record made before them has none, so
@@ -2637,130 +2538,6 @@ void StampBakeWritten(Document& document, u32 clip) {
     record.written = WrittenHash(document.clips[clip], record);
     if (record.stretchInside != 0) {
         record.stretchInside = InsideHash(document.clips[clip], record);
-    }
-}
-
-namespace {
-
-/// The stretches an older bake keyed on a node's channel, read off @p now's
-/// keys: a key @p source does not hold is the bake's, with every key between
-/// two of them, and a source key it left out is in the stretch nearest it.
-template <class T>
-std::vector<Stretch> ReadStretches(const SubTrack& now, const SubTrack* source, f32 duration) {
-    const std::vector<CurveKey<T>> ours = DecodeKeys<T>(now);
-    const std::vector<CurveKey<T>> theirs = source != nullptr ? DecodeKeys<T>(*source) : std::vector<CurveKey<T>>{};
-    const auto held = [&](const CurveKey<T>& key) {
-        return std::any_of(theirs.begin(), theirs.end(), [&](const CurveKey<T>& other) {
-            return other.time == key.time && std::memcmp(&other.value, &key.value, sizeof(T)) == 0;
-        });
-    };
-    std::vector<Stretch> out;
-    for (std::size_t i = 0; i < ours.size(); ++i) {
-        if (held(ours[i])) {
-            continue;
-        }
-        std::size_t last = i;
-        while (last + 1 < ours.size() && !held(ours[last + 1])) {
-            ++last;
-        }
-        Stretch stretch;
-        stretch.from = i == 0 ? -kEver : ours[i].time - kStretchPad;
-        stretch.to = last + 1 == ours.size() && ours[last].time >= duration - 0.001f ? kEver
-                                                                                     : ours[last].time + kStretchPad;
-        // An edge key leads the simulation's, where the clip's own go on before it.
-        stretch.first = last == i ? stretch.from - 1.0f : ours[i == 0 ? i : i + 1].time;
-        out.push_back(stretch);
-        i = last;
-    }
-    for (const CurveKey<T>& key : theirs) {
-        if (out.empty() || Within(out, key.time) ||
-            std::any_of(ours.begin(), ours.end(), [&](const CurveKey<T>& other) { return other.time == key.time; })) {
-            continue;
-        }
-        Stretch* nearest = &out.front();
-        const auto apart = [&](const Stretch& s) { return std::max(s.from - key.time, key.time - s.to); };
-        for (Stretch& s : out) {
-            if (apart(s) < apart(*nearest)) {
-                nearest = &s;
-            }
-        }
-        nearest->from = std::min(nearest->from, key.time - kStretchPad);
-        nearest->to = std::max(nearest->to, key.time + kStretchPad);
-    }
-    return out;
-}
-
-} // namespace
-
-void MarkBakeStretches(Document& document) {
-    std::vector<Stretch> stretches;
-    for (Clip& clip : document.clips) {
-        if (!clip.physics.has_value() || !clip.physics->baked.has_value() || clip.model >= document.models.size()) {
-            continue;
-        }
-        PhysicsBake& record = *clip.physics->baked;
-        if (record.stretchInside != 0) {
-            continue;
-        }
-        // Keys edited since cannot be told from the bake's, channel by channel.
-        const bool edited = WrittenHash(clip, record) != record.written;
-        const AnimChannelTable& table = document.models[clip.model].animChannels;
-        for (const u32 channel : record.channels) {
-            const AnimChannel* declared = table.find(channel);
-            if (declared == nullptr || declared->target.kind != TrackTarget::Kind::Node ||
-                std::find(record.softChannels.begin(), record.softChannels.end(), channel) != record.softChannels.end() ||
-                StretchesOf(record, channel, stretches).has_value()) {
-                continue;
-            }
-            const bool turns =
-                declared->target.channel == Channel::Rotation && declared->valueType == geom::AttrType::Quat;
-            const bool moves =
-                declared->target.channel == Channel::Translation && declared->valueType == geom::AttrType::F32x3;
-            // One layer's keys, as `OwnAnimations` puts them back.
-            const SubTrack* now = nullptr;
-            const SubTrack* source = nullptr;
-            u32 layers = 0;
-            for (const SubTrackContainer& container : clip.containers) {
-                if (const SubTrack* found = container.find(channel); found != nullptr && now == nullptr) {
-                    now = found;
-                }
-            }
-            for (const SubTrackContainer& container : record.source) {
-                if (const SubTrack* found = container.find(channel); found != nullptr) {
-                    source = found;
-                    ++layers;
-                }
-            }
-            // Every key of it taken away since: the bake's are gone, and what
-            // it replaced is not put back under them. The track is the clip's
-            // own from here on, with no stretch.
-            const bool gone = edited && (now == nullptr || now->times.empty());
-            if ((!turns && !moves) || layers > 1 || (!gone && (now == nullptr || now->times.empty())) ||
-                (!gone && !now->wellSized(declared->valueType)) ||
-                (source != nullptr && !source->wellSized(declared->valueType))) {
-                continue;
-            }
-            stretches.clear();
-            if (!gone) {
-                stretches = turns ? ReadStretches<Quaternion>(*now, source, clip.duration)
-                                  : ReadStretches<Vector3f>(*now, source, clip.duration);
-                if (stretches.empty()) {
-                    continue;
-                }
-            }
-            record.stretchChannels.push_back(channel);
-            record.stretchCounts.push_back(static_cast<u32>(stretches.size()));
-            for (const Stretch& stretch : stretches) {
-                record.stretchTimes.insert(record.stretchTimes.end(), {stretch.from, stretch.first, stretch.to});
-            }
-            // 0 is no track's keys: one with no stretch is never as the bake left it.
-            record.stretchOutside.push_back(gone ? 0 : OutsideHash(clip, channel, stretches));
-        }
-        record.stretchInside = InsideHash(clip, record);
-        // Edited before it was read: it goes on reading so.
-        if (edited) {
-            record.stretchInside = ~record.stretchInside != 0 ? ~record.stretchInside : 1;
-        }
     }
 }
 

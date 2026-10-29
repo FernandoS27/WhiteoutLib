@@ -1,0 +1,67 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Copyright (c) 2026 Fernando Sahmkow
+
+#pragma once
+
+/**
+ * @file wem_edit.h
+ * @brief Every WEM header plus the editing module (`whiteout_wem_edit`):
+ *        modelling, rigging, skinning, UV, physics and its bakes.
+ */
+
+#include "wem.h"
+
+#include "anim/key_reduce.h"
+#include "anim/stage_bake.h"
+#include "geometry/bvh.h"
+#include "geometry/cdt.h"
+#include "geometry/fit.h"
+#include "geometry/fracture/cells.h"
+#include "geometry/fracture/cut.h"
+#include "geometry/fracture/fracture.h"
+#include "geometry/fracture/seeds.h"
+#include "geometry/fracture/winding.h"
+#include "geometry/hull.h"
+#include "geometry/interpolate.h"
+#include "geometry/lattice.h"
+#include "geometry/modelling.h"
+#include "geometry/ops.h"
+#include "geometry/primitives.h"
+#include "geometry/refine.h"
+#include "geometry/retopo/quantize.h"
+#include "geometry/retopo/retopology.h"
+#include "geometry/select.h"
+#include "geometry/uv/checks.h"
+#include "geometry/uv/flatten.h"
+#include "geometry/uv/islands.h"
+#include "geometry/uv/layout.h"
+#include "geometry/uv/seams.h"
+#include "geometry/uv/transfer.h"
+#include "physics/bake.h"
+#include "physics/cloth_bake.h"
+#include "physics/cloth_cage.h"
+#include "physics/crossing.h"
+#include "physics/soft_bake.h"
+#include "physics/soft_contact.h"
+#include "physics/soft_drip.h"
+#include "physics/soft_fields.h"
+#include "physics/soft_fit.h"
+#include "physics/soft_lumps.h"
+#include "physics/soft_modes.h"
+#include "physics/soft_region.h"
+#include "physics/soft_run.h"
+#include "physics/soft_shapes.h"
+#include "physics/soft_step.h"
+#include "physics/switches.h"
+#include "rigging/detect.h"
+#include "rigging/limbs.h"
+#include "rigging/rebind.h"
+#include "rigging/tpose.h"
+#include "scene_ops.h"
+#include "skinning/fit.h"
+#include "skinning/generate.h"
+#include "skinning/mirror.h"
+#include "skinning/ops.h"
+#include "skinning/reduce.h"
+#include "skinning/solid.h"
+#include "skinning/transfer.h"

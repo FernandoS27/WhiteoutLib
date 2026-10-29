@@ -14,6 +14,7 @@
 #include <span>
 #include <vector>
 
+#include <whiteout/models/wem/anim/stage_bake.h>
 #include <whiteout/models/wem/anim/stages.h>
 #include <whiteout/models/wem/anim/track_read.h>
 #include <whiteout/models/wem/meshes/remove.h>

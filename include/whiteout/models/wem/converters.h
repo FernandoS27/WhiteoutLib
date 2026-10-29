@@ -27,6 +27,8 @@
 #include "../mdx/types.h"
 #include "converter_base.h"
 #include "geometry/render_view.h"
+#include "native/m3_native.h"
+#include "native/mdx_bag.h"
 #include "native/mdx_native.h"
 #include "skinning/quantize.h"
 
@@ -57,36 +59,6 @@ struct MaterialBlockResult {
     /// Channels whose layer or feature is gone, each with a diagnostic.
     u32 channelsInvalidated = 0;
     Diagnostics diagnostics;
-};
-
-/// A geoset's static colour and alpha as the Mesh workspace edits them
-/// (EDIT_MODE_MESH_DESIGN.md §6.2). Hidden and alpha are two values: the file
-/// writes 0 for a hidden geoset, and the document keeps its alpha for when it
-/// is shown again.
-struct GeosetTint {
-    Vector3f color{1.0f, 1.0f, 1.0f}; ///< Red first, as the file's static colour.
-    f32 alpha = 1.0f;                 ///< The opacity when shown.
-    bool hidden = false;              ///< `SectionFlags::Hidden`: written as alpha 0.
-
-    bool operator==(const GeosetTint&) const = default;
-};
-
-/// A geoset's two flag words as the Mesh workspace edits them
-/// (EDIT_MODE_MESH_DESIGN.md §6.3): every bit, named or not, so one nobody has
-/// named can still be reached and still round-trips.
-struct GeosetFlags {
-    /// The geoset's `selectionFlags`. 0x4 is Unselectable: the game's click
-    /// ray skips the geoset (`IModelTestRay`).
-    u32 selection = 0;
-    /// Its geoset animation's flags. 0x1 is `DropShadow` (the section's
-    /// `ProjectedShadow`), 0x2 `Color`, which every record the export makes
-    /// carries; the rest are kept as the file had them.
-    u32 animation = 0x2;
-
-    static constexpr u32 kUnselectable = 0x4;
-    static constexpr u32 kDropShadow = 0x1;
-
-    bool operator==(const GeosetFlags&) const = default;
 };
 
 /// A native block and the document textures its making appended — which the
@@ -398,8 +370,9 @@ public:
     //
     // The section keeps them in its native bag and flags, in the import's own
     // representation, so an edit back to the imported value compares equal.
-    // `fromMdx` and `toMdx` go through these two as well: the bag keys are
-    // this converter's vocabulary and are spelled nowhere else.
+    // `fromMdx` and `toMdx` go through these two as well. The layout is
+    // `native/mdx_bag.h`'s and these forward to it; this converter is its only
+    // writer.
 
     /// White, 1 and shown for a section that carries none of them.
     GeosetTint geosetTint(const MeshSection& section) const;
@@ -512,22 +485,6 @@ struct M3ExportSettings {
     /// camera -- gets a bone of its own to move.
     bool effectNodeBones = false;
 };
-
-/// A node native key: this node draws only while its parent does, so a
-/// visibility on the parent needs no leaf bone to keep it off this node --
-/// the helper an effect crossing plants under its emitter says so.
-inline constexpr const char* kNodeSharesParentVisibility = "sharesParentVisibility";
-
-/// A node native key: the node is a `BONE` of the file as well as its own
-/// record -- `M3ImportOptions::foldRecordBones` made the two one -- so `toM3`
-/// writes it a bone whatever its transform says.
-inline constexpr const char* kNodeM3Bone = "m3Bone";
-/// Its text: that bone's name, where it is not the node's.
-inline constexpr const char* kNodeM3BoneName = "m3BoneName";
-/// A node native key: where its record stood among its kind's in the file,
-/// which is the order `toM3` writes them in; a node without one goes after
-/// every node with one, in node order.
-inline constexpr const char* kNodeM3Place = "m3Place";
 
 /// How `fromM3` lays a model out. Both off, the document is the file's own
 /// shape -- every record a node under its bone, a mesh per division, a section
