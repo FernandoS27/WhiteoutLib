@@ -12,6 +12,7 @@ language bindings.
 
 ## Why WhiteoutLib
 
+- **Complete and Battletested Library.** WhiteoutLib is based in genuine clean room reverse engineering and is validated against each feature it supports.
 - **Pure C++ CASC implementation.** CASC reading *and writing* are implemented
   in-house. It's also the fastest and most complete implementation out there.
 - **Zero external codec dependencies.** Every codec the library needs — BCn
@@ -38,7 +39,7 @@ language bindings.
   uses C++20 freely; the public headers fall back to compatibility shims
   (`std::optional`/`std::span` polyfills) so binding generators that target
   older standards still work.
-- **Round-trip read/write for most formats.** MDX, M2, M3, BLP, DDS, TEX, PNG,
+- **Round-trip read/write for most formats.** MDX, M2, M3, OBj, FBX, GLB, glTF, BLP, DDS, TEX, PNG,
   JPEG, BMP, TGA all support both directions. The texture pipeline is
   exercised in production by [WhiteoutTex](https://github.com/FernandoS27/WhiteoutTex),
   which uses it for viewing, conversion, mipmap generation, and Blizzard
@@ -46,15 +47,12 @@ language bindings.
 
 ## Module Maturity
 
-- **Textures** and **Storage** are the most mature modules and have seen
-  thorough testing. The texture module is exercised extensively by
+- **Textures** **Models** and **Storage** are the most mature modules and have seen
+  thorough testing. 
+  The texture module is exercised extensively by
   [WhiteoutTex](https://github.com/FernandoS27/WhiteoutTex).
-- **Models** is pretty mature:
-  - **MDX** is almost perfect
-  - **M3** all core nodes and setups are set and mostly validated.
-  - **M2** very advanced compared to other implementations out there.
-- **WEM** is an experimental intermediate model format intended to become the
-  bridge between the other model formats.
+  While the Model Model is used heavily by 
+  [WhiteoutFlakes](https://github.com/FernandoS27/WhiteoutFlakes).
 - **SNO** is currently the weakest module:
   - SNO is a binary JSON-style data type system used by Diablo III/IV.
   - Diablo IV support still requires more reverse engineering for some payload
@@ -67,10 +65,13 @@ language bindings.
 ### 3D models
 
 - **Warcraft III (`.mdx`)** — Classic and Reforged
-- **World of Warcraft (`.m2`)** — experimental; partial, see above
+- **World of Warcraft (`.m2`)** — pretty complete
 - **StarCraft II / Heroes of the Storm (`.m3` / `.m3a`)**
 - **Diablo III & IV (`.acr`, `.app`, `.ani`, `.ans`, `.mat`, `.prt`, SNO format family)**
-- **WEM** — Whiteout Editable Model - experimental intermediate format
+- **WEM** — Whiteout Editable Model -  intermediate format used for converting between formats and for editing models.
+- **OBJ** — Supported standard Wavefront Object 3D models.
+- **FBX** — Supported Autodesk 3D format without using Autodesk's SDK.
+- **GLB/glTF** — Supported Khronos Groups' standard interexcahnge format. Described by ISO/IEC 12113:2022.
 
 ### Textures
 
@@ -272,7 +273,7 @@ Useful options:
 | `WHITEOUT_ENABLE_TEXTURES` | `ON` | Build `whiteout_textures` |
 | `WHITEOUT_ENABLE_MODELS` | `ON` | Build `whiteout_models` and the WEM core, `whiteout_wem` |
 | `WHITEOUT_WEM_CONVERT` | `ON` | Build `whiteout_wem_convert`, the WEM converters and export passes (needs models) |
-| `WHITEOUT_WEM_EDIT` | `ON` | Build `whiteout_wem_edit`: modelling, rigging, skinning, UV, physics and its bakes (needs models and textures) |
+| `WHITEOUT_WEM_EDIT` | `OFF` | Build `whiteout_wem_edit`: modelling, rigging, skinning, UV, physics and its bakes (needs models and textures) |
 | `WHITEOUT_TEXTURES_D4` | `ON` | Read Diablo IV `.tex` (builds `whiteout_sno`); off, a D4 `.tex` fails to parse |
 | `WHITEOUT_ENABLE_CASC` | `OFF` | Build the `whiteout_casc` static library |
 | `WHITEOUT_ENABLE_MPQ` | `OFF` | Build the `whiteout_mpq` static library |
@@ -339,7 +340,7 @@ target_link_libraries(app PRIVATE
     WhiteoutLib::whiteout_lib WhiteoutLib::whiteout_casc WhiteoutLib::whiteout_mpq)
 ```
 
-Features map directly to CMake flags: `whiteoutlib[textures]`, `[models]`, `[wem-convert]` and `[wem-edit]` ⇒ the module switches (all four are default features), `whiteoutlib[casc]` ⇒ `WHITEOUT_ENABLE_CASC=ON`, `whiteoutlib[mpq]` ⇒ `WHITEOUT_ENABLE_MPQ=ON`, `whiteoutlib[curl]` ⇒ `WHITEOUT_ENABLE_CURL_HTTP=ON` + pulls `curl` from vcpkg (no-op on Windows, which always uses WinHTTP).
+Features map directly to CMake flags: `whiteoutlib[textures]`, `[models]`, `[wem-convert]` and `[wem-edit]` ⇒ the module switches (all but `[wem-edit]` are default features), `whiteoutlib[casc]` ⇒ `WHITEOUT_ENABLE_CASC=ON`, `whiteoutlib[mpq]` ⇒ `WHITEOUT_ENABLE_MPQ=ON`, `whiteoutlib[curl]` ⇒ `WHITEOUT_ENABLE_CURL_HTTP=ON` + pulls `curl` from vcpkg (no-op on Windows, which always uses WinHTTP).
 
 When publishing the port to a custom vcpkg registry, bump `version` in `ports/whiteoutlib/vcpkg.json` and replace the `SHA512 0` placeholder in `portfile.cmake` with the real SHA — `vcpkg install` will print the expected value on first run.
 

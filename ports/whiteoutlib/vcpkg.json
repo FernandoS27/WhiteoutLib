@@ -8,8 +8,7 @@
     "default-features": [
         "textures",
         "models",
-        "wem-convert",
-        "wem-edit"
+        "wem-convert"
     ],
     "features": {
         "textures": {

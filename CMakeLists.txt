@@ -40,13 +40,13 @@ option(WHITEOUT_INSTALL
     "Generate install/export rules for find_package(WhiteoutLib)" ON)
 
 # The modules (WHITEOUTLIB_MODULES_DESIGN.md). A switch decides whether a module's
-# target exists; it never compiles code out. Every default is ON, so a configure
-# that names none of them builds what it always has.
+# target exists; it never compiles code out. Every default is ON but the authoring
+# module's: a consumer that edits models asks for WHITEOUT_WEM_EDIT.
 option(WHITEOUT_ENABLE_TEXTURES "Build whiteout_textures" ON)
 option(WHITEOUT_ENABLE_MODELS "Build whiteout_models and the WEM core (whiteout_wem)" ON)
 option(WHITEOUT_WEM_CONVERT "Build whiteout_wem_convert: format converters and export passes" ON)
 option(WHITEOUT_WEM_EDIT
-    "Build whiteout_wem_edit: modelling, rigging, skinning, UV, physics and its bakes" ON)
+    "Build whiteout_wem_edit: modelling, rigging, skinning, UV, physics and its bakes" OFF)
 option(WHITEOUT_TEXTURES_D4 "Read Diablo IV .tex in whiteout_textures (builds whiteout_sno)" ON)
 # A module asked for without what it needs is a configure error, not a silent OFF.
 if(WHITEOUT_WEM_CONVERT AND NOT WHITEOUT_ENABLE_MODELS)
