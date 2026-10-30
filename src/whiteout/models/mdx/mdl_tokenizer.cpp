@@ -274,6 +274,22 @@ void MdlTokenizer::readNumber() {
             ++m_cursor;
     }
 
+    // Old MSVC printf spellings of non-finite values ("-1.#IND00",
+    // "1.#INF00", "1.#QNAN0", "1.#SNAN0"), written by old exporters: one
+    // number token, not a number followed by garbage.
+    if (m_cursor < m_end && *m_cursor == '#') {
+        const char* q = m_cursor + 1;
+        while (q < m_end && (isAlphaNum(*q)))
+            ++q;
+        if (q > m_cursor + 1) {
+            m_cursor = q;
+            const auto len = static_cast<std::size_t>(m_cursor - start);
+            const u32 col = static_cast<u32>(start - m_lineStart) + 1;
+            m_tokens.push_back({MdlTokenType::Number, {start, len}, m_line, col});
+            return;
+        }
+    }
+
     // Exponent part (e.g. 1e-3, 2.5E+10)
     if (m_cursor < m_end && (*m_cursor == 'e' || *m_cursor == 'E')) {
         ++m_cursor;
