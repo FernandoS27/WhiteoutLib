@@ -108,6 +108,10 @@ void Document::declare(ProfileId profile) {
     }
 }
 
+ProfileId Document::assetSource() const {
+    return assetProfile != ProfileId::Count ? assetProfile : defaultProfile;
+}
+
 ProfileMask Document::declaredMask() const {
     ProfileMask mask = kNoProfiles;
     for (ProfileId declared : profiles) {

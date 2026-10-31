@@ -796,6 +796,10 @@ public:
         // The records a system adds are appended, so the count taken first
         // visits the source's nodes only.
         const u32 count = model_.nodes.size();
+        std::vector<NodeKind> kinds(count);
+        for (u32 n = 0; n < count; ++n) {
+            kinds[n] = model_.nodes.nodes[n].kind;
+        }
         u32 popcorn = 0;
         for (u32 n = 0; n < count; ++n) {
             if (model_.nodes.nodes[n].removed) {
@@ -834,6 +838,14 @@ public:
                                      std::to_string(popcorn) +
                                          " PopcornFX emitter(s) (CORN) did not cross",
                                      ElementRef());
+        }
+        // What a system became is held by the profile it was crossed for, whatever
+        // the Warcraft III node's mask said: a document carrying both games keeps
+        // the original out of the StarCraft II one (wem/nodes/presence.h).
+        for (u32 n = 0; n < model_.nodes.size(); ++n) {
+            if (n >= count || kinds[n] != model_.nodes.nodes[n].kind) {
+                model_.nodes.nodes[n].profiles |= wem::ProfileBit(options_.profile);
+            }
         }
     }
 
@@ -1471,9 +1483,9 @@ private:
     /// The Warcraft III record @p slot draws, as the document's own profile
     /// states it; null when it carries none.
     const wem::native::MdxMaterial* warcraftMaterial(u32 slot) const {
-        const wem::ProfileMaterialSet* set = model_.setFor(document_.defaultProfile);
+        const wem::ProfileMaterialSet* set = model_.setFor(document_.assetSource());
         const wem::Material* material =
-            set != nullptr ? wem::Resolve(model_, slot, document_.defaultProfile, set->defaultLook)
+            set != nullptr ? wem::Resolve(model_, slot, document_.assetSource(), set->defaultLook)
                            : nullptr;
         if (material == nullptr || material->nativeKind() != wem::NativeKind::Mdx) {
             return nullptr;

@@ -75,6 +75,11 @@ struct Document {
     std::vector<ProfileId> profiles;
     ProfileId defaultProfile = ProfileId::Generic;
 
+    /// The profile whose game's storage the texture keys name, or `Count` for
+    /// `defaultProfile`'s. Set when the main profile moves to another game: the
+    /// geometry follows it, the textures stay where they were read from.
+    ProfileId assetProfile = ProfileId::Count;
+
     /// Canonical, always (§6.4). The per-profile source space lives in the
     /// registry, so an exporter knows how to rebase back.
     CoordSpace space = CoordSpace::Blizzard;
@@ -119,6 +124,9 @@ struct Document {
     /// Every declared profile as a mask.
     ProfileMask declaredMask() const;
 
+    /// `assetProfile`, or `defaultProfile` when it names none.
+    ProfileId assetSource() const;
+
     /// `unknownChunks` is deliberately absent from the reflected form: the
     /// chunks live at the *container* level, where their index entries are, and
     /// writing them inside the root record would give them a second home in the
@@ -127,6 +135,7 @@ struct Document {
     void reflect(V& v) {
         v.inlineList("profiles", profiles);
         v.field("defaultProfile", defaultProfile);
+        v.since(2).field("assetProfile", assetProfile);
         v.field("space", space);
         v.field("unitScale", unitScale);
         v.field("name", name);

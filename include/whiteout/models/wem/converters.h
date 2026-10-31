@@ -613,6 +613,17 @@ public:
      */
     MaterialBlockResult setMaterialBlock(Document& document, const M3MaterialBlockEdit& edit) const;
 
+    /// Every material of @p profile's set in @p model that holds no `.m3` block
+    /// given the one `toM3` writes for it, read back as `fromM3` reads it: what a
+    /// set derived from another game's needs before the StarCraft II forms can
+    /// edit it, and what the file holds either way. Its layer channels follow
+    /// each layer to the ordinal the block gives it. A material the export
+    /// writes as a composite, or whose features are keyed, is left as it is.
+    /// Returns how many took a block; a path no document texture had joins the
+    /// textures. @p textureAlphaClasses is `M3ExportSettings::textureAlphaClasses`.
+    u32 adoptNativeBlocks(Document& document, u32 model, ProfileId profile, Diagnostics& out,
+                          const std::vector<u8>* textureAlphaClasses = nullptr) const;
+
     /// A new material's block for @p profile's set of @p model, over document
     /// texture @p colourMap: the set's first Standard material for its class,
     /// blend, flags and HDR terms, the model's own style, with one diffuse

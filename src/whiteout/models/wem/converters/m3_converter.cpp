@@ -1624,10 +1624,23 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             }
         }
     }
+    // A node the profile does not hold writes no record (presence.h). It stays
+    // a bone where something hangs off it -- a placement, or a bone that may
+    // skin -- so the hierarchy and the skin keep their transforms.
+    const std::vector<NodePresence> presence = NodePresenceIn(model.nodes, profile);
+    const auto held = [&](std::size_t n) { return n >= presence.size() || presence[n] == NodePresence::Present; };
     for (const u32 n : topological) {
         const Node& node = model.nodes.nodes[n];
         // A record the import folded into its bone is that bone too.
         bool carries = node.native.find(kNodeM3Bone) != nullptr;
+        if (!held(n)) {
+            if (presence[n] == NodePresence::Placement || carries || node.kind == NodeKind::Bone ||
+                node.kind == NodeKind::Helper) {
+                boneOf[n] = static_cast<u32>(out.bones.size());
+                out.bones.emplace_back();
+            }
+            continue;
+        }
         switch (carries ? NodeKind::Bone : node.kind) {
         case NodeKind::Bone:
         case NodeKind::Helper:
@@ -1706,7 +1719,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         // Transform tracks flow to the bone. A light keeps its Light slot (its
         // colour and falloff are the tracks an m3 light can state) and a
         // camera its Camera slot; both are assigned below.
-        if (node.kind != NodeKind::Light && node.kind != NodeKind::Camera) {
+        if (!held(n) || (node.kind != NodeKind::Light && node.kind != NodeKind::Camera)) {
             animContext.nodeSlots[n] = {m3_anim::ExportContext::Slot::Bone, boneOf[n]};
         }
         m3::Bone bone;
@@ -1766,7 +1779,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             const Node& node = model.nodes.nodes[n];
             const bool ownVisibility = node.kind == NodeKind::Attachment ||
                                        node.kind == NodeKind::Light || IsEmitterKind(node.kind);
-            if (!ownVisibility || boneOf[n] == 0xFFFFu || !keyedVisibility[n] || !hasChildren[n]) {
+            if (!ownVisibility || !held(n) || boneOf[n] == 0xFFFFu || !keyedVisibility[n] || !hasChildren[n]) {
                 continue;
             }
             m3::Bone leaf;
@@ -1811,8 +1824,9 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     std::vector<u32> frameBoneOf(nodeCount, 0xFFFFu);
     for (u32 n = 0; n < nodeCount; ++n) {
         const Node& node = model.nodes.nodes[n];
-        const auto* field =
-            node.kind == NodeKind::ForceField ? std::get_if<ForceFieldPayload>(&node.payload) : nullptr;
+        const auto* field = node.kind == NodeKind::ForceField && held(n)
+                                ? std::get_if<ForceFieldPayload>(&node.payload)
+                                : nullptr;
         if (field == nullptr || IsIdentityFrame(field->transform)) {
             continue;
         }
@@ -1969,7 +1983,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     // Shadow boxes, on the bone of the node that holds one.
     for (const u32 n : topological) {
         const Node& node = model.nodes.nodes[n];
-        if (!node.sc2ShadowBox) {
+        if (!node.sc2ShadowBox || !held(n)) {
             continue;
         }
         m3::ShadowBox box = RecordOf<m3::ShadowBox>(*node.sc2ShadowBox);
@@ -2011,7 +2025,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     };
     const auto particleAt = [&](std::size_t n) -> const Sc2ParticleEmitterPayload* {
         const Node& node = model.nodes.nodes[n];
-        return node.kind == NodeKind::Sc2ParticleEmitter
+        return node.kind == NodeKind::Sc2ParticleEmitter && held(n)
                    ? std::get_if<Sc2ParticleEmitterPayload>(&node.payload)
                    : nullptr;
     };
@@ -2038,6 +2052,8 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             recordBone[n] = bone == 0xFFFFu ? kInvalidIndex : bone;
             if (const auto* particle = particleAt(n); particle != nullptr && !particle->isCopy()) {
                 particleOf[n] = particles++;
+            } else if (!held(n)) {
+                continue;
             } else if (node.kind == NodeKind::Sc2RibbonEmitter &&
                        std::holds_alternative<Sc2RibbonEmitterPayload>(node.payload)) {
                 ribbonOf[n] = ribbons++;
@@ -2083,6 +2099,9 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             map->nodeVisBone.resize(nodeCount, kInvalidIndex);
             map->nodeBone[n] = carrier == 0xFFFFu ? kInvalidIndex : carrier;
             map->nodeVisBone[n] = parentBone == 0xFFFFu ? kInvalidIndex : parentBone;
+        }
+        if (!held(n)) {
+            continue;
         }
         switch (node.kind) {
         case NodeKind::Attachment: {
@@ -2327,7 +2346,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     // The pass fold's inputs (WC3_SD_MATERIAL_TO_SC2_DESIGN.md §5): whether the
     // stacks are Warcraft III's, what the caller learned about the textures'
     // alpha, and where a composite's section entries may go -- after the slots.
-    context.warcraftPasses = IsWc3(document.defaultProfile);
+    context.warcraftPasses = IsWc3(document.assetSource());
     context.exactPasses = settings.exactPasses;
     if (!settings.textureAlphaClasses.empty()) {
         context.textureAlphaClasses = &settings.textureAlphaClasses;
@@ -2536,7 +2555,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         }
         return signature;
     };
-    const bool warcraftMaterials = IsWc3(document.defaultProfile);
+    const bool warcraftMaterials = IsWc3(document.assetSource());
     std::map<u32, std::string> slotTint;
     std::set<u32> slotTintShared;
     // The material map entry a section draws, where it is not its slot's.
@@ -2716,7 +2735,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
 
     for (std::size_t m = 0; m < model.meshes.size(); ++m) {
         const Mesh& mesh = model.meshes[m];
-        const bool warcraftDocument = IsWc3(document.defaultProfile);
+        const bool warcraftDocument = IsWc3(document.assetSource());
         const geom::RenderMesh render = geom::BuildRenderMesh(mesh, desc);
         diagnostics.append(render.diagnostics);
 
@@ -3804,6 +3823,126 @@ MaterialBlockResult M3Converter::setMaterialBlock(Document& document, const M3Ma
     target = std::move(derived);
     result.ok = true;
     return result;
+}
+
+u32 M3Converter::adoptNativeBlocks(Document& document, u32 modelIndex, ProfileId profile, Diagnostics& out,
+                                   const std::vector<u8>* textureAlphaClasses) const {
+    if (!IsStarCraft(profile) || modelIndex >= document.models.size()) {
+        return 0;
+    }
+    Model& model = document.models[modelIndex];
+    ProfileMaterialSet* set = model.setFor(profile);
+    if (set == nullptr) {
+        return 0;
+    }
+    // `toM3`'s own context, so the block is the one the file would hold.
+    m3_core::Context context;
+    context.modelVersion = ExportVersionFor(profile);
+    context.textureRefs = &document.textures;
+    context.warcraftPasses = IsWc3(document.assetSource());
+    context.compositeSections = true;
+    context.internUnknownPaths = true;
+    context.textureAlphaClasses = textureAlphaClasses;
+    for (const TextureRef& ref : document.textures) {
+        context.texturesByPath.emplace_back(ref.path, static_cast<u32>(context.texturesByPath.size()));
+    }
+    const auto binds = [&](const MaterialChannelRef& ref, u32 material) {
+        return ref.profile == profile && BindsM3Material(*set, ref.slot, ref.look, material);
+    };
+    u32 adopted = 0;
+    for (u32 m = 0; m < set->materials.size(); ++m) {
+        Material& material = set->materials[m];
+        if (material.nativeKind() == NativeKind::M3) {
+            continue;
+        }
+        m3_core::ExportHints hints;
+        bool featureKeyed = false;
+        for (const AnimChannel& channel : model.animChannels.channels) {
+            const TrackTarget& t = channel.target;
+            if (!IsMaterialTarget(t.kind) || !binds(t.material, m)) {
+                continue;
+            }
+            featureKeyed = featureKeyed || t.kind == TrackTarget::Kind::MaterialFeature;
+            if (t.kind == TrackTarget::Kind::MaterialLayer && t.sub != kWholeMaterial && t.sub < 64) {
+                if (t.channel == Channel::Alpha) {
+                    hints.alphaTrackedOrdinals |= u64{1} << t.sub;
+                } else if (t.channel == Channel::TextureIndex) {
+                    hints.textureIndexTrackedOrdinals |= u64{1} << t.sub;
+                }
+            }
+        }
+        // A feature channel joins its feature by id, which a block read back
+        // numbers afresh.
+        if (featureKeyed) {
+            out.info(DiagCode::OperationUnsupported,
+                     "'" + material.name + "' keys a feature; it keeps the common view until edited",
+                     ElementRef(ElementKind::Material, m), profile);
+            continue;
+        }
+        m3::Model scratch;
+        Diagnostics ignored;
+        std::vector<u32> exported;
+        const m3::MaterialMap entry =
+            m3_core::ExportMaterial(material, profile, context, scratch, ignored, &exported, &hints);
+        if (entry.materialType != m3::MaterialType::Standard ||
+            exported.size() != static_cast<std::size_t>(m3_core::StandardLayer::Count)) {
+            out.info(DiagCode::OperationUnsupported,
+                     "'" + material.name + "' is written as a composite; it keeps the common view",
+                     ElementRef(ElementKind::Material, m), profile);
+            continue;
+        }
+        std::vector<u32> imported;
+        Material derived = m3_core::ImportMaterial(scratch, entry, profile, context, ignored, &imported);
+        if (derived.nativeKind() != NativeKind::M3) {
+            continue;
+        }
+        derived.name = material.name;
+        // The source body's ordinal -> the layer the export put it on -> the
+        // ordinal the block reads it as.
+        const auto ordinalOf = [&](u32 old) -> u32 {
+            for (std::size_t layer = 0; layer < exported.size() && layer < imported.size(); ++layer) {
+                if (exported[layer] == old) {
+                    return imported[layer];
+                }
+            }
+            return kInvalidIndex;
+        };
+        // The import makes no features; the material's own follow their layers.
+        for (const MaterialFeature& old : material.Common().features) {
+            const u32 layer = old.layer == kWholeMaterial ? kWholeMaterial : ordinalOf(old.layer);
+            if (layer == kInvalidIndex) {
+                continue;
+            }
+            MaterialFeature kept = old;
+            kept.layer = layer;
+            derived.InitCommon().features.push_back(std::move(kept));
+        }
+        for (AnimChannel& channel : model.animChannels.channels) {
+            TrackTarget& t = channel.target;
+            if (t.kind != TrackTarget::Kind::MaterialLayer || !binds(t.material, m) || !NamesOrdinal(t)) {
+                continue;
+            }
+            const u32 to = ordinalOf(t.sub);
+            if (to != kInvalidIndex) {
+                t.sub = to;
+                continue;
+            }
+            // Invalidated, never dropped: an id is never reused.
+            t.material.slot = kInvalidIndex;
+            out.warn(DiagCode::AnimChannelInvalidated,
+                     "channel " + std::to_string(channel.id) + " animated a layer the block does not hold",
+                     ElementRef(ElementKind::Channel, channel.id), profile);
+        }
+        material = std::move(derived);
+        ++adopted;
+    }
+    for (std::size_t i = document.textures.size(); i < context.texturesByPath.size(); ++i) {
+        TextureRef ref;
+        ref.path = context.texturesByPath[i].first;
+        ref.key = TexturePath{ref.path};
+        document.textures.push_back(std::move(ref));
+    }
+    return adopted;
 }
 
 native::M3Material M3Converter::defaultMaterialBlock(const Document& document, u32 model, ProfileId profile,

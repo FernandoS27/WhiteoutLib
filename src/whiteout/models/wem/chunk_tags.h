@@ -177,10 +177,11 @@ struct ChunkTagTraits<std::array<u8, 4>> {
 /// one of these. The field exists so a later build can add a `v.since(2)` field
 /// and bump exactly the chunk it changed.
 
+/// v2 adds `assetProfile`.
 template <>
 struct ChunkTagTraits<Document> {
     static constexpr u32 value = kTag("WDOC");
-    static constexpr u32 max_version = 1;
+    static constexpr u32 max_version = 2;
     static constexpr bool is_trivial = false;
 };
 

@@ -2558,11 +2558,11 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
     // so a felstalker opened as Warcraft III drew white with a resolvable
     // `fileDataID` sitting unused beside the slot.
     //
-    // `defaultProfile` is the authoring profile and a derive does not move it,
-    // so a two-profile `.mdx` document keeps its ids and an imported one drops
-    // them back to the texture's own key.
+    // `assetSource()` is the authoring profile and neither a derive nor a new
+    // main profile moves it, so a two-profile `.mdx` document keeps its ids and
+    // an imported one drops them back to the texture's own key.
     const bool authoredAsMdx =
-        Profile(document.defaultProfile).nativeMaterialKind == NativeKind::Mdx;
+        Profile(document.assetSource()).nativeMaterialKind == NativeKind::Mdx;
     const std::vector<u32> wrapBits = TextureWrapBits(document, set);
     for (std::size_t t = 0; t < document.textures.size(); ++t) {
         const TextureRef& ref = document.textures[t];
