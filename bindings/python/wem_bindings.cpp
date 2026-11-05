@@ -980,6 +980,18 @@ Closed on purpose. A source property with no entry here is **dropped with an `An
         .value("PARALLAX_HEIGHT", whiteout::models::wem::Channel::ParallaxHeight, R"doc(F32. `MAT_` `parallaxHeight`, `sub` `kWholeMaterial`.)doc")
         .value("MOTION_BLUR", whiteout::models::wem::Channel::MotionBlur, R"doc(F32. `MAT_` `motionBlurAmount`, `sub` `kWholeMaterial`.)doc")
         .value("SECTION_WEIGHT", whiteout::models::wem::Channel::SectionWeight, R"doc(F32. A composite's `CMS_` `mapMultiplier`, `sub` the section.)doc")
+        .value("FIELD_OF_VIEW", whiteout::models::wem::Channel::FieldOfView, R"doc(F32. Radians, vertical or horizontal as `useVerticalFOV` says.)doc")
+        .value("NEAR_CLIP", whiteout::models::wem::Channel::NearClip, R"doc(F32.)doc")
+        .value("FAR_CLIP", whiteout::models::wem::Channel::FarClip, R"doc(F32.)doc")
+        .value("SHADOW_CLIP", whiteout::models::wem::Channel::ShadowClip, R"doc(F32. `shadowClipDistance`: how far shadows are drawn.)doc")
+        .value("FOCAL_DEPTH", whiteout::models::wem::Channel::FocalDepth, R"doc(F32. `focusDistance`: the distance in focus.)doc")
+        .value("FALLOFF_START", whiteout::models::wem::Channel::FalloffStart, R"doc(F32. `farFocusRange`: past the focus, where the blur starts.)doc")
+        .value("FALLOFF_END", whiteout::models::wem::Channel::FalloffEnd, R"doc(F32. `nearFocusRange`: past the focus, where it is whole.)doc")
+        .value("FALLOFF_START_NEAR", whiteout::models::wem::Channel::FalloffStartNear, R"doc(F32. `nearFalloffStart`: the same, short of the focus.)doc")
+        .value("FALLOFF_END_NEAR", whiteout::models::wem::Channel::FalloffEndNear, R"doc(F32. `nearFalloffEnd`.)doc")
+        .value("DEPTH_OF_FIELD", whiteout::models::wem::Channel::DepthOfField, R"doc(F32. `dofAmount`: how strong the blur is; 0 is none.)doc")
+        .value("BOKEH_F_STOP", whiteout::models::wem::Channel::BokehFStop, R"doc(F32. `bokehFStop` (v5).)doc")
+        .value("BOKEH_MAX_CO_C", whiteout::models::wem::Channel::BokehMaxCoC, R"doc(F32. `bokehMaxCoCDiameter` (v5).)doc")
         .value("COUNT", whiteout::models::wem::Channel::Count)
     ;
 
@@ -1656,19 +1668,6 @@ Deterministic and idempotent. Fails only on a non-manifold face set, which `Mesh
         .def("face_sections", py::overload_cast<>(&whiteout::models::wem::Mesh::faceSections, py::const_))
         .def("faces_of_section", &whiteout::models::wem::Mesh::facesOfSection, py::arg("section"), R"doc(Faces belonging to @p section, in face order. A bucket pass at the point of use, which is what replaces the old sorted-range invariant.)doc")
         .def("recompute_bounds", &whiteout::models::wem::Mesh::recomputeBounds, R"doc(Recomputes `bounds` and every section's `bounds` from `position`.)doc")
-    ;
-
-    py::class_<whiteout::models::wem::Wc3ParticleEmitter1Payload>(m, "Wc3ParticleEmitter1Payload", R"doc(`PREM`: every particle is a copy of `spawnModel`, flung from the node.)doc")
-        .def(py::init<>())
-        .def_readwrite("emission_rate", &whiteout::models::wem::Wc3ParticleEmitter1Payload::emissionRate, R"doc(Particles a second.)doc")
-        .def_readwrite("gravity", &whiteout::models::wem::Wc3ParticleEmitter1Payload::gravity)
-        .def_readwrite("longitude", &whiteout::models::wem::Wc3ParticleEmitter1Payload::longitude, R"doc(Radians.)doc")
-        .def_readwrite("latitude", &whiteout::models::wem::Wc3ParticleEmitter1Payload::latitude, R"doc(Radians.)doc")
-        .def_readwrite("lifespan", &whiteout::models::wem::Wc3ParticleEmitter1Payload::lifespan, R"doc(Seconds.)doc")
-        .def_readwrite("speed", &whiteout::models::wem::Wc3ParticleEmitter1Payload::speed, R"doc(`initialVelocity`.)doc")
-        .def_readwrite("spawn_model", &whiteout::models::wem::Wc3ParticleEmitter1Payload::spawnModel, R"doc(The model each particle is, by path.)doc")
-        .def_readwrite("uses_mdl", &whiteout::models::wem::Wc3ParticleEmitter1Payload::usesMdl, R"doc(Node flag 0x8000.)doc")
-        .def_readwrite("uses_tga", &whiteout::models::wem::Wc3ParticleEmitter1Payload::usesTga, R"doc(Node flag 0x10000.)doc")
     ;
 
     bind_wem_1(m);

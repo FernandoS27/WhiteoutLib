@@ -550,6 +550,7 @@ Forward compatibility is the point: a newer writer's chunk survives a round-trip
         .def(py::init<>())
         .def_readwrite("profiles", &whiteout::models::wem::Document::profiles, R"doc(The declared set. A `ProfileMaterialSet` for an undeclared profile is a structural error, as is a `defaultProfile` outside this list.)doc")
         .def_readwrite("default_profile", &whiteout::models::wem::Document::defaultProfile)
+        .def_readwrite("asset_profile", &whiteout::models::wem::Document::assetProfile, R"doc(The profile whose game's storage the texture keys name, or `Count` for `defaultProfile`'s. Set when the main profile moves to another game: the geometry follows it, the textures stay where they were read from.)doc")
         .def_readwrite("space", &whiteout::models::wem::Document::space, R"doc(Canonical, always (§6.4). The per-profile source space lives in the registry, so an exporter knows how to rebase back.)doc")
         .def_readwrite("unit_scale", &whiteout::models::wem::Document::unitScale, R"doc(What one WEM unit is, if the caller knows. Scale is **not** normalised — geometry stays in the units it was authored in.)doc")
         .def_readwrite("name", &whiteout::models::wem::Document::name)
@@ -566,6 +567,7 @@ The parser fills it and the writer reads it, so a read-edit-write round trip pre
         .def("carries", &whiteout::models::wem::Document::carries, py::arg("profile"))
         .def("declare", &whiteout::models::wem::Document::declare, py::arg("profile"), R"doc(Declares @p profile if it is not already declared. Does not create material sets — that is `AddProfileFromImport` or `DeriveProfile` (§6.6).)doc")
         .def("declared_mask", &whiteout::models::wem::Document::declaredMask, R"doc(Every declared profile as a mask.)doc")
+        .def("asset_source", &whiteout::models::wem::Document::assetSource, R"doc(`assetProfile`, or `defaultProfile` when it names none.)doc")
     ;
 
     py::class_<whiteout::models::wem::ReadOptions>(m, "ReadOptions", R"doc(Which formats this reader is willing to parse the native block of.

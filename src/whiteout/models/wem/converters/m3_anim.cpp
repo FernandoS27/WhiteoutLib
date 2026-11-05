@@ -599,6 +599,7 @@ public:
     void run() {
         declareBoneChannels();
         declareLightChannels();
+        declareCameraChannels();
         declareMaterialChannels();
         declareEmitterChannels();
         declarePhysicsChannels();
@@ -744,6 +745,37 @@ private:
             if (played(light.attenuationStart)) {
                 declare(light.attenuationStart, geom::AttrType::F32, nodeTarget(node, Channel::AttenuationStart));
             }
+        }
+    }
+
+    /// A camera's lens, where the file's own containers key it. A ref keyed but
+    /// stated unbound on a latched model plays its rest, as a light's does, and
+    /// rides its record whole.
+    void declareCameraChannels() {
+        const bool latched = (static_cast<u32>(source_.flags) & 0x800u) != 0;
+        for (std::size_t c = 0; c < source_.cameras.size(); ++c) {
+            const u32 node = context_.bases.camera + static_cast<u32>(c);
+            if (node >= model_.nodes.size()) {
+                continue;
+            }
+            const m3::Camera& camera = source_.cameras[c];
+            const auto lens = [&](const m3::AnimRef<f32>& ref, Channel channel) {
+                if (!latched || (ref.flags & 0x2u) != 0) {
+                    declareKeyed(ref, geom::AttrType::F32, nodeTarget(node, channel));
+                }
+            };
+            lens(camera.fieldOfView, Channel::FieldOfView);
+            lens(camera.nearClip, Channel::NearClip);
+            lens(camera.farClip, Channel::FarClip);
+            lens(camera.shadowClipDistance, Channel::ShadowClip);
+            lens(camera.focusDistance, Channel::FocalDepth);
+            lens(camera.farFocusRange, Channel::FalloffStart);
+            lens(camera.nearFocusRange, Channel::FalloffEnd);
+            lens(camera.nearFalloffStart, Channel::FalloffStartNear);
+            lens(camera.nearFalloffEnd, Channel::FalloffEndNear);
+            lens(camera.dofAmount, Channel::DepthOfField);
+            lens(camera.bokehFStop, Channel::BokehFStop);
+            lens(camera.bokehMaxCoCDiameter, Channel::BokehMaxCoC);
         }
     }
 
@@ -2500,6 +2532,43 @@ private:
             default:
                 return;
             }
+        }
+        if (slot.slot == ExportContext::Slot::Camera && slot.index < out_.cameras.size()) {
+            if (m3::AnimRef<f32>* ref = cameraLensRef(out_.cameras[slot.index], channel.target.channel)) {
+                Wire(*ref, exportId(channel.id), track.interp);
+            }
+        }
+    }
+
+    /// The `CAM_` ref a lens channel keys; null for any other channel.
+    static m3::AnimRef<f32>* cameraLensRef(m3::Camera& camera, Channel channel) {
+        switch (channel) {
+        case Channel::FieldOfView:
+            return &camera.fieldOfView;
+        case Channel::NearClip:
+            return &camera.nearClip;
+        case Channel::FarClip:
+            return &camera.farClip;
+        case Channel::ShadowClip:
+            return &camera.shadowClipDistance;
+        case Channel::FocalDepth:
+            return &camera.focusDistance;
+        case Channel::FalloffStart:
+            return &camera.farFocusRange;
+        case Channel::FalloffEnd:
+            return &camera.nearFocusRange;
+        case Channel::FalloffStartNear:
+            return &camera.nearFalloffStart;
+        case Channel::FalloffEndNear:
+            return &camera.nearFalloffEnd;
+        case Channel::DepthOfField:
+            return &camera.dofAmount;
+        case Channel::BokehFStop:
+            return &camera.bokehFStop;
+        case Channel::BokehMaxCoC:
+            return &camera.bokehMaxCoCDiameter;
+        default:
+            return nullptr;
         }
     }
 

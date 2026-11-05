@@ -171,6 +171,19 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 1 of bind_wem(), which calls the parts in order.
 void bind_wem_1(py::module_& m) {
+    py::class_<whiteout::models::wem::Wc3ParticleEmitter1Payload>(m, "Wc3ParticleEmitter1Payload", R"doc(`PREM`: every particle is a copy of `spawnModel`, flung from the node.)doc")
+        .def(py::init<>())
+        .def_readwrite("emission_rate", &whiteout::models::wem::Wc3ParticleEmitter1Payload::emissionRate, R"doc(Particles a second.)doc")
+        .def_readwrite("gravity", &whiteout::models::wem::Wc3ParticleEmitter1Payload::gravity)
+        .def_readwrite("longitude", &whiteout::models::wem::Wc3ParticleEmitter1Payload::longitude, R"doc(Radians.)doc")
+        .def_readwrite("latitude", &whiteout::models::wem::Wc3ParticleEmitter1Payload::latitude, R"doc(Radians.)doc")
+        .def_readwrite("lifespan", &whiteout::models::wem::Wc3ParticleEmitter1Payload::lifespan, R"doc(Seconds.)doc")
+        .def_readwrite("speed", &whiteout::models::wem::Wc3ParticleEmitter1Payload::speed, R"doc(`initialVelocity`.)doc")
+        .def_readwrite("spawn_model", &whiteout::models::wem::Wc3ParticleEmitter1Payload::spawnModel, R"doc(The model each particle is, by path.)doc")
+        .def_readwrite("uses_mdl", &whiteout::models::wem::Wc3ParticleEmitter1Payload::usesMdl, R"doc(Node flag 0x8000.)doc")
+        .def_readwrite("uses_tga", &whiteout::models::wem::Wc3ParticleEmitter1Payload::usesTga, R"doc(Node flag 0x10000.)doc")
+    ;
+
     py::class_<whiteout::models::wem::Wc3ParticleSegment>(m, "Wc3ParticleSegment", R"doc(A particle's look at one of its three lifetime points: birth, `time`, death.)doc")
         .def(py::init<>())
         .def_readwrite("color", &whiteout::models::wem::Wc3ParticleSegment::color, R"doc(RGB, red first — the static-colour order.)doc")

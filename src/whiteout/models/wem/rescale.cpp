@@ -79,6 +79,14 @@ int ChannelLengthPower(const Model& model, const AnimChannel& channel) {
     case Channel::FocusDistance:
     case Channel::ClothDriverTranslation:
     case Channel::SoftLumpTranslation:
+    case Channel::NearClip:
+    case Channel::FarClip:
+    case Channel::ShadowClip:
+    case Channel::FocalDepth:
+    case Channel::FalloffStart:
+    case Channel::FalloffEnd:
+    case Channel::FalloffStartNear:
+    case Channel::FalloffEndNear:
         return 1;
     case Channel::LinearFalloff:
     case Channel::FStop:
@@ -184,6 +192,8 @@ void forEachPayloadRecordLength(PayloadT& payload, F&& f) {
         f(camera->sc2->focusDistance, 1);
         f(camera->sc2->farFocusRange, 1);
         f(camera->sc2->nearFocusRange, 1);
+        f(camera->sc2->nearFalloffStart, 1);
+        f(camera->sc2->nearFalloffEnd, 1);
     } else if (auto* projector = get(std::type_identity<ProjectorPayload>{})) {
         auto& record = projector->record;
         f(record.near, 1);

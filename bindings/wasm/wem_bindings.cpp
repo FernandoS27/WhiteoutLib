@@ -781,6 +781,18 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("ParallaxHeight", whiteout::models::wem::Channel::ParallaxHeight)
         .value("MotionBlur", whiteout::models::wem::Channel::MotionBlur)
         .value("SectionWeight", whiteout::models::wem::Channel::SectionWeight)
+        .value("FieldOfView", whiteout::models::wem::Channel::FieldOfView)
+        .value("NearClip", whiteout::models::wem::Channel::NearClip)
+        .value("FarClip", whiteout::models::wem::Channel::FarClip)
+        .value("ShadowClip", whiteout::models::wem::Channel::ShadowClip)
+        .value("FocalDepth", whiteout::models::wem::Channel::FocalDepth)
+        .value("FalloffStart", whiteout::models::wem::Channel::FalloffStart)
+        .value("FalloffEnd", whiteout::models::wem::Channel::FalloffEnd)
+        .value("FalloffStartNear", whiteout::models::wem::Channel::FalloffStartNear)
+        .value("FalloffEndNear", whiteout::models::wem::Channel::FalloffEndNear)
+        .value("DepthOfField", whiteout::models::wem::Channel::DepthOfField)
+        .value("BokehFStop", whiteout::models::wem::Channel::BokehFStop)
+        .value("BokehMaxCoC", whiteout::models::wem::Channel::BokehMaxCoC)
         .value("Count", whiteout::models::wem::Channel::Count);
 
     enum_<whiteout::models::wem::Interpolation>("WemInterpolation")
@@ -2711,6 +2723,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .constructor<>()
         .property("profiles", &whiteout::models::wem::Document::profiles)
         .property("defaultProfile", &whiteout::models::wem::Document::defaultProfile)
+        .property("assetProfile", &whiteout::models::wem::Document::assetProfile)
         .property("space", &whiteout::models::wem::Document::space)
         .property("unitScale", &whiteout::models::wem::Document::unitScale)
         .property("name", &whiteout::models::wem::Document::name)
@@ -2723,6 +2736,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .function("carries", &whiteout::models::wem::Document::carries)
         .function("declare", &whiteout::models::wem::Document::declare)
         .function("declaredMask", &whiteout::models::wem::Document::declaredMask)
+        .function("assetSource", &whiteout::models::wem::Document::assetSource)
     ;
 
     class_<whiteout::models::wem::ReadOptions>("WemReadOptions")

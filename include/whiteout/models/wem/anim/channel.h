@@ -192,6 +192,24 @@ enum class Channel : u8 {
     MotionBlur,         ///< F32. `MAT_` `motionBlurAmount`, `sub` `kWholeMaterial`.
     SectionWeight,      ///< F32. A composite's `CMS_` `mapMultiplier`, `sub` the section.
 
+    // A StarCraft II camera's lens, on its node: the `CAM_` refs the game
+    // samples every frame (SC2 4.8 `CModelCamera`), named as its cutscene
+    // editor names them. Only the `.m3` import declares them, where the file
+    // keys them, and only its export writes them. The rests are the payload's
+    // fov and clips and its `sc2` record's fields.
+    FieldOfView,      ///< F32. Radians, vertical or horizontal as `useVerticalFOV` says.
+    NearClip,         ///< F32.
+    FarClip,          ///< F32.
+    ShadowClip,       ///< F32. `shadowClipDistance`: how far shadows are drawn.
+    FocalDepth,       ///< F32. `focusDistance`: the distance in focus.
+    FalloffStart,     ///< F32. `farFocusRange`: past the focus, where the blur starts.
+    FalloffEnd,       ///< F32. `nearFocusRange`: past the focus, where it is whole.
+    FalloffStartNear, ///< F32. `nearFalloffStart`: the same, short of the focus.
+    FalloffEndNear,   ///< F32. `nearFalloffEnd`.
+    DepthOfField,     ///< F32. `dofAmount`: how strong the blur is; 0 is none.
+    BokehFStop,       ///< F32. `bokehFStop` (v5).
+    BokehMaxCoC,      ///< F32. `bokehMaxCoCDiameter` (v5).
+
     Count
 };
 

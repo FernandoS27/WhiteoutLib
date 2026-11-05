@@ -342,6 +342,30 @@ const char* ToString(Channel channel) {
         return "motionBlur";
     case Channel::SectionWeight:
         return "sectionWeight";
+    case Channel::FieldOfView:
+        return "fieldOfView";
+    case Channel::NearClip:
+        return "nearClip";
+    case Channel::FarClip:
+        return "farClip";
+    case Channel::ShadowClip:
+        return "shadowClip";
+    case Channel::FocalDepth:
+        return "focalDepth";
+    case Channel::FalloffStart:
+        return "falloffStart";
+    case Channel::FalloffEnd:
+        return "falloffEnd";
+    case Channel::FalloffStartNear:
+        return "falloffStartNear";
+    case Channel::FalloffEndNear:
+        return "falloffEndNear";
+    case Channel::DepthOfField:
+        return "depthOfField";
+    case Channel::BokehFStop:
+        return "bokehFStop";
+    case Channel::BokehMaxCoC:
+        return "bokehMaxCoC";
     case Channel::Count:
         break;
     }
@@ -425,6 +449,18 @@ geom::AttrType DefaultValueType(Channel channel) {
     case Channel::ParallaxHeight:
     case Channel::MotionBlur:
     case Channel::SectionWeight:
+    case Channel::FieldOfView:
+    case Channel::NearClip:
+    case Channel::FarClip:
+    case Channel::ShadowClip:
+    case Channel::FocalDepth:
+    case Channel::FalloffStart:
+    case Channel::FalloffEnd:
+    case Channel::FalloffStartNear:
+    case Channel::FalloffEndNear:
+    case Channel::DepthOfField:
+    case Channel::BokehFStop:
+    case Channel::BokehMaxCoC:
     case Channel::Count:
         break;
     }

@@ -494,6 +494,53 @@ TEST_CASE("wem m3 a stream no record of the model declares passes through under 
     CHECK(found->keys[1].z == 3.0f);
 }
 
+TEST_CASE("wem m3 a camera's keyed lens is a channel on its node, and comes back keyed", "[wem][m3][camera]") {
+    constexpr u32 kFov = 0xCA3E0001u;
+    m3::Model model = shippedModel();
+    model.cameras[0].fieldOfView.animId = kFov;
+    model.cameras[0].fieldOfView.flags = 0x6;
+    m3::SubTrackContainer& stc = model.subTrackCollections[0];
+    m3::AnimBlock<f32> block{};
+    block.timestamps = {0, 500, 1000};
+    block.keys = {0.8f, 0.4f, 0.8f};
+    stc.sdr3.push_back(block);
+    stc.animIds.push_back(kFov);
+    stc.animRefs.push_back((5u << 16) | static_cast<u32>(stc.sdr3.size() - 1));
+
+    M3Converter converter;
+    Result<Document> read = converter.fromM3(model, ProfileId::Sc2);
+    REQUIRE(read.ok());
+    const Model& wem = read.value->models[0];
+    const AnimChannel* fov = wem.animChannels.find(kFov);
+    REQUIRE(fov != nullptr);
+    CHECK(fov->target.kind == TrackTarget::Kind::Node);
+    CHECK(fov->target.channel == Channel::FieldOfView);
+    REQUIRE(fov->target.node < wem.nodes.size());
+    CHECK(wem.nodes.nodes[fov->target.node].kind == NodeKind::Camera);
+    CHECK(fov->initValue == bytesOf(0.8f));
+
+    const Result<m3::Model> written = converter.toM3(*read.value, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    REQUIRE(written->cameras.size() == 1u);
+    const m3::AnimRef<f32>& ref = written->cameras[0].fieldOfView;
+    CHECK((ref.flags & 0x2u) != 0u);
+    CHECK(ref.initValue == 0.8f);
+    const m3::AnimBlock<f32>* found = nullptr;
+    for (const m3::SubTrackContainer& out : written->subTrackCollections) {
+        for (std::size_t i = 0; i < out.animIds.size(); ++i) {
+            if (out.animIds[i] == ref.animId && (out.animRefs[i] >> 16) == 5u) {
+                found = &out.sdr3[out.animRefs[i] & 0xFFFFu];
+            }
+        }
+    }
+    REQUIRE(found != nullptr);
+    bool half = false;
+    for (std::size_t k = 0; k < found->timestamps.size() && k < found->keys.size(); ++k) {
+        half = half || (found->timestamps[k] == 500 && std::abs(found->keys[k] - 0.4f) < 1e-6f);
+    }
+    CHECK(half);
+}
+
 TEST_CASE("wem m3 turret groups come back as listed, a shared name and a repeated turret too", "[wem][m3][s1]") {
     m3::Model model = shippedModel();
     model.turretBehaviors.push_back(model.turretBehaviors[0]);

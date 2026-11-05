@@ -102,6 +102,24 @@ std::optional<f32> EmitterStatic(const Node& node, u32 sub) {
 /// The layer @p ordinal of @p profile's material at @p slot, in its native
 /// block: the block holds exactly the layers the profile keeps, in order, so an
 /// ordinal is its index (`ImportMaterial`).
+/// A StarCraft II lens field past the fov and clips, from the camera's `CAM_`
+/// record; a camera with none states the zeros a new record holds.
+std::optional<f32> Sc2LensStatic(const CameraPayload& camera, Channel channel) {
+    const native::M3Camera record = camera.sc2.value_or(native::M3Camera{});
+    switch (channel) {
+    case Channel::ShadowClip: return record.shadowClipDistance.initValue;
+    case Channel::FocalDepth: return record.focusDistance.initValue;
+    case Channel::FalloffStart: return record.farFocusRange.initValue;
+    case Channel::FalloffEnd: return record.nearFocusRange.initValue;
+    case Channel::FalloffStartNear: return record.nearFalloffStart.initValue;
+    case Channel::FalloffEndNear: return record.nearFalloffEnd.initValue;
+    case Channel::DepthOfField: return record.dofAmount.initValue;
+    case Channel::BokehFStop: return record.bokehFStop.initValue;
+    case Channel::BokehMaxCoC: return record.bokehMaxCoCDiameter.initValue;
+    default: return std::nullopt;
+    }
+}
+
 const native::MdxLayer* NativeLayerOf(const Model& model, const MaterialChannelRef& ref,
                                            u32 ordinal) {
     const Material* material = Resolve(model, ref.slot, ref.profile, ref.look);
@@ -287,7 +305,16 @@ TrackRests WarcraftRests(const Document& document, u32 model, const TrackTarget&
                 return Pair(AsType(type, camera->focalLength), AsType(type, 0.0f));
             case Channel::FStop:
                 return Pair(AsType(type, camera->fStop), AsType(type, 0.0f));
+            // A StarCraft II lens plays its record's field where nothing keys it.
+            case Channel::FieldOfView:
+                return Same(AsType(type, camera->fov));
+            case Channel::NearClip:
+                return Same(AsType(type, camera->nearClip));
+            case Channel::FarClip:
+                return Same(AsType(type, camera->farClip));
             default:
+                if (const std::optional<f32> lens = Sc2LensStatic(*camera, channel))
+                    return Same(AsType(type, *lens));
                 return none;
             }
         }
