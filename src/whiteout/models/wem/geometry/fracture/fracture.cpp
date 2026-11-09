@@ -1955,7 +1955,7 @@ RejoinReport RejoinPieces(Mesh& mesh, std::span<const u32> skinNodes) {
     }
     // Merge groups and the skin, as the source had them.
     {
-        auto groups = MergeGroupsOf(out);
+        auto mergeGroups = MergeGroupsOf(out);
         u32 fresh = 0;
         for (u32 v = 0; v < oldVertex.size(); ++v) {
             const u32 w = oldVertex[v];
@@ -1967,11 +1967,11 @@ RejoinReport RejoinPieces(Mesh& mesh, std::span<const u32> skinNodes) {
         for (u32 v = 0; v < oldVertex.size(); ++v) {
             const u32 w = oldVertex[v];
             if (w < weld.size() && weld[w] != 0) {
-                groups[v] = weld[w] - 1;
+                mergeGroups[v] = weld[w] - 1;
             } else {
-                const auto [at, made] = freshOf.emplace(w, fresh);
-                fresh += made ? 1 : 0;
-                groups[v] = at->second;
+                const auto [at, inserted] = freshOf.emplace(w, fresh);
+                fresh += inserted ? 1 : 0;
+                mergeGroups[v] = at->second;
             }
         }
     }

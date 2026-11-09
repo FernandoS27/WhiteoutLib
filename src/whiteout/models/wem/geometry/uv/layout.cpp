@@ -26,7 +26,7 @@ std::vector<u32> cornersOfIsland(const Mesh& mesh, const UvIslands& islands, u32
     const Topology& topology = std::as_const(mesh).topology();
     for (const u32 face : islands.facesOf(island)) {
         for (const HalfedgeId h : topology.fh(FaceId(face))) {
-            out.push_back(h.index());
+            out.push_back(h.value());
         }
     }
     std::sort(out.begin(), out.end());
@@ -488,7 +488,7 @@ void TurnIsland(Mesh& mesh, const UvIslands& islands, u32 island, u32 set, f32 r
     std::vector<u32> corners;
     for (const u32 face : islands.facesOf(island)) {
         for (const HalfedgeId h : topology.fh(FaceId(face))) {
-            corners.push_back(h.index());
+            corners.push_back(h.value());
         }
     }
     std::sort(corners.begin(), corners.end());
@@ -1288,7 +1288,7 @@ StackResult Stack(Mesh& mesh, const UvIslands& islands, u32 primary, u32 other, 
                         direction = way;
                         taken.insert(candidate.value());
                         for (std::size_t i = 0; i < n; ++i) {
-                            attempt.emplace_back(mine[i].index(), partner(i).index());
+                            attempt.emplace_back(mine[i].value(), partner(i).value());
                         }
                     }
                 }
@@ -1434,7 +1434,7 @@ StackResult Stack(Mesh& mesh, const UvIslands& islands, u32 primary, u32 other, 
                 HalfedgeId walkA = a;
                 HalfedgeId walkB = b;
                 do {
-                    cornerPair[walkA.index()] = walkB.index();
+                    cornerPair[walkA.value()] = walkB.value();
                     const HalfedgeId acrossA = Topology::opposite(walkA);
                     const HalfedgeId acrossB = Topology::opposite(walkB);
                     const FaceId nextA = topology.face(acrossA);

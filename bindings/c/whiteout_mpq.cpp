@@ -333,6 +333,10 @@ int32_t whiteout_mpq_MpqStorage_save_path(whiteout_MpqStorage* self, const char*
     return reinterpret_cast<whiteout::storages::mpq::Storage*>(self)->save(std::string(path ? path : ""));
 }
 
+whiteout_CString whiteout_mpq_MpqStorage_lastError(const whiteout_MpqStorage* self) {
+    return wrapCString(reinterpret_cast<const whiteout::storages::mpq::Storage*>(self)->lastError());
+}
+
 } // extern "C"
 
 // ── MpqFileSystem ─────────────────────────────────────────────────

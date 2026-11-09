@@ -567,6 +567,7 @@ impl TryFrom<i32> for LightType {
     }
 }
 
+/// The enumerators' values are this library's, not the file's: `CLID` numbers a cylinder 1 and a plane 3 (`collisionShapeFileType`).
 #[repr(i32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CollisionShapeShapeType {
@@ -7102,6 +7103,8 @@ impl Default for Camera {
 /// Collision volume for physics
 ///
 /// Collision shapes define simplified geometry for collision detection.
+///
+/// What each type holds here, and what `CLID` stores for it (Warcraft III 3.0's `MDL::ReadBinCollisions`, the same at every version): - Box: two corners. 24 bytes. - Cylinder: `vertices` is its base and its top, which stands straight above the base on Z; the file stores the base, the height and the radius. 20. - Sphere: its centre, and the radius. 16. - Plane: two corners whose X span is its length and Y span its width, which are the two numbers the file stores. 8.
 pub struct CollisionShape {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_MdxCollisionShape>,
 }
@@ -7184,7 +7187,7 @@ impl CollisionShape {
         unsafe { ffi::whiteout_mdx_MdxCollisionShape_set_type(self.raw.as_ptr(), value as i32) }
     }
 
-    /// Shape vertices (box only)
+    /// Shape vertices (see the type list above)
     /// Zero-copy view of the underlying `std::vector`.
     pub fn vertices(&self) -> &[crate::math::Vector3f] {
         // SAFETY: `_data`/`_count` describe one contiguous C++
@@ -7787,6 +7790,8 @@ impl Default for Parser {
 ///
 /// The format is selected either by file extension (.mdl → text, .mdx → binary) or by an explicit MDLXFormat parameter.
 ///
+/// What is written is the model made loadable (`makeLoadable`): a model built by hand, converted, or read from a file another tool wrote can hold what Warcraft III fails a whole model on, and no route to a file should be able to skip the check. The caller's model is never changed -- the repairs are made on a copy -- and `lastReport` says what they were. `setRepairs(false)` writes the model exactly as given, for a tool that is after the bytes.
+///
 /// Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
 pub struct Writer {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_MdxWriter>,
@@ -7976,7 +7981,7 @@ impl TrackVector3f {
         unsafe { ffi::whiteout_mdx_MdxTrackVector3f_set_keyCount(self.raw.as_ptr(), value) }
     }
 
-    /// Keyframe timestamps (in frames)
+    /// Keyframe times, in milliseconds (see `keyTime`)
     /// Zero-copy view of the underlying `std::vector`.
     pub fn timestamps(&self) -> &[u32] {
         // SAFETY: `_data`/`_count` describe one contiguous C++
@@ -8187,7 +8192,7 @@ impl TrackQuaternion {
         unsafe { ffi::whiteout_mdx_MdxTrackQuaternion_set_keyCount(self.raw.as_ptr(), value) }
     }
 
-    /// Keyframe timestamps (in frames)
+    /// Keyframe times, in milliseconds (see `keyTime`)
     /// Zero-copy view of the underlying `std::vector`.
     pub fn timestamps(&self) -> &[u32] {
         // SAFETY: `_data`/`_count` describe one contiguous C++
@@ -8391,7 +8396,7 @@ impl TrackU32 {
         unsafe { ffi::whiteout_mdx_MdxTrackU32_set_keyCount(self.raw.as_ptr(), value) }
     }
 
-    /// Keyframe timestamps (in frames)
+    /// Keyframe times, in milliseconds (see `keyTime`)
     /// Zero-copy view of the underlying `std::vector`.
     pub fn timestamps(&self) -> &[u32] {
         // SAFETY: `_data`/`_count` describe one contiguous C++
@@ -8592,7 +8597,7 @@ impl TrackF32 {
         unsafe { ffi::whiteout_mdx_MdxTrackF32_set_keyCount(self.raw.as_ptr(), value) }
     }
 
-    /// Keyframe timestamps (in frames)
+    /// Keyframe times, in milliseconds (see `keyTime`)
     /// Zero-copy view of the underlying `std::vector`.
     pub fn timestamps(&self) -> &[u32] {
         // SAFETY: `_data`/`_count` describe one contiguous C++

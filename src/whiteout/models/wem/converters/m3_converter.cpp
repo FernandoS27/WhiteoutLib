@@ -1294,16 +1294,16 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
                     const std::array<u32, 3> corners = {static_cast<u32>(division.faces[i + 0]) + base,
                                                         static_cast<u32>(division.faces[i + 1]) + base,
                                                         static_cast<u32>(division.faces[i + 2]) + base};
-                    const std::array<u32, 3> mine = {local(corners[0]), local(corners[1]), local(corners[2])};
-                    if (mine[0] == kInvalidIndex || mine[1] == kInvalidIndex || mine[2] == kInvalidIndex) {
+                    const std::array<u32, 3> ids = {local(corners[0]), local(corners[1]), local(corners[2])};
+                    if (ids[0] == kInvalidIndex || ids[1] == kInvalidIndex || ids[2] == kInvalidIndex) {
                         diagnostics.warn(DiagCode::IndexOutOfRange,
                                          "region face corner past the division's vertex slice",
                                          ElementRef(ElementKind::Mesh, static_cast<u32>(d)));
                         continue;
                     }
                     const geom::FaceId face =
-                        builder.addTriangle(geom::VertexId(mine[0]), geom::VertexId(mine[1]),
-                                            geom::VertexId(mine[2]), sectionOfRegion[r]);
+                        builder.addTriangle(geom::VertexId(ids[0]), geom::VertexId(ids[1]),
+                                            geom::VertexId(ids[2]), sectionOfRegion[r]);
                     for (u32 c = 0; c < 3; ++c) {
                         const u32 global = corners[c] + lowest;
                         if (global < normals.size()) {

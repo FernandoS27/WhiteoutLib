@@ -443,7 +443,7 @@ RenderMesh BuildRenderMesh(const Mesh& mesh, const RenderMeshDesc& desc) {
         std::vector<u32> boneIndices(vertexCount * width, 0);
         std::vector<f32> boneWeights(vertexCount * width, 0.0f);
         const bool fold = !desc.skinParents.empty() && !desc.skinPivots.empty();
-        const std::span<const Vector3f> positions =
+        const std::span<const Vector3f> vertexPositions =
             mesh.attributes.get<Vector3f>(names::kPosition, Domain::Vertex);
         u32 overflowed = 0;
         for (std::size_t i = 0; i < vertexCount; ++i) {
@@ -469,8 +469,8 @@ RenderMesh BuildRenderMesh(const Mesh& mesh, const RenderMeshDesc& desc) {
             std::vector<Influence> folded;
             if (influences.size() > width) {
                 ++overflowed;
-                if (fold && record.vertex < positions.size()) {
-                    folded = FoldInfluences(influences, width, positions[record.vertex],
+                if (fold && record.vertex < vertexPositions.size()) {
+                    folded = FoldInfluences(influences, width, vertexPositions[record.vertex],
                                             desc.skinParents, desc.skinPivots);
                     influences = folded;
                 }

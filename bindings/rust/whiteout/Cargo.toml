@@ -64,6 +64,11 @@ vendored = ["dep:cmake"]
 casc = []
 mpq  = []
 
+# whiteout_wem_edit: modelling, rigging, skinning, UV and the physics bakes.
+# No Rust API reaches it; it is for a dependent whose own C++ calls into
+# it. Off by default, as in the C++ build and the vcpkg port.
+wem-edit = []
+
 [dependencies]
 
 [build-dependencies]

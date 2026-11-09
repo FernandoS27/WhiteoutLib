@@ -722,11 +722,21 @@ impl Storage {
     }
 
     /// Save the archive to a specific path. After saving, the new file becomes the source archive and the overlay is cleared.
+    ///
+    /// Bytes before the MPQ header (a Warcraft III map's HM3W block) are kept, as are files no (listfile) names, and a v4 archive keeps its HET/BET tables and MD5s. A save that cannot keep every file refuses instead: see lastError().
     pub fn save_path(&mut self, path: &str) -> bool {
         let path_cstr = std::ffi::CString::new(path).unwrap_or_default();
         // SAFETY: handle is live for the duration of the call.
         unsafe {
             ffi::whiteout_mpq_MpqStorage_save_path(self.raw.as_ptr(), path_cstr.as_ptr()) != 0
+        }
+    }
+
+    /// Why the last save() failed; empty after one that succeeded.
+    pub fn last_error(&self) -> String {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            crate::support::take_string(ffi::whiteout_mpq_MpqStorage_lastError(self.raw.as_ptr()))
         }
     }
 }
@@ -1021,6 +1031,7 @@ pub mod ffi {
             self_: *mut whiteout_MpqStorage,
             path: *const core::ffi::c_char,
         ) -> i32;
+        pub fn whiteout_mpq_MpqStorage_lastError(self_: *mut whiteout_MpqStorage) -> RawCString;
         // FileSystem
         pub fn whiteout_mpq_MpqFileSystem_new_storage(
             _0: *mut core::ffi::c_void,

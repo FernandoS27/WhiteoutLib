@@ -102,6 +102,7 @@ of a `links` crate:
 | `DEP_WHITEOUT_NATIVE_INCLUDE` | include root for the C++ headers (`<whiteout/…>`) |
 | `DEP_WHITEOUT_NATIVE_HAS_CASC` | `1` if built with CASC, else `0` |
 | `DEP_WHITEOUT_NATIVE_HAS_MPQ` | `1` if built with MPQ, else `0` |
+| `DEP_WHITEOUT_NATIVE_STATIC_LIBS` | the C++ archives behind `whiteout_native_static`, comma-separated in link order; vendored builds only |
 
 The `HAS_*` pair reports the configuration the library was *actually* built
 with, so a dependent can match it rather than infer it from its own

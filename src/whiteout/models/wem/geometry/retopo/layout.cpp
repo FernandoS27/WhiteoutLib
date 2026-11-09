@@ -85,8 +85,8 @@ u32 SplitWithField(WorkMesh& mesh, CrossField& field, const Surface& surface, u3
         mesh.onCurve[m] = at;
         mesh.curve[m] = curve;
     } else {
-        const u32 start[2] = {mesh.homes[a].triangle, mesh.homes[b].triangle};
-        SurfacePoint home = surface.locate(start, point, reach);
+        const u32 seeds[2] = {mesh.homes[a].triangle, mesh.homes[b].triangle};
+        SurfacePoint home = surface.locate(seeds, point, reach);
         if (!home.valid()) {
             home = mesh.homes[a];
         }

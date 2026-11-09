@@ -198,13 +198,15 @@ template <class T>
 T SpanValue(Interpolation interp, const CurveKey<T>& a, const CurveKey<T>& b, f32 u) {
     if constexpr (kHeld<T>) {
         return a.value;
-    } else if (Smooth(interp)) {
-        return Curve(interp, a.value, a.out, b.in, b.value, u);
+    } else {
+        if (Smooth(interp)) {
+            return Curve(interp, a.value, a.out, b.in, b.value, u);
+        }
+        if (interp == Interpolation::Step) {
+            return a.value;
+        }
+        return Linear(a.value, b.value, u);
     }
-    if (interp == Interpolation::Step) {
-        return a.value;
-    }
-    return Linear(a.value, b.value, u);
 }
 
 template <class T>

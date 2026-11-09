@@ -4663,9 +4663,9 @@ ModelPlan chamferAt(Mesh& mesh, const std::vector<u8>& chosen, const std::vector
     // face its new place lands in.
     const f32 sample = plan.amountMax > 0.0f && plan.amountMax < FLT_MAX ? plan.amountMax * 0.5f : 1.0f;
     for (const VertexMotion& motion : plan.motions) {
-        const std::vector<Resample> made =
+        const std::vector<Resample> resamples =
             ResamplesAt(mesh, VertexId(motion.vertex), motion.base + motion.direction * sample);
-        plan.resamples.insert(plan.resamples.end(), made.begin(), made.end());
+        plan.resamples.insert(plan.resamples.end(), resamples.begin(), resamples.end());
     }
     // And the seam strips' far corners, from the one face the whole strip
     // reads: after the others, so they are the ones that land.
@@ -5461,8 +5461,8 @@ ModelPlan PlanSlice(Mesh& mesh, const PointTable& points, const ElementSet& face
                 continue;
             }
             bool touched = false;
-            for (u32 side = 0; side < 2 && !touched; ++side) {
-                const FaceId face = topology.face(Topology::halfedge(EdgeId(e), side));
+            for (u32 half = 0; half < 2 && !touched; ++half) {
+                const FaceId face = topology.face(Topology::halfedge(EdgeId(e), half));
                 touched = face.valid() && face.value() < wanted.size() && wanted[face.value()] != 0;
             }
             if (!touched) {
@@ -5622,8 +5622,8 @@ ModelPlan PlanSlice(Mesh& mesh, const PointTable& points, const ElementSet& face
                 sum += distanceOf(at[topology.from(h).value()]);
                 ++corners;
             }
-            const f32 side = corners == 0 ? 0.0f : sum / static_cast<f32>(corners);
-            if (params.keepPositive ? side < 0.0f : side > 0.0f) {
+            const f32 mean = corners == 0 ? 0.0f : sum / static_cast<f32>(corners);
+            if (params.keepPositive ? mean < 0.0f : mean > 0.0f) {
                 gone.faces.push_back(f);
             }
         }
@@ -5697,8 +5697,8 @@ ModelPlan PlanSlice(Mesh& mesh, const PointTable& points, const ElementSet& face
     }
     const Topology& built = std::as_const(mesh).topology();
     for (const u32 e : plan.touchedEdges) {
-        for (u32 side = 0; side < 2; ++side) {
-            if (const FaceId face = built.face(Topology::halfedge(EdgeId(e), side));
+        for (u32 half = 0; half < 2; ++half) {
+            if (const FaceId face = built.face(Topology::halfedge(EdgeId(e), half));
                 face.valid() && !built.isDeleted(face)) {
                 plan.changedFaces.push_back(face.value());
             }

@@ -1308,7 +1308,7 @@ void whiteout_m2_M2ShoulderJoint_set_maxMotorTorque(whiteout_M2ShoulderJoint* se
 /* low byte: 0 off, 1 position, 2 velocity */
 uint32_t whiteout_m2_M2ShoulderJoint_get_motorMode(const whiteout_M2ShoulderJoint* self);
 void whiteout_m2_M2ShoulderJoint_set_motorMode(whiteout_M2ShoulderJoint* self, uint32_t value);
-/* SHJ2 */
+/* SHJ2. A SHOJ gets the upgrader's 1.0 Hz and 0.7 (`PHYS_FORMAT.md` §5). */
 float whiteout_m2_M2ShoulderJoint_get_motorFrequencyHz(const whiteout_M2ShoulderJoint* self);
 void whiteout_m2_M2ShoulderJoint_set_motorFrequencyHz(whiteout_M2ShoulderJoint* self, float value);
 /* SHJ2 */
@@ -1340,7 +1340,7 @@ float whiteout_m2_M2PrismaticJoint_get_motorSpeed(const whiteout_M2PrismaticJoin
 void whiteout_m2_M2PrismaticJoint_set_motorSpeed(whiteout_M2PrismaticJoint* self, float value);
 uint32_t whiteout_m2_M2PrismaticJoint_get_motorMode(const whiteout_M2PrismaticJoint* self);
 void whiteout_m2_M2PrismaticJoint_set_motorMode(whiteout_M2PrismaticJoint* self, uint32_t value);
-/* PRS2 */
+/* PRS2; the upgrader's value for a PRSJ */
 float whiteout_m2_M2PrismaticJoint_get_motorFrequencyHz(const whiteout_M2PrismaticJoint* self);
 void whiteout_m2_M2PrismaticJoint_set_motorFrequencyHz(whiteout_M2PrismaticJoint* self, float value);
 /* PRS2 */
@@ -1367,7 +1367,7 @@ void whiteout_m2_M2RevoluteJoint_set_maxMotorTorque(whiteout_M2RevoluteJoint* se
 /* 1: position mode (frequency > 0), 2: velocity mode. */
 uint32_t whiteout_m2_M2RevoluteJoint_get_motorMode(const whiteout_M2RevoluteJoint* self);
 void whiteout_m2_M2RevoluteJoint_set_motorMode(whiteout_M2RevoluteJoint* self, uint32_t value);
-/* REV2 */
+/* REV2; the upgrader's value for a REVJ */
 float whiteout_m2_M2RevoluteJoint_get_motorFrequencyHz(const whiteout_M2RevoluteJoint* self);
 void whiteout_m2_M2RevoluteJoint_set_motorFrequencyHz(whiteout_M2RevoluteJoint* self, float value);
 /* REV2 */

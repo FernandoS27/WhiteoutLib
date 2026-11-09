@@ -30,8 +30,11 @@
 //                          the configuration this library was actually built
 //                          with, so a dependent can match it rather than
 //                          guess from its own features.
+//   cargo:static_libs=a,b  DEP_WHITEOUT_NATIVE_STATIC_LIBS
+//                          the C++ archives behind whiteout_native_static,
+//                          in link order. Vendored builds only.
 //
-// Emitted on every path that yields a usable library. A dependent that only
+// Emitted on every path that yields a usable library, but `static_libs`. A dependent that only
 // calls into Rust needs none of it — linking this crate's rlib already
 // pulls the native library in. It is for a dependent with its own C++ that
 // must compile against the same headers and link the same archive.
@@ -188,6 +191,10 @@ fn build_vendored() {
         // zlib-ng lives in a submodule we do not vendor; the library
         // falls back to its own inflate when it is absent.
         .define("WHITEOUT_USE_ZLIBNG", "OFF")
+        // On for the library's own builds. Here a compiler newer than any
+        // this release was built with would fail every dependent's build
+        // on a warning.
+        .define("WHITEOUT_WARNINGS_AS_ERRORS", "OFF")
         .define(
             "WHITEOUT_ENABLE_CASC",
             if cfg!(feature = "casc") { "ON" } else { "OFF" },
@@ -195,6 +202,14 @@ fn build_vendored() {
         .define(
             "WHITEOUT_ENABLE_MPQ",
             if cfg!(feature = "mpq") { "ON" } else { "OFF" },
+        )
+        .define(
+            "WHITEOUT_WEM_EDIT",
+            if cfg!(feature = "wem-edit") {
+                "ON"
+            } else {
+                "OFF"
+            },
         )
         .build_target("whiteout_c_static");
 
@@ -228,20 +243,30 @@ fn build_vendored() {
 #[allow(dead_code)]
 fn link_static_deps(dst: &Path) {
     let build = dst.join("build");
-    for sub in ["", "Release", "RelWithDebInfo", "Debug"] {
-        let dir = if sub.is_empty() {
-            build.clone()
-        } else {
-            build.join(sub)
-        };
-        if dir.is_dir() {
-            println!("cargo:rustc-link-search=native={}", dir.display());
-        }
+    let dirs: Vec<PathBuf> = ["", "Release", "RelWithDebInfo", "Debug"]
+        .iter()
+        .map(|sub| {
+            if sub.is_empty() {
+                build.clone()
+            } else {
+                build.join(sub)
+            }
+        })
+        .filter(|d| d.is_dir())
+        .collect();
+    for dir in &dirs {
+        println!("cargo:rustc-link-search=native={}", dir.display());
     }
-    // Dependents first: GNU ld resolves static archives in command-line
-    // order, so whiteout_lib has to come after the archives that reference
-    // it. (MSVC and lld do not care, which is why the previous order
-    // survived local testing.)
+    // One archive per module the configure built: `whiteout_lib` is an
+    // INTERFACE target over them, with no archive of its own. Dependents
+    // first: GNU ld resolves static archives in command-line order, so each
+    // comes before the modules it uses. (MSVC and lld do not care, which is
+    // why a wrong order survives local testing.)
+    let built = |name: &str| {
+        dirs.iter().any(|d| {
+            d.join(format!("{name}.lib")).is_file() || d.join(format!("lib{name}.a")).is_file()
+        })
+    };
     let mut libs = Vec::new();
     if cfg!(feature = "casc") {
         libs.push("whiteout_casc");
@@ -249,10 +274,23 @@ fn link_static_deps(dst: &Path) {
     if cfg!(feature = "mpq") {
         libs.push("whiteout_mpq");
     }
-    libs.push("whiteout_lib");
-    for lib in libs {
+    libs.extend(
+        [
+            "whiteout_wem_edit",
+            "whiteout_wem_convert",
+            "whiteout_wem",
+            "whiteout_models",
+            "whiteout_textures",
+            "whiteout_sno",
+            "whiteout_core",
+        ]
+        .into_iter()
+        .filter(|lib| built(lib)),
+    );
+    for lib in &libs {
         println!("cargo:rustc-link-lib=static={lib}");
     }
+    println!("cargo:static_libs={}", libs.join(","));
 }
 
 #[allow(dead_code)]

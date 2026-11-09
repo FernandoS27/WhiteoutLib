@@ -1141,6 +1141,8 @@ void whiteout_mdx_MdxCamera_set_fStopTracks(whiteout_MdxCamera* self, const whit
 /* Collision volume for physics */
 /*  */
 /* Collision shapes define simplified geometry for collision detection. */
+/*  */
+/* What each type holds here, and what `CLID` stores for it (Warcraft III 3.0's `MDL::ReadBinCollisions`, the same at every version): - Box: two corners. 24 bytes. - Cylinder: `vertices` is its base and its top, which stands straight above the base on Z; the file stores the base, the height and the radius. 20. - Sphere: its centre, and the radius. 16. - Plane: two corners whose X span is its length and Y span its width, which are the two numbers the file stores. 8. */
 whiteout_MdxCollisionShape* whiteout_mdx_MdxCollisionShape_new(void);
 void whiteout_mdx_MdxCollisionShape_delete(whiteout_MdxCollisionShape* self);
 
@@ -1150,7 +1152,7 @@ void whiteout_mdx_MdxCollisionShape_set_node(whiteout_MdxCollisionShape* self, c
 /* Shape type */
 int32_t whiteout_mdx_MdxCollisionShape_get_type(const whiteout_MdxCollisionShape* self);
 void whiteout_mdx_MdxCollisionShape_set_type(whiteout_MdxCollisionShape* self, int32_t value);
-/* Shape vertices (box only) */
+/* Shape vertices (see the type list above) */
 size_t whiteout_mdx_MdxCollisionShape_get_vertices_count(const whiteout_MdxCollisionShape* self);
 void whiteout_mdx_MdxCollisionShape_resize_vertices(whiteout_MdxCollisionShape* self, size_t count);
 const float* whiteout_mdx_MdxCollisionShape_get_vertices_data(const whiteout_MdxCollisionShape* self);
@@ -1261,6 +1263,8 @@ whiteout_CString whiteout_mdx_MdxParser_getIssues_at(const whiteout_MdxParser* s
 /*  */
 /* The format is selected either by file extension (.mdl → text, .mdx → binary) or by an explicit MDLXFormat parameter. */
 /*  */
+/* What is written is the model made loadable (`makeLoadable`): a model built by hand, converted, or read from a file another tool wrote can hold what Warcraft III fails a whole model on, and no route to a file should be able to skip the check. The caller's model is never changed -- the repairs are made on a copy -- and `lastReport` says what they were. `setRepairs(false)` writes the model exactly as given, for a tool that is after the bytes. */
+/*  */
 /* Uses the PImpl (Pointer to Implementation) idiom to hide implementation details. */
 whiteout_MdxWriter* whiteout_mdx_MdxWriter_new(void);
 void whiteout_mdx_MdxWriter_delete(whiteout_MdxWriter* self);
@@ -1296,7 +1300,7 @@ void whiteout_mdx_MdxTrackVector3f_set_globalSequenceId(whiteout_MdxTrackVector3
 /* Number of keyframes */
 uint64_t whiteout_mdx_MdxTrackVector3f_get_keyCount(const whiteout_MdxTrackVector3f* self);
 void whiteout_mdx_MdxTrackVector3f_set_keyCount(whiteout_MdxTrackVector3f* self, uint64_t value);
-/* Keyframe timestamps (in frames) */
+/* Keyframe times, in milliseconds (see `keyTime`) */
 size_t whiteout_mdx_MdxTrackVector3f_get_timestamps_count(const whiteout_MdxTrackVector3f* self);
 void whiteout_mdx_MdxTrackVector3f_resize_timestamps(whiteout_MdxTrackVector3f* self, size_t count);
 const uint32_t* whiteout_mdx_MdxTrackVector3f_get_timestamps_data(const whiteout_MdxTrackVector3f* self);
@@ -1329,7 +1333,7 @@ void whiteout_mdx_MdxTrackQuaternion_set_globalSequenceId(whiteout_MdxTrackQuate
 /* Number of keyframes */
 uint64_t whiteout_mdx_MdxTrackQuaternion_get_keyCount(const whiteout_MdxTrackQuaternion* self);
 void whiteout_mdx_MdxTrackQuaternion_set_keyCount(whiteout_MdxTrackQuaternion* self, uint64_t value);
-/* Keyframe timestamps (in frames) */
+/* Keyframe times, in milliseconds (see `keyTime`) */
 size_t whiteout_mdx_MdxTrackQuaternion_get_timestamps_count(const whiteout_MdxTrackQuaternion* self);
 void whiteout_mdx_MdxTrackQuaternion_resize_timestamps(whiteout_MdxTrackQuaternion* self, size_t count);
 const uint32_t* whiteout_mdx_MdxTrackQuaternion_get_timestamps_data(const whiteout_MdxTrackQuaternion* self);
@@ -1362,7 +1366,7 @@ void whiteout_mdx_MdxTrackU32_set_globalSequenceId(whiteout_MdxTrackU32* self, u
 /* Number of keyframes */
 uint64_t whiteout_mdx_MdxTrackU32_get_keyCount(const whiteout_MdxTrackU32* self);
 void whiteout_mdx_MdxTrackU32_set_keyCount(whiteout_MdxTrackU32* self, uint64_t value);
-/* Keyframe timestamps (in frames) */
+/* Keyframe times, in milliseconds (see `keyTime`) */
 size_t whiteout_mdx_MdxTrackU32_get_timestamps_count(const whiteout_MdxTrackU32* self);
 void whiteout_mdx_MdxTrackU32_resize_timestamps(whiteout_MdxTrackU32* self, size_t count);
 const uint32_t* whiteout_mdx_MdxTrackU32_get_timestamps_data(const whiteout_MdxTrackU32* self);
@@ -1395,7 +1399,7 @@ void whiteout_mdx_MdxTrackF32_set_globalSequenceId(whiteout_MdxTrackF32* self, u
 /* Number of keyframes */
 uint64_t whiteout_mdx_MdxTrackF32_get_keyCount(const whiteout_MdxTrackF32* self);
 void whiteout_mdx_MdxTrackF32_set_keyCount(whiteout_MdxTrackF32* self, uint64_t value);
-/* Keyframe timestamps (in frames) */
+/* Keyframe times, in milliseconds (see `keyTime`) */
 size_t whiteout_mdx_MdxTrackF32_get_timestamps_count(const whiteout_MdxTrackF32* self);
 void whiteout_mdx_MdxTrackF32_resize_timestamps(whiteout_MdxTrackF32* self, size_t count);
 const uint32_t* whiteout_mdx_MdxTrackF32_get_timestamps_data(const whiteout_MdxTrackF32* self);

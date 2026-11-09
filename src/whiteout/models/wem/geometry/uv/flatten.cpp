@@ -1394,7 +1394,7 @@ FlattenResult Relax(Mesh& mesh, const UvIslands& islands, std::span<const u32> w
                 RingTri ring;
                 bool ok = true;
                 for (u32 k = 0; k < 3; ++k) {
-                    ring.corner[k] = tri.corner[k].index();
+                    ring.corner[k] = tri.corner[k].value();
                     ring.wedge[k] = islands.wedgeOf(tri.corner[k]);
                     ring.p[k] = positions[topology.from(tri.corner[k]).index()];
                     ok = ok && ring.wedge[k] != kInvalidId;

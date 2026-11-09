@@ -286,7 +286,10 @@ std::vector<T> ArrayOf(const Node& node, const char* name) {
         out = p.toI32s();
     } else {
         const std::vector<f64> wide = p.toF64s();
-        out.assign(wide.begin(), wide.end());
+        out.reserve(wide.size());
+        for (const f64 v : wide) {
+            out.push_back(static_cast<T>(v));
+        }
     }
     return out;
 }

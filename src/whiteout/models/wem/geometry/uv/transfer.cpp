@@ -516,7 +516,7 @@ std::optional<Texture> TransferTexture(std::span<const TransferMesh> meshes,
                 bool inRange = true;
                 for (u32 k = 0; k < 3; ++k) {
                     const HalfedgeId h = corners[cut[i + k]];
-                    const u32 v = topology.from(h).index();
+                    const u32 v = topology.from(h).value();
                     if (h.index() >= fromUvs.size() || h.index() >= toUvs.size() ||
                         v >= positions.size()) {
                         inRange = false;

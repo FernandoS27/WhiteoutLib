@@ -708,13 +708,13 @@ BakeRun SimulateClip(const Document& given, u32 clip, const BakeHooks& hooks, co
     for (const Piece& piece : pieces) {
         readers.emplace_back(document, model, piece.clip, SwitchScope::Simulate, piece.clip != clip);
     }
-    const SwitchReader& own = readers[pieces.size() - (pieces.back().kind == Piece::Kind::Post ? 2 : 1)];
+    const SwitchReader& ownSwitches = readers[pieces.size() - (pieces.back().kind == Piece::Kind::Post ? 2 : 1)];
     run.bodies = static_cast<u32>(owner.physics.bodies.size());
     std::vector<u8> movable(run.bodies, 0);
     std::set<u32> nodes;
     for (u32 b = 0; b < run.bodies; ++b) {
         // Movable in any clip of the model, so every run builds the same.
-        bool can = own.movable(b);
+        bool can = ownSwitches.movable(b);
         for (const SwitchReader& reader : readers) {
             can = can || reader.movable(b);
         }
@@ -1878,7 +1878,7 @@ BakeReport BakeClipInto(Document& document, const BakeRun& run, const BakeRun* g
             timesMs[i] = static_cast<i32>(Milliseconds(static_cast<f32>(i) * dt));
         }
         const f32 one = 1.0f;
-        const std::vector<u8> was =
+        const std::vector<u8> sourceWeights =
             source != nullptr ? SampleSubTrackBatch(clip, *source, geom::AttrType::F32, timesMs,
                                                     std::span<const u8>(reinterpret_cast<const u8*>(&one), sizeof one))
                               : std::vector<u8>{};
@@ -1890,8 +1890,8 @@ BakeReport BakeClipInto(Document& document, const BakeRun& run, const BakeRun* g
             f32 w = one;
             if (off[i] != 0) {
                 w = 0.0f;
-            } else if ((i + 1) * sizeof(f32) <= was.size()) {
-                std::memcpy(&w, was.data() + i * sizeof(f32), sizeof(f32));
+            } else if ((i + 1) * sizeof(f32) <= sourceWeights.size()) {
+                std::memcpy(&w, sourceWeights.data() + i * sizeof(f32), sizeof(f32));
             }
             if (i == 0 || w != last) {
                 const bool resumes = i > 0 && off[i] == 0 && off[i - 1] != 0;
@@ -1905,7 +1905,7 @@ BakeReport BakeClipInto(Document& document, const BakeRun& run, const BakeRun* g
         place(channel, std::move(made), home, source != nullptr);
         weights.push_back(channel);
         // Off is the bake's, and the key that turns it on again.
-        std::vector<Stretch>& own = stretched[channel];
+        std::vector<Stretch>& offStretches = stretched[channel];
         for (u32 i = 0; i <= steps; ++i) {
             if (off[i] == 0) {
                 continue;
@@ -1921,7 +1921,7 @@ BakeReport BakeClipInto(Document& document, const BakeRun& run, const BakeRun* g
             if (b < steps) {
                 stretch.to = static_cast<f32>(Milliseconds(static_cast<f32>(b) * dt) + 1) / 1000.0f + kStretchPad;
             }
-            own.push_back(stretch);
+            offStretches.push_back(stretch);
             i = b;
         }
     }
@@ -1966,12 +1966,12 @@ BakeReport BakeClipInto(Document& document, const BakeRun& run, const BakeRun* g
             const Matrix44f holder =
                 drivers.holder < pose.frame.size() ? pose.frame[drivers.holder] : Matrix44f::identity();
             const Matrix44f back = Matrix44f::inverse(holder);
-            const ClothParticleFrame* recorded = run.clothFramesAt(at);
+            const ClothParticleFrame* frames = run.clothFramesAt(at);
             const bool active = run.clothActiveAt(at, c);
             for (u32 d = 0; d < drivers.vertices.size(); ++d) {
                 Matrix44f frame;
-                if (active && recorded != nullptr && particle[d] != kInvalidIndex) {
-                    const ClothParticleFrame& p = recorded[particle[d]];
+                if (active && frames != nullptr && particle[d] != kInvalidIndex) {
+                    const ClothParticleFrame& p = frames[particle[d]];
                     frame = ToMatrix(Transform{p.position, p.rotation, Vector3f{1, 1, 1}});
                 } else {
                     frame = AnchoredFrame(mesh, drivers.vertices[d], pose);
@@ -2202,8 +2202,8 @@ BakeReport BakeClipInto(Document& document, const BakeRun& run, const BakeRun* g
     for (u32 c = 0; c < replaced.size(); ++c) {
         std::stable_sort(replaced[c].begin(), replaced[c].end(),
                          [](const auto& a, const auto& b) { return a.first < b.first; });
-        for (auto& [place, track] : replaced[c]) {
-            record.positions.push_back(place);
+        for (auto& [position, track] : replaced[c]) {
+            record.positions.push_back(position);
             record.source[c].subTracks.push_back(std::move(track));
         }
     }

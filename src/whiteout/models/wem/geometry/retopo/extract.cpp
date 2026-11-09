@@ -1041,7 +1041,7 @@ void RelaxQuads(QuadMesh& quads, const Surface& surface, u32 iterations, f64 ste
     auto reflex = [&](u32 f, u32 moved, const V3& at) {
         const std::span<const u32> face = quads.face(f);
         const V3 n = faceNormal(f, moved, at);
-        auto point = [&](u32 k) {
+        auto point = [&](std::size_t k) {
             const u32 w = face[k % face.size()];
             return w == moved ? at : quads.positions[w];
         };

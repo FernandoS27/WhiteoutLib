@@ -274,7 +274,7 @@ UvIslands BuildUvIslands(const Mesh& mesh, u32 set) {
         if (visited[h] != 0 || topology.isDeleted(start) || !topology.face(start).valid()) {
             continue;
         }
-        const u32 edgeIndex = Topology::edge(start).index();
+        const u32 edgeIndex = Topology::edge(start).value();
         if (edgeIndex >= cuts.size() || cuts[edgeIndex] == 0) {
             continue;
         }
@@ -291,7 +291,7 @@ UvIslands BuildUvIslands(const Mesh& mesh, u32 set) {
             // the fan: a mesh whose cuts a walk cannot find is broken, and a
             // broken mesh is not a reason to hang.
             for (u32 guard = 0; guard < halfedgeCount; ++guard) {
-                const u32 stepEdge = Topology::edge(step).index();
+                const u32 stepEdge = Topology::edge(step).value();
                 if (stepEdge < cuts.size() && cuts[stepEdge] != 0) {
                     break;
                 }

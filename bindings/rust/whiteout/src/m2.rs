@@ -8283,7 +8283,7 @@ impl ShoulderJoint {
         unsafe { ffi::whiteout_m2_M2ShoulderJoint_set_motorMode(self.raw.as_ptr(), value) }
     }
 
-    /// SHJ2
+    /// SHJ2. A SHOJ gets the upgrader's 1.0 Hz and 0.7 (`PHYS_FORMAT.md` §5).
     pub fn motor_frequency_hz(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m2_M2ShoulderJoint_get_motorFrequencyHz(self.raw.as_ptr()) }
@@ -8470,7 +8470,7 @@ impl PrismaticJoint {
         unsafe { ffi::whiteout_m2_M2PrismaticJoint_set_motorMode(self.raw.as_ptr(), value) }
     }
 
-    /// PRS2
+    /// PRS2; the upgrader's value for a PRSJ
     pub fn motor_frequency_hz(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m2_M2PrismaticJoint_get_motorFrequencyHz(self.raw.as_ptr()) }
@@ -8634,7 +8634,7 @@ impl RevoluteJoint {
         unsafe { ffi::whiteout_m2_M2RevoluteJoint_set_motorMode(self.raw.as_ptr(), value) }
     }
 
-    /// REV2
+    /// REV2; the upgrader's value for a REVJ
     pub fn motor_frequency_hz(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m2_M2RevoluteJoint_get_motorFrequencyHz(self.raw.as_ptr()) }

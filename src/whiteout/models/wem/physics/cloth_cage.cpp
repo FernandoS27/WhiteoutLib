@@ -2241,11 +2241,11 @@ bool MakeInto(Document& document, u32 model, u32 mesh, std::span<const u32> face
     }
     // Shaded like the rest, where the mesh is shaded at all.
     if (target.attributes.has(geom::names::kNormal, geom::Domain::Halfedge)) {
-        std::vector<geom::FaceId> cageFaces;
+        std::vector<geom::FaceId> sectionFaces;
         for (const u32 f : SectionFaces(target, cageSection)) {
-            cageFaces.push_back(geom::FaceId(f));
+            sectionFaces.push_back(geom::FaceId(f));
         }
-        geom::RecomputeNormals(target, cageFaces, 1.047197551f);
+        geom::RecomputeNormals(target, sectionFaces, 1.047197551f);
     }
 
     // 5. The layers: pins on the particles, lanes on the faces that draw.

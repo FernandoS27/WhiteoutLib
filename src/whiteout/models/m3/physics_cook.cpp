@@ -588,7 +588,7 @@ void WriteHull(PhysicsShape& shape, const std::vector<D3>& points, const Polytop
             newell = newell + Cross(at(loop[i]), at(loop[(i + 1) % loop.size()]));
         }
         const D3 n = Normalized(newell);
-        double d = -std::numeric_limits<double>::max();
+        double d = Dot(n, at(loop[0]));
         for (const u32 v : hull.vertices) {
             d = std::max(d, Dot(n, at(v)));
         }

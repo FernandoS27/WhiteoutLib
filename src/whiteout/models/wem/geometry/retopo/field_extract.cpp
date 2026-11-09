@@ -375,7 +375,7 @@ QuadMesh ExtractFieldQuads(WorkMesh& mesh, const Surface& surface, const Positio
             std::size_t j;
             u32 diagonal; ///< The hexagon's split, 0..2; unused for two triangles.
         };
-        std::vector<Candidate> candidates;
+        std::vector<Candidate> merges;
         const std::size_t partner = round == 0 ? 3 : 5;
         for (u32 f = 0; f < faces.size(); ++f) {
             if (faces[f].corners.size() != 3) {
@@ -404,7 +404,7 @@ QuadMesh ExtractFieldQuads(WorkMesh& mesh, const Surface& surface, const Positio
                 if (round == 0) {
                     const f64 worst = squareness(merged.corners);
                     if (worst < kMergeTurn) {
-                        candidates.push_back({worst, f, g, i, j, 0});
+                        merges.push_back({worst, f, g, i, j, 0});
                     }
                     continue;
                 }
@@ -420,17 +420,17 @@ QuadMesh ExtractFieldQuads(WorkMesh& mesh, const Surface& surface, const Positio
                                                      merged.corners[(d + 5) % 6], merged.corners[d]};
                     const f64 worst = std::max(squareness(first), squareness(second));
                     if (worst < kMergeTurn) {
-                        candidates.push_back({worst, f, g, i, j, d});
+                        merges.push_back({worst, f, g, i, j, d});
                     }
                 }
             }
         }
-        std::sort(candidates.begin(), candidates.end(), [](const Candidate& x, const Candidate& y) {
+        std::sort(merges.begin(), merges.end(), [](const Candidate& x, const Candidate& y) {
             return x.worst != y.worst ? x.worst < y.worst : (x.a != y.a ? x.a < y.a : x.b < y.b);
         });
         std::vector<u8> used(faces.size(), 0);
         std::vector<Face> made;
-        for (const Candidate& c : candidates) {
+        for (const Candidate& c : merges) {
             if (used[c.a] || used[c.b]) {
                 continue;
             }

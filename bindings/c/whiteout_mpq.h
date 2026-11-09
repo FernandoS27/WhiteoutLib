@@ -172,7 +172,11 @@ int32_t whiteout_mpq_MpqStorage_deleteFile(whiteout_MpqStorage* self, const char
 /* Save the archive to its original path (temp file + atomic rename). @return false if this Storage was created via create() with no prior save(path). */
 int32_t whiteout_mpq_MpqStorage_save(whiteout_MpqStorage* self);
 /* Save the archive to a specific path. After saving, the new file becomes the source archive and the overlay is cleared. */
+/*  */
+/* Bytes before the MPQ header (a Warcraft III map's HM3W block) are kept, as are files no (listfile) names, and a v4 archive keeps its HET/BET tables and MD5s. A save that cannot keep every file refuses instead: see lastError(). */
 int32_t whiteout_mpq_MpqStorage_save_path(whiteout_MpqStorage* self, const char* path);
+/* Why the last save() failed; empty after one that succeeded. */
+whiteout_CString whiteout_mpq_MpqStorage_lastError(const whiteout_MpqStorage* self);
 
 /* ── MpqFileSystem ─────────────────────────────────────────────── */
 
