@@ -12,6 +12,7 @@ set(_whiteout_wem_edit_sources
     src/whiteout/models/wem/anim/key_reduce_tolerance.cpp
     src/whiteout/models/wem/anim/stage_bake.cpp
 
+    src/whiteout/models/wem/geometry/boolean.cpp
     src/whiteout/models/wem/geometry/bvh.cpp
     src/whiteout/models/wem/geometry/cdt.cpp
     src/whiteout/models/wem/geometry/fit.cpp

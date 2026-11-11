@@ -94,6 +94,9 @@ public:
     /// The point on the nearest triangle to @p from, within @p maxDistance.
     PointHit closestPoint(const Vector3f& from,
                           f32 maxDistance = std::numeric_limits<f32>::max()) const;
+    /// Appends to @p out every triangle whose box meets [@p low, @p high],
+    /// touching included, in no particular order.
+    void overlapping(const Vector3f& low, const Vector3f& high, std::vector<u32>& out) const;
 
 private:
     struct Node {

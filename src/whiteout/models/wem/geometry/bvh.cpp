@@ -325,6 +325,45 @@ RayHit TriangleBvh::raycast(const Vector3f& origin, const Vector3f& direction, f
     return hit;
 }
 
+void TriangleBvh::overlapping(const Vector3f& low, const Vector3f& high, std::vector<u32>& out) const {
+    if (nodes_.empty()) {
+        return;
+    }
+    const auto meets = [&](const Vector3f& a, const Vector3f& b) {
+        return a.x <= high.x && b.x >= low.x && a.y <= high.y && b.y >= low.y && a.z <= high.z &&
+               b.z >= low.z;
+    };
+    u32 stack[64];
+    u32 depth = 0;
+    stack[depth++] = 0;
+    while (depth != 0) {
+        const Node& node = nodes_[stack[--depth]];
+        if (!meets(node.low, node.high)) {
+            continue;
+        }
+        if (node.count != 0) {
+            for (u32 i = node.first; i < node.first + node.count; ++i) {
+                const u32 triangle = order_[i];
+                const Vector3f& p0 = positions_[indices_[triangle * 3]];
+                const Vector3f& p1 = positions_[indices_[triangle * 3 + 1]];
+                const Vector3f& p2 = positions_[indices_[triangle * 3 + 2]];
+                const Vector3f a(std::min({p0.x, p1.x, p2.x}), std::min({p0.y, p1.y, p2.y}),
+                                 std::min({p0.z, p1.z, p2.z}));
+                const Vector3f b(std::max({p0.x, p1.x, p2.x}), std::max({p0.y, p1.y, p2.y}),
+                                 std::max({p0.z, p1.z, p2.z}));
+                if (meets(a, b)) {
+                    out.push_back(triangle);
+                }
+            }
+            continue;
+        }
+        if (depth + 2 <= 64) {
+            stack[depth++] = static_cast<u32>(&node - nodes_.data()) + 1;
+            stack[depth++] = node.right;
+        }
+    }
+}
+
 PointHit TriangleBvh::closestPoint(const Vector3f& from, f32 maxDistance) const {
     PointHit hit;
     if (nodes_.empty()) {

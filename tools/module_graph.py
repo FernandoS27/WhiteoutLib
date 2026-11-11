@@ -55,6 +55,7 @@ MODULE_MAP = [
     (W + 'geometry/ops', 'wem_edit'),
     (W + 'geometry/modelling', 'wem_edit'),
     (W + 'geometry/select', 'wem_edit'),
+    (W + 'geometry/boolean', 'wem_edit'),
     (W + 'geometry/bvh', 'wem_edit'),
     (W + 'geometry/cdt', 'wem_edit'),
     (W + 'geometry/fit', 'wem_edit'),
