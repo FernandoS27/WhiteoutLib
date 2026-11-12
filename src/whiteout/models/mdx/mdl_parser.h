@@ -52,14 +52,22 @@ struct MdlValue {
         return std::holds_alternative<Array>(data);
     }
 
+    // The library is built without exceptions: std::get on the wrong
+    // alternative would abort the host (3ds Max) on a malformed MDL, e.g. a
+    // word where a number belongs. The accessors return a neutral value then.
     f64 asNumber() const {
-        return std::get<f64>(data);
+        const f64* p = std::get_if<f64>(&data);
+        return p ? *p : 0.0;
     }
     const std::string& asString() const {
-        return std::get<std::string>(data);
+        static const std::string kEmpty;
+        const std::string* p = std::get_if<std::string>(&data);
+        return p ? *p : kEmpty;
     }
     const Array& asArray() const {
-        return std::get<Array>(data);
+        static const Array kEmpty;
+        const Array* p = std::get_if<Array>(&data);
+        return p ? *p : kEmpty;
     }
 };
 
