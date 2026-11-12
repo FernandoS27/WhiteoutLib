@@ -6,10 +6,13 @@
 #include <whiteout/models/wem/geometry/attributes.h>
 #include <whiteout/models/wem/geometry/interpolate.h>
 #include <whiteout/models/wem/geometry/ops.h>
+#include <whiteout/models/wem/geometry/triangulation.h>
+#include <whiteout/models/wem/skinning/points.h>
 
 #include "rebuild.h"
 
 #include <algorithm>
+#include <cmath>
 #include <numeric>
 #include <unordered_map>
 #include <utility>
@@ -46,9 +49,11 @@ HalfedgeId CornerAt(const Topology& topology, FaceId face, u32 vertex) {
     return HalfedgeId();
 }
 
-bool Sharp(const Mesh& mesh, EdgeId edge) {
-    const std::span<const u8> flags = mesh.attributes.get<u8>(names::kSharp, Domain::Edge);
-    return edge.index() < flags.size() && flags[edge.index()] != 0;
+/// @p edge's crease weight, 0 to 1. `sharp` is shading only and never read here
+/// (Q11, as Blender and Max's default).
+f32 CreaseOf(const Mesh& mesh, EdgeId edge) {
+    const std::span<const f32> crease = mesh.attributes.get<f32>(names::kCrease, Domain::Edge);
+    return edge.index() < crease.size() ? std::clamp(crease[edge.index()], 0.0f, 1.0f) : 0.0f;
 }
 
 /// Every live face, or the live ones of @p faces.
@@ -84,6 +89,11 @@ std::vector<u32> SubdivideOnce(Mesh& mesh, const std::vector<u32>& chosen, const
     for (const u32 f : chosen) {
         inSet[f] = 1;
     }
+    // A crack's twins are one vertex (Q5): a twin beside a face outside the set
+    // holds as that face's own corner does, and a crack edge's twin is split
+    // with it, so the two sides stay one surface (SUB-1).
+    const skinning::PointTable points = skinning::BuildPointTable(mesh);
+    const auto pointOf = [&](u32 v) { return points.pointOfVertex(v); };
     struct FaceRecord {
         u32 face = 0;
         std::vector<u32> corners;
@@ -126,10 +136,12 @@ std::vector<u32> SubdivideOnce(Mesh& mesh, const std::vector<u32>& chosen, const
             const FaceId f0 = topology.face(Topology::halfedge(e, 0));
             const FaceId f1 = topology.face(Topology::halfedge(e, 1));
             const bool interior = f0.valid() && f1.valid() && inSet[f0.index()] && inSet[f1.index()];
-            const bool crease = !interior || (params.creases && Sharp(mesh, e));
+            const f32 crease = !interior ? 1.0f : (params.creases ? CreaseOf(mesh, e) : 0.0f);
             EdgeRecord edge{a, b, (before[a] + before[b]) * 0.5f};
-            if (smooth && !crease) {
-                edge.point = (before[a] + before[b] + facePoint[f0.index()] + facePoint[f1.index()]) * 0.25f;
+            if (smooth && crease < 1.0f) {
+                // A partial crease blends the smooth point toward the edge's middle.
+                const Vector3f round = (before[a] + before[b] + facePoint[f0.index()] + facePoint[f1.index()]) * 0.25f;
+                edge.point = round + (edge.point - round) * crease;
             }
             edges.push_back(edge);
         }
@@ -150,38 +162,100 @@ std::vector<u32> SubdivideOnce(Mesh& mesh, const std::vector<u32>& chosen, const
                 Vector3f q{0, 0, 0};
                 Vector3f r{0, 0, 0};
                 std::vector<u32> creases;
+                f32 weight = 0.0f; // the creases' summed weight: a mean below 1 blends toward the smooth rule
+                bool open = false;
                 for (const HalfedgeId h : topology.voh(VertexId(v))) {
                     const u32 w = topology.to(h).value();
                     const EdgeId e = Topology::edge(h);
                     ++valence;
                     r = r + (before[v] + before[w]) * 0.5f;
                     const bool border = topology.isBoundary(e);
-                    if (border || (params.creases && Sharp(mesh, e))) {
+                    const f32 c = border ? 1.0f : (params.creases ? CreaseOf(mesh, e) : 0.0f);
+                    if (c > 0.0f) {
                         creases.push_back(w);
+                        weight += c;
                     }
+                    open = open || border;
                     if (const FaceId f = topology.face(h); f.valid()) {
                         inside = inside && inSet[f.index()];
                         q = q + facePoint[f.index()];
                         ++faces;
                     }
                 }
-                // A vertex beside a face that was not chosen holds that face's shape.
-                if (!inside || valence == 0 || creases.size() >= 3) {
-                    continue;
+                for (const u32 twin : points.membersOf(pointOf(v))) {
+                    if (twin == v || twin >= topology.vertexCount() || topology.isDeleted(VertexId(twin))) {
+                        continue;
+                    }
+                    for (const FaceId f : topology.vf(VertexId(twin))) {
+                        inside = inside && (!f.valid() || inSet[f.index()] != 0);
+                    }
                 }
-                if (creases.size() == 2) {
-                    moved.emplace_back(v, before[v] * 0.75f + (before[creases[0]] + before[creases[1]]) * 0.125f);
+                // A vertex beside a face that was not chosen holds that face's shape.
+                if (!inside || valence == 0) {
                     continue;
                 }
                 const f32 n = static_cast<f32>(valence);
                 q = q * (1.0f / static_cast<f32>(std::max(faces, 1u)));
                 r = r * (1.0f / n);
-                moved.emplace_back(v, (q + r * 2.0f + before[v] * (n - 3.0f)) * (1.0f / n));
+                const Vector3f round = (q + r * 2.0f + before[v] * (n - 3.0f)) * (1.0f / n);
+                if (creases.size() < 2) {
+                    moved.emplace_back(v, round);
+                    continue;
+                }
+                // Two creases: the crease rule; three or more: a corner, held.
+                const Vector3f held = creases.size() == 2
+                                          ? before[v] * 0.75f + (before[creases[0]] + before[creases[1]]) * 0.125f
+                                          : before[v];
+                const f32 sharpness = open ? 1.0f : weight / static_cast<f32>(creases.size());
+                if (sharpness >= 1.0f) {
+                    if (creases.size() == 2) {
+                        moved.emplace_back(v, held);
+                    }
+                    continue;
+                }
+                moved.emplace_back(v, round + (held - round) * sharpness);
+            }
+        }
+    }
+    // A border edge of the set whose twin across a crack the set does not hold.
+    std::vector<std::pair<u32, u32>> twins;
+    {
+        std::unordered_map<u64, std::vector<u32>> openBetween; // point pair -> border edges
+        for (u32 e = 0; e < topology.edgeCount(); ++e) {
+            if (!topology.isDeleted(EdgeId(e)) && topology.isBoundary(EdgeId(e))) {
+                const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
+                openBetween[EdgeKey(pointOf(topology.from(h).value()), pointOf(topology.to(h).value()))].push_back(e);
+            }
+        }
+        for (const EdgeRecord& edge : edges) {
+            const auto found = openBetween.find(EdgeKey(pointOf(edge.a), pointOf(edge.b)));
+            if (found == openBetween.end() || found->second.size() < 2) {
+                continue;
+            }
+            for (const u32 e : found->second) {
+                const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
+                const u32 a = topology.from(h).value();
+                const u32 b = topology.to(h).value();
+                if (edgeOf.find(EdgeKey(a, b)) == edgeOf.end()) {
+                    twins.emplace_back(a, b);
+                }
             }
         }
     }
     // The topology: every edge split, then each face's midpoints joined to a
     // point at its centre.
+    for (const auto& [a, b] : twins) {
+        const HalfedgeId h = topology.findHalfedge(VertexId(a), VertexId(b));
+        const VertexId made = h.valid() ? SplitEdge(mesh, Topology::edge(h), 0.5f) : VertexId();
+        if (!made.valid()) {
+            return {};
+        }
+        for (const FaceId f : topology.vf(made)) {
+            if (f.valid()) {
+                neighbours.push_back(f.value());
+            }
+        }
+    }
     std::unordered_map<u64, u32> midpointOf;
     for (const EdgeRecord& edge : edges) {
         const HalfedgeId h = topology.findHalfedge(VertexId(edge.a), VertexId(edge.b));
@@ -310,6 +384,12 @@ ModelPlan PlanSmooth(Mesh& mesh, const ElementSet& elements, const SmoothParams&
         return plan;
     }
     const Topology& topology = std::as_const(mesh).topology();
+    // Points, not vertices (Q5): a crack's twins move as one, and its edges are
+    // no border. Neighbours are the points a drawn triangle joins, so a quad
+    // and the triangles it draws smooth alike (design §2.3, SMO-1).
+    const skinning::PointTable points = skinning::BuildPointTable(mesh);
+    const u32 pointCount = points.pointCount;
+    const auto pointOf = [&](u32 v) { return points.pointOfVertex(v); };
     std::vector<u32> chosen = elements.vertices;
     if (chosen.empty()) {
         for (const u32 f : ChosenFaces(mesh, elements)) {
@@ -319,33 +399,93 @@ ModelPlan PlanSmooth(Mesh& mesh, const ElementSet& elements, const SmoothParams&
         }
     }
     chosen = SortedUnique(std::move(chosen));
-    std::vector<u32> moving;
-    for (const u32 v : chosen) {
-        if (v < topology.vertexCount() && !topology.isDeleted(VertexId(v)) &&
-            !(params.pinBorders && topology.isBoundary(VertexId(v)))) {
-            moving.push_back(v);
+    // A border is an edge with one face whose two points no other such edge
+    // joins: a crack's edges come in twins.
+    std::vector<u8> border(pointCount, 0);
+    {
+        std::unordered_map<u64, u32> open;
+        for (u32 e = 0; e < topology.edgeCount(); ++e) {
+            if (!topology.isDeleted(EdgeId(e)) && topology.isBoundary(EdgeId(e))) {
+                const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
+                ++open[EdgeKey(pointOf(topology.from(h).value()), pointOf(topology.to(h).value()))];
+            }
+        }
+        for (const auto& [key, count] : open) {
+            if (count == 1) {
+                border[static_cast<u32>(key >> 32)] = 1;
+                border[static_cast<u32>(key & 0xFFFFFFFFu)] = 1;
+            }
         }
     }
+    std::vector<u8> asked(pointCount, 0);
+    std::vector<u32> moving; // points
+    u32 pinned = 0;
+    for (const u32 v : chosen) {
+        if (v >= topology.vertexCount() || topology.isDeleted(VertexId(v))) {
+            continue;
+        }
+        const u32 p = pointOf(v);
+        if (p >= pointCount || asked[p] != 0) {
+            continue;
+        }
+        asked[p] = 1;
+        if (params.pinBorders && border[p] != 0) {
+            ++pinned;
+            continue;
+        }
+        moving.push_back(p);
+    }
     if (moving.empty()) {
-        plan.refusal = ModelRefusal::EmptySelection;
+        // Every chosen point on a pinned border is a choice the tool cannot
+        // act on, not an empty selection (SMO-2).
+        plan.refusal = pinned != 0 ? ModelRefusal::PinnedBorders : ModelRefusal::EmptySelection;
         return plan;
     }
+    // Explicitly chosen border points the pin held: the rest go, counted (Q2).
+    if (!elements.vertices.empty() && pinned != 0) {
+        plan.kept = pinned;
+        plan.keptBecause = ModelRefusal::PinnedBorders;
+    }
+    std::vector<std::vector<u32>> ring(pointCount);
+    {
+        std::vector<u32> triangles;
+        TriangulateMesh(mesh, triangles);
+        for (std::size_t t = 0; t + 2 < triangles.size(); t += 3) {
+            for (u32 k = 0; k < 3; ++k) {
+                const u32 a = pointOf(triangles[t + k]);
+                const u32 b = pointOf(triangles[t + (k + 1) % 3]);
+                if (a < pointCount && b < pointCount && a != b) {
+                    ring[a].push_back(b);
+                    ring[b].push_back(a);
+                }
+            }
+        }
+        for (const u32 p : moving) {
+            ring[p] = SortedUnique(std::move(ring[p]));
+        }
+    }
     const std::span<Vector3f> positions = mesh.attributes.get<Vector3f>(names::kPosition, Domain::Vertex);
+    std::vector<Vector3f> at(pointCount, Vector3f{0, 0, 0});
+    for (u32 p = 0; p < pointCount; ++p) {
+        const std::span<const u32> members = points.membersOf(p);
+        if (!members.empty() && members[0] < positions.size()) {
+            at[p] = positions[members[0]];
+        }
+    }
+    const std::vector<Vector3f> start = at;
     const auto pass = [&](f32 weight) {
         std::vector<Vector3f> next(moving.size());
         for (std::size_t i = 0; i < moving.size(); ++i) {
-            const u32 v = moving[i];
+            const u32 p = moving[i];
             Vector3f mean{0, 0, 0};
-            u32 count = 0;
-            for (const VertexId w : topology.vv(VertexId(v))) {
-                mean = mean + positions[w.index()];
-                ++count;
+            for (const u32 q : ring[p]) {
+                mean = mean + at[q];
             }
-            next[i] = count ? positions[v] + (mean * (1.0f / static_cast<f32>(count)) - positions[v]) * weight
-                            : positions[v];
+            next[i] = ring[p].empty() ? at[p]
+                                      : at[p] + (mean * (1.0f / static_cast<f32>(ring[p].size())) - at[p]) * weight;
         }
         for (std::size_t i = 0; i < moving.size(); ++i) {
-            positions[moving[i]] = next[i];
+            at[moving[i]] = next[i];
         }
     };
     const f32 factor = std::clamp(params.factor, 0.0f, 1.0f);
@@ -357,18 +497,28 @@ ModelPlan PlanSmooth(Mesh& mesh, const ElementSet& elements, const SmoothParams&
             pass(inflate);
         }
     }
-    for (const u32 v : moving) {
-        for (const HalfedgeId h : topology.voh(VertexId(v))) {
-            plan.touchedEdges.push_back(Topology::edge(h).value());
-            if (const FaceId f = topology.face(h); f.valid()) {
-                plan.changedFaces.push_back(f.value());
+    // Every member of a point moves by its point's step, twins alike.
+    u32 movedVertices = 0;
+    for (const u32 p : moving) {
+        const Vector3f step = at[p] - start[p];
+        for (const u32 v : points.membersOf(p)) {
+            if (v >= positions.size() || topology.isDeleted(VertexId(v))) {
+                continue;
+            }
+            positions[v] = positions[v] + step;
+            ++movedVertices;
+            for (const HalfedgeId h : topology.voh(VertexId(v))) {
+                plan.touchedEdges.push_back(Topology::edge(h).value());
+                if (const FaceId f = topology.face(h); f.valid()) {
+                    plan.changedFaces.push_back(f.value());
+                }
             }
         }
     }
     plan.touchedEdges = SortedUnique(std::move(plan.touchedEdges));
     plan.changedFaces = SortedUnique(std::move(plan.changedFaces));
     plan.selection.vertices = chosen;
-    plan.changed = static_cast<u32>(moving.size());
+    plan.changed = movedVertices;
     return plan;
 }
 
@@ -418,22 +568,39 @@ ModelPlan PlanOrientOutward(Mesh& mesh, const ElementSet& faces) {
             ++corners[root(f)];
         }
     }
-    std::vector<f32> volume(faceCount, 0.0f);
+    std::vector<f64> volume(faceCount, 0.0);
+    std::vector<f64> area(faceCount, 0.0);
+    std::vector<u8> open(faceCount, 0);
+    std::vector<Extent> box(faceCount);
+    for (Extent& e : box) {
+        ResetExtent(e);
+    }
     for (u32 f = 0; f < faceCount; ++f) {
         const u32 part = root(f);
         const Vector3f c = centre[part] * (1.0f / static_cast<f32>(std::max(corners[part], 1u)));
         std::vector<Vector3f> loop;
-        for (const VertexId v : topology.fv(FaceId(f))) {
-            loop.push_back(positions[v.index()] - c);
+        for (const HalfedgeId h : topology.fh(FaceId(f))) {
+            const Vector3f& p = positions[topology.from(h).index()];
+            loop.push_back(p - c);
+            GrowExtent(box[part], p);
+            open[part] = open[part] != 0 || !topology.face(Topology::opposite(h)).valid() ? 1 : 0;
         }
         for (std::size_t i = 1; i + 1 < loop.size(); ++i) {
-            volume[part] += loop[0].dot(cross(loop[i], loop[i + 1]));
+            const Vector3f n = cross(loop[i] - loop[0], loop[i + 1] - loop[0]);
+            area[part] += 0.5 * std::sqrt(static_cast<f64>(n.dot(n)));
+            volume[part] += static_cast<f64>(loop[0].dot(cross(loop[i], loop[i + 1])));
         }
     }
+    // An open part flat to rounding encloses nothing, so neither way is out:
+    // it is left as it is, however it is turned (MTX-7).
+    const auto flat = [&](u32 part) {
+        return open[part] != 0 &&
+               std::abs(volume[part]) <= 1e-5 * area[part] * (box[part].maximum - box[part].minimum).length();
+    };
     std::vector<u8> flip(faceCount, 0);
     for (u32 f = 0; f < faceCount; ++f) {
         const u32 part = root(f);
-        if ((asked[part] || faces.faces.empty()) && volume[part] < 0.0f) {
+        if ((asked[part] || faces.faces.empty()) && volume[part] < 0.0 && !flat(part)) {
             flip[f] = 1;
             plan.selection.faces.push_back(f);
             ++plan.changed;

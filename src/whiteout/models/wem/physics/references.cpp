@@ -517,6 +517,26 @@ u32 SoftFollowRenumberedFaces(PhysicsSet& physics, u32 mesh, const Mesh& before,
         if (pointOn(now, nowFirst, nowAt, face, weights, stands) && (stands - stood).length() <= same) {
             return;
         }
+        // The face kept its corners but moved or turned round (a Mirror in
+        // place): the place goes with it, not to what lies at the old spot (MIR-2).
+        if (face < now.faceCount()) {
+            const std::span<const u32> old = CornersOf(was, wasFirst, face);
+            const std::span<const u32> fresh = CornersOf(now, nowFirst, face);
+            std::vector<u32> a(old.begin(), old.end()), b(fresh.begin(), fresh.end());
+            std::sort(a.begin(), a.end());
+            std::sort(b.begin(), b.end());
+            bool sound = a.size() >= 3 && a == b;
+            for (const u32 v : b) {
+                sound = sound && v < nowAt.size();
+            }
+            if (sound) {
+                const Vector3f at =
+                    nowAt[old[0]] * weights.x + nowAt[old[1]] * weights.y + nowAt[old[2]] * weights.z;
+                weights = WeightsOn(at, nowAt[fresh[0]], nowAt[fresh[1]], nowAt[fresh[2]]);
+                ++written;
+                return;
+            }
+        }
         // The nearest face, one of the body's where there is any: a corner of
         // its first triangle is a point of the body.
         f32 least = std::numeric_limits<f32>::max();

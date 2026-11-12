@@ -616,6 +616,8 @@ bool CollapseEdge(Mesh& mesh, HalfedgeId h) {
             const FaceId dropOppFace = topology.face(dropOpp);
             copyHalfedgeAttrs(mesh.attributes, static_cast<u32>(dropOpp.index()),
                               static_cast<u32>(keep.index()));
+            // The two sides become one edge: a flag on either survives on it.
+            combineEdgeInto(mesh.attributes, Topology::edge(drop).value(), Topology::edge(keep).value());
             topology.setNext(dropOppPrev, keep);
             topology.setNext(keep, dropOppNext);
             topology.setFace(keep, dropOppFace);
@@ -685,7 +687,7 @@ bool CollapseEdge(Mesh& mesh, HalfedgeId h) {
 // Dissolve
 // ============================================================================
 
-detail::Dissolved detail::DissolveEdgeDeferred(Mesh& mesh, EdgeId edge, FaceId survivor) {
+detail::Dissolved detail::DissolveEdgeDeferred(Mesh& mesh, EdgeId edge, FaceId survivor, bool drawn) {
     Dissolved out;
     if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
         return out;
@@ -709,23 +711,21 @@ detail::Dissolved detail::DissolveEdgeDeferred(Mesh& mesh, EdgeId edge, FaceId s
         }
         // The merged loop is both loops less the edge: it repeats a vertex
         // whenever the two faces share one besides the edge's ends.
+        // Sorted, so two large faces cost no product of their sizes (JP-1).
         std::vector<VertexId> merged;
         for (const VertexId v : topology.fv(fa)) {
             merged.push_back(v);
         }
-        u32 shared = 0;
         for (const VertexId v : topology.fv(fb)) {
-            if (std::find(merged.begin(), merged.end(), v) != merged.end()) {
-                ++shared;
-            } else {
-                merged.push_back(v);
-            }
+            merged.push_back(v);
         }
-        if (shared != 2) {
+        std::sort(merged.begin(), merged.end());
+        const std::size_t both = merged.size();
+        merged.erase(std::unique(merged.begin(), merged.end()), merged.end());
+        if (both - merged.size() != 2) {
             return out;
         }
         // A face with these corners already there would be its duplicate.
-        std::sort(merged.begin(), merged.end());
         const VertexId anchor = topology.from(Topology::halfedge(edge, 0));
         for (const FaceId g : topology.vf(anchor)) {
             if (!g.valid() || g == fa || g == fb || topology.valence(g) != merged.size()) {
@@ -745,7 +745,7 @@ detail::Dissolved detail::DissolveEdgeDeferred(Mesh& mesh, EdgeId edge, FaceId s
     // The merged face is drawn as both faces were, so the file's diagonal is
     // kept: the union of their triangles, lower-numbered face first (§2.3).
     std::vector<u32> joined;
-    {
+    if (drawn) {
         const Topology& before = std::as_const(mesh).topology();
         FaceId first = before.face(Topology::halfedge(edge, 0));
         FaceId second = before.face(Topology::halfedge(edge, 1));

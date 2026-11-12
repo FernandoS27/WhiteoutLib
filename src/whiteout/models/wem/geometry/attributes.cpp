@@ -38,6 +38,7 @@ constexpr ReservedRow kReserved[] = {
     {names::kClassicBones, Domain::Vertex, AttrType::U16},
     // The modelling levels' (EDIT_MODE_MODELLING_DESIGN.md §2.2).
     {names::kModelled, Domain::Mesh, AttrType::Bool},
+    {names::kApart, Domain::Vertex, AttrType::U32},
     // Cloth (WEM_PHYSICS_DESIGN.md §3.7).
     {names::kClothMovable, Domain::Vertex, AttrType::Bool},
     {names::kClothBindVertex, Domain::Vertex, AttrType::U32x4},

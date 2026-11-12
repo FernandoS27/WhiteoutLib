@@ -513,7 +513,8 @@ TEST_CASE("wem tools target weld refuses the two-face V-notch", "[wem][geometry]
     // (x, u, z) and (x, z, v): welding u onto v would make a pillow.
     Mesh mesh = fromFaces({{0, 1, 2}, {0, 2, 3}}, {{0, 0, 0}, {-1, 2, 0}, {0, 2, 0}, {1, 2, 0}});
     const ModelPlan plan = geom::PlanTargetWeld(mesh, pointsOf(mesh), VertexId(1), VertexId(3));
-    CHECK(plan.refusal == ModelRefusal::WouldPinch);
+    // Two faces on the same corners: the audit's Q6 gives the pillow that sentence.
+    CHECK(plan.refusal == ModelRefusal::WouldDuplicateFace);
 }
 
 TEST_CASE("wem tools target weld refuses what it cannot do in one step", "[wem][geometry][tools]") {
@@ -522,20 +523,22 @@ TEST_CASE("wem tools target weld refuses what it cannot do in one step", "[wem][
         Mesh mesh = fromFaces({{0, 1, 2, 3}, {4, 5, 6, 7}},
                               {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0},
                                {1.5f, 0, 0}, {2.5f, 0, 0}, {2.5f, 1, 0}, {1.5f, 1, 0}});
+        // Two border points join (the audit's Q14), but here one vertex would
+        // hold two fans: Q6's sentence.
         CHECK(geom::PlanTargetWeld(mesh, pointsOf(mesh), VertexId(1), VertexId(4)).refusal ==
-              ModelRefusal::CrackNeedsWeld);
+              ModelRefusal::WouldPinch);
     }
     SECTION("two interior points with no edge") {
         Mesh mesh = grid(3, 3, true);
         CHECK(geom::PlanTargetWeld(mesh, pointsOf(mesh), vertexAt(mesh, 1, 1), vertexAt(mesh, 2, 2)).refusal ==
               ModelRefusal::NotAdjacent);
     }
-    SECTION("a collapse the link condition forbids") {
-        // Two border corners across the square's diagonal: an interior edge
-        // between border vertices pinches.
+    SECTION("a collapse that would leave no face") {
+        // Two corners across the square's diagonal edge: both triangles go, and
+        // a mesh keeps a polygon (the audit's Q10, as Delete).
         Mesh mesh = grid(1, 1);
         CHECK(geom::PlanTargetWeld(mesh, pointsOf(mesh), VertexId(0), VertexId(3)).refusal ==
-              ModelRefusal::TargetCollapseIllegal);
+              ModelRefusal::AllFaces);
     }
 }
 
@@ -1856,7 +1859,9 @@ TEST_CASE("wem tools chamfer of every cube edge stops at a half", "[wem][geometr
     INFO("refusal " << geom::ToString(plan.refusal));
     REQUIRE_FALSE(plan.refused());
     CHECK(plan.motions.size() == 24u); // three miters at each of eight corners
-    CHECK(plan.amountMax == Catch::Approx(0.5f).margin(1e-3));
+    // A hundredth short of the half, where the squares would have no area
+    // (audit X4).
+    CHECK(plan.amountMax == Catch::Approx(0.5f * 0.99f).margin(1e-3));
     geom::ApplyAmount(mesh, plan, 0.25f);
     finish(mesh, plan);
     CHECK(liveFaces(mesh) == 26u); // six faces, twelve strips, eight corners
@@ -2235,7 +2240,8 @@ TEST_CASE("wem tools chamfer cuts a cube's corner off at a vertex", "[wem][geome
     INFO("refusal " << geom::ToString(plan.refusal));
     REQUIRE_FALSE(plan.refused());
     CHECK(plan.motions.size() == 3u);
-    CHECK(plan.amountMax == Catch::Approx(1.0f).margin(1e-3)); // a point reaches its edge's far end
+    // A hundredth short of where a point reaches its edge's far end (audit X4).
+    CHECK(plan.amountMax == Catch::Approx(0.99f).margin(1e-3));
     geom::ApplyAmount(mesh, plan, 0.25f);
     finish(mesh, plan);
     CHECK(liveFaces(mesh) == 7u);
@@ -2312,7 +2318,7 @@ TEST_CASE("wem tools chamfer at border vertices, and at two on one edge", "[wem]
     ModelPlan both = geom::PlanChamferVertices(pair, pointsOf(pair), two);
     REQUIRE_FALSE(both.refused());
     CHECK(both.motions.size() == 8u);
-    CHECK(both.amountMax == Catch::Approx(0.5f).margin(1e-3));
+    CHECK(both.amountMax == Catch::Approx(0.5f * 0.99f).margin(1e-3)); // short of the meeting (audit X4)
     geom::ApplyAmount(pair, both, 0.25f);
     finish(pair, both);
     CHECK(liveFaces(pair) == 11u);
@@ -2411,8 +2417,10 @@ TEST_CASE("wem tools connect bridges two edges of a face", "[wem][geometry][tool
     REQUIRE_FALSE(plan.refused());
     CHECK(plan.changed == 1u);
     CHECK(plan.motions.size() == 2u);
-    CHECK(plan.amountMin == -1.0f);
-    CHECK(plan.amountMax == 1.0f);
+    // A whole step either way, a hundredth short of the neighbour it would
+    // land on (audit CON-2, X4).
+    CHECK(plan.amountMin == Catch::Approx(-0.99f).margin(1e-4));
+    CHECK(plan.amountMax == Catch::Approx(0.99f).margin(1e-4));
     // Halfway along the slide is a quarter of the edge from the centre.
     geom::ApplyAmount(mesh, plan, 0.5f);
     finish(mesh, plan);
@@ -2641,28 +2649,31 @@ TEST_CASE("wem tools loop cut stops at a cylinder's cap", "[wem][geometry][tools
 }
 
 TEST_CASE("wem tools cut takes the plane it is given", "[wem][geometry][tools]") {
-    // The same two clicks under two projections: an orthographic view hands the
-    // cut the plane holding the view direction, a perspective one the plane
-    // through the eye. Each walks its own way across the grid.
-    const auto run = [](const Vector3f& plane) {
+    // The cut walks the plane it is handed (the one through the eye and both
+    // clicks) and must arrive at the second click.
+    const auto run = [](const Vector3f& plane, u32& changed) {
         Mesh mesh = grid(2, 2, /*quads=*/true);
         geom::CutPoint from;
         from.vertex = vertexAt(mesh, 0, 0).value();
         geom::CutPoint to;
         to.vertex = vertexAt(mesh, 2, 2).value();
         ModelPlan plan = geom::PlanCut(mesh, pointsOf(mesh), from, to, plane);
-        INFO("refusal " << geom::ToString(plan.refusal));
-        REQUIRE_FALSE(plan.refused());
-        finish(mesh, plan);
-        CHECK(errors(mesh) == "");
-        return plan.changed;
+        changed = plan.changed;
+        if (!plan.refused()) {
+            finish(mesh, plan);
+            CHECK(errors(mesh) == "");
+        }
+        return plan.refusal;
     };
     // Straight down the diagonal: the cut crosses the middle vertex and needs
     // no new one.
-    CHECK(run(Vector3f{0.7071068f, -0.7071068f, 0.0f}) >= 2u);
-    // A plane leaning the other way walks a different line across the same
-    // grid, and still arrives.
-    CHECK(run(Vector3f{0.9f, -0.4f, 0.0f}) >= 2u);
+    u32 changed = 0;
+    CHECK(run(Vector3f{0.7071068f, -0.7071068f, 0.0f}, changed) == ModelRefusal::None);
+    CHECK(changed >= 2u);
+    // A plane that does not hold the second click walks off the grid's top
+    // border before it gets there: a cut that does not reach its end is
+    // refused (audit CUT-3), not left as a dangling half.
+    CHECK(run(Vector3f{0.9f, -0.4f, 0.0f}, changed) == ModelRefusal::NothingToSlice);
 }
 // ============================================================================
 // Parts (Â§3.16)
@@ -2832,7 +2843,7 @@ TEST_CASE("wem primitives are born finished", "[wem][geometry][tools]") {
     made.push_back({"plane", geom::MakePlane(params), 4});
     made.push_back({"cylinder", geom::MakeCylinder(params), 10});
     made.push_back({"cone", geom::MakeCone(params), 9});
-    made.push_back({"sphere", geom::MakeSphere(params), 24});
+    made.push_back({"sphere", geom::MakeSphere(params), 32}); // PRM-4: at least sides / 2 = 4 bands
     for (Made& one : made) {
         INFO(one.name);
         CHECK(geom::IsModelled(one.mesh));
@@ -3056,14 +3067,16 @@ TEST_CASE("wem tools bridge joins two faces", "[wem][geometry][tools]") {
         CHECK(round == 2u); // two of the band's quads meet at each rim corner
     }
 
-    // One face twice; two that share an edge; two of different valence; more
-    // segments than are built; a face that is not there.
+    // One face twice; two that share an edge; more segments than are built; a
+    // face that is not there. Two of different valence are bridged, with a
+    // triangle where one rim steps on alone (audit BRG-4, Q14).
     Mesh again = fromFaces(three, places);
     CHECK(geom::PlanBridgeFaces(again, pointsOf(again), FaceId(0), FaceId(0)).refusal ==
           ModelRefusal::SameLoop);
     Mesh odd = fromFaces({{0, 3, 2, 1}, {4, 5, 6}}, places);
-    CHECK(geom::PlanBridgeFaces(odd, pointsOf(odd), FaceId(0), FaceId(1)).refusal ==
-          ModelRefusal::LoopCountsDiffer);
+    const ModelPlan oddPlan = geom::PlanBridgeFaces(odd, pointsOf(odd), FaceId(0), FaceId(1));
+    CHECK(oddPlan.refusal == ModelRefusal::None);
+    CHECK(oddPlan.changed >= 4u); // a face per edge of the larger rim, at least
     geom::BridgeParams two;
     two.segments = 2;
     CHECK(geom::PlanBridgeFaces(again, pointsOf(again), FaceId(0), FaceId(1), two).refusal ==

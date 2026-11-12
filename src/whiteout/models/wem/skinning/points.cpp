@@ -118,8 +118,15 @@ PointTable BuildPointTable(const Mesh& mesh) {
     }
 
     // --- the joins: seam twins, then repair twins ----------------------------
+    //
+    // Never across two `apart` stamps: a copy a tool made apart from its source
+    // is its own point however close it lies (Q8).
     table.weldTolerance = geom::CoincidenceTolerance(positions);
     Unions unions(table.vertexCount);
+    const std::span<const u32> apart = mesh.attributes.get<const u32>(geom::names::kApart, geom::Domain::Vertex);
+    const auto together = [&](u32 a, u32 b) {
+        return apart.size() != table.vertexCount || apart[a] == apart[b];
+    };
     if (table.weldTolerance > 0.0f) {
         const f32 cell = table.weldTolerance * 2.0f;
         const f32 tolerance = table.weldTolerance;
@@ -143,7 +150,7 @@ PointTable BuildPointTable(const Mesh& mesh) {
                             const f32 dxp = a.x - b.x;
                             const f32 dyp = a.y - b.y;
                             const f32 dzp = a.z - b.z;
-                            if (dxp * dxp + dyp * dyp + dzp * dzp <= tolerance * tolerance) {
+                            if (dxp * dxp + dyp * dyp + dzp * dzp <= tolerance * tolerance && together(v, other)) {
                                 unions.join(v, other);
                             }
                         }
@@ -160,7 +167,7 @@ PointTable BuildPointTable(const Mesh& mesh) {
         firstOfGroup.reserve(table.vertexCount);
         for (u32 v = 0; v < table.vertexCount; ++v) {
             const auto [entry, added] = firstOfGroup.try_emplace(mergeGroups[v], v);
-            if (!added) {
+            if (!added && together(v, entry->second)) {
                 unions.join(v, entry->second);
             }
         }

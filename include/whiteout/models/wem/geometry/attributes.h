@@ -158,6 +158,11 @@ inline constexpr const char* kSkinLocked = "skinLocked";     ///< Vertex / Bool,
 /// (EDIT_MODE_MODELLING_DESIGN.md §2.2).
 inline constexpr const char* kModelled = "modelled";
 inline constexpr const char* kClassicBones = "classicBones"; ///< Vertex / U16, §12.6.
+/// Vertex / U32: 0, or the stamp a tool gave the copies it made apart from
+/// their source (Duplicate, Detach to Element, a wall at amount 0). Coincident
+/// vertices are one point only when their stamps agree (Q8), so such a copy
+/// moves alone, while a crack's twins, which no tool made, stay one (Q5).
+inline constexpr const char* kApart = "apart";
 
 // Cloth (WEM_PHYSICS_DESIGN.md §3.7). Exported by the formats that carry cloth.
 /// Vertex / Bool: a cage vertex the cloth may move; a pinned one follows its skin.

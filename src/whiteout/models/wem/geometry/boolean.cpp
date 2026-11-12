@@ -7,7 +7,9 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <numeric>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -557,6 +559,24 @@ public:
         const u32 t = face - triBase_[p];
         const Part& part = *parts_[p];
         return {pointOf_[p][part.tri[3 * t]], pointOf_[p][part.tri[3 * t + 1]], pointOf_[p][part.tri[3 * t + 2]]};
+    }
+    /// A cut triangle whose one fragment is itself: the cut only ran along its edges.
+    bool alongOnly(u32 face) {
+        const TriWork& work = tris_[face];
+        if (work.fragments.size() != 1) {
+            return false;
+        }
+        std::array<u32, 3> c = cornersOf(face);
+        for (u32& x : c) {
+            x = points_.root(x);
+        }
+        const auto& f = work.fragments.front();
+        for (u32 k = 0; k < 3; ++k) {
+            if (f[0] == c[k] && f[1] == c[(k + 1) % 3] && f[2] == c[(k + 2) % 3]) {
+                return true;
+            }
+        }
+        return false;
     }
 
     bool cutAgainst(u32 a, u32 b) const;
@@ -1702,7 +1722,8 @@ void Run::classify(BooleanResult& result) {
 /// One input's kept faces, as they go into an output mesh.
 struct Contribution {
     u32 runPart = 0;
-    bool wall = false; ///< An operand's faces joining a target: its section and skin are the target's.
+    bool wall = false;   ///< An operand's faces joining a target: its section and skin are the target's.
+    bool joined = false; ///< Another input's faces in the first's mesh: its section is the target's (§3.11).
 };
 
 struct OutVertex {
@@ -1886,21 +1907,30 @@ Mesh Assembler::build(std::span<const Contribution> contributions, u32 wallSecti
             first[f + 1] += first[f];
         }
         for (u32 f = 0; f < faceCount; ++f) {
-            const u32 section = c.wall ? wallSection : (f < sections.size() ? sections[f] : 0);
+            const u32 section = c.wall || c.joined ? wallSection : (f < sections.size() ? sections[f] : 0);
             // A face no cut reached, kept whole and turned alike, is written whole.
             bool whole = first[f + 1] > first[f];
             bool kept = true;
             bool turned = false;
             for (u32 t = first[f]; t < first[f + 1] && whole; ++t) {
-                const TriWork& work = run_.tris_[run_.triBase_[p] + t];
+                const u32 at = run_.triBase_[p] + t;
+                const TriWork& work = run_.tris_[at];
+                bool tk = outcome.wholeKept[t] != 0;
+                bool tt = outcome.wholeTurned[t] != 0;
                 if (work.cut) {
-                    whole = false;
-                    break;
+                    // A cut that only ran along the triangle's edges left it one
+                    // fragment, itself: it is whole (BOO-16).
+                    if (!run_.alongOnly(at)) {
+                        whole = false;
+                        break;
+                    }
+                    tk = outcome.fragmentKept[t][0] != 0;
+                    tt = outcome.fragmentTurned[t][0] != 0;
                 }
                 if (t == first[f]) {
-                    kept = outcome.wholeKept[t] != 0;
-                    turned = outcome.wholeTurned[t] != 0;
-                } else if ((outcome.wholeKept[t] != 0) != kept || (outcome.wholeTurned[t] != 0) != turned) {
+                    kept = tk;
+                    turned = tt;
+                } else if (tk != kept || tt != turned) {
                     whole = false;
                 }
             }
@@ -2055,6 +2085,9 @@ Mesh Assembler::build(std::span<const Contribution> contributions, u32 wallSecti
     mesh.name = primary.mesh.name;
     mesh.lodLevel = primary.mesh.lodLevel;
     mesh.sections = primary.mesh.sections;
+    mesh.sc2Bounds = primary.mesh.sc2Bounds;
+    // As `rebuild` keeps it: the import's log, unless this face set needed its own repair.
+    mesh.repairLog = repaired.log.empty() ? primary.mesh.repairLog : repaired.log;
     mesh.setFaceSet(repaired.faces);
     if (!mesh.ensureConnectivity().ok()) {
         return Mesh{};
@@ -2111,6 +2144,21 @@ Mesh Assembler::build(std::span<const Contribution> contributions, u32 wallSecti
             }
         }
     }
+    // A reference layer's values name source vertices: renumbered as the vertices
+    // were, and a vertex the cut dropped named by none (BOO-6).
+    for (const AttrLayer& layer : std::as_const(mesh.attributes).layers()) {
+        if (!IsVertexReferenceLayer(layer)) {
+            continue;
+        }
+        const auto lanes = mesh.attributes.get<std::array<u32, 4>>(layer.name, Domain::Vertex);
+        for (u32 v = 0; v < vertexCount && v < lanes.size(); ++v) {
+            const auto& map = sourceMap_[vertices_[v].part];
+            for (u32& named : lanes[v]) {
+                const auto found = map.find(named);
+                named = found != map.end() ? found->second : kInvalidId;
+            }
+        }
+    }
     {
         // Merge groups: each contribution's own apart from another's, a cut
         // point a fresh one.
@@ -2164,6 +2212,43 @@ Mesh Assembler::build(std::span<const Contribution> contributions, u32 wallSecti
         }
         skinned = skinned || !skin[v].empty();
     }
+    // An input with no skin joined to skinned ones takes the nearest skinned
+    // input's surface, as a wall does, so no vertex is left unbound (P6, BOO-15).
+    if (skinned && contributions.size() > 1) {
+        std::vector<u8> bound(run_.parts_.size(), 0);
+        for (const Contribution& c : contributions) {
+            for (const auto& list : run_.parts_[c.runPart]->skin) {
+                if (!list.empty()) {
+                    bound[c.runPart] = 1;
+                    break;
+                }
+            }
+        }
+        for (u32 v = 0; v < vertexCount; ++v) {
+            if (!skin[v].empty() || bound[vertices_[v].part] != 0) {
+                continue;
+            }
+            const Vector3d& p = vertices_[v].position;
+            const Vector3f at(static_cast<f32>(p.x), static_cast<f32>(p.y), static_cast<f32>(p.z));
+            f32 nearest = std::numeric_limits<f32>::max();
+            for (const Contribution& c : contributions) {
+                const Part& from = *run_.parts_[c.runPart];
+                if (bound[c.runPart] == 0 || from.tri.empty()) {
+                    continue;
+                }
+                const PointHit hit = from.bvh.closestPoint(at);
+                if (!hit.hit() || hit.distance >= nearest) {
+                    continue;
+                }
+                nearest = hit.distance;
+                const u32 t = hit.triangle;
+                const std::vector<Influence> lists[3] = {from.skin[from.tri[3 * t]], from.skin[from.tri[3 * t + 1]],
+                                                         from.skin[from.tri[3 * t + 2]]};
+                const f32 w[3] = {1.0f - hit.u - hit.v, hit.u, hit.v};
+                skin[v] = BlendInfluences(lists, w);
+            }
+        }
+    }
     if (skinned) {
         mesh.skin.reset(0);
         mesh.skin.offsets.assign(1, 0);
@@ -2190,11 +2275,30 @@ Mesh Assembler::build(std::span<const Contribution> contributions, u32 wallSecti
     bool anyRow = false;
     std::vector<u32> outRow;
     std::vector<u32> touched;
+    // Colour layers another input brings: a face without one is white, not black
+    // and transparent (BOO-5).
+    std::vector<std::string> colours;
+    for (const AttrLayer& layer : std::as_const(mesh.attributes).layers()) {
+        if (layer.domain == Domain::Halfedge && layer.type == AttrType::U8x4 && layer.name.rfind("color", 0) == 0) {
+            colours.push_back(layer.name);
+        }
+    }
     for (u32 outFace = 0; outFace < survivor.size(); ++outFace) {
         const OutFace& f = faces_[survivor[outFace]];
         const Part& part = *run_.parts_[f.part];
         const Topology& sourceTopology = std::as_const(part.mesh).topology();
         sectionsOut[outFace] = f.section;
+        for (const std::string& name : colours) {
+            if (part.mesh.attributes.layer(name, Domain::Halfedge) != nullptr) {
+                continue;
+            }
+            const auto white = mesh.attributes.get<std::array<u8, 4>>(name, Domain::Halfedge);
+            for (const HalfedgeId c : topology.fh(FaceId(outFace))) {
+                if (c.index() < white.size()) {
+                    white[c.index()] = {255, 255, 255, 255};
+                }
+            }
+        }
         for (const AttrLayer& layer : part.mesh.attributes.layers()) {
             if (layer.domain != Domain::Face || layer.name == names::kSection || IsBooleanLayer(layer.name)) {
                 continue;
@@ -2433,6 +2537,12 @@ BooleanResult BooleanMeshes(std::span<const BooleanInput> inputs, const BooleanO
                 members.push_back(i);
             }
         }
+        if (members.empty()) {
+            // Every input is empty: there is no face for the union to keep.
+            result.refusal = BooleanRefusal::NothingLeft;
+            result.refusedInput = targets.front();
+            return result;
+        }
         std::vector<Part*> runParts;
         std::vector<u8> isTarget;
         for (u32 i : members) {
@@ -2450,9 +2560,9 @@ BooleanResult BooleanMeshes(std::span<const BooleanInput> inputs, const BooleanO
         if (options.faces == OperandFaces::JoinTarget) {
             std::vector<Contribution> all;
             for (u32 r = 0; r < members.size(); ++r) {
-                all.push_back(Contribution{r, false});
+                all.push_back(Contribution{r, false, r != 0});
             }
-            result.meshes[members.front()] = assembler.build(all, 0);
+            result.meshes[members.front()] = assembler.build(all, WallSection(run, 0));
             for (u32 i = 0; i < n; ++i) {
                 if (i != members.front() && inputs[i].mesh != nullptr) {
                     result.meshes[i] = EmptyLike(*inputs[i].mesh);
@@ -2518,12 +2628,21 @@ BooleanResult BooleanMeshes(std::span<const BooleanInput> inputs, const BooleanO
         } else {
             const Contribution own[1] = {Contribution{0, false}};
             result.meshes[t] = assembler.build(own, 0);
+            bool walled = false;
             for (u32 r = 1; r < runParts.size(); ++r) {
                 if (run.outcomes[r].keptFaces == 0) {
                     continue;
                 }
                 const Contribution wall[1] = {Contribution{r, false}};
                 walls[runOperand[r - 1]].push_back(assembler.build(wall, 0));
+                walled = walled || FaceCount(walls[runOperand[r - 1]].back()) != 0;
+            }
+            // The whole result in an operand's own mesh (an Intersect with the
+            // operand inside): the target is used up, not refused (BOO-1).
+            if (walled && FaceCount(result.meshes[t]) == 0) {
+                result.meshes[t] = EmptyLike(*inputs[t].mesh);
+                result.consumed[t] = 1;
+                continue;
             }
         }
         if (FaceCount(result.meshes[t]) == 0) {
@@ -2542,7 +2661,25 @@ BooleanResult BooleanMeshes(std::span<const BooleanInput> inputs, const BooleanO
             continue;
         }
         if (options.faces == OperandFaces::OwnMesh && !walls[o].empty()) {
-            result.meshes[o] = walls[o].size() == 1 ? std::move(walls[o].front()) : MergeMeshes(walls[o]);
+            if (walls[o].size() == 1) {
+                result.meshes[o] = std::move(walls[o].front());
+            } else {
+                // One wall per target, each with the operand's sections: one
+                // mesh with the operand's name, level and sections (BOO-7).
+                Mesh merged = MergeMeshes(walls[o]);
+                const Mesh& first = walls[o].front();
+                merged.name = first.name;
+                merged.lodLevel = first.lodLevel;
+                merged.sc2Bounds = first.sc2Bounds;
+                const u32 own = static_cast<u32>(first.sections.size());
+                if (own > 0 && merged.sections.size() > own) {
+                    for (u32& s : merged.faceSections()) {
+                        s %= own;
+                    }
+                    merged.sections.erase(merged.sections.begin() + own, merged.sections.end());
+                }
+                result.meshes[o] = std::move(merged);
+            }
         } else {
             result.meshes[o] = EmptyLike(*inputs[o].mesh);
             result.consumed[o] = 1;

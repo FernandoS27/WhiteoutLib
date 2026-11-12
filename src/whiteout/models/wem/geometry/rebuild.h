@@ -83,8 +83,9 @@ struct Dissolved {
 
 /// `DissolveEdge` without its row writes: the union goes to the result, for a
 /// caller that builds every row in one pass (the joins, EDIT_MODE_MODELLING_DESIGN.md
-/// §3.2). The caller owns `kept`'s row and `gone`'s.
-Dissolved DissolveEdgeDeferred(Mesh& mesh, EdgeId edge, FaceId survivor);
+/// §3.2). The caller owns `kept`'s row and `gone`'s; one that holds the union
+/// already passes @p drawn false and `joined` stays empty.
+Dissolved DissolveEdgeDeferred(Mesh& mesh, EdgeId edge, FaceId survivor, bool drawn = true);
 
 } // namespace detail
 } // namespace geom

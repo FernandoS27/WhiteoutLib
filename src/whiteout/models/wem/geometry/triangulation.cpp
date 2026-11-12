@@ -244,12 +244,15 @@ bool faces(const Plane& plane, u32 a, u32 b, u32 c) {
     return 0.5 * area2(plane.points[a], plane.points[b], plane.points[c]) > plane.facing;
 }
 
-/// Closed containment: on an edge or a corner counts as inside.
-bool holds(const Vec2& a, const Vec2& b, const Vec2& c, const Vec2& p) {
+/// Closed containment: on an edge or a corner counts as inside. "On" is within
+/// the facing threshold: a corner in line with a side sits on it only to within
+/// its f32 rounding, and that rounding's sign must not pick the ear (MTX-13).
+bool holds(const Plane& plane, const Vec2& a, const Vec2& b, const Vec2& c, const Vec2& p) {
+    const f64 on = 2.0 * plane.facing;
     const f64 ab = area2(a, b, p);
     const f64 bc = area2(b, c, p);
     const f64 ca = area2(c, a, p);
-    return (ab >= 0.0 && bc >= 0.0 && ca >= 0.0) || (ab <= 0.0 && bc <= 0.0 && ca <= 0.0);
+    return (ab >= -on && bc >= -on && ca >= -on) || (ab <= on && bc <= on && ca <= on);
 }
 
 /// The smallest angle of (a, b, c), the same whichever corner it starts from.
@@ -327,7 +330,7 @@ CutNote clipEars(const Plane& plane, u32 n, std::vector<u32>& out) {
                 if (other == t[0] || other == t[1] || other == t[2]) {
                     continue;
                 }
-                if (holds(plane.points[t[0]], plane.points[t[1]], plane.points[t[2]],
+                if (holds(plane, plane.points[t[0]], plane.points[t[1]], plane.points[t[2]],
                           plane.points[other])) {
                     return false;
                 }
@@ -641,6 +644,15 @@ u32 MaterialiseRows(Mesh& mesh, std::span<const u32> faces) {
         row.reserve(cut.size());
         for (const u32 ordinal : cut) {
             row.push_back(loop[ordinal]);
+        }
+        // A face with no valid cut (no area yet, a wall at amount 0) keeps no
+        // row: one stored would be stale, and the automatic rule draws it the
+        // same either way.
+        if (!RowValid(loop, positions, row)) {
+            if (stored.empty()) {
+                continue;
+            }
+            row.clear();
         }
         written.push_back({f, std::move(row)});
     }

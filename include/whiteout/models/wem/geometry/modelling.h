@@ -13,6 +13,7 @@
  */
 
 #include <cfloat>
+#include <memory>
 #include <optional>
 #include <span>
 #include <vector>
@@ -70,6 +71,11 @@ enum class ModelRefusal : u8 {
     /// selected, or neither -- or its vertex is not an end of a selected edge.
     HingeNotOnBoundary,
     NotBuiltYet,
+    /// Make Planar: the points fit no plane -- Best fit over a line, or every
+    /// part of *Each part* handed with no normal.
+    NoPlane,
+    /// Smooth: every chosen point is on a border, which Pin borders holds.
+    PinnedBorders,
 };
 
 const char* ToString(ModelRefusal refusal);
@@ -129,6 +135,17 @@ struct ModelPlan {
     bool fellBack = false;          ///< Extrude's Group fell back to Local Normal (§3.8).
     u32 kept = 0;                   ///< What the tool left as it was, for the result line.
     u32 changed = 0;                ///< What it did, for the result line.
+    /// Why the first of the parts counted in `kept` was left, when a tool did
+    /// the rest (X1): Collapse and Remove refuse a part, not the whole.
+    ModelRefusal keptBecause = ModelRefusal::None;
+    /// Vertices whose faces the tool reshaped without a motion or a touched
+    /// edge -- a removal's survivors, a hole's rim: `FinishTool` re-shades the
+    /// faces round them (X10). In the ids Plan left.
+    std::vector<u32> reshade;
+    /// Chamfer's (Q3): the mesh as Plan found it. Finished with every motion
+    /// still at its base, the tool changed nothing: `FinishTool` puts this back
+    /// and refuses `ZeroAmount`, as Blender's Bevel at 0 does.
+    std::shared_ptr<const Mesh> unchangedAtZero;
 
     bool refused() const {
         return refusal != ModelRefusal::None;
@@ -164,7 +181,9 @@ void ApplyAmount(Mesh& mesh, const ModelPlan& plan, f32 amount);
 /// in `touchedEdges` whose dihedral exceeds @p creaseAngle) and `seam`
 /// derivation on `touchedEdges`; the re-shade around them; `Canonicalize`
 /// (§2.1), renumbering `selection` through its remap; `MaterialiseRows` over
-/// `changedFaces` (§2.3); `recomputeBounds`. Nothing on a refused plan.
+/// `changedFaces` (§2.3); `recomputeBounds`. Nothing on a refused plan. A plan
+/// with `unchangedAtZero` whose motions all sit at their bases puts that mesh
+/// back and is refused `ZeroAmount` here.
 void FinishTool(Mesh& mesh, ModelPlan& plan, f32 creaseAngle = kDefaultShadingAngle);
 
 // ============================================================================
@@ -494,6 +513,7 @@ ModelPlan PlanChamferVertices(Mesh& mesh, const PointTable& points, const Elemen
 /// Insert Vertex (§3.14): @p edge split at @p t, `SplitEdge`'s vertex. Its
 /// corners are lerped from one ordered pair, its skin blended, and it is a
 /// point of its own. Nothing moves afterwards, so the plan has no amount.
+/// Refused with `ZeroAmount` when @p t lands within the mesh's tolerance of an end.
 ModelPlan PlanInsertVertex(Mesh& mesh, EdgeId edge, f32 t);
 
 /// Divide (§3.14): every edge in @p edges cut into @p segments equal parts.
@@ -554,6 +574,10 @@ struct SymmetrizeParams {
     /// tell which bone mirrors which and the nearest axis is what does.
     Vector3f origin{0.0f, 0.0f, 0.0f};
     Vector3f normal{0.0f, 0.0f, 0.0f};
+    /// The seam weld (3ds Max's Weld Seam threshold): a border vertex this
+    /// close to the plane is put on it and shared, as a share of the mesh's
+    /// bounds' diagonal, so the same model welds alike at any scale.
+    f32 weld = 0.005f;
 };
 
 /**
@@ -605,7 +629,8 @@ ModelPlan PlanMirror(Mesh& mesh, const MirrorParams& params, std::span<const u32
  *
  * With `axis` 0, 1 or 2 the plane is the one square to that axis through the
  * selection's centre; with 3 it is the least-squares fit of the points
- * themselves, which is what flattening a dented face wants.
+ * themselves, which is what flattening a dented face wants; points along a
+ * line fit none, refused `NoPlane`.
  *
  * The amount takes each point from where it is (0) to the plane (1).
  */
@@ -615,7 +640,7 @@ ModelPlan PlanMakePlanar(Mesh& mesh, const PointTable& points, const ElementSet&
  * @brief The least-squares plane through @p points -- §3.17's *Best fit*.
  *
  * @p origin comes back as their centre and @p normal as the smallest
- * eigenvector of their scatter, found by the power method on its adjugate.
+ * eigenvector of their scatter, found by Jacobi rotations.
  * Both are always written, so a caller may use them without checking.
  *
  * @return false when the scatter has no smallest direction -- fewer than three
@@ -652,10 +677,22 @@ struct PlanarPart {
  *        vertices onto its own plane, as the caller found it.
  *
  * The amount is the other forms': 0 where each point is, 1 on its plane. A
- * part with a zero-length normal is skipped; with no point off its plane the
- * whole is refused with `ZeroAmount`.
+ * part with a zero-length normal is skipped and counted in `kept`
+ * (`keptBecause` `NoPlane`); with none left, refused `NoPlane`. With every
+ * point on its plane to rounding, refused `ZeroAmount`.
  */
 ModelPlan PlanMakePlanar(Mesh& mesh, std::span<const PlanarPart> parts);
+
+/**
+ * @brief The element-to-vertex step a tool takes first (Q5, X14): a crack's
+ *        twins act as one vertex.
+ *
+ * Each selected vertex brings every live member of its point, and each selected
+ * edge every live edge between the same two points -- its twin across a crack.
+ * Faces are as given. Copies a tool made apart are points of their own
+ * (`MarkApart`), so they are not brought.
+ */
+ElementSet PointClosed(const Mesh& mesh, const PointTable& points, const ElementSet& selection);
 
 /**
  * @brief The connected parts of @p selection, over points (§3.17's *Each
@@ -678,8 +715,8 @@ std::vector<std::vector<u32>> SelectionParts(const Mesh& mesh, const PointTable&
  * @brief Duplicate (§3.16): the selected faces copied inside their own mesh, as
  *        a shell of their own.
  *
- * Every vertex the copy needs is copied with it, with a fresh `mergeGroup`, so
- * nothing welds the two together. The copies sit exactly on the originals until
+ * Every vertex the copy needs is copied with it, once per fan of chosen faces
+ * round it, with a fresh `mergeGroup`, so nothing welds the two together. The copies sit exactly on the originals until
  * something moves them — the viewer's Shift+Move does it in the same entry.
  *
  * Output selection: the copies.
@@ -693,10 +730,12 @@ ModelPlan PlanDuplicate(Mesh& mesh, const ElementSet& faces);
  * @p made comes back as @p mesh with every other face deleted, so it carries
  * the source's props, its vertices' skin and every layer they had; a vertex the
  * faces left behind also use is copied by that deletion. With @p keep the
- * source is left as it was — Detach as a clone.
+ * source is left as it was — Detach as a clone, which of every face is the
+ * whole mesh again. Both keep the source's sections, a faceless one too, as
+ * Blender's Separate and 3ds Max's Detach keep every material slot.
  *
- * Refused for every face of the mesh (`AllFaces`: the Mesh level is where a
- * whole mesh is moved) and for none (`EmptySelection`).
+ * Refused for every face of the mesh without @p keep (`AllFaces`: the Mesh
+ * level is where a whole mesh is moved) and for none (`EmptySelection`).
  */
 ModelPlan PlanDetach(Mesh& mesh, const ElementSet& faces, Mesh& made, bool keep);
 
@@ -741,12 +780,14 @@ struct BridgeParams {
  *
  * The loops are matched in opposite directions, as a consistent bridge needs,
  * and the starting pair is the one whose connecting edges are shortest in sum;
- * `twist` steps it round. Each quad copies its rim faces' corners at the two
- * loops, as Extrude's walls do.
+ * `twist` steps it round. Loops of different lengths are joined where they
+ * have run the same share of their length, a triangle wherever one steps on
+ * alone. Each face copies its rim faces' corners at the two loops, as Extrude's
+ * walls do.
  *
- * Refused with `LoopCountsDiffer` for loops of different lengths, `SameLoop`
- * for one loop twice, `EmptySelection` when either is not a border loop, and
- * `NotBuiltYet` past one segment.
+ * Refused with `SameLoop` for one loop twice or loops that share a point,
+ * `EmptySelection` when either is not a border loop, and `NotBuiltYet` past one
+ * segment.
  */
 ModelPlan PlanBridge(Mesh& mesh, const PointTable& points, EdgeId first, EdgeId second,
                      const BridgeParams& params = {});
@@ -766,9 +807,10 @@ ModelPlan PlanBridge(Mesh& mesh, const PointTable& points, EdgeId first, EdgeId 
  * band wears the two faces' own values, which is what makes a bridge through a
  * textured surface keep the surface's look.
  *
- * Refused with `SameLoop` for one face twice or two faces that share a vertex,
- * `LoopCountsDiffer` for faces of different valence, `EmptySelection` for a
- * face that is not there, and `NotBuiltYet` past one segment. Two faces that
+ * Faces of different valence are joined as `PlanBridge` joins loops of
+ * different lengths. Refused with `SameLoop` for one face twice or two faces
+ * that share a point, `EmptySelection` for a face that is not there, and
+ * `NotBuiltYet` past one segment. Two faces that
  * are the whole mesh are not refused: what is left is the band, which is a
  * mesh -- bridging the two ends of nothing is how a tube is made.
  */

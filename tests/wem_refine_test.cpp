@@ -3,7 +3,7 @@
 
 // Subdivide, Smooth and Orient Outward (refine.h): a cube subdivided once has
 // 26 vertices and 24 quads, stays closed, keeps its UV seams and its weights
-// summing to one; Catmull-Clark rounds a corner to 5/9 and creases hold it;
+// summing to one; Catmull-Clark rounds a corner to 5/9 and creases (not sharp) hold it;
 // Smooth keeps a flat grid flat with its border pinned; Orient Outward turns
 // an inside-out box.
 
@@ -130,7 +130,7 @@ TEST_CASE("Subdivide: a cube once is 26 vertices and 24 quads, closed, seams and
     }
 }
 
-TEST_CASE("Subdivide: Catmull-Clark rounds a corner to 5/9; creases hold it", "[wem][refine]") {
+TEST_CASE("Subdivide: Catmull-Clark rounds a corner to 5/9; creases hold it, sharp does not", "[wem][refine]") {
     Mesh round = Cube();
     SubdivideParams params;
     params.creases = false;
@@ -148,10 +148,21 @@ TEST_CASE("Subdivide: Catmull-Clark rounds a corner to 5/9; creases hold it", "[
     CHECK(corner);
     CHECK_FALSE(kept);
 
-    // The box's edges are sharp: with creases they hold, and so does the box.
+    // Q11: sharp is shading only, so the primitive box (every edge sharp) rounds
+    // with creases on; creased edges hold, and so does the box.
+    Mesh sharp = Cube();
+    ModelPlan rounded = PlanSubdivide(sharp, {}, SubdivideParams{});
+    Finish(sharp, rounded);
+    bool held = false;
+    for (const Vector3f& p : Positions(sharp))
+        held = held || std::min({std::abs(p.x), std::abs(p.y), std::abs(p.z)}) > 0.99f;
+    CHECK_FALSE(held);
     Mesh boxed = Cube();
-    ModelPlan held = PlanSubdivide(boxed, {}, SubdivideParams{});
-    Finish(boxed, held);
+    boxed.ensureConnectivity();
+    for (f32& c : boxed.attributes.getOrCreate<f32>(names::kCrease, Domain::Edge, AttrType::F32))
+        c = 1.0f;
+    ModelPlan creased = PlanSubdivide(boxed, {}, SubdivideParams{});
+    Finish(boxed, creased);
     for (const Vector3f& p : Positions(boxed))
         CHECK(std::max({std::abs(p.x), std::abs(p.y), std::abs(p.z)}) == Catch::Approx(1.0f));
 }

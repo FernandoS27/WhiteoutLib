@@ -167,7 +167,9 @@ void TriangulateMesh(const Mesh& mesh, std::vector<u32>& triangles,
 /**
  * @brief Stores `TriangulateFace`'s automatic cut for every face of four or more
  *        corners in @p faces (face slots; all when empty) whose row is empty or
- *        fails `RowValid`. Returns how many rows it wrote.
+ *        fails `RowValid`. Returns how many rows it wrote. A face whose own
+ *        automatic cut is no valid row either (one with no area) is left with
+ *        none, a stale row cleared.
  *
  * Called at every commit that can leave a polygon without a valid row: a
  * tool's finish, a move's commit, a weld. Needs connectivity.

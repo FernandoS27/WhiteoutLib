@@ -49,6 +49,22 @@ f32 CoincidenceTolerance(const Mesh& mesh) {
         mesh.attributes.get<const Vector3f>(names::kPosition, Domain::Vertex));
 }
 
+void MarkApart(Mesh& mesh, std::span<const u32> copies) {
+    if (copies.empty()) {
+        return;
+    }
+    const std::span<u32> stamps = mesh.attributes.getOrCreate<u32>(names::kApart, Domain::Vertex, AttrType::U32);
+    u32 fresh = 1;
+    for (const u32 stamp : stamps) {
+        fresh = std::max(fresh, stamp + 1);
+    }
+    for (const u32 v : copies) {
+        if (v < stamps.size()) {
+            stamps[v] = fresh;
+        }
+    }
+}
+
 bool IsModelled(const Mesh& mesh) {
     const std::span<const u8> marker = mesh.attributes.get<const u8>(names::kModelled, Domain::Mesh);
     return !marker.empty() && marker[0] != 0;

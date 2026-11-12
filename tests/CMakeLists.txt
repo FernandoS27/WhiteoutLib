@@ -155,6 +155,14 @@ whiteout_add_test(wem_uv_transfer_test wem_uv_transfer_test.cpp LINK whiteout_we
 whiteout_add_test(wem_uv_checks_test wem_uv_checks_test.cpp LINK whiteout_wem_edit)
 whiteout_add_test(wem_modelling_tools_test wem_modelling_tools_test.cpp LINK whiteout_wem_convert whiteout_wem_edit)
 whiteout_add_test(wem_refine_test wem_refine_test.cpp LINK whiteout_wem_edit)
+# The Mesh workspace audit (WhiteoutFlakes EDIT_MODE_MESH_AUDIT_PLAN.md): one
+# test per suspect, a confirmed one [!shouldfail] until its fix; the sweeps are
+# hidden ([.mesh-audit]).
+whiteout_add_test(wem_audit_removal_test wem_audit_removal_test.cpp LINK whiteout_wem_convert whiteout_wem_edit)
+whiteout_add_test(wem_audit_adding_test wem_audit_adding_test.cpp LINK whiteout_wem_convert whiteout_wem_edit)
+whiteout_add_test(wem_audit_placement_test wem_audit_placement_test.cpp LINK whiteout_wem_convert whiteout_wem_edit)
+whiteout_add_test(wem_audit_sweep_test wem_audit_sweep_test.cpp LINK whiteout_wem_convert whiteout_wem_edit)
+whiteout_add_test(wem_audit_fuzz_test wem_audit_fuzz_test.cpp LINK whiteout_wem_convert whiteout_wem_edit)
 whiteout_add_test(wem_render_identity_test wem_render_identity_test.cpp)
 whiteout_add_test(wem_material_kind_test wem_material_kind_test.cpp)
 whiteout_add_test(wem_material_ops_test wem_material_ops_test.cpp)

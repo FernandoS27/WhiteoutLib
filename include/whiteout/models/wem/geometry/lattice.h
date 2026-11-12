@@ -54,7 +54,9 @@ struct Lattice {
  *
  * @p axes must be unit and square to one another. An axis along which the
  * positions have no extent -- a flat patch -- gets a tenth of the widest, and
- * a single point a box of 1, so the box never collapses.
+ * a single point a box of 1, so the box never collapses. No positions at all
+ * give a box of 1 at the origin, which deforms nothing: a caller with no
+ * points to move refuses before it fits one (LAT-2).
  */
 Lattice FitLattice(std::span<const Vector3f> positions, const Vector3f (&axes)[3], const u32 (&points)[3]);
 

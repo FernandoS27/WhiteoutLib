@@ -34,6 +34,12 @@ f32 CoincidenceTolerance(std::span<const Vector3f> positions);
 /// `CoincidenceTolerance` over @p mesh's positions.
 f32 CoincidenceTolerance(const Mesh& mesh);
 
+/// Makes @p copies points of their own (Q8): a fresh `apart` stamp, shared by
+/// all of them, so none is one point with the coincident vertex it was copied
+/// from. What a tool calls for the copies it makes apart; a split the kernel
+/// is forced to (a crack, Flip's detached border) stays one point.
+void MarkApart(Mesh& mesh, std::span<const u32> copies);
+
 /// Two influence weights of one bone agree when they differ by no more than
 /// this: the members of a point hold the same skin to it.
 inline constexpr f32 kSkinWeightTolerance = 1e-5f;

@@ -18,8 +18,11 @@
 #include <cmath>
 #include <cstring>
 #include <functional>
+#include <iterator>
+#include <map>
 #include <numeric>
 #include <optional>
+#include <queue>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -60,6 +63,8 @@ const char* ToString(ModelRefusal refusal) {
     case ModelRefusal::SameLoop: return "SameLoop";
     case ModelRefusal::HingeNotOnBoundary: return "HingeNotOnBoundary";
     case ModelRefusal::NotBuiltYet: return "NotBuiltYet";
+    case ModelRefusal::NoPlane: return "NoPlane";
+    case ModelRefusal::PinnedBorders: return "PinnedBorders";
     }
     return "Unknown";
 }
@@ -124,18 +129,10 @@ std::vector<Vector3f> placesOf(std::span<const Vector3f> positions, std::span<co
     return out;
 }
 
-/// Face @p face as it is drawn, vertex ids, three per triangle; @p pending
-/// overrides the stored row for a face a tool already re-cut.
-std::vector<u32> drawnOf(const Mesh& mesh, FaceId face,
-                         const std::unordered_map<u32, std::vector<u32>>* pending = nullptr) {
+/// Face @p face as it is drawn, vertex ids, three per triangle.
+std::vector<u32> drawnOf(const Mesh& mesh, FaceId face) {
     const std::vector<u32> loop = loopOf(mesh.topology(), face);
-    std::span<const u32> row = mesh.triangulation.row(face.value());
-    if (pending != nullptr) {
-        const auto found = pending->find(face.value());
-        if (found != pending->end()) {
-            row = found->second;
-        }
-    }
+    const std::span<const u32> row = mesh.triangulation.row(face.value());
     std::vector<u32> cut;
     TriangulateFace(loop, positionsOf(mesh), row, cut);
     for (u32& corner : cut) {
@@ -217,21 +214,6 @@ std::vector<u32> mergedLoop(const Topology& topology, EdgeId edge) {
     return out;
 }
 
-/// The union row of a join across @p edge, lower-numbered face first (§2.3).
-std::vector<u32> unionRow(const Mesh& mesh, EdgeId edge,
-                          const std::unordered_map<u32, std::vector<u32>>* pending = nullptr) {
-    const Topology& topology = mesh.topology();
-    FaceId first = topology.face(Topology::halfedge(edge, 0));
-    FaceId second = topology.face(Topology::halfedge(edge, 1));
-    if (second.value() < first.value()) {
-        std::swap(first, second);
-    }
-    std::vector<u32> row = drawnOf(mesh, first, pending);
-    const std::vector<u32> rest = drawnOf(mesh, second, pending);
-    row.insert(row.end(), rest.begin(), rest.end());
-    return row;
-}
-
 /// Builds every row once: the table as it stands, with @p rows written over it
 /// and @p cleared emptied.
 void storeRows(Mesh& mesh, const std::unordered_map<u32, std::vector<u32>>& rows,
@@ -250,13 +232,46 @@ void storeRows(Mesh& mesh, const std::unordered_map<u32, std::vector<u32>>& rows
     mesh.triangulation = builder.build();
 }
 
+/// §3.1's promise for a tool that must write before it knows whether it can
+/// finish (a split, then a rebuild that may fold): the mesh as it came in, put
+/// back when the plan it watches ends refused. Declare it after the plan, and
+/// return that plan on every path.
+class Rollback {
+public:
+    Rollback(Mesh& mesh, const ModelPlan& plan)
+        : mesh_(mesh), plan_(plan), before_(std::make_shared<const Mesh>(mesh)) {}
+    ~Rollback() {
+        if (plan_.refused()) {
+            mesh_ = *before_;
+        }
+    }
+    Rollback(const Rollback&) = delete;
+    Rollback& operator=(const Rollback&) = delete;
+
+    /// The mesh as it came in, for a plan that keeps it (Chamfer, Q3).
+    const std::shared_ptr<const Mesh>& before() const {
+        return before_;
+    }
+
+private:
+    Mesh& mesh_;
+    const ModelPlan& plan_;
+    std::shared_ptr<const Mesh> before_;
+};
+
 } // namespace
 
 // ============================================================================
 // The contract (§3.1)
 // ============================================================================
 
-std::vector<Resample> ResamplesAt(const Mesh& mesh, VertexId vertex, const Vector3f& to) {
+namespace {
+
+/// `ResamplesAt` over captures a tool shares between all its points: each is
+/// of the mesh as Plan left it, so one per face serves every corner of it. A
+/// whole-mesh press took most of its time capturing each face four times.
+std::vector<Resample> resamplesAt(const Mesh& mesh, VertexId vertex, const Vector3f& to,
+                                  std::unordered_map<u32, SourcePolygon>& captured) {
     std::vector<Resample> out;
     if (!mesh.hasConnectivity()) {
         return out;
@@ -275,7 +290,6 @@ std::vector<Resample> ResamplesAt(const Mesh& mesh, VertexId vertex, const Vecto
     if (fan.empty()) {
         return out;
     }
-    std::unordered_map<u32, SourcePolygon> captured;
     std::unordered_map<u32, bool> holding;
     const auto captureOf = [&](FaceId f) -> const SourcePolygon& {
         auto found = captured.find(f.value());
@@ -284,6 +298,13 @@ std::vector<Resample> ResamplesAt(const Mesh& mesh, VertexId vertex, const Vecto
         }
         return found->second;
     };
+    // A face a tool made with no area yet (a strip or wall at amount 0) holds
+    // nothing and is read by no class that has another face: it would hand
+    // every point its nearest corner (AMT-2).
+    const auto hasArea = [&](FaceId f) {
+        const std::array<f64, 3> n = newellOf(captureOf(f).positions);
+        return n[0] * n[0] + n[1] * n[1] + n[2] * n[2] > 0.5;
+    };
     const auto holds = [&](FaceId f) {
         const auto found = holding.find(f.value());
         if (found != holding.end()) {
@@ -291,11 +312,17 @@ std::vector<Resample> ResamplesAt(const Mesh& mesh, VertexId vertex, const Vecto
         }
         const SourcePolygon& polygon = captureOf(f);
         std::vector<f32> weights(polygon.cornerCount());
-        const bool inside = SampleWeights(polygon.positions, polygon.cut, to, weights);
+        const bool inside = hasArea(f) && SampleWeights(polygon.positions, polygon.cut, to, weights);
         holding.emplace(f.value(), inside);
         return inside;
     };
     FaceId vertexSource = topology.face(fan[0]);
+    for (const HalfedgeId h : fan) {
+        if (hasArea(topology.face(h))) {
+            vertexSource = topology.face(h);
+            break;
+        }
+    }
     for (const HalfedgeId h : fan) {
         if (holds(topology.face(h))) {
             vertexSource = topology.face(h);
@@ -326,11 +353,22 @@ std::vector<Resample> ResamplesAt(const Mesh& mesh, VertexId vertex, const Vecto
         if (carriesVertex) {
             source = vertexSource;
         } else {
+            bool found = false;
             for (const HalfedgeId h : group) {
                 if (holds(topology.face(h))) {
                     source = topology.face(h);
+                    found = true;
                     break;
                 }
+            }
+            for (const HalfedgeId h : group) {
+                if (!found && hasArea(topology.face(h))) {
+                    source = topology.face(h);
+                    found = true;
+                }
+            }
+            if (!found) {
+                source = vertexSource;
             }
         }
         Resample resample;
@@ -340,6 +378,13 @@ std::vector<Resample> ResamplesAt(const Mesh& mesh, VertexId vertex, const Vecto
         out.push_back(std::move(resample));
     }
     return out;
+}
+
+} // namespace
+
+std::vector<Resample> ResamplesAt(const Mesh& mesh, VertexId vertex, const Vector3f& to) {
+    std::unordered_map<u32, SourcePolygon> captured;
+    return resamplesAt(mesh, vertex, to, captured);
 }
 
 namespace {
@@ -422,6 +467,10 @@ void reshade(Mesh& mesh, const std::vector<u32>& faces) {
         RecomputeTangents(mesh, ids, 0);
     }
 }
+
+/// X4: how far towards a collapse an amount may go. The root itself is a face
+/// of no area or an edge of no length, so the range stops a hundredth short.
+constexpr f32 kShortOfCollapse = 0.99f;
 
 std::vector<u32> remapList(const std::vector<u32>& list, const std::vector<u32>& table) {
     if (table.empty()) {
@@ -531,9 +580,9 @@ void AmountRange(const Mesh& mesh, ModelPlan& plan) {
                     continue; // where it opened from, not where it folds
                 }
                 if (r > 0.0) {
-                    plan.amountMax = std::min(plan.amountMax, static_cast<f32>(r));
+                    plan.amountMax = std::min(plan.amountMax, static_cast<f32>(r) * kShortOfCollapse);
                 } else if (r < 0.0) {
-                    plan.amountMin = std::max(plan.amountMin, static_cast<f32>(r));
+                    plan.amountMin = std::max(plan.amountMin, static_cast<f32>(r) * kShortOfCollapse);
                 }
             }
         }
@@ -583,21 +632,32 @@ void ApplyAmount(Mesh& mesh, const ModelPlan& plan, f32 amount) {
         return;
     }
     const std::span<const Vector3f> positions = positionsOf(mesh);
+    std::vector<HalfedgeId> corners;
     for (const Resample& resample : plan.resamples) {
-        if (resample.targetCorners.empty()) {
-            continue;
+        // Each vertex the class's corners sit at reads its own place: a seam
+        // strip's far corners are two vertices (EXT-8).
+        std::vector<u32> at;
+        for (const HalfedgeId h : resample.targetCorners) {
+            at.push_back(mesh.topology().from(h).value());
         }
-        const u32 vertex = mesh.topology().from(resample.targetCorners[0]).value();
-        if (vertex >= positions.size()) {
-            continue;
-        }
-        std::vector<f32> weights(resample.source.cornerCount());
-        SampleWeights(resample.source.positions, resample.source.cut, positions[vertex], weights);
-        BlendCorners(mesh, resample.source, weights, resample.targetCorners);
-        if (resample.targetVertex != kInvalidId && !mesh.skin.empty() &&
-            resample.targetVertex < mesh.skin.vertexCount()) {
-            const std::vector<Influence> blended = BlendInfluences(resample.source, weights);
-            mesh.skin.assignVertex(resample.targetVertex, blended);
+        at = sortedUnique(std::move(at));
+        for (const u32 vertex : at) {
+            if (vertex >= positions.size()) {
+                continue;
+            }
+            corners.clear();
+            for (const HalfedgeId h : resample.targetCorners) {
+                if (mesh.topology().from(h).value() == vertex) {
+                    corners.push_back(h);
+                }
+            }
+            std::vector<f32> weights(resample.source.cornerCount());
+            SampleWeights(resample.source.positions, resample.source.cut, positions[vertex], weights);
+            BlendCorners(mesh, resample.source, weights, corners);
+            if (resample.targetVertex == vertex && !mesh.skin.empty() && vertex < mesh.skin.vertexCount()) {
+                const std::vector<Influence> blended = BlendInfluences(resample.source, weights);
+                mesh.skin.assignVertex(vertex, blended);
+            }
         }
     }
     std::vector<u32> movers;
@@ -613,6 +673,19 @@ void FinishTool(Mesh& mesh, ModelPlan& plan, f32 creaseAngle) {
     if (plan.refused()) {
         return;
     }
+    if (plan.unchangedAtZero && !plan.motions.empty()) {
+        const std::span<const Vector3f> positions = positionsOf(mesh);
+        bool moved = false;
+        for (const VertexMotion& m : plan.motions) {
+            moved = moved || (m.vertex < positions.size() && !(positions[m.vertex] == m.base));
+        }
+        if (!moved) {
+            mesh = *plan.unchangedAtZero;
+            plan.refusal = ModelRefusal::ZeroAmount;
+            plan.selection = {}; // it named the elements just put back
+            return;
+        }
+    }
     if (mesh.hasConnectivity()) {
         const Topology& topology = std::as_const(mesh).topology();
         const std::span<const Vector3f> positions = positionsOf(mesh);
@@ -623,7 +696,34 @@ void FinishTool(Mesh& mesh, ModelPlan& plan, f32 creaseAngle) {
             }
         }
         if (!live.empty()) {
-            // The crease rule, then the seam derivation (§3.12).
+            // The crease rule, then the seam derivation (§3.12). Q7: the rule acts
+            // on what the tool made or bent. Where the motions began, a made face
+            // has no area yet; an edge whose two faces both had area there and
+            // already met over the angle existed so, and keeps its own flag (a
+            // soft upright inside an extruded region, EXT-3).
+            std::vector<Vector3f> base;
+            if (!plan.motions.empty()) {
+                base.assign(positions.begin(), positions.end());
+                for (const VertexMotion& m : plan.motions) {
+                    if (m.vertex < base.size()) {
+                        base[m.vertex] = m.base;
+                    }
+                }
+            }
+            const auto facing = [](std::span<const Vector3f> loop) {
+                f64 longest = 0.0;
+                std::array<f64, 3> n{0.0, 0.0, 0.0};
+                for (std::size_t i = 0; i < loop.size(); ++i) {
+                    const std::array<f64, 3> a = toArray(loop[i]);
+                    const std::array<f64, 3> b = toArray(loop[(i + 1) % loop.size()]);
+                    n[0] += (a[1] - b[1]) * (a[2] + b[2]);
+                    n[1] += (a[2] - b[2]) * (a[0] + b[0]);
+                    n[2] += (a[0] - b[0]) * (a[1] + b[1]);
+                    longest = std::max(longest, (a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1]) +
+                                                    (a[2] - b[2]) * (a[2] - b[2]));
+                }
+                return std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]) > 1e-9 * longest;
+            };
             std::vector<u32> hard;
             std::vector<std::pair<u32, u8>> seams;
             for (const u32 e : live) {
@@ -631,9 +731,16 @@ void FinishTool(Mesh& mesh, ModelPlan& plan, f32 creaseAngle) {
                 const FaceId a = topology.face(h);
                 const FaceId b = topology.face(Topology::opposite(h));
                 if (a.valid() && b.valid()) {
-                    const std::vector<Vector3f> pa = placesOf(positions, loopOf(topology, a));
-                    const std::vector<Vector3f> pb = placesOf(positions, loopOf(topology, b));
-                    if (angleBetween(newellOf(pa), newellOf(pb)) > creaseAngle) {
+                    const std::vector<u32> la = loopOf(topology, a);
+                    const std::vector<u32> lb = loopOf(topology, b);
+                    bool existed = false;
+                    if (!base.empty()) {
+                        const std::vector<Vector3f> ba = placesOf(base, la);
+                        const std::vector<Vector3f> bb = placesOf(base, lb);
+                        existed = facing(ba) && facing(bb) && angleBetween(newellOf(ba), newellOf(bb)) > creaseAngle;
+                    }
+                    if (!existed && angleBetween(newellOf(placesOf(positions, la)), newellOf(placesOf(positions, lb))) >
+                                        creaseAngle) {
                         hard.push_back(e);
                     }
                 }
@@ -650,9 +757,11 @@ void FinishTool(Mesh& mesh, ModelPlan& plan, f32 creaseAngle) {
                 anySeam = anySeam || entry.second != 0;
             }
             if (anySeam) {
+                // Added where the corners now split, never cleared: a seam marked
+                // by hand ahead of an unwrap has no split to derive it from.
                 const std::span<u8> seam = mesh.attributes.getOrCreate<u8>(names::kSeam, Domain::Edge, AttrType::Bool);
                 for (const auto& [e, value] : seams) {
-                    seam[e] = value;
+                    seam[e] = seam[e] != 0 || value != 0 ? 1 : 0;
                 }
             }
         }
@@ -665,6 +774,7 @@ void FinishTool(Mesh& mesh, ModelPlan& plan, f32 creaseAngle) {
         for (const VertexMotion& m : plan.motions) {
             around.push_back(m.vertex);
         }
+        around.insert(around.end(), plan.reshade.begin(), plan.reshade.end());
         reshade(mesh, facesAround(mesh, sortedUnique(std::move(around))));
     }
     const CanonicalRemap remap = Canonicalize(mesh);
@@ -850,6 +960,12 @@ ModelPlan PlanJoinTriangles(Mesh& mesh, const PointTable& points, const ElementS
     (void)points;
     ModelPlan plan;
     if (faces.faces.empty()) {
+        // A mesh with no face has nothing to join: a no-op, so the Mesh level
+        // running it on every mesh is not refused (JQ-2).
+        if (mesh.faceSet().faceCount() == 0) {
+            plan.renumbers = false;
+            return plan;
+        }
         plan.refusal = ModelRefusal::EmptySelection;
         return plan;
     }
@@ -910,6 +1026,12 @@ ModelPlan PlanLimitedDissolve(Mesh& mesh, const PointTable& points, const Elemen
     (void)points;
     ModelPlan plan;
     if (faces.faces.empty()) {
+        // A mesh with no face has nothing to join: a no-op, so the Mesh level
+        // running it on every mesh is not refused (JQ-2).
+        if (mesh.faceSet().faceCount() == 0) {
+            plan.renumbers = false;
+            return plan;
+        }
         plan.refusal = ModelRefusal::EmptySelection;
         return plan;
     }
@@ -920,8 +1042,14 @@ ModelPlan PlanLimitedDissolve(Mesh& mesh, const PointTable& points, const Elemen
     const Mesh& readable = mesh;
     std::vector<u8> chosen = faceMask(readable, faces);
     const std::span<const Vector3f> positions = positionsOf(readable);
+    std::vector<std::array<f64, 3>> normals(readable.topology().faceCount());
+    std::vector<u8> measured(normals.size(), 0);
     const auto normalOf = [&](FaceId f) {
-        return newellOf(placesOf(positions, loopOf(readable.topology(), f)));
+        if (measured[f.index()] == 0) {
+            normals[f.index()] = newellOf(placesOf(positions, loopOf(readable.topology(), f)));
+            measured[f.index()] = 1;
+        }
+        return normals[f.index()];
     };
     // Costs are static (the dihedral between two faces does not change when a
     // third merges elsewhere); equal costs are decided as the region grows.
@@ -953,116 +1081,307 @@ ModelPlan PlanLimitedDissolve(Mesh& mesh, const PointTable& points, const Elemen
         return x.cost != y.cost ? x.cost < y.cost : x.edge < y.edge;
     });
 
-    std::unordered_map<u32, std::vector<u32>> pending;
     std::vector<u32> cleared;
     std::vector<u32> merged;
-    // Refused now, refused later too: the faces only grow.
-    const auto tryDissolve = [&](u32 e, bool commitIt, f64& penalty) {
+    // Among equal costs: prefer leaving each end's two last edges straight.
+    const auto penaltyOf = [&](EdgeId edge) {
         const Topology& topology = readable.topology();
-        const EdgeId edge(e);
-        if (topology.isDeleted(edge) || topology.isBoundary(edge)) {
-            return false;
-        }
-        const FaceId fa = topology.face(Topology::halfedge(edge, 0));
-        const FaceId fb = topology.face(Topology::halfedge(edge, 1));
-        if (fa == fb) {
-            return false;
-        }
-        const std::vector<u32> loop = mergedLoop(topology, edge);
-        std::vector<u32> sorted = loop;
-        std::sort(sorted.begin(), sorted.end());
-        if (std::adjacent_find(sorted.begin(), sorted.end()) != sorted.end()) {
-            return false;
-        }
-        const std::vector<u32> row = unionRow(readable, edge, &pending);
-        if (!RowValid(loop, positions, row)) {
-            return false;
-        }
-        // The cumulative flatness cap: no triangle of the union strays more
-        // than the angle from the merged face's normal.
-        const std::array<f64, 3> n = newellOf(placesOf(positions, loop));
-        for (std::size_t t = 0; t + 2 < row.size(); t += 3) {
-            if (angleBetween(n, triangleNormal(positions[row[t]], positions[row[t + 1]],
-                                               positions[row[t + 2]])) > params.angle) {
-                return false;
-            }
-        }
-        // Among equal costs: prefer leaving each end's two last edges straight.
-        penalty = 0.0;
+        f64 penalty = 0.0;
         for (u32 side = 0; side < 2; ++side) {
             const VertexId v = side == 0 ? topology.from(Topology::halfedge(edge, 0))
                                          : topology.to(Topology::halfedge(edge, 0));
-            std::vector<VertexId> others;
+            std::array<VertexId, 2> others;
+            u32 count = 0;
             for (const HalfedgeId h : topology.voh(v)) {
-                if (Topology::edge(h) != edge) {
-                    others.push_back(topology.to(h));
+                if (Topology::edge(h) != edge && count++ < 2) {
+                    others[count - 1] = topology.to(h);
                 }
             }
-            if (others.size() == 2) {
+            if (count == 2) {
                 const std::array<f64, 3> u = toArray(sub(positions[others[0].value()], positions[v.value()]));
                 const std::array<f64, 3> w = toArray(sub(positions[others[1].value()], positions[v.value()]));
                 penalty += std::abs(3.14159265358979323846 - angleBetween(u, w));
             }
         }
-        if (!commitIt) {
-            return true;
+        return penalty;
+    };
+    // The joins (JP-1) as a union-find over face slots: a region's root is the
+    // face each join keeps, the lower slot. An absorbed face's halfedges keep
+    // its old slot until the end, so reads go through `faceOf`; a region's row
+    // is its faces' own rows chained lower first (§2.3) and its halfedges are
+    // named for it once, when every join is done.
+    const u32 slots = readable.topology().faceCount();
+    std::vector<u32> parent(slots);
+    std::iota(parent.begin(), parent.end(), 0u);
+    const auto rootOf = [&](u32 f) {
+        while (parent[f] != f) {
+            parent[f] = parent[parent[f]];
+            f = parent[f];
         }
-        const FaceId lower = fa.value() < fb.value() ? fa : fb;
-        detail::Dissolved dissolved = detail::DissolveEdgeDeferred(mesh, edge, lower);
-        if (!dissolved.ok) {
+        return f;
+    };
+    const auto faceOf = [&](HalfedgeId h) {
+        const FaceId f = readable.topology().face(h);
+        return f.valid() ? FaceId(rootOf(f.value())) : f;
+    };
+    std::vector<std::vector<u32>> own(slots);      // per slot, its own drawn row
+    std::vector<u32> chainNext(slots, kInvalidId); // the next slot of its region's row
+    std::vector<u32> chainTail(slots);             // per root, its row's last slot
+    std::iota(chainTail.begin(), chainTail.end(), 0u);
+    const auto rowOf = [&](u32 root, std::vector<u32>& out) {
+        for (u32 f = root; f != kInvalidId; f = chainNext[f]) {
+            out.insert(out.end(), own[f].begin(), own[f].end());
+        }
+    };
+    const auto unionOf = [&](u32 a, u32 b) {
+        std::vector<u32> row;
+        rowOf(std::min(a, b), row);
+        rowOf(std::max(a, b), row);
+        return row;
+    };
+    // Per root, the ranking's cheap facts: its corners, sorted, for a repeat;
+    // its Newell vector, which a join adds; a cone round its normal holding
+    // every drawn triangle, so the flatness cap is a bound unless the bound is
+    // not enough; and what says its row stays a valid cut (`RowValid`) without
+    // measuring it -- the row is one, its thinnest triangle, its longest side.
+    std::vector<std::vector<u32>> cornerSet(slots);
+    std::vector<std::array<f64, 3>> newell(slots, {0.0, 0.0, 0.0});
+    std::vector<std::array<f64, 3>> axis(slots, {0.0, 0.0, 1.0});
+    std::vector<f64> spread(slots, 0.0);
+    std::vector<u8> sound(slots, 0);
+    std::vector<f64> thinnest(slots, 0.0); // the least |cross| of a triangle of its row
+    std::vector<f64> longest(slots, 0.0);  // its loop's longest side, squared
+    const auto unit = [](const std::array<f64, 3>& v) {
+        const f64 length = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+        return length > 0.0 ? std::array<f64, 3>{v[0] / length, v[1] / length, v[2] / length} : v;
+    };
+    for (u32 f = 0; f < slots; ++f) {
+        if (readable.topology().isDeleted(FaceId(f))) {
+            continue;
+        }
+        const std::vector<u32> loop = loopOf(readable.topology(), FaceId(f));
+        for (std::size_t i = 0; i < loop.size(); ++i) {
+            const Vector3f& a = positions[loop[i]];
+            const Vector3f& b = positions[loop[(i + 1) % loop.size()]];
+            newell[f][0] += (static_cast<f64>(a.y) - b.y) * (static_cast<f64>(a.z) + b.z);
+            newell[f][1] += (static_cast<f64>(a.z) - b.z) * (static_cast<f64>(a.x) + b.x);
+            newell[f][2] += (static_cast<f64>(a.x) - b.x) * (static_cast<f64>(a.y) + b.y);
+            const std::array<f64, 3> side = toArray(sub(b, a));
+            longest[f] = std::max(longest[f], side[0] * side[0] + side[1] * side[1] + side[2] * side[2]);
+        }
+        cornerSet[f] = loop;
+        std::sort(cornerSet[f].begin(), cornerSet[f].end());
+        own[f] = loop.size() == 3 ? loop : drawnOf(readable, FaceId(f));
+        axis[f] = unit(newell[f]);
+        thinnest[f] = FLT_MAX;
+        for (std::size_t t = 0; t + 2 < own[f].size(); t += 3) {
+            const Vector3f& a = positions[own[f][t]];
+            const Vector3f& b = positions[own[f][t + 1]];
+            const Vector3f& c = positions[own[f][t + 2]];
+            spread[f] = std::max(spread[f], angleBetween(axis[f], triangleNormal(a, b, c)));
+            const std::array<f64, 3> u = toArray(sub(b, a));
+            const std::array<f64, 3> w = toArray(sub(c, a));
+            const f64 x = u[1] * w[2] - u[2] * w[1];
+            const f64 y = u[2] * w[0] - u[0] * w[2];
+            const f64 z = u[0] * w[1] - u[1] * w[0];
+            thinnest[f] = std::min(thinnest[f], std::sqrt(x * x + y * y + z * z));
+        }
+        sound[f] = loop.size() == 3 ? (thinnest[f] > 0.0 ? 1 : 0) : (RowValid(loop, positions, own[f]) ? 1 : 0);
+    }
+    // Refused now, refused later too: the faces only grow. @p bound: how far
+    // the union's triangles may stray from its normal, exact when the cones
+    // were not enough.
+    const auto quick = [&](u32 e, f64& penalty, f64& bound) {
+        const Topology& topology = readable.topology();
+        const EdgeId edge(e);
+        if (topology.isDeleted(edge) || topology.isBoundary(edge)) {
             return false;
         }
-        pending[dissolved.kept.value()] = row;
-        pending.erase(dissolved.gone.value());
-        cleared.push_back(dissolved.gone.value());
-        merged.push_back(dissolved.kept.value());
+        const u32 a = faceOf(Topology::halfedge(edge, 0)).value();
+        const u32 b = faceOf(Topology::halfedge(edge, 1)).value();
+        if (a == b) {
+            return false;
+        }
+        const std::vector<u32>& fewer = cornerSet[a].size() <= cornerSet[b].size() ? cornerSet[a] : cornerSet[b];
+        const std::vector<u32>& more = cornerSet[a].size() <= cornerSet[b].size() ? cornerSet[b] : cornerSet[a];
+        u32 shared = 0;
+        for (const u32 v : fewer) {
+            shared += std::binary_search(more.begin(), more.end(), v) ? 1u : 0u;
+        }
+        if (shared > 2) {
+            return false; // the joined loop would repeat a vertex
+        }
+        const std::array<f64, 3> n =
+            unit({newell[a][0] + newell[b][0], newell[a][1] + newell[b][1], newell[a][2] + newell[b][2]});
+        bound = std::max(angleBetween(axis[a], n) + spread[a], angleBetween(axis[b], n) + spread[b]);
+        if (!(bound <= params.angle)) {
+            const std::vector<u32> row = unionOf(a, b);
+            bound = 0.0;
+            for (std::size_t t = 0; t + 2 < row.size(); t += 3) {
+                const f64 off =
+                    angleBetween(n, triangleNormal(positions[row[t]], positions[row[t + 1]], positions[row[t + 2]]));
+                if (off > params.angle) {
+                    return false;
+                }
+                bound = std::max(bound, off);
+            }
+        }
+        penalty = penaltyOf(edge);
+        return true;
+    };
+    // The join `quick` just passed: the row checked, then the edge's two
+    // halfedges unlinked as `DissolveEdgeDeferred` does, the faces' pointers
+    // left for the end.
+    const auto join = [&](u32 e, f64 bound) {
+        const EdgeId edge(e);
+        const u32 a = faceOf(Topology::halfedge(edge, 0)).value();
+        const u32 b = faceOf(Topology::halfedge(edge, 1)).value();
+        const u32 kept = std::min(a, b);
+        const u32 gone = std::max(a, b);
+        // Two valid cuts sharing one side are one valid cut of the joined loop,
+        // that side a diagonal, as long as every triangle still faces the
+        // joined plane by `RowValid`'s own margin; else it is measured.
+        const f64 least = std::min(thinnest[a], thinnest[b]);
+        const f64 side = std::max(longest[a], longest[b]);
+        const bool sure = sound[a] != 0 && sound[b] != 0 && bound < 1.5 &&
+                          0.5 * least * std::cos(bound) > 1.001e-6 * side;
+        if (!sure && !RowValid(mergedLoop(readable.topology(), edge), positions, unionOf(a, b))) {
+            return false;
+        }
+        std::vector<u32> joined;
+        joined.reserve(cornerSet[a].size() + cornerSet[b].size());
+        std::set_union(cornerSet[a].begin(), cornerSet[a].end(), cornerSet[b].begin(), cornerSet[b].end(),
+                       std::back_inserter(joined));
+        {
+            // A face with these corners already there would be its duplicate.
+            const Topology& topology = readable.topology();
+            for (const HalfedgeId h : topology.voh(topology.from(Topology::halfedge(edge, 0)))) {
+                const FaceId g = faceOf(h);
+                if (g.valid() && g.value() != a && g.value() != b && cornerSet[g.value()].size() == joined.size() &&
+                    cornerSet[g.value()] == joined) {
+                    return false;
+                }
+            }
+        }
+        Topology& topology = mesh.topology();
+        const u32 keepSide = faceOf(Topology::halfedge(edge, 1)).value() == kept ? 1u : 0u;
+        const HalfedgeId h0 = Topology::halfedge(edge, keepSide);
+        const HalfedgeId h1 = Topology::halfedge(edge, keepSide ^ 1u);
+        const HalfedgeId p0 = topology.prev(h0);
+        const HalfedgeId n0 = topology.next(h0);
+        const HalfedgeId p1 = topology.prev(h1);
+        const HalfedgeId n1 = topology.next(h1);
+        const VertexId va = topology.from(h0);
+        const VertexId vb = topology.from(h1);
+        topology.setNext(p0, n1);
+        topology.setNext(p1, n0);
+        topology.setFaceHalfedge(FaceId(kept), n0);
+        topology.setStatus(FaceId(gone), topology.status(FaceId(gone)) | Status::Deleted);
+        topology.setStatus(edge, topology.status(edge) | Status::Deleted);
+        topology.setStatus(h0, topology.status(h0) | Status::Deleted);
+        topology.setStatus(h1, topology.status(h1) | Status::Deleted);
+        if (topology.outgoing(va) == h0) {
+            topology.setOutgoing(va, n1);
+        }
+        if (topology.outgoing(vb) == h1) {
+            topology.setOutgoing(vb, n0);
+        }
+        topology.adjustOutgoing(va);
+        topology.adjustOutgoing(vb);
+        parent[gone] = kept;
+        chainNext[chainTail[kept]] = gone;
+        chainTail[kept] = chainTail[gone];
+        cornerSet[kept] = std::move(joined);
+        cornerSet[gone] = {};
+        for (u32 k = 0; k < 3; ++k) {
+            newell[kept][k] += newell[gone][k];
+        }
+        axis[kept] = unit(newell[kept]);
+        spread[kept] = bound;
+        sound[kept] = 1;
+        thinnest[kept] = least;
+        longest[kept] = side;
+        cleared.push_back(gone);
+        merged.push_back(kept);
         plan.dissolvedEdges.push_back(e);
         return true;
     };
+    std::vector<u8> waiting(readable.topology().edgeCount(), 0); // queued in the bucket's heap
     for (std::size_t first = 0; first < candidates.size();) {
         std::size_t last = first + 1;
         while (last < candidates.size() && candidates[last].cost - candidates[first].cost <= 1e-6) {
             ++last;
         }
-        std::vector<u32> bucket;
+        // The straightest of the bucket first, lowest id on a tie, from a lazy
+        // heap rather than a re-scan of the whole bucket per dissolve (JP-1):
+        // an edge's penalty changes only when a dissolve at one of its ends
+        // does, and an edge refused once stays refused.
+        const auto keyOf = [](f64 penalty) { return static_cast<i64>(std::llround(penalty * 1e9)); };
+        using Entry = std::pair<i64, u32>;
+        std::priority_queue<Entry, std::vector<Entry>, std::greater<Entry>> heap;
         for (std::size_t i = first; i < last; ++i) {
-            bucket.push_back(candidates[i].edge);
-        }
-        for (;;) {
-            u32 best = kInvalidId;
-            f64 bestPenalty = 0.0;
-            std::vector<u32> alive;
-            for (const u32 e : bucket) {
-                f64 penalty = 0.0;
-                if (!tryDissolve(e, false, penalty)) {
-                    continue;
-                }
-                alive.push_back(e);
-                if (best == kInvalidId || penalty < bestPenalty - 1e-9 ||
-                    (std::abs(penalty - bestPenalty) <= 1e-9 && e < best)) {
-                    best = e;
-                    bestPenalty = penalty;
-                }
+            f64 penalty = 0.0;
+            f64 bound = 0.0;
+            if (quick(candidates[i].edge, penalty, bound)) {
+                heap.push({keyOf(penalty), candidates[i].edge});
+                waiting[candidates[i].edge] = 1;
             }
-            if (best == kInvalidId) {
-                break;
+        }
+        while (!heap.empty()) {
+            const auto [stored, e] = heap.top();
+            heap.pop();
+            if (waiting[e] == 0) {
+                continue;
             }
             f64 penalty = 0.0;
-            tryDissolve(best, true, penalty);
-            alive.erase(std::remove(alive.begin(), alive.end(), best), alive.end());
-            bucket = alive;
+            f64 bound = 0.0;
+            if (!quick(e, penalty, bound)) {
+                waiting[e] = 0;
+                continue;
+            }
+            if (keyOf(penalty) > stored) {
+                heap.push({keyOf(penalty), e});
+                continue;
+            }
+            const Topology& topology = readable.topology();
+            const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
+            const VertexId ends[2] = {topology.from(h), topology.to(h)};
+            waiting[e] = 0;
+            if (!join(e, bound)) {
+                continue;
+            }
+            for (const VertexId end : ends) {
+                if (readable.topology().isDeleted(end)) {
+                    continue;
+                }
+                for (const HalfedgeId out : readable.topology().voh(end)) {
+                    const u32 near = Topology::edge(out).value();
+                    f64 now = 0.0;
+                    f64 ignored = 0.0;
+                    if (waiting[near] != 0 && quick(near, now, ignored)) {
+                        heap.push({keyOf(now), near});
+                    }
+                }
+            }
         }
         first = last;
     }
     if (!merged.empty()) {
-        std::vector<u32> gone = sortedUnique(cleared);
+        Topology& topology = mesh.topology();
         std::unordered_map<u32, std::vector<u32>> rows;
-        for (auto& [face, row] : pending) {
-            if (!readable.topology().isDeleted(FaceId(face))) {
-                rows[face] = row;
+        for (const u32 f : sortedUnique(merged)) {
+            if (topology.isDeleted(FaceId(f))) {
+                continue;
             }
+            const HalfedgeId start = topology.halfedge(FaceId(f));
+            HalfedgeId walk = start;
+            do {
+                topology.setFace(walk, FaceId(f));
+                walk = topology.next(walk);
+            } while (walk != start);
+            rowOf(f, rows[f]);
         }
-        storeRows(mesh, rows, gone);
+        storeRows(mesh, rows, sortedUnique(cleared));
     }
     for (const u32 f : sortedUnique(merged)) {
         if (!readable.topology().isDeleted(FaceId(f))) {
@@ -1361,90 +1680,411 @@ std::vector<u32> membersOfPoint(const Mesh& mesh, const PointTable& points, u32 
     return out;
 }
 
-/// The face set with every corner @p rename[v] instead of v (kInvalidId keeps
-/// it), rebuilt without the renamed-away vertices, when a trial repair of it
-/// changes nothing. False, the mesh untouched, when it would.
-bool renameAndRebuild(Mesh& mesh, const std::vector<u32>& rename) {
-    const FaceSet set = mesh.faceSet();
-    const u32 vertexCount = set.vertexCount;
-    std::vector<u32> survivorOf(vertexCount);
-    for (u32 v = 0; v < vertexCount; ++v) {
-        survivorOf[v] = v < rename.size() && rename[v] != kInvalidId ? rename[v] : v;
+/// Why a part whose @p survivors the trial repair named is left: `WouldPinch`
+/// when one of them would hold two fans (Q6), `WouldDuplicateFace` when two
+/// faces round one would hold the same corners, else the general case.
+ModelRefusal whyNotCollapsed(const Candidate& candidate, const std::vector<u32>& survivors) {
+    const FaceSet& faces = candidate.faces;
+    std::vector<u32> base(faces.faceCount() + 1, 0);
+    for (u32 f = 0; f < faces.faceCount(); ++f) {
+        base[f + 1] = base[f] + faces.faceValence[f];
     }
-    const FaceTable table = tableOf(set);
-    const std::vector<u32> sections(mesh.faceSections().begin(), mesh.faceSections().end());
-    Settled settled;
-    settled.survivorOf = survivorOf;
-    const std::span<const Vector3f> positions = positionsOf(mesh);
-    settled.places.assign(positions.begin(), positions.end());
-    settled.candidate = candidateOf(table, sections, survivorOf, false);
-    if (settled.candidate.sourceFace.size() != set.faceCount()) {
-        return false;
-    }
-    for (std::size_t f = 0; f < set.faceCount(); ++f) {
-        std::vector<u32> corners(settled.candidate.faces.cornerVertex.begin() + table.base[f],
-                                 settled.candidate.faces.cornerVertex.begin() + table.base[f + 1]);
-        std::sort(corners.begin(), corners.end());
-        if (std::adjacent_find(corners.begin(), corners.end()) != corners.end()) {
-            return false;
+    bool duplicate = false;
+    for (const u32 s : survivors) {
+        // The faces round the survivor, each with the corners before and after it.
+        std::vector<std::array<u32, 3>> round;
+        for (u32 f = 0; f < faces.faceCount(); ++f) {
+            const u32 valence = faces.faceValence[f];
+            for (u32 k = 0; k < valence; ++k) {
+                if (faces.cornerVertex[base[f] + k] == s) {
+                    round.push_back({f, faces.cornerVertex[base[f] + (k + valence - 1) % valence],
+                                     faces.cornerVertex[base[f] + (k + 1) % valence]});
+                }
+            }
+        }
+        std::vector<u32> parent(round.size());
+        std::iota(parent.begin(), parent.end(), 0u);
+        const auto find = [&](u32 i) {
+            while (parent[i] != i) {
+                parent[i] = parent[parent[i]];
+                i = parent[i];
+            }
+            return i;
+        };
+        for (u32 i = 0; i < round.size(); ++i) {
+            for (u32 j = 0; j < round.size(); ++j) {
+                if (i != j && round[i][2] == round[j][1]) {
+                    parent[find(i)] = find(j); // the two faces either side of one edge at s
+                }
+            }
+        }
+        u32 fans = 0;
+        for (u32 i = 0; i < round.size(); ++i) {
+            fans += find(i) == i ? 1u : 0u;
+        }
+        if (fans > 1) {
+            return ModelRefusal::WouldPinch;
+        }
+        for (u32 i = 0; i < round.size() && !duplicate; ++i) {
+            for (u32 j = i + 1; j < round.size() && !duplicate; ++j) {
+                const u32 a = round[i][0];
+                const u32 b = round[j][0];
+                if (a == b || faces.faceValence[a] != faces.faceValence[b]) {
+                    continue;
+                }
+                std::vector<u32> left(faces.cornerVertex.begin() + base[a], faces.cornerVertex.begin() + base[a + 1]);
+                std::vector<u32> right(faces.cornerVertex.begin() + base[b], faces.cornerVertex.begin() + base[b + 1]);
+                std::sort(left.begin(), left.end());
+                std::sort(right.begin(), right.end());
+                duplicate = left == right;
+            }
         }
     }
-    const RepairResult trial = Repair(settled.candidate.faces, settled.candidate.sections, settled.places);
-    if (trial.changed) {
-        return false;
-    }
-    commit(mesh, settled, static_cast<u32>(set.faceCount()), nullptr);
-    return true;
+    return duplicate ? ModelRefusal::WouldDuplicateFace : ModelRefusal::CollapseIllegal;
 }
 
-/// Target Weld's notch (§3.6): u and v both on one border loop with one vertex x
-/// between them, sharing no other neighbour and no face, on a loop of more than
-/// three edges.
-bool isNotch(const Topology& topology, VertexId u, VertexId v) {
-    for (const HalfedgeId h : topology.voh(u)) {
-        const HalfedgeId back = Topology::opposite(h);
-        // Either way round the loop: u -> x -> v, or v -> x -> u.
-        for (const HalfedgeId step : {h, back}) {
-            if (topology.face(step).valid()) {
-                continue;
-            }
-            const HalfedgeId onward = step == h ? topology.next(h) : topology.prev(back);
-            const VertexId far = step == h ? topology.to(onward) : topology.from(onward);
-            if (topology.face(onward).valid() || far != v) {
-                continue;
-            }
-            const VertexId x = topology.to(h);
-            // x is the only shared neighbour, and no face holds both.
-            for (const VertexId n : topology.vv(u)) {
-                if (n == x) {
-                    continue;
-                }
-                for (const VertexId m : topology.vv(v)) {
-                    if (m == n) {
-                        return false;
-                    }
-                }
-            }
-            for (const FaceId f : topology.vf(u)) {
-                if (!f.valid()) {
-                    continue;
-                }
-                for (const VertexId w : topology.fv(f)) {
-                    if (w == v) {
-                        return false;
-                    }
-                }
-            }
-            u32 length = 0;
-            HalfedgeId walk = step;
-            do {
-                ++length;
-                walk = topology.next(walk);
-            } while (walk != step && length < (1u << 24));
-            return length > 3;
+/// The edges a rename folds together: a face it shrinks to two corners goes,
+/// and its sides become one edge between them. The rebuild combines a closed
+/// edge's two sides, but a side on the border has no corner to carry it, so
+/// each fold's Edge layers are gathered here (Bool ORs, F32 takes the maximum)
+/// and written on the edge the rebuild made (COL-8).
+struct Fold {
+    u32 a = kInvalidId;
+    u32 b = kInvalidId;
+    std::vector<std::vector<u8>> values; ///< Per layer of `Folds::layers`.
+};
+
+struct Folds {
+    std::vector<std::string> layers; ///< The Edge layers, by name.
+    std::vector<Fold> folds;
+};
+
+Folds foldsOf(const Mesh& mesh, const std::vector<u32>& survivorOf, const Candidate& candidate) {
+    const Topology& topology = mesh.topology();
+    std::vector<u8> kept(topology.faceCount(), 0);
+    for (const u32 f : candidate.sourceFace) {
+        if (f < kept.size()) {
+            kept[f] = 1;
         }
     }
-    return false;
+    std::vector<const AttrLayer*> layers;
+    Folds folds;
+    for (const AttrLayer& layer : mesh.attributes.layers()) {
+        if (layer.domain == Domain::Edge) {
+            layers.push_back(&layer);
+            folds.layers.push_back(layer.name);
+        }
+    }
+    std::vector<Fold>& out = folds.folds;
+    if (layers.empty()) {
+        return folds;
+    }
+    std::unordered_map<u64, u32> foldOf;
+    for (u32 f = 0; f < topology.faceCount(); ++f) {
+        if (kept[f] != 0 || topology.isDeleted(FaceId(f))) {
+            continue;
+        }
+        std::vector<u32> distinct;
+        for (const HalfedgeId h : topology.fh(FaceId(f))) {
+            distinct.push_back(survivorOf[topology.from(h).value()]);
+        }
+        distinct = sortedUnique(std::move(distinct));
+        if (distinct.size() != 2) {
+            continue;
+        }
+        const u64 key = (static_cast<u64>(distinct[0]) << 32) | distinct[1];
+        const auto [at, added] = foldOf.try_emplace(key, static_cast<u32>(out.size()));
+        if (added) {
+            Fold fold;
+            fold.a = distinct[0];
+            fold.b = distinct[1];
+            for (const AttrLayer* layer : layers) {
+                fold.values.emplace_back(AttrTypeSize(layer->type), u8{0});
+            }
+            out.push_back(std::move(fold));
+        }
+        Fold& fold = out[at->second];
+        for (const HalfedgeId h : topology.fh(FaceId(f))) {
+            if (survivorOf[topology.from(h).value()] == survivorOf[topology.to(h).value()]) {
+                continue;
+            }
+            const std::size_t e = Topology::edge(h).index();
+            for (std::size_t l = 0; l < layers.size(); ++l) {
+                const std::size_t stride = fold.values[l].size();
+                if (stride * (e + 1) > layers[l]->data.size()) {
+                    continue;
+                }
+                const u8* in = layers[l]->data.data() + stride * e;
+                u8* acc = fold.values[l].data();
+                if (layers[l]->type == AttrType::Bool) {
+                    acc[0] = acc[0] != 0 || in[0] != 0 ? 1 : 0;
+                } else if (layers[l]->type == AttrType::F32) {
+                    f32 x = 0.0f, y = 0.0f;
+                    std::memcpy(&x, acc, sizeof(f32));
+                    std::memcpy(&y, in, sizeof(f32));
+                    const f32 larger = std::max(x, y);
+                    std::memcpy(acc, &larger, sizeof(f32));
+                }
+            }
+        }
+    }
+    return folds;
+}
+
+void writeFolds(Mesh& mesh, const Folds& folds, const std::vector<u32>& newId) {
+    const Topology& topology = std::as_const(mesh).topology();
+    for (const Fold& fold : folds.folds) {
+        const u32 a = newId[fold.a];
+        const u32 b = newId[fold.b];
+        if (a == kInvalidId || b == kInvalidId) {
+            continue;
+        }
+        const HalfedgeId h = topology.findHalfedge(VertexId(a), VertexId(b));
+        if (!h.valid()) {
+            continue;
+        }
+        const std::size_t e = Topology::edge(h).index();
+        for (std::size_t l = 0; l < folds.layers.size(); ++l) {
+            AttrLayer* found = mesh.attributes.layer(folds.layers[l], Domain::Edge);
+            if (found == nullptr) {
+                continue;
+            }
+            AttrLayer& target = *found;
+            const std::vector<u8>& value = fold.values[l];
+            if (value.size() != AttrTypeSize(target.type) || value.size() * (e + 1) > target.data.size()) {
+                continue;
+            }
+            u8* out = target.data.data() + value.size() * e;
+            if (target.type == AttrType::Bool) {
+                out[0] = out[0] != 0 || value[0] != 0 ? 1 : 0;
+            } else if (target.type == AttrType::F32) {
+                f32 x = 0.0f, y = 0.0f;
+                std::memcpy(&x, out, sizeof(f32));
+                std::memcpy(&y, value.data(), sizeof(f32));
+                const f32 larger = std::max(x, y);
+                std::memcpy(out, &larger, sizeof(f32));
+            }
+        }
+    }
+}
+
+void settleChains(std::vector<u32>& into);
+
+/// A rename's survivor that lands on a vertex of its own point and now sits
+/// beside it in a face takes it in (Collapse, Target Weld, Cap): the two would
+/// be an edge of no length, and they are one point to the user (Q5, Q8).
+/// Only a pair the rename or a move made; the landed one is kept, of two the
+/// lower. Beside a vertex kept apart (another stamp) nothing is joined: the
+/// landed vertices there are returned, for the caller to refuse (Q8).
+std::vector<u32> joinLanded(const Mesh& mesh, const FaceSet& set, const FaceTable& table, std::vector<u32>& into,
+                            const std::vector<Vector3f>& places) {
+    std::vector<u32> blocked;
+    settleChains(into);
+    const std::span<const Vector3f> was = positionsOf(mesh);
+    const std::span<const u32> stamps = mesh.attributes.get<const u32>(names::kApart, Domain::Vertex);
+    const f32 tolerance = CoincidenceTolerance(mesh);
+    const auto stampOf = [&](u32 v) { return v < stamps.size() ? stamps[v] : 0u; };
+    std::vector<u8> landed(into.size(), 0);
+    for (u32 v = 0; v < into.size() && v < places.size() && v < was.size(); ++v) {
+        if (into[v] != v) {
+            landed[into[v]] = 1;
+        } else if ((places[v] - was[v]).length() > 0.0f) {
+            landed[v] = 1;
+        }
+    }
+    for (bool again = true; again;) {
+        again = false;
+        for (u32 f = 0; f < set.faceCount(); ++f) {
+            const u32 n = set.faceValence[f];
+            for (u32 k = 0; k < n; ++k) {
+                const u32 a = into[set.cornerVertex[table.base[f] + k]];
+                const u32 b = into[set.cornerVertex[table.base[f] + (k + 1) % n]];
+                if (a == b || (landed[a] == 0 && landed[b] == 0) || (places[a] - places[b]).length() > tolerance) {
+                    continue;
+                }
+                if (stampOf(a) != stampOf(b)) {
+                    blocked.push_back(landed[a] != 0 ? a : b);
+                    continue;
+                }
+                const u32 keep = landed[a] != landed[b] ? (landed[a] != 0 ? a : b) : std::min(a, b);
+                const u32 gone = keep == a ? b : a;
+                for (u32& to : into) {
+                    to = to == gone ? keep : to;
+                }
+                landed[keep] = 1;
+                again = true;
+            }
+        }
+    }
+    return sortedUnique(std::move(blocked));
+}
+
+/// A rename, rebuilt -- Target Weld's engine, as Weld's and Collapse's: each
+/// vertex becomes `into[v]` (itself when not renamed) at `places`; a face's
+/// runs merge, a face it empties goes, and the edges it folds keep their flags.
+/// The new id of each old vertex, or a refusal: the trial repair would change
+/// the result (`WouldPinch` when a vertex of @p watched would hold two fans,
+/// Q6), every face would go, or a face it moves would turn over (TWL-2).
+/// @p mesh is a compacted copy; on a refusal the caller drops it.
+struct Renamed {
+    ModelRefusal refusal = ModelRefusal::None;
+    std::vector<u32> newId;
+};
+
+Renamed renameRebuild(Mesh& mesh, std::vector<u32> into, const std::vector<Vector3f>& places,
+                      const std::vector<u32>& watched) {
+    Renamed out;
+    const FaceSet set = mesh.faceSet();
+    const FaceTable table = tableOf(set);
+    const std::vector<u32> sections(mesh.faceSections().begin(), mesh.faceSections().end());
+    if (!joinLanded(mesh, set, table, into, places).empty()) {
+        out.refusal = ModelRefusal::TargetCollapseIllegal; // onto a point kept apart: no edge of no length
+        return out;
+    }
+    Candidate candidate = candidateOf(table, sections, into, true);
+    if (candidate.faces.faceCount() == 0) {
+        out.refusal = ModelRefusal::AllFaces;
+        return out;
+    }
+    if (Repair(candidate.faces, candidate.sections, places).changed) {
+        out.refusal = whyNotCollapsed(candidate, watched);
+        if (out.refusal == ModelRefusal::CollapseIllegal) {
+            out.refusal = ModelRefusal::TargetCollapseIllegal;
+        }
+        return out;
+    }
+    {
+        const std::span<const Vector3f> before = positionsOf(mesh);
+        std::vector<Vector3f> was;
+        std::vector<Vector3f> now;
+        u32 corner = 0;
+        for (u32 j = 0; j < candidate.sourceFace.size(); ++j) {
+            const u32 f = candidate.sourceFace[j];
+            was.clear();
+            now.clear();
+            for (u32 k = 0; k < set.faceValence[f]; ++k) {
+                was.push_back(before[set.cornerVertex[table.base[f] + k]]);
+            }
+            for (u32 k = 0; k < candidate.faces.faceValence[j]; ++k) {
+                now.push_back(places[candidate.faces.cornerVertex[corner + k]]);
+            }
+            corner += candidate.faces.faceValence[j];
+            const std::array<f64, 3> a = newellOf(was);
+            const std::array<f64, 3> b = newellOf(now);
+            if (a[0] * b[0] + a[1] * b[1] + a[2] * b[2] < 0.0) {
+                out.refusal = ModelRefusal::WouldFold;
+                return out;
+            }
+        }
+    }
+    const Folds folds = foldsOf(mesh, into, candidate);
+    Settled settled;
+    settled.survivorOf = into;
+    settled.places = places;
+    settled.candidate = std::move(candidate);
+    const detail::RebuildResult result = commit(mesh, settled, static_cast<u32>(set.faceCount()), nullptr);
+    if (!result.ok || result.repair.changed) {
+        out.refusal = ModelRefusal::TargetCollapseIllegal;
+        return out;
+    }
+    out.newId.assign(into.size(), kInvalidId);
+    u32 next = 0;
+    for (u32 v = 0; v < into.size(); ++v) {
+        if (into[v] == v) {
+            out.newId[v] = next++;
+        }
+    }
+    for (u32 v = 0; v < into.size(); ++v) {
+        out.newId[v] = out.newId[into[v]];
+    }
+    writeFolds(mesh, folds, out.newId);
+    return out;
+}
+
+/// Q5 for a point a tool moves: a crack's twins act as one vertex. Each border
+/// edge at a member of @p members whose twin -- a border edge between the same
+/// two points, running the other way -- lies across a crack is zipped in
+/// @p into, both ends' members renamed into their lowest.
+void zipAround(const Mesh& mesh, const PointTable& points, const std::vector<u32>& members, std::vector<u32>& into) {
+    const Topology& topology = mesh.topology();
+    std::unordered_map<u32, u32> parent;
+    const std::function<u32(u32)> find = [&](u32 v) {
+        const auto at = parent.find(v);
+        if (at == parent.end() || at->second == v) {
+            return v;
+        }
+        const u32 root = find(at->second);
+        parent[v] = root;
+        return root;
+    };
+    const auto join = [&](u32 a, u32 b) {
+        const u32 ra = find(a);
+        const u32 rb = find(b);
+        if (ra != rb) {
+            parent[std::max(ra, rb)] = std::min(ra, rb);
+        }
+    };
+    for (const u32 m : members) {
+        for (const HalfedgeId h : topology.voh(VertexId(m))) {
+            for (const HalfedgeId side : {h, Topology::opposite(h)}) {
+                if (topology.isBoundary(side) || !topology.isBoundary(Topology::opposite(side))) {
+                    continue; // not the face side of a border edge
+                }
+                const u32 a = topology.from(side).value();
+                const u32 b = topology.to(side).value();
+                for (const u32 b2 : membersOfPoint(mesh, points, b)) {
+                    for (const u32 a2 : membersOfPoint(mesh, points, a)) {
+                        if (a2 == a && b2 == b) {
+                            continue;
+                        }
+                        const HalfedgeId twin = topology.findHalfedge(VertexId(b2), VertexId(a2));
+                        if (twin.valid() && !topology.isBoundary(twin) &&
+                            topology.isBoundary(Topology::opposite(twin))) {
+                            join(a, a2);
+                            join(b, b2);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    for (const auto& entry : parent) {
+        into[entry.first] = find(entry.first);
+    }
+}
+
+/// @p into with every chain followed to its end, so each vertex names a survivor.
+void settleChains(std::vector<u32>& into) {
+    for (u32 v = 0; v < into.size(); ++v) {
+        u32 at = into[v];
+        for (u32 guard = 0; into[at] != at && guard < into.size(); ++guard) {
+            at = into[at];
+        }
+        into[v] = at;
+    }
+}
+
+/// @p into and @p places, named in @p mesh's ids, onto @p work: a compacted
+/// copy when @p mesh holds lazy deletes, else @p mesh's own numbering.
+void compactInto(Mesh& work, std::vector<u32>& into, std::vector<Vector3f>& places, std::vector<u32>& named) {
+    if (!std::as_const(work).topology().hasDeleted()) {
+        return;
+    }
+    const Topology::Remap remap = GarbageCollect(work);
+    const auto to = [&](u32 v) { return v < remap.vertices.size() ? remap.vertices[v] : kInvalidId; };
+    std::vector<u32> moved(remap.newVertexCount);
+    std::vector<Vector3f> placed(remap.newVertexCount);
+    for (u32 v = 0; v < into.size(); ++v) {
+        if (to(v) != kInvalidId) {
+            moved[to(v)] = to(into[v]);
+            placed[to(v)] = places[v];
+        }
+    }
+    into = std::move(moved);
+    places = std::move(placed);
+    for (u32& v : named) {
+        v = to(v);
+    }
 }
 
 } // namespace
@@ -1464,78 +2104,70 @@ ModelPlan PlanTargetWeld(Mesh& mesh, const PointTable& points, VertexId source, 
     }
     const std::vector<u32> from = membersOfPoint(readable, points, source.value());
     const std::vector<u32> onto = membersOfPoint(readable, points, target.value());
-    if (std::find(from.begin(), from.end(), target.value()) != from.end()) {
-        plan.refusal = ModelRefusal::NotAdjacent;
-        return plan;
-    }
-    // Every source member along an edge: collapse each onto its target member.
-    std::vector<std::pair<u32, u32>> pairs;
+    // The point moves as one (Q5): onto the target member it shares an edge
+    // with, else onto the target. A twin onto its own twin zips the crack
+    // there; two border points with no edge join as Max joins them (Q14).
+    const bool samePoint = std::find(from.begin(), from.end(), target.value()) != from.end();
+    u32 goal = target.value();
+    bool adjacent = false;
     for (const u32 s : from) {
         for (const u32 t : onto) {
-            if (topology.findHalfedge(VertexId(s), VertexId(t)).valid()) {
-                pairs.push_back({s, t});
-                break;
+            if (!samePoint && !adjacent && topology.findHalfedge(VertexId(s), VertexId(t)).valid()) {
+                goal = t;
+                adjacent = true;
             }
         }
     }
-    if (pairs.size() == from.size()) {
-        // Refusal is total: on a copy, then kept only when every collapse held.
-        Mesh copy = readable;
-        for (const auto& [s, t] : pairs) {
-            const HalfedgeId h = std::as_const(copy).topology().findHalfedge(VertexId(s), VertexId(t));
-            if (!h.valid() || !IsCollapseLegal(copy, h) || !CollapseEdge(copy, h)) {
-                plan.refusal = ModelRefusal::TargetCollapseIllegal;
-                return plan;
-            }
+    if (!samePoint && !adjacent) {
+        bool sourceBorder = false;
+        bool targetBorder = false;
+        for (const u32 s : from) {
+            sourceBorder = sourceBorder || topology.isBoundary(VertexId(s));
         }
-        mesh = std::move(copy);
-        plan.selection.vertices = onto;
-        plan.changed = static_cast<u32>(pairs.size());
-        return plan;
-    }
-    bool sourceBorder = false;
-    bool targetBorder = false;
-    for (const u32 s : from) {
-        sourceBorder = sourceBorder || topology.isBoundary(VertexId(s));
-    }
-    for (const u32 t : onto) {
-        targetBorder = targetBorder || topology.isBoundary(VertexId(t));
-    }
-    if (!sourceBorder || !targetBorder) {
-        plan.refusal = ModelRefusal::NotAdjacent;
-        return plan;
-    }
-    if (from.size() == 1 && onto.size() == 1 &&
-        !topology.findHalfedge(source, target).valid()) {
-        // The notch, when it is one: manifold in one step.
-        bool onOneLoop = false;
-        for (const HalfedgeId h : topology.voh(source)) {
-            for (const HalfedgeId side : {h, Topology::opposite(h)}) {
-                if (topology.face(side).valid()) {
-                    continue;
-                }
-                const HalfedgeId onward = side == h ? topology.next(h) : topology.prev(side);
-                const VertexId far = side == h ? topology.to(onward) : topology.from(onward);
-                onOneLoop = onOneLoop || (!topology.face(onward).valid() && far == target);
-            }
+        for (const u32 t : onto) {
+            targetBorder = targetBorder || topology.isBoundary(VertexId(t));
         }
-        if (onOneLoop) {
-            if (!isNotch(topology, source, target)) {
-                plan.refusal = ModelRefusal::WouldPinch;
-                return plan;
-            }
-            std::vector<u32> rename(topology.vertexCount(), kInvalidId);
-            rename[source.value()] = target.value();
-            if (!renameAndRebuild(mesh, rename)) {
-                plan.refusal = ModelRefusal::WouldPinch;
-                return plan;
-            }
-            plan.selection.vertices = {target.value() > source.value() ? target.value() - 1 : target.value()};
-            plan.changed = 1;
+        if (!sourceBorder || !targetBorder) {
+            plan.refusal = ModelRefusal::NotAdjacent;
             return plan;
         }
     }
-    plan.refusal = ModelRefusal::CrackNeedsWeld;
+    std::vector<u32> into(topology.vertexCount());
+    std::iota(into.begin(), into.end(), 0u);
+    zipAround(readable, points, from, into);
+    for (const u32 s : from) {
+        into[s] = goal;
+    }
+    into[goal] = goal;
+    settleChains(into);
+    const std::span<const Vector3f> positions = positionsOf(readable);
+    std::vector<Vector3f> places(positions.begin(), positions.end());
+    for (const u32 s : from) {
+        places[s] = positions[goal];
+    }
+    std::vector<u32> watched;
+    for (u32 v = 0; v < into.size(); ++v) {
+        if (into[v] != v) {
+            watched.push_back(into[v]);
+        }
+    }
+    watched = sortedUnique(std::move(watched));
+    std::vector<u32> named = {goal};
+    named.insert(named.end(), watched.begin(), watched.end());
+    Mesh work = readable;
+    compactInto(work, into, places, named);
+    watched.assign(named.begin() + 1, named.end());
+    const Renamed renamed = renameRebuild(work, into, places, watched);
+    if (renamed.refusal != ModelRefusal::None) {
+        plan.refusal = renamed.refusal;
+        return plan;
+    }
+    plan.selection.vertices = {renamed.newId[named[0]]};
+    for (const u32 v : watched) {
+        plan.reshade.push_back(renamed.newId[v]);
+    }
+    plan.changed = static_cast<u32>(into.size()) - std::as_const(work).topology().vertexCount();
+    mesh = std::move(work);
     return plan;
 }
 
@@ -1570,21 +2202,18 @@ ModelPlan PlanTargetWeldEdges(Mesh& mesh, const PointTable& points, EdgeId sourc
     const u32 s1 = topology.to(s).value();
     const u32 t0 = topology.from(t).value();
     const u32 t1 = topology.to(t).value();
-    std::vector<u32> rename(topology.vertexCount(), kInvalidId);
-    if (s0 != t1) {
-        rename[s0] = t1;
-    }
-    if (s1 != t0) {
-        rename[s1] = t0;
-    }
     if (s0 == t0 || s1 == t1) {
         plan.refusal = ModelRefusal::WindingDisagrees;
         return plan;
     }
+    std::vector<u32> into(topology.vertexCount());
+    std::iota(into.begin(), into.end(), 0u);
+    into[s0] = t1;
+    into[s1] = t0;
     // The notch's condition at each end: no face may hold both vertices a
     // weld joins, or the crack's last edge would make a pillow.
-    for (u32 v = 0; v < rename.size(); ++v) {
-        if (rename[v] == kInvalidId) {
+    for (const u32 v : {s0, s1}) {
+        if (into[v] == v) {
             continue;
         }
         for (const FaceId f : topology.vf(VertexId(v))) {
@@ -1592,18 +2221,34 @@ ModelPlan PlanTargetWeldEdges(Mesh& mesh, const PointTable& points, EdgeId sourc
                 continue;
             }
             for (const VertexId w : topology.fv(f)) {
-                if (w.value() == rename[v]) {
+                if (w.value() == into[v]) {
                     plan.refusal = ModelRefusal::WouldPinch;
                     return plan;
                 }
             }
         }
     }
-    if (!renameAndRebuild(mesh, rename)) {
-        plan.refusal = ModelRefusal::WouldPinch;
+    const std::span<const Vector3f> positions = positionsOf(readable);
+    std::vector<Vector3f> places(positions.begin(), positions.end());
+    places[s0] = positions[t1];
+    places[s1] = positions[t0];
+    std::vector<u32> named = {t0, t1};
+    Mesh work = readable;
+    compactInto(work, into, places, named);
+    const Renamed renamed = renameRebuild(work, into, places, named);
+    if (renamed.refusal != ModelRefusal::None) {
+        plan.refusal = renamed.refusal;
         return plan;
     }
+    const u32 a = renamed.newId[named[0]];
+    const u32 b = renamed.newId[named[1]];
+    const HalfedgeId welded = std::as_const(work).topology().findHalfedge(VertexId(a), VertexId(b));
+    if (welded.valid()) {
+        plan.selection.edges = {Topology::edge(welded).value()};
+    }
+    plan.reshade = {a, b};
     plan.changed = 1;
+    mesh = std::move(work);
     return plan;
 }
 
@@ -1626,9 +2271,47 @@ ModelPlan weldClusters(Mesh& mesh, const std::vector<std::vector<u32>>& clusters
     const std::span<const Vector3f> positions = positionsOf(mesh);
     const std::vector<Vector3f> original(positions.begin(), positions.end());
     Partition partition(vertexCount);
+    std::vector<u8> inCluster(vertexCount, 0);
     for (const std::vector<u32>& cluster : clusters) {
-        const std::vector<std::vector<u32>> apart =
-            greedy(cluster, [&](u32 a, u32 b) { return shareFaceApart(table, a, b); });
+        // Rule 2 reads only the faces the cluster leaves standing: one it
+        // empties (the four corners of a tiny quad, WLD-1) simply goes.
+        for (const u32 v : cluster) {
+            inCluster[v] = 1;
+        }
+        const auto empties = [&](u32 f) {
+            const u32 base = table.base[f];
+            const u32 valence = set.faceValence[f];
+            u32 runs = 0;
+            u32 outside = 0;
+            for (u32 i = 0; i < valence; ++i) {
+                const bool in = inCluster[set.cornerVertex[base + i]] != 0;
+                const bool before = inCluster[set.cornerVertex[base + (i + valence - 1) % valence]] != 0;
+                outside += in ? 0u : 1u;
+                runs += in && !before ? 1u : 0u;
+            }
+            return outside + (runs == 0 && outside < valence ? 1u : runs) < 3u;
+        };
+        const auto apartIn = [&](u32 a, u32 b) {
+            for (const u32 f : table.facesOf[a]) {
+                if (!std::binary_search(table.facesOf[b].begin(), table.facesOf[b].end(), f) || empties(f)) {
+                    continue;
+                }
+                const u32 base = table.base[f];
+                const u32 valence = set.faceValence[f];
+                for (u32 i = 0; i < valence; ++i) {
+                    if (set.cornerVertex[base + i] == a &&
+                        set.cornerVertex[base + (i + 1) % valence] != b &&
+                        set.cornerVertex[base + (i + valence - 1) % valence] != b) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        };
+        const std::vector<std::vector<u32>> apart = greedy(cluster, apartIn);
+        for (const u32 v : cluster) {
+            inCluster[v] = 0;
+        }
         plan.kept += static_cast<u32>(apart.size() - 1);
         for (const std::vector<u32>& sub : apart) {
             partition.join(sub);
@@ -1678,6 +2361,11 @@ ModelPlan weldClusters(Mesh& mesh, const std::vector<std::vector<u32>>& clusters
     if (!mergesAny(partition)) {
         return plan;
     }
+    if (settled.candidate.faces.faceCount() == 0 && set.faceCount() != 0) {
+        plan = ModelPlan{};
+        plan.refusal = ModelRefusal::AllFaces; // as Delete: a mesh keeps a polygon (Q10)
+        return plan;
+    }
     commit(mesh, settled, static_cast<u32>(set.faceCount()), nullptr);
     plan.changed = vertexCount - std::as_const(mesh).vertexCount();
     // The survivors, renumbered as the rebuild numbered them.
@@ -1694,48 +2382,78 @@ ModelPlan weldClusters(Mesh& mesh, const std::vector<std::vector<u32>>& clusters
         }
     }
     plan.selection.normalise();
+    plan.reshade = plan.selection.vertices;
     return plan;
 }
 
-/// Clusters over @p vertices: pairs within @p threshold, joined transitively,
-/// and every member of one point together.
+/// @p clusters, named in @p mesh's own ids, welded. A mesh with lazy deletes is
+/// compacted first, on a copy so that a refusal leaves it as it came, and the
+/// clusters follow the compaction (WLD-5).
+ModelPlan weldNamed(Mesh& mesh, std::vector<std::vector<u32>> clusters) {
+    if (!std::as_const(mesh).topology().hasDeleted()) {
+        return weldClusters(mesh, clusters);
+    }
+    Mesh copy = mesh;
+    const Topology::Remap remap = GarbageCollect(copy);
+    std::vector<std::vector<u32>> renamed;
+    for (const std::vector<u32>& cluster : clusters) {
+        std::vector<u32> now;
+        for (const u32 v : cluster) {
+            const u32 to = v < remap.vertices.size() ? remap.vertices[v] : kInvalidId;
+            if (to != kInvalidId) {
+                now.push_back(to);
+            }
+        }
+        now = sortedUnique(std::move(now));
+        if (now.size() > 1) {
+            renamed.push_back(std::move(now));
+        }
+    }
+    ModelPlan plan = weldClusters(copy, renamed);
+    if (!plan.refused()) {
+        mesh = std::move(copy);
+    }
+    return plan;
+}
+
+/// Clusters over @p vertices, Blender's Merge by Distance (Q9): the members of
+/// one point always together; then, in order of x + y + z, each point not yet
+/// taken takes every later one within @p threshold of it, and a point taken
+/// takes nothing, so a row spaced under the threshold does not chain.
 std::vector<std::vector<u32>> clustersOf(const Mesh& mesh, const PointTable& points,
                                          const std::vector<u32>& vertices, f32 threshold) {
     const std::span<const Vector3f> positions = positionsOf(mesh);
-    std::unordered_map<u32, u32> parent;
-    const std::function<u32(u32)> find = [&](u32 v) {
-        u32 root = v;
-        while (parent[root] != root) {
-            root = parent[root];
-        }
-        while (parent[v] != root) {
-            const u32 up = parent[v];
-            parent[v] = root;
-            v = up;
-        }
-        return root;
-    };
-    const auto unite = [&](u32 a, u32 b) {
-        const u32 ra = find(a);
-        const u32 rb = find(b);
-        if (ra != rb) {
-            parent[std::max(ra, rb)] = std::min(ra, rb);
-        }
-    };
-    for (const u32 v : vertices) {
-        parent[v] = v;
-    }
-    const u32 vertexCount = mesh.topology().vertexCount();
-    const bool covers = points.pointOf.size() == vertexCount;
-    for (const u32 v : vertices) {
-        if (covers) {
-            for (const u32 m : points.membersOf(points.pointOf[v])) {
-                if (parent.count(m) != 0) {
-                    unite(v, m);
-                }
+    const bool covers = points.pointOf.size() == mesh.topology().vertexCount();
+    std::vector<std::vector<u32>> units; // one per point, its members among `vertices`
+    {
+        std::unordered_map<u32, u32> unitOf;
+        for (const u32 v : vertices) {
+            const auto [at, added] = unitOf.try_emplace(covers ? points.pointOf[v] : v, static_cast<u32>(units.size()));
+            if (added) {
+                units.emplace_back();
             }
+            units[at->second].push_back(v);
         }
     }
+    const auto placeOf = [&](u32 unit) { return positions[units[unit].front()]; };
+    std::vector<u32> order(units.size());
+    for (u32 u = 0; u < order.size(); ++u) {
+        order[u] = u;
+    }
+    const auto sumOf = [&](u32 unit) {
+        const Vector3f p = placeOf(unit);
+        return static_cast<f64>(p.x) + static_cast<f64>(p.y) + static_cast<f64>(p.z);
+    };
+    std::sort(order.begin(), order.end(), [&](u32 a, u32 b) {
+        const f64 sa = sumOf(a);
+        const f64 sb = sumOf(b);
+        return sa != sb ? sa < sb : units[a].front() < units[b].front();
+    });
+    std::vector<u32> rank(units.size());
+    for (u32 i = 0; i < order.size(); ++i) {
+        rank[order[i]] = i;
+    }
+    std::vector<u32> targetOf(units.size(), kInvalidId);
     if (threshold > 0.0f) {
         struct Key {
             i64 x, y, z;
@@ -1753,13 +2471,23 @@ std::vector<std::vector<u32>> clustersOf(const Mesh& mesh, const PointTable& poi
                 return static_cast<std::size_t>(h);
             }
         };
-        std::unordered_map<Key, std::vector<u32>, KeyHash> grid; // looked up, never iterated
-        const auto cellOf = [&](const Vector3f& p) {
-            return Key{static_cast<i64>(std::floor(p.x / threshold)), static_cast<i64>(std::floor(p.y / threshold)),
-                       static_cast<i64>(std::floor(p.z / threshold))};
+        // Clamped, so a tiny threshold far from the origin shares a cell
+        // rather than overflowing (WLD-3); the distance test stays exact.
+        const auto cell = [&](f32 c) {
+            return static_cast<i64>(std::clamp(std::floor(static_cast<f64>(c) / threshold), -4e18, 4e18));
         };
-        for (const u32 v : vertices) {
-            const Key key = cellOf(positions[v]);
+        const auto cellOf = [&](const Vector3f& p) { return Key{cell(p.x), cell(p.y), cell(p.z)}; };
+        std::unordered_map<Key, std::vector<u32>, KeyHash> grid; // looked up, never iterated
+        for (u32 u = 0; u < units.size(); ++u) {
+            grid[cellOf(placeOf(u))].push_back(u);
+        }
+        std::vector<u8> taken(units.size(), 0);
+        for (const u32 u : order) {
+            if (taken[u] != 0) {
+                continue;
+            }
+            const Vector3f at = placeOf(u);
+            const Key key = cellOf(at);
             for (i64 dx = -1; dx <= 1; ++dx) {
                 for (i64 dy = -1; dy <= 1; ++dy) {
                     for (i64 dz = -1; dz <= 1; ++dz) {
@@ -1767,34 +2495,29 @@ std::vector<std::vector<u32>> clustersOf(const Mesh& mesh, const PointTable& poi
                         if (found == grid.end()) {
                             continue;
                         }
-                        for (const u32 other : found->second) {
-                            if (length64(sub(positions[v], positions[other])) <= threshold) {
-                                unite(v, other);
+                        for (const u32 w : found->second) {
+                            if (rank[w] > rank[u] && taken[w] == 0 && length64(sub(at, placeOf(w))) <= threshold) {
+                                taken[w] = 1;
+                                targetOf[w] = u;
                             }
                         }
                     }
                 }
             }
-            grid[key].push_back(v);
         }
     }
-    std::unordered_map<u32, std::vector<u32>> byRoot;
-    std::vector<u32> roots;
-    for (const u32 v : vertices) {
-        const u32 root = find(v);
-        if (byRoot.count(root) == 0) {
-            roots.push_back(root);
-        }
-        byRoot[root].push_back(v);
+    std::vector<std::vector<u32>> merged(units.size());
+    for (u32 u = 0; u < units.size(); ++u) {
+        std::vector<u32>& into = merged[targetOf[u] == kInvalidId ? u : targetOf[u]];
+        into.insert(into.end(), units[u].begin(), units[u].end());
     }
-    std::sort(roots.begin(), roots.end());
     std::vector<std::vector<u32>> out;
-    for (const u32 root : roots) {
-        std::vector<u32> cluster = sortedUnique(byRoot[root]);
+    for (std::vector<u32>& cluster : merged) {
         if (cluster.size() > 1) {
-            out.push_back(std::move(cluster));
+            out.push_back(sortedUnique(std::move(cluster)));
         }
     }
+    std::sort(out.begin(), out.end());
     return out;
 }
 
@@ -1819,14 +2542,12 @@ ModelPlan PlanWeld(Mesh& mesh, const PointTable& points, const ElementSet& selec
         plan.refusal = ModelRefusal::EmptySelection;
         return plan;
     }
-    if (mesh.hasConnectivity() || mesh.ensureConnectivity().ok()) {
-        GarbageCollect(mesh);
-    } else {
+    if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
         plan.refusal = ModelRefusal::NotBuiltYet;
         return plan;
     }
     const std::vector<u32> chosen = pointClosed(mesh, points, selection.vertices);
-    return weldClusters(mesh, clustersOf(mesh, points, chosen, threshold));
+    return weldNamed(mesh, clustersOf(mesh, points, chosen, threshold));
 }
 
 ModelPlan PlanWeld(Mesh& mesh, const PointTable& points, const ElementSet& sources,
@@ -1836,9 +2557,7 @@ ModelPlan PlanWeld(Mesh& mesh, const PointTable& points, const ElementSet& sourc
         plan.refusal = ModelRefusal::EmptySelection;
         return plan;
     }
-    if (mesh.hasConnectivity() || mesh.ensureConnectivity().ok()) {
-        GarbageCollect(mesh);
-    } else {
+    if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
         plan.refusal = ModelRefusal::NotBuiltYet;
         return plan;
     }
@@ -1862,41 +2581,54 @@ ModelPlan PlanWeld(Mesh& mesh, const PointTable& points, const ElementSet& sourc
             from.push_back(v);
         }
     }
-    // One to one: each source vertex, in ascending order, onto the target
-    // vertex that shares its binding, then the nearest, within the threshold
-    // and not yet taken. Never two sources together, so the twins of a crease
-    // moved as one point stay apart (each onto its own twin, or one onto the
-    // target and the rest beside it).
+    // One to one, never two sources together, so the twins of a crease moved
+    // as one point stay apart. Each source lists the targets within the
+    // threshold, the one bound alike first, then the nearest; the matching
+    // takes as many sources as it can (WLD-4), each its best target that an
+    // augmenting path leaves free.
     const std::span<const u16> pins = mesh.attributes.get<const u16>(names::kClassicBones, Domain::Vertex);
-    std::vector<u8> taken(positions.size(), 0);
-    std::vector<std::vector<u32>> clusters;
-    for (const u32 s : from) {
-        u32 best = kInvalidId;
-        bool bestBound = false;
-        f64 bestDistance = 0.0;
+    std::vector<std::vector<u32>> choices(from.size());
+    for (std::size_t i = 0; i < from.size(); ++i) {
+        std::vector<std::tuple<bool, f64, u32>> ranked;
         for (const u32 t : onto) {
-            if (taken[t] != 0) {
-                continue;
-            }
-            const f64 d = length64(sub(positions[s], positions[t]));
-            if (d > threshold) {
-                continue;
-            }
-            const bool bound = sameBinding(mesh, {}, pins, s, t);
-            if (best == kInvalidId || (bound && !bestBound) ||
-                (bound == bestBound && d < bestDistance)) {
-                best = t;
-                bestBound = bound;
-                bestDistance = d;
+            const f64 d = length64(sub(positions[from[i]], positions[t]));
+            if (d <= threshold) {
+                ranked.emplace_back(!sameBinding(mesh, {}, pins, from[i], t), d, t);
             }
         }
-        if (best == kInvalidId) {
-            continue;
+        std::sort(ranked.begin(), ranked.end());
+        for (const auto& entry : ranked) {
+            choices[i].push_back(std::get<2>(entry));
         }
-        taken[best] = 1;
-        clusters.push_back(sortedUnique({s, best}));
     }
-    return weldClusters(mesh, clusters);
+    std::unordered_map<u32, u32> holder; // target -> index into `from`
+    std::vector<u32> matched(from.size(), kInvalidId);
+    for (std::size_t i = 0; i < from.size(); ++i) {
+        std::unordered_map<u32, u8> seen;
+        const std::function<bool(std::size_t)> augment = [&](std::size_t s) {
+            for (const u32 t : choices[s]) {
+                if (seen[t] != 0) {
+                    continue;
+                }
+                seen[t] = 1;
+                const auto at = holder.find(t);
+                if (at == holder.end() || augment(at->second)) {
+                    holder[t] = static_cast<u32>(s);
+                    matched[s] = t;
+                    return true;
+                }
+            }
+            return false;
+        };
+        augment(i);
+    }
+    std::vector<std::vector<u32>> clusters;
+    for (std::size_t i = 0; i < from.size(); ++i) {
+        if (matched[i] != kInvalidId) {
+            clusters.push_back(sortedUnique({from[i], matched[i]}));
+        }
+    }
+    return weldNamed(mesh, clusters);
 }
 
 // ============================================================================
@@ -2017,178 +2749,220 @@ bool faceExists(const Mesh& mesh, std::vector<u32> corners, FaceId except = Face
     return false;
 }
 
-/// Why `DissolveEdge` refused @p edge, in §3.7's words.
-ModelRefusal whyNotDissolved(const Mesh& mesh, EdgeId edge) {
-    const Topology& topology = mesh.topology();
-    if (topology.isBoundary(edge)) {
-        return ModelRefusal::BorderEdgeRemove;
-    }
-    const HalfedgeId h = Topology::halfedge(edge, 0);
-    const FaceId a = topology.face(h), b = topology.face(Topology::opposite(h));
-    if (a == b) {
-        return ModelRefusal::WouldFold; // both sides are one face
-    }
-    const std::span<const u32> sections = mesh.faceSections();
-    if (a.value() < sections.size() && b.value() < sections.size() && sections[a.value()] != sections[b.value()]) {
-        return ModelRefusal::CrossesSection;
-    }
-    const std::vector<u32> loop = mergedLoop(topology, edge);
-    std::vector<u32> sorted = loop;
-    std::sort(sorted.begin(), sorted.end());
-    if (std::adjacent_find(sorted.begin(), sorted.end()) != sorted.end()) {
-        return ModelRefusal::WouldRepeatVertex;
-    }
-    if (faceExists(mesh, loop, a, b)) {
-        return ModelRefusal::WouldDuplicateFace;
-    }
-    return ModelRefusal::WouldFold;
-}
-
-/// Collapse's UV rule (§3.7): the corners at @p vertices, grouped into islands
-/// -- two corners of one fan are one island while their UVs agree across the
-/// edge between them -- and each island's corners set to the centre of its own
-/// UV bounding box, so the seams stay where they were.
-void averageIslandUvs(Mesh& mesh, const std::vector<u32>& vertices) {
+/// Collapse's corner rule (§3.7): the corners at @p vertices, per `uv` and
+/// `color` layer, grouped into islands -- two corners of one fan are one
+/// island while the layer agrees across the edge between them, and the corners
+/// one face holds are one patch of it -- and each island set to the centre of
+/// its own bounding box. The seams stay where they were, and a colour blends
+/// as a UV does (COL-7).
+void averageIslands(Mesh& mesh, const std::vector<u32>& vertices) {
     const Topology& topology = std::as_const(mesh).topology();
-    for (u32 set = 0; set < 8; ++set) {
-        const std::string name = names::uv(set);
-        if (!mesh.attributes.has(name, Domain::Halfedge)) {
-            break;
-        }
-        const std::span<Vector2f> uv = mesh.attributes.get<Vector2f>(name, Domain::Halfedge);
-        std::vector<u32> corners;
-        for (const u32 v : vertices) {
-            if (v >= topology.vertexCount() || topology.isDeleted(VertexId(v))) {
-                continue;
-            }
-            for (const HalfedgeId h : topology.voh(VertexId(v))) {
-                if (!topology.isBoundary(h) && h.index() < uv.size()) {
-                    corners.push_back(static_cast<u32>(h.index()));
-                }
-            }
-        }
-        corners = sortedUnique(std::move(corners));
-        std::unordered_map<u32, u32> parent;
-        for (const u32 c : corners) {
-            parent[c] = c;
-        }
-        const std::function<u32(u32)> find = [&](u32 c) {
-            u32 root = c;
-            while (parent[root] != root) {
-                root = parent[root];
-            }
-            while (parent[c] != root) {
-                const u32 next = parent[c];
-                parent[c] = root;
-                c = next;
-            }
-            return root;
-        };
-        // Around one vertex: two corners across an edge are one island while
-        // their UVs agree there.
-        for (const u32 c : corners) {
-            const HalfedgeId opposite = Topology::opposite(HalfedgeId(c));
-            if (topology.isBoundary(opposite)) {
-                continue;
-            }
-            const u32 other = static_cast<u32>(topology.next(opposite).index());
-            if (parent.find(other) == parent.end() || other >= uv.size()) {
-                continue;
-            }
-            if (uv[c] == uv[other]) {
-                parent[find(c)] = find(other);
-            }
-        }
-        // And within one face: its corners are one patch of the map, so the
-        // corners it holds at two of the part's vertices are one island.
-        for (u32 f = 0; f < topology.faceCount(); ++f) {
-            if (topology.isDeleted(FaceId(f))) {
-                continue;
-            }
-            u32 first = kInvalidId;
-            for (const HalfedgeId h : topology.fh(FaceId(f))) {
-                const u32 c = static_cast<u32>(h.index());
-                if (parent.find(c) == parent.end()) {
-                    continue;
-                }
-                if (first == kInvalidId) {
-                    first = c;
-                } else {
-                    parent[find(c)] = find(first);
-                }
-            }
-        }
-        std::unordered_map<u32, std::vector<u32>> islands;
-        for (const u32 c : corners) {
-            islands[find(c)].push_back(c);
-        }
-        for (const auto& entry : islands) {
-            Vector2f lo = uv[entry.second.front()], hi = lo;
-            for (const u32 c : entry.second) {
-                lo = {std::min(lo.x, uv[c].x), std::min(lo.y, uv[c].y)};
-                hi = {std::max(hi.x, uv[c].x), std::max(hi.y, uv[c].y)};
-            }
-            const Vector2f centre{(lo.x + hi.x) * 0.5f, (lo.y + hi.y) * 0.5f};
-            for (const u32 c : entry.second) {
-                uv[c] = centre;
-            }
-        }
-    }
-}
-
-/// The parts of @p chosen, joined across the mesh's own edges whose two ends
-/// are both chosen and across the members of one point (§3.7).
-std::vector<std::vector<u32>> partsOf(const Mesh& mesh, const PointTable& points,
-                                      const std::vector<u32>& chosen) {
-    std::unordered_map<u32, u32> parent;
-    for (const u32 v : chosen) {
-        parent[v] = v;
-    }
-    const std::function<u32(u32)> find = [&](u32 v) {
-        u32 root = v;
-        while (parent[root] != root) {
-            root = parent[root];
-        }
-        while (parent[v] != root) {
-            const u32 next = parent[v];
-            parent[v] = root;
-            v = next;
-        }
-        return root;
-    };
-    const auto join = [&](u32 a, u32 b) {
-        if (parent.count(a) != 0 && parent.count(b) != 0) {
-            parent[find(a)] = find(b);
-        }
-    };
-    const Topology& topology = mesh.topology();
-    for (u32 e = 0; e < topology.edgeCount(); ++e) {
-        if (topology.isDeleted(EdgeId(e))) {
+    std::vector<u32> corners;
+    for (const u32 v : vertices) {
+        if (v >= topology.vertexCount() || topology.isDeleted(VertexId(v))) {
             continue;
         }
-        const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
-        join(topology.from(h).value(), topology.to(h).value());
-    }
-    for (const u32 v : chosen) {
-        for (const u32 member : membersOfPoint(mesh, points, v)) {
-            join(v, member);
+        for (const HalfedgeId h : topology.voh(VertexId(v))) {
+            if (!topology.isBoundary(h)) {
+                corners.push_back(static_cast<u32>(h.index()));
+            }
         }
     }
-    std::unordered_map<u32, std::vector<u32>> groups;
-    for (const u32 v : chosen) {
-        groups[find(v)].push_back(v);
+    corners = sortedUnique(std::move(corners));
+    std::unordered_map<u32, u32> slotOf;
+    for (u32 i = 0; i < corners.size(); ++i) {
+        slotOf[corners[i]] = i;
     }
-    std::vector<std::vector<u32>> parts;
-    for (auto& entry : groups) {
-        if (entry.second.size() > 1) {
-            parts.push_back(sortedUnique(std::move(entry.second)));
+    std::vector<std::pair<u32, u32>> oneFace;
+    {
+        std::unordered_map<u32, u32> firstOfFace;
+        for (u32 i = 0; i < corners.size(); ++i) {
+            const auto [at, added] = firstOfFace.try_emplace(topology.face(HalfedgeId(corners[i])).value(), i);
+            if (!added) {
+                oneFace.emplace_back(i, at->second);
+            }
         }
     }
-    std::sort(parts.begin(), parts.end());
-    return parts;
+    for (u32 set = 0; set < 8; ++set) {
+        for (const std::string& name : {names::uv(set), names::color(set)}) {
+            AttrLayer* layer = mesh.attributes.layer(name, Domain::Halfedge);
+            if (layer == nullptr) {
+                continue;
+            }
+            const bool bytes = layer->type == AttrType::U8x4;
+            if (!bytes && layer->type != AttrType::F32x2 && layer->type != AttrType::F32x3 &&
+                layer->type != AttrType::F32x4) {
+                continue;
+            }
+            const std::size_t stride = AttrTypeSize(layer->type);
+            const u32 components = AttrTypeComponents(layer->type);
+            u8* data = layer->data.data();
+            const auto has = [&](u32 corner) {
+                return stride * (static_cast<std::size_t>(corner) + 1) <= layer->data.size();
+            };
+            std::vector<u32> parent(corners.size());
+            std::iota(parent.begin(), parent.end(), 0u);
+            const auto find = [&](u32 i) {
+                while (parent[i] != i) {
+                    parent[i] = parent[parent[i]];
+                    i = parent[i];
+                }
+                return i;
+            };
+            for (u32 i = 0; i < corners.size(); ++i) {
+                const HalfedgeId opposite = Topology::opposite(HalfedgeId(corners[i]));
+                if (topology.isBoundary(opposite)) {
+                    continue;
+                }
+                const u32 other = static_cast<u32>(topology.next(opposite).index());
+                const auto at = slotOf.find(other);
+                if (at != slotOf.end() && has(corners[i]) && has(other) &&
+                    std::memcmp(data + stride * corners[i], data + stride * other, stride) == 0) {
+                    parent[find(i)] = find(at->second);
+                }
+            }
+            for (const auto& [a, b] : oneFace) {
+                parent[find(a)] = find(b);
+            }
+            std::unordered_map<u32, std::vector<u32>> islands;
+            for (u32 i = 0; i < corners.size(); ++i) {
+                if (has(corners[i])) {
+                    islands[find(i)].push_back(corners[i]);
+                }
+            }
+            for (const auto& entry : islands) {
+                for (u32 k = 0; k < components; ++k) {
+                    const auto read = [&](u32 corner) {
+                        if (bytes) {
+                            return static_cast<f32>(data[stride * corner + k]);
+                        }
+                        f32 value = 0.0f;
+                        std::memcpy(&value, data + stride * corner + 4 * k, sizeof(f32));
+                        return value;
+                    };
+                    f32 lo = read(entry.second.front());
+                    f32 hi = lo;
+                    for (const u32 c : entry.second) {
+                        lo = std::min(lo, read(c));
+                        hi = std::max(hi, read(c));
+                    }
+                    for (const u32 c : entry.second) {
+                        if (bytes) {
+                            data[stride * c + k] =
+                                static_cast<u8>((static_cast<u32>(lo) + static_cast<u32>(hi) + 1u) / 2u);
+                        } else {
+                            const f32 centre = (lo + hi) * 0.5f;
+                            std::memcpy(data + stride * c + 4 * k, &centre, sizeof(f32));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// One part of a Collapse (§3.7): its vertices, whole points; the centroid of
+/// its points, each counted once however many vertices it holds (COL-6); and,
+/// per side -- its vertices joined by the mesh's own edges, so the two sides
+/// of a crack stay two (Q5) -- the most central vertex, which every other
+/// vertex of the side becomes.
+struct Gathered {
+    std::vector<u32> vertices;
+    std::vector<u32> into;  ///< Per vertex of `vertices`: its side's survivor.
+    std::vector<u32> point; ///< Per vertex of `vertices`: its point.
+    std::vector<u32> survivors;
+    Vector3f centre{0.0f, 0.0f, 0.0f};
+};
+
+Gathered gather(const Mesh& mesh, const PointTable& points, const std::vector<u32>& part) {
+    Gathered out;
+    out.vertices = part;
+    const Topology& topology = mesh.topology();
+    const std::span<const Vector3f> places = positionsOf(mesh);
+    const bool covers = points.pointOf.size() == topology.vertexCount();
+    std::unordered_set<u32> seen;
+    f64 x = 0.0, y = 0.0, z = 0.0;
+    for (const u32 v : part) {
+        out.point.push_back(covers ? points.pointOf[v] : v);
+        if (seen.insert(out.point.back()).second) {
+            x += places[v].x;
+            y += places[v].y;
+            z += places[v].z;
+        }
+    }
+    const f64 n = static_cast<f64>(std::max<std::size_t>(seen.size(), 1));
+    out.centre = Vector3f{static_cast<f32>(x / n), static_cast<f32>(y / n), static_cast<f32>(z / n)};
+    std::unordered_map<u32, u32> indexOf;
+    for (u32 i = 0; i < part.size(); ++i) {
+        indexOf[part[i]] = i;
+    }
+    std::vector<u32> parent(part.size());
+    std::iota(parent.begin(), parent.end(), 0u);
+    const auto find = [&](u32 i) {
+        while (parent[i] != i) {
+            parent[i] = parent[parent[i]];
+            i = parent[i];
+        }
+        return i;
+    };
+    for (u32 i = 0; i < part.size(); ++i) {
+        for (const HalfedgeId h : topology.voh(VertexId(part[i]))) {
+            const auto at = indexOf.find(topology.to(h).value());
+            if (at != indexOf.end()) {
+                parent[find(i)] = find(at->second);
+            }
+        }
+    }
+    std::unordered_map<u32, u32> best; // a side's root -> its survivor
+    for (u32 i = 0; i < part.size(); ++i) {
+        const auto [at, added] = best.try_emplace(find(i), part[i]);
+        if (!added && length64(sub(places[part[i]], out.centre)) < length64(sub(places[at->second], out.centre))) {
+            at->second = part[i];
+        }
+    }
+    out.into.resize(part.size());
+    for (u32 i = 0; i < part.size(); ++i) {
+        out.into[i] = best[find(i)];
+        if (out.into[i] == part[i]) {
+            out.survivors.push_back(part[i]);
+        }
+    }
+    return out;
 }
 
 } // namespace
+
+ElementSet PointClosed(const Mesh& mesh, const PointTable& points, const ElementSet& selection) {
+    ElementSet out = selection;
+    if (!mesh.hasConnectivity()) {
+        return out;
+    }
+    const Topology& topology = mesh.topology();
+    for (const u32 v : selection.vertices) {
+        if (v < topology.vertexCount() && !topology.isDeleted(VertexId(v))) {
+            const std::vector<u32> members = membersOfPoint(mesh, points, v);
+            out.vertices.insert(out.vertices.end(), members.begin(), members.end());
+        }
+    }
+    for (const u32 e : selection.edges) {
+        if (e >= topology.edgeCount() || topology.isDeleted(EdgeId(e))) {
+            continue;
+        }
+        const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
+        const std::vector<u32> from = membersOfPoint(mesh, points, topology.from(h).value());
+        const std::vector<u32> to = membersOfPoint(mesh, points, topology.to(h).value());
+        for (const u32 a : from) {
+            for (const u32 b : to) {
+                const HalfedgeId twin = topology.findHalfedge(VertexId(a), VertexId(b));
+                if (twin.valid()) {
+                    out.edges.push_back(Topology::edge(twin).value());
+                }
+            }
+        }
+    }
+    out.normalise();
+    return out;
+}
 
 std::vector<std::vector<u32>> SelectionParts(const Mesh& mesh, const PointTable& points,
                                              const ElementSet& selection) {
@@ -2264,163 +3038,354 @@ ModelPlan PlanCollapse(Mesh& mesh, const PointTable& points, const ElementSet& s
         plan.refusal = ModelRefusal::NotBuiltYet;
         return plan;
     }
-    const std::vector<u32> chosen = verticesOf(mesh, points, selection);
-    if (chosen.empty()) {
+    if (verticesOf(mesh, points, selection).empty()) {
         plan.refusal = ModelRefusal::EmptySelection;
         return plan;
     }
-    const std::vector<std::vector<u32>> parts = partsOf(mesh, points, chosen);
-    if (parts.empty()) {
-        return plan; // one vertex is already at its own centroid
-    }
-    // Planned on a copy: an illegal step refuses the whole (§3.7).
-    Mesh copy = mesh;
-    for (const std::vector<u32>& part : parts) {
-        const std::span<const Vector3f> places = positionsOf(copy);
-        Vector3f centre{0, 0, 0};
-        for (const u32 v : part) {
-            centre = centre + places[v];
+    // Grouped by what was selected (Q1), each part to its points' centroid. A
+    // part whose every side is one vertex already is (a crack's twins alone).
+    std::vector<Gathered> parts;
+    for (const std::vector<u32>& part : SelectionParts(mesh, points, selection)) {
+        Gathered gathered = gather(mesh, points, part);
+        if (gathered.survivors.size() < gathered.vertices.size()) {
+            parts.push_back(std::move(gathered));
         }
-        centre = centre * (1.0f / static_cast<f32>(part.size()));
-        u32 survivor = part.front();
-        f64 nearest = length64(sub(places[survivor], centre));
-        for (const u32 v : part) {
-            const f64 d = length64(sub(places[v], centre));
-            if (d < nearest) {
-                nearest = d;
-                survivor = v;
+    }
+    if (parts.empty()) {
+        return plan;
+    }
+    // Planned on a copy, compacted: the trial and the rebuild index every slot.
+    Mesh work = mesh;
+    if (std::as_const(work).topology().hasDeleted()) {
+        const Topology::Remap remap = GarbageCollect(work);
+        for (Gathered& part : parts) {
+            for (std::vector<u32>* ids : {&part.vertices, &part.into, &part.survivors}) {
+                for (u32& v : *ids) {
+                    v = v < remap.vertices.size() ? remap.vertices[v] : v;
+                }
             }
         }
-        // The part's skin and its islands' UVs, written on every member first,
-        // so the survivor carries them however the collapses go.
-        if (!copy.skin.empty()) {
+    }
+    const FaceSet set = work.faceSet();
+    const u32 vertexCount = set.vertexCount;
+    const FaceTable table = tableOf(set);
+    const std::vector<u32> sections(work.faceSections().begin(), work.faceSections().end());
+    const std::span<const Vector3f> start = positionsOf(work);
+    std::vector<u32> partOf(vertexCount, kInvalidId); // per survivor
+    for (u32 p = 0; p < parts.size(); ++p) {
+        for (const u32 s : parts[p].survivors) {
+            partOf[s] = p;
+        }
+    }
+    // All parts at once, as one rename; a part the trial repair names is left
+    // (X1, Q2) and the rest tried again, so the legal parts are done.
+    std::vector<ModelRefusal> left(parts.size(), ModelRefusal::None);
+    std::vector<u32> survivorOf(vertexCount);
+    std::vector<Vector3f> places;
+    Candidate candidate;
+    bool any = false;
+    for (;;) {
+        std::iota(survivorOf.begin(), survivorOf.end(), 0u);
+        places.assign(start.begin(), start.end());
+        any = false;
+        for (u32 p = 0; p < parts.size(); ++p) {
+            if (left[p] != ModelRefusal::None) {
+                continue;
+            }
+            any = true;
+            for (u32 i = 0; i < parts[p].vertices.size(); ++i) {
+                survivorOf[parts[p].vertices[i]] = parts[p].into[i];
+            }
+            for (const u32 s : parts[p].survivors) {
+                places[s] = parts[p].centre;
+            }
+        }
+        if (!any) {
+            break;
+        }
+        // A part landing beside a point kept apart is left (Q8, X1).
+        bool leftBeside = false;
+        for (const u32 v : joinLanded(work, set, table, survivorOf, places)) {
+            if (v < vertexCount && partOf[v] != kInvalidId && left[partOf[v]] == ModelRefusal::None) {
+                left[partOf[v]] = ModelRefusal::CollapseIllegal;
+                leftBeside = true;
+            }
+        }
+        if (leftBeside) {
+            continue;
+        }
+        candidate = candidateOf(table, sections, survivorOf, true);
+        if (candidate.faces.faceCount() == 0) {
+            // Every face would go: refused whole, as Delete refuses every face.
+            for (u32 p = 0; p < parts.size(); ++p) {
+                if (left[p] == ModelRefusal::None) {
+                    left[p] = ModelRefusal::AllFaces;
+                }
+            }
+            continue;
+        }
+        const RepairResult trial = Repair(candidate.faces, candidate.sections, places);
+        if (!trial.changed) {
+            break;
+        }
+        std::vector<u8> named(parts.size(), 0);
+        const auto name = [&](u32 v) {
+            if (v < vertexCount && partOf[v] != kInvalidId && survivorOf[v] == v) {
+                named[partOf[v]] = 1;
+            }
+        };
+        for (const VertexSplit& split : trial.log.splits) {
+            name(split.original);
+        }
+        for (const FaceRecord& dropped : trial.log.droppedFaces) {
+            for (const u32 v : dropped.corners) {
+                name(v);
+            }
+        }
+        bool leftAny = false;
+        for (u32 p = 0; p < parts.size(); ++p) {
+            if (left[p] == ModelRefusal::None && named[p] != 0) {
+                left[p] = whyNotCollapsed(candidate, parts[p].survivors);
+                leftAny = true;
+            }
+        }
+        if (!leftAny) {
+            for (u32 p = 0; p < parts.size(); ++p) {
+                if (left[p] == ModelRefusal::None) {
+                    left[p] = ModelRefusal::CollapseIllegal;
+                }
+            }
+        }
+    }
+    for (u32 p = 0; p < parts.size(); ++p) {
+        if (left[p] != ModelRefusal::None) {
+            plan.kept += 1;
+            if (plan.keptBecause == ModelRefusal::None) {
+                plan.keptBecause = left[p];
+            }
+        }
+    }
+    if (!any) {
+        const ModelRefusal why = plan.keptBecause;
+        plan = ModelPlan{};
+        plan.refusal = why;
+        return plan;
+    }
+    // The parts kept: the skin blended over their points at equal weight, and
+    // each island's corners to its centre, on every member, so the survivor
+    // carries them; then the rename, rebuilt.
+    for (u32 p = 0; p < parts.size(); ++p) {
+        if (left[p] != ModelRefusal::None) {
+            continue;
+        }
+        const std::vector<u32>& vertices = parts[p].vertices;
+        if (!work.skin.empty()) {
+            std::unordered_map<u32, u32> share; // the part's members of each point
+            for (const u32 point : parts[p].point) {
+                ++share[point];
+            }
             std::vector<std::vector<Influence>> sources;
             std::vector<f32> weights;
-            for (const u32 v : part) {
-                const std::span<const Influence> theirs = std::as_const(copy).skin.forVertex(v);
+            for (u32 i = 0; i < vertices.size(); ++i) {
+                const std::span<const Influence> theirs = std::as_const(work).skin.forVertex(vertices[i]);
                 sources.emplace_back(theirs.begin(), theirs.end());
-                weights.push_back(1.0f);
+                weights.push_back(1.0f / static_cast<f32>(share[parts[p].point[i]]));
             }
             const std::vector<Influence> blended = BlendInfluences(sources, weights);
-            for (const u32 v : part) {
-                copy.skin.assignVertex(v, blended);
+            for (const u32 v : vertices) {
+                work.skin.assignVertex(v, blended);
             }
         }
-        averageIslandUvs(copy, part);
-        // Every other member collapses into the survivor, along an edge, the
-        // nearest first; a member with no legal step left refuses the whole.
-        std::vector<u32> left;
-        for (const u32 v : part) {
-            if (v != survivor) {
-                left.push_back(v);
-            }
-        }
-        while (!left.empty()) {
-            bool moved = false;
-            for (std::size_t i = 0; i < left.size() && !moved; ++i) {
-                const Topology& topology = std::as_const(copy).topology();
-                const u32 v = left[i];
-                if (topology.isDeleted(VertexId(v))) {
-                    left.erase(left.begin() + static_cast<std::ptrdiff_t>(i));
-                    moved = true;
-                    break;
-                }
-                // Toward the survivor where they share an edge, else toward
-                // another member: the part comes together either way.
-                HalfedgeId step = topology.findHalfedge(VertexId(v), VertexId(survivor));
-                if (!step.valid()) {
-                    for (const u32 other : part) {
-                        if (other != v && !topology.isDeleted(VertexId(other)) && !step.valid() &&
-                            std::find(left.begin(), left.end(), other) == left.end()) {
-                            step = topology.findHalfedge(VertexId(v), VertexId(other));
-                        }
-                    }
-                }
-                if (!step.valid() || !IsCollapseLegal(copy, step) || !CollapseEdge(copy, step)) {
-                    continue;
-                }
-                left.erase(left.begin() + static_cast<std::ptrdiff_t>(i));
-                ++plan.changed;
-                moved = true;
-            }
-            if (!moved) {
-                plan = ModelPlan{};
-                plan.refusal = ModelRefusal::CollapseIllegal;
-                return plan;
-            }
-        }
-        // The survivor sits at the part's centroid.
-        const std::span<Vector3f> written = copy.attributes.get<Vector3f>(names::kPosition, Domain::Vertex);
-        written[survivor] = centre;
-        plan.selection.vertices.push_back(survivor);
+        averageIslands(work, vertices);
     }
-    mesh = std::move(copy);
+    const Folds folds = foldsOf(work, survivorOf, candidate);
+    Settled settled;
+    settled.survivorOf = survivorOf;
+    settled.places = places;
+    settled.candidate = std::move(candidate);
+    const detail::RebuildResult result = commit(work, settled, static_cast<u32>(set.faceCount()), nullptr);
+    if (!result.ok || result.repair.changed) {
+        plan = ModelPlan{};
+        plan.refusal = ModelRefusal::CollapseIllegal;
+        return plan;
+    }
+    std::vector<u32> newId(vertexCount, kInvalidId);
+    u32 next = 0;
+    for (u32 v = 0; v < vertexCount; ++v) {
+        if (survivorOf[v] == v) {
+            newId[v] = next++;
+        }
+    }
+    writeFolds(work, folds, newId);
+    for (u32 p = 0; p < parts.size(); ++p) {
+        if (left[p] == ModelRefusal::None) {
+            for (const u32 s : parts[p].survivors) {
+                plan.selection.vertices.push_back(newId[survivorOf[s]]); // joinLanded may have renamed it
+            }
+        }
+    }
     plan.selection.normalise();
+    plan.reshade = plan.selection.vertices;
+    plan.changed = vertexCount - next;
     plan.renumbers = true;
+    mesh = std::move(work);
     return plan;
 }
 
-/// The outer ring of @p vertex's fan, in loop order, and the faces around it:
-/// what Remove replaces them with (§3.7). `ok` is false for a vertex whose fan
-/// is not a simple walk.
-struct Ring {
-    bool ok = false;
-    std::vector<u32> loop;    ///< The ring's vertices, in order.
-    std::vector<u32> corners; ///< Per ring vertex, the corner it keeps (a halfedge).
-    std::vector<u32> faces;   ///< The fan's faces, ascending.
+namespace {
+
+/// Remove's face set (§3.7): each face of a renamed face set, and the regions
+/// the dissolves join, each of which becomes one face over its border.
+struct Dissolving {
+    const Candidate* candidate = nullptr;
+    std::vector<u32> base;                       ///< Per face, its first corner.
+    std::unordered_map<u64, u32> faceOfSide;     ///< Halfedge a -> b -> its face.
+    std::vector<u32> parent;                     ///< Per face, union-find.
+    std::vector<std::vector<u32>> members;       ///< Per region root, its faces.
+    std::vector<u8> dropped;                     ///< Per vertex: taken out of every loop.
+    std::vector<std::vector<u32>> facesOf;       ///< Per vertex, the faces holding it.
+    std::span<const Vector3f> places;
+    std::vector<f64> area;                       ///< Per face, twice its area.
+
+    static u64 side(u32 a, u32 b) {
+        return (static_cast<u64>(a) << 32) | b;
+    }
+
+    /// Twice the area @p loop spans (its Newell vector's length).
+    f64 spanOf(const std::vector<std::pair<u32, u32>>& loop) const {
+        f64 x = 0.0, y = 0.0, z = 0.0;
+        for (std::size_t i = 0; i < loop.size(); ++i) {
+            const Vector3f& a = places[loop[i].first];
+            const Vector3f& b = places[loop[(i + 1) % loop.size()].first];
+            x += (static_cast<f64>(a.y) - b.y) * (static_cast<f64>(a.z) + b.z);
+            y += (static_cast<f64>(a.z) - b.z) * (static_cast<f64>(a.x) + b.x);
+            z += (static_cast<f64>(a.x) - b.x) * (static_cast<f64>(a.y) + b.y);
+        }
+        return std::sqrt(x * x + y * y + z * z);
+    }
+
+    Dissolving(const Candidate& made, std::span<const Vector3f> at) : candidate(&made), places(at) {
+        const FaceSet& faces = made.faces;
+        base.assign(faces.faceCount() + 1, 0);
+        for (u32 f = 0; f < faces.faceCount(); ++f) {
+            base[f + 1] = base[f] + faces.faceValence[f];
+            for (u32 k = 0; k < faces.faceValence[f]; ++k) {
+                faceOfSide[side(corner(f, k), corner(f, k + 1))] = f;
+            }
+        }
+        parent.resize(faces.faceCount());
+        std::iota(parent.begin(), parent.end(), 0u);
+        members.resize(faces.faceCount());
+        for (u32 f = 0; f < faces.faceCount(); ++f) {
+            members[f] = {f};
+        }
+        dropped.assign(faces.vertexCount, 0);
+        facesOf.resize(faces.vertexCount);
+        area.resize(faces.faceCount());
+        std::vector<std::pair<u32, u32>> loop;
+        for (u32 f = 0; f < faces.faceCount(); ++f) {
+            loop.clear();
+            for (u32 k = 0; k < faces.faceValence[f]; ++k) {
+                facesOf[corner(f, k)].push_back(f);
+                loop.emplace_back(corner(f, k), 0u);
+            }
+            area[f] = spanOf(loop);
+        }
+    }
+
+    u32 corner(u32 f, u32 k) const {
+        return candidate->faces.cornerVertex[base[f] + k % candidate->faces.faceValence[f]];
+    }
+    u32 find(u32 f) {
+        while (parent[f] != f) {
+            parent[f] = parent[parent[f]];
+            f = parent[f];
+        }
+        return f;
+    }
+    /// The face across a -> b, or kInvalidId on the border.
+    u32 across(u32 a, u32 b) const {
+        const auto at = faceOfSide.find(side(b, a));
+        return at == faceOfSide.end() ? kInvalidId : at->second;
+    }
+
+    /// The border of @p faces (one region, or two about to be one) as a single
+    /// loop of (vertex, candidate corner), the dropped vertices left out; or
+    /// why it is not one face's: two loops or a pinch (`WouldFold`), a vertex
+    /// twice (`WouldRepeatVertex`).
+    ModelRefusal loopOf(const std::vector<u32>& faces, std::vector<std::pair<u32, u32>>& loop) const {
+        std::unordered_set<u32> inside(faces.begin(), faces.end());
+        std::unordered_map<u32, std::pair<u32, u32>> leaving; // a -> (b, corner at a)
+        u32 sides = 0;
+        for (const u32 f : faces) {
+            const u32 valence = candidate->faces.faceValence[f];
+            for (u32 k = 0; k < valence; ++k) {
+                const u32 a = corner(f, k);
+                const u32 b = corner(f, k + 1);
+                const u32 other = across(a, b);
+                if (other != kInvalidId && inside.count(other) != 0) {
+                    continue;
+                }
+                if (!leaving.emplace(a, std::make_pair(b, base[f] + k)).second) {
+                    return ModelRefusal::WouldFold; // two border runs through one vertex
+                }
+                ++sides;
+            }
+        }
+        loop.clear();
+        if (leaving.empty()) {
+            return ModelRefusal::WouldFold; // a closed shell has no border to be a face
+        }
+        u32 at = leaving.begin()->first;
+        for (u32 walked = 0; walked < sides; ++walked) {
+            const auto next = leaving.find(at);
+            if (next == leaving.end()) {
+                return ModelRefusal::WouldFold;
+            }
+            if (dropped[at] == 0) {
+                loop.emplace_back(at, next->second.second);
+            }
+            at = next->second.first;
+            if (at == leaving.begin()->first && walked + 1 < sides) {
+                return ModelRefusal::WouldFold; // the border is more than one loop
+            }
+        }
+        std::vector<u32> seen;
+        for (const auto& entry : loop) {
+            seen.push_back(entry.first);
+        }
+        std::sort(seen.begin(), seen.end());
+        if (std::adjacent_find(seen.begin(), seen.end()) != seen.end()) {
+            return ModelRefusal::WouldRepeatVertex;
+        }
+        if (loop.size() < 3) {
+            return ModelRefusal::WouldFold;
+        }
+        // A region wrapped round a tube or a shell spans next to nothing as
+        // one polygon: it would fold over itself, and the repair drop it.
+        f64 covered = 0.0;
+        for (const u32 f : faces) {
+            covered += area[f];
+        }
+        return spanOf(loop) > 1e-3 * covered ? ModelRefusal::None : ModelRefusal::WouldFold;
+    }
+
+    void join(u32 a, u32 b) {
+        a = find(a);
+        b = find(b);
+        if (a == b) {
+            return;
+        }
+        if (members[a].size() < members[b].size()) {
+            std::swap(a, b);
+        }
+        members[a].insert(members[a].end(), members[b].begin(), members[b].end());
+        members[b].clear();
+        parent[b] = a;
+    }
 };
 
-Ring ringOf(const Mesh& mesh, VertexId vertex) {
-    Ring ring;
-    const Topology& topology = mesh.topology();
-    // The fan's first face: the one after the hole on a border vertex, any on
-    // an interior one.
-    HalfedgeId start;
-    for (const HalfedgeId h : topology.voh(vertex)) {
-        if (topology.isBoundary(h)) {
-            continue;
-        }
-        if (!start.valid()) {
-            start = h;
-        }
-        if (topology.isBoundary(Topology::opposite(topology.prev(h)))) {
-            start = h; // nothing before it: the fan begins here
-        }
-    }
-    if (!start.valid()) {
-        return ring;
-    }
-    HalfedgeId h = start;
-    std::vector<u32> faces;
-    do {
-        faces.push_back(topology.face(h).value());
-        // This face's share of the ring: from the corner after the vertex
-        // round to the one before it, each keeping its own corner.
-        HalfedgeId step = topology.next(h);
-        while (step.valid() && topology.from(step).value() != vertex.value()) {
-            const u32 at = topology.from(step).value();
-            if (ring.loop.empty() || ring.loop.back() != at) {
-                ring.loop.push_back(at);
-                ring.corners.push_back(static_cast<u32>(step.index()));
-            }
-            step = topology.next(step);
-        }
-        // `step` leaves the vertex again: the next face is across the edge the
-        // one before it arrived on.
-        const HalfedgeId arriving = topology.prev(h);
-        h = Topology::opposite(arriving);
-        if (topology.isBoundary(h)) {
-            break; // a border vertex's fan ends here
-        }
-    } while (h.valid() && h != start && faces.size() <= topology.faceCount());
-    if (ring.loop.size() > 1 && ring.loop.front() == ring.loop.back()) {
-        ring.loop.pop_back();
-        ring.corners.pop_back();
-    }
-    ring.faces = sortedUnique(std::move(faces));
-    ring.ok = ring.loop.size() >= 3 && !ring.faces.empty();
-    return ring;
-}
+} // namespace
 
 ModelPlan PlanRemove(Mesh& mesh, const PointTable& points, const ElementSet& selection,
                      const RemoveParams& params) {
@@ -2433,175 +3398,305 @@ ModelPlan PlanRemove(Mesh& mesh, const PointTable& points, const ElementSet& sel
         plan.refusal = ModelRefusal::EmptySelection;
         return plan;
     }
-    ElementSet asked;
-    asked.vertices = selection.vertices;
-    std::vector<u32> vertices = verticesOf(mesh, points, asked);
-    Mesh copy = mesh;
-    std::vector<u32> left; // the vertices a dissolve left behind, for Clean vertices
-    // The edges: a dissolve each; a border edge has nothing to close.
-    for (const u32 e : sortedUnique(selection.edges)) {
-        const Topology& topology = std::as_const(copy).topology();
+    // A crack's twins are one vertex (Q5): a vertex or edge on one is taken on
+    // both sides, the crack zipped where it runs through what is removed.
+    const Mesh& readable = mesh;
+    const Topology& topology = readable.topology();
+    const ElementSet closed = PointClosed(readable, points, selection);
+    std::vector<u32> into(topology.vertexCount());
+    std::iota(into.begin(), into.end(), 0u);
+    for (const u32 v : closed.vertices) {
+        if (v < topology.vertexCount() && !topology.isDeleted(VertexId(v))) {
+            zipAround(readable, points, membersOfPoint(readable, points, v), into);
+        }
+    }
+    const auto rootOf = [&](u32 v) {
+        for (u32 guard = 0; into[v] != v && guard < into.size(); ++guard) {
+            v = into[v];
+        }
+        return v;
+    };
+    const auto zip = [&](u32 a, u32 b) {
+        const u32 ra = rootOf(a);
+        const u32 rb = rootOf(b);
+        into[std::max(ra, rb)] = std::min(ra, rb);
+    };
+    std::vector<std::pair<u32, u32>> asked; // the edges, as their two ends
+    for (const u32 e : closed.edges) {
         if (e >= topology.edgeCount() || topology.isDeleted(EdgeId(e))) {
             continue;
         }
-        if (topology.isBoundary(EdgeId(e))) {
-            plan.refusal = ModelRefusal::BorderEdgeRemove;
-            return plan;
-        }
         const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
-        left.push_back(topology.from(h).value());
-        left.push_back(topology.to(h).value());
-        if (!DissolveEdge(copy, EdgeId(e))) {
-            plan.refusal = whyNotDissolved(copy, EdgeId(e));
-            return plan;
-        }
-        ++plan.changed;
-    }
-    // The vertices: the faces around each replaced by one face over its ring,
-    // every outer corner keeping its own values (§3.7).
-    for (std::size_t i = 0; i < vertices.size(); ++i) {
-        const u32 v = vertices[i];
-        const Topology& topology = std::as_const(copy).topology();
-        if (v >= topology.vertexCount() || topology.isDeleted(VertexId(v))) {
-            continue;
-        }
-        if (topology.valence(VertexId(v)) == 2) {
-            // A valence-2 vertex is its own case: its two edges merge.
-            if (!DissolveVertex(copy, VertexId(v))) {
-                plan.refusal = ModelRefusal::DissolveVertexIllegal;
-                return plan;
-            }
-            ++plan.changed;
-            continue;
-        }
-        const Ring ring = ringOf(copy, VertexId(v));
-        if (!ring.ok) {
-            plan.refusal = ModelRefusal::DissolveVertexIllegal;
-            return plan;
-        }
-        {
-            std::vector<u32> sorted = ring.loop;
-            std::sort(sorted.begin(), sorted.end());
-            if (std::adjacent_find(sorted.begin(), sorted.end()) != sorted.end()) {
-                plan.refusal = ModelRefusal::WouldRepeatVertex;
-                return plan;
-            }
-        }
-        {
-            const std::span<const u32> sections = copy.faceSections();
-            for (const u32 f : ring.faces) {
-                if (f < sections.size() && sections[f] != sections[ring.faces.front()]) {
-                    plan.refusal = ModelRefusal::CrossesSection;
-                    return plan;
+        const u32 a = topology.from(h).value();
+        const u32 b = topology.to(h).value();
+        if (topology.isBoundary(EdgeId(e))) {
+            // A crack's edge: zipped with its twin, it is an inner edge.
+            for (const u32 b2 : membersOfPoint(readable, points, b)) {
+                for (const u32 a2 : membersOfPoint(readable, points, a)) {
+                    const HalfedgeId twin = topology.findHalfedge(VertexId(b2), VertexId(a2));
+                    if ((a2 != a || b2 != b) && twin.valid() && topology.isBoundary(Topology::edge(twin))) {
+                        zip(a, a2);
+                        zip(b, b2);
+                    }
                 }
             }
         }
-        {
-            const std::span<const Vector3f> places = positionsOf(copy);
+        asked.emplace_back(a, b);
+    }
+    settleChains(into);
+    std::vector<u32> removing; // vertices, as survivors
+    for (const u32 v : closed.vertices) {
+        if (v < topology.vertexCount() && !topology.isDeleted(VertexId(v))) {
+            removing.push_back(into[v]);
+        }
+    }
+    removing = sortedUnique(std::move(removing));
+    std::vector<Vector3f> places(positionsOf(readable).begin(), positionsOf(readable).end());
+    std::vector<u32> named = removing;
+    for (const auto& [a, b] : asked) {
+        named.push_back(a);
+        named.push_back(b);
+    }
+    Mesh work = readable;
+    compactInto(work, into, places, named);
+    for (u32 i = 0; i < removing.size(); ++i) {
+        removing[i] = into[named[i]];
+    }
+    for (u32 i = 0; i < asked.size(); ++i) {
+        asked[i] = {into[named[removing.size() + 2 * i]], into[named[removing.size() + 2 * i + 1]]};
+    }
+    const FaceSet set = work.faceSet();
+    const FaceTable table = tableOf(set);
+    const std::vector<u32> sections(work.faceSections().begin(), work.faceSections().end());
+    const Candidate candidate = candidateOf(table, sections, into, true);
+    Dissolving dissolve(candidate, places);
+    const auto refuseOne = [&](ModelRefusal why) {
+        ++plan.kept;
+        if (plan.keptBecause == ModelRefusal::None) {
+            plan.keptBecause = why;
+        }
+    };
+    const auto sectionOf = [&](u32 f) { return f < candidate.sections.size() ? candidate.sections[f] : 0u; };
+    std::vector<u32> left; // the ends of dissolved edges, for Clean vertices
+    std::vector<std::pair<u32, u32>> loop;
+    // The edges: the faces either side become one, while the region's border
+    // stays one loop; a border edge has nothing to close (X1: the rest go on).
+    for (const auto& [a, b] : asked) {
+        const u32 one = dissolve.across(b, a);
+        const u32 two = dissolve.across(a, b);
+        if (one == kInvalidId || two == kInvalidId) {
+            refuseOne(ModelRefusal::BorderEdgeRemove);
+            continue;
+        }
+        const u32 ra = dissolve.find(one);
+        const u32 rb = dissolve.find(two);
+        if (ra == rb) {
+            ++plan.changed; // already inside one region: it goes with it
+            continue;
+        }
+        if (sectionOf(one) != sectionOf(two)) {
+            refuseOne(ModelRefusal::CrossesSection);
+            continue;
+        }
+        std::vector<u32> both = dissolve.members[ra];
+        both.insert(both.end(), dissolve.members[rb].begin(), dissolve.members[rb].end());
+        const ModelRefusal why = dissolve.loopOf(both, loop);
+        if (why != ModelRefusal::None) {
+            refuseOne(why);
+            continue;
+        }
+        dissolve.join(ra, rb);
+        left.push_back(a);
+        left.push_back(b);
+        ++plan.changed;
+    }
+    // The vertices: the faces round each one face over its ring, every outer
+    // corner keeping its own values; a valence-2 vertex just leaves its two faces.
+    for (const u32 v : removing) {
+        const std::vector<u32> fan = v < dissolve.facesOf.size() ? dissolve.facesOf[v] : std::vector<u32>{};
+        std::unordered_set<u32> neighbours;
+        for (const u32 f : fan) {
+            for (u32 k = 0; k < candidate.faces.faceValence[f]; ++k) {
+                if (dissolve.corner(f, k) == v) {
+                    neighbours.insert(dissolve.corner(f, k + 1));
+                    neighbours.insert(dissolve.corner(f, k + candidate.faces.faceValence[f] - 1));
+                }
+            }
+        }
+        if (fan.empty()) {
+            continue;
+        }
+        if (neighbours.size() == 2) {
+            bool tooShort = false;
+            for (const u32 f : fan) {
+                tooShort = tooShort || candidate.faces.faceValence[f] < 4;
+            }
+            if (tooShort) {
+                refuseOne(ModelRefusal::DissolveVertexIllegal);
+            } else {
+                dissolve.dropped[v] = 1;
+                ++plan.changed;
+            }
+            continue;
+        }
+        std::vector<u32> region;
+        for (const u32 f : fan) {
+            const u32 root = dissolve.find(f);
+            region.insert(region.end(), dissolve.members[root].begin(), dissolve.members[root].end());
+        }
+        region = sortedUnique(std::move(region));
+        bool mixed = false;
+        for (const u32 f : region) {
+            mixed = mixed || sectionOf(f) != sectionOf(region.front());
+        }
+        if (mixed) {
+            refuseOne(ModelRefusal::CrossesSection);
+            continue;
+        }
+        dissolve.dropped[v] = 1;
+        ModelRefusal why = dissolve.loopOf(region, loop);
+        if (why == ModelRefusal::None) {
             std::vector<Vector3f> shape;
-            for (const u32 r : ring.loop) {
-                shape.push_back(places[r]);
+            for (const auto& entry : loop) {
+                shape.push_back(places[entry.first]);
             }
-            if (foldsOver(shape)) {
-                plan.refusal = ModelRefusal::WouldFold; // a knife-edge crease
-                return plan;
-            }
+            why = foldsOver(shape) ? ModelRefusal::WouldFold : ModelRefusal::None; // a knife-edge crease
         }
-        // The rebuild: the fan's faces out, one face over the ring in, and
-        // every other face as it was.
-        const std::vector<u32> snapshot = detail::snapshotCornersBuilt(copy);
-        std::unordered_map<u32, u32> cornerOfHalfedge;
-        for (u32 c = 0; c < snapshot.size(); ++c) {
-            cornerOfHalfedge[snapshot[c]] = c;
+        if (why != ModelRefusal::None) {
+            dissolve.dropped[v] = 0;
+            refuseOne(why);
+            continue;
         }
-        detail::RebuildMapping mapping;
-        std::vector<u32> newId(topology.vertexCount(), kInvalidId);
-        for (u32 x = 0; x < topology.vertexCount(); ++x) {
-            if (!topology.isDeleted(VertexId(x)) && x != v) {
-                newId[x] = static_cast<u32>(mapping.vertexSource.size());
-                mapping.vertexSource.push_back(x);
-            }
+        for (const u32 f : fan) {
+            dissolve.join(fan.front(), f);
         }
-        mapping.faces.vertexCount = static_cast<u32>(mapping.vertexSource.size());
-        std::vector<u32> faceId(topology.faceCount(), kInvalidId);
-        u32 corner = 0;
-        for (u32 f = 0; f < topology.faceCount(); ++f) {
-            const FaceId face(f);
-            if (topology.isDeleted(face)) {
-                continue;
-            }
-            std::vector<u32> loop;
-            std::vector<u32> mine;
-            for (const HalfedgeId h : topology.fh(face)) {
-                loop.push_back(topology.from(h).value());
-                mine.push_back(corner++);
-            }
-            if (std::binary_search(ring.faces.begin(), ring.faces.end(), f)) {
-                continue;
-            }
-            mapping.faces.faceValence.push_back(static_cast<u32>(loop.size()));
-            for (std::size_t k = 0; k < loop.size(); ++k) {
-                mapping.faces.cornerVertex.push_back(newId[loop[k]]);
-                mapping.cornerSource.push_back(mine[k]);
-            }
-            faceId[f] = static_cast<u32>(mapping.faceSource.size());
-            mapping.faceSource.push_back(f);
-        }
-        const u32 slot = static_cast<u32>(mapping.faces.faceValence.size());
-        mapping.faces.faceValence.push_back(static_cast<u32>(ring.loop.size()));
-        for (std::size_t k = 0; k < ring.loop.size(); ++k) {
-            mapping.faces.cornerVertex.push_back(newId[ring.loop[k]]);
-            const auto at = cornerOfHalfedge.find(ring.corners[k]);
-            mapping.cornerSource.push_back(at == cornerOfHalfedge.end() ? kInvalidId : at->second);
-        }
-        mapping.faceSource.push_back(ring.faces.front()); // its section and smoothing group
-        const detail::RebuildResult result = detail::rebuild(copy, std::move(mapping), snapshot);
-        if (!result.ok || result.repair.changed) {
-            plan.refusal = ModelRefusal::WouldFold;
-            return plan;
-        }
-        // The rebuild renumbered everything: the vertices still to go, the
-        // ones the clean pass holds and the rings already made follow it. A
-        // ring this one took in is gone with it.
-        const auto renumber = [](std::vector<u32>& ids, const std::vector<u32>& to) {
-            for (u32& id : ids) {
-                id = id < to.size() ? to[id] : kInvalidId;
-            }
-            std::erase(ids, kInvalidId);
-        };
-        std::vector<u32> rest(vertices.begin() + static_cast<std::ptrdiff_t>(i) + 1, vertices.end());
-        renumber(rest, newId);
-        vertices.resize(i + 1);
-        vertices.insert(vertices.end(), rest.begin(), rest.end());
-        renumber(left, newId);
-        renumber(plan.changedFaces, faceId);
-        plan.changedFaces.push_back(slot);
         ++plan.changed;
     }
     // Clean vertices (3ds Max's Ctrl+Backspace): the valence-2 vertices the
     // dissolves left, and only those.
     if (params.cleanVertices) {
         for (const u32 v : sortedUnique(std::move(left))) {
-            const Topology& now = std::as_const(copy).topology();
-            if (v < now.vertexCount() && !now.isDeleted(VertexId(v)) && now.valence(VertexId(v)) == 2) {
-                plan.changed += DissolveVertex(copy, VertexId(v)) ? 1u : 0u;
+            std::unordered_set<u32> neighbours;
+            std::unordered_set<u32> regions;
+            for (const u32 f : dissolve.facesOf[v]) {
+                const u32 valence = candidate.faces.faceValence[f];
+                for (u32 k = 0; k < valence; ++k) {
+                    if (dissolve.corner(f, k) != v) {
+                        continue;
+                    }
+                    regions.insert(dissolve.find(f));
+                    for (const u32 n : {dissolve.corner(f, k + 1), dissolve.corner(f, k + valence - 1)}) {
+                        // A neighbour across an edge inside one region is gone with it.
+                        const u32 out = dissolve.across(v, n);
+                        const u32 in = dissolve.across(n, v);
+                        if (out == kInvalidId || in == kInvalidId || dissolve.find(out) != dissolve.find(in)) {
+                            neighbours.insert(n);
+                        }
+                    }
+                }
+            }
+            if (neighbours.size() == 2 && regions.size() <= 2) {
+                dissolve.dropped[v] = 1;
+                ++plan.changed;
             }
         }
     }
     if (plan.changed == 0) {
+        const ModelRefusal why = plan.keptBecause;
+        plan = ModelPlan{};
+        plan.refusal = why;
         return plan;
     }
-    mesh = std::move(copy);
+    // The face set: each region one face over its border, every other face as
+    // it was less its dropped corners, through the rebuild.
+    detail::RebuildMapping mapping;
+    std::vector<u32> newId(candidate.faces.vertexCount, kInvalidId);
+    const auto use = [&](u32 v) {
+        if (newId[v] == kInvalidId) {
+            newId[v] = static_cast<u32>(mapping.vertexSource.size());
+            mapping.vertexSource.push_back(v);
+        }
+        return newId[v];
+    };
+    std::vector<u32> made; // new face slots whose rows the finish materialises
+    std::vector<u32> around;
+    for (u32 f = 0; f < candidate.faces.faceCount(); ++f) {
+        if (dissolve.find(f) != f) {
+            continue; // emitted with its region's root
+        }
+        const std::vector<u32>& region = dissolve.members[f];
+        std::vector<std::pair<u32, u32>> corners;
+        bool reshaped = region.size() > 1;
+        if (region.size() > 1) {
+            if (dissolve.loopOf(region, corners) != ModelRefusal::None) {
+                plan = ModelPlan{};
+                plan.refusal = ModelRefusal::WouldFold;
+                return plan;
+            }
+        } else {
+            for (u32 k = 0; k < candidate.faces.faceValence[f]; ++k) {
+                const u32 v = dissolve.corner(f, k);
+                if (dissolve.dropped[v] == 0) {
+                    corners.emplace_back(v, dissolve.base[f] + k);
+                } else {
+                    reshaped = true;
+                }
+            }
+        }
+        if (corners.size() < 3) {
+            plan = ModelPlan{};
+            plan.refusal = ModelRefusal::DissolveVertexIllegal;
+            return plan;
+        }
+        u32 sourceFace = candidate.sourceFace[f];
+        for (const u32 g : region) {
+            sourceFace = std::min(sourceFace, candidate.sourceFace[g]);
+        }
+        if (reshaped) {
+            made.push_back(static_cast<u32>(mapping.faces.faceValence.size()));
+        }
+        mapping.faces.faceValence.push_back(static_cast<u32>(corners.size()));
+        for (const auto& [v, c] : corners) {
+            mapping.faces.cornerVertex.push_back(use(v));
+            mapping.cornerSource.push_back(candidate.sourceCorner[c]);
+            if (reshaped) {
+                around.push_back(newId[v]);
+            }
+        }
+        mapping.faceSource.push_back(sourceFace);
+    }
+    mapping.faces.vertexCount = static_cast<u32>(mapping.vertexSource.size());
+    const std::vector<u32> snapshot = detail::snapshotCornersBuilt(work);
+    {
+        const std::span<Vector3f> written = work.attributes.get<Vector3f>(names::kPosition, Domain::Vertex);
+        for (u32 v = 0; v < places.size() && v < written.size(); ++v) {
+            written[v] = places[v];
+        }
+    }
+    const detail::RebuildResult result = detail::rebuild(work, std::move(mapping), snapshot);
+    if (!result.ok || result.repair.changed) {
+        plan = ModelPlan{};
+        plan.refusal = ModelRefusal::WouldFold;
+        return plan;
+    }
+    plan.changedFaces = std::move(made);
+    plan.reshade = sortedUnique(std::move(around));
     plan.renumbers = true;
+    mesh = std::move(work);
     return plan;
 }
 
-ModelPlan PlanDelete(Mesh& mesh, const ElementSet& selection) {
+ModelPlan PlanDelete(Mesh& mesh, const ElementSet& asked) {
     ModelPlan plan;
     if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
         plan.refusal = ModelRefusal::NotBuiltYet;
         return plan;
     }
+    // A crack's twins are one vertex (Q5): a vertex or edge there takes the
+    // faces on both sides.
+    const ElementSet selection = asked.vertices.empty() && asked.edges.empty()
+                                     ? asked
+                                     : PointClosed(mesh, skinning::BuildPointTable(mesh), asked);
     const Topology& topology = std::as_const(mesh).topology();
     std::vector<u8> gone(topology.faceCount(), 0);
     for (const u32 f : selection.faces) {
@@ -2651,6 +3746,7 @@ ModelPlan PlanDelete(Mesh& mesh, const ElementSet& selection) {
     // original's `mergeGroup` (§3.7).
     const std::vector<u32> snapshot = detail::snapshotCornersBuilt(mesh);
     std::vector<u8> kept(topology.vertexCount(), 0);
+    std::vector<u8> rim(topology.vertexCount(), 0); // the corners of the faces that go
     std::vector<std::vector<u32>> loops;
     std::vector<std::vector<u32>> corners;
     std::vector<u32> sourceFace;
@@ -2667,6 +3763,9 @@ ModelPlan PlanDelete(Mesh& mesh, const ElementSet& selection) {
             mine.push_back(corner++);
         }
         if (gone[f] != 0) {
+            for (const u32 v : loop) {
+                rim[v] = 1;
+            }
             continue;
         }
         for (const u32 v : loop) {
@@ -2698,47 +3797,138 @@ ModelPlan PlanDelete(Mesh& mesh, const ElementSet& selection) {
         plan.refusal = ModelRefusal::WouldFold;
         return plan;
     }
+    // The faces left round the hole are shaded afresh (X10), the repair's
+    // splits of a pinched vertex with them.
+    for (u32 v = 0; v < rim.size(); ++v) {
+        if (rim[v] != 0 && newId[v] != kInvalidId) {
+            plan.reshade.push_back(newId[v]);
+        }
+    }
+    for (const VertexSplit& split : result.repair.log.splits) {
+        plan.reshade.push_back(split.created);
+    }
     plan.changed = chosen;
     return plan;
 }
 
-ModelPlan PlanCap(Mesh& mesh, const PointTable& points, EdgeId edge) {
+ModelPlan PlanCap(Mesh& mesh, const PointTable& given, EdgeId edge) {
     ModelPlan plan;
-    (void)points;
     if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
         plan.refusal = ModelRefusal::NotBuiltYet;
         return plan;
     }
-    const Topology& topology = std::as_const(mesh).topology();
-    if (edge.value() >= topology.edgeCount() || topology.isDeleted(edge) || !topology.isBoundary(edge)) {
-        plan.refusal = ModelRefusal::EmptySelection;
-        return plan;
+    {
+        const Topology& topology = std::as_const(mesh).topology();
+        if (edge.value() >= topology.edgeCount() || topology.isDeleted(edge) || !topology.isBoundary(edge)) {
+            plan.refusal = ModelRefusal::EmptySelection;
+            return plan;
+        }
     }
-    // The border loop, walked from its boundary halfedge: its vertices in the
-    // loop's own direction, and the rim corner beside each.
+    // Planned on a compacted copy, its own points then.
+    Mesh work = mesh;
+    PointTable compacted;
+    const PointTable* points = &given;
+    if (std::as_const(work).topology().hasDeleted()) {
+        const Topology::Remap remap = GarbageCollect(work);
+        edge = EdgeId(edge.value() < remap.edges.size() ? remap.edges[edge.value()] : edge.value());
+        compacted = skinning::BuildPointTable(work);
+        points = &compacted;
+    }
+    const Topology& topology = std::as_const(work).topology();
+    // The hole's loop over points (Q5): a border edge whose twin runs back the
+    // other way between the same two points is a crack, not the hole's, and
+    // the walk steps over it to the twin side, which is zipped where it does.
+    const auto cracked = [&](HalfedgeId h) {
+        const u32 a = topology.from(h).value();
+        const u32 b = topology.to(h).value();
+        for (const u32 b2 : membersOfPoint(work, *points, b)) {
+            for (const u32 a2 : membersOfPoint(work, *points, a)) {
+                if (a2 == a && b2 == b) {
+                    continue;
+                }
+                const HalfedgeId back = topology.findHalfedge(VertexId(b2), VertexId(a2));
+                if (back.valid() && topology.isBoundary(back)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
     HalfedgeId start = Topology::halfedge(edge, 0);
     if (!topology.isBoundary(start)) {
         start = Topology::opposite(start);
     }
+    std::vector<HalfedgeId> run;
+    {
+        bool crossed = false;
+        HalfedgeId walk = start;
+        do {
+            run.push_back(walk);
+            HalfedgeId next = topology.next(walk);
+            if (!cracked(start) && cracked(next)) {
+                // The next border edge of the point that is not a crack's.
+                HalfedgeId found;
+                u32 count = 0;
+                for (const u32 m : membersOfPoint(work, *points, topology.to(walk).value())) {
+                    for (const HalfedgeId h : topology.voh(VertexId(m))) {
+                        if (topology.isBoundary(h) && !cracked(h)) {
+                            found = h;
+                            ++count;
+                        }
+                    }
+                }
+                if (count == 1) {
+                    next = found;
+                    crossed = true;
+                }
+            }
+            walk = next;
+        } while (walk.valid() && walk != start && run.size() <= topology.halfedgeCount());
+        if (crossed && walk != start) {
+            run.clear(); // the crossing did not come round: the loop as built
+            walk = start;
+            do {
+                run.push_back(walk);
+                walk = topology.next(walk);
+            } while (walk.valid() && walk != start && run.size() <= topology.halfedgeCount());
+        }
+    }
+    // Where the walk stepped across, the twins it joined become one vertex.
+    std::vector<u32> into(topology.vertexCount());
+    std::iota(into.begin(), into.end(), 0u);
+    for (std::size_t i = 0; i < run.size(); ++i) {
+        const u32 arrived = topology.to(run[i]).value();
+        const u32 leaves = topology.from(run[(i + 1) % run.size()]).value();
+        if (arrived != leaves) {
+            into[std::max(arrived, leaves)] = std::min(arrived, leaves);
+        }
+    }
+    const std::span<const Vector3f> places = positionsOf(work);
+    const FaceSet set = work.faceSet();
+    const FaceTable table = tableOf(set);
+    if (!joinLanded(work, set, table, into, std::vector<Vector3f>(places.begin(), places.end())).empty()) {
+        plan.refusal = ModelRefusal::WouldFold;
+        return plan;
+    }
     std::vector<u32> loop;
     std::vector<u32> rim;
     std::vector<u32> rimFaces;
-    HalfedgeId walk = start;
-    do {
-        loop.push_back(topology.from(walk).value());
+    for (const HalfedgeId walk : run) {
+        const u32 v = into[topology.from(walk).value()];
+        if (!loop.empty() && (loop.back() == v || loop.front() == v)) {
+            continue; // a twin the join took in: one corner
+        }
+        loop.push_back(v);
         // The rim corner at that vertex: the halfedge leaving it inside the
         // face beside the border edge.
-        const HalfedgeId inside = topology.next(Topology::opposite(walk));
-        rim.push_back(static_cast<u32>(inside.index()));
+        rim.push_back(static_cast<u32>(topology.next(Topology::opposite(walk)).index()));
         rimFaces.push_back(topology.face(Topology::opposite(walk)).value());
-        walk = topology.next(walk);
-    } while (walk.valid() && walk != start && loop.size() <= topology.halfedgeCount());
+    }
     if (loop.size() < 3) {
         plan.refusal = ModelRefusal::CapTooShort;
         return plan;
     }
     {
-        const std::span<const Vector3f> places = positionsOf(mesh);
         std::vector<Vector3f> shape;
         for (const u32 v : loop) {
             shape.push_back(places[v]);
@@ -2748,39 +3938,79 @@ ModelPlan PlanCap(Mesh& mesh, const PointTable& points, EdgeId edge) {
             return plan;
         }
     }
-    if (faceExists(mesh, loop)) {
+    const std::vector<u32> sections(work.faceSections().begin(), work.faceSections().end());
+    const Candidate candidate = candidateOf(table, sections, into, true);
+    {
         // Capping a lone card would make a two-face pillow, which the next
         // rebuild's duplicate-face rule splits apart again.
-        plan.refusal = ModelRefusal::WouldDuplicateFace;
-        return plan;
+        std::vector<u32> sorted = loop;
+        std::sort(sorted.begin(), sorted.end());
+        u32 corner = 0;
+        for (u32 f = 0; f < candidate.faces.faceCount(); ++f) {
+            const u32 valence = candidate.faces.faceValence[f];
+            std::vector<u32> theirs(candidate.faces.cornerVertex.begin() + corner,
+                                    candidate.faces.cornerVertex.begin() + corner + valence);
+            corner += valence;
+            std::sort(theirs.begin(), theirs.end());
+            if (theirs == sorted) {
+                plan.refusal = ModelRefusal::WouldDuplicateFace;
+                return plan;
+            }
+        }
     }
     // The cap closes the loop, so its corners run the other way; each copies
     // the rim corner at its vertex, and the face takes the lowest-numbered rim
     // face's section and smoothing group.
-    const std::vector<u32> snapshot = detail::snapshotCornersBuilt(mesh);
+    const std::vector<u32> snapshot = detail::snapshotCornersBuilt(work);
     std::unordered_map<u32, u32> cornerOfHalfedge;
     for (u32 c = 0; c < snapshot.size(); ++c) {
         cornerOfHalfedge[snapshot[c]] = c;
     }
-    detail::RebuildMapping mapping = detail::identityMapping(mesh);
+    detail::RebuildMapping mapping;
+    std::vector<u32> newId(into.size(), kInvalidId);
+    for (u32 v = 0; v < into.size(); ++v) {
+        if (into[v] == v && !topology.isDeleted(VertexId(v))) {
+            newId[v] = static_cast<u32>(mapping.vertexSource.size());
+            mapping.vertexSource.push_back(v);
+        }
+    }
+    mapping.faces.vertexCount = static_cast<u32>(mapping.vertexSource.size());
+    mapping.faces.faceValence = candidate.faces.faceValence;
+    for (const u32 v : candidate.faces.cornerVertex) {
+        mapping.faces.cornerVertex.push_back(newId[v]);
+    }
+    mapping.cornerSource = candidate.sourceCorner;
+    mapping.faceSource = candidate.sourceFace;
     // The boundary loop runs the other way from the faces beside it, so the
     // cap takes it as it is and faces outward with them.
     mapping.faces.faceValence.push_back(static_cast<u32>(loop.size()));
     for (std::size_t i = 0; i < loop.size(); ++i) {
-        mapping.faces.cornerVertex.push_back(loop[i]);
+        mapping.faces.cornerVertex.push_back(newId[loop[i]]);
         const auto at = cornerOfHalfedge.find(rim[i]);
         mapping.cornerSource.push_back(at == cornerOfHalfedge.end() ? kInvalidId : at->second);
     }
     mapping.faceSource.push_back(*std::min_element(rimFaces.begin(), rimFaces.end()));
     const u32 slot = static_cast<u32>(mapping.faces.faceValence.size() - 1);
-    const detail::RebuildResult result = detail::rebuild(mesh, std::move(mapping), snapshot);
+    const detail::RebuildResult result = detail::rebuild(work, std::move(mapping), snapshot);
     if (!result.ok || result.repair.changed) {
         plan.refusal = ModelRefusal::WouldFold;
         return plan;
     }
+    // The rim is an edge the cap bent: the crease rule and the re-shade (X10,
+    // CAP-1) read it.
+    const Topology& built = std::as_const(work).topology();
+    for (std::size_t i = 0; i < loop.size(); ++i) {
+        const HalfedgeId h =
+            built.findHalfedge(VertexId(newId[loop[i]]), VertexId(newId[loop[(i + 1) % loop.size()]]));
+        if (h.valid()) {
+            plan.touchedEdges.push_back(Topology::edge(h).value());
+        }
+    }
+    plan.touchedEdges = sortedUnique(std::move(plan.touchedEdges));
     plan.changed = 1;
     plan.changedFaces.push_back(slot); // its row is the finish's to materialise
     plan.selection.faces.push_back(slot);
+    mesh = std::move(work);
     return plan;
 }
 
@@ -2817,49 +4047,72 @@ ModelPlan PlanFlip(Mesh& mesh, const ElementSet& faces) {
     }
     const u32 fresh = FreshMergeGroup(mesh);
     std::vector<u32> freshOf; // per new vertex past the originals: its group
+    std::vector<u32> parted;  // the originals that gave copies, as the rebuild numbers them
     std::unordered_map<u64, u32> copyOfFan;
     for (u32 v = 0; v < topology.vertexCount(); ++v) {
-        if (topology.isDeleted(VertexId(v))) {
+        if (topology.isDeleted(VertexId(v)) || !topology.outgoing(VertexId(v)).valid()) {
             continue;
         }
-        // A vertex every one of whose faces flips stays one vertex, on the
-        // mesh's own border or not: there is nothing to detach it from.
+        // The fan in order, from the face after the hole on a border vertex:
+        // a run of flipped faces never runs across the hole (FLP-1).
+        HalfedgeId first = topology.outgoing(VertexId(v));
+        for (const HalfedgeId h : topology.voh(VertexId(v))) {
+            if (!topology.isBoundary(h) && topology.isBoundary(Topology::opposite(h))) {
+                first = h;
+            }
+        }
         std::vector<u32> around;
         bool border = false;
-        for (const HalfedgeId h : topology.voh(VertexId(v))) {
+        bool open = false;
+        HalfedgeId h = first;
+        do {
             if (topology.isBoundary(h)) {
-                continue;
+                open = true;
+                break;
             }
             const u32 f = topology.face(h).value();
             around.push_back(f);
             border = border || flipped[f] == 0;
-        }
+            h = Topology::opposite(topology.prev(h));
+        } while (h.valid() && h != first && around.size() <= topology.halfedgeCount());
+        open = open || topology.isBoundary(h);
+        // A vertex every one of whose faces flips stays one vertex, on the
+        // mesh's own border or not: there is nothing to detach it from.
         if (!border || around.empty()) {
             continue;
         }
-        // The fan's runs: rotate so one never wraps, then a copy per run. The
-        // flipped faces take the copies and everything else keeps the vertex,
-        // which is what detaches the region along its border.
+        // The fan's runs, a closed fan's rotated so none wraps: the first run
+        // left as it was keeps the vertex and every other run takes a copy, so
+        // the region detaches along its border and no vertex is left with two
+        // fans (FLP-4: two flipped faces touching at a corner).
         std::size_t start = 0;
-        for (std::size_t i = 0; i < around.size(); ++i) {
-            if (flipped[around[i]] == 0) {
-                start = (i + 1) % around.size();
+        for (std::size_t i = 0; i < around.size() && !open; ++i) {
+            if (flipped[around[i]] != flipped[around[(i + around.size() - 1) % around.size()]]) {
+                start = i;
                 break;
             }
         }
         u32 current = kInvalidId;
+        bool kept = false;
+        u8 state = 2;
         for (std::size_t i = 0; i < around.size(); ++i) {
             const u32 f = around[(start + i) % around.size()];
-            if (flipped[f] == 0) {
+            if (flipped[f] != state) {
+                state = flipped[f];
                 current = kInvalidId;
-                continue;
+                if (state != 0 || kept) {
+                    current = static_cast<u32>(mapping.vertexSource.size());
+                    mapping.vertexSource.push_back(v);
+                    parted.push_back(newId[v]);
+                    if (state != 0) {
+                        freshOf.push_back(current);
+                    }
+                }
+                kept = kept || state == 0;
             }
-            if (current == kInvalidId) {
-                current = static_cast<u32>(mapping.vertexSource.size());
-                mapping.vertexSource.push_back(v);
-                freshOf.push_back(current);
+            if (current != kInvalidId) {
+                copyOfFan[(static_cast<u64>(v) << 32) | f] = current;
             }
-            copyOfFan[(static_cast<u64>(v) << 32) | f] = current;
         }
     }
     mapping.faces.vertexCount = static_cast<u32>(mapping.vertexSource.size());
@@ -2894,29 +4147,36 @@ ModelPlan PlanFlip(Mesh& mesh, const ElementSet& faces) {
             mapping.faces.cornerVertex.push_back(nameOf(loop[i]));
             mapping.cornerSource.push_back(mine[i]);
         }
-        // Its stored triangles, renamed and reversed (§3.10).
-        const std::span<const u32> row = mesh.triangulation.row(f);
-        if (!row.empty()) {
+        // Its drawn triangles, renamed and reversed (§3.10): the stored row,
+        // or the cut it is drawn with now, so the reversed face draws the same
+        // triangles rather than re-cutting the other way (FLP-5).
+        if (loop.size() > 3) {
+            const std::vector<u32> drawn = drawnOf(mesh, face);
             std::vector<u32> made;
-            for (std::size_t t = 0; t + 2 < row.size(); t += 3) {
-                made.push_back(nameOf(row[t + 2]));
-                made.push_back(nameOf(row[t + 1]));
-                made.push_back(nameOf(row[t]));
+            for (std::size_t t = 0; t + 2 < drawn.size(); t += 3) {
+                made.push_back(nameOf(drawn[t + 2]));
+                made.push_back(nameOf(drawn[t + 1]));
+                made.push_back(nameOf(drawn[t]));
             }
             rows.emplace_back(slot, std::move(made));
         }
         plan.changedFaces.push_back(slot);
     }
     const u32 slotCount = static_cast<u32>(mapping.faces.faceValence.size());
-    const detail::RebuildResult result = detail::rebuild(mesh, std::move(mapping), snapshot);
+    // On a copy: a region the repair would shatter is refused with the mesh as
+    // it was (FLP-3).
+    Mesh work = mesh;
+    const detail::RebuildResult result = detail::rebuild(work, std::move(mapping), snapshot);
     if (!result.ok || result.repair.changed) {
+        plan = ModelPlan{};
         plan.refusal = ModelRefusal::WouldFold; // the region would not detach
         return plan;
     }
-    // The copies are their own points: a fresh `mergeGroup` each, so nothing
-    // welds them back together.
+    // The copies are their own GPU vertices: a fresh `mergeGroup` each. They
+    // stay one point with their sources, as a flipped face stays attached in
+    // Max and Blender (a split the kernel needs, like a crack's, not a copy).
     if (!freshOf.empty()) {
-        const std::span<u32> groups = MergeGroupsOf(mesh);
+        const std::span<u32> groups = MergeGroupsOf(work);
         u32 next = fresh;
         for (const u32 v : freshOf) {
             if (v < groups.size()) {
@@ -2927,9 +4187,9 @@ ModelPlan PlanFlip(Mesh& mesh, const ElementSet& faces) {
     // The flipped corners: their normals and their tangents' `w` negated, so
     // the bitangent `w * cross(n, t)` is kept. Face order stood.
     {
-        const Topology& now = std::as_const(mesh).topology();
-        const std::span<Vector3f> normals = mesh.attributes.get<Vector3f>(names::kNormal, Domain::Halfedge);
-        const std::span<Vector4f> tangents = mesh.attributes.get<Vector4f>(names::kTangent, Domain::Halfedge);
+        const Topology& now = std::as_const(work).topology();
+        const std::span<Vector3f> normals = work.attributes.get<Vector3f>(names::kNormal, Domain::Halfedge);
+        const std::span<Vector4f> tangents = work.attributes.get<Vector4f>(names::kTangent, Domain::Halfedge);
         for (const u32 f : plan.changedFaces) {
             if (f >= now.faceCount() || now.isDeleted(FaceId(f))) {
                 continue;
@@ -2942,14 +4202,19 @@ ModelPlan PlanFlip(Mesh& mesh, const ElementSet& faces) {
                 if (c < tangents.size()) {
                     tangents[c].w = -tangents[c].w;
                 }
+                plan.reshade.push_back(now.from(h).value());
             }
         }
     }
     for (const auto& entry : rows) {
-        mesh.triangulation.setRow(entry.first, entry.second, slotCount);
+        work.triangulation.setRow(entry.first, entry.second, slotCount);
     }
     plan.changed = chosen;
     plan.selection.faces = sortedUnique(plan.changedFaces);
+    // The faces left beside the border it opened shade afresh too.
+    plan.reshade.insert(plan.reshade.end(), parted.begin(), parted.end());
+    plan.reshade = sortedUnique(std::move(plan.reshade));
+    mesh = std::move(work);
     return plan;
 }
 
@@ -3001,13 +4266,21 @@ u64 pointPair(u32 a, u32 b) {
     return (static_cast<u64>(std::min(a, b)) << 32) | std::max(a, b);
 }
 
+Vector3f faceArea(const Mesh& mesh, FaceId face);
+Vector3f unitOr(const Vector3f& v, const Vector3f& fallback);
+
 /// The mesh's border edges keyed by their ends' points: two on one key are
-/// twins, which is all the weld left of a crease it kept apart (§2.2).
+/// twins, which is all the weld left of a crease it kept apart (§2.2). Two
+/// faces folded flat onto each other -- a double-sided card's front and back --
+/// are no crease: they are two surfaces, and their edges no twins (EXT-2, X13).
 class Twins {
 public:
     Twins(const Mesh& mesh, const PointTable& points) {
         const Topology& topology = mesh.topology();
+        const std::span<const Vector3f> places = positionsOf(mesh);
         keyOf_.assign(topology.edgeCount(), 0);
+        normal_.assign(topology.edgeCount(), Vector3f{0.0f, 0.0f, 0.0f});
+        inward_.assign(topology.edgeCount(), Vector3f{0.0f, 0.0f, 0.0f});
         const auto pointOf = [&](u32 vertex) {
             return points.pointOf.size() == topology.vertexCount() ? points.pointOf[vertex] : vertex;
         };
@@ -3015,10 +4288,19 @@ public:
             if (topology.isDeleted(EdgeId(e)) || !topology.isBoundary(EdgeId(e))) {
                 continue;
             }
-            const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
+            HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
             const u64 key = pointPair(pointOf(topology.from(h).value()), pointOf(topology.to(h).value()));
             keyOf_[e] = key;
             byPair_[key].push_back(e);
+            if (!topology.face(h).valid()) {
+                h = Topology::opposite(h);
+            }
+            const u32 a = topology.from(h).value();
+            const u32 b = topology.to(h).value();
+            if (topology.face(h).valid() && a < places.size() && b < places.size()) {
+                normal_[e] = unitOr(faceArea(mesh, topology.face(h)), Vector3f{0.0f, 0.0f, 0.0f});
+                inward_[e] = cross(normal_[e], places[b] - places[a]); // the face is left of h
+            }
         }
     }
 
@@ -3033,7 +4315,8 @@ public:
             return out;
         }
         for (const u32 other : found->second) {
-            if (other != edge) {
+            const bool folded = normal_[edge].dot(normal_[other]) < -0.99f && inward_[edge].dot(inward_[other]) > 0.0f;
+            if (other != edge && !folded) {
                 out.push_back(other);
             }
         }
@@ -3042,6 +4325,8 @@ public:
 
 private:
     std::vector<u64> keyOf_;
+    std::vector<Vector3f> normal_; ///< Each border edge's face's unit normal.
+    std::vector<Vector3f> inward_; ///< Into that face, square to the edge.
     std::unordered_map<u64, std::vector<u32>> byPair_;
 };
 
@@ -3152,7 +4437,9 @@ Grown growRegion(const Mesh& mesh, const Twins& twins, const std::vector<u32>& r
     const auto selected = [&](FaceId f) {
         return f.valid() && f.value() < regionOf.size() && regionOf[f.value()] == index;
     };
-    std::vector<u8> onBoundary(topology.vertexCount(), 0);
+    // Sorted ids, not a flag per mesh vertex: By Polygon grows a region per
+    // face, and a whole-mesh press would clear the mesh's worth each time.
+    std::vector<u32> onBoundary;
     for (const u32 f : region) {
         for (const HalfedgeId h : topology.fh(FaceId(f))) {
             const FaceId across = topology.face(Topology::opposite(h));
@@ -3171,10 +4458,11 @@ Grown growRegion(const Mesh& mesh, const Twins& twins, const std::vector<u32>& r
                 continue; // a crease the region holds both sides of
             }
             grown.boundary.push_back(h);
-            onBoundary[topology.from(h).value()] = 1;
-            onBoundary[topology.to(h).value()] = 1;
+            onBoundary.push_back(topology.from(h).value());
+            onBoundary.push_back(topology.to(h).value());
         }
     }
+    onBoundary = sortedUnique(std::move(onBoundary));
     // Every vertex of the region: the ones on its boundary are copied once per
     // fan of its faces, the rest move as they are.
     std::vector<u32> vertices;
@@ -3187,7 +4475,7 @@ Grown growRegion(const Mesh& mesh, const Twins& twins, const std::vector<u32>& r
         if (v < pinned.size() && pinned[v] != 0) {
             continue; // a hinge's vertex (§3.8): neither copied nor moved
         }
-        if (onBoundary[v] == 0) {
+        if (!std::binary_search(onBoundary.begin(), onBoundary.end(), v)) {
             grown.inside.push_back(v);
             continue;
         }
@@ -3244,42 +4532,6 @@ std::vector<u32> cornerBases(const FaceSet& faces) {
         base[f + 1] = base[f] + faces.faceValence[f];
     }
     return base;
-}
-
-/// The unit normals of the selected faces around each member of every point,
-/// summed and normalised: one direction per point, so a crease's twins move
-/// together (§3.8's Twins).
-std::vector<Vector3f> localNormals(const Mesh& mesh, const PointTable& points, const std::vector<u8>& chosen) {
-    const Topology& topology = mesh.topology();
-    std::vector<Vector3f> sums(topology.vertexCount(), Vector3f{0.0f, 0.0f, 0.0f});
-    for (u32 f = 0; f < topology.faceCount(); ++f) {
-        if (f >= chosen.size() || chosen[f] == 0 || topology.isDeleted(FaceId(f))) {
-            continue;
-        }
-        const Vector3f normal = unitOr(faceArea(mesh, FaceId(f)), Vector3f{0.0f, 0.0f, 1.0f});
-        for (const HalfedgeId h : topology.fh(FaceId(f))) {
-            sums[topology.from(h).value()] = sums[topology.from(h).value()] + normal;
-        }
-    }
-    // One sum per point, shared out again.
-    std::vector<Vector3f> out(sums.size(), Vector3f{0.0f, 0.0f, 1.0f});
-    std::vector<u8> done(sums.size(), 0);
-    for (u32 v = 0; v < sums.size(); ++v) {
-        if (done[v] != 0 || topology.isDeleted(VertexId(v))) {
-            continue;
-        }
-        const std::vector<u32> members = membersOfPoint(mesh, points, v);
-        Vector3f sum{0.0f, 0.0f, 0.0f};
-        for (const u32 m : members) {
-            sum = sum + sums[m];
-        }
-        const Vector3f unit = unitOr(sum, Vector3f{0.0f, 0.0f, 1.0f});
-        for (const u32 m : members) {
-            out[m] = unit;
-            done[m] = 1;
-        }
-    }
-    return out;
 }
 
 /// The new vertex @p face uses at @p vertex: its copy when the fan has one,
@@ -3381,7 +4633,8 @@ void touchFaces(const Mesh& mesh, ModelPlan& plan) {
 }
 
 /// The fresh merge groups @p made ask for, so nothing welds a copy back onto
-/// what it came from.
+/// what it came from, and a fresh `apart` stamp, so no point joins it to its
+/// source either (Q8).
 void freshGroups(Mesh& mesh, const std::vector<u32>& made) {
     if (made.empty()) {
         return;
@@ -3393,6 +4646,7 @@ void freshGroups(Mesh& mesh, const std::vector<u32>& made) {
             groups[v] = next++;
         }
     }
+    MarkApart(mesh, made);
 }
 
 /// Every per-fan copy @p rings made, ascending.
@@ -3408,6 +4662,7 @@ std::vector<u32> copiesOf(const std::vector<Grown>& rings) {
 
 ModelPlan PlanExtrudeFaces(Mesh& mesh, const PointTable& points, const ElementSet& faces, ExtrudeType type) {
     ModelPlan plan;
+    const Rollback rollback(mesh, plan);
     if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
         plan.refusal = ModelRefusal::NotBuiltYet;
         return plan;
@@ -3426,7 +4681,6 @@ ModelPlan PlanExtrudeFaces(Mesh& mesh, const PointTable& points, const ElementSe
         return plan;
     }
     const std::span<const Vector3f> places = positionsOf(mesh);
-    const std::vector<Vector3f> local = localNormals(mesh, points, inRegion);
     const Twins twins(mesh, points);
     const std::vector<std::vector<u32>> regions =
         regionsOf(mesh, twins, chosen, type == ExtrudeType::ByPolygon);
@@ -3478,8 +4732,30 @@ ModelPlan PlanExtrudeFaces(Mesh& mesh, const PointTable& points, const ElementSe
             }
         }
         const Vector3f aim = unitOr(mean, Vector3f{0.0f, 0.0f, 1.0f});
+        // Local Normal within this region: its own faces' normals summed per
+        // point, so a crack's twins move as one, and a shell that only touches
+        // the region at a point (another region) never bends it (EXT-4).
+        std::unordered_map<u32, Vector3f> localSum;
+        const auto pointOf = [&](u32 vertex) {
+            return points.pointOf.size() == topology.vertexCount() && vertex < points.pointOf.size()
+                       ? points.pointOf[vertex]
+                       : vertex;
+        };
+        if (!group) {
+            for (const u32 f : region) {
+                const Vector3f normal = unitOr(faceArea(mesh, FaceId(f)), Vector3f{0.0f, 0.0f, 0.0f});
+                for (const HalfedgeId h : topology.fh(FaceId(f))) {
+                    Vector3f& sum = localSum[pointOf(topology.from(h).value())];
+                    sum = sum + normal;
+                }
+            }
+        }
         const auto directionOf = [&](u32 vertex) {
-            return group ? aim : (vertex < local.size() ? local[vertex] : aim);
+            if (group) {
+                return aim;
+            }
+            const auto found = localSum.find(pointOf(vertex));
+            return found == localSum.end() ? aim : unitOr(found->second, aim);
         };
         for (const u32 v : grown.inside) {
             moves.push_back({v, directionOf(v)});
@@ -3518,6 +4794,7 @@ ModelPlan PlanExtrudeFaces(Mesh& mesh, const PointTable& points, const ElementSe
 
 ModelPlan PlanHingeFaces(Mesh& mesh, const PointTable& points, const ElementSet& faces, u32 hingeEdge) {
     ModelPlan plan;
+    const Rollback rollback(mesh, plan);
     if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
         plan.refusal = ModelRefusal::NotBuiltYet;
         return plan;
@@ -3553,6 +4830,17 @@ ModelPlan PlanHingeFaces(Mesh& mesh, const PointTable& points, const ElementSet&
         plan.refusal = ModelRefusal::HingeNotOnBoundary;
         return plan;
     }
+    // A crack's edge whose twin's face is selected too is inside the selection,
+    // however its own other side looks (Q5, HNG-1).
+    const Twins twins(mesh, points);
+    for (const u32 other : twins.of(hingeEdge)) {
+        for (u32 side = 0; side < 2; ++side) {
+            if (chosenFace(Topology::halfedge(EdgeId(other), side))) {
+                plan.refusal = ModelRefusal::HingeNotOnBoundary;
+                return plan;
+            }
+        }
+    }
     if (!sideA) {
         along = Topology::opposite(along);
     }
@@ -3569,11 +4857,23 @@ ModelPlan PlanHingeFaces(Mesh& mesh, const PointTable& points, const ElementSet&
     std::vector<u8> pinned(topology.vertexCount(), 0);
     pinned[hingeFrom] = 1;
     pinned[hingeTo] = 1;
+    // Any other vertex of the selection on the hinge's line cannot move either:
+    // a copy of it would stay on top of it, a wall of no area (FUZ-11, MTX-12).
+    {
+        const f32 tolerance = CoincidenceTolerance(mesh);
+        for (const u32 f : chosen) {
+            for (const HalfedgeId h : topology.fh(FaceId(f))) {
+                const u32 v = topology.from(h).value();
+                if (v < places.size() && cross(places[v] - hinge.origin, hinge.axis).length() <= tolerance) {
+                    pinned[v] = 1;
+                }
+            }
+        }
+    }
 
     // Extrude's regions, copies and walls (Group: the selection as one), with
     // the hinge's two vertices pinned -- the wall on the hinge edge is then
     // nothing and its neighbours are triangles (`appendWall`).
-    const Twins twins(mesh, points);
     const std::vector<std::vector<u32>> regions = regionsOf(mesh, twins, chosen, false);
     const std::vector<u32> snapshot = detail::snapshotCornersBuilt(mesh);
     const std::unordered_map<u32, u32> ordinalOf = cornerOrdinals(snapshot);
@@ -3614,10 +4914,13 @@ ModelPlan PlanHingeFaces(Mesh& mesh, const PointTable& points, const ElementSet&
 
 /// The strip both border tools grow (§3.8): one quad per border edge in
 /// @p edges on copies of the run's vertices, aimed outward in the surface.
-/// @p pinned is the vertex a hinge keeps in place -- its own copy, so the two
-/// walls at it are triangles and it takes no motion -- or `kInvalidId`.
-static ModelPlan planBorderStrip(Mesh& mesh, const PointTable& points, const ElementSet& edges, u32 pinned) {
+/// @p pinned (sorted) are the vertices a hinge keeps in place -- each its own
+/// copy, so the walls at it are triangles and it takes no motion.
+static ModelPlan planBorderStrip(Mesh& mesh, const PointTable& points, const ElementSet& edges,
+                                 const std::vector<u32>& pinned) {
+    const auto isPinned = [&](u32 v) { return std::binary_search(pinned.begin(), pinned.end(), v); };
     ModelPlan plan;
+    const Rollback rollback(mesh, plan);
     if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
         plan.refusal = ModelRefusal::NotBuiltYet;
         return plan;
@@ -3625,11 +4928,14 @@ static ModelPlan planBorderStrip(Mesh& mesh, const PointTable& points, const Ele
     const Topology& topology = std::as_const(mesh).topology();
     // The border halfedges asked for: the side with no face, which is the run
     // the strip grows from.
+    // A crack's edge is no border: its twins are one edge (Q5), inside the
+    // surface, and dropped as an interior edge is (EXB-1, EXB-4).
+    const Twins twins(mesh, points);
     std::vector<HalfedgeId> border;
     std::vector<u8> taken(topology.edgeCount(), 0);
     for (const u32 e : sortedUnique(edges.edges)) {
         if (e >= topology.edgeCount() || topology.isDeleted(EdgeId(e)) || !topology.isBoundary(EdgeId(e)) ||
-            taken[e] != 0) {
+            taken[e] != 0 || !twins.of(e).empty()) {
             continue;
         }
         taken[e] = 1;
@@ -3644,8 +4950,8 @@ static ModelPlan planBorderStrip(Mesh& mesh, const PointTable& points, const Ele
         return plan;
     }
     // One copy per border vertex, aimed along the mean of its border edges'
-    // OUTWARD directions: for each edge, from the centre of the face behind it
-    // to the centre of the edge, flattened into that face's plane.
+    // OUTWARD directions: for each edge, away from the face behind it, square
+    // to the edge in that face's plane.
     //
     // Along the face's normal instead -- which this did until 2026-09-24 --
     // the strip stands up off the surface as a collar, and a plane extruded at
@@ -3662,39 +4968,34 @@ static ModelPlan planBorderStrip(Mesh& mesh, const PointTable& points, const Ele
     for (const HalfedgeId h : border) {
         const HalfedgeId inside = Topology::opposite(h);
         const FaceId face = topology.face(inside);
-        const Vector3f normal = unitOr(faceArea(mesh, face), Vector3f{0.0f, 0.0f, 1.0f});
-        const u32 from = topology.from(h).value();
-        const u32 to = topology.to(h).value();
-        Vector3f outward = normal; // a face with no centre to speak of
-        if (from < placed.size() && to < placed.size()) {
-            Vector3f centre{0.0f, 0.0f, 0.0f};
-            u32 corners = 0;
+        // A face with no area (corners in line) has no plane of its own: it
+        // takes its neighbours', never a world axis, so the strip turns with
+        // the mesh (EXB-3, P15).
+        Vector3f area = faceArea(mesh, face);
+        const Vector3f span = placed[topology.to(h).value()] - placed[topology.from(h).value()];
+        if (!(area.length() > 1e-6f * span.dot(span))) {
             for (const HalfedgeId c : topology.fh(face)) {
-                const u32 v = topology.from(c).value();
-                if (v < placed.size()) {
-                    centre = centre + placed[v];
-                    ++corners;
+                if (const FaceId beside = topology.face(Topology::opposite(c)); beside.valid() && beside != face) {
+                    area = area + faceArea(mesh, beside);
                 }
             }
-            if (corners != 0) {
-                centre = centre * (1.0f / static_cast<f32>(corners));
-                const Vector3f mid = (placed[from] + placed[to]) * 0.5f;
-                Vector3f out = mid - centre;
-                // Into the face's plane, so a bowed n-gon's strip still lies in
-                // the surface rather than tilting out of it...
-                out = out - normal * out.dot(normal);
-                // ...and square to the edge. Without this the direction leans
-                // along the edge by however far the face's centre sits to one
-                // side of it, which on a TRIANGLE is always -- every Warcraft
-                // III mesh is triangles, and a border run of them would grow a
-                // sawtooth instead of a strip.
-                const Vector3f along = unitOr(placed[to] - placed[from], Vector3f{1.0f, 0.0f, 0.0f});
-                out = out - along * out.dot(along);
-                outward = unitOr(out, normal);
-            }
+        }
+        const Vector3f normal = unitOr(area, Vector3f{0.0f, 0.0f, 1.0f});
+        const u32 from = topology.from(h).value();
+        const u32 to = topology.to(h).value();
+        Vector3f outward = normal; // an edge of no length
+        if (from < placed.size() && to < placed.size()) {
+            // In the face's plane, so a bowed n-gon's strip still lies in the
+            // surface, and square to the edge, so a run of triangles grows a
+            // strip and not a sawtooth: the left of the border halfedge, which
+            // runs against its face. Taken from the face's centre instead (until
+            // 2026-11-12), a concave face's centre could lie on the edge's line
+            // and the aim was rounding (MTX-11, EXB-3).
+            const Vector3f along = unitOr(placed[to] - placed[from], Vector3f{0.0f, 0.0f, 0.0f});
+            outward = unitOr(cross(normal, along), normal);
         }
         for (const u32 v : {from, to}) {
-            if (v == pinned) {
+            if (isPinned(v)) {
                 continue; // the hinge: its own copy, and it goes nowhere
             }
             if (copyOf.find(v) == copyOf.end()) {
@@ -3705,7 +5006,7 @@ static ModelPlan planBorderStrip(Mesh& mesh, const PointTable& points, const Ele
             aimOf[v] = aimOf[v] + outward;
         }
     }
-    const auto copyOrSelf = [&](u32 v) { return v == pinned ? v : copyOf[v]; };
+    const auto copyOrSelf = [&](u32 v) { return isPinned(v) ? v : copyOf[v]; };
     for (const HalfedgeId h : border) {
         const HalfedgeId inside = Topology::opposite(h);
         const u32 f = topology.face(inside).value();
@@ -3720,6 +5021,21 @@ static ModelPlan planBorderStrip(Mesh& mesh, const PointTable& points, const Ele
         if (quad != kInvalidId) {
             plan.changedFaces.push_back(quad);
         }
+    }
+    // A crack's twins are one point (§2.2), so they take one aim between them
+    // and the strip grows without parting them. Summed now: past the rebuild
+    // the point table no longer matches the mesh (EXB-1).
+    std::unordered_map<u32, Vector3f> aimOfPoint;
+    for (const auto& [vertex, copy] : copyOf) {
+        (void)copy;
+        Vector3f aim{0.0f, 0.0f, 0.0f};
+        for (const u32 member : membersOfPoint(mesh, points, vertex)) {
+            const auto found = aimOf.find(member);
+            if (found != aimOf.end()) {
+                aim = aim + found->second;
+            }
+        }
+        aimOfPoint[vertex] = aim;
     }
     mapping.faces.vertexCount = static_cast<u32>(mapping.vertexSource.size());
     mapping.mayHaveZeroArea = true; // the strip has none until the amount grows it
@@ -3736,16 +5052,8 @@ static ModelPlan planBorderStrip(Mesh& mesh, const PointTable& points, const Ele
     freshGroups(mesh, copies); // the strip's far side is its own point
     const std::span<const Vector3f> now = positionsOf(mesh);
     for (const auto& [vertex, copy] : copyOf) {
-        // A crack's twins are one point (§2.2), so they take one aim between
-        // them and the strip grows without parting them.
-        Vector3f aim{0.0f, 0.0f, 0.0f};
-        for (const u32 member : membersOfPoint(mesh, points, vertex)) {
-            const auto found = aimOf.find(member);
-            if (found != aimOf.end()) {
-                aim = aim + found->second;
-            }
-        }
         VertexMotion motion;
+        const Vector3f aim = aimOfPoint[vertex];
         motion.vertex = copy;
         motion.base = copy < now.size() ? now[copy] : Vector3f{0.0f, 0.0f, 0.0f};
         motion.direction = unitOr(aim, Vector3f{0.0f, 0.0f, 1.0f});
@@ -3755,7 +5063,7 @@ static ModelPlan planBorderStrip(Mesh& mesh, const PointTable& points, const Ele
               [](const VertexMotion& a, const VertexMotion& b) { return a.vertex < b.vertex; });
     const Topology& built = std::as_const(mesh).topology();
     const auto isCopy = [&](VertexId v) { return std::binary_search(copies.begin(), copies.end(), v.value()); };
-    const auto onFarSide = [&](VertexId v) { return isCopy(v) || v.value() == pinned; };
+    const auto onFarSide = [&](VertexId v) { return isCopy(v) || isPinned(v.value()); };
     for (const u32 f : plan.changedFaces) {
         if (f >= built.faceCount() || built.isDeleted(FaceId(f))) {
             continue;
@@ -3780,12 +5088,15 @@ static ModelPlan planBorderStrip(Mesh& mesh, const PointTable& points, const Ele
     plan.changedFaces = sortedUnique(std::move(plan.changedFaces));
     plan.selection.normalise();
     plan.changed = static_cast<u32>(border.size());
+    // Below 0 the strip lies back over the faces it grew from (EXB-2): it
+    // stops at 0, as Q4 has Inset and Chamfer do. A hinge drops the bound.
+    plan.amountMin = 0.0f;
     AmountRange(mesh, plan);
     return plan;
 }
 
 ModelPlan PlanExtrudeBorder(Mesh& mesh, const PointTable& points, const ElementSet& edges) {
-    return planBorderStrip(mesh, points, edges, kInvalidId);
+    return planBorderStrip(mesh, points, edges, {});
 }
 
 ModelPlan PlanHingeBorder(Mesh& mesh, const PointTable& points, const ElementSet& edges, u32 hingeVertex,
@@ -3810,19 +5121,52 @@ ModelPlan PlanHingeBorder(Mesh& mesh, const PointTable& points, const ElementSet
         plan.refusal = ModelRefusal::HingeNotOnBoundary;
         return plan;
     }
-    plan = planBorderStrip(mesh, points, edges, hingeVertex);
+    HingeAxis hinge;
+    {
+        const std::span<const Vector3f> was = positionsOf(mesh);
+        hinge.origin = hingeVertex < was.size() ? was[hingeVertex] : Vector3f{0.0f, 0.0f, 0.0f};
+    }
+    hinge.axis = unitOr(axis, Vector3f{0.0f, 0.0f, 1.0f});
+    // Every border vertex on the hinge's line stays, as the hinge vertex does:
+    // a copy of it would turn on the spot, a wall of no area (MTX-12).
+    std::vector<u32> pinned{hingeVertex};
+    {
+        const std::span<const Vector3f> was = positionsOf(mesh);
+        const f32 tolerance = CoincidenceTolerance(mesh);
+        for (const u32 e : sortedUnique(edges.edges)) {
+            if (e >= topology.edgeCount() || topology.isDeleted(EdgeId(e)) || !topology.isBoundary(EdgeId(e))) {
+                continue;
+            }
+            const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
+            for (const u32 v : {topology.from(h).value(), topology.to(h).value()}) {
+                if (v < was.size() && cross(was[v] - hinge.origin, hinge.axis).length() <= tolerance) {
+                    pinned.push_back(v);
+                }
+            }
+        }
+        pinned = sortedUnique(pinned);
+    }
+    bool turns = false;
+    for (const u32 e : sortedUnique(edges.edges)) {
+        if (e < topology.edgeCount() && !topology.isDeleted(EdgeId(e)) && topology.isBoundary(EdgeId(e))) {
+            const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
+            turns = turns || !std::binary_search(pinned.begin(), pinned.end(), topology.from(h).value()) ||
+                    !std::binary_search(pinned.begin(), pinned.end(), topology.to(h).value());
+        }
+    }
+    if (!turns) {
+        plan.refusal = ModelRefusal::ZeroAmount; // every edge lies on the hinge: nothing turns
+        return plan;
+    }
+    plan = planBorderStrip(mesh, points, edges, pinned);
     if (plan.refused()) {
         return plan;
     }
     // The strip's aims are the extrude's; a hinge turns instead, about the
-    // pinned vertex along the axis the caller chose, and is unbounded.
+    // pinned vertices along the axis the caller chose, and is unbounded.
     for (VertexMotion& motion : plan.motions) {
         motion.direction = Vector3f{0.0f, 0.0f, 0.0f};
     }
-    const std::span<const Vector3f> now = positionsOf(mesh);
-    HingeAxis hinge;
-    hinge.origin = hingeVertex < now.size() ? now[hingeVertex] : Vector3f{0.0f, 0.0f, 0.0f};
-    hinge.axis = unitOr(axis, Vector3f{0.0f, 0.0f, 1.0f});
     plan.hinge = hinge;
     plan.amountMin = -FLT_MAX;
     plan.amountMax = FLT_MAX;
@@ -3835,6 +5179,7 @@ constexpr f32 kInsetReach = 50.0f;
 
 ModelPlan PlanInset(Mesh& mesh, const PointTable& points, const ElementSet& faces, InsetType type) {
     ModelPlan plan;
+    const Rollback rollback(mesh, plan);
     if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
         plan.refusal = ModelRefusal::NotBuiltYet;
         return plan;
@@ -3877,6 +5222,7 @@ ModelPlan PlanInset(Mesh& mesh, const PointTable& points, const ElementSet& face
         Vector3f second{0.0f, 0.0f, 0.0f}; ///< halfedges run inside the region.
         u32 edges = 0;
         u32 from = kInvalidId;
+        u32 region = kInvalidId;
     };
     std::unordered_map<u32, Corner> corners;
     const auto at = [&](u32 vertex) {
@@ -3901,6 +5247,7 @@ ModelPlan PlanInset(Mesh& mesh, const PointTable& points, const ElementSet& face
                 }
                 Corner& corner = corners[copy];
                 corner.from = v;
+                corner.region = r;
                 corner.normal = corner.normal + area;
             }
         }
@@ -3922,6 +5269,37 @@ ModelPlan PlanInset(Mesh& mesh, const PointTable& points, const ElementSet& face
                 } else {
                     found->second.second = along;
                 }
+            }
+        }
+    }
+    // A crack's twins are one point (Q5): their copies are one corner of the
+    // ring, each twin bringing the boundary edge on its own side, so both move
+    // to the one miter (INS-1).
+    {
+        std::map<std::pair<u32, u32>, std::vector<u32>> byPoint; // (region, point) -> copies
+        for (const auto& [copy, corner] : corners) {
+            const u32 point = corner.from < points.pointOf.size() ? points.pointOf[corner.from] : corner.from;
+            byPoint[{corner.region, point}].push_back(copy);
+        }
+        for (const auto& [key, copies] : byPoint) {
+            if (copies.size() < 2) {
+                continue;
+            }
+            Corner joined;
+            for (const u32 copy : copies) {
+                const Corner& one = corners[copy];
+                joined.normal = joined.normal + one.normal;
+                for (u32 k = 0; k < one.edges && k < 2; ++k) {
+                    const Vector3f along = k == 0 ? one.first : one.second;
+                    (joined.edges++ == 0 ? joined.first : joined.second) = along;
+                }
+            }
+            for (const u32 copy : copies) {
+                Corner& one = corners[copy];
+                one.normal = joined.normal;
+                one.first = joined.first;
+                one.second = joined.second;
+                one.edges = joined.edges;
             }
         }
     }
@@ -3964,16 +5342,22 @@ ModelPlan PlanInset(Mesh& mesh, const PointTable& points, const ElementSet& face
     std::sort(plan.motions.begin(), plan.motions.end(),
               [](const VertexMotion& a, const VertexMotion& b) { return a.vertex < b.vertex; });
     touchFaces(mesh, plan);
-    plan.changed = static_cast<u32>(chosen.size());
+    // A region with no border (a whole closed mesh) has nothing to inset from:
+    // it is counted as left, not as done (INS-5).
+    for (u32 r = 0; r < regions.size(); ++r) {
+        (rings[r].boundary.empty() ? plan.kept : plan.changed) += static_cast<u32>(regions[r].size());
+    }
+    plan.amountMin = 0.0f; // Q4: below 0 the ring folds over its neighbours; Max stops there too
     AmountRange(mesh, plan);
     // §2.4: each inner vertex's corners and skin are re-sampled from the face
     // its new place lands in, so the texture and the binding stay on the
     // surface. The place the plan samples at is half of what it allows.
     const f32 sample = plan.amountMax > 0.0f && plan.amountMax < FLT_MAX ? plan.amountMax * 0.5f : 1.0f;
+    std::unordered_map<u32, SourcePolygon> captured;
     for (const VertexMotion& motion : plan.motions) {
-        const std::vector<Resample> made =
-            ResamplesAt(mesh, VertexId(motion.vertex), motion.base + motion.direction * sample);
-        plan.resamples.insert(plan.resamples.end(), made.begin(), made.end());
+        std::vector<Resample> made =
+            resamplesAt(mesh, VertexId(motion.vertex), motion.base + motion.direction * sample, captured);
+        std::move(made.begin(), made.end(), std::back_inserter(plan.resamples));
     }
     return plan;
 }
@@ -4070,15 +5454,31 @@ struct Placed {
     u32 id = kInvalidId;
 };
 
-ModelPlan chamferAt(Mesh& mesh, const std::vector<u8>& chosen, const std::vector<u8>& touched, u32 count,
-                    const ChamferParams& params);
+ModelPlan chamferAt(Mesh& mesh, const PointTable& points, const std::vector<u8>& chosen,
+                    const std::vector<u8>& touched, u32 count, const ChamferParams& params);
+
+/// Q5: every member of a cut vertex's point is cut too, so a crack keeps a twin
+/// for every vertex the chamfer makes (CHF-4). A loose member has no edge to
+/// put a point on and stays.
+void touchPointMembers(const Mesh& mesh, const PointTable& points, std::vector<u8>& touched) {
+    const Topology& topology = mesh.topology();
+    for (u32 v = 0; v < touched.size(); ++v) {
+        if (touched[v] == 0) {
+            continue;
+        }
+        for (const u32 m : membersOfPoint(mesh, points, v)) {
+            for (const HalfedgeId h : topology.voh(VertexId(m))) {
+                touched[m] = touched[m] != 0 || topology.face(h).valid() ? 1 : 0;
+            }
+        }
+    }
+}
 
 } // namespace
 
 ModelPlan PlanChamferEdges(Mesh& mesh, const PointTable& points, const ElementSet& edges,
                            const ChamferParams& params) {
     ModelPlan plan;
-    (void)points;
     if (params.open) {
         plan.refusal = ModelRefusal::NotBuiltYet;
         return plan;
@@ -4090,21 +5490,23 @@ ModelPlan PlanChamferEdges(Mesh& mesh, const PointTable& points, const ElementSe
     const Topology& topology = std::as_const(mesh).topology();
     std::vector<u8> chosen(topology.edgeCount(), 0);
     u32 count = 0;
-    for (const u32 e : sortedUnique(edges.edges)) {
+    u32 borders = 0;
+    for (const u32 e : PointClosed(mesh, points, edges).edges) {
         if (e >= topology.edgeCount() || topology.isDeleted(EdgeId(e)) || chosen[e] != 0) {
             continue;
         }
         if (topology.isBoundary(EdgeId(e))) {
             // The rules below want a face on each side (§3.9); `open` is what
-            // would chamfer a border edge, and it is not built.
-            plan.refusal = ModelRefusal::BorderEdgeChamfer;
-            return plan;
+            // would chamfer a border edge, and it is not built. The rest go
+            // ahead and it is counted as left (Q2, CHF-6).
+            ++borders;
+            continue;
         }
         chosen[e] = 1;
         ++count;
     }
     if (count == 0) {
-        plan.refusal = ModelRefusal::EmptySelection;
+        plan.refusal = borders != 0 ? ModelRefusal::BorderEdgeChamfer : ModelRefusal::EmptySelection;
         return plan;
     }
     std::vector<u8> touched(topology.vertexCount(), 0);
@@ -4116,20 +5518,24 @@ ModelPlan PlanChamferEdges(Mesh& mesh, const PointTable& points, const ElementSe
         touched[topology.from(h).value()] = 1;
         touched[topology.to(h).value()] = 1;
     }
-    return chamferAt(mesh, chosen, touched, count, params);
+    touchPointMembers(mesh, points, touched);
+    plan = chamferAt(mesh, points, chosen, touched, count, params);
+    if (!plan.refused() && borders != 0) {
+        plan.kept += borders;
+        plan.keptBecause = ModelRefusal::BorderEdgeChamfer;
+    }
+    return plan;
 }
 
 ModelPlan PlanChamferVertices(Mesh& mesh, const PointTable& points, const ElementSet& vertices,
                               const ChamferParams& params) {
     ModelPlan plan;
-    (void)points;
     if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
         plan.refusal = ModelRefusal::NotBuiltYet;
         return plan;
     }
     const Topology& topology = std::as_const(mesh).topology();
-    // Each member of a point is its own vertex here, as it is at an edge: a
-    // crack's twins each cut their own side, and the two cuts meet on it.
+    // A crack's twins each cut their own side, and the two cuts meet on it.
     std::vector<u8> touched(topology.vertexCount(), 0);
     u32 count = 0;
     for (const u32 v : sortedUnique(vertices.vertices)) {
@@ -4150,16 +5556,18 @@ ModelPlan PlanChamferVertices(Mesh& mesh, const PointTable& points, const Elemen
         plan.refusal = ModelRefusal::EmptySelection;
         return plan;
     }
-    return chamferAt(mesh, std::vector<u8>(topology.edgeCount(), 0), touched, count, params);
+    touchPointMembers(mesh, points, touched);
+    return chamferAt(mesh, points, std::vector<u8>(topology.edgeCount(), 0), touched, count, params);
 }
 
 namespace {
 
 /// Chamfer itself (§3.9): every vertex @p touched marks cut off, with the edges
 /// @p chosen marks replaced by strips -- none at all for the Vertex level's.
-ModelPlan chamferAt(Mesh& mesh, const std::vector<u8>& chosen, const std::vector<u8>& touched, u32 count,
-                    const ChamferParams& params) {
+ModelPlan chamferAt(Mesh& mesh, const PointTable& points, const std::vector<u8>& chosen,
+                    const std::vector<u8>& touched, u32 count, const ChamferParams& params) {
     ModelPlan plan;
+    const Rollback rollback(mesh, plan);
     const u32 segments = std::clamp(params.segments, 1u, 64u);
     const Topology& topology = std::as_const(mesh).topology();
     const std::span<const Vector3f> places = positionsOf(mesh);
@@ -4225,6 +5633,7 @@ ModelPlan chamferAt(Mesh& mesh, const std::vector<u8>& chosen, const std::vector
         }
         const auto edgeAt = [&](std::size_t i) { return Topology::edge(fan[i]).value(); };
         const auto faceAt = [&](std::size_t i) { return topology.face(fan[i]); };
+        const std::vector<u32> mates = membersOfPoint(mesh, points, v);
         // An unselected edge's point: `amount / sin` of the sharpest offset any
         // face beside it asks for, and plain `amount` when none does.
         for (std::size_t i = 0; i < n; ++i) {
@@ -4233,6 +5642,17 @@ ModelPlan chamferAt(Mesh& mesh, const std::vector<u8>& chosen, const std::vector
                 continue; // a selected edge puts no point of its own
             }
             f32 reach = 0.0f;
+            const auto ask = [&](const Vector3f& selected) {
+                const f32 cosine = std::clamp(along[i].dot(selected), -1.0f, 1.0f);
+                const f32 sine = std::sqrt(std::max(0.0f, 1.0f - cosine * cosine));
+                if (sine < 0.0174524f) {
+                    return; // outside [1, 179] degrees: the face gives a point instead
+                }
+                // The nearer offset line wins, so two of them never put their
+                // points past each other.
+                const f32 asked = 1.0f / sine;
+                reach = reach == 0.0f ? asked : std::min(reach, asked);
+            };
             for (const std::size_t f : {i, (i + n - 1) % n}) {
                 // The two faces beside this edge: the one after it in the fan
                 // and the one before it. A border vertex has only one of them.
@@ -4240,18 +5660,34 @@ ModelPlan chamferAt(Mesh& mesh, const std::vector<u8>& chosen, const std::vector
                     continue;
                 }
                 const std::size_t other = f == i ? (i + 1) % n : f;
-                if (chosen[edgeAt(other)] == 0) {
-                    continue; // this face holds no selected edge at v
+                if (chosen[edgeAt(other)] != 0) {
+                    ask(along[other]); // this face holds a selected edge at v
                 }
-                const f32 cosine = std::clamp(along[i].dot(along[other]), -1.0f, 1.0f);
-                const f32 sine = std::sqrt(std::max(0.0f, 1.0f - cosine * cosine));
-                if (sine < 0.0174524f) {
-                    continue; // outside [1, 179] degrees: the face gives a point instead
+            }
+            // A crack: the faces beside the edge's twins, in the other members'
+            // fans, ask too, so both copies of the point land together (CHF-4).
+            const std::vector<u32> ends =
+                mates.size() > 1 ? membersOfPoint(mesh, points, topology.to(fan[i]).value()) : std::vector<u32>{};
+            for (const u32 mate : mates) {
+                for (const u32 end : mate == v ? std::vector<u32>{} : ends) {
+                    const HalfedgeId twin = topology.findHalfedge(VertexId(mate), VertexId(end));
+                    if (!twin.valid()) {
+                        continue;
+                    }
+                    for (const HalfedgeId inFace : {twin, Topology::opposite(twin)}) {
+                        if (!topology.face(inFace).valid()) {
+                            continue;
+                        }
+                        // The face's other edge at `mate`: arriving before the
+                        // twin, or leaving after its opposite.
+                        const bool leaves = inFace == twin;
+                        const HalfedgeId side = leaves ? topology.prev(inFace) : topology.next(inFace);
+                        if (chosen[Topology::edge(side).value()] != 0) {
+                            const u32 far = leaves ? topology.from(side).value() : topology.to(side).value();
+                            ask(unitOr(at(far) - at(mate), along[i]));
+                        }
+                    }
                 }
-                // The nearer offset line wins, so two of them never put their
-                // points past each other.
-                const f32 asked = 1.0f / sine;
-                reach = reach == 0.0f ? asked : std::min(reach, asked);
             }
             if (reach == 0.0f) {
                 reach = 1.0f; // no face asked: plain `amount` along the edge
@@ -4505,21 +5941,28 @@ ModelPlan chamferAt(Mesh& mesh, const std::vector<u8>& chosen, const std::vector
         // A seam's strip samples one face on both sides, so the seam ends up on
         // its far long edge and stays crisp (§3.9). Its other corners are not in
         // that face's fan, so they are re-sampled from it by hand below.
+        // That face is the lower-numbered side, for the corners copied here and
+        // the ones re-sampled below alike (CHF-2).
         const bool seam = e < seams.size() && seams[e] != 0;
         const auto sourceAt = [&](u32 j, bool atEndW) {
-            const bool leftSide = seam || j * 2 <= segments;
+            const bool leftSide = seam ? leftFace <= rightFace : j * 2 <= segments;
+            // `left` runs v to w and `right` w to v; a corner sits at its
+            // halfedge's `from`.
             const HalfedgeId h = leftSide ? (atEndW ? topology.next(left) : left)
-                                          : (atEndW ? topology.next(right) : right);
+                                          : (atEndW ? right : topology.next(right));
             const auto ordinal = ordinalOf.find(static_cast<u32>(h.index()));
             return ordinal == ordinalOf.end() ? kInvalidId : ordinal->second;
         };
         for (u32 k = 0; k < segments; ++k) {
             if (seam) {
-                SeamStrip strip{static_cast<u32>(faceValence.size()), std::min(leftFace, rightFace),
-                                {atV[k + 1], atW[k + 1]}};
-                if (k > 0) {
-                    strip.moved.push_back(atV[k]);
-                    strip.moved.push_back(atW[k]);
+                // Every corner but the two the reading side put itself.
+                const u32 own = leftFace <= rightFace ? 0u : segments;
+                SeamStrip strip{static_cast<u32>(faceValence.size()), std::min(leftFace, rightFace), {}};
+                for (const u32 j : {k, k + 1}) {
+                    if (j != own) {
+                        strip.moved.push_back(atV[j]);
+                        strip.moved.push_back(atW[j]);
+                    }
                 }
                 seamStrips.push_back(std::move(strip));
             }
@@ -4544,6 +5987,7 @@ ModelPlan chamferAt(Mesh& mesh, const std::vector<u8>& chosen, const std::vector
     }
     std::sort(ringed.begin(), ringed.end());
     std::vector<u32> patches;
+    std::vector<std::pair<u32, u32>> seamPatches; // (patch slot, the face it reads)
     for (const u32 vertex : params.open ? std::vector<u32>{} : ringed) {
         const std::vector<u32>& ring = ringOfVertex[vertex];
         if (ring.size() < 3) {
@@ -4595,6 +6039,12 @@ ModelPlan chamferAt(Mesh& mesh, const std::vector<u8>& chosen, const std::vector
                 }
             }
         }
+        // A seam through the vertex: the patch's corners are read from that one
+        // face below, so it lies on its island whole (CHF-5).
+        bool seamed = false;
+        for (const HalfedgeId h : fan) {
+            seamed = seamed || SeamBetween(mesh, h);
+        }
         const auto patch = [&](const std::vector<u32>& corners) {
             faceValence.push_back(static_cast<u32>(corners.size()));
             for (const u32 id : corners) {
@@ -4604,6 +6054,9 @@ ModelPlan chamferAt(Mesh& mesh, const std::vector<u8>& chosen, const std::vector
             faceSource.push_back(lowest == kInvalidId ? 0u : lowest);
             plan.changedFaces.push_back(static_cast<u32>(faceValence.size() - 1));
             patches.push_back(plan.changedFaces.back());
+            if (seamed && lowest != kInvalidId) {
+                seamPatches.emplace_back(patches.back(), lowest);
+            }
         };
         if (loop.size() == ring.size()) {
             patch(loop);
@@ -4657,15 +6110,18 @@ ModelPlan chamferAt(Mesh& mesh, const std::vector<u8>& chosen, const std::vector
     const Topology& built = std::as_const(mesh).topology();
     touchFaces(mesh, plan);
     plan.changed = count;
+    plan.amountMin = 0.0f; // Q4: a negative chamfer turns the strip inside out; Max stops at 0
     AmountRange(mesh, plan);
-    plan.amountMax = std::min(plan.amountMax, meets);
+    plan.amountMax = std::min(plan.amountMax, meets * kShortOfCollapse);
+    plan.unchangedAtZero = rollback.before(); // Q3: at 0 a chamfer changes nothing
     // §2.4 for every point that moves: its corners and its skin come from the
     // face its new place lands in.
     const f32 sample = plan.amountMax > 0.0f && plan.amountMax < FLT_MAX ? plan.amountMax * 0.5f : 1.0f;
+    std::unordered_map<u32, SourcePolygon> captured;
     for (const VertexMotion& motion : plan.motions) {
-        const std::vector<Resample> resamples =
-            ResamplesAt(mesh, VertexId(motion.vertex), motion.base + motion.direction * sample);
-        plan.resamples.insert(plan.resamples.end(), resamples.begin(), resamples.end());
+        std::vector<Resample> resamples =
+            resamplesAt(mesh, VertexId(motion.vertex), motion.base + motion.direction * sample, captured);
+        std::move(resamples.begin(), resamples.end(), std::back_inserter(plan.resamples));
     }
     // And the seam strips' far corners, from the one face the whole strip
     // reads: after the others, so they are the ones that land.
@@ -4685,6 +6141,17 @@ ModelPlan chamferAt(Mesh& mesh, const std::vector<u8>& chosen, const std::vector
         if (!resample.targetCorners.empty()) {
             plan.resamples.push_back(std::move(resample)); // its skin stays its point's
         }
+    }
+    for (const auto& [slot, read] : seamPatches) {
+        if (slot >= built.faceCount() || built.isDeleted(FaceId(slot)) || read >= built.faceCount()) {
+            continue;
+        }
+        Resample resample;
+        resample.source = CapturePolygon(mesh, FaceId(read));
+        for (const HalfedgeId h : built.fh(FaceId(slot))) {
+            resample.targetCorners.push_back(h);
+        }
+        plan.resamples.push_back(std::move(resample));
     }
     return plan;
 }
@@ -4714,6 +6181,75 @@ HalfedgeId leaving(const Topology& topology, FaceId face, u32 vertex) {
     return HalfedgeId();
 }
 
+/// Whether @p at lies inside the polygon @p places (even-odd), on the plane
+/// its Newell normal faces most.
+bool insideLoop(std::span<const Vector3f> places, const Vector3f& at) {
+    const std::array<f64, 3> n = newellOf(places);
+    const u32 drop = std::abs(n[0]) >= std::abs(n[1]) && std::abs(n[0]) >= std::abs(n[2]) ? 0u
+                     : std::abs(n[1]) >= std::abs(n[2])                                  ? 1u
+                                                                                         : 2u;
+    const auto flat = [drop](const Vector3f& p) {
+        const std::array<f64, 3> q = toArray(p);
+        return std::array<f64, 2>{q[(drop + 1) % 3], q[(drop + 2) % 3]};
+    };
+    const std::array<f64, 2> q = flat(at);
+    bool inside = false;
+    for (std::size_t i = 0, j = places.size() - 1; i < places.size(); j = i++) {
+        const std::array<f64, 2> a = flat(places[i]);
+        const std::array<f64, 2> b = flat(places[j]);
+        if ((a[1] > q[1]) != (b[1] > q[1]) && q[0] < a[0] + (q[1] - a[1]) * (b[0] - a[0]) / (b[1] - a[1])) {
+            inside = !inside;
+        }
+    }
+    return inside;
+}
+
+/// Why cutting @p face between its corners at vertices @p a and @p b would be
+/// wrong, or `None`: each half must keep the face's winding with area, and
+/// cross no side of its own. A diagonal across a concave face's notch fails
+/// (CON-3, EXT-9), and so does one that only runs along corners in line (MTX-9).
+ModelRefusal whyNotCut(const Mesh& mesh, FaceId face, u32 a, u32 b) {
+    const std::vector<u32> loop = loopOf(mesh.topology(), face);
+    const std::vector<Vector3f> places = placesOf(positionsOf(mesh), loop);
+    const auto ia = std::find(loop.begin(), loop.end(), a);
+    const auto ib = std::find(loop.begin(), loop.end(), b);
+    if (ia == loop.end() || ib == loop.end() || ia == ib) {
+        return ModelRefusal::None;
+    }
+    const std::array<f64, 3> n = newellOf(places);
+    f64 longest = 0.0;
+    for (std::size_t i = 0; i < places.size(); ++i) {
+        longest = std::max(longest, length64(sub(places[(i + 1) % places.size()], places[i])));
+    }
+    const std::size_t count = loop.size();
+    for (const auto& [first, last] : {std::pair{ia, ib}, std::pair{ib, ia}}) {
+        std::vector<Vector3f> half;
+        for (std::size_t k = static_cast<std::size_t>(first - loop.begin());; k = (k + 1) % count) {
+            half.push_back(places[k]);
+            if (k == static_cast<std::size_t>(last - loop.begin())) {
+                break;
+            }
+        }
+        std::array<f64, 3> twice{0.0, 0.0, 0.0};
+        for (std::size_t i = 0; i < half.size(); ++i) {
+            const std::array<f64, 3> p = toArray(half[i]);
+            const std::array<f64, 3> q = toArray(half[(i + 1) % half.size()]);
+            twice[0] += p[1] * q[2] - p[2] * q[1];
+            twice[1] += p[2] * q[0] - p[0] * q[2];
+            twice[2] += p[0] * q[1] - p[1] * q[0];
+        }
+        const f64 area = 0.5 * (twice[0] * n[0] + twice[1] * n[1] + twice[2] * n[2]);
+        const f64 least = 1e-6 * longest * longest;
+        if (area < -least || foldsOver(half)) {
+            return ModelRefusal::DiagonalOutside;
+        }
+        if (area <= least) {
+            return ModelRefusal::WouldFold;
+        }
+    }
+    return ModelRefusal::None;
+}
+
 } // namespace
 
 ModelPlan PlanInsertVertex(Mesh& mesh, EdgeId edge, f32 t) {
@@ -4727,22 +6263,52 @@ ModelPlan PlanInsertVertex(Mesh& mesh, EdgeId edge, f32 t) {
         plan.refusal = ModelRefusal::EmptySelection;
         return plan;
     }
-    const VertexId made = SplitEdge(mesh, edge, std::clamp(t, 0.0f, 1.0f));
-    if (!made.valid()) {
+    t = std::clamp(t, 0.0f, 1.0f);
+    {
+        // A vertex on an end would be a zero-length edge and a copy in its
+        // neighbour's point (IV-3).
+        const std::span<const Vector3f> at = positionsOf(mesh);
+        const HalfedgeId h = Topology::halfedge(edge, 0);
+        const f64 length = length64(sub(at[topology.to(h).value()], at[topology.from(h).value()]));
+        const f64 tolerance = CoincidenceTolerance(mesh);
+        if (t * length <= tolerance || (1.0f - t) * length <= tolerance) {
+            plan.refusal = ModelRefusal::ZeroAmount;
+            return plan;
+        }
+    }
+    // A crack's twin edges are this edge too (Q5): each is split at the same
+    // place, so the twins stay matched and no T opens across the crack (IV-4).
+    std::vector<std::pair<u32, f32>> splits{{edge.value(), t}};
+    {
+        const PointTable points = skinning::BuildPointTable(mesh);
+        const auto pointOf = [&](u32 v) { return v < points.pointOf.size() ? points.pointOf[v] : v; };
+        const u32 first = pointOf(topology.from(Topology::halfedge(edge, 0)).value());
+        for (const u32 twin : Twins(mesh, points).of(edge.value())) {
+            const bool same = pointOf(topology.from(Topology::halfedge(EdgeId(twin), 0)).value()) == first;
+            splits.emplace_back(twin, same ? t : 1.0f - t);
+        }
+    }
+    for (const auto& [e, at] : splits) {
+        const VertexId made = SplitEdge(mesh, EdgeId(e), at);
+        if (!made.valid()) {
+            continue;
+        }
+        ++plan.changed;
+        plan.selection.vertices.push_back(made.value());
+        // Its two halves are the old edge's, flags and all (Q7): it makes no
+        // edge, and the faces round it are drawn and shaded again.
+        plan.reshade.push_back(made.value());
+        const Topology& built = std::as_const(mesh).topology();
+        for (const HalfedgeId h : built.voh(made)) {
+            if (const FaceId face = built.face(h); face.valid() && !built.isDeleted(face)) {
+                plan.changedFaces.push_back(face.value());
+            }
+        }
+    }
+    if (plan.changed == 0) {
         plan.refusal = ModelRefusal::WouldFold;
         return plan;
     }
-    plan.changed = 1;
-    plan.selection.vertices.push_back(made.value());
-    // Its two halves are new, and every face it touches is drawn again.
-    const Topology& built = std::as_const(mesh).topology();
-    for (const HalfedgeId h : built.voh(made)) {
-        plan.touchedEdges.push_back(Topology::edge(h).value());
-        if (const FaceId face = built.face(h); face.valid() && !built.isDeleted(face)) {
-            plan.changedFaces.push_back(face.value());
-        }
-    }
-    plan.touchedEdges = sortedUnique(std::move(plan.touchedEdges));
     plan.changedFaces = sortedUnique(std::move(plan.changedFaces));
     return plan;
 }
@@ -4798,16 +6364,16 @@ ModelPlan PlanDivide(Mesh& mesh, const ElementSet& edges, u32 segments) {
         plan.refusal = ModelRefusal::WouldFold;
         return plan;
     }
+    // The pieces are the old edges', flags and all (Q7): only shaded again.
+    plan.reshade.insert(plan.reshade.end(), plan.selection.vertices.begin(), plan.selection.vertices.end());
     const Topology& built = std::as_const(mesh).topology();
     for (const u32 v : plan.selection.vertices) {
         for (const HalfedgeId h : built.voh(VertexId(v))) {
-            plan.touchedEdges.push_back(Topology::edge(h).value());
             if (const FaceId face = built.face(h); face.valid() && !built.isDeleted(face)) {
                 plan.changedFaces.push_back(face.value());
             }
         }
     }
-    plan.touchedEdges = sortedUnique(std::move(plan.touchedEdges));
     plan.changedFaces = sortedUnique(std::move(plan.changedFaces));
     return plan;
 }
@@ -4819,10 +6385,11 @@ ModelPlan PlanConnectVertices(Mesh& mesh, const PointTable& points, const Elemen
         return plan;
     }
     const std::vector<u32> chosen = verticesOf(mesh, points, vertices);
-    if (chosen.size() < 2) {
+    if (chosen.empty()) {
         plan.refusal = ModelRefusal::EmptySelection;
         return plan;
     }
+    const Rollback rollback(mesh, plan);
     std::vector<u8> picked(std::as_const(mesh).topology().vertexCount(), 0);
     for (const u32 v : chosen) {
         if (v < picked.size()) {
@@ -4902,6 +6469,10 @@ ModelPlan PlanConnectVertices(Mesh& mesh, const PointTable& points, const Elemen
         if (!from.valid() || !to.valid()) {
             continue;
         }
+        if (const ModelRefusal why = whyNotCut(mesh, face, cut.a, cut.b); why != ModelRefusal::None) {
+            plan.refusal = why;
+            return plan;
+        }
         if (!SplitFaceAt(mesh, from, to).valid()) {
             continue; // §2.7.8's refusal: a second edge between one pair
         }
@@ -4933,6 +6504,7 @@ ModelPlan PlanConnectVertices(Mesh& mesh, const PointTable& points, const Elemen
 ModelPlan PlanConnectEdges(Mesh& mesh, const PointTable& points, const ElementSet& edges,
                            const ConnectParams& params) {
     ModelPlan plan;
+    const Rollback rollback(mesh, plan);
     (void)points;
     if (params.pinch != 0.0f) {
         plan.refusal = ModelRefusal::NotBuiltYet; // the spread is a later phase
@@ -4959,6 +6531,22 @@ ModelPlan PlanConnectEdges(Mesh& mesh, const PointTable& points, const ElementSe
         plan.refusal = ModelRefusal::EmptySelection;
         return plan;
     }
+    // The faces the selected edges lie in, as they are: the slide reads each
+    // new vertex's corners from the face they were cut out of (CON-1).
+    std::unordered_map<u32, SourcePolygon> before;
+    {
+        const Topology& topology = std::as_const(mesh).topology();
+        for (const auto& [a, b] : chosen) {
+            const HalfedgeId h = topology.findHalfedge(VertexId(a), VertexId(b));
+            for (u32 side = 0; h.valid() && side < 2; ++side) {
+                const FaceId face = topology.face(Topology::halfedge(Topology::edge(h), side));
+                if (face.valid() && !before.count(face.value())) {
+                    before.emplace(face.value(), CapturePolygon(mesh, face));
+                }
+            }
+        }
+    }
+    std::unordered_map<u32, u32> parentOf; // a cut's new face -> the face it came from
     // Every selected edge's own new vertices, in order from its first end, and
     // which faces each edge was in.
     struct Split {
@@ -5128,14 +6716,66 @@ ModelPlan PlanConnectEdges(Mesh& mesh, const PointTable& points, const ElementSe
             }
             const HalfedgeId from = leaving(topology, face, a);
             const HalfedgeId to = leaving(topology, face, b);
-            if (!from.valid() || !to.valid() || !SplitFaceAt(mesh, from, to).valid()) {
+            if (!from.valid() || !to.valid()) {
                 continue;
             }
+            const FaceId cut = SplitFaceAt(mesh, from, to);
+            if (!cut.valid()) {
+                continue;
+            }
+            parentOf[cut.value()] = face.value();
             ++plan.changed;
             const Topology& built = std::as_const(mesh).topology();
             if (const HalfedgeId made = built.findHalfedge(VertexId(a), VertexId(b)); made.valid()) {
                 plan.selection.edges.push_back(Topology::edge(made).value());
                 plan.touchedEdges.push_back(Topology::edge(made).value());
+            }
+        }
+    }
+    if (plan.changed == 0 && plan.kept == 0) {
+        // No face held two of the edges: nothing to join, and Max adds
+        // nothing either (CON-5).
+        plan.refusal = ModelRefusal::NotOneFace;
+        return plan;
+    }
+    // Each new vertex's corners, one class per face they were cut out of,
+    // re-sampled from it wherever the slide takes them: along the edge, inside
+    // that face.
+    {
+        const Topology& topology = std::as_const(mesh).topology();
+        const auto rootOf = [&](u32 f) {
+            for (auto up = parentOf.find(f); up != parentOf.end(); up = parentOf.find(f)) {
+                f = up->second;
+            }
+            return f;
+        };
+        for (const Split& split : splits) {
+            for (const u32 v : split.made) {
+                std::vector<std::pair<u32, std::vector<HalfedgeId>>> classes;
+                for (const HalfedgeId h : topology.voh(VertexId(v))) {
+                    if (!topology.face(h).valid()) {
+                        continue;
+                    }
+                    const u32 root = rootOf(topology.face(h).value());
+                    auto found = std::find_if(classes.begin(), classes.end(),
+                                              [&](const auto& c) { return c.first == root; });
+                    if (found == classes.end()) {
+                        classes.push_back({root, {}});
+                        found = classes.end() - 1;
+                    }
+                    found->second.push_back(h);
+                }
+                for (std::size_t i = 0; i < classes.size(); ++i) {
+                    const auto source = before.find(classes[i].first);
+                    if (source == before.end()) {
+                        continue;
+                    }
+                    Resample resample;
+                    resample.targetVertex = i == 0 ? v : kInvalidId;
+                    resample.targetCorners = std::move(classes[i].second);
+                    resample.source = source->second;
+                    plan.resamples.push_back(std::move(resample));
+                }
             }
         }
     }
@@ -5157,10 +6797,12 @@ ModelPlan PlanConnectEdges(Mesh& mesh, const PointTable& points, const ElementSe
         std::sort(plan.motions.begin(), plan.motions.end(),
                   [](const VertexMotion& a, const VertexMotion& b) { return a.vertex < b.vertex; });
     }
+    // The pieces of the selected edges are theirs, flags and all (Q7): the
+    // crease rule reads only the new edges across the faces.
     const Topology& built = std::as_const(mesh).topology();
     for (const u32 v : plan.selection.vertices) {
+        plan.reshade.push_back(v);
         for (const HalfedgeId h : built.voh(VertexId(v))) {
-            plan.touchedEdges.push_back(Topology::edge(h).value());
             if (const FaceId face = built.face(h); face.valid() && !built.isDeleted(face)) {
                 plan.changedFaces.push_back(face.value());
             }
@@ -5171,6 +6813,7 @@ ModelPlan PlanConnectEdges(Mesh& mesh, const PointTable& points, const ElementSe
     plan.selection.normalise();
     plan.amountMin = -1.0f;
     plan.amountMax = 1.0f;
+    AmountRange(mesh, plan); // a hundredth short of a neighbour, as the other tools stop (CON-2)
     return plan;
 }
 
@@ -5182,10 +6825,11 @@ ModelPlan PlanCut(Mesh& mesh, const PointTable& points, const CutPoint& from, co
         plan.refusal = ModelRefusal::NotBuiltYet;
         return plan;
     }
+    const Rollback rollback(mesh, plan);
     const Vector3f normal = unitOr(plane, Vector3f{0.0f, 0.0f, 1.0f});
     // Each end as a vertex: a click on one is itself, a click along an edge is
     // `SplitEdge`'s, and a click inside a face is where the chain left it.
-    const auto realise = [&](const CutPoint& point) -> u32 {
+    const auto realise = [&](const CutPoint& point, f32 t) -> u32 {
         mesh.ensureConnectivity();
         const Topology& topology = std::as_const(mesh).topology();
         if (point.vertex != kInvalidId && point.vertex < topology.vertexCount() &&
@@ -5194,15 +6838,40 @@ ModelPlan PlanCut(Mesh& mesh, const PointTable& points, const CutPoint& from, co
         }
         if (point.edge != kInvalidId && point.edge < topology.edgeCount() &&
             !topology.isDeleted(EdgeId(point.edge))) {
-            const VertexId made = SplitEdge(mesh, EdgeId(point.edge), std::clamp(point.t, 0.0f, 1.0f));
+            const VertexId made = SplitEdge(mesh, EdgeId(point.edge), std::clamp(t, 0.0f, 1.0f));
             return made.valid() ? made.value() : kInvalidId;
         }
         return kInvalidId;
     };
     // The far end first: splitting an edge renumbers the near end's, but a
-    // vertex keeps its id, so the near end is taken against what is left.
-    const u32 target = realise(to);
-    const u32 start = realise(from);
+    // vertex keeps its id, so the near end is taken against what is left. Both
+    // on one edge: the split keeps the edge's id on the piece from its first
+    // end, so a near click past the far one lies on the other piece (CUT-2).
+    const bool oneEdge = from.vertex == kInvalidId && to.vertex == kInvalidId && from.edge == to.edge &&
+                         from.edge < std::as_const(mesh).topology().edgeCount();
+    const u32 farEnd = oneEdge ? std::as_const(mesh).topology().to(Topology::halfedge(EdgeId(from.edge), 0)).value()
+                               : kInvalidId;
+    const u32 target = realise(to, to.t);
+    CutPoint near = from;
+    f32 nearT = from.t;
+    if (oneEdge && target != kInvalidId) {
+        const f32 split = std::clamp(to.t, 0.0f, 1.0f);
+        const f32 t = std::clamp(from.t, 0.0f, 1.0f);
+        if (t == split) {
+            plan.refusal = ModelRefusal::NothingToSlice;
+            return plan;
+        }
+        if (t < split) {
+            nearT = t / split;
+        } else {
+            const Topology& topology = std::as_const(mesh).topology();
+            const HalfedgeId piece = topology.findHalfedge(VertexId(target), VertexId(farEnd));
+            near.edge = piece.valid() ? Topology::edge(piece).value() : kInvalidId;
+            const f32 along = (t - split) / (1.0f - split);
+            nearT = piece.valid() && Topology::halfedge(Topology::edge(piece), 0) == piece ? along : 1.0f - along;
+        }
+    }
+    const u32 start = realise(near, nearT);
     if (start == kInvalidId || target == kInvalidId || start == target) {
         plan.refusal = ModelRefusal::NothingToSlice;
         return plan;
@@ -5215,6 +6884,25 @@ ModelPlan PlanCut(Mesh& mesh, const PointTable& points, const CutPoint& from, co
     // line the user drew and cross an edge it had already cut.
     const Vector3f anchor = positionsOf(mesh)[start];
     std::vector<u32> chain{start};
+    // Each step across a face, checked first: a step outside a concave face,
+    // or along corners in line, refuses the whole cut.
+    std::vector<std::pair<u32, u32>> made;
+    ModelRefusal refused = ModelRefusal::None;
+    const auto cutAcross = [&](FaceId face, u32 a, u32 b) {
+        const Topology& topology = std::as_const(mesh).topology();
+        const HalfedgeId one = leaving(topology, face, a);
+        const HalfedgeId two = leaving(topology, face, b);
+        if (!one.valid() || !two.valid() || joined(topology, a, b)) {
+            return;
+        }
+        if (const ModelRefusal why = whyNotCut(mesh, face, a, b); why != ModelRefusal::None) {
+            refused = why;
+            return;
+        }
+        if (SplitFaceAt(mesh, one, two).valid()) {
+            made.emplace_back(a, b);
+        }
+    };
     const u32 guard = std::as_const(mesh).topology().faceCount() + 2;
     for (u32 step = 0; step < guard && here != target; ++step) {
         mesh.ensureConnectivity();
@@ -5239,17 +6927,20 @@ ModelPlan PlanCut(Mesh& mesh, const PointTable& points, const CutPoint& from, co
             if (holds) {
                 best = face;
                 crossed = kInvalidId;
+                straight = kInvalidId; // a corner an earlier face had on the plane is not this face's (MTX-14)
                 nearest = FLT_MAX;
                 break;
             }
             // A corner of this face that the plane already runs through is the
             // crossing: stepping onto it cuts no sliver beside it (§3.14).
+            bool onCorner = false;
             for (const HalfedgeId other : topology.fh(face)) {
                 const u32 v = topology.from(other).value();
                 if (v == here || std::abs((at[v] - anchor).dot(normal)) > tolerance) {
                     continue;
                 }
                 const f32 reach = (at[v] - at[here]).dot(towards);
+                onCorner = onCorner || reach > 0.0f;
                 if (reach > 0.0f && reach > nearest) {
                     nearest = reach;
                     best = face;
@@ -5257,7 +6948,7 @@ ModelPlan PlanCut(Mesh& mesh, const PointTable& points, const CutPoint& from, co
                     straight = v;
                 }
             }
-            if (straight != kInvalidId) {
+            if (onCorner) {
                 continue; // this face has its crossing already
             }
             // Else the edge of this face, not at `here`, that the plane crosses
@@ -5294,10 +6985,9 @@ ModelPlan PlanCut(Mesh& mesh, const PointTable& points, const CutPoint& from, co
         if (crossed == kInvalidId && straight != kInvalidId) {
             // Onto that corner: a cut across the face, and the walk carries on
             // from there.
-            const HalfedgeId a = leaving(topology, best, here);
-            const HalfedgeId b = leaving(topology, best, straight);
-            if (a.valid() && b.valid() && !joined(topology, here, straight)) {
-                SplitFaceAt(mesh, a, b);
+            cutAcross(best, here, straight);
+            if (refused != ModelRefusal::None) {
+                break;
             }
             chain.push_back(straight);
             here = straight;
@@ -5307,12 +6997,9 @@ ModelPlan PlanCut(Mesh& mesh, const PointTable& points, const CutPoint& from, co
             // The target is in this face: one cut across it, unless an edge
             // already runs between them — a segment along an existing edge is
             // that edge, and nothing is made (§3.14).
-            if (!joined(topology, here, target)) {
-                const HalfedgeId a = leaving(topology, best, here);
-                const HalfedgeId b = leaving(topology, best, target);
-                if (a.valid() && b.valid()) {
-                    SplitFaceAt(mesh, a, b);
-                }
+            cutAcross(best, here, target);
+            if (refused != ModelRefusal::None) {
+                break;
             }
             chain.push_back(target);
             here = target;
@@ -5325,8 +7012,8 @@ ModelPlan PlanCut(Mesh& mesh, const PointTable& points, const CutPoint& from, co
         const f32 first = (at[a] - anchor).dot(normal);
         const f32 second = (at[b] - anchor).dot(normal);
         const f32 span = first - second;
-        const VertexId made = SplitEdge(mesh, EdgeId(crossed), span == 0.0f ? 0.5f : first / span);
-        if (!made.valid()) {
+        const VertexId crossing = SplitEdge(mesh, EdgeId(crossed), span == 0.0f ? 0.5f : first / span);
+        if (!crossing.valid()) {
             break;
         }
         mesh.ensureConnectivity();
@@ -5339,7 +7026,7 @@ ModelPlan PlanCut(Mesh& mesh, const PointTable& points, const CutPoint& from, co
                     continue;
                 }
                 for (const HalfedgeId other : built.fh(candidate)) {
-                    if (built.from(other).value() == made.value()) {
+                    if (built.from(other).value() == crossing.value()) {
                         face = candidate;
                     }
                 }
@@ -5347,18 +7034,23 @@ ModelPlan PlanCut(Mesh& mesh, const PointTable& points, const CutPoint& from, co
                     break;
                 }
             }
-            if (face.valid() && !joined(built, here, made.value())) {
-                const HalfedgeId one = leaving(built, face, here);
-                const HalfedgeId two = leaving(built, face, made.value());
-                if (one.valid() && two.valid()) {
-                    SplitFaceAt(mesh, one, two);
+            if (face.valid()) {
+                cutAcross(face, here, crossing.value());
+                if (refused != ModelRefusal::None) {
+                    break;
                 }
             }
         }
-        chain.push_back(made.value());
-        here = made.value();
+        chain.push_back(crossing.value());
+        here = crossing.value();
     }
-    if (chain.size() < 2) {
+    if (refused != ModelRefusal::None) {
+        plan.refusal = refused;
+        return plan;
+    }
+    // A walk that stopped short -- at a hole, or a border -- did not reach the
+    // second click, and a cut is the line between the two (CUT-3).
+    if (chain.size() < 2 || here != target) {
         plan.refusal = ModelRefusal::NothingToSlice;
         return plan;
     }
@@ -5368,7 +7060,6 @@ ModelPlan PlanCut(Mesh& mesh, const PointTable& points, const CutPoint& from, co
         if (const HalfedgeId h = built.findHalfedge(VertexId(chain[i]), VertexId(chain[i + 1]));
             h.valid()) {
             plan.selection.edges.push_back(Topology::edge(h).value());
-            plan.touchedEdges.push_back(Topology::edge(h).value());
             ++plan.changed;
         }
     }
@@ -5376,7 +7067,16 @@ ModelPlan PlanCut(Mesh& mesh, const PointTable& points, const CutPoint& from, co
         plan.refusal = ModelRefusal::NothingToSlice;
         return plan;
     }
-    for (const u32 e : plan.touchedEdges) {
+    // The crease rule reads only the edges the cut made (Q7): one it ran along
+    // keeps its flags, and the vertices it went through are shaded again.
+    for (const auto& [a, b] : made) {
+        if (const HalfedgeId h = built.findHalfedge(VertexId(a), VertexId(b)); h.valid()) {
+            plan.touchedEdges.push_back(Topology::edge(h).value());
+        }
+    }
+    plan.touchedEdges = sortedUnique(std::move(plan.touchedEdges));
+    plan.reshade.insert(plan.reshade.end(), chain.begin(), chain.end());
+    for (const u32 e : plan.selection.edges) {
         for (u32 side = 0; side < 2; ++side) {
             if (const FaceId face = built.face(Topology::halfedge(EdgeId(e), side));
                 face.valid() && !built.isDeleted(face)) {
@@ -5399,10 +7099,12 @@ ModelPlan PlanSlice(Mesh& mesh, const PointTable& points, const ElementSet& face
         plan.refusal = ModelRefusal::NotBuiltYet;
         return plan;
     }
+    const Rollback rollback(mesh, plan);
     const Vector3f normal = unitOr(params.normal, Vector3f{0.0f, 0.0f, 1.0f});
     const f32 tolerance = CoincidenceTolerance(mesh);
     const auto distanceOf = [&](const Vector3f& at) { return (at - params.origin).dot(normal); };
-    // Which faces the slice may touch: the selection, or all of them.
+    // Which faces the slice may touch: the selection, or all of them. A split
+    // appends its new half past the end, and that half is a wanted face's.
     std::vector<u8> wanted;
     {
         const Topology& topology = std::as_const(mesh).topology();
@@ -5413,32 +7115,30 @@ ModelPlan PlanSlice(Mesh& mesh, const PointTable& points, const ElementSet& face
             }
         }
     }
-    // A vertex within the tolerance is put on the plane and used as a crossing:
-    // that is what keeps a sliver from being cut off beside it. A refusal puts
-    // them back, since a refused plan leaves the mesh as it was (§3.1).
-    std::vector<std::pair<u32, Vector3f>> snapped;
+    const auto isWanted = [&](FaceId f) { return f.valid() && (f.index() >= wanted.size() || wanted[f.index()] != 0); };
+    // A vertex of a wanted face within the tolerance is put on the plane and
+    // used as a crossing: that is what keeps a sliver from being cut off beside
+    // it. One no wanted face uses stays where it is (SLC-4).
     {
         const std::span<Vector3f> at = mesh.attributes.get<Vector3f>(names::kPosition, Domain::Vertex);
         const Topology& topology = std::as_const(mesh).topology();
         for (u32 v = 0; v < at.size() && v < topology.vertexCount(); ++v) {
-            if (topology.isDeleted(VertexId(v))) {
+            if (topology.isDeleted(VertexId(v)) || !topology.outgoing(VertexId(v)).valid()) {
                 continue;
             }
             const f32 distance = distanceOf(at[v]);
-            if (distance != 0.0f && std::abs(distance) <= tolerance) {
-                snapped.emplace_back(v, at[v]);
+            if (distance == 0.0f || std::abs(distance) > tolerance) {
+                continue;
+            }
+            bool used = false;
+            for (const HalfedgeId h : topology.voh(VertexId(v))) {
+                used = used || isWanted(topology.face(h));
+            }
+            if (used) {
                 at[v] = at[v] - normal * distance;
             }
         }
     }
-    const auto unsnap = [&] {
-        const std::span<Vector3f> at = mesh.attributes.get<Vector3f>(names::kPosition, Domain::Vertex);
-        for (const auto& [vertex, place] : snapped) {
-            if (vertex < at.size()) {
-                at[vertex] = place;
-            }
-        }
-    };
     // Which side of the plane each vertex is on, settled here and not asked
     // again: a snapped vertex is *on* it, whatever the float says afterwards.
     std::vector<i8> side;
@@ -5542,28 +7242,21 @@ ModelPlan PlanSlice(Mesh& mesh, const PointTable& points, const ElementSet& face
                 continue; // it only touches the plane, or lies along it
             }
             // Along the plane's line through this face: the crossings in order,
-            // paired two by two, so a concave face cut four times gets two
-            // edges and not a cross.
+            // and each step between two of them that runs inside the face, so
+            // a concave face cut four times gets two edges and not a cross, and
+            // a reflex corner the plane only grazes ends no step (MTX-6).
             const Vector3f line = unitOr(cross(normal, faceArea(mesh, FaceId(f))), Vector3f{1.0f, 0.0f, 0.0f});
             std::sort(on.begin(), on.end(), [&](u32 a, u32 b) {
                 return at[a].dot(line) < at[b].dot(line);
             });
-            for (std::size_t i = 0; i + 1 < on.size(); i += 2) {
-                cuts.emplace_back(on[i], on[i + 1]);
+            const std::vector<Vector3f> places = placesOf(at, loopOf(topology, FaceId(f)));
+            for (std::size_t i = 0; i + 1 < on.size(); ++i) {
+                if (!joined(topology, on[i], on[i + 1]) &&
+                    insideLoop(places, (at[on[i]] + at[on[i + 1]]) * 0.5f)) {
+                    cuts.emplace_back(on[i], on[i + 1]);
+                }
             }
         }
-    }
-    if (cuts.empty() && onPlane.empty()) {
-        unsnap();
-        plan.refusal = ModelRefusal::NothingToSlice;
-        return plan;
-    }
-    if (cuts.empty()) {
-        // The plane ran along edges that were already there: there is nothing
-        // to cut, but the snap stands as what it found.
-        unsnap();
-        plan.refusal = ModelRefusal::NothingToSlice;
-        return plan;
     }
     for (const auto& [a, b] : cuts) {
         mesh.ensureConnectivity();
@@ -5574,7 +7267,7 @@ ModelPlan PlanSlice(Mesh& mesh, const PointTable& points, const ElementSet& face
         FaceId face;
         for (const HalfedgeId h : topology.voh(VertexId(a))) {
             const FaceId candidate = topology.face(h);
-            if (!candidate.valid() || topology.isDeleted(candidate)) {
+            if (!isWanted(candidate) || topology.isDeleted(candidate)) {
                 continue;
             }
             for (const HalfedgeId other : topology.fh(candidate)) {
@@ -5601,29 +7294,61 @@ ModelPlan PlanSlice(Mesh& mesh, const PointTable& points, const ElementSet& face
             plan.touchedEdges.push_back(Topology::edge(made).value());
         }
     }
+    mesh.ensureConnectivity();
+    const Topology& sliced = std::as_const(mesh).topology();
+    const std::span<const Vector3f> slicedAt = positionsOf(mesh);
+    // A face's side: where its corners off the plane are; a face no cut parted
+    // (one outside the selection) goes by its mean.
+    const auto faceSide = [&](FaceId f) {
+        bool above = false;
+        bool below = false;
+        f32 sum = 0.0f;
+        for (const HalfedgeId h : sliced.fh(f)) {
+            const u32 v = sliced.from(h).value();
+            above = above || sideOf(v) > 0;
+            below = below || sideOf(v) < 0;
+            sum += distanceOf(slicedAt[v]);
+        }
+        if (above != below) {
+            return above ? 1 : -1;
+        }
+        return sum > 0.0f ? 1 : (sum < 0.0f ? -1 : 0);
+    };
+    // The cut: the edges just made, and for Split and Remove the edges already
+    // lying on the plane between two wanted faces on its two sides -- a centre
+    // loop the plane runs along parts there (SLC-3).
+    std::vector<u8> onCut(sliced.edgeCount(), 0);
+    for (const u32 e : plan.touchedEdges) {
+        onCut[e] = 1;
+    }
+    if (params.mode != SliceMode::Cut) {
+        for (u32 e = 0; e < sliced.edgeCount(); ++e) {
+            if (onCut[e] != 0 || sliced.isDeleted(EdgeId(e))) {
+                continue;
+            }
+            const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
+            const FaceId a = sliced.face(h);
+            const FaceId b = sliced.face(Topology::opposite(h));
+            if (sideOf(sliced.from(h).value()) == 0 && sideOf(sliced.to(h).value()) == 0 && isWanted(a) &&
+                isWanted(b) && faceSide(a) * faceSide(b) < 0) {
+                onCut[e] = 1;
+                plan.selection.edges.push_back(e);
+                plan.touchedEdges.push_back(e);
+                ++plan.changed;
+            }
+        }
+    }
     if (plan.changed == 0) {
-        unsnap();
         plan.refusal = ModelRefusal::NothingToSlice;
         return plan;
     }
-    mesh.ensureConnectivity();
     if (params.mode == SliceMode::Remove) {
-        // One side goes, through Delete's own rebuild (§3.7).
+        // One side of the wanted faces goes, through Delete's own rebuild
+        // (§3.7); a face outside the selection stays wherever it is (SLC-1).
         ElementSet gone;
-        const Topology& topology = std::as_const(mesh).topology();
-        const std::span<const Vector3f> at = positionsOf(mesh);
-        for (u32 f = 0; f < topology.faceCount(); ++f) {
-            if (topology.isDeleted(FaceId(f))) {
-                continue;
-            }
-            f32 sum = 0.0f;
-            u32 corners = 0;
-            for (const HalfedgeId h : topology.fh(FaceId(f))) {
-                sum += distanceOf(at[topology.from(h).value()]);
-                ++corners;
-            }
-            const f32 mean = corners == 0 ? 0.0f : sum / static_cast<f32>(corners);
-            if (params.keepPositive ? mean < 0.0f : mean > 0.0f) {
+        for (u32 f = 0; f < sliced.faceCount(); ++f) {
+            if (!sliced.isDeleted(FaceId(f)) && isWanted(FaceId(f)) &&
+                faceSide(FaceId(f)) == (params.keepPositive ? -1 : 1)) {
                 gone.faces.push_back(f);
             }
         }
@@ -5633,68 +7358,143 @@ ModelPlan PlanSlice(Mesh& mesh, const PointTable& points, const ElementSet& face
                 plan.refusal = dropped.refusal;
                 return plan;
             }
-            plan.selection.edges.clear(); // the rebuild renumbered them
+            plan.reshade = std::move(dropped.reshade); // the corners the gone faces leave (FUZ-6)
+            // The rebuild renumbered the cut: it is found again as the open
+            // border on the plane, which is re-shaded.
+            plan.selection.edges.clear();
             plan.touchedEdges.clear();
             plan.changedFaces.clear();
+            const Topology& kept = std::as_const(mesh).topology();
+            const std::span<const Vector3f> keptAt = positionsOf(mesh);
+            for (u32 e = 0; e < kept.edgeCount(); ++e) {
+                const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
+                if (!kept.isDeleted(EdgeId(e)) && kept.isBoundary(EdgeId(e)) &&
+                    std::abs(distanceOf(keptAt[kept.from(h).value()])) <= tolerance &&
+                    std::abs(distanceOf(keptAt[kept.to(h).value()])) <= tolerance) {
+                    plan.touchedEdges.push_back(e);
+                }
+            }
         }
     } else if (params.mode == SliceMode::Split) {
-        // The two sides part: every vertex on the cut is doubled, and the faces
-        // below the plane take the copy.
+        // The two sides part along the cut, as an edge split does: round each
+        // vertex on it, the faces that meet across an edge off the cut stay
+        // one group, and every group but the one on the kept (positive) side
+        // takes a copy of its own. A vertex the cut only ends at stays one, and
+        // nothing is copied that no face would use (SLC-5).
         const std::vector<u32> snapshot = detail::snapshotCornersBuilt(mesh);
         detail::RebuildMapping mapping = detail::identityMapping(mesh);
-        const Topology& topology = std::as_const(mesh).topology();
-        const std::span<const Vector3f> at = positionsOf(mesh);
-        std::unordered_map<u32, u32> copyOf;
-        for (const u32 v : onPlane) {
-            if (v < topology.vertexCount() && !topology.isDeleted(VertexId(v))) {
-                copyOf[v] = static_cast<u32>(mapping.vertexSource.size());
-                mapping.vertexSource.push_back(v);
-            }
-        }
         const std::vector<u32> base = cornerBases(mapping.faces);
-        bool parted = false;
-        for (u32 f = 0; f < topology.faceCount(); ++f) {
-            if (topology.isDeleted(FaceId(f))) {
+        // Each side of each cut edge, as (face, corner ordinal), to find the
+        // two borders it opens once the rebuild has renumbered the edges.
+        std::vector<std::pair<u32, u32>> sides;
+        std::vector<u32> ends;
+        for (u32 e = 0; e < sliced.edgeCount(); ++e) {
+            if (onCut[e] == 0) {
                 continue;
             }
-            f32 sum = 0.0f;
-            for (const HalfedgeId h : topology.fh(FaceId(f))) {
-                sum += distanceOf(at[topology.from(h).value()]);
-            }
-            if (sum >= 0.0f) {
-                continue; // this side keeps the vertices it has
-            }
-            u32 corner = base[f];
-            for (const HalfedgeId h : topology.fh(FaceId(f))) {
-                const auto copy = copyOf.find(topology.from(h).value());
-                if (copy != copyOf.end()) {
-                    mapping.faces.cornerVertex[corner] = copy->second;
-                    parted = true;
+            for (u32 half = 0; half < 2; ++half) {
+                const HalfedgeId h = Topology::halfedge(EdgeId(e), half);
+                const FaceId f = sliced.face(h);
+                if (!f.valid()) {
+                    continue;
                 }
-                ++corner;
+                u32 ordinal = 0;
+                for (const HalfedgeId w : sliced.fh(f)) {
+                    if (w == h) {
+                        break;
+                    }
+                    ++ordinal;
+                }
+                sides.emplace_back(f.value(), ordinal);
+            }
+            ends.push_back(sliced.from(Topology::halfedge(EdgeId(e), 0)).value());
+            ends.push_back(sliced.to(Topology::halfedge(EdgeId(e), 0)).value());
+        }
+        std::vector<u32> copies;
+        for (const u32 v : sortedUnique(std::move(ends))) {
+            std::vector<u32> around;
+            std::vector<u32> group;
+            for (const HalfedgeId h : sliced.voh(VertexId(v))) {
+                if (const FaceId f = sliced.face(h); f.valid()) {
+                    around.push_back(f.value());
+                    group.push_back(static_cast<u32>(group.size()));
+                }
+            }
+            const auto indexOf = [&](FaceId f) {
+                return static_cast<u32>(std::find(around.begin(), around.end(), f.value()) - around.begin());
+            };
+            const auto rootOf = [&](u32 i) {
+                while (group[i] != i) {
+                    i = group[i];
+                }
+                return i;
+            };
+            for (const HalfedgeId h : sliced.voh(VertexId(v))) {
+                const FaceId a = sliced.face(h);
+                const FaceId b = sliced.face(Topology::opposite(h));
+                if (a.valid() && b.valid() && onCut[Topology::edge(h).value()] == 0) {
+                    group[rootOf(indexOf(a))] = rootOf(indexOf(b));
+                }
+            }
+            u32 keeper = rootOf(0);
+            for (u32 i = 0; i < around.size(); ++i) {
+                if (faceSide(FaceId(around[i])) > 0) {
+                    keeper = rootOf(i);
+                    break;
+                }
+            }
+            std::unordered_map<u32, u32> copyOfGroup;
+            for (u32 i = 0; i < around.size(); ++i) {
+                const u32 root = rootOf(i);
+                if (root == keeper) {
+                    continue;
+                }
+                auto copy = copyOfGroup.find(root);
+                if (copy == copyOfGroup.end()) {
+                    copy = copyOfGroup.emplace(root, static_cast<u32>(mapping.vertexSource.size())).first;
+                    mapping.vertexSource.push_back(v);
+                    copies.push_back(copy->second);
+                }
+                u32 corner = base[around[i]];
+                for (const HalfedgeId h : sliced.fh(FaceId(around[i]))) {
+                    if (sliced.from(h).value() == v) {
+                        mapping.faces.cornerVertex[corner] = copy->second;
+                    }
+                    ++corner;
+                }
             }
         }
-        if (parted) {
+        if (!copies.empty()) {
             mapping.faces.vertexCount = static_cast<u32>(mapping.vertexSource.size());
             const detail::RebuildResult result = detail::rebuild(mesh, std::move(mapping), snapshot);
             if (!result.ok) {
                 plan.refusal = ModelRefusal::WouldFold;
                 return plan;
             }
-            plan.selection.edges.clear(); // the rebuild renumbered them
+            // The copies are their own points, so nothing welds them back (Q8).
+            freshGroups(mesh, copies);
+            // The cut again, as the borders it opened: the faces keep their
+            // places and corner order through an identity rebuild.
+            plan.selection.edges.clear();
             plan.touchedEdges.clear();
-            plan.changedFaces.clear();
-            // The copies are their own points, so nothing welds them back.
-            const std::span<u32> groups = MergeGroupsOf(mesh);
-            u32 next = FreshMergeGroup(mesh);
-            for (const auto& [vertex, copy] : copyOf) {
-                (void)vertex;
-                if (copy < groups.size()) {
-                    groups[copy] = next++;
+            const Topology& parted = std::as_const(mesh).topology();
+            for (const auto& [f, ordinal] : sides) {
+                if (f >= parted.faceCount() || parted.isDeleted(FaceId(f))) {
+                    continue;
+                }
+                u32 k = 0;
+                for (const HalfedgeId h : parted.fh(FaceId(f))) {
+                    if (k++ == ordinal) {
+                        plan.selection.edges.push_back(Topology::edge(h).value());
+                        plan.touchedEdges.push_back(Topology::edge(h).value());
+                        break;
+                    }
                 }
             }
         }
     }
+    plan.touchedEdges = sortedUnique(std::move(plan.touchedEdges));
+    plan.selection.edges = sortedUnique(std::move(plan.selection.edges));
     const Topology& built = std::as_const(mesh).topology();
     for (const u32 e : plan.touchedEdges) {
         for (u32 half = 0; half < 2; ++half) {
@@ -5705,6 +7505,14 @@ ModelPlan PlanSlice(Mesh& mesh, const PointTable& points, const ElementSet& face
         }
     }
     plan.changedFaces = sortedUnique(std::move(plan.changedFaces));
+    // Every corner of a face the cut parted: its far corners' fans now weigh
+    // a smaller face (FUZ-6).
+    for (const u32 f : plan.changedFaces) {
+        for (const HalfedgeId h : built.fh(FaceId(f))) {
+            plan.reshade.push_back(built.from(h).value());
+        }
+    }
+    plan.reshade = sortedUnique(std::move(plan.reshade));
     plan.selection.normalise();
     return plan;
 }
@@ -5716,41 +7524,97 @@ ModelPlan PlanTurnEdge(Mesh& mesh, EdgeId edge) {
         plan.refusal = ModelRefusal::NotBuiltYet;
         return plan;
     }
+    Mesh work = mesh;
+    if (std::as_const(work).topology().hasDeleted()) {
+        const Topology::Remap remap = GarbageCollect(work);
+        edge = EdgeId(edge.value() < remap.edges.size() ? remap.edges[edge.value()] : edge.value());
+    }
+    const Topology& topology = std::as_const(work).topology();
+    if (edge.value() >= topology.edgeCount() || topology.isDeleted(edge) || topology.isBoundary(edge)) {
+        plan.refusal = ModelRefusal::EmptySelection;
+        return plan;
+    }
+    // Two triangles (a, b, c) and (b, a, d) about the edge a-b become (a, d, c)
+    // and (b, c, d); the general rotation over n-gons is `PlanEditTriangulation`'s
+    // business (§3.4).
+    const HalfedgeId left = Topology::halfedge(edge, 0);
+    const HalfedgeId right = Topology::opposite(left);
+    const FaceId leftFace = topology.face(left);
+    const FaceId rightFace = topology.face(right);
+    if (topology.valence(leftFace) != 3 || topology.valence(rightFace) != 3) {
+        plan.refusal = ModelRefusal::WouldFold;
+        return plan;
+    }
+    const std::span<const u32> sections = work.faceSections();
+    if (leftFace.value() < sections.size() && rightFace.value() < sections.size() &&
+        sections[leftFace.value()] != sections[rightFace.value()]) {
+        plan.refusal = ModelRefusal::CrossesSection;
+        return plan;
+    }
+    const u32 a = topology.from(left).value();
+    const u32 b = topology.to(left).value();
+    const u32 c = topology.to(topology.next(left)).value();
+    const u32 d = topology.to(topology.next(right)).value();
+    if (joined(topology, c, d)) {
+        plan.refusal = ModelRefusal::DiagonalExists;
+        return plan;
+    }
     {
-        const Topology& topology = std::as_const(mesh).topology();
-        if (edge.value() >= topology.edgeCount() || topology.isDeleted(edge) ||
-            topology.isBoundary(edge)) {
-            plan.refusal = ModelRefusal::EmptySelection;
-            return plan;
-        }
-        // The corners the edge would turn onto: the one after it in each face.
-        const HalfedgeId left = Topology::halfedge(edge, 0);
-        const HalfedgeId right = Topology::opposite(left);
-        const u32 a = topology.to(topology.next(left)).value();
-        const u32 b = topology.to(topology.next(right)).value();
-        if (joined(topology, a, b)) {
-            plan.refusal = ModelRefusal::DiagonalExists;
-            return plan;
+        // Neither new triangle may face away from the pair it replaces.
+        const std::span<const Vector3f> p = positionsOf(work);
+        const std::array<f64, 3> one = triangleNormal(p[a], p[b], p[c]);
+        const std::array<f64, 3> two = triangleNormal(p[b], p[a], p[d]);
+        const std::array<f64, 3> was{one[0] + two[0], one[1] + two[1], one[2] + two[2]};
+        for (const std::array<f64, 3>& made : {triangleNormal(p[a], p[d], p[c]), triangleNormal(p[b], p[c], p[d])}) {
+            if (!(made[0] * was[0] + made[1] * was[1] + made[2] * was[2] > 0.0)) {
+                plan.refusal = ModelRefusal::WouldFold;
+                return plan;
+            }
         }
     }
-    if (!FlipEdge(mesh, edge)) {
-        // Not two triangles, or the flip would not stay manifold: the general
-        // rotation over n-gons is `PlanEditTriangulation`'s business (§3.4).
+    // Rebuilt with each corner taking a corner of its own vertex, so every
+    // value stays where it was (TRN-1); the new edge is a new edge, its flags
+    // the crease rule's.
+    const std::vector<u32> snapshot = detail::snapshotCornersBuilt(work);
+    std::unordered_map<u32, u32> ordinalOf;
+    for (u32 i = 0; i < snapshot.size(); ++i) {
+        ordinalOf[snapshot[i]] = i;
+    }
+    const auto ordinal = [&](HalfedgeId h) {
+        const auto at = ordinalOf.find(static_cast<u32>(h.index()));
+        return at == ordinalOf.end() ? kInvalidId : at->second;
+    };
+    const u32 atA = ordinal(left);
+    const u32 atB = ordinal(right);
+    const u32 atC = ordinal(topology.prev(left));
+    const u32 atD = ordinal(topology.prev(right));
+    detail::RebuildMapping mapping = detail::identityMapping(work);
+    std::vector<u32> base(mapping.faces.faceCount() + 1, 0);
+    for (u32 f = 0; f < mapping.faces.faceCount(); ++f) {
+        base[f + 1] = base[f] + mapping.faces.faceValence[f];
+    }
+    const auto put = [&](u32 f, std::array<u32, 3> corners, std::array<u32, 3> sources) {
+        for (u32 k = 0; k < 3; ++k) {
+            mapping.faces.cornerVertex[base[f] + k] = corners[k];
+            mapping.cornerSource[base[f] + k] = sources[k];
+        }
+    };
+    put(leftFace.value(), {a, d, c}, {atA, atD, atC});
+    put(rightFace.value(), {b, c, d}, {atB, atC, atD});
+    const detail::RebuildResult result = detail::rebuild(work, std::move(mapping), snapshot);
+    if (!result.ok || result.repair.changed) {
         plan.refusal = ModelRefusal::WouldFold;
         return plan;
     }
     plan.changed = 1;
-    const Topology& built = std::as_const(mesh).topology();
-    if (edge.value() < built.edgeCount() && !built.isDeleted(edge)) {
-        plan.touchedEdges.push_back(edge.value());
-        plan.selection.edges.push_back(edge.value());
-        for (u32 side = 0; side < 2; ++side) {
-            if (const FaceId face = built.face(Topology::halfedge(edge, side));
-                face.valid() && !built.isDeleted(face)) {
-                plan.changedFaces.push_back(face.value());
-            }
-        }
+    const Topology& built = std::as_const(work).topology();
+    const HalfedgeId turned = built.findHalfedge(VertexId(c), VertexId(d));
+    if (turned.valid()) {
+        plan.touchedEdges.push_back(Topology::edge(turned).value());
+        plan.selection.edges.push_back(Topology::edge(turned).value());
     }
+    plan.changedFaces = {leftFace.value(), rightFace.value()};
+    mesh = std::move(work);
     return plan;
 }
 
@@ -5780,6 +7644,7 @@ std::vector<u32> chosenFaces(const Topology& topology, const ElementSet& faces, 
 
 ModelPlan PlanDuplicate(Mesh& mesh, const ElementSet& faces) {
     ModelPlan plan;
+    const Rollback rollback(mesh, plan);
     if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
         plan.refusal = ModelRefusal::NotBuiltYet;
         return plan;
@@ -5791,26 +7656,60 @@ ModelPlan PlanDuplicate(Mesh& mesh, const ElementSet& faces) {
         plan.refusal = ModelRefusal::EmptySelection;
         return plan;
     }
-    // The copies are a shell of their own: every vertex they use is copied.
+    // The copies are a shell of their own: every vertex they use is copied,
+    // once per fan of chosen faces round it, so faces that met only at a
+    // vertex do not make a pinch (DUP-2). A corner is its halfedge leaving the
+    // vertex; corners across a chosen edge are one fan.
     const std::vector<u32> snapshot = detail::snapshotCornersBuilt(mesh);
     detail::RebuildMapping mapping = detail::identityMapping(mesh);
     const std::unordered_map<u32, u32> ordinalOf = cornerOrdinals(snapshot);
-    std::unordered_map<u32, u32> copyOf;
+    std::vector<u8> isChosen(topology.faceCount(), 0);
+    for (const u32 f : chosen) {
+        isChosen[f] = 1;
+    }
+    std::unordered_map<u32, u32> fanOf; // corner -> its fan's first corner
+    const auto fan = [&](u32 h) {
+        while (fanOf.count(h) != 0 && fanOf[h] != h) {
+            h = fanOf[h];
+        }
+        return h;
+    };
+    for (const u32 f : chosen) {
+        for (const HalfedgeId h : topology.fh(FaceId(f))) {
+            fanOf.emplace(h.value(), h.value());
+        }
+    }
+    for (const u32 f : chosen) {
+        for (const HalfedgeId h : topology.fh(FaceId(f))) {
+            const HalfedgeId o = Topology::opposite(h);
+            const FaceId g = topology.face(o);
+            if (!g.valid() || isChosen[g.index()] == 0) {
+                continue;
+            }
+            // o runs back along h: the other face's corner at from(h) is next(o).
+            const u32 a = fan(h.value());
+            const u32 b = fan(topology.next(o).value());
+            if (a != b) {
+                fanOf[std::max(a, b)] = std::min(a, b);
+            }
+        }
+    }
+    std::unordered_map<u32, u32> copyOf; // fan -> its copy
     std::vector<u32> made;
     for (const u32 f : chosen) {
         for (const HalfedgeId h : topology.fh(FaceId(f))) {
-            const u32 v = topology.from(h).value();
-            if (copyOf.find(v) == copyOf.end()) {
-                copyOf[v] = static_cast<u32>(mapping.vertexSource.size());
-                mapping.vertexSource.push_back(v);
-                made.push_back(copyOf[v]);
+            const u32 at = fan(h.value());
+            if (copyOf.find(at) == copyOf.end()) {
+                copyOf[at] = static_cast<u32>(mapping.vertexSource.size());
+                mapping.vertexSource.push_back(topology.from(h).value());
+                made.push_back(copyOf[at]);
             }
         }
     }
     for (const u32 f : chosen) {
         u32 valence = 0;
         for (const HalfedgeId h : topology.fh(FaceId(f))) {
-            mapping.faces.cornerVertex.push_back(copyOf[topology.from(h).value()]);
+            mapping.faces.cornerVertex.push_back(copyOf[fan(h.value())]);
             const auto ordinal = ordinalOf.find(static_cast<u32>(h.index()));
             mapping.cornerSource.push_back(ordinal == ordinalOf.end() ? kInvalidId : ordinal->second);
             ++valence;
@@ -5846,7 +7745,12 @@ ModelPlan PlanDetach(Mesh& mesh, const ElementSet& faces, Mesh& made, bool keep)
         return plan;
     }
     if (all) {
-        plan.refusal = ModelRefusal::AllFaces; // a whole mesh moves at the Mesh level
+        if (!keep) {
+            plan.refusal = ModelRefusal::AllFaces; // a whole mesh moves at the Mesh level
+            return plan;
+        }
+        made = mesh; // a clone of every face is the whole mesh again (DET-1)
+        plan.changed = static_cast<u32>(chosen.size());
         return plan;
     }
     // The new mesh is this one with everything else gone: Delete's own rebuild
@@ -5880,11 +7784,13 @@ ModelPlan PlanDetach(Mesh& mesh, const ElementSet& faces, Mesh& made, bool keep)
     plan.changed = static_cast<u32>(chosen.size());
     plan.changedFaces = std::move(dropped.changedFaces);
     plan.touchedEdges = std::move(dropped.touchedEdges);
+    plan.reshade = std::move(dropped.reshade);
     return plan;
 }
 
 ModelPlan PlanDetachToElement(Mesh& mesh, const ElementSet& faces) {
     ModelPlan plan;
+    const Rollback rollback(mesh, plan);
     if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
         plan.refusal = ModelRefusal::NotBuiltYet;
         return plan;
@@ -5921,8 +7827,16 @@ ModelPlan PlanDetachToElement(Mesh& mesh, const ElementSet& faces) {
         plan.changedFaces.push_back(f);
     }
     mapping.faces.vertexCount = static_cast<u32>(mapping.vertexSource.size());
+    // Both sides of the border it opens are shaded afresh (X10, FUZ-6).
+    for (const u32 copy : grown.copies) {
+        plan.reshade.push_back(copy);
+        if (copy < mapping.vertexSource.size()) {
+            plan.reshade.push_back(mapping.vertexSource[copy]);
+        }
+    }
     const detail::RebuildResult result = detail::rebuild(mesh, std::move(mapping), snapshot);
     if (!result.ok || result.repair.changed) {
+        plan = ModelPlan{};
         plan.refusal = ModelRefusal::WouldFold;
         return plan;
     }
@@ -5934,6 +7848,7 @@ ModelPlan PlanDetachToElement(Mesh& mesh, const ElementSet& faces) {
 
 ModelPlan PlanCreatePolygon(Mesh& mesh, const PointTable& points, const std::vector<u32>& loop) {
     ModelPlan plan;
+    const Rollback rollback(mesh, plan);
     (void)points;
     if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
         plan.refusal = ModelRefusal::NotBuiltYet;
@@ -6002,9 +7917,21 @@ ModelPlan PlanCreatePolygon(Mesh& mesh, const PointTable& points, const std::vec
     for (std::size_t i = 0; i < loop.size(); ++i) {
         mapping.faces.cornerVertex.push_back(loop[i]);
         u32 source = kInvalidId;
-        if (rim[i] != kInvalidId) {
-            lowest = std::min(lowest, rim[i]);
-            for (const HalfedgeId h : topology.fh(FaceId(rim[i]))) {
+        // A corner whose own edge is new reads the face beside the edge it
+        // arrives on, which holds it too, else any face round it (CP-2).
+        u32 beside = rim[i] != kInvalidId ? rim[i] : rim[(i + loop.size() - 1) % loop.size()];
+        if (beside == kInvalidId && topology.outgoing(VertexId(loop[i])).valid()) {
+            for (const HalfedgeId h : topology.voh(VertexId(loop[i]))) {
+                if (topology.face(h).valid() && beside == kInvalidId) {
+                    beside = topology.face(h).value();
+                }
+            }
+        }
+        if (beside != kInvalidId) {
+            if (rim[i] != kInvalidId) {
+                lowest = std::min(lowest, rim[i]);
+            }
+            for (const HalfedgeId h : topology.fh(FaceId(beside))) {
                 if (topology.from(h).value() == loop[i]) {
                     const auto ordinal = ordinalOf.find(static_cast<u32>(h.index()));
                     source = ordinal == ordinalOf.end() ? kInvalidId : ordinal->second;
@@ -6027,9 +7954,105 @@ ModelPlan PlanCreatePolygon(Mesh& mesh, const PointTable& points, const std::vec
     return plan;
 }
 
+namespace {
+
+/// One face of a bridge's band: its corners as (rim, edge) -- rim 0 / 2 the
+/// start / end of the first loop's edge, 1 / 3 of the second's. A loop that
+/// crosses a crack ends one edge on a twin of where the next starts (BRG-3).
+using BandFace = std::vector<std::pair<u32, u32>>;
+
+/// The band between two loops (§3.10), wound against both, @p there matched
+/// the other way round and `twist` stepping its start. Equal counts: a quad per
+/// edge pair from the pair whose rungs are shortest in sum. Different counts
+/// (Q14, as Max and Blender build them): the rungs fall where the two loops
+/// have run the same share of their length, with a triangle wherever one loop
+/// steps on and the other does not.
+std::vector<BandFace> bandBetween(std::span<const Vector3f> at, const std::vector<u32>& here,
+                                  const std::vector<u32>& there, i32 twist) {
+    const std::size_t n = here.size();
+    const std::size_t m = there.size();
+    std::size_t best = 0;
+    f32 shortest = FLT_MAX;
+    for (std::size_t offset = 0; offset < m; ++offset) {
+        f32 sum = 0.0f;
+        if (n == m) {
+            for (std::size_t i = 0; i < n; ++i) {
+                sum += (at[there[(offset + n - i) % n]] - at[here[i]]).length();
+            }
+        } else {
+            sum = (at[there[offset]] - at[here[0]]).length();
+        }
+        if (sum < shortest) {
+            shortest = sum;
+            best = offset;
+        }
+    }
+    best = (best + static_cast<std::size_t>((twist % static_cast<i32>(m)) + static_cast<i32>(m))) % m;
+    const auto onThere = [&](std::size_t j) { return static_cast<u32>((best + m - j % m) % m); };
+    std::vector<BandFace> band;
+    // The second loop's edge between T(j + 1) and T(j), from the first.
+    const auto thereEdge = [&](std::size_t j) { return onThere(j + 1); };
+    if (n == m) {
+        for (std::size_t i = 0; i < n; ++i) {
+            band.push_back({{0u, static_cast<u32>(i)}, {2u, static_cast<u32>(i)}, {1u, thereEdge(i)},
+                            {3u, thereEdge(i)}});
+        }
+        return band;
+    }
+    // Each loop's corners by the share of its length run to reach them.
+    const auto shares = [&](std::size_t count, const auto& vertexAt) {
+        std::vector<f64> out(count + 1, 0.0);
+        for (std::size_t k = 0; k < count; ++k) {
+            out[k + 1] = out[k] + length64(sub(at[vertexAt((k + 1) % count)], at[vertexAt(k)]));
+        }
+        for (f64& s : out) {
+            s = out[count] > 0.0 ? s / out[count] : 0.0;
+        }
+        return out;
+    };
+    const std::vector<f64> a = shares(n, [&](std::size_t k) { return here[k]; });
+    const std::vector<f64> b = shares(m, [&](std::size_t k) { return there[onThere(k)]; });
+    std::size_t i = 0;
+    std::size_t j = 0;
+    while (i < n || j < m) {
+        const f64 nextA = i < n ? a[i + 1] : 2.0;
+        const f64 nextB = j < m ? b[j + 1] : 2.0;
+        const u32 hi = static_cast<u32>(i % n);
+        if (i < n && j < m && std::abs(nextA - nextB) <= 1e-6) {
+            band.push_back({{0u, hi}, {2u, hi}, {1u, thereEdge(j)}, {3u, thereEdge(j)}});
+            ++i;
+            ++j;
+        } else if (nextA < nextB) {
+            band.push_back({{0u, hi}, {2u, hi}, {1u, onThere(j)}});
+            ++i;
+        } else {
+            band.push_back({{0u, hi}, {1u, thereEdge(j)}, {3u, thereEdge(j)}});
+            ++j;
+        }
+    }
+    return band;
+}
+
+/// Whether the two loops share a point -- a vertex, or two coincident ones
+/// the point table joins: a rung there has no length (MTX-10).
+bool loopsTouch(const PointTable& points, const std::vector<u32>& here, const std::vector<u32>& there) {
+    const auto pointOf = [&](u32 v) { return v < points.pointOf.size() ? points.pointOf[v] : v; };
+    for (const u32 v : here) {
+        for (const u32 w : there) {
+            if (v == w || pointOf(v) == pointOf(w)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+} // namespace
+
 ModelPlan PlanBridge(Mesh& mesh, const PointTable& points, EdgeId first, EdgeId second,
                      const BridgeParams& params) {
     ModelPlan plan;
+    const Rollback rollback(mesh, plan);
     (void)points;
     if (params.segments != 1) {
         plan.refusal = ModelRefusal::NotBuiltYet;
@@ -6040,7 +8063,13 @@ ModelPlan PlanBridge(Mesh& mesh, const PointTable& points, EdgeId first, EdgeId 
         return plan;
     }
     const Topology& topology = std::as_const(mesh).topology();
-    const auto loopOfEdge = [&](EdgeId edge, std::vector<u32>& vertices, std::vector<HalfedgeId>& rim) {
+    // The rim over points (Q5): where the next border edge is a crack's, the
+    // walk steps across to the twin side's border and on, as Cap's does, so a
+    // rim that crosses a crack is one loop (BRG-3).
+    const Twins twins(mesh, points);
+    const auto cracked = [&](HalfedgeId h) { return !twins.of(Topology::edge(h).value()).empty(); };
+    const auto loopOfEdge = [&](EdgeId edge, std::vector<u32>& vertices, std::vector<u32>& ends,
+                                std::vector<HalfedgeId>& rim) {
         if (edge.value() >= topology.edgeCount() || topology.isDeleted(edge) ||
             !topology.isBoundary(edge)) {
             return false;
@@ -6052,49 +8081,45 @@ ModelPlan PlanBridge(Mesh& mesh, const PointTable& points, EdgeId first, EdgeId 
         HalfedgeId walk = start;
         do {
             vertices.push_back(topology.from(walk).value());
+            ends.push_back(topology.to(walk).value());
             rim.push_back(Topology::opposite(walk));
-            walk = topology.next(walk);
+            HalfedgeId next = topology.next(walk);
+            if (!cracked(start) && cracked(next)) {
+                HalfedgeId found;
+                u32 count = 0;
+                for (const u32 member : membersOfPoint(mesh, points, topology.to(walk).value())) {
+                    for (const HalfedgeId h : topology.voh(VertexId(member))) {
+                        if (topology.isBoundary(h) && !topology.face(h).valid() && !cracked(h)) {
+                            found = h;
+                            ++count;
+                        }
+                    }
+                }
+                if (count == 1) {
+                    next = found;
+                }
+            }
+            walk = next;
         } while (walk.valid() && walk != start && vertices.size() <= topology.halfedgeCount());
-        return vertices.size() >= 3;
+        return walk == start && vertices.size() >= 3;
     };
     std::vector<u32> here;
     std::vector<u32> there;
+    std::vector<u32> hereEnd;
+    std::vector<u32> thereEnd;
     std::vector<HalfedgeId> hereRim;
     std::vector<HalfedgeId> thereRim;
-    if (!loopOfEdge(first, here, hereRim) || !loopOfEdge(second, there, thereRim)) {
+    if (!loopOfEdge(first, here, hereEnd, hereRim) || !loopOfEdge(second, there, thereEnd, thereRim)) {
         plan.refusal = ModelRefusal::EmptySelection;
         return plan;
     }
-    if (here.size() != there.size()) {
-        plan.refusal = ModelRefusal::LoopCountsDiffer;
+    if (loopsTouch(points, here, there)) {
+        plan.refusal = ModelRefusal::SameLoop;
         return plan;
     }
-    for (const u32 v : here) {
-        if (std::find(there.begin(), there.end(), v) != there.end()) {
-            plan.refusal = ModelRefusal::SameLoop;
-            return plan;
-        }
-    }
     // The loops are matched the other way round, as a bridge that does not
-    // twist needs, and the pair they start from is the one whose connecting
-    // edges are shortest in sum.
-    const std::span<const Vector3f> at = positionsOf(mesh);
-    const std::size_t n = here.size();
-    std::size_t best = 0;
-    f32 shortest = FLT_MAX;
-    for (std::size_t offset = 0; offset < n; ++offset) {
-        f32 sum = 0.0f;
-        for (std::size_t i = 0; i < n; ++i) {
-            const u32 a = here[i];
-            const u32 b = there[(offset + n - i) % n];
-            sum += (at[b] - at[a]).length();
-        }
-        if (sum < shortest) {
-            shortest = sum;
-            best = offset;
-        }
-    }
-    best = (best + static_cast<std::size_t>((params.twist % static_cast<i32>(n)) + static_cast<i32>(n))) % n;
+    // twist needs (`bandBetween`).
+    const std::vector<BandFace> band = bandBetween(positionsOf(mesh), here, there, params.twist);
     const std::vector<u32> snapshot = detail::snapshotCornersBuilt(mesh);
     const std::unordered_map<u32, u32> ordinalOf = cornerOrdinals(snapshot);
     detail::RebuildMapping mapping = detail::identityMapping(mesh);
@@ -6111,22 +8136,16 @@ ModelPlan PlanBridge(Mesh& mesh, const PointTable& points, EdgeId first, EdgeId 
         }
         return kInvalidId;
     };
-    for (std::size_t i = 0; i < n; ++i) {
-        const u32 a = here[i];
-        const u32 b = here[(i + 1) % n];
-        const u32 c = there[(best + n - i) % n];
-        const u32 d = there[(best + n - i - 1 + n) % n];
-        // One quad per edge pair, wound against both borders.
-        const u32 loop[4] = {a, b, d, c};
-        const HalfedgeId sources[4] = {hereRim[i], hereRim[(i + 1) % n],
-                                       thereRim[(best + n - i - 1 + n) % n],
-                                       thereRim[(best + n - i) % n]};
-        mapping.faces.faceValence.push_back(4);
-        for (u32 k = 0; k < 4; ++k) {
-            mapping.faces.cornerVertex.push_back(loop[k]);
-            mapping.cornerSource.push_back(cornerOf(sources[k], loop[k]));
+    for (const BandFace& face : band) {
+        // Each corner from its own rim's face, as Extrude's walls take theirs.
+        mapping.faces.faceValence.push_back(static_cast<u32>(face.size()));
+        for (const auto& [rim, k] : face) {
+            const u32 vertex = rim == 0 ? here[k] : rim == 1 ? there[k] : rim == 2 ? hereEnd[k] : thereEnd[k];
+            mapping.faces.cornerVertex.push_back(vertex);
+            mapping.cornerSource.push_back(cornerOf(rim % 2 == 0 ? hereRim[k] : thereRim[k], vertex));
         }
-        mapping.faceSource.push_back(topology.face(hereRim[i]).valid() ? topology.face(hereRim[i]).value() : 0u);
+        const HalfedgeId wearing = hereRim[face.front().second];
+        mapping.faceSource.push_back(topology.face(wearing).valid() ? topology.face(wearing).value() : 0u);
         plan.selection.faces.push_back(static_cast<u32>(mapping.faces.faceValence.size() - 1));
         plan.changedFaces.push_back(plan.selection.faces.back());
     }
@@ -6136,7 +8155,7 @@ ModelPlan PlanBridge(Mesh& mesh, const PointTable& points, EdgeId first, EdgeId 
         plan.refusal = ModelRefusal::WouldFold;
         return plan;
     }
-    plan.changed = static_cast<u32>(n);
+    plan.changed = static_cast<u32>(band.size());
     touchFaces(mesh, plan);
     return plan;
 }
@@ -6145,6 +8164,7 @@ ModelPlan PlanBridge(Mesh& mesh, const PointTable& points, EdgeId first, EdgeId 
 ModelPlan PlanBridgeFaces(Mesh& mesh, const PointTable& points, FaceId first, FaceId second,
                           const BridgeParams& params) {
     ModelPlan plan;
+    const Rollback rollback(mesh, plan);
     (void)points;
     if (params.segments != 1) {
         plan.refusal = ModelRefusal::NotBuiltYet;
@@ -6187,33 +8207,12 @@ ModelPlan PlanBridgeFaces(Mesh& mesh, const PointTable& points, FaceId first, Fa
         plan.refusal = ModelRefusal::EmptySelection;
         return plan;
     }
-    if (here.size() != there.size()) {
-        plan.refusal = ModelRefusal::LoopCountsDiffer;
+    if (loopsTouch(points, here, there)) {
+        plan.refusal = ModelRefusal::SameLoop;
         return plan;
     }
-    for (const u32 v : here) {
-        if (std::find(there.begin(), there.end(), v) != there.end()) {
-            plan.refusal = ModelRefusal::SameLoop;
-            return plan;
-        }
-    }
-    // The loops matched the other way round, started from the pair whose
-    // connecting edges are shortest in sum, `twist` stepping it round.
-    const std::span<const Vector3f> at = positionsOf(mesh);
-    const std::size_t n = here.size();
-    std::size_t best = 0;
-    f32 shortest = FLT_MAX;
-    for (std::size_t offset = 0; offset < n; ++offset) {
-        f32 sum = 0.0f;
-        for (std::size_t i = 0; i < n; ++i) {
-            sum += (at[there[(offset + n - i) % n]] - at[here[i]]).length();
-        }
-        if (sum < shortest) {
-            shortest = sum;
-            best = offset;
-        }
-    }
-    best = (best + static_cast<std::size_t>((params.twist % static_cast<i32>(n)) + static_cast<i32>(n))) % n;
+    // The loops matched the other way round, `twist` stepping the start round.
+    const std::vector<BandFace> band = bandBetween(positionsOf(mesh), here, there, params.twist);
     const std::vector<u32> snapshot = detail::snapshotCornersBuilt(mesh);
     const std::unordered_map<u32, u32> ordinalOf = cornerOrdinals(snapshot);
     const auto ordinal = [&](HalfedgeId h) {
@@ -6265,20 +8264,16 @@ ModelPlan PlanBridgeFaces(Mesh& mesh, const PointTable& points, FaceId first, Fa
         mapping.cornerSource.insert(mapping.cornerSource.end(), corners[i].begin(), corners[i].end());
         mapping.faceSource.push_back(sourceFace[i]);
     }
-    for (std::size_t i = 0; i < n; ++i) {
-        const u32 a = here[i];
-        const u32 b = here[(i + 1) % n];
-        const u32 c = there[(best + n - i) % n];
-        const u32 d = there[(best + n - i - 1 + n) % n];
-        // One quad per edge pair, wound against both rims.
-        const u32 loop[4] = {a, b, d, c};
-        const HalfedgeId sources[4] = {hereRim[i], hereRim[(i + 1) % n],
-                                       thereRim[(best + n - i - 1 + n) % n],
-                                       thereRim[(best + n - i) % n]};
-        mapping.faces.faceValence.push_back(4);
-        for (u32 k = 0; k < 4; ++k) {
-            mapping.faces.cornerVertex.push_back(newId[loop[k]]);
-            mapping.cornerSource.push_back(ordinal(sources[k]));
+    for (const BandFace& face : band) {
+        mapping.faces.faceValence.push_back(static_cast<u32>(face.size()));
+        for (const auto& [rim, k] : face) {
+            // A face's loop has no crack in it: an edge's end is the next one's
+            // start, and its corner there is the face's own.
+            const std::vector<u32>& loop = rim % 2 == 0 ? here : there;
+            const std::vector<HalfedgeId>& rimCorners = rim % 2 == 0 ? hereRim : thereRim;
+            const u32 at = rim < 2 ? k : static_cast<u32>((k + 1) % loop.size());
+            mapping.faces.cornerVertex.push_back(newId[loop[at]]);
+            mapping.cornerSource.push_back(ordinal(rimCorners[at]));
         }
         // The band wears the face it grew out of, which is what carries its
         // section: a bridge that landed in another draw would be a bridge you
@@ -6293,7 +8288,7 @@ ModelPlan PlanBridgeFaces(Mesh& mesh, const PointTable& points, FaceId first, Fa
         plan.refusal = ModelRefusal::WouldFold;
         return plan;
     }
-    plan.changed = static_cast<u32>(n);
+    plan.changed = static_cast<u32>(band.size());
     touchFaces(mesh, plan);
     return plan;
 }
@@ -6305,6 +8300,7 @@ ModelPlan PlanBridgeFaces(Mesh& mesh, const PointTable& points, FaceId first, Fa
 ModelPlan PlanSymmetrize(Mesh& mesh, const PointTable& points, const SymmetrizeParams& params,
                          std::span<const u32> boneMirror) {
     ModelPlan plan;
+    const Rollback rollback(mesh, plan);
     if (!mesh.hasConnectivity() && !mesh.ensureConnectivity().ok()) {
         plan.refusal = ModelRefusal::NotBuiltYet;
         return plan;
@@ -6341,28 +8337,36 @@ ModelPlan PlanSymmetrize(Mesh& mesh, const PointTable& points, const SymmetrizeP
         plan.refusal = sliced.refusal;
         return plan;
     }
+    // The steps finish with no crease rule: it runs once, on the seam, at the
+    // caller's angle (SYM-8).
+    constexpr f32 kNoCrease = 3.14159265358979f;
     if (!sliced.refused()) {
-        FinishTool(mesh, sliced);
+        FinishTool(mesh, sliced, kNoCrease);
     }
     // And the far side goes, whether the plane had to cut anything or ran along
     // edges that were already there: Slice refuses the second case, and the
-    // half still has to go.
+    // half still has to go. So does a face lying in the plane: the halves meet
+    // across it, so it would be inside (SYM-1).
     {
         mesh.ensureConnectivity();
         const Topology& before = std::as_const(mesh).topology();
         const std::span<const Vector3f> places = positionsOf(mesh);
+        const f32 flat = CoincidenceTolerance(mesh);
         ElementSet gone;
         for (u32 f = 0; f < before.faceCount(); ++f) {
             if (before.isDeleted(FaceId(f))) {
                 continue;
             }
             f32 sum = 0.0f;
+            f32 farthest = 0.0f;
             u32 corners = 0;
             for (const HalfedgeId h : before.fh(FaceId(f))) {
-                sum += (places[before.from(h).value()] - seam).dot(normal);
+                const f32 d = (places[before.from(h).value()] - seam).dot(normal);
+                sum += d;
+                farthest = std::max(farthest, std::abs(d));
                 ++corners;
             }
-            if (corners != 0 && sum / static_cast<f32>(corners) < 0.0f) {
+            if (corners != 0 && (sum / static_cast<f32>(corners) < 0.0f || farthest <= flat)) {
                 gone.faces.push_back(f);
             }
         }
@@ -6373,11 +8377,34 @@ ModelPlan PlanSymmetrize(Mesh& mesh, const PointTable& points, const SymmetrizeP
                                                                         : dropped.refusal;
                 return plan;
             }
-            FinishTool(mesh, dropped);
+            FinishTool(mesh, dropped, kNoCrease);
         }
     }
     const f32 tolerance = CoincidenceTolerance(mesh);
     const Topology& topology = std::as_const(mesh).topology();
+    // The seam is welded (§3.15 step 3): a border vertex within `weld` of the
+    // plane is put on it, so the halves share it (3ds Max's Weld Seam).
+    {
+        const std::span<Vector3f> places = mesh.attributes.get<Vector3f>(names::kPosition, Domain::Vertex);
+        Extent box;
+        ResetExtent(box);
+        for (u32 v = 0; v < topology.vertexCount(); ++v) {
+            if (!topology.isDeleted(VertexId(v))) {
+                GrowExtent(box, places[v]);
+            }
+        }
+        const f32 weld = params.weld * (box.maximum - box.minimum).length();
+        for (u32 v = 0; v < topology.vertexCount(); ++v) {
+            if (topology.isDeleted(VertexId(v)) || !topology.isBoundary(VertexId(v))) {
+                continue;
+            }
+            const f32 d = (places[v] - seam).dot(normal);
+            if (std::abs(d) > tolerance && std::abs(d) <= weld) {
+                places[v] = places[v] - normal * d;
+                plan.reshade.push_back(v);
+            }
+        }
+    }
     const std::span<const Vector3f> at = positionsOf(mesh);
     bool any = false;
     for (u32 f = 0; f < topology.faceCount() && !any; ++f) {
@@ -6387,8 +8414,35 @@ ModelPlan PlanSymmetrize(Mesh& mesh, const PointTable& points, const SymmetrizeP
         plan.refusal = ModelRefusal::NoSourceSide;
         return plan;
     }
+    // A rigid section whose bone has a mirror is spelled out per vertex, so the
+    // copy's skin goes through the bone map below (SYM-5).
+    if (!boneMirror.empty()) {
+        for (u32 s = 0; s < mesh.sections.size(); ++s) {
+            const std::optional<u32>& node = mesh.sections[s].rigidNode;
+            if (node && *node < boneMirror.size() && boneMirror[*node] != kInvalidId && boneMirror[*node] != *node) {
+                BakeRigidNode(mesh, s);
+            }
+        }
+    }
     // The reflected copy: every vertex off the plane gets one, and every face a
-    // reversed twin. A vertex on the plane is shared, which is the seam.
+    // reversed twin. A vertex on the plane is shared, which is the seam, where a
+    // border edge of it runs in the plane; one that touches the plane alone keeps
+    // a copy of its own, as two fans cannot meet at one vertex (SYM-11).
+    std::vector<u8> onPlane(topology.vertexCount(), 0);
+    for (u32 v = 0; v < topology.vertexCount(); ++v) {
+        onPlane[v] = !topology.isDeleted(VertexId(v)) && std::abs((at[v] - seam).dot(normal)) <= tolerance ? 1 : 0;
+    }
+    const auto shared = [&](u32 v) {
+        if (onPlane[v] == 0) {
+            return false;
+        }
+        for (const HalfedgeId h : topology.voh(VertexId(v))) {
+            if (topology.isBoundary(Topology::edge(h)) && onPlane[topology.to(h).value()] != 0) {
+                return true;
+            }
+        }
+        return false;
+    };
     const std::vector<u32> snapshot = detail::snapshotCornersBuilt(mesh);
     const std::unordered_map<u32, u32> ordinalOf = cornerOrdinals(snapshot);
     detail::RebuildMapping mapping = detail::identityMapping(mesh);
@@ -6398,7 +8452,7 @@ ModelPlan PlanSymmetrize(Mesh& mesh, const PointTable& points, const SymmetrizeP
         if (topology.isDeleted(VertexId(v))) {
             continue;
         }
-        if (std::abs((at[v] - seam).dot(normal)) <= tolerance) {
+        if (shared(v)) {
             mirrorOf[v] = v; // on the plane: the halves share it
             continue;
         }
@@ -6487,13 +8541,27 @@ ModelPlan PlanSymmetrize(Mesh& mesh, const PointTable& points, const SymmetrizeP
             mesh.skin.assignVertex(v, now);
         }
     }
-    touchFaces(mesh, plan);
+    // The crease rule and the re-shade run on the seam alone, at the caller's
+    // angle: the copy's other edges keep their sources' flags (SYM-8, X8).
+    {
+        const Topology& built = std::as_const(mesh).topology();
+        const auto sharedAt = [&](u32 v) { return v < mirrorOf.size() && mirrorOf[v] == v; };
+        for (u32 e = 0; e < built.edgeCount(); ++e) {
+            const HalfedgeId h = Topology::halfedge(EdgeId(e), 0);
+            if (!built.isDeleted(EdgeId(e)) && sharedAt(built.from(h).value()) && sharedAt(built.to(h).value())) {
+                plan.touchedEdges.push_back(e);
+            }
+        }
+    }
+    plan.changedFaces = sortedUnique(std::move(plan.changedFaces));
+    plan.selection.normalise();
     mesh.recomputeBounds();
     return plan;
 }
 
 ModelPlan PlanMirror(Mesh& mesh, const MirrorParams& params, std::span<const u32> boneMirror) {
     ModelPlan plan;
+    const Rollback rollback(mesh, plan);
     if (!(params.normal.length() > 1e-12f)) {
         plan.refusal = ModelRefusal::ZeroAmount;
         return plan;
@@ -6567,10 +8635,20 @@ ModelPlan planarOnto(Mesh& mesh, std::span<const PlanarPart> parts) {
     const std::span<const Vector3f> at = positionsOf(mesh);
     const Topology& topology = std::as_const(mesh).topology();
     std::vector<u32> chosen;
+    // Off by no more than rounding everywhere is already flat (PLN-5).
+    const f32 rounding = CoincidenceTolerance(mesh);
+    f32 farthest = 0.0f;
+    bool anyPlane = false;
     for (const PlanarPart& part : parts) {
         if (part.normal.length() <= 1e-12f) {
-            continue; // no plane to go onto
+            // No plane to go onto: the rest go, and the result line counts it (Q2).
+            if (!part.vertices.empty()) {
+                ++plan.kept;
+                plan.keptBecause = ModelRefusal::NoPlane;
+            }
+            continue;
         }
+        anyPlane = true;
         const Vector3f normal = part.normal.normalized();
         for (const u32 v : part.vertices) {
             if (v >= at.size() || topology.isDeleted(VertexId(v))) {
@@ -6578,6 +8656,7 @@ ModelPlan planarOnto(Mesh& mesh, std::span<const PlanarPart> parts) {
             }
             chosen.push_back(v);
             const f32 distance = (at[v] - part.origin).dot(normal);
+            farthest = std::max(farthest, std::abs(distance));
             if (std::abs(distance) <= 0.0f) {
                 continue;
             }
@@ -6588,7 +8667,14 @@ ModelPlan planarOnto(Mesh& mesh, std::span<const PlanarPart> parts) {
             plan.motions.push_back(motion);
         }
     }
-    if (plan.motions.empty()) {
+    if (!anyPlane) {
+        plan = ModelPlan{};
+        plan.renumbers = false;
+        plan.refusal = ModelRefusal::NoPlane;
+        return plan;
+    }
+    if (plan.motions.empty() || farthest <= rounding) {
+        plan.motions.clear();
         plan.refusal = ModelRefusal::ZeroAmount; // already flat
         return plan;
     }
@@ -6649,15 +8735,18 @@ ModelPlan PlanMakePlanar(Mesh& mesh, const PointTable& points, const ElementSet&
         for (const u32 v : chosen) {
             gathered.push_back(at[v]);
         }
-        FitPlane(gathered, &centre, &normal);
+        if (!FitPlane(gathered, &centre, &normal)) {
+            plan.refusal = ModelRefusal::NoPlane; // a line fits no plane (PLN-7)
+            return plan;
+        }
     }
     return planarOnto(mesh, chosen, centre, normal);
 }
 
 bool FitPlane(std::span<const Vector3f> points, Vector3f* origin, Vector3f* normal) {
-    // The plane through the centre whose normal is the smallest eigenvector of
-    // the scatter, found by the power method on its adjugate -- three sweeps is
-    // plenty for a face's worth of points.
+    // The plane through the centre whose normal is the scatter's smallest
+    // eigenvector, by Jacobi rotations: exact where one adjugate row is not
+    // (PLN-1), and the same however the points are turned.
     Vector3f centre{0.0f, 0.0f, 0.0f};
     for (const Vector3f& p : points) {
         centre = centre + p;
@@ -6674,37 +8763,56 @@ bool FitPlane(std::span<const Vector3f> points, Vector3f* origin, Vector3f* norm
     if (points.size() < 3) {
         return false;
     }
-    f64 xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0;
+    std::array<std::array<f64, 3>, 3> a{};
     for (const Vector3f& p : points) {
-        const Vector3f d = p - centre;
-        xx += static_cast<f64>(d.x) * d.x;
-        xy += static_cast<f64>(d.x) * d.y;
-        xz += static_cast<f64>(d.x) * d.z;
-        yy += static_cast<f64>(d.y) * d.y;
-        yz += static_cast<f64>(d.y) * d.z;
-        zz += static_cast<f64>(d.z) * d.z;
-    }
-    const std::array<std::array<f64, 3>, 3> adjugate = {{
-        {yy * zz - yz * yz, xz * yz - xy * zz, xy * yz - xz * yy},
-        {xz * yz - xy * zz, xx * zz - xz * xz, xy * xz - xx * yz},
-        {xy * yz - xz * yy, xy * xz - xx * yz, xx * yy - xy * xy},
-    }};
-    std::size_t best = 0;
-    f64 largest = -1.0;
-    for (std::size_t i = 0; i < 3; ++i) {
-        const f64 length = adjugate[i][0] * adjugate[i][0] + adjugate[i][1] * adjugate[i][1] +
-                           adjugate[i][2] * adjugate[i][2];
-        if (length > largest) {
-            largest = length;
-            best = i;
+        const f64 d[3] = {static_cast<f64>(p.x) - centre.x, static_cast<f64>(p.y) - centre.y,
+                          static_cast<f64>(p.z) - centre.z};
+        for (u32 i = 0; i < 3; ++i) {
+            for (u32 j = 0; j < 3; ++j) {
+                a[i][j] += d[i] * d[j];
+            }
         }
     }
-    if (largest <= 1e-20) {
+    std::array<std::array<f64, 3>, 3> v{{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}};
+    for (u32 sweep = 0; sweep < 32; ++sweep) {
+        const f64 off = a[0][1] * a[0][1] + a[0][2] * a[0][2] + a[1][2] * a[1][2];
+        const f64 diagonal = a[0][0] * a[0][0] + a[1][1] * a[1][1] + a[2][2] * a[2][2];
+        if (!(off > 1e-30 * diagonal)) {
+            break;
+        }
+        for (const auto [p, q] : {std::pair<u32, u32>{0, 1}, {0, 2}, {1, 2}}) {
+            const f64 apq = a[p][q];
+            if (apq == 0.0) {
+                continue;
+            }
+            const f64 theta = (a[q][q] - a[p][p]) / (2.0 * apq);
+            const f64 t = (theta >= 0.0 ? 1.0 : -1.0) / (std::abs(theta) + std::sqrt(theta * theta + 1.0));
+            const f64 c = 1.0 / std::sqrt(t * t + 1.0);
+            const f64 sn = t * c;
+            const f64 tau = sn / (1.0 + c);
+            a[p][p] -= t * apq;
+            a[q][q] += t * apq;
+            a[p][q] = a[q][p] = 0.0;
+            const u32 r = 3 - p - q;
+            const f64 arp = a[r][p], arq = a[r][q];
+            a[r][p] = a[p][r] = arp - sn * (arq + tau * arp);
+            a[r][q] = a[q][r] = arq + sn * (arp - tau * arq);
+            for (u32 k = 0; k < 3; ++k) {
+                const f64 vkp = v[k][p], vkq = v[k][q];
+                v[k][p] = vkp - sn * (vkq + tau * vkp);
+                v[k][q] = vkq + sn * (vkp - tau * vkq);
+            }
+        }
+    }
+    // Eigenvalues smallest first; a line or a point leaves the middle one at 0.
+    std::array<u32, 3> order{0, 1, 2};
+    std::sort(order.begin(), order.end(), [&](u32 l, u32 r) { return a[l][l] < a[r][r]; });
+    if (!(a[order[1]][order[1]] > 1e-10 * a[order[2]][order[2]]) || !(a[order[2]][order[2]] > 0.0)) {
         return false; // one point, or a line: no smallest direction to find
     }
     if (normal != nullptr) {
-        *normal = unitOr(Vector3f{static_cast<f32>(adjugate[best][0]), static_cast<f32>(adjugate[best][1]),
-                                  static_cast<f32>(adjugate[best][2])},
+        const u32 k = order[0];
+        *normal = unitOr(Vector3f{static_cast<f32>(v[0][k]), static_cast<f32>(v[1][k]), static_cast<f32>(v[2][k])},
                          Vector3f{0.0f, 0.0f, 1.0f});
     }
     return true;

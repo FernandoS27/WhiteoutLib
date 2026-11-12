@@ -21,6 +21,18 @@ namespace {
 
 constexpr f32 kTau = 6.28318530718f;
 
+/// A size is its magnitude: a negative one would build the shape inside out (PRM-7).
+Vector3f Magnitude(const Vector3f& size) {
+    return {std::abs(size.x), std::abs(size.y), std::abs(size.z)};
+}
+
+/// What a shape of no size is: no faces, rather than faces of no area (PRM-7).
+Mesh Nothing() {
+    Mesh mesh;
+    mesh.setFaceSet(FaceSet{});
+    return mesh;
+}
+
 /// One shape under construction: its corners, its faces and the UV each corner
 /// carries, so every primitive says the same three things.
 struct Build {
@@ -93,7 +105,10 @@ Mesh finish(const Build& build, bool sharp) {
 } // namespace
 
 Mesh MakeBox(const PrimitiveParams& params) {
-    const Vector3f s = params.size;
+    const Vector3f s = Magnitude(params.size);
+    if (!(s.x > 0.0f && s.y > 0.0f && s.z > 0.0f)) {
+        return Nothing();
+    }
     Build build;
     const u32 v[8] = {
         build.place({-s.x, -s.y, -s.z}), build.place({s.x, -s.y, -s.z}),
@@ -115,14 +130,17 @@ Mesh MakeBox(const PrimitiveParams& params) {
 
 Mesh MakePlane(const PrimitiveParams& params) {
     const u32 cells = std::max(1u, params.segments);
+    const Vector3f s = Magnitude(params.size);
+    if (!(s.x > 0.0f && s.y > 0.0f)) {
+        return Nothing();
+    }
     Build build;
     std::vector<std::vector<u32>> grid(cells + 1);
     for (u32 y = 0; y <= cells; ++y) {
         for (u32 x = 0; x <= cells; ++x) {
             const f32 u = static_cast<f32>(x) / static_cast<f32>(cells);
             const f32 t = static_cast<f32>(y) / static_cast<f32>(cells);
-            grid[y].push_back(build.place({params.size.x * (u * 2.0f - 1.0f),
-                                           params.size.y * (t * 2.0f - 1.0f), 0.0f}));
+            grid[y].push_back(build.place({s.x * (u * 2.0f - 1.0f), s.y * (t * 2.0f - 1.0f), 0.0f}));
         }
     }
     for (u32 y = 0; y < cells; ++y) {
@@ -140,8 +158,13 @@ Mesh MakePlane(const PrimitiveParams& params) {
 
 Mesh MakeCylinder(const PrimitiveParams& params) {
     const u32 sides = std::max(3u, params.sides);
-    const f32 radius = params.size.x;
-    const f32 height = params.size.z;
+    const f32 radius = std::abs(params.size.x);
+    // `size.z` is a half-extent, as a box's is: the shape fits the box of the
+    // same size, and Create's draft stands it on its base by that (PRM-6).
+    const f32 half = std::abs(params.size.z);
+    if (!(radius > 0.0f && half > 0.0f)) {
+        return Nothing();
+    }
     Build build;
     std::vector<u32> bottom;
     std::vector<u32> top;
@@ -149,8 +172,8 @@ Mesh MakeCylinder(const PrimitiveParams& params) {
         const f32 angle = kTau * static_cast<f32>(i) / static_cast<f32>(sides);
         const f32 x = std::cos(angle) * radius;
         const f32 y = std::sin(angle) * radius;
-        bottom.push_back(build.place({x, y, -height}));
-        top.push_back(build.place({x, y, height}));
+        bottom.push_back(build.place({x, y, -half}));
+        top.push_back(build.place({x, y, half}));
     }
     // The side is one wrapped strip; the caps are their own discs.
     for (u32 i = 0; i < sides; ++i) {
@@ -180,15 +203,18 @@ Mesh MakeCylinder(const PrimitiveParams& params) {
 
 Mesh MakeCone(const PrimitiveParams& params) {
     const u32 sides = std::max(3u, params.sides);
-    const f32 radius = params.size.x;
-    const f32 height = params.size.z;
+    const f32 radius = std::abs(params.size.x);
+    const f32 half = std::abs(params.size.z); // a half-extent, as the cylinder's
+    if (!(radius > 0.0f && half > 0.0f)) {
+        return Nothing();
+    }
     Build build;
     std::vector<u32> ring;
     for (u32 i = 0; i < sides; ++i) {
         const f32 angle = kTau * static_cast<f32>(i) / static_cast<f32>(sides);
-        ring.push_back(build.place({std::cos(angle) * radius, std::sin(angle) * radius, -height}));
+        ring.push_back(build.place({std::cos(angle) * radius, std::sin(angle) * radius, -half}));
     }
-    const u32 apex = build.place({0.0f, 0.0f, height});
+    const u32 apex = build.place({0.0f, 0.0f, half});
     for (u32 i = 0; i < sides; ++i) {
         const u32 next = (i + 1) % sides;
         const f32 u0 = static_cast<f32>(i) / static_cast<f32>(sides);
@@ -209,8 +235,14 @@ Mesh MakeCone(const PrimitiveParams& params) {
 
 Mesh MakeSphere(const PrimitiveParams& params) {
     const u32 sides = std::max(3u, params.sides);
-    const u32 bands = std::max(2u, params.segments + 1);
-    const f32 radius = params.size.x;
+    // One ring of latitude is a bipyramid, not a sphere (PRM-4): at least half
+    // the sides in bands, as Blender's and Max's spheres have, so more
+    // segments never make a coarser sphere.
+    const u32 bands = std::max({params.segments + 1, sides / 2, 3u});
+    const f32 radius = std::abs(params.size.x);
+    if (!(radius > 0.0f)) {
+        return Nothing();
+    }
     Build build;
     // Latitude and longitude: quads between the bands, and a fan of triangles
     // at each pole where the quads would be degenerate.

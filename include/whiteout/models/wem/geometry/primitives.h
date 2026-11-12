@@ -31,11 +31,14 @@ namespace geom {
 
 /// What a primitive is cut from (§3.16), all of it re-plannable.
 struct PrimitiveParams {
-    /// Half-extents for a box and a plane; x the radius and z the height for
-    /// the round ones.
+    /// Half-extents: a box's and a plane's; for the round ones x is the radius
+    /// and z half the height, so each fits the box of the same size. A negative
+    /// size is its magnitude; a zero one makes a mesh with no faces.
     Vector3f size{1.0f, 1.0f, 1.0f};
     u32 sides = 12;   ///< Around: a cylinder, a cone, a sphere's longitude.
-    u32 segments = 1; ///< A plane's cells per side, a sphere's latitude bands.
+    /// A plane's cells per side; a sphere's rings of latitude, never fewer
+    /// than half the sides in bands.
+    u32 segments = 1;
 };
 
 /// A box of `2 * size`, six quads, every edge `sharp`.
@@ -44,16 +47,17 @@ Mesh MakeBox(const PrimitiveParams& params);
 /// A plane in XY of `2 * size`, `segments` x `segments` quads.
 Mesh MakePlane(const PrimitiveParams& params);
 
-/// A cylinder of radius `size.x` and height `size.z`, `sides` side quads and an
-/// n-gon at each end.
+/// A cylinder of radius `size.x` and height `2 * size.z`, centred on the
+/// origin: `sides` side quads and an n-gon at each end.
 Mesh MakeCylinder(const PrimitiveParams& params);
 
-/// A cone of radius `size.x` and height `size.z`: `sides` triangles and one
-/// n-gon under them.
+/// A cone of radius `size.x` and height `2 * size.z`, centred on the origin:
+/// `sides` triangles and one n-gon under them.
 Mesh MakeCone(const PrimitiveParams& params);
 
-/// A sphere of radius `size.x`: `sides` round, `segments` bands of latitude
-/// (at least two), quads between them and a fan of triangles at each pole.
+/// A sphere of radius `size.x`: `sides` round, `segments + 1` bands of
+/// latitude but at least half the sides, quads between them and a fan of
+/// triangles at each pole.
 Mesh MakeSphere(const PrimitiveParams& params);
 
 /// What a lathe turns: a profile of (radius, height) points about Z.

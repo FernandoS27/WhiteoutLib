@@ -30,8 +30,9 @@ enum class SubdivideScheme : u8 {
 struct SubdivideParams {
     u32 levels = 1;
     SubdivideScheme scheme = SubdivideScheme::CatmullClark;
-    /// Sharp edges hold their line as borders do (Catmull-Clark's crease
-    /// rule); off, only borders do.
+    /// Creased edges (the `crease` layer, 0 to 1) hold their line as borders
+    /// do (Catmull-Clark's crease rule), a partial crease partly; off, only
+    /// borders do. `sharp` is shading only and never read (Q11).
     bool creases = true;
 };
 
@@ -65,10 +66,14 @@ struct SmoothParams {
 };
 
 /**
- * @brief Smooth: @p elements' vertices (its faces' when it names none) each
- *        moved toward the mean of the vertices it shares an edge with,
- *        `iterations` times, every vertex of a pass read before any is
+ * @brief Smooth: @p elements' points (its faces' when it names none) each
+ *        moved toward the mean of the points a drawn triangle joins it to,
+ *        `iterations` times, every point of a pass read before any is
  *        written. Positions only: nothing renumbers.
+ *
+ * A crack's twins are one point and move as one; its edges are no border.
+ * With `pinBorders`, chosen border points stay and are counted in `kept`
+ * (`PinnedBorders`); refused `PinnedBorders` when no other point is left.
  */
 ModelPlan PlanSmooth(Mesh& mesh, const ElementSet& elements, const SmoothParams& params = {});
 

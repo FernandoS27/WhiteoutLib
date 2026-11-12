@@ -69,8 +69,21 @@ std::optional<MergedMesh> MergedMeshOf(const Model& model, std::span<const u32> 
             order.push_back(m);
         }
     }
-    const bool primaryTangents =
-        primary.attributes.has(geom::names::kTangent, geom::Domain::Halfedge);
+    // Any input's tangents mean the merged mesh has the layer, so every input
+    // needs them: one without would shade its normal map flat (MRG-6).
+    bool anyTangents = false;
+    // And any input's skin: one without would leave its vertices bound to
+    // nothing in a skinned geoset.
+    const Mesh* skinned = nullptr;
+    for (const u32 m : picked) {
+        anyTangents = anyTangents || model.meshes[m].attributes.has(geom::names::kTangent, geom::Domain::Halfedge);
+        if (skinned == nullptr && !model.meshes[m].skin.empty()) {
+            skinned = &model.meshes[m];
+        }
+    }
+    if (!model.meshes[keep].skin.empty()) {
+        skinned = &model.meshes[keep];
+    }
     std::vector<Mesh> inputs;
     inputs.reserve(order.size());
     for (const u32 m : order) {
@@ -82,9 +95,38 @@ std::optional<MergedMesh> MergedMeshOf(const Model& model, std::span<const u32> 
             return refuse("mesh " + number(m) + "'s connectivity does not build");
         }
         // A missing UV set is zero and harmless; a missing tangent shades an
-        // HD normal map flat. The primary's own are never re-derived.
-        if (primaryTangents && !copy.attributes.has(geom::names::kTangent, geom::Domain::Halfedge)) {
+        // HD normal map flat. An input's own are never re-derived.
+        if (anyTangents && !copy.attributes.has(geom::names::kTangent, geom::Domain::Halfedge)) {
             geom::RecomputeTangents(copy, 0);
+        }
+        // Unskinned, it follows the skinned input's vertex nearest its middle,
+        // whole, as a shell added to a mesh does.
+        if (skinned != nullptr && copy.skin.empty() && copy.vertexCount() != 0) {
+            const std::span<const Vector3f> mine =
+                copy.attributes.get<const Vector3f>(geom::names::kPosition, geom::Domain::Vertex);
+            const std::span<const Vector3f> theirs =
+                skinned->attributes.get<const Vector3f>(geom::names::kPosition, geom::Domain::Vertex);
+            Vector3f middle{0, 0, 0};
+            for (const Vector3f& p : mine) {
+                middle = middle + p;
+            }
+            middle = middle * (1.0f / static_cast<f32>(std::max<std::size_t>(mine.size(), 1)));
+            u32 nearest = kInvalidIndex;
+            f32 closest = 0.0f;
+            for (u32 v = 0; v < theirs.size() && v < skinned->skin.vertexCount(); ++v) {
+                const f32 span = (theirs[v] - middle).length();
+                if (!skinned->skin.forVertex(v).empty() && (nearest == kInvalidIndex || span < closest)) {
+                    nearest = v;
+                    closest = span;
+                }
+            }
+            if (nearest != kInvalidIndex) {
+                const std::span<const geom::Influence> like = skinned->skin.forVertex(nearest);
+                copy.skin.reset(copy.vertexCount());
+                for (u32 v = 0; v < copy.vertexCount(); ++v) {
+                    copy.skin.assignVertex(v, like);
+                }
+            }
         }
         if (copy.sections.empty()) {
             copy.sections.emplace_back();
@@ -199,6 +241,13 @@ MeshMergeResult MergeMeshesInto(Model& model, std::span<const u32> meshes, u32 k
             bone != nullptr && absorbed(bone->gateMesh)) {
             bone->gateMesh = keep;
             ++result.linksMoved;
+        }
+        // The raw `geosetId` an MDX bone keeps beside its gate follows the
+        // same way: an absorbed mesh is in the kept one now.
+        if (const NativeBag::Entry* raw = node.native.find("geosetId");
+            raw != nullptr && raw->value >= 0 && static_cast<u64>(raw->value) < count &&
+            absorbed(static_cast<u32>(raw->value))) {
+            node.native.set("geosetId", static_cast<i64>(keep));
         }
         if (auto* emitter = std::get_if<Sc2ParticleEmitterPayload>(&node.payload)) {
             std::vector<u32> sections;
