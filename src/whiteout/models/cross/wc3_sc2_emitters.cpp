@@ -14,6 +14,7 @@
 #include <vector>
 
 #include <whiteout/models/m3/structures.h>
+#include <whiteout/models/wem/anim/pose.h>
 #include <whiteout/models/wem/converters.h>
 
 #include "../wem/converters/m3_emitters.h"
@@ -411,10 +412,17 @@ struct MaterialKey {
     /// The source texture's address mode, `TEXS` 0x1 wrap U and 0x2 wrap V --
     /// the only word Warcraft III reads, where a clear bit is a clamp.
     u32 wrap = 0;
+    /// A StarCraft II blend named outright, over `filter` (a placed PopcornFX
+    /// record's look, `PlaceSc2Records`).
+    i32 blend = -1;
+    /// The depth blend's falloff; 0 draws hard.
+    f32 softness = 0.04f;
+    /// The diffuse's multiply; above 1 its clamp is off.
+    f32 gain = 1.0f;
 
     auto tie() const {
         return std::tie(texture, filter, unshaded, unfogged, twoSided, priority, particle,
-                        teamGlow, glowMask, wrap);
+                        teamGlow, glowMask, wrap, blend, softness, gain);
     }
     bool operator<(const MaterialKey& other) const {
         return tie() < other.tie();
@@ -489,15 +497,17 @@ public:
         if (key.twoSided) {
             mat.flags |= m3::MaterialFlag::TwoSided;
         }
-        mat.additionalFlags = m3::MaterialAdditionalFlag::DepthBlendFalloff |
-                              m3::MaterialAdditionalFlag::VertexColor |
+        mat.additionalFlags = m3::MaterialAdditionalFlag::VertexColor |
                               m3::MaterialAdditionalFlag::VertexAlpha;
+        if (key.softness > 0.0f) {
+            mat.additionalFlags |= m3::MaterialAdditionalFlag::DepthBlendFalloff;
+        }
         mat.materialClass = m3::MaterialClass::SpecialFX;
         mat.priority = key.priority;
         mat.specularExponent = 20.0f;
         mat.hdrSpecularMultiplier = 1.5f;
         mat.hdrEmissiveMultiplier = 1.5f;
-        mat.depthBlendFalloff = 0.04f;
+        mat.depthBlendFalloff = key.softness > 0.0f ? key.softness : 0.0f;
 
         const bool textured = !key.texture.empty();
         if (textured && key.teamGlow) {
@@ -542,9 +552,35 @@ public:
             mask = true;
             break;
         }
+        if (key.blend >= 0) {
+            // Every blend that weighs by alpha reads the texture's: AlphaBlend,
+            // AlphaAdd, and 6 and 7 (Mod with alpha, premultiplied).
+            mat.blendMode = static_cast<m3::BlendMode>(key.blend);
+            mat.alphaTestThreshold = 0;
+            mask = key.blend == 1 || key.blend == 3 || key.blend == 6 || key.blend == 7;
+        }
         if (mask && textured && !key.glowMask) {
             mat.alphaLayer1 = key.teamGlow ? *mat.emissiveLayer1 : *mat.diffuseLayer;
             mat.alphaLayer1->colorType = m3::ColorChannelSelect::Alpha;
+        }
+        // After the mask's copy, which keeps its weight. The layer computes
+        // `sample * multiply`, then clamps (psmateriallayer.fx), so a gain
+        // above 1 needs the clamp off.
+        if (key.gain != 1.0f && mat.diffuseLayer.has_value()) {
+            mat.diffuseLayer->rgbMultiply.initValue = key.gain;
+            mat.diffuseLayer->flags = mat.diffuseLayer->flags & ~m3::TextureLayerFlag::ColorClamp;
+        }
+        // A placed record's team glow: the team op reads only the layer's
+        // alpha, so its gain is the emissive multiplier, the colour the
+        // vertex's. The game scales every emissive by the lighting's
+        // HDREmisMultiplier (0.56 in the core rig) where a diffuse shows
+        // as it is, so the multiplier undoes it to show as the other records
+        // do. PopcornFX draws the texture's rgb times the colour, its alpha
+        // the coverage the mask already takes: the op weighs by red.
+        if (key.blend >= 0 && key.teamGlow && mat.emissiveLayer1.has_value()) {
+            constexpr f32 kCoreEmissive = 0.56f;
+            mat.hdrEmissiveMultiplier = key.gain / kCoreEmissive;
+            mat.emissiveLayer1->colorType = m3::ColorChannelSelect::Red;
         }
         if (!key.particle && mat.diffuseLayer.has_value()) {
             // Warcraft III runs a ribbon's U along its length; StarCraft II its
@@ -791,6 +827,70 @@ public:
         : document_(document), model_(document.models.front()), options_(options),
           report_(report), materials_(document, model_, options.profile, report),
           nextId_(model_.animChannels.nextFreeId()) {}
+
+    /// A `CORN` node's fitted records (`PlaceSc2Records`).
+    void place(const Sc2CornCrossing& c) {
+        if (c.node >= model_.nodes.size() || c.particles.empty()) {
+            return;
+        }
+        const NodeKind kind = model_.nodes.nodes[c.node].kind;
+        if (kind != NodeKind::Wc3CornEmitter && kind != NodeKind::ParticleEmitter) {
+            return;
+        }
+        // The node keeps its placement and children as a helper; what the
+        // game drew it with goes with its kind.
+        dropSystemChannels(c.node);
+        {
+            Node& host = model_.nodes.nodes[c.node];
+            host.kind = NodeKind::Helper;
+            host.resetPayloadForKind();
+        }
+        const u32 frame = addFrameNode(c.node);
+        for (std::size_t r = 0; r < c.particles.size(); ++r) {
+            const Sc2ParticleSpec& spec = c.particles[r];
+            m3::ParticleEmitter p = spec.record;
+            // The caller's key ids, 1-based into its own list, become the pool's.
+            wem::m3_emitters::ForEachParticleRef(p, [&](u32, auto& ref) {
+                const u32 id = ref.animId;
+                ref.animId = 0;
+                if (id != 0 && id <= spec.keys.size() && !spec.keys[id - 1].empty()) {
+                    pool_.push_back(spec.keys[id - 1]);
+                    ref.animId = static_cast<u32>(pool_.size());
+                }
+            });
+            MaterialKey key;
+            key.texture = spec.look.texture;
+            key.unshaded = spec.look.unshaded;
+            key.unfogged = spec.look.unfogged;
+            key.twoSided = spec.look.twoSided;
+            key.priority = spec.look.priority;
+            key.wrap = spec.look.wrap;
+            key.blend = static_cast<i32>(spec.look.blend);
+            key.softness = spec.look.softness;
+            key.gain = spec.look.gain;
+            key.teamGlow = spec.look.teamGlow;
+            p.materialIndex = materials_.slot(key);
+            const bool moved =
+                spec.offset.x != 0.0f || spec.offset.y != 0.0f || spec.offset.z != 0.0f;
+            const std::string suffix = "_" + std::to_string(r);
+            u32 target = frame;
+            if (moved || (r != 0 && !spec.worldAxes)) {
+                target = addRecordNode(frame, suffix.c_str());
+                if (moved) {
+                    moveNode(target, spec.offset);
+                }
+            }
+            if (spec.worldAxes) {
+                // Below the move, so the place off the node turns with it.
+                const Keyed& turns = worldTurns(c.node);
+                target = addWorldNode(target, target == frame ? suffix + "w" : "w", turns);
+                if (spec.coneTurns && p.velocityType == 0) {
+                    keyCone(p, turns);
+                }
+            }
+            placeParticle(target, std::move(p));
+        }
+    }
 
     void run() {
         // The records a system adds are appended, so the count taken first
@@ -1569,6 +1669,218 @@ private:
         return model_.nodes.add(std::move(node));
     }
 
+    /// The frame a `CORN` effect is drawn in: an identity child of @p parent
+    /// turned +90 degrees about z (`mdx_model_adapter.cpp` puts the quarter
+    /// turn in front of the node's world matrix).
+    u32 addFrameNode(u32 parent) {
+        const u32 child = addRecordNode(parent, "_corn");
+        Node& node = model_.nodes.nodes[child];
+        const f32 h = std::sqrt(0.5f);
+        node.local.rotation = Quaternion{0.0f, 0.0f, h, h};
+        node.poses.assign(model_.nodes.poseSchema.size(), node.local);
+        {
+            // A row vector's quarter turn, and its inverse.
+            Matrix44f turn = Matrix44f::identity();
+            turn.data[0][0] = 0.0f;
+            turn.data[0][1] = 1.0f;
+            turn.data[1][0] = -1.0f;
+            turn.data[1][1] = 0.0f;
+            Matrix44f back = turn;
+            back.data[0][1] = -1.0f;
+            back.data[1][0] = 1.0f;
+            bindUnder(node, turn, back);
+        }
+        return child;
+    }
+
+    /// Per clip, the rotation that undoes the turn of @p host and its
+    /// ancestors in a child of its `CORN` frame: `q_T⁻¹ q_F(t)⁻¹ q_R q_T`, q_F
+    /// the host's model-space rotation, q_R the same at rest and q_T the
+    /// frame's quarter turn, keyed where the chain keys a rotation. A clip
+    /// that turns nothing keys nothing: the child's rest is the identity.
+    const Keyed& worldTurns(u32 host) {
+        if (const auto it = worldTurns_.find(host); it != worldTurns_.end()) {
+            return it->second;
+        }
+        std::vector<bool> chain(model_.nodes.size(), false);
+        for (u32 n = host; n < model_.nodes.size(); n = model_.nodes.nodes[n].parent) {
+            chain[n] = true;
+        }
+        std::vector<u32> rotations;
+        for (const AnimChannel& channel : model_.animChannels.channels) {
+            if (channel.target.kind == TrackTarget::Kind::Node &&
+                channel.target.channel == Channel::Rotation && channel.target.node < chain.size() &&
+                chain[channel.target.node]) {
+                rotations.push_back(channel.id);
+            }
+        }
+        const f32 h = std::sqrt(0.5f);
+        const Quaternion turn{0.0f, 0.0f, h, h};
+        Quaternion rest{0.0f, 0.0f, 0.0f, 1.0f};
+        if (!rotations.empty()) {
+            const wem::Animator animator(document_, 0);
+            wem::Mix still;
+            still.globals = false;
+            wem::Pose pose;
+            animator.evaluate(still, pose);
+            if (host < pose.frame.size()) {
+                rest = wem::FromMatrix(pose.frame[host]).rotation;
+            }
+        }
+        Keyed keyed;
+        for (u32 c = 0; c < document_.clips.size() && !rotations.empty(); ++c) {
+            if (document_.clips[c].model != 0) {
+                continue;
+            }
+            std::vector<f32> times;
+            for (const wem::SubTrackContainer& container : document_.clips[c].containers) {
+                for (const u32 id : rotations) {
+                    if (const SubTrack* track = container.find(id)) {
+                        times.insert(times.end(), track->times.begin(), track->times.end());
+                    }
+                }
+            }
+            if (times.empty()) {
+                continue;
+            }
+            std::sort(times.begin(), times.end());
+            times.erase(std::unique(times.begin(), times.end()), times.end());
+            const wem::ClipPose pose(document_, 0, c);
+            SubTrack track;
+            track.interp = Interpolation::Linear;
+            track.times = times;
+            Quaternion last{0.0f, 0.0f, 0.0f, 1.0f};
+            for (const f32 t : times) {
+                const Quaternion q = wem::FromMatrix(pose.frame(host, t)).rotation;
+                Quaternion undo = turn.conjugate() * (q.conjugate() * (rest * turn));
+                // One hemisphere throughout, so a key lerps the short way.
+                if (undo.x * last.x + undo.y * last.y + undo.z * last.z + undo.w * last.w < 0.0f) {
+                    undo = Quaternion{-undo.x, -undo.y, -undo.z, -undo.w};
+                }
+                last = undo;
+                const f32 v[4] = {undo.x, undo.y, undo.z, undo.w};
+                const auto* raw = reinterpret_cast<const u8*>(v);
+                track.values.insert(track.values.end(), raw, raw + sizeof v);
+            }
+            keyed.emplace_back(c, std::move(track));
+        }
+        return worldTurns_.emplace(host, std::move(keyed)).first->second;
+    }
+
+    /// A child of @p parent whose rotation is keyed with @p turns
+    /// (`worldTurns`), so what hangs on it keeps the axes it has while the
+    /// host does not turn and follows the host's place only.
+    u32 addWorldNode(u32 parent, const std::string& suffix, const Keyed& turns) {
+        const u32 child = addRecordNode(parent, suffix.c_str());
+        if (turns.empty()) {
+            return child;
+        }
+        AnimChannel channel;
+        channel.id = nextId_++;
+        channel.target.kind = TrackTarget::Kind::Node;
+        channel.target.node = child;
+        channel.target.channel = Channel::Rotation;
+        channel.valueType = geom::AttrType::Quat;
+        model_.animChannels.add(channel);
+        for (const auto& [clip, track] : turns) {
+            wem::Clip& target = document_.clips[clip];
+            if (target.containers.empty()) {
+                target.containers.emplace_back();
+            }
+            SubTrack copy = track;
+            copy.channel = channel.id;
+            target.containers.front().subTracks.push_back(std::move(copy));
+        }
+        return child;
+    }
+
+    /// @p record's cone axis turned back by each of @p turns' keys: the
+    /// direction a birth drawn in the host's frame leaves in, in the world
+    /// child's axes, as the yaw and pitch `SampleSpawnVelocity` reads
+    /// (axis (sin b, −sin a cos b, cos a cos b), in StarCraft II's basis).
+    /// The spread keeps its roll.
+    void keyCone(m3::ParticleEmitter& record, const Keyed& turns) {
+        if (turns.empty()) {
+            return;
+        }
+        constexpr f32 kDeg = 3.14159265358979f / 180.0f;
+        const f32 a0 = record.initialYaw.initValue * kDeg;
+        const f32 b0 = record.initialPitch.initValue * kDeg;
+        const Vector3f d0{std::sin(b0), -std::sin(a0) * std::cos(b0), std::cos(a0) * std::cos(b0)};
+        Keyed yaws, pitches;
+        for (const auto& [clip, track] : turns) {
+            SubTrack yaw, pitch;
+            yaw.interp = pitch.interp = Interpolation::Linear;
+            yaw.times = pitch.times = track.times;
+            f32 lastA = record.initialYaw.initValue, lastB = record.initialPitch.initValue;
+            const f32* q = reinterpret_cast<const f32*>(track.values.data());
+            for (std::size_t k = 0; k < track.times.size(); ++k, q += 4) {
+                // The angles are the record's, in StarCraft II's basis: the key
+                // in it (as the export rebases a bone's), inverted by the
+                // column-vector matrix's transpose.
+                const Matrix44f m = Matrix44f::rotation(Quaternion{q[1], -q[0], q[2], q[3]});
+                const auto column = [&](int i) {
+                    return m.data[0][i] * d0.x + m.data[1][i] * d0.y + m.data[2][i] * d0.z;
+                };
+                const Vector3f d{column(0), column(1), column(2)};
+                // Two angle pairs draw each axis; the one nearer the last key,
+                // each angle unwrapped toward it.
+                const f32 b1 = std::asin(std::clamp(d.x, -1.0f, 1.0f)) / kDeg;
+                const f32 a1 = std::atan2(-d.y, d.z) / kDeg;
+                const auto toward = [](f32 x, f32 to) {
+                    return x + 360.0f * std::round((to - x) / 360.0f);
+                };
+                f32 a = toward(a1, lastA), b = toward(b1, lastB);
+                const f32 a2 = toward(a1 + 180.0f, lastA), b2 = toward(180.0f - b1, lastB);
+                if (std::abs(a2 - lastA) + std::abs(b2 - lastB) <
+                    std::abs(a - lastA) + std::abs(b - lastB)) {
+                    a = a2;
+                    b = b2;
+                }
+                if (std::abs(std::cos(b * kDeg)) < 1e-4f) {
+                    a = lastA; // along x: any yaw draws it
+                }
+                lastA = a;
+                lastB = b;
+                const auto* ra = reinterpret_cast<const u8*>(&a);
+                const auto* rb = reinterpret_cast<const u8*>(&b);
+                yaw.values.insert(yaw.values.end(), ra, ra + sizeof a);
+                pitch.values.insert(pitch.values.end(), rb, rb + sizeof b);
+            }
+            yaws.emplace_back(clip, std::move(yaw));
+            pitches.emplace_back(clip, std::move(pitch));
+        }
+        bind(std::move(yaws), {&record.initialYaw});
+        bind(std::move(pitches), {&record.initialPitch});
+    }
+
+    /// Moves an identity child by @p offset in its parent's frame.
+    void moveNode(u32 child, const Vector3f& offset) {
+        Node& node = model_.nodes.nodes[child];
+        node.local.translation = offset;
+        node.poses.assign(model_.nodes.poseSchema.size(), node.local);
+        const f32 at[3] = {offset.x, offset.y, offset.z};
+        Matrix44f move = Matrix44f::identity();
+        Matrix44f back = Matrix44f::identity();
+        for (int k = 0; k < 3; ++k) {
+            move.data[3][k] = at[k];
+            back.data[3][k] = -at[k];
+        }
+        bindUnder(node, move, back);
+    }
+
+    /// Puts @p local, a row-vector matrix, under each of @p node's matrix
+    /// binds, which start as its parent's: a bind is `local · parent`, and a
+    /// schema that stores the inverse holds `parent⁻¹ · local⁻¹`
+    /// (@p inverse is `local⁻¹`).
+    void bindUnder(Node& node, const Matrix44f& local, const Matrix44f& inverse) {
+        const std::vector<wem::PoseSchema>& schema = model_.nodes.poseSchema;
+        for (std::size_t i = 0; i < node.poseMatrices.size(); ++i) {
+            Matrix44f& m = node.poseMatrices[i];
+            m = i < schema.size() && schema[i].inverse ? m * inverse : local * m;
+        }
+    }
+
     /// Drops @p node's Warcraft III system channels -- its properties, and a
     /// ribbon's colour, alpha and cell -- with their keys. Its visibility and
     /// its transform stay: they are the node's.
@@ -1622,6 +1934,7 @@ private:
     Wc3EmitterReport& report_;
     Materials materials_;
     std::vector<Keyed> pool_;
+    std::map<u32, Keyed> worldTurns_;
     u32 nextId_;
 };
 
@@ -1643,10 +1956,13 @@ void PrepareWc3Effects(wem::Document& document, wem::Diagnostics& diagnostics,
     }
     // §A9: a squirting emitter's bursts ignore its visibility in Warcraft III
     // and would obey the bone's in StarCraft II, so the track that would hide
-    // them does not cross.
+    // them does not cross. Nor does a `CORN` node's (`KPPV`): the game never
+    // reads it, and its guide and `KPPE` say when the effect plays.
     for (u32 n = 0; n < model.nodes.size(); ++n) {
-        const auto* pe = std::get_if<wem::Wc3ParticleEmitter2Payload>(&model.nodes.nodes[n].payload);
-        if (pe == nullptr || !pe->squirt) {
+        const Node& node = model.nodes.nodes[n];
+        const auto* pe = std::get_if<wem::Wc3ParticleEmitter2Payload>(&node.payload);
+        const bool corn = node.kind == NodeKind::Wc3CornEmitter;
+        if (!corn && (pe == nullptr || !pe->squirt)) {
             continue;
         }
         std::vector<u32> dropped;
@@ -1675,9 +1991,12 @@ void PrepareWc3Effects(wem::Document& document, wem::Diagnostics& diagnostics,
             }
         }
         diagnostics.info(DiagCode::AnimTrackDropped,
-                         "particle emitter '" + model.nodes.nodes[n].name +
-                             "' squirts; its bursts ignore its visibility in Warcraft III, so the "
-                             "track that would hide them in StarCraft II is not carried",
+                         corn ? "PopcornFX emitter '" + model.nodes.nodes[n].name +
+                                    "' keys a visibility Warcraft III never reads; not carried"
+                              : "particle emitter '" + model.nodes.nodes[n].name +
+                                    "' squirts; its bursts ignore its visibility in Warcraft III, "
+                                    "so the track that would hide them in StarCraft II is not "
+                                    "carried",
                          ElementRef(ElementKind::Node, n));
     }
     // §4.5 row 2: Warcraft III lays a strip from `heightBelow` under its node
@@ -1722,6 +2041,23 @@ void PrepareWc3Effects(wem::Document& document, wem::Diagnostics& diagnostics,
                              " units across its width: StarCraft II centres the strip",
                          ElementRef(ElementKind::Node, index));
     }
+}
+
+m3::ParticleEmitter Sc2RestParticle() {
+    return RestParticle();
+}
+
+Wc3EmitterReport PlaceSc2Records(wem::Document& staged, const std::vector<Sc2CornCrossing>& crossings,
+                                 const Wc3EmitterOptions& options) {
+    Wc3EmitterReport report;
+    if (staged.models.empty()) {
+        return report;
+    }
+    Crossing crossing(staged, options, report);
+    for (const Sc2CornCrossing& c : crossings) {
+        crossing.place(c);
+    }
+    return report;
 }
 
 Wc3EmitterReport CrossWc3Emitters(wem::Document& staged, const Wc3EmitterOptions& options) {

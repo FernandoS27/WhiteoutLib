@@ -24,7 +24,10 @@
 
 #include <map>
 #include <string>
+#include <utility>
+#include <vector>
 
+#include <whiteout/models/m3/structures.h>
 #include <whiteout/models/wem/diagnostics.h>
 #include <whiteout/models/wem/document.h>
 
@@ -75,7 +78,8 @@ struct Wc3EmitterReport {
 /// parent's offset away (War3 Wisp's emitters, 69 units above the body).
 ///
 /// A squirting emitter's visibility track is removed -- Warcraft III's bursts
-/// ignore it and StarCraft II's obey the bone's (§A9) -- with a diagnostic.
+/// ignore it and StarCraft II's obey the bone's (§A9) -- with a diagnostic, as
+/// is a `CORN` node's, which Warcraft III never reads.
 ///
 /// With @p ribbonOffsets, a ribbon whose two heights differ gets a helper child
 /// half their difference across its width, carrying the ribbon's visibility
@@ -97,6 +101,76 @@ void PrepareWc3Effects(wem::Document& document, wem::Diagnostics& diagnostics,
 /// (`kNodeSharesParentVisibility`) and rides its bone. A system with nothing to
 /// draw keeps its placement as a helper.
 Wc3EmitterReport CrossWc3Emitters(wem::Document& staged, const Wc3EmitterOptions& options);
+
+// ---------------------------------------------------------------------------
+// PopcornFX effects (WC3_CORN_TO_SC2_PLAN.md P0.7): the records a caller fitted
+// to a `CORN` node's effect, placed as the crossing places its own.
+// ---------------------------------------------------------------------------
+
+/// The look of a placed record: its StarCraft II material.
+struct Sc2Look {
+    /// As `Document::textures` or the game names it; empty draws untextured.
+    std::string texture;
+    m3::BlendMode blend = m3::BlendMode::AlphaBlend;
+    bool unshaded = true;
+    bool unfogged = false;
+    bool twoSided = false;
+    i32 priority = 0;
+    /// `TEXS` 0x1 wrap U, 0x2 wrap V.
+    u32 wrap = 0;
+    /// The depth blend's falloff (soft particles), in model units; 0 draws
+    /// hard.
+    f32 softness = 0.04f;
+    /// The diffuse's multiply, unclamped: a colour above what a vertex byte
+    /// holds (the material's HDR gain).
+    f32 gain = 1.0f;
+    /// The colour is the player's: the texture's alpha lights the team colour
+    /// on the emissive team op, times the vertex colour, `gain` riding the
+    /// emissive multiplier.
+    bool teamGlow = false;
+};
+
+/// One property's keys: per clip of the document, its sub-track.
+using Sc2Keyed = std::vector<std::pair<u32, wem::SubTrack>>;
+
+struct Sc2ParticleSpec {
+    /// The record at its rests. An AnimRef with a non-zero `animId` is keyed by
+    /// `keys[animId - 1]`.
+    m3::ParticleEmitter record;
+    std::vector<Sc2Keyed> keys;
+    Sc2Look look;
+    /// Where the record sits in the effect's frame: its shape's centre, or a
+    /// point birth's place off the emitter. Non-zero hangs it on a child
+    /// moved there.
+    Vector3f offset{0.0f, 0.0f, 0.0f};
+    /// The record keeps the axes the effect has while its node does not turn:
+    /// it hangs on a child whose rotation is keyed per clip to undo the turn
+    /// of the node and its ancestors, so it follows the node's place only.
+    bool worldAxes = false;
+    /// With `worldAxes`, a cone's yaw and pitch are keyed per clip to turn
+    /// its axis with the node, as a birth drawn in the node's frame turns.
+    bool coneTurns = false;
+};
+
+/// A `PAR_` at the rests Blizzard's tools write for every field nothing sets
+/// (WC3_TO_SC2_COMPLETION_PLAN.md §4.6): where a caller starts a record.
+m3::ParticleEmitter Sc2RestParticle();
+
+/// What a `CORN` node became.
+struct Sc2CornCrossing {
+    u32 node = wem::kInvalidIndex; ///< The `CORN` node in the staged document's first model.
+    std::vector<Sc2ParticleSpec> particles;
+};
+
+/// After staging and before `CrossWc3Emitters`: each crossing's node becomes a
+/// helper that keeps its placement and children, and its records
+/// hang on an identity child of it turned +90° about z, the frame the game
+/// draws a `CORN` effect in (D§6): the first record on that child, the rest on
+/// identity children of it that share its visibility (a `worldAxes` record
+/// on one more child below, its rotation keyed). A node the caller does
+/// not name stays a `CORN` node, which `CrossWc3Emitters` then reports dropped.
+Wc3EmitterReport PlaceSc2Records(wem::Document& staged, const std::vector<Sc2CornCrossing>& crossings,
+                                 const Wc3EmitterOptions& options);
 
 } // namespace cross
 } // namespace models

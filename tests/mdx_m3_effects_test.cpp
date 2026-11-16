@@ -30,6 +30,7 @@
 #include <whiteout/models/m3/parser.h>
 #include <whiteout/models/m3/writer.h>
 #include <whiteout/models/mdx/structures.h>
+#include <whiteout/models/wem/anim/pose.h>
 #include <whiteout/models/wem/converters.h>
 #include <whiteout/models/wem/parser.h>
 #include <whiteout/models/wem/retarget.h>
@@ -1015,6 +1016,326 @@ TEST_CASE("wem m3 a head and tail emitter is two records on one bone", "[wem][m3
     CHECK(head.initialVertical.initValue == Catch::Approx(0.0f));
     CHECK_FALSE(hasFlag(head.additionalFlags, m3::ParticleAdditionalFlag::WorldSpace));
     CHECK(out.report.particleRecords == 2u);
+}
+
+// WC3_CORN_TO_SC2_PLAN.md P0.7: a PopcornFX node's fitted records placed by
+// `PlaceSc2Records`, then written and read back field for field.
+TEST_CASE("wem m3 a CORN node's placed records read back as the PAR_ they were given",
+          "[wem][m3][particles][corn]") {
+    mdx::Model model = makeModel();
+    mdx::CornEmitter corn;
+    corn.node = makeNode("Smoke", 1, 0);
+    corn.path = "Doodads/Smoke/smoke.pkfx";
+    // A visibility (KPPV) Warcraft III never reads: it hides nothing.
+    corn.visibilityTracks =
+        makeTrack(mdx::InterpolationType::None, {0, 500}, std::vector<f32>{1.0f, 0.0f});
+    model.cornEmitters.push_back(corn);
+    setPivot(model, 1, Vector3f{0.0f, 0.0f, 50.0f});
+
+    Document document = importMdx(model);
+    Diagnostics prepared;
+    cross::PrepareWc3Effects(document, prepared);
+    bool said = false;
+    for (const Diagnostic& d : prepared.all())
+        said = said || d.code == DiagCode::AnimTrackDropped;
+    CHECK(said);
+    document.declare(ProfileId::Sc2);
+    REQUIRE(DeriveProfile(document, ProfileId::Wc3Classic, ProfileId::Sc2).ok);
+    REQUIRE(RetargetSkeleton(document, ProfileId::Sc2).ok);
+    REQUIRE(RescaleDocument(document, 0.01f).ok);
+
+    u32 node = kInvalidIndex;
+    for (u32 n = 0; n < document.models[0].nodes.size(); ++n)
+        if (document.models[0].nodes.nodes[n].kind == NodeKind::Wc3CornEmitter)
+            node = n;
+    REQUIRE(node != kInvalidIndex);
+    u32 stand = kInvalidIndex;
+    for (u32 c = 0; c < document.clips.size(); ++c)
+        if (document.clips[c].name == "Stand")
+            stand = c;
+    REQUIRE(stand != kInvalidIndex);
+
+    cross::Sc2CornCrossing crossing;
+    crossing.node = node;
+    cross::Sc2ParticleSpec spec;
+    spec.record = cross::Sc2RestParticle();
+    spec.record.lifetime.initValue = 1.5f;
+    spec.record.lifetimeRandom.initValue = 2.5f;
+    spec.record.sizeAnimation.initValue = Vector3f{0.2f, 0.6f, 1.0f};
+    spec.record.emissionRate.initValue = 10.0f;
+    // The rate keyed in Stand: 10 at 0 s, 30 at 0.5 s.
+    spec.record.emissionRate.animId = 1;
+    SubTrack rate;
+    rate.interp = Interpolation::Linear;
+    rate.times = {0.0f, 0.5f};
+    for (const f32 v : {10.0f, 30.0f}) {
+        const auto* b = reinterpret_cast<const u8*>(&v);
+        rate.values.insert(rate.values.end(), b, b + sizeof v);
+    }
+    spec.keys.push_back({{stand, rate}});
+    spec.look.texture = "Textures/smoke.dds";
+    spec.look.blend = m3::BlendMode::Add;
+    crossing.particles.push_back(spec);
+    cross::Sc2ParticleSpec second = spec;
+    second.keys.clear();
+    second.record.emissionRate.animId = 0;
+    second.look.blend = static_cast<m3::BlendMode>(7);
+    crossing.particles.push_back(second);
+    // A team glow (P1.2): the team colour lit through the texture's red, its
+    // alpha the mask, the gain over the core lighting's emissive 0.56.
+    cross::Sc2ParticleSpec team = second;
+    team.look.blend = m3::BlendMode::AlphaBlend;
+    team.look.teamGlow = true;
+    team.look.gain = 1.4f;
+    crossing.particles.push_back(team);
+
+    cross::Wc3EmitterOptions options;
+    const cross::Wc3EmitterReport placed = cross::PlaceSc2Records(document, {crossing}, options);
+    CHECK(placed.particleRecords == 3u);
+    const cross::Wc3EmitterReport crossed = cross::CrossWc3Emitters(document, options);
+    // The placed node is no CORN node any more: nothing is reported dropped.
+    for (const Diagnostic& d : crossed.diagnostics.all())
+        CHECK(d.code != DiagCode::FeatureDropped);
+
+    M3Converter m3;
+    M3ExportSettings settings;
+    settings.effectNodeBones = true;
+    M3ExportMap map;
+    Result<m3::Model> converted = m3.toM3(document, ProfileId::Sc2, 29, settings, &map);
+    REQUIRE(converted.ok());
+    m3::Writer writer;
+    const std::vector<u8> bytes = writer.write(*converted);
+    m3::Parser parser;
+    const m3::Model read = parser.parse(std::span<const u8>(bytes));
+
+    REQUIRE(read.particleEmitters.size() == 3);
+    const m3::ParticleEmitter& p = read.particleEmitters[0];
+    CHECK(p.lifetime.initValue == Catch::Approx(1.5f));
+    CHECK(p.lifetimeRandom.initValue == Catch::Approx(2.5f));
+    CHECK(p.sizeAnimation.initValue.y == Catch::Approx(0.6f));
+    CHECK(p.emissionRate.initValue == Catch::Approx(10.0f));
+    const auto keys = keysOf(read, "Stand", p.emissionRate, &m3::SubTrackContainer::sdr3, 5);
+    // The two keys given, and the writer's hold at the clip's end.
+    REQUIRE(keys.size() >= 2);
+    CHECK(keys[0].first == 0);
+    CHECK(keys[0].second == Catch::Approx(10.0f));
+    CHECK(keys[1].first == 500);
+    CHECK(keys[1].second == Catch::Approx(30.0f));
+    CHECK(materialOf(read, p.materialIndex).blendMode == m3::BlendMode::Add);
+    CHECK(static_cast<u32>(materialOf(read, read.particleEmitters[1].materialIndex).blendMode) == 7u);
+    const m3::StandardMaterial& glow = materialOf(read, read.particleEmitters[2].materialIndex);
+    // Every slot reads back; the diffuse is one with no texture.
+    CHECK((!glow.diffuseLayer.has_value() ||
+           glow.diffuseLayer->texturePath.find_first_not_of(' ') == std::string::npos));
+    REQUIRE(glow.emissiveLayer1.has_value());
+    CHECK(glow.emissiveBlendMode1 == m3::LayerBlendOp::TeamColorEmissiveAdd);
+    CHECK(glow.emissiveLayer1->colorType == m3::ColorChannelSelect::Red);
+    REQUIRE(glow.alphaLayer1.has_value());
+    CHECK(glow.alphaLayer1->colorType == m3::ColorChannelSelect::Alpha);
+    CHECK(glow.hdrEmissiveMultiplier == Catch::Approx(1.4f / 0.56f));
+    // Both on the quarter-turned frame child of the node: the second record's
+    // identity child rides its bone, as a head's tail does.
+    const u32 frame = boneNamed(read, "Smoke_corn");
+    REQUIRE(frame != kInvalidIndex);
+    CHECK(p.boneIndex == frame);
+    CHECK(read.particleEmitters[1].boneIndex == frame);
+    CHECK(read.bones[frame].parentIndex == boneNamed(read, "Smoke"));
+    CHECK_FALSE(read.bones[boneNamed(read, "Smoke")].visibility.isAnimated());
+    CHECK_FALSE(read.bones[frame].visibility.isAnimated());
+}
+
+// A record kept in the world's axes (the pit lord's back fires): a child keyed
+// to undo its node's turn and its parents', so the record follows the node's
+// place alone; a cone that turns with the node keys its yaw and pitch.
+TEST_CASE("wem m3 a CORN record in the world's axes undoes its node's turn",
+          "[wem][m3][particles][corn]") {
+    const auto about = [](Vector3f axis, f32 degrees) {
+        const f32 half = 0.5f * degrees * 3.14159265f / 180.0f;
+        const f32 s = std::sin(half);
+        return Quaternion{axis.x * s, axis.y * s, axis.z * s, std::cos(half)};
+    };
+    const Quaternion still{0.0f, 0.0f, 0.0f, 1.0f};
+    mdx::Model model = makeModel();
+    // The root leans over at 0.5 s; the node turns about z at 0.25 s.
+    model.bones[0].node.rotationTracks =
+        makeTrack(mdx::InterpolationType::Linear, {0, 500, 1000},
+                  std::vector<Quaternion>{still, about({1, 0, 0}, 90.0f), still});
+    mdx::CornEmitter corn;
+    corn.node = makeNode("Smoke", 1, 0);
+    corn.node.rotationTracks =
+        makeTrack(mdx::InterpolationType::Linear, {0, 250, 1000},
+                  std::vector<Quaternion>{still, about({0, 0, 1}, 60.0f), still});
+    corn.path = "Doodads/Smoke/smoke.pkfx";
+    model.cornEmitters.push_back(corn);
+    setPivot(model, 1, Vector3f{0.0f, 0.0f, 50.0f});
+
+    Document document = importMdx(model);
+    Diagnostics prepared;
+    cross::PrepareWc3Effects(document, prepared);
+    document.declare(ProfileId::Sc2);
+    REQUIRE(DeriveProfile(document, ProfileId::Wc3Classic, ProfileId::Sc2).ok);
+    REQUIRE(RetargetSkeleton(document, ProfileId::Sc2).ok);
+    REQUIRE(RescaleDocument(document, 0.01f).ok);
+    Model& staged = document.models[0];
+    u32 node = kInvalidIndex;
+    for (u32 n = 0; n < staged.nodes.size(); ++n)
+        if (staged.nodes.nodes[n].kind == NodeKind::Wc3CornEmitter)
+            node = n;
+    REQUIRE(node != kInvalidIndex);
+    u32 stand = kInvalidIndex;
+    for (u32 c = 0; c < document.clips.size(); ++c)
+        if (document.clips[c].name == "Stand")
+            stand = c;
+    REQUIRE(stand != kInvalidIndex);
+
+    cross::Sc2CornCrossing crossing;
+    crossing.node = node;
+    cross::Sc2ParticleSpec spec;
+    spec.record = cross::Sc2RestParticle();
+    spec.record.velocityType = 0;
+    spec.record.initialYaw.initValue = 30.0f;
+    spec.record.initialPitch.initValue = 10.0f;
+    spec.worldAxes = true;
+    spec.coneTurns = true;
+    crossing.particles.push_back(spec);
+    cross::Sc2ParticleSpec moved = spec;
+    moved.coneTurns = false;
+    moved.offset = Vector3f{0.1f, 0.0f, 0.0f};
+    crossing.particles.push_back(moved);
+    cross::Wc3EmitterOptions options;
+    CHECK(cross::PlaceSc2Records(document, {crossing}, options).particleRecords == 2u);
+
+    const auto named = [&](const std::string& name) {
+        for (u32 n = 0; n < staged.nodes.size(); ++n)
+            if (staged.nodes.nodes[n].name == name)
+                return n;
+        return kInvalidIndex;
+    };
+    const u32 frame = named("Smoke_corn");
+    const u32 world = named("Smoke_corn_0w");
+    const u32 offset = named("Smoke_corn_1");
+    const u32 offsetWorld = named("Smoke_corn_1w");
+    REQUIRE(frame != kInvalidIndex);
+    REQUIRE(world != kInvalidIndex);
+    REQUIRE(offset != kInvalidIndex);
+    REQUIRE(offsetWorld != kInvalidIndex);
+    CHECK(staged.nodes.nodes[world].parent == frame);
+    CHECK(staged.nodes.nodes[offset].parent == frame);
+    CHECK(staged.nodes.nodes[offsetWorld].parent == offset);
+
+    // The frame's rest, which the world child keeps through the clip.
+    const Animator animator(document, 0);
+    Mix rest;
+    rest.globals = false;
+    Pose atRest;
+    animator.evaluate(rest, atRest);
+    const Quaternion kept = FromMatrix(atRest.frame[frame]).rotation;
+    const auto sameTurn = [](const Quaternion& a, const Quaternion& b) {
+        return std::abs(a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w);
+    };
+    const auto turned = [](const Matrix44f& m, const Vector3f& v) {
+        return Vector3f{v.x * m.data[0][0] + v.y * m.data[1][0] + v.z * m.data[2][0],
+                        v.x * m.data[0][1] + v.y * m.data[1][1] + v.z * m.data[2][1],
+                        v.x * m.data[0][2] + v.y * m.data[1][2] + v.z * m.data[2][2]};
+    };
+    const ClipPose pose(document, 0, stand);
+    for (const f32 t : {0.0f, 0.25f, 0.5f, 1.0f}) {
+        INFO("at " << t << " s");
+        const Matrix44f f = pose.frame(frame, t);
+        const Matrix44f w = pose.frame(world, t);
+        // The node does turn here, and the child undoes it.
+        if (t == 0.25f || t == 0.5f)
+            CHECK(sameTurn(FromMatrix(f).rotation, kept) < 0.99f);
+        CHECK(sameTurn(FromMatrix(w).rotation, kept) == Catch::Approx(1.0f).margin(1e-4));
+        CHECK(sameTurn(FromMatrix(pose.frame(offsetWorld, t)).rotation, kept) ==
+              Catch::Approx(1.0f).margin(1e-4));
+        // It follows the node's place.
+        for (int k = 0; k < 3; ++k)
+            CHECK(w.data[3][k] == Catch::Approx(f.data[3][k]).margin(1e-5));
+    }
+    // Between keys, the product of two lerped turns against one: within a few
+    // degrees.
+    CHECK(sameTurn(FromMatrix(pose.frame(world, 0.375f)).rotation, kept) > std::cos(0.05f));
+
+    // The cone leaves along the frame's turn: its axis, as the keyed yaw and
+    // pitch draw it under the world child, is the rest axis under the frame.
+    // The angles are in StarCraft II's basis, a quarter turn from the
+    // document's (the export rebases a bone's turn by it).
+    const auto axisOf = [](f32 yaw, f32 pitch) {
+        const f32 a = yaw * 3.14159265f / 180.0f, b = pitch * 3.14159265f / 180.0f;
+        const Vector3f sc2{std::sin(b), -std::sin(a) * std::cos(b), std::cos(a) * std::cos(b)};
+        return Vector3f{-sc2.y, sc2.x, sc2.z};
+    };
+    M3Converter m3;
+    M3ExportSettings settings;
+    settings.effectNodeBones = true;
+    M3ExportMap map;
+    Result<m3::Model> converted = m3.toM3(document, ProfileId::Sc2, 29, settings, &map);
+    REQUIRE(converted.ok());
+    m3::Writer writer;
+    const std::vector<u8> bytes = writer.write(*converted);
+    m3::Parser parser;
+    const m3::Model read = parser.parse(std::span<const u8>(bytes));
+    REQUIRE(read.particleEmitters.size() == 2);
+    const m3::ParticleEmitter& p = read.particleEmitters[0];
+    CHECK(p.boneIndex == boneNamed(read, "Smoke_corn_0w"));
+    CHECK(read.particleEmitters[1].boneIndex == boneNamed(read, "Smoke_corn_1w"));
+    CHECK(read.bones.at(p.boneIndex).rotation.isAnimated());
+    CHECK_FALSE(read.particleEmitters[1].initialYaw.isAnimated());
+    const auto yaws = keysOf(read, "Stand", p.initialYaw, &m3::SubTrackContainer::sdr3, 5);
+    const auto pitches = keysOf(read, "Stand", p.initialPitch, &m3::SubTrackContainer::sdr3, 5);
+    REQUIRE(yaws.size() >= 4);
+    REQUIRE(pitches.size() == yaws.size());
+
+    // The written file, read back as the game poses it: the world child keeps
+    // its frame's rest there too.
+    Result<Document> back = m3.fromM3(read, ProfileId::Sc2);
+    REQUIRE(back.ok());
+    const Model& reread = back->models[0];
+    const auto renamed = [&](const std::string& name) {
+        for (u32 n = 0; n < reread.nodes.size(); ++n)
+            if (reread.nodes.nodes[n].name == name)
+                return n;
+        return kInvalidIndex;
+    };
+    u32 readStand = kInvalidIndex;
+    for (u32 c = 0; c < back->clips.size(); ++c)
+        if (back->clips[c].name == "Stand")
+            readStand = c;
+    REQUIRE(readStand != kInvalidIndex);
+    const u32 readFrame = renamed("Smoke_corn");
+    const u32 readWorld = renamed("Smoke_corn_0w");
+    REQUIRE(readFrame != kInvalidIndex);
+    REQUIRE(readWorld != kInvalidIndex);
+    const Animator readAnimator(*back, 0);
+    Pose readRest;
+    readAnimator.evaluate(rest, readRest);
+    const Quaternion readKept = FromMatrix(readRest.frame[readFrame]).rotation;
+    // The frame's quarter turn is its bind's too, so a reader that takes the
+    // rest from the IREF turns it the same way.
+    CHECK(sameTurn(readKept, kept) == Catch::Approx(1.0f).margin(1e-4));
+    const ClipPose played(*back, 0, readStand);
+    const auto show = [](const Quaternion& q) {
+        return "(" + std::to_string(q.x) + ", " + std::to_string(q.y) + ", " +
+               std::to_string(q.z) + ", " + std::to_string(q.w) + ")";
+    };
+    for (const f32 t : {0.0f, 0.25f, 0.5f, 1.0f}) {
+        const Quaternion got = FromMatrix(played.frame(readWorld, t)).rotation;
+        INFO("read back, at " << t << " s: the world child " << show(got) << ", the frame at rest "
+                              << show(readKept));
+        CHECK(sameTurn(got, readKept) == Catch::Approx(1.0f).margin(1e-3));
+    }
+
+    const Vector3f rest0 = axisOf(30.0f, 10.0f);
+    for (std::size_t k = 0; k < 4; ++k) {
+        const f32 t = 0.001f * static_cast<f32>(yaws[k].first);
+        INFO("key at " << t << " s");
+        const Vector3f got = turned(pose.frame(world, t), axisOf(yaws[k].second, pitches[k].second));
+        const Vector3f want = turned(pose.frame(frame, t), rest0);
+        CHECK(got.x == Catch::Approx(want.x).margin(1e-4));
+        CHECK(got.y == Catch::Approx(want.y).margin(1e-4));
+        CHECK(got.z == Catch::Approx(want.z).margin(1e-4));
+    }
 }
 
 TEST_CASE("wem m3 a team-glow emitter draws the glow in the team's colour",
