@@ -1088,6 +1088,8 @@ TEST_CASE("wem m3 a CORN node's placed records read back as the PAR_ they were g
     team.look.teamGlow = true;
     team.look.gain = 1.4f;
     crossing.particles.push_back(team);
+    // The first lays trail children of the second (D§7.4).
+    crossing.particles[0].trailChild = 1;
 
     cross::Wc3EmitterOptions options;
     const cross::Wc3EmitterReport placed = cross::PlaceSc2Records(document, {crossing}, options);
@@ -1121,6 +1123,8 @@ TEST_CASE("wem m3 a CORN node's placed records read back as the PAR_ they were g
     CHECK(keys[0].second == Catch::Approx(10.0f));
     CHECK(keys[1].first == 500);
     CHECK(keys[1].second == Catch::Approx(30.0f));
+    CHECK(p.trailLinkIndex == 1);
+    CHECK(read.particleEmitters[1].trailLinkIndex == -1);
     CHECK(materialOf(read, p.materialIndex).blendMode == m3::BlendMode::Add);
     CHECK(static_cast<u32>(materialOf(read, read.particleEmitters[1].materialIndex).blendMode) == 7u);
     const m3::StandardMaterial& glow = materialOf(read, read.particleEmitters[2].materialIndex);
@@ -1142,6 +1146,329 @@ TEST_CASE("wem m3 a CORN node's placed records read back as the PAR_ they were g
     CHECK(read.bones[frame].parentIndex == boneNamed(read, "Smoke"));
     CHECK_FALSE(read.bones[boneNamed(read, "Smoke")].visibility.isAnimated());
     CHECK_FALSE(read.bones[frame].visibility.isAnimated());
+}
+
+// D§13: a PopcornFX ribbon's fitted strip, placed as a RIB_ on a child of the
+// node's frame: its lifetime, size and colour kept, its `active` keyed, its
+// texture's U along the strip.
+TEST_CASE("wem m3 a CORN node's placed ribbon reads back as the RIB_ it was given",
+          "[wem][m3][ribbons][corn]") {
+    mdx::Model model = makeModel();
+    mdx::CornEmitter corn;
+    corn.node = makeNode("Trail", 1, 0);
+    corn.path = "Abilities/Trail/trail.pkfx";
+    model.cornEmitters.push_back(corn);
+    Document document = importMdx(model);
+    Diagnostics prepared;
+    cross::PrepareWc3Effects(document, prepared);
+    document.declare(ProfileId::Sc2);
+    REQUIRE(DeriveProfile(document, ProfileId::Wc3Classic, ProfileId::Sc2).ok);
+    REQUIRE(RetargetSkeleton(document, ProfileId::Sc2).ok);
+    REQUIRE(RescaleDocument(document, 0.01f).ok);
+    u32 node = kInvalidIndex;
+    for (u32 n = 0; n < document.models[0].nodes.size(); ++n)
+        if (document.models[0].nodes.nodes[n].kind == NodeKind::Wc3CornEmitter)
+            node = n;
+    REQUIRE(node != kInvalidIndex);
+    u32 stand = kInvalidIndex;
+    for (u32 c = 0; c < document.clips.size(); ++c)
+        if (document.clips[c].name == "Stand")
+            stand = c;
+    REQUIRE(stand != kInvalidIndex);
+
+    cross::Sc2CornCrossing crossing;
+    crossing.node = node;
+    cross::Sc2RibbonSpec strip;
+    strip.record = cross::Sc2RestRibbon();
+    strip.record.lifetime.initValue = 0.8f;
+    strip.record.sizeAnimation.initValue = Vector3f{0.8f, 0.4f, 0.0f};
+    strip.record.divisions = 12.5f;
+    // Laying in Stand until 0.5 s.
+    strip.record.active.animId = 1;
+    SubTrack on;
+    on.interp = Interpolation::Step;
+    on.times = {0.0f, 0.5f};
+    // WEM keys the flag as an f32.
+    for (const f32 v : {1.0f, 0.0f}) {
+        const auto* b = reinterpret_cast<const u8*>(&v);
+        on.values.insert(on.values.end(), b, b + sizeof v);
+    }
+    strip.keys.push_back({{stand, on}});
+    strip.look.texture = "Textures/trail.dds";
+    strip.look.blend = m3::BlendMode::AlphaAdd;
+    crossing.ribbons.push_back(strip);
+
+    cross::Wc3EmitterOptions options;
+    const cross::Wc3EmitterReport placed = cross::PlaceSc2Records(document, {crossing}, options);
+    CHECK(placed.ribbonRecords == 1u);
+    CHECK(placed.particleRecords == 0u);
+    cross::CrossWc3Emitters(document, options);
+
+    M3Converter m3;
+    M3ExportSettings settings;
+    settings.effectNodeBones = true;
+    Result<m3::Model> converted = m3.toM3(document, ProfileId::Sc2, 29, settings, nullptr);
+    REQUIRE(converted.ok());
+    m3::Writer writer;
+    const std::vector<u8> bytes = writer.write(*converted);
+    m3::Parser parser;
+    const m3::Model read = parser.parse(std::span<const u8>(bytes));
+
+    REQUIRE(read.ribbonEmitters.size() == 1);
+    const m3::RibbonEmitter& r = read.ribbonEmitters[0];
+    CHECK(r.lifetime.initValue == Catch::Approx(0.8f));
+    CHECK(r.sizeAnimation.initValue.x == Catch::Approx(0.8f));
+    CHECK(r.divisions == Catch::Approx(12.5f));
+    CHECK((static_cast<u32>(r.additionalFlags) & static_cast<u32>(m3::RibbonAdditionalFlag::WorldSpace)) != 0u);
+    // Written as flag keys (SDFG), as Blizzard's are.
+    const auto active = keysOf(read, "Stand", r.active, &m3::SubTrackContainer::sdfg, 11);
+    REQUIRE(active.size() >= 2);
+    CHECK(active[0].first == 0);
+    CHECK(active[0].second.value == 1u);
+    CHECK(active[1].first == 500);
+    CHECK(active[1].second.value == 0u);
+    const m3::StandardMaterial& mat = materialOf(read, r.materialIndex);
+    CHECK(mat.blendMode == m3::BlendMode::AlphaAdd);
+    REQUIRE(mat.diffuseLayer.has_value());
+    CHECK(mat.diffuseLayer->uvAngle.initValue.z == Catch::Approx(-3.14159265f * 0.5f));
+    // An identity child of the quarter-turned frame: it rides the frame's
+    // bone.
+    const u32 frame = boneNamed(read, "Trail_corn");
+    REQUIRE(frame != kInvalidIndex);
+    CHECK(r.boneIndex == frame);
+}
+
+// A head that draws nothing (D§12.3): its place keyed over a global loop, no
+// quad, and the strip it lays riding that place as a RIB_.
+TEST_CASE("wem m3 a CORN head that draws nothing carries its strip on its keyed place",
+          "[wem][m3][ribbons][corn]") {
+    mdx::Model model = makeModel();
+    mdx::CornEmitter corn;
+    corn.node = makeNode("Portal", 1, 0);
+    corn.path = "Doodads/Portal/portal.pkfx";
+    model.cornEmitters.push_back(corn);
+    Document document = importMdx(model);
+    Diagnostics prepared;
+    cross::PrepareWc3Effects(document, prepared);
+    document.declare(ProfileId::Sc2);
+    REQUIRE(DeriveProfile(document, ProfileId::Wc3Classic, ProfileId::Sc2).ok);
+    REQUIRE(RetargetSkeleton(document, ProfileId::Sc2).ok);
+    REQUIRE(RescaleDocument(document, 0.01f).ok);
+    u32 node = kInvalidIndex;
+    for (u32 n = 0; n < document.models[0].nodes.size(); ++n)
+        if (document.models[0].nodes.nodes[n].kind == NodeKind::Wc3CornEmitter)
+            node = n;
+    REQUIRE(node != kInvalidIndex);
+
+    cross::Sc2CornCrossing crossing;
+    crossing.node = node;
+    cross::Sc2BakedSprite head;
+    head.draws = false;
+    // A quarter of a turn a second around a circle 1 out, at 0.5 up.
+    head.position.period = 4.0f;
+    for (int k = 0; k < 4; ++k)
+        head.position.keys.push_back(Vector3f{std::cos(1.5707963f * static_cast<f32>(k)),
+                                              std::sin(1.5707963f * static_cast<f32>(k)), 0.5f});
+    cross::Sc2RibbonSpec strip;
+    strip.record = cross::Sc2RestRibbon();
+    strip.record.lifetime.initValue = 1.0f;
+    strip.record.divisions = 20.0f;
+    strip.look.texture = "Textures/trail.dds";
+    strip.look.blend = m3::BlendMode::AlphaAdd;
+    head.ribbons.push_back(strip);
+    crossing.sprites.push_back(head);
+
+    cross::Wc3EmitterOptions options;
+    const cross::Wc3EmitterReport placed = cross::PlaceSc2Records(document, {crossing}, options);
+    CHECK(placed.ribbonRecords == 1u);
+    cross::CrossWc3Emitters(document, options);
+
+    M3Converter m3;
+    M3ExportSettings settings;
+    settings.effectNodeBones = true;
+    Result<m3::Model> converted = m3.toM3(document, ProfileId::Sc2, 29, settings, nullptr);
+    REQUIRE(converted.ok());
+    m3::Writer writer;
+    const std::vector<u8> bytes = writer.write(*converted);
+    m3::Parser parser;
+    const m3::Model read = parser.parse(std::span<const u8>(bytes));
+
+    // No quad: the head draws nothing, so it has no facing bone.
+    CHECK(boneNamed(read, "Portal_corn_bake0_face") == kInvalidIndex);
+    REQUIRE(read.ribbonEmitters.size() == 1);
+    const u32 place = boneNamed(read, "Portal_corn_bake0");
+    REQUIRE(place != kInvalidIndex);
+    CHECK(read.ribbonEmitters[0].boneIndex != kInvalidIndex);
+    // On the place, or a child of it.
+    u32 at = read.ribbonEmitters[0].boneIndex;
+    while (at != place && at < read.bones.size() && read.bones[at].parentIndex != 0xFFFF)
+        at = read.bones[at].parentIndex;
+    CHECK(at == place);
+    // The place is keyed: it moves.
+    CHECK(read.bones[place].position.animId != 0);
+}
+
+// A head whose place keeps the world's axes (Lightning Shield's orbs): its
+// place hangs on a child keyed to undo its node's turn, as a world-axes
+// record's particles do, so the circle it keys follows the node's place alone.
+TEST_CASE("wem m3 a CORN head in the world's axes undoes its node's turn",
+          "[wem][m3][particles][corn]") {
+    const f32 h = std::sqrt(0.5f);
+    const Quaternion still{0.0f, 0.0f, 0.0f, 1.0f}, quarter{0.0f, 0.0f, h, h};
+    mdx::Model model = makeModel();
+    mdx::CornEmitter corn;
+    corn.node = makeNode("Orb", 1, 0);
+    corn.node.rotationTracks = makeTrack(mdx::InterpolationType::Linear, {0, 250, 1000},
+                                         std::vector<Quaternion>{still, quarter, still});
+    corn.path = "Abilities/Orb/orb.pkfx";
+    model.cornEmitters.push_back(corn);
+    Document document = importMdx(model);
+    Diagnostics prepared;
+    cross::PrepareWc3Effects(document, prepared);
+    document.declare(ProfileId::Sc2);
+    REQUIRE(DeriveProfile(document, ProfileId::Wc3Classic, ProfileId::Sc2).ok);
+    REQUIRE(RetargetSkeleton(document, ProfileId::Sc2).ok);
+    REQUIRE(RescaleDocument(document, 0.01f).ok);
+    Model& staged = document.models[0];
+    u32 node = kInvalidIndex;
+    for (u32 n = 0; n < staged.nodes.size(); ++n)
+        if (staged.nodes.nodes[n].kind == NodeKind::Wc3CornEmitter)
+            node = n;
+    REQUIRE(node != kInvalidIndex);
+    u32 stand = kInvalidIndex;
+    for (u32 c = 0; c < document.clips.size(); ++c)
+        if (document.clips[c].name == "Stand")
+            stand = c;
+    REQUIRE(stand != kInvalidIndex);
+
+    cross::Sc2CornCrossing crossing;
+    crossing.node = node;
+    cross::Sc2BakedSprite head;
+    head.draws = false;
+    head.worldAxes = true;
+    head.position.period = 4.0f;
+    for (int k = 0; k < 4; ++k)
+        head.position.keys.push_back(Vector3f{std::cos(1.5707963f * static_cast<f32>(k)),
+                                              std::sin(1.5707963f * static_cast<f32>(k)), 0.5f});
+    crossing.sprites.push_back(head);
+    cross::Wc3EmitterOptions options;
+    cross::PlaceSc2Records(document, {crossing}, options);
+
+    const auto named = [&](const std::string& name) {
+        for (u32 n = 0; n < staged.nodes.size(); ++n)
+            if (staged.nodes.nodes[n].name == name)
+                return n;
+        return kInvalidIndex;
+    };
+    const u32 frame = named("Orb_corn");
+    const u32 world = named("Orb_corn_bake0");
+    const u32 place = named("Orb_corn_bake0p");
+    REQUIRE(frame != kInvalidIndex);
+    REQUIRE(world != kInvalidIndex);
+    REQUIRE(place != kInvalidIndex);
+    CHECK(staged.nodes.nodes[world].parent == frame);
+    CHECK(staged.nodes.nodes[place].parent == world);
+
+    const Animator animator(document, 0);
+    Mix rest;
+    rest.globals = false;
+    Pose atRest;
+    animator.evaluate(rest, atRest);
+    const Quaternion kept = FromMatrix(atRest.frame[frame]).rotation;
+    const auto sameTurn = [](const Quaternion& a, const Quaternion& b) {
+        return std::abs(a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w);
+    };
+    const ClipPose pose(document, 0, stand);
+    for (const f32 t : {0.0f, 0.25f, 1.0f}) {
+        INFO("at " << t << " s");
+        // The node turns a quarter at 0.25 s; the place's parent keeps the
+        // frame's rest turn throughout, where the frame is.
+        if (t == 0.25f)
+            CHECK(sameTurn(FromMatrix(pose.frame(frame, t)).rotation, kept) < 0.99f);
+        const Matrix44f w = pose.frame(world, t);
+        CHECK(sameTurn(FromMatrix(w).rotation, kept) == Catch::Approx(1.0f).margin(1e-4));
+        for (int k = 0; k < 3; ++k)
+            CHECK(w.data[3][k] == Catch::Approx(pose.frame(frame, t).data[3][k]).margin(1e-5));
+    }
+}
+
+// A head that lives and dies (Starfall's falling star): its place keyed per
+// clip over its life, its rest elsewhere, its followers riding it.
+TEST_CASE("wem m3 a CORN head that lives and dies is keyed per clip", "[wem][m3][particles][corn]") {
+    mdx::Model model = makeModel();
+    mdx::CornEmitter corn;
+    corn.node = makeNode("Star", 1, 0);
+    corn.path = "Abilities/Star/star.pkfx";
+    model.cornEmitters.push_back(corn);
+    Document document = importMdx(model);
+    Diagnostics prepared;
+    cross::PrepareWc3Effects(document, prepared);
+    document.declare(ProfileId::Sc2);
+    REQUIRE(DeriveProfile(document, ProfileId::Wc3Classic, ProfileId::Sc2).ok);
+    REQUIRE(RetargetSkeleton(document, ProfileId::Sc2).ok);
+    REQUIRE(RescaleDocument(document, 0.01f).ok);
+    Model& staged = document.models[0];
+    u32 node = kInvalidIndex;
+    for (u32 n = 0; n < staged.nodes.size(); ++n)
+        if (staged.nodes.nodes[n].kind == NodeKind::Wc3CornEmitter)
+            node = n;
+    REQUIRE(node != kInvalidIndex);
+    u32 stand = kInvalidIndex;
+    for (u32 c = 0; c < document.clips.size(); ++c)
+        if (document.clips[c].name == "Stand")
+            stand = c;
+    REQUIRE(stand != kInvalidIndex);
+
+    cross::Sc2CornCrossing crossing;
+    crossing.node = node;
+    cross::Sc2BakedSprite head;
+    head.draws = false;
+    head.position.keys = {Vector3f{0.0f, 0.0f, 10.0f}};
+    // Born at 0.25 s 10 up, fallen to the ground half a second later.
+    SubTrack fall;
+    fall.interp = Interpolation::Linear;
+    fall.times = {0.0f, 0.25f, 0.75f};
+    for (const f32 z : {10.0f, 10.0f, 0.0f}) {
+        const f32 v[3] = {0.0f, 0.0f, z};
+        const auto* b = reinterpret_cast<const u8*>(v);
+        fall.values.insert(fall.values.end(), b, b + sizeof v);
+    }
+    head.path = {{stand, fall}};
+    cross::Sc2ParticleSpec flash;
+    flash.record = cross::Sc2RestParticle();
+    flash.look.texture = "Textures/flash.dds";
+    flash.look.blend = m3::BlendMode::Add;
+    head.riders.push_back(flash);
+    crossing.sprites.push_back(head);
+    cross::Wc3EmitterOptions options;
+    cross::PlaceSc2Records(document, {crossing}, options);
+
+    u32 frame = kInvalidIndex, place = kInvalidIndex;
+    for (u32 n = 0; n < staged.nodes.size(); ++n) {
+        if (staged.nodes.nodes[n].name == "Star_corn")
+            frame = n;
+        if (staged.nodes.nodes[n].name == "Star_corn_bake0")
+            place = n;
+    }
+    REQUIRE(frame != kInvalidIndex);
+    REQUIRE(place != kInvalidIndex);
+    bool rides = false;
+    for (u32 n = 0; n < staged.nodes.size(); ++n)
+        rides = rides || (staged.nodes.nodes[n].parent == place && n != place);
+    CHECK(rides);
+
+    // Above the frame by its keyed height in Stand; at its rest at rest.
+    const ClipPose pose(document, 0, stand);
+    const auto above = [&](f32 t) { return pose.frame(place, t).data[3][2] - pose.frame(frame, t).data[3][2]; };
+    CHECK(above(0.125f) == Catch::Approx(10.0f).margin(1e-4));
+    CHECK(above(0.5f) == Catch::Approx(5.0f).margin(1e-4));
+    CHECK(above(0.75f) == Catch::Approx(0.0f).margin(1e-4));
+    const Animator animator(document, 0);
+    Mix rest;
+    rest.globals = false;
+    Pose atRest;
+    animator.evaluate(rest, atRest);
+    CHECK(atRest.frame[place].data[3][2] - atRest.frame[frame].data[3][2] == Catch::Approx(10.0f).margin(1e-4));
 }
 
 // A record kept in the world's axes (the pit lord's back fires): a child keyed

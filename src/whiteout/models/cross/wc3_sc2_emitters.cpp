@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstring>
 #include <map>
+#include <numbers>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -16,6 +17,7 @@
 #include <whiteout/models/m3/structures.h>
 #include <whiteout/models/wem/anim/pose.h>
 #include <whiteout/models/wem/converters.h>
+#include <whiteout/models/wem/geometry/builder.h>
 
 #include "../wem/converters/m3_emitters.h"
 #include "../wem/converters/m3_track_sink.h"
@@ -419,10 +421,17 @@ struct MaterialKey {
     f32 softness = 0.04f;
     /// The diffuse's multiply; above 1 its clamp is off.
     f32 gain = 1.0f;
+    /// A baked sprite's quad (`Sc2BakedSprite`): drawn by its own UVs, as
+    /// geometry is.
+    bool mesh = false;
+    /// `Sc2Look::uvTiling`.
+    f32 tileU = 1.0f, tileV = 1.0f;
+    /// `Sc2Look::displace`.
+    f32 displace = 0.0f;
 
     auto tie() const {
-        return std::tie(texture, filter, unshaded, unfogged, twoSided, priority, particle,
-                        teamGlow, glowMask, wrap, blend, softness, gain);
+        return std::tie(texture, filter, unshaded, unfogged, twoSided, priority, particle, teamGlow,
+                        glowMask, wrap, blend, softness, gain, mesh, tileU, tileV, displace);
     }
     bool operator<(const MaterialKey& other) const {
         return tie() < other.tie();
@@ -431,7 +440,8 @@ struct MaterialKey {
 
 /// A textured layer at the rests every shipped textured layer states, addressed
 /// the way the source's texture @p wrap word says.
-m3::TextureLayer TexturedLayer(const std::string& path, bool particle, u32 wrap) {
+m3::TextureLayer TexturedLayer(const std::string& path, bool particle, u32 wrap,
+                               Vector2f tiling = Vector2f(1.0f, 1.0f)) {
     m3::TextureLayer layer;
     layer.texturePath = path;
     layer.color.initValue = m3::ColorBGRA{255, 255, 255, 255};
@@ -458,9 +468,15 @@ m3::TextureLayer TexturedLayer(const std::string& path, bool particle, u32 wrap)
     if ((wrap & 0x2u) != 0) {
         layer.flags |= m3::TextureLayerFlag::UVWrapY;
     }
-    if (particle) {
+    if (particle && tiling.x == 1.0f && tiling.y == 1.0f) {
         layer.flags |= m3::TextureLayerFlag::ParticleUVFlipbook;
         layer.uvMapping = m3::UVMappingMode::ParticleFlipbook;
+    } else if (particle) {
+        // Mirrored: the explicit mapping reads the quad's own corners, and the
+        // transform scales about the centre. The null stays at one, so the game
+        // writes the mirror (it writes only an init off its null).
+        layer.uvMapping = m3::UVMappingMode::ExplicitUV0;
+        layer.uvTiling.initValue = tiling;
     }
     return layer;
 }
@@ -479,8 +495,39 @@ public:
         if (found != cache_.end()) {
             return found->second;
         }
+        const u32 added = key.displace > 0.0f ? bindDisplacement(displacement(key)) : bind(build(key));
+        cache_.emplace(key, added);
+        ++report_.materials;
+        return added;
+    }
+
+    /// The `DIS_` @p key asks for: its texture the normal map, read through
+    /// the particle's flipbook as a standard layer is.
+    m3::DisplacementMaterial displacement(const MaterialKey& key) const {
+        m3::DisplacementMaterial mat;
+        mat.name = "Displace_" + std::to_string(cache_.size());
+        mat.strength.initValue = key.displace;
+        mat.strength.nullValue = key.displace;
+        if (!key.texture.empty()) {
+            mat.normalMap = TexturedLayer(key.texture, key.particle && !key.mesh, key.wrap);
+        }
+        mat.priority = static_cast<u32>(std::max(key.priority, 0));
+        return mat;
+    }
+
+    /// A slot of its own for @p mat, which no other record shares: a baked
+    /// sprite's, whose multiplies are keyed.
+    u32 own(m3::StandardMaterial mat) {
+        ++report_.materials;
+        return bind(std::move(mat));
+    }
+
+    /// The material @p key asks for.
+    m3::StandardMaterial build(const MaterialKey& key) const {
         m3::StandardMaterial mat;
-        mat.name = std::string(key.particle ? "Particle_" : "Ribbon_") +
+        mat.name = std::string(key.mesh       ? "Bake_"
+                               : key.particle ? "Particle_"
+                                              : "Ribbon_") +
                    std::to_string(cache_.size());
         // Geometry visible, and out of shadows and hit tests both ways -- the
         // header every one of Blizzard's own effect materials states -- plus
@@ -510,6 +557,7 @@ public:
         mat.depthBlendFalloff = key.softness > 0.0f ? key.softness : 0.0f;
 
         const bool textured = !key.texture.empty();
+        const bool flipbook = key.particle && !key.mesh;
         if (textured && key.teamGlow) {
             // The team's colour, weighted by the texture's alpha on the emissive
             // team op, and nothing under it: Blizzard's own Wisp spells its
@@ -518,11 +566,13 @@ public:
             // into alpha: the glow file keeps its shape on red over a flat
             // alpha, and an emissive slot reads that red gamma-decoded (War3
             // Wisp's glow came out far dimmer than Warcraft III's).
-            mat.emissiveLayer1 = TexturedLayer(key.texture, key.particle, key.wrap);
+            mat.emissiveLayer1 =
+                TexturedLayer(key.texture, flipbook, key.wrap, Vector2f(key.tileU, key.tileV));
             mat.emissiveLayer1->colorType = m3::ColorChannelSelect::Alpha;
             mat.emissiveBlendMode1 = m3::LayerBlendOp::TeamColorEmissiveAdd;
         } else if (textured) {
-            mat.diffuseLayer = TexturedLayer(key.texture, key.particle, key.wrap);
+            mat.diffuseLayer =
+                TexturedLayer(key.texture, flipbook, key.wrap, Vector2f(key.tileU, key.tileV));
         }
         // The filter as a blend, and the mask the blend reads. StarCraft II
         // blends and tests by the COMPOSED mask alpha, never the diffuse's own,
@@ -582,7 +632,7 @@ public:
             mat.hdrEmissiveMultiplier = key.gain / kCoreEmissive;
             mat.emissiveLayer1->colorType = m3::ColorChannelSelect::Red;
         }
-        if (!key.particle && mat.diffuseLayer.has_value()) {
+        if (!key.particle && !key.mesh && mat.diffuseLayer.has_value()) {
             // Warcraft III runs a ribbon's U along its length; StarCraft II its
             // V (§4.5 row 10). A quarter turn lays one on the other.
             Rest(mat.diffuseLayer->uvAngle, Vector3f{0.0f, 0.0f, -kPi * 0.5f});
@@ -590,11 +640,7 @@ public:
                 Rest(mat.alphaLayer1->uvAngle, Vector3f{0.0f, 0.0f, -kPi * 0.5f});
             }
         }
-
-        const u32 added = bind(std::move(mat));
-        cache_.emplace(key, added);
-        ++report_.materials;
-        return added;
+        return mat;
     }
 
 private:
@@ -603,13 +649,25 @@ private:
     /// the native block, in sync -- so `toM3` writes it back as it is.
     u32 bind(m3::StandardMaterial mat) {
         std::string name = mat.name;
+        m3::Model scratch;
+        scratch.standardMaterials.push_back(std::move(mat));
+        return bind(std::move(name), scratch, m3::MaterialType::Standard);
+    }
+
+    u32 bindDisplacement(m3::DisplacementMaterial mat) {
+        std::string name = mat.name;
+        m3::Model scratch;
+        scratch.displacementMaterials.push_back(std::move(mat));
+        return bind(std::move(name), scratch, m3::MaterialType::Displacement);
+    }
+
+    /// @p scratch's one material of @p type as a slot of its own.
+    u32 bind(std::string name, const m3::Model& scratch, m3::MaterialType type) {
         while (model_.slotIndex(name) != kInvalidIndex) {
             name += "_";
         }
-        m3::Model scratch;
-        scratch.standardMaterials.push_back(std::move(mat));
         m3::MaterialMap entry;
-        entry.materialType = m3::MaterialType::Standard;
+        entry.materialType = type;
         entry.materialIndex = 0;
         wem::m3_core::Context context;
         context.modelVersion = profile_ == wem::ProfileId::Heroes ? 30u : 29u;
@@ -826,11 +884,14 @@ public:
     Crossing(Document& document, const Wc3EmitterOptions& options, Wc3EmitterReport& report)
         : document_(document), model_(document.models.front()), options_(options),
           report_(report), materials_(document, model_, options.profile, report),
-          nextId_(model_.animChannels.nextFreeId()) {}
+          // From 1: a record's AnimRef names its stream by this id, and 0 is
+          // none.
+          nextId_(std::max<u32>(1, model_.animChannels.nextFreeId())) {}
 
     /// A `CORN` node's fitted records (`PlaceSc2Records`).
     void place(const Sc2CornCrossing& c) {
-        if (c.node >= model_.nodes.size() || c.particles.empty()) {
+        if (c.node >= model_.nodes.size() ||
+            (c.particles.empty() && c.sprites.empty() && c.ribbons.empty())) {
             return;
         }
         const NodeKind kind = model_.nodes.nodes[c.node].kind;
@@ -846,49 +907,626 @@ public:
             host.resetPayloadForKind();
         }
         const u32 frame = addFrameNode(c.node);
+        std::vector<u32> placed;
         for (std::size_t r = 0; r < c.particles.size(); ++r) {
-            const Sc2ParticleSpec& spec = c.particles[r];
-            m3::ParticleEmitter p = spec.record;
-            // The caller's key ids, 1-based into its own list, become the pool's.
-            wem::m3_emitters::ForEachParticleRef(p, [&](u32, auto& ref) {
-                const u32 id = ref.animId;
-                ref.animId = 0;
-                if (id != 0 && id <= spec.keys.size() && !spec.keys[id - 1].empty()) {
-                    pool_.push_back(spec.keys[id - 1]);
-                    ref.animId = static_cast<u32>(pool_.size());
+            placed.push_back(
+                placeRecord(c.particles[r], c.node, frame, "_" + std::to_string(r), r == 0));
+        }
+        for (std::size_t r = 0; r < c.particles.size(); ++r) {
+            const i32 child = c.particles[r].trailChild;
+            if (child >= 0 && static_cast<std::size_t>(child) < placed.size()) {
+                std::get<wem::Sc2ParticleEmitterPayload>(model_.nodes.nodes[placed[r]].payload)
+                    .trailLink = placed[static_cast<std::size_t>(child)];
+            }
+        }
+        for (std::size_t s = 0; s < c.sprites.size(); ++s) {
+            placeSprite(c.sprites[s], c.node, frame, "_bake" + std::to_string(s));
+        }
+        for (std::size_t r = 0; r < c.ribbons.size(); ++r) {
+            placeRibbon(c.ribbons[r], frame, "_rib" + std::to_string(r));
+        }
+    }
+
+    /// @p spec on a child of @p parent named for @p suffix, moved to its
+    /// offset.
+    void placeRibbon(const Sc2RibbonSpec& spec, u32 parent, const std::string& suffix) {
+        m3::RibbonEmitter r = spec.record;
+        wem::m3_emitters::ForEachRibbonRef(r, [&](u32, auto& ref) {
+            const u32 id = ref.animId;
+            ref.animId = 0;
+            if (id != 0 && id <= spec.keys.size() && !spec.keys[id - 1].empty()) {
+                pool_.push_back(spec.keys[id - 1]);
+                ref.animId = static_cast<u32>(pool_.size());
+            }
+        });
+        MaterialKey key = keyOf(spec.look);
+        key.particle = false;
+        r.materialIndex = materials_.slot(key);
+        const u32 target = addRecordNode(parent, suffix.c_str());
+        if (spec.offset.x != 0.0f || spec.offset.y != 0.0f || spec.offset.z != 0.0f) {
+            moveNode(target, spec.offset);
+        }
+        keyChannels(target, NodeKind::Sc2RibbonEmitter, r,
+                    [](auto& record, auto&& f) { wem::m3_emitters::ForEachRibbonRef(record, f); });
+        Node& node = model_.nodes.nodes[target];
+        node.kind = NodeKind::Sc2RibbonEmitter;
+        node.payload = wem::m3_emitters::ImportRibbon(r, wem::m3_emitters::ImportLinks{});
+        ++report_.ribbonRecords;
+    }
+
+    /// After every crossing: the sprites' quads as one mesh.
+    void finish() {
+        if (bakedQuads_ == 0) {
+            return;
+        }
+        geom::MeshBuilder::BuildOutcome built = baked_.build();
+        built.mesh.name = "CornBake";
+        built.mesh.recomputeBounds();
+        model_.meshes.push_back(std::move(built.mesh));
+    }
+
+    /// @p spec on a child of @p parent named for @p suffix, or on @p parent
+    /// itself where it is the first record (@p first) and neither moves nor
+    /// keeps the world's axes; @p host is the `CORN` node whose turn a
+    /// `worldAxes` record undoes. Returns the node it is on.
+    u32 placeRecord(const Sc2ParticleSpec& spec, u32 host, u32 parent, const std::string& suffix,
+                    bool first) {
+        m3::ParticleEmitter p = spec.record;
+        // The caller's key ids, 1-based into its own list, become the pool's.
+        wem::m3_emitters::ForEachParticleRef(p, [&](u32, auto& ref) {
+            const u32 id = ref.animId;
+            ref.animId = 0;
+            if (id != 0 && id <= spec.keys.size() && !spec.keys[id - 1].empty()) {
+                pool_.push_back(spec.keys[id - 1]);
+                ref.animId = static_cast<u32>(pool_.size());
+            }
+        });
+        // A displacement draws no colour, so a fade has nothing to key.
+        p.materialIndex =
+            (spec.colourKeys.empty() && spec.coverageKeys.empty()) || spec.look.displace > 0.0f
+                ? materials_.slot(keyOf(spec.look))
+                : ownMaterial(spec);
+        const bool moved = spec.offset.x != 0.0f || spec.offset.y != 0.0f || spec.offset.z != 0.0f;
+        u32 target = parent;
+        // Above its offset, so the place off the axis turns with it.
+        if (spec.spin != 0.0f) {
+            target = spinNode(parent, spec.spin);
+        }
+        if (moved || spec.spin != 0.0f || (!first && !spec.worldAxes)) {
+            target = addRecordNode(target, suffix.c_str());
+            if (moved) {
+                moveNode(target, spec.offset);
+            }
+        }
+        if (spec.worldAxes) {
+            // Below the move, so the place off the node turns with it.
+            const Keyed& turns = worldTurns(host);
+            target = addWorldNode(target, target == parent ? suffix + "w" : "w", turns);
+            if (spec.coneTurns && p.velocityType == 0) {
+                keyCone(p, turns);
+            }
+        }
+        placeParticle(target, std::move(p));
+        return target;
+    }
+
+    static MaterialKey keyOf(const Sc2Look& look) {
+        MaterialKey key;
+        key.texture = look.texture;
+        key.unshaded = look.unshaded;
+        key.unfogged = look.unfogged;
+        key.twoSided = look.twoSided;
+        key.priority = look.priority;
+        key.wrap = look.wrap;
+        key.blend = static_cast<i32>(look.blend);
+        key.softness = look.softness;
+        key.gain = look.gain;
+        key.teamGlow = look.teamGlow;
+        key.tileU = look.uvTiling.x;
+        key.tileV = look.uvTiling.y;
+        key.displace = look.displace;
+        return key;
+    }
+
+    /// @p spec's look on a slot of its own: its colour's and coverage's
+    /// multiplies keyed per clip, each key a factor on the layer's rest.
+    u32 ownMaterial(const Sc2ParticleSpec& spec) {
+        m3::StandardMaterial mat = materials_.build(keyOf(spec.look));
+        m3::TextureLayer* colour = spec.look.teamGlow && mat.emissiveLayer1.has_value()
+                                       ? &*mat.emissiveLayer1
+                                   : mat.diffuseLayer.has_value() ? &*mat.diffuseLayer
+                                                                  : nullptr;
+        m3::TextureLayer* coverage = mat.alphaLayer1.has_value() ? &*mat.alphaLayer1 : nullptr;
+        const auto keyLayer = [&](m3::TextureLayer* layer, const Sc2Keyed& keyed) {
+            if (layer == nullptr || keyed.empty()) {
+                return;
+            }
+            const f32 rest = layer->rgbMultiply.initValue;
+            AnimChannel channel;
+            channel.id = nextId_++;
+            channel.target.kind = TrackTarget::Kind::Native;
+            channel.target.sub = 5; // SD R3: an f32 stream
+            channel.valueType = geom::AttrType::F32;
+            channel.initValue.assign(reinterpret_cast<const u8*>(&rest),
+                                     reinterpret_cast<const u8*>(&rest) + sizeof rest);
+            model_.animChannels.add(channel);
+            layer->rgbMultiply.animId = channel.id;
+            for (const auto& [clip, track] : keyed) {
+                if (clip >= document_.clips.size()) {
+                    continue;
                 }
-            });
-            MaterialKey key;
-            key.texture = spec.look.texture;
-            key.unshaded = spec.look.unshaded;
-            key.unfogged = spec.look.unfogged;
-            key.twoSided = spec.look.twoSided;
-            key.priority = spec.look.priority;
-            key.wrap = spec.look.wrap;
-            key.blend = static_cast<i32>(spec.look.blend);
-            key.softness = spec.look.softness;
-            key.gain = spec.look.gain;
-            key.teamGlow = spec.look.teamGlow;
-            p.materialIndex = materials_.slot(key);
-            const bool moved =
-                spec.offset.x != 0.0f || spec.offset.y != 0.0f || spec.offset.z != 0.0f;
-            const std::string suffix = "_" + std::to_string(r);
-            u32 target = frame;
-            if (moved || (r != 0 && !spec.worldAxes)) {
-                target = addRecordNode(frame, suffix.c_str());
-                if (moved) {
-                    moveNode(target, spec.offset);
+                SubTrack copy = track;
+                copy.channel = channel.id;
+                for (std::size_t at = 0; at + sizeof(f32) <= copy.values.size();
+                     at += sizeof(f32)) {
+                    f32 v = 0.0f;
+                    std::memcpy(&v, copy.values.data() + at, sizeof v);
+                    v *= rest;
+                    std::memcpy(copy.values.data() + at, &v, sizeof v);
+                }
+                wem::Clip& target = document_.clips[clip];
+                if (target.containers.empty()) {
+                    target.containers.emplace_back();
+                }
+                target.containers.front().subTracks.push_back(std::move(copy));
+            }
+            ++report_.keyedChannels;
+        };
+        keyLayer(colour, spec.colourKeys);
+        keyLayer(coverage, spec.coverageKeys);
+        return materials_.own(std::move(mat));
+    }
+
+    // --- Baked sprites (D§12.4) ---------------------------------------------
+
+    /// The global loop of @p period seconds the sprites key on, made on first
+    /// use: StarCraft II's auto-played loop (SEQS `AlwaysGlobal`), its one
+    /// container concurrent, so it plays under whatever the host plays.
+    u32 loopClip(f32 period) {
+        for (const auto& [length, clip] : loops_) {
+            if (std::abs(length - period) < 1e-4f) {
+                return clip;
+            }
+        }
+        const auto taken = [&](const std::string& name) {
+            for (const wem::Clip& clip : document_.clips) {
+                if (clip.name == name) {
+                    return true;
                 }
             }
-            if (spec.worldAxes) {
-                // Below the move, so the place off the node turns with it.
-                const Keyed& turns = worldTurns(c.node);
-                target = addWorldNode(target, target == frame ? suffix + "w" : "w", turns);
-                if (spec.coneTurns && p.velocityType == 0) {
-                    keyCone(p, turns);
+            return false;
+        };
+        std::string name = "GLstand";
+        for (u32 n = 2; taken(name); ++n) {
+            name = n < 10 ? "GLstand 0" + std::to_string(n) : "GLstand " + std::to_string(n);
+        }
+        wem::Clip clip;
+        clip.name = name;
+        clip.model = 0;
+        clip.duration = period;
+        clip.looping = true;
+        clip.flags =
+            wem::ClipFlags::AutoPlay | wem::ClipFlags::Persistent | wem::ClipFlags::WorldClocked;
+        clip.readRule = wem::ReadRule::Sc2;
+        wem::SubTrackContainer container;
+        container.name = name;
+        container.concurrent = true;
+        clip.containers.push_back(std::move(container));
+        document_.clips.push_back(std::move(clip));
+        const u32 index = static_cast<u32>(document_.clips.size() - 1);
+        loops_.emplace_back(period, index);
+        return index;
+    }
+
+    /// @p values (@p width floats a key, one key a step of @p period from 0)
+    /// as @p channel's track on the loop of @p period, closed on its first
+    /// key; the keys a line through their neighbours draws within @p tolerance
+    /// dropped.
+    void keyLoop(AnimChannel channel, u32 width, const std::vector<f32>& values, f32 period,
+                 f32 tolerance) {
+        const std::size_t count = values.size() / width;
+        channel.id = nextId_++;
+        model_.animChannels.add(channel);
+        std::vector<f32> times(count + 1);
+        std::vector<f32> keys(values);
+        keys.insert(keys.end(), values.begin(), values.begin() + width);
+        for (std::size_t k = 0; k <= count; ++k) {
+            times[k] = period * static_cast<f32>(k) / static_cast<f32>(count);
+        }
+        // Greedy: from each kept key, as far as a line to a later one draws
+        // every key between within the tolerance.
+        std::vector<std::size_t> kept{0};
+        for (std::size_t a = 0; a < count;) {
+            std::size_t b = a + 1;
+            for (std::size_t c = a + 2; c <= count; ++c) {
+                bool fits = true;
+                for (std::size_t m = a + 1; m < c && fits; ++m) {
+                    const f32 f = (times[m] - times[a]) / (times[c] - times[a]);
+                    for (u32 l = 0; l < width && fits; ++l) {
+                        const f32 line =
+                            keys[a * width + l] + (keys[c * width + l] - keys[a * width + l]) * f;
+                        fits = std::abs(line - keys[m * width + l]) <= tolerance;
+                    }
+                }
+                if (!fits) {
+                    break;
+                }
+                b = c;
+            }
+            kept.push_back(b);
+            a = b;
+        }
+        SubTrack track;
+        track.channel = channel.id;
+        track.interp = Interpolation::Linear;
+        for (const std::size_t k : kept) {
+            track.times.push_back(times[k]);
+            const auto* raw = reinterpret_cast<const u8*>(keys.data() + k * width);
+            track.values.insert(track.values.end(), raw, raw + width * sizeof(f32));
+        }
+        document_.clips[loopClip(period)].containers.front().subTracks.push_back(std::move(track));
+        ++report_.keyedChannels;
+    }
+
+    /// A tolerance for keys spanning @p values: a five-hundredth of their
+    /// range, and never under a millionth.
+    static f32 toleranceOf(const std::vector<f32>& values, u32 width) {
+        f32 range = 0.0f;
+        for (u32 l = 0; l < width; ++l) {
+            f32 lo = 1e30f, hi = -1e30f;
+            for (std::size_t k = l; k < values.size(); k += width) {
+                lo = std::min(lo, values[k]);
+                hi = std::max(hi, values[k]);
+            }
+            range = std::max(range, hi - lo);
+        }
+        return std::max(range * 0.002f, 1e-6f);
+    }
+
+    /// Whether @p values (@p width floats a key) change over the loop.
+    static bool moves(const std::vector<f32>& values, u32 width) {
+        for (std::size_t k = width; k < values.size(); ++k) {
+            if (values[k] != values[k % width]) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// @p node turning about its z at @p speed radians a second: keyed over
+    /// two turns on that loop, so the half angle closes on itself and each
+    /// key lerps the short way.
+    void keySpin(u32 node, f32 speed) {
+        constexpr u32 kKeys = 32;
+        constexpr f32 kTwoTurns = 4.0f * std::numbers::pi_v<f32>;
+        std::vector<f32> turns;
+        for (u32 k = 0; k < kKeys; ++k) {
+            const f32 half =
+                0.5f * kTwoTurns * static_cast<f32>(k) / kKeys * (speed > 0.0f ? 1.0f : -1.0f);
+            turns.insert(turns.end(), {0.0f, 0.0f, std::sin(half), std::cos(half)});
+        }
+        keyLoop(nodeChannel(node, Channel::Rotation, geom::AttrType::Quat), 4, turns,
+                kTwoTurns / std::abs(speed), toleranceOf(turns, 4));
+    }
+
+    /// The bone under @p parent spinning at @p speed (`Sc2ParticleSpec::
+    /// spin`), made on first use: the records of one speed share it.
+    u32 spinNode(u32 parent, f32 speed) {
+        for (const auto& [from, at, node] : spins_) {
+            if (from == parent && at == speed) {
+                return node;
+            }
+        }
+        const u32 node =
+            addRecordNode(parent, ("_spin" + std::to_string(spins_.size())).c_str());
+        keySpin(node, speed);
+        spins_.emplace_back(parent, speed, node);
+        return node;
+    }
+
+    /// A node channel of @p node.
+    static AnimChannel nodeChannel(u32 node, Channel which, geom::AttrType type) {
+        AnimChannel channel;
+        channel.target.kind = TrackTarget::Kind::Node;
+        channel.target.node = node;
+        channel.target.channel = which;
+        channel.valueType = type;
+        return channel;
+    }
+
+    /// @p sprite: its place (`P`, its riders' bone), its facing (`B`: a
+    /// billboard, or a plane's turn; hidden where the effect is off) and its
+    /// spin and size (`Q`, the quad's bone), each keyed on its period's loop
+    /// where it moves.
+    void placeSprite(const Sc2BakedSprite& sprite, u32 host, u32 frame, const std::string& name) {
+        if (sprite.position.keys.empty() ||
+            (sprite.draws &&
+             (sprite.size.keys.empty() || sprite.rotation.keys.empty() ||
+              sprite.brightness.keys.empty() ||
+              sprite.alpha.keys.size() != sprite.brightness.keys.size() ||
+              ((sprite.facing == Sc2BakedSprite::Facing::Plane ||
+                sprite.facing == Sc2BakedSprite::Facing::Axis) &&
+               sprite.turn.keys.empty())))) {
+            report_.diagnostics.warn(DiagCode::FeatureDropped,
+                                     "a baked sprite lacks a stream; not placed",
+                                     ElementRef(ElementKind::Node, host));
+            return;
+        }
+        const auto flat = [](const auto& from, auto get, u32 width) {
+            std::vector<f32> out;
+            out.reserve(from.size() * width);
+            for (const auto& v : from) {
+                const std::array<f32, 4> lanes = get(v);
+                out.insert(out.end(), lanes.begin(), lanes.begin() + width);
+            }
+            return out;
+        };
+        // One hemisphere throughout, the closing key too, so each key lerps
+        // the short way.
+        const auto hemisphere = [](std::vector<Quaternion> q) {
+            for (std::size_t k = 1; k <= q.size(); ++k) {
+                Quaternion& b = q[k % q.size()];
+                const Quaternion& a = q[k - 1];
+                if (k < q.size() && a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w < 0.0f) {
+                    b = Quaternion{-b.x, -b.y, -b.z, -b.w};
                 }
             }
-            placeParticle(target, std::move(p));
+            return q;
+        };
+        const auto key = [&](u32 node, Channel which, geom::AttrType type, u32 width,
+                             const std::vector<f32>& values, f32 period) {
+            if (period > 0.0f && values.size() > width && moves(values, width)) {
+                keyLoop(nodeChannel(node, which, type), width, values, period,
+                        toleranceOf(values, width));
+            }
+        };
+
+        // Its place, in the world's axes above a child undoing the host's turn.
+        const u32 place = sprite.worldAxes
+                              ? addRecordNode(addWorldNode(frame, name, worldTurns(host)), "p")
+                              : addRecordNode(frame, name.c_str());
+        moveNode(place, sprite.position.keys.front());
+        if (!sprite.path.empty()) {
+            // Keyed per clip: a head that lives and dies.
+            AnimChannel channel = nodeChannel(place, Channel::Translation, geom::AttrType::F32x3);
+            channel.id = nextId_++;
+            model_.animChannels.add(channel);
+            for (const auto& [c, track] : sprite.path) {
+                if (c >= document_.clips.size()) {
+                    continue;
+                }
+                wem::Clip& clip = document_.clips[c];
+                if (clip.containers.empty()) {
+                    clip.containers.emplace_back();
+                }
+                SubTrack copy = track;
+                copy.channel = channel.id;
+                clip.containers.front().subTracks.push_back(std::move(copy));
+            }
+            ++report_.keyedChannels;
+        } else {
+            key(place, Channel::Translation, geom::AttrType::F32x3, 3,
+                flat(
+                    sprite.position.keys,
+                    [](const Vector3f& v) { return std::array<f32, 4>{v.x, v.y, v.z, 0}; }, 3),
+                sprite.position.period);
+        }
+
+        // Its orbit: a bone turning about the frame's z from its place, and
+        // the arm out to where it draws.
+        u32 drawnAt = place;
+        if (sprite.orbit != 0.0f) {
+            const u32 spin = addRecordNode(place, "_orbit");
+            keySpin(spin, sprite.orbit);
+            drawnAt = addRecordNode(spin, "_arm");
+            moveNode(drawnAt, sprite.arm);
+        }
+        if (!sprite.draws) {
+            placeRiders(sprite, host, drawnAt);
+            return;
+        }
+
+        // Its facing.
+        const u32 facing = addRecordNode(drawnAt, "_face", sprite.hidden.empty());
+        {
+            Node& node = model_.nodes.nodes[facing];
+            if (sprite.facing == Sc2BakedSprite::Facing::Plane ||
+                sprite.facing == Sc2BakedSprite::Facing::Axis) {
+                const std::vector<Quaternion> turns = hemisphere(sprite.turn.keys);
+                node.local.rotation = turns.front();
+                node.poses.assign(model_.nodes.poseSchema.size(), node.local);
+                key(facing, Channel::Rotation, geom::AttrType::Quat, 4,
+                    flat(
+                        turns,
+                        [](const Quaternion& q) { return std::array<f32, 4>{q.x, q.y, q.z, q.w}; },
+                        4),
+                    sprite.turn.period);
+                // About its axis to the eye: type 5 makes the bone's own
+                // StarCraft II Y (WEM's -x) its z, and faces its StarCraft II
+                // +Y (WEM's -x) away from the eye; the quad is two-sided.
+                if (sprite.facing == Sc2BakedSprite::Facing::Axis) {
+                    Node& axial = model_.nodes.nodes[facing];
+                    wem::Sc2Billboard billboard;
+                    billboard.type = 5;
+                    billboard.cameraLookAt = true;
+                    axial.sc2Billboards.push_back(billboard);
+                    axial.flags = axial.flags | wem::Sc2BillboardFlags(5);
+                }
+            } else {
+                wem::Sc2Billboard billboard;
+                billboard.type = 6;
+                billboard.cameraLookAt = sprite.facing == Sc2BakedSprite::Facing::Eye;
+                node.sc2Billboards.push_back(billboard);
+                node.flags = node.flags | wem::Sc2BillboardFlags(6);
+            }
+        }
+        // Hidden in the clips the effect is off in: a step to 0 there.
+        if (!sprite.hidden.empty()) {
+            AnimChannel channel = nodeChannel(facing, Channel::Visibility, geom::AttrType::F32);
+            channel.id = nextId_++;
+            const f32 one = 1.0f;
+            channel.initValue.assign(reinterpret_cast<const u8*>(&one),
+                                     reinterpret_cast<const u8*>(&one) + sizeof one);
+            model_.animChannels.add(channel);
+            for (const u32 c : sprite.hidden) {
+                if (c >= document_.clips.size()) {
+                    continue;
+                }
+                wem::Clip& clip = document_.clips[c];
+                if (clip.containers.empty()) {
+                    clip.containers.emplace_back();
+                }
+                SubTrack track;
+                track.channel = channel.id;
+                track.interp = Interpolation::Step;
+                track.times = {0.0f};
+                const f32 zero = 0.0f;
+                track.values.assign(reinterpret_cast<const u8*>(&zero),
+                                    reinterpret_cast<const u8*>(&zero) + sizeof zero);
+                clip.containers.front().subTracks.push_back(std::move(track));
+            }
+            ++report_.keyedChannels;
+        }
+
+        // Its spin and size: the quad lies in the bone's y-z plane, facing +x
+        // (a billboard's eye side), width on y and height on z, so the spin
+        // is about x. The bind is the facing's: the size and spin are keys.
+        const u32 quad = addRecordNode(facing, "_quad");
+        std::vector<Quaternion> spins;
+        spins.reserve(sprite.rotation.keys.size());
+        for (const f32 r : sprite.rotation.keys) {
+            spins.push_back(Quaternion{std::sin(0.5f * r), 0.0f, 0.0f, std::cos(0.5f * r)});
+        }
+        spins = hemisphere(std::move(spins));
+        {
+            Node& node = model_.nodes.nodes[quad];
+            node.local.rotation = spins.front();
+            node.local.scale =
+                Vector3f{1.0f, sprite.size.keys.front().x, sprite.size.keys.front().y};
+            node.poses.assign(model_.nodes.poseSchema.size(), node.local);
+        }
+        key(quad, Channel::Rotation, geom::AttrType::Quat, 4,
+            flat(
+                spins, [](const Quaternion& q) { return std::array<f32, 4>{q.x, q.y, q.z, q.w}; },
+                4),
+            sprite.rotation.period);
+        key(quad, Channel::Scale, geom::AttrType::F32x3, 3,
+            flat(
+                sprite.size.keys,
+                [](const Vector2f& s) { return std::array<f32, 4>{1.0f, s.x, s.y, 0}; }, 3),
+            sprite.size.period);
+
+        // Its material: the look on its own slot, the colour's multiply and
+        // the coverage's keyed on the layers that carry them.
+        MaterialKey look = keyOf(sprite.look);
+        look.mesh = true;
+        look.gain = 1.0f;
+        look.twoSided = true;
+        m3::StandardMaterial mat = materials_.build(look);
+        m3::TextureLayer* colour = mat.emissiveLayer1.has_value() && look.teamGlow
+                                       ? &*mat.emissiveLayer1
+                                   : mat.diffuseLayer.has_value() ? &*mat.diffuseLayer
+                                                                  : nullptr;
+        m3::TextureLayer* coverage = mat.alphaLayer1.has_value() ? &*mat.alphaLayer1 : nullptr;
+        if (look.teamGlow) {
+            // As a placed record's team glow (`Materials::build`), at gain 1:
+            // the multiply is keyed.
+            constexpr f32 kCoreEmissive = 0.56f;
+            mat.hdrEmissiveMultiplier = 1.0f / kCoreEmissive;
+        }
+        const auto keyLayer = [&](m3::TextureLayer* layer, const Sc2Loop<f32>& loop) {
+            const std::vector<f32>& values = loop.keys;
+            if (layer == nullptr) {
+                return;
+            }
+            layer->rgbMultiply.initValue = values.front();
+            f32 peak = 0.0f;
+            for (const f32 v : values) {
+                peak = std::max(peak, v);
+            }
+            // The layer clamps after its multiply (psmateriallayer.fx).
+            if (peak > 1.0f) {
+                layer->flags = layer->flags & ~m3::TextureLayerFlag::ColorClamp;
+            }
+            if (loop.period <= 0.0f || values.size() < 2 || !moves(values, 1)) {
+                return;
+            }
+            AnimChannel channel;
+            channel.target.kind = TrackTarget::Kind::Native;
+            channel.target.sub = 5; // SD R3: an f32 stream
+            channel.valueType = geom::AttrType::F32;
+            const f32 rest = values.front();
+            channel.initValue.assign(reinterpret_cast<const u8*>(&rest),
+                                     reinterpret_cast<const u8*>(&rest) + sizeof rest);
+            layer->rgbMultiply.animId = nextId_;
+            keyLoop(channel, 1, values, loop.period, toleranceOf(values, 1));
+        };
+        keyLayer(colour, sprite.brightness);
+        keyLayer(coverage, sprite.alpha);
+        const u32 slot = materials_.own(std::move(mat));
+
+        // Its quad, at the bind: the facing's, which the quad's bone binds at.
+        const Matrix44f bind = Matrix44f::inverse(model_.nodes.inverseBindMatrix(quad));
+        const auto atBind = [&](const Vector3f& p) {
+            Vector3f out;
+            const f32 in[3] = {p.x, p.y, p.z};
+            f32* o[3] = {&out.x, &out.y, &out.z};
+            for (int k = 0; k < 3; ++k) {
+                *o[k] = in[0] * bind.data[0][k] + in[1] * bind.data[1][k] +
+                        in[2] * bind.data[2][k] + bind.data[3][k];
+            }
+            return out;
+        };
+        const auto direction = [&](const Vector3f& d) {
+            Vector3f out{d.x * bind.data[0][0] + d.y * bind.data[1][0] + d.z * bind.data[2][0],
+                         d.x * bind.data[0][1] + d.y * bind.data[1][1] + d.z * bind.data[2][1],
+                         d.x * bind.data[0][2] + d.y * bind.data[1][2] + d.z * bind.data[2][2]};
+            const f32 l = std::sqrt(out.x * out.x + out.y * out.y + out.z * out.z);
+            return l > 0.0f ? Vector3f{out.x / l, out.y / l, out.z / l}
+                            : Vector3f{1.0f, 0.0f, 0.0f};
+        };
+        wem::MeshSection section;
+        section.name = model_.nodes.nodes[quad].name;
+        section.materialSlot = slot;
+        section.profiles = wem::ProfileBit(options_.profile);
+        section.native.set(wem::kSectionVisibilityNode, static_cast<i64>(facing));
+        const u32 at = baked_.addSection(std::move(section));
+        // Corner by corner as cornflakes lays a quad: less width less height,
+        // then round; the image's top row at the top (v 0).
+        const Vector4f& cell = sprite.cell;
+        const std::array<Vector3f, 4> corners{
+            Vector3f{0.0f, -1.0f, -1.0f}, Vector3f{0.0f, 1.0f, -1.0f}, Vector3f{0.0f, 1.0f, 1.0f},
+            Vector3f{0.0f, -1.0f, 1.0f}};
+        const std::array<Vector2f, 4> uvs{Vector2f{cell.x, cell.w}, Vector2f{cell.z, cell.w},
+                                          Vector2f{cell.z, cell.y}, Vector2f{cell.x, cell.y}};
+        const std::array<u8, 4> tint{ColorByte(sprite.color.x), ColorByte(sprite.color.y),
+                                     ColorByte(sprite.color.z), 255};
+        const Vector3f normal = direction(Vector3f{1.0f, 0.0f, 0.0f});
+        std::array<geom::VertexId, 4> v{};
+        for (std::size_t k = 0; k < 4; ++k) {
+            v[k] = baked_.addVertex(atBind(corners[k]));
+            baked_.addInfluence(v[k], quad, 1.0f);
+        }
+        for (const std::array<std::size_t, 3>& t :
+             {std::array<std::size_t, 3>{0, 1, 2}, std::array<std::size_t, 3>{0, 2, 3}}) {
+            const geom::FaceId face = baked_.addTriangle(v[t[0]], v[t[1]], v[t[2]], at);
+            for (u32 c = 0; c < 3; ++c) {
+                baked_.setCornerAttr(face, c, geom::names::uv(0), uvs[t[c]]);
+                baked_.setCornerAttr(face, c, geom::names::kNormal, normal);
+                baked_.setCornerAttr(face, c, geom::names::color(0), tint);
+            }
+        }
+        ++bakedQuads_;
+        placeRiders(sprite, host, drawnAt);
+    }
+
+    /// @p sprite's riders and strips, where it draws (@p at).
+    void placeRiders(const Sc2BakedSprite& sprite, u32 host, u32 at) {
+        for (std::size_t r = 0; r < sprite.riders.size(); ++r) {
+            placeRecord(sprite.riders[r], host, at, "_ride" + std::to_string(r), false);
+        }
+        for (std::size_t r = 0; r < sprite.ribbons.size(); ++r) {
+            placeRibbon(sprite.ribbons[r], at, "_rib" + std::to_string(r));
         }
     }
 
@@ -1653,8 +2291,9 @@ private:
     }
 
     /// A second record of @p parent's system: a child at identity that draws
-    /// only while its parent does, so it rides the parent's bone.
-    u32 addRecordNode(u32 parent, const char* suffix) {
+    /// only while its parent does, so it rides the parent's bone; with
+    /// @p shares false, one with a visibility of its own.
+    u32 addRecordNode(u32 parent, const char* suffix, bool shares = true) {
         const Node& source = model_.nodes.nodes[parent];
         Node node;
         node.name = source.name + suffix;
@@ -1665,7 +2304,9 @@ private:
         node.poses.assign(model_.nodes.poseSchema.size(), node.local);
         // An identity child binds where its parent does.
         node.poseMatrices = source.poseMatrices;
-        node.native.set(wem::kNodeSharesParentVisibility, static_cast<i64>(1));
+        if (shares) {
+            node.native.set(wem::kNodeSharesParentVisibility, static_cast<i64>(1));
+        }
         return model_.nodes.add(std::move(node));
     }
 
@@ -1936,6 +2577,13 @@ private:
     std::vector<Keyed> pool_;
     std::map<u32, Keyed> worldTurns_;
     u32 nextId_;
+    /// The baked sprites' quads, built into one mesh by `finish`.
+    geom::MeshBuilder baked_;
+    u32 bakedQuads_ = 0;
+    /// Each global loop made, by its length.
+    std::vector<std::pair<f32, u32>> loops_;
+    /// Each spinning bone made: its parent, its speed, the bone.
+    std::vector<std::tuple<u32, f32, u32>> spins_;
 };
 
 } // namespace
@@ -2047,6 +2695,10 @@ m3::ParticleEmitter Sc2RestParticle() {
     return RestParticle();
 }
 
+m3::RibbonEmitter Sc2RestRibbon() {
+    return RestRibbon();
+}
+
 Wc3EmitterReport PlaceSc2Records(wem::Document& staged, const std::vector<Sc2CornCrossing>& crossings,
                                  const Wc3EmitterOptions& options) {
     Wc3EmitterReport report;
@@ -2057,6 +2709,7 @@ Wc3EmitterReport PlaceSc2Records(wem::Document& staged, const std::vector<Sc2Cor
     for (const Sc2CornCrossing& c : crossings) {
         crossing.place(c);
     }
+    crossing.finish();
     return report;
 }
 

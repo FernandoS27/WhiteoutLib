@@ -128,6 +128,14 @@ struct Sc2Look {
     /// on the emissive team op, times the vertex colour, `gain` riding the
     /// emissive multiplier.
     bool teamGlow = false;
+    /// The texture read mirrored (-1) along U or V, about its centre. Only a
+    /// particle drawing one image takes it: its layers go on the explicit
+    /// mapping, which the layer's transform reaches and the flipbook's never
+    /// does.
+    Vector2f uvTiling{1.0f, 1.0f};
+    /// Above 0, the look bends the scene behind instead of drawing: a
+    /// displacement (`DIS_`) of this strength, `texture` its normal map.
+    f32 displace = 0.0f;
 };
 
 /// One property's keys: per clip of the document, its sub-track.
@@ -150,16 +158,106 @@ struct Sc2ParticleSpec {
     /// With `worldAxes`, a cone's yaw and pitch are keyed per clip to turn
     /// its axis with the node, as a birth drawn in the node's frame turns.
     bool coneTurns = false;
+    /// Radians a second the record turns about the effect frame's z (0:
+    /// none): it hangs, its offset with it, on a bone spinning so on a global
+    /// loop, and its particles, local to it, turn with it (an orbit, D§12.2).
+    f32 spin = 0.0f;
+    /// Factors on the look's colour and coverage multiplies, keyed per clip
+    /// (an f32 a key): a fade as the effect stops. Either keyed, the record
+    /// draws with a material of its own.
+    Sc2Keyed colourKeys;
+    Sc2Keyed coverageKeys;
+    /// The record its particles lay trail children of (the trail link, its
+    /// rate and chance the record's own), by index into the crossing's
+    /// `particles`; -1: none. The child takes each particle's place in this
+    /// record's space, so it should sit where this one does.
+    i32 trailChild = -1;
 };
 
 /// A `PAR_` at the rests Blizzard's tools write for every field nothing sets
 /// (WC3_TO_SC2_COMPLETION_PLAN.md §4.6): where a caller starts a record.
 m3::ParticleEmitter Sc2RestParticle();
 
+/// A `RIB_` fitted to a PopcornFX ribbon (D§13), keyed as a particle spec is.
+/// Its look's U runs along the strip, as a Warcraft III ribbon's does.
+struct Sc2RibbonSpec {
+    m3::RibbonEmitter record;
+    std::vector<Sc2Keyed> keys;
+    Sc2Look look;
+    /// Where the strip leaves, in the effect's frame.
+    Vector3f offset{0.0f, 0.0f, 0.0f};
+};
+
+/// A `RIB_` at the rests Blizzard's tools write: a world-space trail laid by
+/// time, planar, pre-rolled.
+m3::RibbonEmitter Sc2RestRibbon();
+
+/// One stream of a baked sprite over a loop of its own: a key a step of it,
+/// evenly from its start (one key: it holds still), closed on its first key,
+/// played on the global loop clip of its period.
+template <class T>
+struct Sc2Loop {
+    f32 period = 0.0f; ///< Seconds.
+    std::vector<T> keys;
+};
+
+/// A particle that never dies, as geometry (D§12.4, the bake): a quad on
+/// bones of its own, each stream keyed over its own loop (an orbit and a
+/// pulse of different periods each keep theirs; the global loops run on one
+/// clock, so their phases hold).
+struct Sc2BakedSprite {
+    Sc2Look look;
+    /// How the quad faces: the camera's plane, the eye, a plane of its own
+    /// (`turn`), or the eye about an axis (`turn`'s x, its height along minus
+    /// it): an axis quad's or a spheroid's, a bone billboard of type 5.
+    enum class Facing : u8 { View, Eye, Plane, Axis };
+    Facing facing = Facing::View;
+    /// Its place in the effect's frame, as `Sc2ParticleSpec::offset` is.
+    Sc2Loop<Vector3f> position;
+    /// Its place keyed per clip instead, by clip (three floats a key), for a
+    /// head that lives and dies (D§12.3); `position`'s first key is its rest.
+    Sc2Keyed path;
+    /// An orbit about the frame's z the quad turns on from its place:
+    /// radians a second (0: none), and its arm at the clock's start. The
+    /// arm's end is where it draws and its riders ride.
+    f32 orbit = 0.0f;
+    Vector3f arm{0.0f, 0.0f, 0.0f};
+    /// Half its width and half its height.
+    Sc2Loop<Vector2f> size;
+    /// Radians, its width turned toward its height.
+    Sc2Loop<f32> rotation;
+    /// A plane's axes in the effect's frame: x its normal, y its width, z its
+    /// height. An axis quad's: x minus its axis.
+    Sc2Loop<Quaternion> turn;
+    /// The colour's multiply and the coverage's, on the colour's loop.
+    Sc2Loop<f32> brightness;
+    Sc2Loop<f32> alpha;
+    /// Its hue, the vertex colour.
+    Vector3f color{1.0f, 1.0f, 1.0f};
+    /// The texture's rectangle it draws: u0, v0, u1, v1.
+    Vector4f cell{0.0f, 0.0f, 1.0f, 1.0f};
+    /// The document's clips it is hidden in: the effect is off there.
+    std::vector<u32> hidden;
+    /// Records riding it, on its place alone (D§7.4: a keyed bone carries a
+    /// world-space `PAR_`).
+    std::vector<Sc2ParticleSpec> riders;
+    /// Strips riding it the same way (D§13: a `RIB_` off a keyed head).
+    std::vector<Sc2RibbonSpec> ribbons;
+    /// False for a head that draws nothing (D§12.3): its place, orbit and
+    /// riders alone, no quad; only `position` is read.
+    bool draws = true;
+    /// Its place keeps the axes the effect has while its node does not turn:
+    /// it hangs on a child keyed per clip to undo the node's turn, as a
+    /// `worldAxes` record's particles do, so it follows the node's place only.
+    bool worldAxes = false;
+};
+
 /// What a `CORN` node became.
 struct Sc2CornCrossing {
     u32 node = wem::kInvalidIndex; ///< The `CORN` node in the staged document's first model.
     std::vector<Sc2ParticleSpec> particles;
+    std::vector<Sc2BakedSprite> sprites;
+    std::vector<Sc2RibbonSpec> ribbons;
 };
 
 /// After staging and before `CrossWc3Emitters`: each crossing's node becomes a
@@ -167,8 +265,15 @@ struct Sc2CornCrossing {
 /// hang on an identity child of it turned +90° about z, the frame the game
 /// draws a `CORN` effect in (D§6): the first record on that child, the rest on
 /// identity children of it that share its visibility (a `worldAxes` record
-/// on one more child below, its rotation keyed). A node the caller does
-/// not name stays a `CORN` node, which `CrossWc3Emitters` then reports dropped.
+/// on one more child below, its rotation keyed); each ribbon on a child of
+/// its own. A node the caller does not name stays a `CORN` node, which
+/// `CrossWc3Emitters` then reports dropped.
+///
+/// Each sprite is three bones under that frame -- its place, the quad's
+/// facing (a billboard, or a plane's turn) and the quad's spin and size --
+/// with its riders on the first, and a quad skinned to the last whose
+/// material keys its multiplies. Each stream that moves is keyed on a global
+/// loop clip of its period (`GLstand`, `GLstand 02`, ..., one per period).
 Wc3EmitterReport PlaceSc2Records(wem::Document& staged, const std::vector<Sc2CornCrossing>& crossings,
                                  const Wc3EmitterOptions& options);
 
