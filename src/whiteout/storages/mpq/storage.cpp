@@ -18,12 +18,13 @@
 #include <whiteout/interfaces.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <mutex>
 #include <shared_mutex>
-#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -74,6 +75,12 @@ std::optional<ParsedArchive> parseMappedArchive(const std::string& path,
     pa.archiveOffset = parseResult->archiveOffset;
     auto archiveSpan = mappedFile->data();
 
+    // As StormLib does: no reader can split files into zero-byte sectors.
+    if (pa.header.sectorSize() == 0) {
+        setError("sector size shift " + std::to_string(pa.header.sectorSizeShift) + " leaves no sector size");
+        return std::nullopt;
+    }
+
     // Parse hash table.
     u64 const htOffset = pa.archiveOffset + pa.header.hashTableByteOffset();
     u64 const htSize = static_cast<u64>(pa.header.hashTableEntries) * 16;
@@ -113,45 +120,99 @@ std::optional<ParsedArchive> parseMappedArchive(const std::string& path,
     }
 
     // Read (listfile).
-    auto lfIdx = pa.hashTable.lookup("(listfile)");
-    if (lfIdx) {
+    if (auto lfIdx = pa.hashTable.find("(listfile)", 0, pa.blockTable.count())) {
         const auto& he = pa.hashTable.entry(*lfIdx);
-        if (he.blockIndex < pa.blockTable.count()) {
-            const auto& be = pa.blockTable.entry(he.blockIndex);
-            u32 const fileKey = be.isEncrypted() ? deriveFileKey("(listfile)", be) : 0;
-            auto lfData = extractFileData(mappedFile->data(), pa.archiveOffset, be,
-                                          pa.header.sectorSize(), fileKey);
-            if (!lfData.empty())
-                pa.listfileNames = parseListfile(std::span<const u8>(lfData));
-        }
+        const auto& be = pa.blockTable.entry(he.blockIndex);
+        u32 const fileKey = be.isEncrypted() ? deriveFileKey("(listfile)", be) : 0;
+        auto lfData = extractFileData(mappedFile->data(), pa.archiveOffset, be, pa.header.sectorSize(),
+                                      fileKey, nullptr, nullptr, pa.blockTable.fileOffsetHi(he.blockIndex));
+        if (lfData)
+            pa.listfileNames = parseListfile(std::span<const u8>(*lfData));
     }
 
     pa.mapping = std::move(*mappedFile);
     return pa;
 }
 
+/// Holds a saved archive in memory until it passes kSpillBytes, then streams
+/// it to the file: a small save is one write, a large one never holds the
+/// whole archive.
+class SpillFileSink final : public ArchiveSink {
+public:
+    static constexpr size_t kSpillBytes = size_t{128} << 20;
+
+    /// @p base: what the file holds before the archive (the preamble).
+    SpillFileSink(std::ofstream& out, u64 base) : m_out(out), m_base(base) {}
+
+    [[nodiscard]] u64 size() const override {
+        return m_flushed + m_buffer.size();
+    }
+
+    void append(std::span<const u8> bytes) override {
+        if (m_buffer.size() + bytes.size() < kSpillBytes) {
+            m_buffer.insert(m_buffer.end(), bytes.begin(), bytes.end());
+            return;
+        }
+        flush();
+        write(bytes);
+        m_flushed += bytes.size();
+    }
+
+    void patch(u64 offset, std::span<const u8> bytes) override {
+        if (offset < m_flushed) {
+            size_t const onDisk = static_cast<size_t>(std::min<u64>(bytes.size(), m_flushed - offset));
+            m_out.seekp(static_cast<std::streamoff>(m_base + offset));
+            write(bytes.first(onDisk));
+            m_out.seekp(0, std::ios::end);
+            bytes = bytes.subspan(onDisk);
+            offset += onDisk;
+        }
+        std::copy(bytes.begin(), bytes.end(), m_buffer.begin() + static_cast<std::ptrdiff_t>(offset - m_flushed));
+    }
+
+    /// Writes what is still held; false when any write failed.
+    bool finish() {
+        flush();
+        m_out.flush();
+        return static_cast<bool>(m_out);
+    }
+
+private:
+    void write(std::span<const u8> bytes) {
+        m_out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    }
+    void flush() {
+        write(m_buffer);
+        m_flushed += m_buffer.size();
+        m_buffer.clear();
+    }
+
+    std::ofstream& m_out;
+    u64 m_base;
+    u64 m_flushed = 0;
+    std::vector<u8> m_buffer;
+};
+
+/// A name beside @p path that no file has yet: a save never writes over a
+/// file it does not own.
+std::string unusedTempPath(const std::string& path) {
+    for (u32 n = 0;; ++n) {
+        std::string candidate = path + ".tmp" + (n == 0 ? std::string() : std::to_string(n));
+        std::error_code ec;
+        if (!std::filesystem::exists(whiteout::common::utf8_to_path(candidate), ec) || ec)
+            return candidate;
+    }
+}
+
+/// Whether @p a and @p b name one file, however each is spelled.
+bool sameFile(const std::string& a, const std::string& b) {
+    std::error_code ec;
+    bool const same =
+        std::filesystem::equivalent(whiteout::common::utf8_to_path(a), whiteout::common::utf8_to_path(b), ec);
+    return ec ? a == b : same;
+}
+
 } // anonymous namespace
-
-// ============================================================================
-// Overlay key
-// ============================================================================
-
-struct OverlayKey {
-    std::string normalizedName;
-    u16 locale = 0;
-
-    bool operator==(const OverlayKey& o) const {
-        return normalizedName == o.normalizedName && locale == o.locale;
-    }
-};
-
-struct OverlayKeyHash {
-    size_t operator()(const OverlayKey& k) const {
-        size_t const h1 = std::hash<std::string>{}(k.normalizedName);
-        size_t const h2 = std::hash<u16>{}(k.locale);
-        return h1 ^ (h2 * 0x9E3779B97F4A7C15ULL + 0x9E3779B9 + (h1 << 6) + (h1 >> 2));
-    }
-};
 
 // ============================================================================
 // Impl
@@ -168,14 +229,16 @@ struct Storage::Impl {
     HashTable hashTable;
     BlockTable blockTable;
 
-    // Overlay — pending modifications.
+    // Overlay — pending modifications, by normalized name. A name the
+    // overlay writes or deletes loses every source copy at save, in every
+    // locale, so the source no longer answers for it.
     struct OverlayEntry {
         std::string originalName; // Preserves user-provided casing for the listfile.
         std::vector<u8> data;
         WriteOptions opts;
     };
-    std::unordered_map<OverlayKey, OverlayEntry, OverlayKeyHash> pendingWrites;
-    std::unordered_set<OverlayKey, OverlayKeyHash> pendingDeletes;
+    std::unordered_map<std::string, std::map<u16, OverlayEntry>> pendingWrites;
+    std::unordered_set<std::string> pendingDeletes;
 
     // Parsed (listfile) from source archive.
     std::vector<std::string> sourceListfileNames;
@@ -183,7 +246,7 @@ struct Storage::Impl {
     // Thread safety.
     mutable std::shared_mutex mutex;
 
-    bool isValid = false;
+    std::atomic<bool> isValid{false}; ///< Read unlocked by operator bool.
 
     /// Why the last save() failed; empty after one that did not.
     std::string lastError;
@@ -193,58 +256,54 @@ struct Storage::Impl {
 
     // -- Helpers --
 
-    /// Extract a file from the source archive by name, with optional locale filter.
-    std::optional<std::vector<u8>> extractFromSource(const std::string& name,
-                                                     std::optional<u16> locale = std::nullopt,
-                                                     std::string* error = nullptr) const {
-        if (!sourceArchive) {
-            if (error)
-                *error = "no source archive";
-            return std::nullopt;
-        }
+    /// What a read of a name in a locale lands on: a pending write, a
+    /// source hash slot, or nothing.
+    struct Found {
+        const OverlayEntry* pending = nullptr;
+        std::optional<u32> slot;
+        bool shadowed = false; ///< The overlay owns the name, so the source is not asked.
+    };
 
-        auto idx = locale ? hashTable.lookup(name, *locale) : hashTable.lookup(name);
-        if (!idx) {
-            if (error)
-                *error = "not found in hash table";
-            return std::nullopt;
-        }
+    /// Resolve @p name as Storm does: the entry of exactly @p locale, else the
+    /// neutral one. Caller must hold at least a shared lock on mutex.
+    Found resolve(const std::string& name, u16 locale) const {
+        std::string const norm = normalizePath(name);
+        auto const it = pendingWrites.find(norm);
+        if (it == pendingWrites.end() && !pendingDeletes.contains(norm))
+            return {nullptr, hashTable.find(name, locale, blockTable.count())};
+        if (it == pendingWrites.end())
+            return {nullptr, std::nullopt, true};
+        const auto& byLocale = it->second;
+        if (locale != Locale::Neutral)
+            if (auto e = byLocale.find(locale); e != byLocale.end())
+                return {&e->second, std::nullopt, true};
+        if (auto e = byLocale.find(Locale::Neutral); e != byLocale.end())
+            return {&e->second, std::nullopt, true};
+        return {nullptr, std::nullopt, true};
+    }
 
-        const auto& he = hashTable.entry(*idx);
-        if (he.blockIndex >= blockTable.count()) {
-            if (error)
-                *error = "block index out of range";
-            return std::nullopt;
-        }
+    /// Extract the source file at hash @p slot, whose name is @p name.
+    std::optional<std::vector<u8>> extractSlot(u32 slot, const std::string& name,
+                                               std::string* error = nullptr) const {
+        const auto& he = hashTable.entry(slot);
         const auto& be = blockTable.entry(he.blockIndex);
-
-        u32 fileKey = 0;
-        if (be.isEncrypted()) {
-            fileKey = deriveFileKey(name, be);
-        }
-
+        u32 const fileKey = be.isEncrypted() ? deriveFileKey(name, be) : 0;
         return extractFileData(sourceArchive->data(), archiveOffset, be, header.sectorSize(),
-                               fileKey, error, pool);
+                               fileKey, error, pool, blockTable.fileOffsetHi(he.blockIndex));
     }
 
     /// Shared readFile logic. Caller must hold at least a shared lock on mutex.
-    std::optional<std::vector<u8>> readFileCore(const std::string& name, std::optional<u16> locale,
+    std::optional<std::vector<u8>> readFileCore(const std::string& name, u16 locale,
                                                 std::string* error) const {
-        std::string const norm = normalizePath(name);
-        OverlayKey const key{norm, locale.value_or(Locale::Neutral)};
-
-        if (pendingDeletes.contains(key)) {
+        Found const found = resolve(name, locale);
+        if (found.pending)
+            return found.pending->data;
+        if (!found.slot || !sourceArchive) {
             if (error)
-                *error = "file deleted in overlay";
+                *error = found.shadowed ? "file deleted in overlay" : "not found in hash table";
             return std::nullopt;
         }
-
-        auto it = pendingWrites.find(key);
-        if (it != pendingWrites.end()) {
-            return it->second.data;
-        }
-
-        return extractFromSource(name, locale, error);
+        return extractSlot(*found.slot, name, error);
     }
 
     /// The writer's input for a save: every source file still standing, in
@@ -277,10 +336,10 @@ struct Storage::Impl {
         // Names the overlay writes or deletes: every locale of one goes, so a
         // replaced file is not shadowed by a localized copy of the old one.
         std::unordered_set<u64> replaced;
-        for (const auto& [key, val] : pendingWrites)
-            replaced.insert(nameKey(key.normalizedName));
-        for (const auto& key : pendingDeletes)
-            replaced.insert(nameKey(key.normalizedName));
+        for (const auto& [norm, byLocale] : pendingWrites)
+            replaced.insert(nameKey(norm));
+        for (const auto& norm : pendingDeletes)
+            replaced.insert(nameKey(norm));
 
         if (sourceArchive) {
             std::unordered_map<u64, std::string> names;
@@ -293,8 +352,8 @@ struct Storage::Impl {
             // with the same arrays, or not at all when it had none.
             FileAttributes carried;
             plan.attributes = false;
-            if (hashTable.lookup("(attributes)")) {
-                auto data = extractFromSource("(attributes)");
+            if (auto slot = hashTable.find("(attributes)", 0, blockTable.count())) {
+                auto data = extractSlot(*slot, "(attributes)");
                 if (data && data->size() >= 8) {
                     u32 flags = 0;
                     std::memcpy(&flags, data->data() + 4, 4);
@@ -379,23 +438,23 @@ struct Storage::Impl {
         }
 
         // The overlay, in name order so a save is reproducible.
-        std::vector<const std::pair<const OverlayKey, OverlayEntry>*> overlay;
+        std::vector<const std::pair<const std::string, std::map<u16, OverlayEntry>>*> overlay;
         for (const auto& item : pendingWrites)
             overlay.push_back(&item);
-        std::sort(overlay.begin(), overlay.end(), [](const auto* a, const auto* b) {
-            return std::tie(a->first.normalizedName, a->first.locale) <
-                   std::tie(b->first.normalizedName, b->first.locale);
-        });
+        std::sort(overlay.begin(), overlay.end(),
+                  [](const auto* a, const auto* b) { return a->first < b->first; });
         for (const auto* item : overlay) {
-            WriteEntry we;
-            we.filename = item->second.originalName;
-            we.locale = item->first.locale;
-            we.listRank = rankOf(nameKey(item->second.originalName));
-            we.rawData = item->second.data;
-            we.compression = static_cast<CompressionFlag>(item->second.opts.compression);
-            we.encrypt = item->second.opts.encrypt;
-            we.singleUnit = item->second.opts.singleUnit;
-            entries.push_back(std::move(we));
+            for (const auto& [locale, pending] : item->second) {
+                WriteEntry we;
+                we.filename = pending.originalName;
+                we.locale = locale;
+                we.listRank = rankOf(nameKey(pending.originalName));
+                we.rawData = pending.data;
+                we.compression = static_cast<CompressionFlag>(pending.opts.compression);
+                we.encrypt = pending.opts.encrypt;
+                we.singleUnit = pending.opts.singleUnit;
+                entries.push_back(std::move(we));
+            }
         }
         return {};
     }
@@ -425,6 +484,10 @@ struct Storage::Impl {
         pendingWrites.clear();
         pendingDeletes.clear();
     }
+
+    /// Write the archive to @p path and make it the source. Caller holds
+    /// the exclusive lock.
+    bool saveTo(const std::string& path);
 
     /// Re-map and re-parse an archive from disk, replacing current state.
     /// Clears overlay on success. Returns false on any parse failure.
@@ -497,77 +560,70 @@ Storage::operator bool() const noexcept {
 // ============================================================================
 
 std::optional<std::vector<u8>> Storage::readFile(const std::string& name) const {
-    if (!m_impl || !m_impl->isValid)
+    if (!m_impl)
         return std::nullopt;
     std::shared_lock const lock(m_impl->mutex);
-    return m_impl->readFileCore(name, std::nullopt, nullptr);
+    if (!m_impl->isValid)
+        return std::nullopt;
+    return m_impl->readFileCore(name, Locale::Neutral, nullptr);
 }
 
 std::optional<std::vector<u8>> Storage::readFile(const std::string& name,
                                                  std::string* error) const {
-    if (!m_impl || !m_impl->isValid) {
+    if (!m_impl)
+        return std::nullopt;
+    std::shared_lock const lock(m_impl->mutex);
+    if (!m_impl->isValid) {
         if (error)
             *error = "storage not open";
         return std::nullopt;
     }
-    std::shared_lock const lock(m_impl->mutex);
-    return m_impl->readFileCore(name, std::nullopt, error);
+    return m_impl->readFileCore(name, Locale::Neutral, error);
 }
 
 std::optional<std::vector<u8>> Storage::readFile(const std::string& name, u16 locale) const {
-    if (!m_impl || !m_impl->isValid)
+    if (!m_impl)
         return std::nullopt;
     std::shared_lock const lock(m_impl->mutex);
-    return m_impl->readFileCore(name, std::optional<u16>(locale), nullptr);
+    if (!m_impl->isValid)
+        return std::nullopt;
+    return m_impl->readFileCore(name, locale, nullptr);
 }
 
 bool Storage::fileExists(const std::string& name) const {
-    if (!m_impl || !m_impl->isValid)
+    if (!m_impl)
         return false;
     std::shared_lock const lock(m_impl->mutex);
-
-    std::string const norm = normalizePath(name);
-    OverlayKey const key{norm, Locale::Neutral};
-
-    if (m_impl->pendingDeletes.contains(key))
+    if (!m_impl->isValid)
         return false;
-    if (m_impl->pendingWrites.contains(key))
-        return true;
 
-    return m_impl->hashTable.lookup(name).has_value();
+    auto const found = m_impl->resolve(name, Locale::Neutral);
+    if (found.pending)
+        return true;
+    return found.slot && m_impl->blockTable.entry(m_impl->hashTable.entry(*found.slot).blockIndex).exists();
 }
 
 std::optional<FileInfo> Storage::fileInfo(const std::string& name) const {
-    if (!m_impl || !m_impl->isValid)
+    if (!m_impl)
         return std::nullopt;
     std::shared_lock const lock(m_impl->mutex);
-
-    std::string const norm = normalizePath(name);
-    OverlayKey const key{norm, Locale::Neutral};
-
-    if (m_impl->pendingDeletes.contains(key))
+    if (!m_impl->isValid)
         return std::nullopt;
 
-    // Check overlay.
-    auto it = m_impl->pendingWrites.find(key);
-    if (it != m_impl->pendingWrites.end()) {
+    auto const found = m_impl->resolve(name, Locale::Neutral);
+    if (found.pending) {
         FileInfo info;
         info.name = name;
-        info.uncompressedSize = static_cast<u32>(it->second.data.size());
+        info.uncompressedSize = static_cast<u32>(found.pending->data.size());
         info.compressedSize = info.uncompressedSize; // Not compressed yet.
-        info.locale = it->first.locale;
+        info.locale = found.pending->opts.locale;
         info.flags = FileFlags::Exists;
         return info;
     }
-
-    // Source archive.
-    auto idx = m_impl->hashTable.lookup(name);
-    if (!idx)
+    if (!found.slot)
         return std::nullopt;
 
-    const auto& he = m_impl->hashTable.entry(*idx);
-    if (he.blockIndex >= m_impl->blockTable.count())
-        return std::nullopt;
+    const auto& he = m_impl->hashTable.entry(*found.slot);
     const auto& be = m_impl->blockTable.entry(he.blockIndex);
 
     FileInfo info;
@@ -580,9 +636,11 @@ std::optional<FileInfo> Storage::fileInfo(const std::string& name) const {
 }
 
 ArchiveInfo Storage::archiveInfo() const {
-    if (!m_impl || !m_impl->isValid)
+    if (!m_impl)
         return {};
     std::shared_lock const lock(m_impl->mutex);
+    if (!m_impl->isValid)
+        return {};
 
     ArchiveInfo info;
     info.formatVersion = m_impl->header.formatVersion;
@@ -595,16 +653,13 @@ ArchiveInfo Storage::archiveInfo() const {
 }
 
 std::vector<std::string> Storage::listFiles() const {
-    if (!m_impl || !m_impl->isValid)
+    if (!m_impl)
         return {};
     std::shared_lock const lock(m_impl->mutex);
+    if (!m_impl->isValid)
+        return {};
 
-    // Build normalized delete set.
-    std::unordered_set<std::string> deleteSet;
-    for (const auto& dk : m_impl->pendingDeletes) {
-        deleteSet.insert(dk.normalizedName);
-    }
-
+    const auto& deleteSet = m_impl->pendingDeletes;
     std::unordered_set<std::string> seen;
     std::vector<std::string> result;
 
@@ -619,9 +674,9 @@ std::vector<std::string> Storage::listFiles() const {
     }
 
     // Overlay additions.
-    for (const auto& [key, val] : m_impl->pendingWrites) {
-        if (seen.insert(key.normalizedName).second) {
-            result.push_back(val.originalName);
+    for (const auto& [norm, byLocale] : m_impl->pendingWrites) {
+        if (seen.insert(norm).second && !byLocale.empty()) {
+            result.push_back(byLocale.begin()->second.originalName);
         }
     }
 
@@ -641,41 +696,32 @@ void Storage::enumerate(std::function<bool(const std::string&)> callback) const 
 // ============================================================================
 
 bool Storage::writeFile(const std::string& name, std::span<const u8> data, WriteOptions opts) {
-    if (!m_impl || !m_impl->isValid)
+    // An MPQ file's size is 32 bits wide.
+    if (!m_impl || data.size() > 0xFFFFFFFFull)
         return false;
     std::unique_lock const lock(m_impl->mutex);
+    if (!m_impl->isValid)
+        return false;
 
-    std::string const norm = normalizePath(name);
-    OverlayKey const key{norm, opts.locale};
-
-    // Remove from deletes if present.
-    m_impl->pendingDeletes.erase(key);
-
-    // Store in overlay.
-    m_impl->pendingWrites[key] = {name, std::vector<u8>(data.begin(), data.end()), opts};
-
+    // A pending delete stays: it still takes every source copy of the name.
+    m_impl->pendingWrites[normalizePath(name)][opts.locale] = {name, std::vector<u8>(data.begin(), data.end()), opts};
     return true;
 }
 
 bool Storage::deleteFile(const std::string& name) {
-    if (!m_impl || !m_impl->isValid)
+    if (!m_impl)
         return false;
     std::unique_lock const lock(m_impl->mutex);
-
-    std::string const norm = normalizePath(name);
-    OverlayKey const key{norm, Locale::Neutral};
-
-    // Check if it exists in overlay or source.
-    bool const exists =
-        m_impl->pendingWrites.contains(key) || m_impl->hashTable.lookup(name).has_value();
-    if (!exists)
+    if (!m_impl->isValid)
         return false;
 
-    // Remove from writes if present.
-    m_impl->pendingWrites.erase(key);
-
-    // Add to deletes.
-    m_impl->pendingDeletes.insert(key);
+    // Every locale of the name goes, pending writes included.
+    std::string norm = normalizePath(name);
+    bool const pending = m_impl->pendingWrites.erase(norm) > 0;
+    bool const inSource = !m_impl->pendingDeletes.contains(norm) && m_impl->hashTable.lookup(name).has_value();
+    if (!pending && !inSource)
+        return false;
+    m_impl->pendingDeletes.insert(std::move(norm));
     return true;
 }
 
@@ -684,94 +730,90 @@ bool Storage::deleteFile(const std::string& name) {
 // ============================================================================
 
 bool Storage::save() {
-    if (!m_impl || !m_impl->isValid)
+    if (!m_impl)
         return false;
-    if (m_impl->sourcePath.empty())
-        return false; // Created via create(), no path.
-    return save(m_impl->sourcePath);
+    std::unique_lock const lock(m_impl->mutex);
+    if (!m_impl->isValid)
+        return false;
+    if (m_impl->sourcePath.empty()) {
+        m_impl->lastError = "the archive has no path yet: save it to one";
+        return false;
+    }
+    return m_impl->saveTo(std::string(m_impl->sourcePath));
 }
 
 bool Storage::save(const std::string& path) {
-    if (!m_impl || !m_impl->isValid)
+    if (!m_impl)
         return false;
     std::unique_lock const lock(m_impl->mutex);
-    m_impl->lastError.clear();
+    if (!m_impl->isValid)
+        return false;
+    return m_impl->saveTo(path);
+}
+
+bool Storage::Impl::saveTo(const std::string& path) {
+    lastError.clear();
     auto fail = [&](std::string why) {
-        m_impl->lastError = std::move(why);
+        lastError = std::move(why);
         return false;
     };
-
-    bool const isSamePath = (path == m_impl->sourcePath);
 
     // Build the writer's input from source + overlay.
     WritePlan plan;
     std::vector<WriteEntry> entries;
-    if (std::string why = m_impl->buildWriteJob(plan, entries); !why.empty())
+    if (std::string why = buildWriteJob(plan, entries); !why.empty())
         return fail(std::move(why));
-    if (m_impl->sourceArchive)
-        plan.sourceHashTable = &m_impl->hashTable;
-
-    // Write the archive.
-    auto written = writeArchive(plan, entries, m_impl->pool);
-    if (!written.error.empty())
-        return fail(std::move(written.error));
-    if (written.archive.empty())
-        return fail("the archive could not be assembled");
+    if (sourceArchive)
+        plan.sourceHashTable = &hashTable;
 
     // Whatever precedes the MPQ header -- a Warcraft III map's 512-byte HM3W
     // block, a user data header -- is kept byte for byte, so every offset in
     // it still lands on the header. A trailing signature is not: it signed
     // the old bytes.
     std::span<const u8> preamble;
-    if (m_impl->sourceArchive)
-        preamble = m_impl->sourceArchive->data().subspan(0, m_impl->archiveOffset);
+    if (sourceArchive)
+        preamble = sourceArchive->data().subspan(0, archiveOffset);
 
-    // Determine output path.  When overwriting the mapped source, write to a
-    // temp file first, then atomically rename after unmapping.
-    std::string outputPath = path;
-    std::string tempPath;
-    bool const useTempFile = isSamePath && m_impl->sourceArchive;
-
-    if (useTempFile) {
-        tempPath = path + ".tmp";
-        outputPath = tempPath;
-    }
-
-    // Write archive data to disk.
+    // The archive goes to a temp file beside the target, then over it in one
+    // rename, so a failed save leaves the target as it was.
+    std::string const tempPath = unusedTempPath(path);
+    auto const temp = whiteout::common::utf8_to_path(tempPath);
     {
-        auto out = whiteout::common::open_ofstream(outputPath, std::ios::binary | std::ios::trunc);
+        auto out = whiteout::common::open_ofstream(tempPath, std::ios::binary | std::ios::trunc);
         if (!out)
-            return fail("could not open '" + outputPath + "' for writing");
+            return fail("could not open '" + tempPath + "' for writing");
         out.write(reinterpret_cast<const char*>(preamble.data()), static_cast<std::streamsize>(preamble.size()));
-        out.write(reinterpret_cast<const char*>(written.archive.data()),
-                  static_cast<std::streamsize>(written.archive.size()));
-        if (!out) {
-            out.close();
-            if (useTempFile) {
-                std::error_code ec;
-                std::filesystem::remove(whiteout::common::utf8_to_path(tempPath), ec);
-            }
-            return fail("could not write '" + outputPath + "'");
+        SpillFileSink sink(out, preamble.size());
+        std::string why = writeArchive(plan, entries, sink, pool);
+        if (why.empty() && !sink.finish())
+            why = "could not write '" + tempPath + "'";
+        out.close();
+        if (!why.empty()) {
+            std::error_code ec;
+            std::filesystem::remove(temp, ec);
+            return fail(std::move(why));
         }
     }
 
-    if (useTempFile) {
-        m_impl->sourceArchive.reset();
-
-        std::error_code ec;
-        std::filesystem::rename(whiteout::common::utf8_to_path(tempPath), whiteout::common::utf8_to_path(path), ec);
-        if (ec) {
-            m_impl->sourceArchive = storages::common::MappedFile::open(m_impl->sourcePath);
-            std::error_code removeEc;
-            std::filesystem::remove(whiteout::common::utf8_to_path(tempPath), removeEc);
-            return fail("could not replace '" + path + "': " + ec.message());
-        }
+    // The source stays mapped until here, and Windows renames nothing over a
+    // mapped file. Its path may be spelled another way than the target's.
+    bool const replacesSource = sourceArchive && sameFile(path, sourcePath);
+    if (replacesSource)
+        sourceArchive.reset();
+    std::error_code ec;
+    std::filesystem::rename(temp, whiteout::common::utf8_to_path(path), ec);
+    if (ec) {
+        if (replacesSource)
+            sourceArchive = storages::common::MappedFile::open(sourcePath);
+        std::error_code removeEc;
+        std::filesystem::remove(temp, removeEc);
+        return fail("could not replace '" + path + "': " + ec.message());
     }
 
     // Re-open the saved archive as the new source.
-    if (!m_impl->reloadFromDisk(path)) {
-        if (useTempFile)
-            m_impl->invalidate();
+    if (!reloadFromDisk(path)) {
+        if (replacesSource)
+            invalidate();
         return fail("the saved archive could not be read back");
     }
 

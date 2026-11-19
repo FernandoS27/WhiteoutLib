@@ -60,11 +60,16 @@ namespace whiteout::storages::mpq {
 /// @param block         Block table entry for this file.
 /// @param sectorSize    Sector size in bytes (from header).
 /// @param fileKey       Encryption key (from deriveFileKey), or 0 if not encrypted.
-/// @return Decompressed file contents, or empty vector on failure.
-[[nodiscard]] std::vector<u8> extractFileData(std::span<const u8> archiveData, size_t archiveOffset,
-                                              const BlockEntry& block, u32 sectorSize, u32 fileKey,
-                                              std::string* error = nullptr,
-                                              interfaces::WorkerPool* pool = nullptr);
+/// @param offsetHi      The high 16 bits of the file's offset (BlockTable::fileOffsetHi):
+///                      nonzero only past 4 GiB in a v2+ archive.
+/// @return The file's exact contents, or nullopt (with @p error set) when any
+///         part of it fails to decode to its size.
+[[nodiscard]] std::optional<std::vector<u8>> extractFileData(std::span<const u8> archiveData,
+                                                             size_t archiveOffset, const BlockEntry& block,
+                                                             u32 sectorSize, u32 fileKey,
+                                                             std::string* error = nullptr,
+                                                             interfaces::WorkerPool* pool = nullptr,
+                                                             u16 offsetHi = 0);
 
 // ============================================================================
 // Encoding (Write)
@@ -84,6 +89,9 @@ struct EncodeOptions {
     bool singleUnit = false;
     u32 sectorSize = 4096;
     std::string filename; ///< Needed for encryption key derivation.
+    /// A version 2+ archive, whose readers (newer Storm, StormLib) take
+    /// Huffman only paired with ADPCM: Huffman alone is written as zlib.
+    bool modernCodecs = false;
 };
 
 /// Encode raw file data for writing to an archive.
@@ -118,6 +126,7 @@ struct BatchEncodeResult {
 struct ExtractFileInfo {
     BlockEntry block;
     u32 fileKey = 0;
+    u16 offsetHi = 0; ///< BlockTable::fileOffsetHi of the block.
 };
 
 /// Extract multiple files using a flattened pipeline.

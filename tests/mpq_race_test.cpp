@@ -215,7 +215,7 @@ bool test1_encode_batch_serial() {
         block.flags = ef.flags;
 
         auto extracted = mpq::extractFileData(std::span<const u8>(ef.data), 0, block,
-                                              items[i].second.sectorSize, 0);
+                                              items[i].second.sectorSize, 0).value_or(std::vector<u8>{});
         if (!expect(vectorsEqual(extracted, rawDatas[i]), T,
                     "file %d round-trip mismatch (expected %zu, got %zu)", i,
                     rawDatas[i].size(), extracted.size()))
@@ -283,7 +283,7 @@ bool test2_encode_batch_no_semaphore(size_t numThreads) {
         block.flags = ef.flags;
 
         auto extracted = mpq::extractFileData(std::span<const u8>(ef.data), 0, block,
-                                              items[i].second.sectorSize, 0);
+                                              items[i].second.sectorSize, 0).value_or(std::vector<u8>{});
         if (!expect(vectorsEqual(extracted, rawDatas[i]), T,
                     "file %zu round-trip mismatch (no-semaphore pool)", i))
             return false;
@@ -474,7 +474,7 @@ bool test4_encode_batch_mixed(whiteout::interfaces::WorkerPool* pool) {
 
         std::string err;
         auto extracted = mpq::extractFileData(std::span<const u8>(ef.data), 0, block,
-                                              items[i].second.sectorSize, fileKey, &err);
+                                              items[i].second.sectorSize, fileKey, &err).value_or(std::vector<u8>{});
         if (!expect(vectorsEqual(extracted, rawDatas[i]), T,
                     "file %zu ('%s') round-trip mismatch: %s", i,
                     items[i].second.filename.c_str(), err.c_str()))
@@ -993,7 +993,7 @@ bool test12_massive_batch(size_t numThreads) {
         block.flags = ef.flags;
 
         auto extracted = mpq::extractFileData(std::span<const u8>(ef.data), 0, block,
-                                              items[i].second.sectorSize, 0);
+                                              items[i].second.sectorSize, 0).value_or(std::vector<u8>{});
         if (!expect(vectorsEqual(extracted, rawDatas[i]), T,
                     "massive batch file %zu round-trip mismatch", i))
             return false;
@@ -1159,7 +1159,7 @@ bool test15_concurrent_batch_calls() {
                 block.flags = ef.flags;
 
                 auto extracted = mpq::extractFileData(
-                    std::span<const u8>(ef.data), 0, block, 4096, 0);
+                    std::span<const u8>(ef.data), 0, block, 4096, 0).value_or(std::vector<u8>{});
                 if (!vectorsEqual(extracted, batches[b].rawDatas[f])) {
                     batches[b].ok = false;
                 }
@@ -1352,7 +1352,7 @@ bool test19_tiny_sector_size(size_t numThreads) {
         block.uncompressedSize = static_cast<u32>(rawDatas[i].size());
         block.flags = ef.flags;
 
-        auto extracted = mpq::extractFileData(std::span<const u8>(ef.data), 0, block, 512, 0);
+        auto extracted = mpq::extractFileData(std::span<const u8>(ef.data), 0, block, 512, 0).value_or(std::vector<u8>{});
         if (!expect(vectorsEqual(extracted, rawDatas[i]), T,
                     "file %zu round-trip mismatch (512-byte sectors)", i))
             return false;

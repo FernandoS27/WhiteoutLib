@@ -13,6 +13,7 @@
 /// every consumer (PNG, TIFF, BLTE, MPQ) is unaffected.
 
 #include "deflate.h"
+#include "output_reserve.h"
 
 #include "../storages/common/inflate_fast.h" // declaration of zlibInflateFast
 
@@ -43,7 +44,7 @@ std::vector<u8> inflateStream(std::span<const u8> data, size_t expectedSize, std
         return {};
     }
 
-    size_t cap = expectedSize > 0 ? expectedSize : data.size() * 4;
+    size_t cap = expectedSize > 0 ? common::outputReserve(expectedSize, data.size()) : data.size() * 4;
     if (cap < 4096)
         cap = 4096;
     std::vector<u8> out(cap);

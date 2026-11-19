@@ -74,6 +74,13 @@ public:
     /// or nullopt if not found.
     [[nodiscard]] std::optional<u32> lookup(const std::string& filename, u16 locale) const;
 
+    /// The slot the game reads for @p filename in @p locale, as Storm and
+    /// StormLib pick it: the first entry of exactly that locale (when it is
+    /// not neutral), else the last neutral one. Entries for another platform
+    /// or with a block index of @p blockCount or more are skipped.
+    [[nodiscard]] std::optional<u32> find(const std::string& filename, u16 locale,
+                                          u32 blockCount) const;
+
     /// Insert a new entry. Used by the writer during save() when building fresh tables.
     /// Returns the hash table index, or nullopt if the table is full.
     [[nodiscard]] std::optional<u32> insert(const std::string& filename, u16 locale,

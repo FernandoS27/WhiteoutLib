@@ -26,8 +26,11 @@ void JobGroup::add(size_t n) {
 }
 
 void JobGroup::done() {
+    // The count drops under the lock wait() checks it under: otherwise a
+    // waiter can see zero, return and destroy the group before this call
+    // has taken the mutex.
+    std::lock_guard<std::mutex> const lock(m_impl->mutex);
     if (m_impl->remaining.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-        std::lock_guard<std::mutex> const lock(m_impl->mutex);
         if (m_impl->signalSemaphore)
             m_impl->signalSemaphore->signal(m_impl->signalValue);
         m_impl->cv.notify_all();

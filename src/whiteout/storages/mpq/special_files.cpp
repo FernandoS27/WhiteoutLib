@@ -4,7 +4,6 @@
 #include "special_files.h"
 
 #include <cstring>
-#include <sstream>
 
 namespace whiteout::storages::mpq {
 
@@ -13,28 +12,17 @@ namespace whiteout::storages::mpq {
 // ============================================================================
 
 std::vector<std::string> parseListfile(std::span<const u8> data) {
+    // As StormLib reads it: a line ends at CR or LF, and every other byte,
+    // spaces and a leading '#' or ';' included, belongs to a name.
     std::vector<std::string> result;
-    if (data.empty())
-        return result;
-
-    std::string const content(reinterpret_cast<const char*>(data.data()), data.size());
-    std::istringstream stream(content);
-    std::string line;
-
-    while (std::getline(stream, line)) {
-        // Remove trailing CR.
-        if (!line.empty() && line.back() == '\r') {
-            line.pop_back();
-        }
-        // Skip empty lines and comments.
-        if (line.empty())
+    size_t start = 0;
+    for (size_t i = 0; i <= data.size(); ++i) {
+        if (i < data.size() && data[i] != '\r' && data[i] != '\n')
             continue;
-        if (line[0] == ';' || line[0] == '#')
-            continue;
-
-        result.push_back(std::move(line));
+        if (i > start)
+            result.emplace_back(reinterpret_cast<const char*>(data.data()) + start, i - start);
+        start = i + 1;
     }
-
     return result;
 }
 
@@ -63,6 +51,20 @@ FileAttributes parseAttributes(std::span<const u8> data, u32 blockCount) {
     std::memcpy(&flags, data.data() + 4, 4);
 
     size_t offset = 8;
+
+    // Some writers leave out the last entry, the (attributes) file's own:
+    // when the size fits one entry less exactly, that is the count
+    // (StormLib's CheckSizeOfAttributesFile).
+    size_t const perEntry = (hasFlag(flags, AttributeFlag::kCrc32) ? 4 : 0) +
+                            (hasFlag(flags, AttributeFlag::kFiletime) ? 8 : 0) +
+                            (hasFlag(flags, AttributeFlag::kMd5) ? 16 : 0);
+    if (blockCount > 0 && perEntry > 0) {
+        size_t const shortArrays = 8 + size_t{blockCount - 1} * perEntry;
+        size_t const patchBits = (size_t{blockCount} + 6) / 8;
+        if (data.size() == shortArrays ||
+            (hasFlag(flags, AttributeFlag::kPatchBit) && data.size() == shortArrays + patchBits))
+            --blockCount;
+    }
 
     // Flag kCrc32: CRC32 array.
     if (hasFlag(flags, AttributeFlag::kCrc32)) {

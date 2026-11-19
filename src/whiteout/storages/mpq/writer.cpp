@@ -16,25 +16,19 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <unordered_set>
 
 namespace whiteout::storages::mpq {
 
 namespace {
 
-/// Helper: recompute a block entry for a file that was freshly encoded.
-BlockEntry makeBlockEntry(u32 offset, const EncodedFile& encoded, u32 uncompressedSize) {
+/// Helper: the block entry of a file that was freshly encoded (its offset is
+/// set where it is placed).
+BlockEntry makeBlockEntry(const EncodedFile& encoded, u32 uncompressedSize) {
     BlockEntry be;
-    be.fileOffset = offset;
     be.compressedSize = encoded.compressedSize;
     be.uncompressedSize = uncompressedSize;
     be.flags = encoded.flags;
-    return be;
-}
-
-/// Helper: recompute a block entry for a raw-copied file.
-BlockEntry makeRawCopyBlockEntry(u32 newOffset, const BlockEntry& source) {
-    BlockEntry be = source;
-    be.fileOffset = newOffset;
     return be;
 }
 
@@ -159,12 +153,26 @@ std::vector<u8> rawChunkMd5s(std::span<const u8> data, u32 chunkSize) {
     return out;
 }
 
+/// The whole archive in memory.
+class MemorySink final : public ArchiveSink {
+public:
+    std::vector<u8> bytes;
+
+    [[nodiscard]] u64 size() const override {
+        return bytes.size();
+    }
+    void append(std::span<const u8> data) override {
+        bytes.insert(bytes.end(), data.begin(), data.end());
+    }
+    void patch(u64 offset, std::span<const u8> data) override {
+        std::copy(data.begin(), data.end(), bytes.begin() + static_cast<std::ptrdiff_t>(offset));
+    }
+};
+
 } // anonymous namespace
 
-WriteResult writeArchive(const WritePlan& plan, const std::vector<WriteEntry>& entries,
+std::string writeArchive(const WritePlan& plan, const std::vector<WriteEntry>& entries, ArchiveSink& sink,
                          interfaces::WorkerPool* pool) {
-    WriteResult result;
-
     // Every offset, size and MD5 is the writer's to state; the template only
     // says which version, sector size and chunk size.
     MpqHeader hdr{};
@@ -173,6 +181,8 @@ WriteResult writeArchive(const WritePlan& plan, const std::vector<WriteEntry>& e
     hdr.headerSize = std::max(plan.header.headerSize, headerSizeFor(hdr.formatVersion));
     hdr.rawChunkSize = hdr.formatVersion >= 3 ? plan.header.rawChunkSize : 0;
     u32 const rawChunk = hdr.rawChunkSize;
+    if (hdr.sectorSize() == 0)
+        return "sector size shift " + std::to_string(hdr.sectorSizeShift) + " leaves no sector size";
 
     u32 const specials = plan.attributes ? 2u : 1u;
     u32 const needed = static_cast<u32>(entries.size()) + specials;
@@ -187,35 +197,34 @@ WriteResult writeArchive(const WritePlan& plan, const std::vector<WriteEntry>& e
     for (const auto& entry : entries) {
         if (!entry.filename.empty())
             continue;
-        if (!keepSlots || !entry.sourceSlot) {
-            result.error = "the hash table has to grow to " + std::to_string(capacity) +
-                           " slots, and the archive holds files no (listfile) names";
-            return result;
-        }
-        if (plan.hetBet && entry.nameHash == 0) {
-            result.error = "the archive holds files neither its (listfile) nor its HET table names";
-            return result;
-        }
+        if (!keepSlots || !entry.sourceSlot)
+            return "the hash table has to grow to " + std::to_string(capacity) +
+                   " slots, and the archive holds files no (listfile) names";
+        if (plan.hetBet && entry.nameHash == 0)
+            return "the archive holds files neither its (listfile) nor its HET table names";
     }
 
-    std::vector<u8> archive;
-    archive.reserve(1024 * 1024);
-    archive.resize(hdr.headerSize, 0);
+    sink.append(std::vector<u8>(hdr.headerSize, 0)); // Patched in last.
 
     std::vector<BlockEntry> blocks;
+    std::vector<u16> blockOffsetHi; // The high bits of each block's 48-bit offset.
     blocks.reserve(needed);
+    blockOffsetHi.reserve(needed);
+    auto placeBlock = [&](BlockEntry be, u64 offset) {
+        be.fileOffset = static_cast<u32>(offset);
+        blocks.push_back(be);
+        blockOffsetHi.push_back(static_cast<u16>(offset >> 32));
+    };
     FileAttributes attrs;
     u64 const now = currentFiletime();
 
     // Appends one file's stored bytes and, in a V4 archive, its chunk MD5s;
     // returns where they start.
     auto appendStored = [&](std::span<const u8> stored) {
-        u32 const offset = static_cast<u32>(archive.size());
-        archive.insert(archive.end(), stored.begin(), stored.end());
-        if (rawChunk != 0) {
-            auto const md5s = rawChunkMd5s(stored, rawChunk);
-            archive.insert(archive.end(), md5s.begin(), md5s.end());
-        }
+        u64 const offset = sink.size();
+        sink.append(stored);
+        if (rawChunk != 0)
+            sink.append(rawChunkMd5s(stored, rawChunk));
         return offset;
     };
     auto recordAttributes = [&](std::optional<u32> crc, std::optional<u64> time,
@@ -238,6 +247,7 @@ WriteResult writeArchive(const WritePlan& plan, const std::vector<WriteEntry>& e
         opts.singleUnit = entry.singleUnit;
         opts.sectorSize = hdr.sectorSize();
         opts.filename = entry.filename;
+        opts.modernCodecs = hdr.formatVersion >= 1;
         return opts;
     };
 
@@ -275,21 +285,19 @@ WriteResult writeArchive(const WritePlan& plan, const std::vector<WriteEntry>& e
             // Keyed to its offset, which this write changes.
             const BlockEntry& source = entry.sourceBlock;
             u32 const size = source.uncompressedSize;
-            u32 const newOffset = static_cast<u32>(archive.size());
+            u32 const newOffset = static_cast<u32>(sink.size()); // The key takes the low 32 bits.
             auto const rekeyed =
                 rekeyStoredFile(entry.rawSectors, source, hdr.sectorSize(), (*entry.rekeyBase + source.fileOffset) ^ size,
                                 (*entry.rekeyBase + newOffset) ^ size);
-            if (!rekeyed) {
-                result.error = "the sector table of '" + (entry.filename.empty() ? std::string("a file") : entry.filename) +
-                               "' does not decrypt, so it cannot be moved";
-                return result;
-            }
-            blocks.push_back(makeRawCopyBlockEntry(appendStored(*rekeyed), source));
+            if (!rekeyed)
+                return "the sector table of '" + (entry.filename.empty() ? std::string("a file") : entry.filename) +
+                       "' does not decrypt, so it cannot be moved";
+            placeBlock(source, appendStored(*rekeyed));
             recordAttributes(entry.crc32, entry.filetime, entry.md5, {}, false);
             continue;
         }
         if (entry.rawCopy) {
-            blocks.push_back(makeRawCopyBlockEntry(appendStored(entry.rawSectors), entry.sourceBlock));
+            placeBlock(entry.sourceBlock, appendStored(entry.rawSectors));
             recordAttributes(entry.crc32, entry.filetime, entry.md5, {}, false);
             continue;
         }
@@ -301,12 +309,13 @@ WriteResult writeArchive(const WritePlan& plan, const std::vector<WriteEntry>& e
         }
         if (entry.rawData.empty())
             encoded.flags = FileFlag::kExists;
-        blocks.push_back(makeBlockEntry(appendStored(encoded.data), encoded,
-                                        static_cast<u32>(entry.rawData.size())));
+        placeBlock(makeBlockEntry(encoded, static_cast<u32>(entry.rawData.size())), appendStored(encoded.data));
         recordAttributes(entry.crc32, entry.filetime, entry.md5, entry.rawData, true);
     }
 
-    // (listfile) names every named file once, and not the special files.
+    // (listfile) names every named file once, and not the special files. A
+    // name is listed as it was hashed, slashes as backslashes: Storm and
+    // StormLib hash a slash as itself, so "a/b" would name no file.
     std::vector<size_t> listed(entries.size());
     for (size_t idx = 0; idx < entries.size(); ++idx)
         listed[idx] = idx;
@@ -314,16 +323,14 @@ WriteResult writeArchive(const WritePlan& plan, const std::vector<WriteEntry>& e
                      [&](size_t a, size_t b) { return entries[a].listRank < entries[b].listRank; });
     std::vector<std::string> listfileNames;
     {
-        std::vector<std::string> seen;
+        std::unordered_set<std::string> seen;
         for (size_t const idx : listed) {
             const WriteEntry& entry = entries[idx];
-            if (entry.filename.empty())
+            if (entry.filename.empty() || !seen.insert(common::normalizePath(entry.filename)).second)
                 continue;
-            std::string norm = common::normalizePath(entry.filename);
-            if (std::find(seen.begin(), seen.end(), norm) != seen.end())
-                continue;
-            seen.push_back(std::move(norm));
-            listfileNames.push_back(entry.filename);
+            std::string name = entry.filename;
+            std::replace(name.begin(), name.end(), '/', '\\');
+            listfileNames.push_back(std::move(name));
         }
     }
     auto appendSpecialFile = [&](const std::string& name, const std::vector<u8>& rawData) {
@@ -340,7 +347,7 @@ WriteResult writeArchive(const WritePlan& plan, const std::vector<WriteEntry>& e
         }
         if (rawData.empty())
             encoded.flags = FileFlag::kExists;
-        blocks.push_back(makeBlockEntry(appendStored(encoded.data), encoded, static_cast<u32>(rawData.size())));
+        placeBlock(makeBlockEntry(encoded, static_cast<u32>(rawData.size())), appendStored(encoded.data));
     };
     auto const listfile = buildListfile(listfileNames);
     appendSpecialFile("(listfile)", listfile);
@@ -378,7 +385,7 @@ WriteResult writeArchive(const WritePlan& plan, const std::vector<WriteEntry>& e
         hdr.hetTableOffset = appendStored(het);
         hdr.hetTableSize64 = het.size();
         hdr.hetTableMd5 = common::md5Hash(het);
-        auto const bet = buildBetTable(blocks, nameHashes);
+        auto const bet = buildBetTable(blocks, nameHashes, blockOffsetHi);
         hdr.betTableOffset = appendStored(bet);
         hdr.betTableSize64 = bet.size();
         hdr.betTableMd5 = common::md5Hash(bet);
@@ -412,57 +419,69 @@ WriteResult writeArchive(const WritePlan& plan, const std::vector<WriteEntry>& e
         const WriteEntry& entry = entries[idx];
         if (keepSlots && entry.sourceSlot)
             continue;
-        if (!hashTable.insert(entry.filename, entry.locale, static_cast<u32>(idx))) {
-            result.error = "the hash table is full";
-            return result;
-        }
+        if (!hashTable.insert(entry.filename, entry.locale, static_cast<u32>(idx)))
+            return "the hash table is full";
     }
     u32 const listfileBlock = static_cast<u32>(entries.size());
     if (!hashTable.insert("(listfile)", 0, listfileBlock) ||
-        (plan.attributes && !hashTable.insert("(attributes)", 0, listfileBlock + 1))) {
-        result.error = "the hash table is full";
-        return result;
-    }
+        (plan.attributes && !hashTable.insert("(attributes)", 0, listfileBlock + 1)))
+        return "the hash table is full";
 
     BlockTable blockTable;
     blockTable.createEmpty();
-    for (const BlockEntry& be : blocks)
-        (void)blockTable.append(be);
+    for (size_t i = 0; i < blocks.size(); ++i)
+        (void)blockTable.append(blocks[i], blockOffsetHi[i]);
 
     auto const hashTableData = hashTable.serialize();
-    hdr.hashTableOffset = static_cast<u32>(archive.size());
+    hdr.hashTableOffset = static_cast<u32>(sink.size());
+    hdr.hashTableOffsetHi = static_cast<u16>(sink.size() >> 32);
     hdr.hashTableEntries = capacity;
     hdr.hashTableSize64 = hashTableData.size();
     hdr.hashTableMd5 = common::md5Hash(hashTableData);
-    archive.insert(archive.end(), hashTableData.begin(), hashTableData.end());
+    sink.append(hashTableData);
 
     auto const blockTableData = blockTable.serialize();
-    hdr.blockTableOffset = static_cast<u32>(archive.size());
+    hdr.blockTableOffset = static_cast<u32>(sink.size());
+    hdr.blockTableOffsetHi = static_cast<u16>(sink.size() >> 32);
     hdr.blockTableEntries = blockTable.count();
     hdr.blockTableSize64 = blockTableData.size();
     hdr.blockTableMd5 = common::md5Hash(blockTableData);
-    archive.insert(archive.end(), blockTableData.begin(), blockTableData.end());
+    sink.append(blockTableData);
 
     if (hdr.formatVersion >= 1 && blockTable.needsHiBlockTable()) {
         auto const hiData = blockTable.serializeHiBlockTable();
-        hdr.hiBlockTableOffset = archive.size();
+        hdr.hiBlockTableOffset = sink.size();
         hdr.hiBlockTableSize64 = hiData.size();
         hdr.hiBlockTableMd5 = common::md5Hash(hiData);
-        archive.insert(archive.end(), hiData.begin(), hiData.end());
+        sink.append(hiData);
     }
 
-    hdr.archiveSize = static_cast<u32>(archive.size());
+    // A version 1 header has no high offset bits to reach past 4 GiB with.
+    if (hdr.formatVersion == 0 && sink.size() > 0xFFFFFFFFull)
+        return "a version 1 archive cannot exceed 4 GiB";
+    hdr.archiveSize = static_cast<u32>(sink.size());
     if (hdr.formatVersion >= 2)
-        hdr.archiveSize64 = archive.size();
-    serializeHeader(archive, hdr);
+        hdr.archiveSize64 = sink.size();
+    std::vector<u8> header(hdr.headerSize, 0);
+    serializeHeader(header, hdr);
     // V4: the header's own MD5 covers everything in it before that field.
     if (hdr.headerSize >= 208) {
         static constexpr size_t kMpqHeaderMd5 = 192;
-        auto const digest = common::md5Hash(std::span<const u8>(archive.data(), kMpqHeaderMd5));
-        std::memcpy(archive.data() + kMpqHeaderMd5, digest.data(), digest.size());
+        auto const digest = common::md5Hash(std::span<const u8>(header.data(), kMpqHeaderMd5));
+        std::memcpy(header.data() + kMpqHeaderMd5, digest.data(), digest.size());
     }
+    sink.patch(0, header);
+    return {};
+}
 
-    result.archive = std::move(archive);
+WriteResult writeArchive(const WritePlan& plan, const std::vector<WriteEntry>& entries,
+                         interfaces::WorkerPool* pool) {
+    MemorySink sink;
+    sink.bytes.reserve(1024 * 1024);
+    WriteResult result;
+    result.error = writeArchive(plan, entries, sink, pool);
+    if (result.error.empty())
+        result.archive = std::move(sink.bytes);
     return result;
 }
 

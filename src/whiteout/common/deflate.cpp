@@ -15,6 +15,7 @@
 #include "bit_io.h"
 #include "checksum.h"
 #include "huffman_table.h"
+#include "output_reserve.h"
 
 #include <algorithm>
 #include <array>
@@ -125,6 +126,8 @@ struct Inflater {
         // account for any remaining buffered bytes before the bulk memcpy.
         u32 const len = br.readBits(16);
         u32 const nlen = br.readBits(16);
+        if (br.bitsAvail < 0)
+            return error("Truncated stored block header");
         if ((len ^ nlen) != 0xFFFF)
             return error("Stored block LEN/NLEN mismatch");
         // Rewind bytePos to the logical stream position (after LEN/NLEN).
@@ -162,6 +165,11 @@ struct Inflater {
         const u8* dLen = dist.fastLen.data();
 
         for (;;) {
+            // Bits past the end read as zeros; a stream that needs them is
+            // truncated, and would otherwise decode zeros without end.
+            if (bitsLeft < 0)
+                return error("Truncated DEFLATE stream");
+
             // ---- Single refill per iteration ----
             // After refill, bitsLeft >= 56. Worst-case consumption per
             // iteration is 48 bits (15 litLen + 5 lenExtra + 15 dist + 13 distExtra),
@@ -355,6 +363,8 @@ struct Inflater {
 
         if (!distTable.build(codeLengths.data() + hlit, static_cast<i32>(hdist)))
             return error("Failed to build dynamic distance table");
+        if (br.bitsAvail < 0)
+            return error("Truncated dynamic Huffman header");
 
         return inflateBlock(litLenTable, distTable);
     }
@@ -366,6 +376,8 @@ struct Inflater {
         while (!isFinal) {
             isFinal = br.readBits(1) != 0;
             u32 const btype = br.readBits(2);
+            if (br.bitsAvail < 0)
+                return error("Truncated DEFLATE stream");
 
             if (btype == 0) {
                 if (!inflateStored())
@@ -605,8 +617,9 @@ std::vector<u8> zlib_decompress(std::span<const u8> data, std::string* out_error
 
     Inflater inflater;
     inflater.errorOut = out_error;
-    // Pre-size to expectedSize when known, so the inner loop rarely re-allocates.
-    size_t initSize = expectedSize > 0 ? expectedSize : data.size() * 4;
+    // Pre-size to expectedSize when known (and plausible), so the inner loop
+    // rarely re-allocates.
+    size_t initSize = expectedSize > 0 ? common::outputReserve(expectedSize, data.size()) : data.size() * 4;
     if (initSize < 4096)
         initSize = 4096;
     inflater.output.resize(initSize);

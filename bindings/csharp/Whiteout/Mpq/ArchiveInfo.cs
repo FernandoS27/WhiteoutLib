@@ -37,7 +37,7 @@ public sealed class ArchiveInfo : WhiteoutHandle
     }
 
 
-    /// <summary>Number of occupied block table entries.</summary>
+    /// <summary>Block table entries, as the header counts them.</summary>
     public uint BlockTableEntries
     {
         get => NativeMethods.whiteout_mpq_MpqArchiveInfo_get_blockTableEntries(DangerousGet());

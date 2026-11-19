@@ -97,21 +97,23 @@ public:
 
     // -- Read Operations (thread-safe, shared lock) --
 
-    /// Read a file from the archive.
-    /// Checks the overlay first, then the source archive.
-    /// @return File contents, or std::nullopt if not found or deleted.
+    /// Read a file from the archive: its neutral-locale copy, as Storm and
+    /// StormLib read a name (the last one, when a protected map lists the
+    /// name twice). Pending writes and deletes count as already saved.
+    /// @return File contents, or std::nullopt if not found, deleted, or not
+    ///         decodable to its full size.
     std::optional<std::vector<u8>> readFile(const std::string& name) const;
 
     /// Read a file, with optional error output for diagnosing failures.
     std::optional<std::vector<u8>> readFile(const std::string& name, std::string* error) const;
 
-    /// Read a file with a specific locale.
+    /// Read a file's copy in @p locale, else its neutral copy.
     std::optional<std::vector<u8>> readFile(const std::string& name, u16 locale) const;
 
-    /// Check if a file exists in the archive (including overlay).
+    /// Check if readFile(name) finds a file (including overlay).
     bool fileExists(const std::string& name) const;
 
-    /// Get information about a file.
+    /// Get information about the file readFile(name) reads.
     std::optional<FileInfo> fileInfo(const std::string& name) const;
 
     /// Get summary information about the archive.
@@ -129,27 +131,31 @@ public:
 
     // -- Write Operations (thread-safe, exclusive lock) --
 
-    /// Write or overwrite a file. Data is held in overlay until save().
-    /// @return true on success, false if the hash table is full.
+    /// Write or overwrite a file. Data is held in overlay until save(), which
+    /// replaces every locale of the name with the ones written.
+    /// @return true on success, false if the storage is not open or the data
+    ///         is over 4 GiB (an MPQ file size is 32-bit).
     bool writeFile(const std::string& name, std::span<const u8> data, WriteOptions opts = {});
 
-    /// Delete a file from the archive.
+    /// Delete a file from the archive, every locale of it.
     /// @return true if the file was found (in source or overlay), false otherwise.
     bool deleteFile(const std::string& name);
 
     // -- Persist (thread-safe, exclusive lock) --
 
-    /// Save the archive to its original path (temp file + atomic rename).
+    /// Save the archive to its original path.
     /// @return false if this Storage was created via create() with no prior save(path).
     bool save();
 
     /// Save the archive to a specific path. After saving, the new file becomes
     /// the source archive and the overlay is cleared.
     ///
-    /// Bytes before the MPQ header (a Warcraft III map's HM3W block) are kept,
-    /// as are files no (listfile) names, and a v4 archive keeps its HET/BET
-    /// tables and MD5s. A save that cannot keep every file refuses instead:
-    /// see lastError().
+    /// The archive is written to an unused name beside @p path, then renamed
+    /// over it, so a failed save leaves @p path as it was; past 128 MiB it is
+    /// streamed rather than held in memory. Bytes before the MPQ header (a
+    /// Warcraft III map's HM3W block) are kept, as are files no (listfile)
+    /// names, and a v4 archive keeps its HET/BET tables and MD5s. A save that
+    /// cannot keep every file refuses instead: see lastError().
     bool save(const std::string& path);
 
     /// Why the last save() failed; empty after one that succeeded.

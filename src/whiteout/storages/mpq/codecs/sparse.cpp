@@ -3,6 +3,8 @@
 
 #include "sparse.h"
 
+#include "../../../common/output_reserve.h"
+
 #include <cstring>
 
 namespace whiteout::storages::mpq {
@@ -20,7 +22,7 @@ std::vector<u8> sparseDecompress(std::span<const u8> src, size_t expectedSize) {
         return {};
 
     std::vector<u8> out;
-    out.reserve(origSize);
+    out.reserve(whiteout::common::outputReserve(origSize, src.size()));
 
     size_t inPos = 4;
 

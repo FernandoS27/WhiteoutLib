@@ -19,14 +19,14 @@ bool HashTable::parse(std::span<const u8> data, u32 capacity) {
         return false;
 
     // Copy the raw data and decrypt in place.
-    std::vector<u32> raw(capacity * 4);
+    std::vector<u32> raw(size_t{capacity} * 4);
     std::memcpy(raw.data(), data.data(), expectedSize);
     decryptBlock(raw.data(), raw.size(), hashString("(hash table)", HashType::FileKey));
 
     // Convert u32 triples to HashEntry structs.
     m_entries.resize(capacity);
     for (u32 i = 0; i < capacity; ++i) {
-        const u32* src = raw.data() + i * 4;
+        const u32* src = raw.data() + size_t{i} * 4;
         m_entries[i].hashA = src[0];
         m_entries[i].hashB = src[1];
         m_entries[i].locale = static_cast<u16>(src[2] & 0xFFFF);
@@ -85,6 +85,34 @@ std::optional<u32> HashTable::lookup(const std::string& filename) const {
 
 std::optional<u32> HashTable::lookup(const std::string& filename, u16 locale) const {
     return probeFor(m_entries, filename, locale);
+}
+
+std::optional<u32> HashTable::find(const std::string& filename, u16 locale, u32 blockCount) const {
+    if (m_entries.empty())
+        return std::nullopt;
+
+    u32 const mask = capacity() - 1;
+    u32 const hashA = hashString(filename, HashType::NameA);
+    u32 const hashB = hashString(filename, HashType::NameB);
+    u32 const startIndex = hashString(filename, HashType::TableOffset) & mask;
+
+    // Protected maps plant decoy neutral entries ahead of the real one:
+    // the last neutral entry is the one the game reads.
+    std::optional<u32> neutral;
+    u32 index = startIndex;
+    do {
+        const auto& e = m_entries[index];
+        if (e.isEmpty())
+            break;
+        bool const ours = e.hashA == hashA && e.hashB == hashB && e.blockIndex < blockCount &&
+                          (e.platform & 0xFF) == 0;
+        if (ours && locale != 0 && e.locale == locale)
+            return index;
+        if (ours && e.locale == 0)
+            neutral = index;
+        index = (index + 1) & mask;
+    } while (index != startIndex);
+    return neutral;
 }
 
 // ============================================================================

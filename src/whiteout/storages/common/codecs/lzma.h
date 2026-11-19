@@ -4,10 +4,9 @@
 /// @file lzma.h
 /// @brief LZMA decompression (decode-only).
 ///
-/// MPQ LZMA wire format: 5-byte properties header (lclppb packed byte +
-/// 4-byte little-endian dictionary size) followed by the raw LZMA range-coded
-/// stream. No uncompressed-size field in the stream — the caller supplies the
-/// expected output size.
+/// Takes the 5 property bytes (the lc/lp/pb byte, then the little-endian
+/// dictionary size) and the range-coded stream; the caller supplies the
+/// output size. MPQ wraps these in its own header (see compression.cpp).
 
 #pragma once
 
@@ -18,10 +17,15 @@
 
 namespace whiteout::storages::common {
 
-/// Decompress LZMA-compressed data.
-/// @param src          Compressed data (without the MPQ compression byte prefix).
+/// Decompress an LZMA stream.
+/// @param props        The 5 property bytes.
+/// @param stream       The range-coded data.
 /// @param expectedSize Expected decompressed size.
 /// @return Decompressed data, or empty vector on failure.
+[[nodiscard]] std::vector<u8> lzmaDecompress(std::span<const u8> props, std::span<const u8> stream,
+                                             size_t expectedSize);
+
+/// The same, for property bytes followed directly by the stream.
 [[nodiscard]] std::vector<u8> lzmaDecompress(std::span<const u8> src, size_t expectedSize);
 
 } // namespace whiteout::storages::common

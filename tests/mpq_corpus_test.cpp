@@ -293,6 +293,21 @@ static ArchiveTestResult testArchive(const std::string& archivePath,
     localExpect(!serialSnapshot.empty(), "serial read: %zu/%zu files extracted (%u errors)",
                 serialSnapshot.size(), files.size(), serialReadErrors);
 
+    // A listfile may name files the archive lacks; every file it holds must read.
+    {
+        u32 undecodable = 0;
+        for (const auto& name : files) {
+            if (serialSnapshot.contains(name) || !storage->fileExists(name))
+                continue;
+            if (++undecodable <= 5) {
+                std::string error;
+                (void)storage->readFile(name, &error);
+                std::printf("    DIAG: %s does not read: %s\n", name.c_str(), error.c_str());
+            }
+        }
+        localExpect(undecodable == 0, "serial read: %u present files do not read", undecodable);
+    }
+
     // ---------------------------------------------------------------
     // TEST 6: fileExists + fileInfo consistency
     // ---------------------------------------------------------------
@@ -308,15 +323,8 @@ static ArchiveTestResult testArchive(const std::string& archivePath,
         }
         localExpect(existMismatches == 0, "fileExists consistency (%u mismatches)",
                     existMismatches);
-        // fileInfo size can legitimately differ from extracted size for some
-        // compression modes (block table stores approximate/padded sizes).
-        if (sizeMismatches > 0) {
-            std::printf("    WARN: fileInfo uncompressedSize differs from extracted "
-                        "size for %u/%zu files\n",
-                        sizeMismatches, serialSnapshot.size());
-        } else {
-            localPass("fileInfo size consistency");
-        }
+        localExpect(sizeMismatches == 0, "fileInfo size consistency (%u/%zu files differ)",
+                    sizeMismatches, serialSnapshot.size());
     }
 
     // ---------------------------------------------------------------

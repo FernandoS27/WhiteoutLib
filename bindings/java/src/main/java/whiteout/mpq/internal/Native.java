@@ -115,6 +115,8 @@ public final class Native {
         "whiteout_mpq_MpqStorage_save", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_mpq_MpqStorage_save_path = find(
         "whiteout_mpq_MpqStorage_save_path", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mpq_MpqStorage_lastError = find(
+        "whiteout_mpq_MpqStorage_lastError", FunctionDescriptor.of(CSTRING_LAYOUT, ValueLayout.ADDRESS));
 
     // -- MpqFileSystem --
     public static final MethodHandle whiteout_mpq_MpqFileSystem_new_storage = find(

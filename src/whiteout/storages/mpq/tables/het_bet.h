@@ -81,8 +81,10 @@ struct BetTable {
 [[nodiscard]] std::vector<u8> buildHetTable(std::span<const u64> nameHashes,
                                             std::span<const u32> fillOrder = {});
 
-/// The stored BET table for @p blocks, one name hash each.
+/// The stored BET table for @p blocks, one name hash each; @p offsetHi holds
+/// the high 16 bits of their offsets (empty: all zero).
 [[nodiscard]] std::vector<u8> buildBetTable(std::span<const BlockEntry> blocks,
-                                            std::span<const u64> nameHashes);
+                                            std::span<const u64> nameHashes,
+                                            std::span<const u16> offsetHi = {});
 
 } // namespace whiteout::storages::mpq

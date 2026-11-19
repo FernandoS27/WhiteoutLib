@@ -49,8 +49,8 @@ void bind_mpq(py::module_& m) {
         .value("P_KWARE", whiteout::storages::mpq::Compression::PKware, R"doc(PKware DCL (implode) compression.)doc")
         .value("B_ZIP2", whiteout::storages::mpq::Compression::BZip2, R"doc(bzip2 compression.)doc")
         .value("SPARSE", whiteout::storages::mpq::Compression::Sparse, R"doc(Sparse / RLE compression.)doc")
-        .value("ADPCM_MONO", whiteout::storages::mpq::Compression::AdpcmMono, R"doc(IMA ADPCM mono (used for mono audio).)doc")
-        .value("ADPCM_STEREO", whiteout::storages::mpq::Compression::AdpcmStereo, R"doc(IMA ADPCM stereo (used for stereo audio).)doc")
+        .value("ADPCM_MONO", whiteout::storages::mpq::Compression::AdpcmMono, R"doc(IMA ADPCM mono, lossy (a wave's first sector is stored with PKware).)doc")
+        .value("ADPCM_STEREO", whiteout::storages::mpq::Compression::AdpcmStereo, R"doc(IMA ADPCM stereo, lossy (a wave's first sector is stored with PKware).)doc")
     ;
 
     py::enum_<whiteout::storages::mpq::FileFlags>(m, "FileFlags")
@@ -87,7 +87,7 @@ void bind_mpq(py::module_& m) {
         })
         .def_readwrite("format_version", &whiteout::storages::mpq::ArchiveInfo::formatVersion, R"doc(0 = V1, 1 = V2.)doc")
         .def_readwrite("hash_table_entries", &whiteout::storages::mpq::ArchiveInfo::hashTableEntries, R"doc(Hash table capacity (always a power of 2).)doc")
-        .def_readwrite("block_table_entries", &whiteout::storages::mpq::ArchiveInfo::blockTableEntries, R"doc(Number of occupied block table entries.)doc")
+        .def_readwrite("block_table_entries", &whiteout::storages::mpq::ArchiveInfo::blockTableEntries, R"doc(Block table entries, as the header counts them.)doc")
         .def_readwrite("sector_size", &whiteout::storages::mpq::ArchiveInfo::sectorSize, R"doc(Sector size in bytes (512 << sectorSizeShift).)doc")
         .def_readwrite("archive_size", &whiteout::storages::mpq::ArchiveInfo::archiveSize, R"doc(Total archive size in bytes.)doc")
     ;
@@ -147,19 +147,19 @@ All public methods are thread-safe: read operations acquire a shared lock; write
                 if (!__r) return py::object(py::none());
                 return py::object(py::bytes(
                     reinterpret_cast<const char*>(__r->data()), __r->size()));
-            }, py::arg("name"), R"doc(Read a file from the archive. Checks the overlay first, then the source archive. @return File contents, or std::nullopt if not found or deleted.)doc")
+            }, py::arg("name"), R"doc(Read a file from the archive: its neutral-locale copy, as Storm and StormLib read a name (the last one, when a protected map lists the name twice). Pending writes and deletes count as already saved. @return File contents, or std::nullopt if not found, deleted, or not decodable to its full size.)doc")
         .def("read_file",
             [](whiteout::storages::mpq::Storage& self, const std::string& name, whiteout::u16 locale) {
                 auto __r = self.readFile(name, locale);
                 if (!__r) return py::object(py::none());
                 return py::object(py::bytes(
                     reinterpret_cast<const char*>(__r->data()), __r->size()));
-            }, py::arg("name"), py::arg("locale"), R"doc(Read a file with a specific locale.)doc")
-        .def("file_exists", &whiteout::storages::mpq::Storage::fileExists, py::arg("name"), R"doc(Check if a file exists in the archive (including overlay).)doc")
+            }, py::arg("name"), py::arg("locale"), R"doc(Read a file's copy in @p locale, else its neutral copy.)doc")
+        .def("file_exists", &whiteout::storages::mpq::Storage::fileExists, py::arg("name"), R"doc(Check if readFile(name) finds a file (including overlay).)doc")
         .def("file_info",
             [](whiteout::storages::mpq::Storage& self, const std::string& name) {
                 return self.fileInfo(name);
-            }, py::arg("name"), R"doc(Get information about a file.)doc")
+            }, py::arg("name"), R"doc(Get information about the file readFile(name) reads.)doc")
         .def("archive_info", &whiteout::storages::mpq::Storage::archiveInfo, R"doc(Get summary information about the archive.)doc")
         .def("list_files", &whiteout::storages::mpq::Storage::listFiles, R"doc(List all known filenames (from listfile + overlay additions − deletions).)doc")
         .def("write_file",
@@ -167,10 +167,13 @@ All public methods are thread-safe: read operations acquire a shared lock; write
                 std::string __s_1 = __py_bytes_1;
                 std::span<const whiteout::u8> data(reinterpret_cast<const whiteout::u8*>(__s_1.data()), __s_1.size());
                 return self.writeFile(name, data, opts);
-            }, py::arg("name"), py::arg("data"), py::arg("opts") = whiteout::storages::mpq::WriteOptions{}, R"doc(Write or overwrite a file. Data is held in overlay until save(). @return true on success, false if the hash table is full.)doc")
-        .def("delete_file", &whiteout::storages::mpq::Storage::deleteFile, py::arg("name"), R"doc(Delete a file from the archive. @return true if the file was found (in source or overlay), false otherwise.)doc")
-        .def("save", py::overload_cast<>(&whiteout::storages::mpq::Storage::save), R"doc(Save the archive to its original path (temp file + atomic rename). @return false if this Storage was created via create() with no prior save(path).)doc")
-        .def("save", py::overload_cast<const std::string&>(&whiteout::storages::mpq::Storage::save), py::arg("path"), R"doc(Save the archive to a specific path. After saving, the new file becomes the source archive and the overlay is cleared.)doc")
+            }, py::arg("name"), py::arg("data"), py::arg("opts") = whiteout::storages::mpq::WriteOptions{}, R"doc(Write or overwrite a file. Data is held in overlay until save(), which replaces every locale of the name with the ones written. @return true on success, false if the storage is not open or the data is over 4 GiB (an MPQ file size is 32-bit).)doc")
+        .def("delete_file", &whiteout::storages::mpq::Storage::deleteFile, py::arg("name"), R"doc(Delete a file from the archive, every locale of it. @return true if the file was found (in source or overlay), false otherwise.)doc")
+        .def("save", py::overload_cast<>(&whiteout::storages::mpq::Storage::save), R"doc(Save the archive to its original path. @return false if this Storage was created via create() with no prior save(path).)doc")
+        .def("save", py::overload_cast<const std::string&>(&whiteout::storages::mpq::Storage::save), py::arg("path"), R"doc(Save the archive to a specific path. After saving, the new file becomes the source archive and the overlay is cleared.
+
+The archive is written to an unused name beside @p path, then renamed over it, so a failed save leaves @p path as it was; past 128 MiB it is streamed rather than held in memory. Bytes before the MPQ header (a Warcraft III map's HM3W block) are kept, as are files no (listfile) names, and a v4 archive keeps its HET/BET tables and MD5s. A save that cannot keep every file refuses instead: see lastError().)doc")
+        .def("last_error", &whiteout::storages::mpq::Storage::lastError, R"doc(Why the last save() failed; empty after one that succeeded.)doc")
     ;
 
     py::class_<whiteout::utils::MpqFileSystem, whiteout::interfaces::VirtualPathFileSystem>(m, "FileSystem", R"doc(VirtualPathFileSystem implementation backed by an MPQ archive.

@@ -77,7 +77,7 @@ public final class ArchiveInfo implements AutoCloseable {
         handle.set(ValueLayout.JAVA_INT, 4L, value);
     }
     /**
-     * Number of occupied block table entries.
+     * Block table entries, as the header counts them.
      * @return the blockTableEntries field of this MpqArchiveInfo.
      */
     public int getBlockTableEntries() {

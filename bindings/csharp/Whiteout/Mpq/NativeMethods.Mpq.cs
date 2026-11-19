@@ -227,6 +227,10 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
+    internal static partial Whiteout.Common.NativeCString whiteout_mpq_MpqStorage_lastError(IntPtr self);
+
+
+    [LibraryImport(Runtime.LibraryName)]
     internal static partial IntPtr whiteout_mpq_MpqFileSystem_new_storage(IntPtr storage);
 
     [LibraryImport(Runtime.LibraryName)]

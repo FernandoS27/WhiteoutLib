@@ -107,8 +107,9 @@ public:
     /// Create an empty block table.
     void createEmpty();
 
-    /// Append a new entry. Returns the block index.
-    [[nodiscard]] u32 append(const BlockEntry& entry);
+    /// Append a new entry, @p offsetHi the high 16 bits of its 48-bit offset.
+    /// Returns the block index.
+    [[nodiscard]] u32 append(const BlockEntry& entry, u16 offsetHi = 0);
 
     /// Access an entry by index.
     [[nodiscard]] const BlockEntry& entry(u32 index) const {
@@ -125,6 +126,11 @@ public:
 
     /// Get the 48-bit file offset (block offset + hi-block table).
     [[nodiscard]] u64 fileOffset48(u32 index) const;
+
+    /// The high 16 bits of a file's offset (hi-block table), 0 without one.
+    [[nodiscard]] u16 fileOffsetHi(u32 index) const {
+        return static_cast<u16>(fileOffset48(index) >> 32);
+    }
 
     /// Serialize block table to encrypted bytes for archive output.
     [[nodiscard]] std::vector<u8> serialize() const;

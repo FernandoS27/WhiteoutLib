@@ -50,9 +50,9 @@ pub enum Compression {
     BZip2 = 16,
     /// Sparse / RLE compression.
     Sparse = 32,
-    /// IMA ADPCM mono (used for mono audio).
+    /// IMA ADPCM mono, lossy (a wave's first sector is stored with PKware).
     AdpcmMono = 64,
-    /// IMA ADPCM stereo (used for stereo audio).
+    /// IMA ADPCM stereo, lossy (a wave's first sector is stored with PKware).
     AdpcmStereo = -128,
 }
 
@@ -309,7 +309,7 @@ impl ArchiveInfo {
         unsafe { ffi::whiteout_mpq_MpqArchiveInfo_set_hashTableEntries(self.raw.as_ptr(), value) }
     }
 
-    /// Number of occupied block table entries.
+    /// Block table entries, as the header counts them.
     pub fn block_table_entries(&self) -> u32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_mpq_MpqArchiveInfo_get_blockTableEntries(self.raw.as_ptr()) }
@@ -618,7 +618,7 @@ impl Storage {
         }
     }
 
-    /// Read a file from the archive. Checks the overlay first, then the source archive. @return File contents, or std::nullopt if not found or deleted.
+    /// Read a file from the archive: its neutral-locale copy, as Storm and StormLib read a name (the last one, when a protected map lists the name twice). Pending writes and deletes count as already saved. @return File contents, or std::nullopt if not found, deleted, or not decodable to its full size.
     pub fn read_file(&self, name: &str) -> Option<Bytes> {
         let name_cstr = std::ffi::CString::new(name).unwrap_or_default();
         // SAFETY: handle is live for the duration of the call.
@@ -630,7 +630,7 @@ impl Storage {
         }
     }
 
-    /// Read a file with a specific locale.
+    /// Read a file's copy in @p locale, else its neutral copy.
     pub fn read_file_name_locale(&self, name: &str, locale: u16) -> Option<Bytes> {
         let name_cstr = std::ffi::CString::new(name).unwrap_or_default();
         // SAFETY: handle is live for the duration of the call.
@@ -643,7 +643,7 @@ impl Storage {
         }
     }
 
-    /// Check if a file exists in the archive (including overlay).
+    /// Check if readFile(name) finds a file (including overlay).
     pub fn file_exists(&self, name: &str) -> bool {
         let name_cstr = std::ffi::CString::new(name).unwrap_or_default();
         // SAFETY: handle is live for the duration of the call.
@@ -652,7 +652,7 @@ impl Storage {
         }
     }
 
-    /// Get information about a file.
+    /// Get information about the file readFile(name) reads.
     pub fn file_info(&self, name: &str) -> Option<FileInfo> {
         let name_cstr = std::ffi::CString::new(name).unwrap_or_default();
         // SAFETY: handle is live for the duration of the call.
@@ -691,7 +691,7 @@ impl Storage {
         }
     }
 
-    /// Write or overwrite a file. Data is held in overlay until save(). @return true on success, false if the hash table is full.
+    /// Write or overwrite a file. Data is held in overlay until save(), which replaces every locale of the name with the ones written. @return true on success, false if the storage is not open or the data is over 4 GiB (an MPQ file size is 32-bit).
     pub fn write_file(&mut self, name: &[u8], data: &[u8], opts: &WriteOptions) -> bool {
         // SAFETY: handle is live for the duration of the call.
         unsafe {
@@ -706,7 +706,7 @@ impl Storage {
         }
     }
 
-    /// Delete a file from the archive. @return true if the file was found (in source or overlay), false otherwise.
+    /// Delete a file from the archive, every locale of it. @return true if the file was found (in source or overlay), false otherwise.
     pub fn delete_file(&mut self, name: &str) -> bool {
         let name_cstr = std::ffi::CString::new(name).unwrap_or_default();
         // SAFETY: handle is live for the duration of the call.
@@ -715,7 +715,7 @@ impl Storage {
         }
     }
 
-    /// Save the archive to its original path (temp file + atomic rename). @return false if this Storage was created via create() with no prior save(path).
+    /// Save the archive to its original path. @return false if this Storage was created via create() with no prior save(path).
     pub fn save(&mut self) -> bool {
         // SAFETY: handle is live for the duration of the call.
         unsafe { ffi::whiteout_mpq_MpqStorage_save(self.raw.as_ptr()) != 0 }
@@ -723,7 +723,7 @@ impl Storage {
 
     /// Save the archive to a specific path. After saving, the new file becomes the source archive and the overlay is cleared.
     ///
-    /// Bytes before the MPQ header (a Warcraft III map's HM3W block) are kept, as are files no (listfile) names, and a v4 archive keeps its HET/BET tables and MD5s. A save that cannot keep every file refuses instead: see lastError().
+    /// The archive is written to an unused name beside @p path, then renamed over it, so a failed save leaves @p path as it was; past 128 MiB it is streamed rather than held in memory. Bytes before the MPQ header (a Warcraft III map's HM3W block) are kept, as are files no (listfile) names, and a v4 archive keeps its HET/BET tables and MD5s. A save that cannot keep every file refuses instead: see lastError().
     pub fn save_path(&mut self, path: &str) -> bool {
         let path_cstr = std::ffi::CString::new(path).unwrap_or_default();
         // SAFETY: handle is live for the duration of the call.

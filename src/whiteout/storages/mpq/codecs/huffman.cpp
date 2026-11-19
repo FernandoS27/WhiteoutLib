@@ -3,6 +3,8 @@
 
 #include "huffman.h"
 
+#include "../../../common/output_reserve.h"
+
 #include <array>
 #include <cstring>
 
@@ -314,10 +316,10 @@ struct HuffTree {
     HTreeItem itemPool[kHuffItemCount];
     u32 itemsUsed = 0;
 
-    // List head sentinel: pFirst and pLast form a circular doubly-linked list.
-    // LIST_HEAD() in StormLib is (THTreeItem*)(&pFirst).
-    HTreeItem* pFirst = nullptr;
-    HTreeItem* pLast = nullptr;
+    // Sentinel of the circular list sorted by weight: head.next is the first
+    // (heaviest) item, head.prev the last. A real item, not two pointers cast
+    // to one: GCC's strict aliasing broke that form (issue #4).
+    HTreeItem head;
 
     HTreeItem* itemsByByte[0x102] = {};
     QuickLink quickLinks[kLinkItemCount] = {};
@@ -325,12 +327,18 @@ struct HuffTree {
     u32 isCmp0 = 0;
 
     HTreeItem* listHead() {
-        return reinterpret_cast<HTreeItem*>(&pFirst);
+        return &head;
+    }
+    HTreeItem* first() const {
+        return head.next;
+    }
+    HTreeItem* last() const {
+        return head.prev;
     }
 
     void init() {
-        pFirst = listHead();
-        pLast = listHead();
+        head.next = listHead();
+        head.prev = listHead();
         itemsUsed = 0;
         minValidValue = 1;
         isCmp0 = 0;
@@ -390,7 +398,7 @@ struct HuffTree {
 
     u32 fixupPosition(HTreeItem* item, u32 maxWeight) {
         if (item->weight < maxWeight) {
-            HTreeItem* higher = findHigherOrEqual(pLast, item->weight);
+            HTreeItem* higher = findHigherOrEqual(last(), item->weight);
             item->remove();
             linkTwo(higher, item);
         } else {
@@ -419,7 +427,7 @@ struct HuffTree {
         itemsByByte[0x101] = createItem(0x101, 1, true);
 
         // Build the binary tree bottom-up from the sorted list.
-        HTreeItem* childLo = pLast;
+        HTreeItem* childLo = last();
         while (childLo != listHead()) {
             HTreeItem* childHi = childLo->prev;
             if (childHi == listHead())
@@ -471,7 +479,7 @@ struct HuffTree {
     }
 
     bool insertNewBranch(u32 value1, u32 value2) {
-        HTreeItem* lastItem = pLast;
+        HTreeItem* lastItem = last();
 
         HTreeItem* childHi = createItem(value1, lastItem->weight, true);
         if (!childHi)
@@ -506,9 +514,9 @@ struct HuffTree {
             item = quickLinks[linkIndex].item;
             is.skipBits(7);
         } else {
-            if (pFirst == listHead())
+            if (first() == listHead())
                 return kDecompressError;
-            item = pFirst;
+            item = first();
         }
 
         while (item->childLo != nullptr) {
@@ -565,7 +573,7 @@ std::vector<u8> huffmanDecompress(std::span<const u8> src, size_t expectedSize) 
         return {};
 
     std::vector<u8> out;
-    out.reserve(expectedSize);
+    out.reserve(whiteout::common::outputReserve(expectedSize, src.size()));
 
     for (;;) {
         u32 value = tree.decodeOneByte(is);
@@ -578,15 +586,15 @@ std::vector<u8> huffmanDecompress(std::span<const u8> src, size_t expectedSize) 
             // New symbol — read the 8-bit value.
             if (!is.get8Bits(value))
                 return {};
-            if (!tree.insertNewBranch(tree.pLast->decompressedValue, value))
+            if (!tree.insertNewBranch(tree.last()->decompressedValue, value))
                 return {};
             if (tree.isCmp0 == 0)
                 tree.incWeightsAndRebalance(tree.itemsByByte[value]);
         }
 
+        out.push_back(static_cast<u8>(value));
         if (out.size() >= expectedSize)
             break;
-        out.push_back(static_cast<u8>(value));
 
         if (tree.isCmp0) {
             tree.incWeightsAndRebalance(tree.itemsByByte[value]);
@@ -697,7 +705,7 @@ std::vector<u8> huffmanCompress(std::span<const u8> src, u32 compType) {
             encodeValue(tree, bw, 0x101);
             bw.put8Bits(byte);
 
-            tree.insertNewBranch(tree.pLast->decompressedValue, byte);
+            tree.insertNewBranch(tree.last()->decompressedValue, byte);
             if (tree.isCmp0 == 0) {
                 tree.incWeightsAndRebalance(tree.itemsByByte[byte]);
             }

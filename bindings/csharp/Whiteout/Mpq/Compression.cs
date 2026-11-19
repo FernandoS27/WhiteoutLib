@@ -19,8 +19,8 @@ public enum Compression : int
     BZip2 = 16,
     /// <summary>Sparse / RLE compression.</summary>
     Sparse = 32,
-    /// <summary>IMA ADPCM mono (used for mono audio).</summary>
+    /// <summary>IMA ADPCM mono, lossy (a wave's first sector is stored with PKware).</summary>
     AdpcmMono = 64,
-    /// <summary>IMA ADPCM stereo (used for stereo audio).</summary>
+    /// <summary>IMA ADPCM stereo, lossy (a wave's first sector is stored with PKware).</summary>
     AdpcmStereo = -128,
 }

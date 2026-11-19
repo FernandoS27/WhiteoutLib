@@ -2,8 +2,11 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 #include "codecs/compression.h"
+#include "codecs/pkware.h"
 #include "crypto.h"
 #include "file_data.h"
+
+#include "../../common/output_reserve.h"
 
 #include <whiteout/interfaces.h>
 #include <whiteout/utils/job_group.h>
@@ -137,65 +140,87 @@ std::optional<std::vector<u8>> rekeyStoredFile(std::span<const u8> stored, const
 // Extraction (Read)
 // ============================================================================
 
-std::vector<u8> extractFileData(std::span<const u8> archiveData, size_t archiveOffset,
-                                const BlockEntry& block, u32 sectorSize, u32 fileKey,
-                                std::string* error, interfaces::WorkerPool* pool) {
+namespace {
+
+/// One unit of a file as the archive stores it — a sector, or the whole of
+/// a single-unit file — decrypted with @p key and expanded to exactly
+/// @p size bytes. A unit that did not shrink is stored as it is.
+std::optional<std::vector<u8>> decodeUnit(std::span<const u8> stored, const BlockEntry& block,
+                                          u32 size, u32 key, std::string& error) {
+    std::vector<u8> buf(stored.begin(), stored.end());
+    if (block.isEncrypted() && key != 0 && buf.size() >= 4)
+        decryptBlock(reinterpret_cast<u32*>(buf.data()), buf.size() / 4, key);
+    if (buf.size() >= size) {
+        buf.resize(size);
+        return buf;
+    }
+
+    std::vector<u8> out;
+    if (hasFlag(block.flags, FileFlag::kCompress))
+        out = mpqDecompress(buf, size, &error);
+    else if (hasFlag(block.flags, FileFlag::kImplode))
+        out = pkwareExplode(buf, size); // PKware DCL alone: no compression-mask byte.
+    else
+        error = "stored data is shorter than the file";
+    if (out.size() != size) {
+        if (error.empty())
+            error = "decompressed to " + std::to_string(out.size()) + " bytes, expected " +
+                    std::to_string(size);
+        return std::nullopt;
+    }
+    return out;
+}
+
+} // anonymous namespace
+
+std::optional<std::vector<u8>> extractFileData(std::span<const u8> archiveData, size_t archiveOffset,
+                                               const BlockEntry& block, u32 sectorSize, u32 fileKey,
+                                               std::string* error, interfaces::WorkerPool* pool,
+                                               u16 offsetHi) {
     auto setErr = [&](std::string msg) {
         if (error)
             *error = std::move(msg);
     };
     if (!block.exists()) {
         setErr("block does not exist");
-        return {};
+        return std::nullopt;
     }
     if (block.uncompressedSize == 0)
-        return {};
+        return std::vector<u8>{};
 
-    u64 const dataStart = archiveOffset + block.fileOffset;
+    u64 const dataStart = archiveOffset + (u64{offsetHi} << 32) + block.fileOffset;
     if (dataStart + block.compressedSize > archiveData.size()) {
         setErr("data out of bounds");
-        return {};
+        return std::nullopt;
     }
 
     auto fileSpan = archiveData.subspan(dataStart, block.compressedSize);
 
     // -- Single-unit file --
     if (block.isSingleUnit()) {
-        std::vector<u8> buf(fileSpan.begin(), fileSpan.end());
-
-        // Decrypt if needed.
-        if (block.isEncrypted() && fileKey != 0) {
-            size_t const alignedCount = buf.size() / 4;
-            if (alignedCount > 0) {
-                decryptBlock(reinterpret_cast<u32*>(buf.data()), alignedCount, fileKey);
-            }
-        }
-
-        // Decompress if needed.
-        if (block.isCompressed() && block.compressedSize < block.uncompressedSize) {
-            std::string decompErr;
-            auto decompressed =
-                mpqDecompress(std::span<const u8>(buf), block.uncompressedSize, &decompErr);
-            if (decompressed.empty()) {
-                setErr(decompErr.empty() ? "single-unit decompression failed"
-                                         : std::move(decompErr));
-                return {};
-            }
-            return decompressed;
-        }
-
-        buf.resize(block.uncompressedSize);
-        return buf;
+        std::string err;
+        auto data = decodeUnit(fileSpan, block, block.uncompressedSize, fileKey, err);
+        if (!data)
+            setErr("single-unit file: " + err);
+        return data;
     }
 
     // -- Multi-sector file --
-    u32 numSectors = (block.uncompressedSize + sectorSize - 1) / sectorSize;
+    if (sectorSize == 0) {
+        setErr("the archive has no sector size");
+        return std::nullopt;
+    }
+    u32 const numSectors = static_cast<u32>((u64{block.uncompressedSize} + sectorSize - 1) / sectorSize);
 
     // -- Uncompressed (stored) file --
     // A file with no compression flag has no sector offset table — its data
     // is stored verbatim. Only encryption is applied, still per sector.
     if (!block.isCompressed()) {
-        std::vector<u8> buf(fileSpan.begin(), fileSpan.end());
+        if (fileSpan.size() < block.uncompressedSize) {
+            setErr("stored data is shorter than the file");
+            return std::nullopt;
+        }
+        std::vector<u8> buf(fileSpan.begin(), fileSpan.begin() + block.uncompressedSize);
         if (block.isEncrypted() && fileKey != 0) {
             for (u32 i = 0; i < numSectors; ++i) {
                 u32 const off = i * sectorSize;
@@ -207,7 +232,6 @@ std::vector<u8> extractFileData(std::span<const u8> archiveData, size_t archiveO
                 }
             }
         }
-        buf.resize(block.uncompressedSize);
         return buf;
     }
 
@@ -222,7 +246,7 @@ std::vector<u8> extractFileData(std::span<const u8> archiveData, size_t archiveO
     if (fileSpan.size() < offsetTableSize) {
         setErr("sector offset table truncated: have=" + std::to_string(fileSpan.size()) +
                " need=" + std::to_string(offsetTableSize));
-        return {};
+        return std::nullopt;
     }
 
     std::vector<u32> sectorOffsets(numOffsetEntries);
@@ -237,7 +261,7 @@ std::vector<u8> extractFileData(std::span<const u8> archiveData, size_t archiveO
         setErr("sector offset table validation failed: offsets[0]=" +
                std::to_string(sectorOffsets[0]) + " expected=" + std::to_string(offsetTableSize) +
                " numSectors=" + std::to_string(numSectors));
-        return {};
+        return std::nullopt;
     }
 
     // Validate all sector offsets up-front (serial — required before parallel submission).
@@ -248,111 +272,69 @@ std::vector<u8> extractFileData(std::span<const u8> archiveData, size_t archiveO
             setErr("sector " + std::to_string(i) + " bounds invalid: start=" +
                    std::to_string(sectorStart) + " end=" + std::to_string(sectorEnd) +
                    " compressedSize=" + std::to_string(block.compressedSize));
-            return {};
+            return std::nullopt;
         }
     }
 
-    // --- Sector decode: decrypt + decompress a single sector ---
-    auto decodeSector = [&](u32 sectorIdx, u32 sectorStart, u32 sectorEnd,
-                            u32 expectedUncompressed) -> std::pair<std::vector<u8>, std::string> {
-        std::vector<u8> sectorBuf(fileSpan.data() + sectorStart, fileSpan.data() + sectorEnd);
-        u32 const sectorLen = sectorEnd - sectorStart;
-
-        if (block.isEncrypted() && fileKey != 0) {
-            size_t const alignedCount = sectorBuf.size() / 4;
-            if (alignedCount > 0) {
-                decryptBlock(reinterpret_cast<u32*>(sectorBuf.data()), alignedCount,
-                             fileKey + sectorIdx);
+    // Every sector decodes to exactly its share. They decode a batch at a
+    // time and the output grows by what really decoded: a block cannot make
+    // a reader set aside memory its sectors do not fill.
+    static constexpr u32 kSectorBatch = 64;
+    std::vector<u8> output;
+    output.reserve(whiteout::common::outputReserve(block.uncompressedSize, block.compressedSize));
+    std::vector<std::vector<u8>> decoded(std::min(numSectors, kSectorBatch));
+    std::vector<std::string> sectorErrors(decoded.size());
+    bool const parallel = pool && pool->threadCount() > 0 && numSectors >= 4;
+    for (u32 base = 0; base < numSectors; base += kSectorBatch) {
+        u32 const count = std::min(kSectorBatch, numSectors - base);
+        for (auto& sectorError : sectorErrors)
+            sectorError.clear();
+        auto decodeSector = [&](u32 k) {
+            u32 const i = base + k;
+            u32 const size = std::min(sectorSize, block.uncompressedSize - i * sectorSize);
+            u32 const key = fileKey != 0 ? fileKey + i : 0;
+            auto data = decodeUnit(fileSpan.subspan(sectorOffsets[i], sectorOffsets[i + 1] - sectorOffsets[i]),
+                                   block, size, key, sectorErrors[k]);
+            if (!data) {
+                sectorErrors[k] = "sector " + std::to_string(i) + ": " + sectorErrors[k];
+                return false;
             }
-        }
+            decoded[k] = std::move(*data);
+            return true;
+        };
 
-        if (block.isCompressed() && sectorLen < expectedUncompressed) {
-            std::string decompErr;
-            auto decompressed =
-                mpqDecompress(std::span<const u8>(sectorBuf), expectedUncompressed, &decompErr);
-            if (decompressed.empty()) {
-                return {{},
-                        "sector " + std::to_string(sectorIdx) + " decomp failed: " +
-                            (decompErr.empty() ? std::string("unknown") : std::move(decompErr))};
+        bool ok = true;
+        if (parallel) {
+            std::atomic<bool> failed{false};
+            utils::JobGroup jobGroup;
+            jobGroup.add(count);
+            for (u32 k = 0; k < count; ++k) {
+                interfaces::WorkerTask task;
+                task.fn = [k, &decodeSector, &failed, &jobGroup]() {
+                    if (!failed.load(std::memory_order_acquire) && !decodeSector(k))
+                        failed.store(true, std::memory_order_release);
+                    jobGroup.done();
+                };
+                pool->submit(task);
             }
-            return {std::move(decompressed), {}};
+            jobGroup.wait();
+            ok = !failed.load(std::memory_order_acquire);
+        } else {
+            for (u32 k = 0; k < count && ok; ++k)
+                ok = decodeSector(k);
         }
-
-        sectorBuf.resize(expectedUncompressed);
-        return {std::move(sectorBuf), {}};
-    };
-
-    auto expectedSectorSize = [&](u32 i) -> u32 {
-        return (i < numSectors - 1) ? sectorSize : (block.uncompressedSize - i * sectorSize);
-    };
-
-    // --- Parallel sector extraction (when pool available and >= 4 sectors) ---
-    if (pool && pool->threadCount() > 0 && numSectors >= 4) {
-        std::vector<std::vector<u8>> sectorResults(numSectors);
-        std::vector<std::string> sectorErrors(numSectors);
-        std::atomic<bool> failed{false};
-        utils::JobGroup jobGroup;
-        jobGroup.add(numSectors);
-
-        for (u32 i = 0; i < numSectors; ++i) {
-            interfaces::WorkerTask task;
-            task.fn = [i, &sectorOffsets, &expectedSectorSize, &decodeSector, &sectorResults,
-                       &sectorErrors, &failed, &jobGroup]() {
-                if (!failed.load(std::memory_order_acquire)) {
-                    auto [data, err] = decodeSector(i, sectorOffsets[i], sectorOffsets[i + 1],
-                                                    expectedSectorSize(i));
-                    if (!err.empty()) {
-                        failed.store(true, std::memory_order_relaxed);
-                        sectorErrors[i] = std::move(err);
-                    } else {
-                        sectorResults[i] = std::move(data);
-                    }
-                }
-                jobGroup.done();
-            };
-            pool->submit(task);
-        }
-        jobGroup.wait();
-
-        if (failed.load(std::memory_order_relaxed)) {
-            for (u32 i = 0; i < numSectors; ++i) {
-                if (!sectorErrors[i].empty()) {
-                    setErr(std::move(sectorErrors[i]));
+        if (!ok) {
+            for (auto& sectorError : sectorErrors) {
+                if (!sectorError.empty()) {
+                    setErr(std::move(sectorError));
                     break;
                 }
             }
-            return {};
+            return std::nullopt;
         }
-
-        // Compute actual total decompressed size (may differ from block.uncompressedSize
-        // for some archives where the block table stores a padded/approximate value).
-        size_t totalSize = 0;
-        for (u32 i = 0; i < numSectors; ++i)
-            totalSize += sectorResults[i].size();
-
-        std::vector<u8> output(totalSize);
-        size_t writePos = 0;
-        for (u32 i = 0; i < numSectors; ++i) {
-            std::memcpy(output.data() + writePos, sectorResults[i].data(), sectorResults[i].size());
-            writePos += sectorResults[i].size();
-        }
-        return output;
+        for (u32 k = 0; k < count; ++k)
+            output.insert(output.end(), decoded[k].begin(), decoded[k].end());
     }
-
-    // --- Serial sector extraction ---
-    std::vector<u8> output;
-    output.reserve(block.uncompressedSize);
-
-    for (u32 i = 0; i < numSectors; ++i) {
-        auto [data, err] =
-            decodeSector(i, sectorOffsets[i], sectorOffsets[i + 1], expectedSectorSize(i));
-        if (!err.empty()) {
-            setErr(std::move(err));
-            return {};
-        }
-        output.insert(output.end(), data.begin(), data.end());
-    }
-
     return output;
 }
 
@@ -361,6 +343,19 @@ std::vector<u8> extractFileData(std::span<const u8> archiveData, size_t archiveO
 // ============================================================================
 
 namespace {
+
+/// The codec for unit @p index of a file. ADPCM, being lossy, never takes
+/// the first, which holds a wave's header (StormLib compresses it as data),
+/// and goes with Huffman after it, as Blizzard stores waves. A version 2+
+/// archive's readers take Huffman only in that pair: alone it becomes zlib.
+CompressionFlag unitCodec(const EncodeOptions& opts, u32 index) {
+    CompressionFlag const adpcm = opts.compression & (CompressionFlag::kAdpcmMono | CompressionFlag::kAdpcmStereo);
+    if (adpcm != CompressionFlag::None)
+        return index == 0 ? CompressionFlag::kPKware : adpcm | CompressionFlag::kHuffman;
+    if (opts.modernCodecs && opts.compression == CompressionFlag::kHuffman)
+        return CompressionFlag::kZlib;
+    return opts.compression;
+}
 
 /// @p rawData as a stored (uncompressed) multi-sector file. A stored file has
 /// no sector offset table: readers take its bytes verbatim, sector by sector,
@@ -402,7 +397,7 @@ EncodedFile encodeFileData(std::span<const u8> rawData, const EncodeOptions& opt
 
         if (opts.compression != CompressionFlag::None) {
             flags |= FileFlag::kCompress;
-            auto compressed = mpqCompress(rawData, opts.compression);
+            auto compressed = mpqCompress(rawData, unitCodec(opts, 0));
             if (!compressed.empty()) {
                 encoded = std::move(compressed);
             }
@@ -447,7 +442,7 @@ EncodedFile encodeFileData(std::span<const u8> rawData, const EncodeOptions& opt
         auto sectorRaw = rawData.subspan(srcStart, srcLen);
 
         if (opts.compression != CompressionFlag::None) {
-            auto compressed = mpqCompress(sectorRaw, opts.compression);
+            auto compressed = mpqCompress(sectorRaw, unitCodec(opts, i));
             if (!compressed.empty()) {
                 sectorData[i] = std::move(compressed);
                 return true; // was compressed
@@ -458,7 +453,9 @@ EncodedFile encodeFileData(std::span<const u8> rawData, const EncodeOptions& opt
     };
 
     if (pool && pool->threadCount() > 0 && numSectors >= 2) {
-        std::vector<bool> sectorCompressed(numSectors, false);
+        // A byte per sector: vector<bool> packs neighbours into one word,
+        // which the workers would race to write.
+        std::vector<u8> sectorCompressed(numSectors, 0);
         std::atomic<bool> encodeFailed{false};
         utils::JobGroup jobGroup;
         jobGroup.add(numSectors);
@@ -649,7 +646,7 @@ BatchEncodeResult encodeBatch(std::span<const std::pair<std::span<const u8>, Enc
                     auto& sr = states[i].sectorResults[j];
 
                     if (opts.compression != CompressionFlag::None) {
-                        auto compressed = mpqCompress(sectorRaw, opts.compression);
+                        auto compressed = mpqCompress(sectorRaw, unitCodec(opts, j));
                         if (!compressed.empty()) {
                             sr.data = std::move(compressed);
                             sr.wasCompressed = true;
@@ -763,7 +760,7 @@ std::vector<std::optional<std::vector<u8>>> extractBatch(std::span<const u8> arc
 
     std::vector<std::optional<std::vector<u8>>> results(files.size());
 
-    if (files.empty())
+    if (files.empty() || sectorSize == 0)
         return results;
 
     const bool usePool = pool && pool->threadCount() > 0;
@@ -776,15 +773,10 @@ std::vector<std::optional<std::vector<u8>>> extractBatch(std::span<const u8> arc
 
     if (!useSemaphores) {
         // Fallback: serial per-file extraction with sector-level parallelism.
-        for (size_t i = 0; i < files.size(); ++i) {
-            std::string err;
-            auto data = extractFileData(archiveData, archiveOffset, files[i].block, sectorSize,
-                                        files[i].fileKey, &err, usePool ? pool : nullptr);
-            if (err.empty() && !data.empty())
-                results[i] = std::move(data);
-            else if (files[i].block.uncompressedSize == 0)
-                results[i] = std::vector<u8>{};
-        }
+        for (size_t i = 0; i < files.size(); ++i)
+            results[i] = extractFileData(archiveData, archiveOffset, files[i].block, sectorSize,
+                                         files[i].fileKey, nullptr, usePool ? pool : nullptr,
+                                         files[i].offsetHi);
         return results;
     }
 
@@ -816,7 +808,7 @@ std::vector<std::optional<std::vector<u8>>> extractBatch(std::span<const u8> arc
             continue;
         }
 
-        u64 const dataStart = archiveOffset + block.fileOffset;
+        u64 const dataStart = archiveOffset + (u64{fi.offsetHi} << 32) + block.fileOffset;
         if (dataStart + block.compressedSize > archiveData.size()) {
             // Out of bounds — skip.
             state.completeDone = state.sem->next();
@@ -832,25 +824,8 @@ std::vector<std::optional<std::vector<u8>>> extractBatch(std::span<const u8> arc
             interfaces::WorkerTask task;
             task.fn = [i, &files, &results, fileSpan]() {
                 const auto& block = files[i].block;
-                u32 const fileKey = files[i].fileKey;
-                std::vector<u8> buf(fileSpan.begin(), fileSpan.end());
-
-                if (block.isEncrypted() && fileKey != 0) {
-                    size_t const alignedCount = buf.size() / 4;
-                    if (alignedCount > 0)
-                        decryptBlock(reinterpret_cast<u32*>(buf.data()), alignedCount, fileKey);
-                }
-
-                if (block.isCompressed() && block.compressedSize < block.uncompressedSize) {
-                    auto decompressed =
-                        mpqDecompress(std::span<const u8>(buf), block.uncompressedSize);
-                    if (!decompressed.empty()) {
-                        results[i] = std::move(decompressed);
-                    }
-                } else {
-                    buf.resize(block.uncompressedSize);
-                    results[i] = std::move(buf);
-                }
+                std::string err;
+                results[i] = decodeUnit(fileSpan, block, block.uncompressedSize, files[i].fileKey, err);
             };
             task.signalSemaphore = state.sem.get();
             task.signalValue = state.completeDone;
@@ -858,8 +833,17 @@ std::vector<std::optional<std::vector<u8>>> extractBatch(std::span<const u8> arc
             continue;
         }
 
+        // A stored multi-sector file has no sector table to split work by.
+        if (!block.isCompressed()) {
+            results[i] = extractFileData(archiveData, archiveOffset, block, sectorSize, fi.fileKey,
+                                         nullptr, nullptr, fi.offsetHi);
+            state.completeDone = state.sem->next();
+            state.sem->signal(state.completeDone);
+            continue;
+        }
+
         // Multi-sector file: validate + decrypt sector offset table (serial).
-        u32 const numSectors = (block.uncompressedSize + sectorSize - 1) / sectorSize;
+        u32 const numSectors = static_cast<u32>((u64{block.uncompressedSize} + sectorSize - 1) / sectorSize);
         bool const hasCrc = block.hasSectorCrc();
         u32 const numOffsetEntries = numSectors + 1 + (hasCrc ? 1u : 0u);
         u32 const offsetTableSize = numOffsetEntries * sizeof(u32);
@@ -922,28 +906,13 @@ std::vector<std::optional<std::vector<u8>>> extractBatch(std::span<const u8> arc
                 u32 const expectedSize =
                     (j < numSectors - 1) ? sectorSize : (block.uncompressedSize - j * sectorSize);
 
-                std::vector<u8> sectorBuf(fileSpan.data() + sectorStart,
-                                          fileSpan.data() + sectorEnd);
-                u32 const sectorLen = sectorEnd - sectorStart;
-
-                if (block.isEncrypted() && fileKey != 0) {
-                    size_t const alignedCount = sectorBuf.size() / 4;
-                    if (alignedCount > 0)
-                        decryptBlock(reinterpret_cast<u32*>(sectorBuf.data()), alignedCount,
-                                     fileKey + j);
-                }
-
-                if (block.isCompressed() && sectorLen < expectedSize) {
-                    auto decompressed = mpqDecompress(std::span<const u8>(sectorBuf), expectedSize);
-                    if (decompressed.empty()) {
-                        states[i].fileFailed.store(true, std::memory_order_release);
-                    } else {
-                        states[i].sectorResults[j] = std::move(decompressed);
-                    }
-                } else {
-                    sectorBuf.resize(expectedSize);
-                    states[i].sectorResults[j] = std::move(sectorBuf);
-                }
+                std::string err;
+                auto sector = decodeUnit(fileSpan.subspan(sectorStart, sectorEnd - sectorStart), block,
+                                         expectedSize, fileKey != 0 ? fileKey + j : 0, err);
+                if (sector)
+                    states[i].sectorResults[j] = std::move(*sector);
+                else
+                    states[i].fileFailed.store(true, std::memory_order_release);
                 decodeGroup->done();
             };
             pool->submit(task);

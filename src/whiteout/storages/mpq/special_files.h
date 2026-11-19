@@ -23,6 +23,7 @@ enum class AttributeFlag : u32 {
     kCrc32 = 0x00000001,    ///< CRC32 array is present.
     kFiletime = 0x00000002, ///< FILETIME array is present.
     kMd5 = 0x00000004,      ///< MD5 array is present.
+    kPatchBit = 0x00000008, ///< A bit per block marks patch files (read for its size only).
 };
 
 inline AttributeFlag operator|(AttributeFlag a, AttributeFlag b) noexcept {

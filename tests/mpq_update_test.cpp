@@ -278,7 +278,9 @@ TEST_CASE("Writing a name replaces every locale of it", "[mpq][update]") {
     auto last = mpq::Storage::open(path.string());
     REQUIRE(last.has_value());
     CHECK(last->readFile("greeting.txt") == std::optional(bytesOf("replaced")));
-    CHECK_FALSE(last->readFile("greeting.txt", mpq::Locale::German).has_value());
+    CHECK(last->readFile("greeting.txt", mpq::Locale::German) == std::optional(bytesOf("replaced")));
+    auto const file = readAll(path);
+    CHECK(slotsNaming(hashTableOf(file, headerOf(file)), "greeting.txt") == 1);
     CHECK(last->readFile("other.txt") == std::optional(bytesOf("other")));
 }
 
@@ -310,6 +312,53 @@ TEST_CASE("A table that has to grow refuses to drop a nameless file", "[mpq][upd
     entries[0].sourceSlot = *layout.insert("hidden.bin", 0, 0);
     plan.hashTableCapacity = 16;
     CHECK(mpq::writeArchive(plan, entries).error.empty());
+}
+
+TEST_CASE("Offsets past 4 GiB keep their high bits through the block, hi-block and BET tables", "[mpq][update]") {
+    mpq::BlockEntry const low{0x100, 10, 10, mpq::FileFlag::kExists};
+    mpq::BlockEntry const high{0x200, 20, 20, mpq::FileFlag::kExists};
+    u64 const highAt = (u64{1} << 32) | 0x200;
+
+    mpq::BlockTable table;
+    table.createEmpty();
+    (void)table.append(low);
+    (void)table.append(high, 1);
+    CHECK(table.fileOffset48(0) == 0x100);
+    CHECK(table.fileOffset48(1) == highAt);
+    REQUIRE(table.needsHiBlockTable());
+
+    mpq::BlockTable parsed;
+    REQUIRE(parsed.parse(table.serialize(), 2));
+    REQUIRE(parsed.parseHiBlockTable(table.serializeHiBlockTable(), 2));
+    CHECK(parsed.fileOffset48(1) == highAt);
+    CHECK(parsed.fileOffsetHi(1) == 1);
+
+    std::vector<mpq::BlockEntry> const blocks{low, high};
+    std::vector<u64> const hashes{1, 2};
+    std::vector<u16> const offsetHi{0, 1};
+    auto const bet = mpq::parseBetTable(mpq::buildBetTable(blocks, hashes, offsetHi));
+    REQUIRE(bet.has_value());
+    REQUIRE(bet->entries.size() == 2);
+    CHECK(bet->entries[0].filePos == 0x100);
+    CHECK(bet->entries[1].filePos == highAt);
+}
+
+TEST_CASE("A BET table whose field runs past its entry does not parse", "[mpq][update]") {
+    std::vector<mpq::BlockEntry> const blocks{{0x100, 10, 10, mpq::FileFlag::kExists}};
+    std::vector<u64> const hashes{1};
+    auto stored = mpq::buildBetTable(blocks, hashes);
+    REQUIRE(mpq::parseBetTable(stored).has_value());
+
+    // Move the file position field to the end of the entry, then reseal.
+    constexpr size_t kExtHeader = 12;
+    std::vector<u32> words((stored.size() - kExtHeader) / 4);
+    std::memcpy(words.data(), stored.data() + kExtHeader, words.size() * 4);
+    u32 const key = mpq::hashString("(block table)", mpq::HashType::FileKey);
+    mpq::decryptBlock(words.data(), words.size(), key);
+    words[4] = words[3]; // bitIndexFilePos = tableEntrySize
+    mpq::encryptBlock(words.data(), words.size(), key);
+    std::memcpy(stored.data() + kExtHeader, words.data(), words.size() * 4);
+    CHECK_FALSE(mpq::parseBetTable(stored).has_value());
 }
 
 TEST_CASE("A StarCraft II map saved unchanged rebuilds the HET and BET Blizzard wrote", "[mpq][update][corpus]") {
@@ -463,4 +512,53 @@ TEST_CASE("A Warcraft III map saved unchanged keeps every file and its CRC-only 
     std::memcpy(&flags, attributes->data() + 4, 4);
     CHECK(flags == static_cast<u32>(mpq::AttributeFlag::kCrc32));
     CHECK(attributes->size() == 8 + size_t{at.header.blockTableEntries} * 4);
+}
+
+TEST_CASE("An (attributes) file one entry short keeps its values", "[mpq][update]") {
+    // Some Warcraft III maps leave out the last entry, the (attributes) file's
+    // own; StormLib reads them, and a save must carry what they hold.
+    u32 const blockCount = 3;
+    u32 const flags = static_cast<u32>(mpq::AttributeFlag::kCrc32 | mpq::AttributeFlag::kMd5);
+    std::vector<u8> data(8);
+    u32 const version = 100;
+    std::memcpy(data.data(), &version, 4);
+    std::memcpy(data.data() + 4, &flags, 4);
+    for (u32 crc : {0x11111111u, 0x22222222u})
+        data.insert(data.end(), reinterpret_cast<const u8*>(&crc), reinterpret_cast<const u8*>(&crc) + 4);
+    for (u8 fill : {u8{0xAA}, u8{0xBB}})
+        data.insert(data.end(), 16, fill);
+
+    auto const parsed = mpq::parseAttributes(data, blockCount);
+    REQUIRE(parsed.crc32s.size() == 2);
+    CHECK(parsed.crc32s[1] == 0x22222222u);
+    REQUIRE(parsed.md5s.size() == 2);
+    CHECK(parsed.md5s[1][0] == 0xBB);
+
+    // A full one still reads as before.
+    data.insert(data.begin() + 16, 4, u8{0x33});
+    data.insert(data.end(), 16, u8{0xCC});
+    auto const full = mpq::parseAttributes(data, blockCount);
+    CHECK(full.crc32s.size() == 3);
+    CHECK(full.md5s.size() == 3);
+    CHECK(full.md5s[2][0] == 0xCC);
+}
+
+TEST_CASE("(listfile) lines split as StormLib splits them", "[mpq][update]") {
+    // A line ends at CR or LF, and every other byte is part of a name: there
+    // are no comments, so a file named '#' or ';' something keeps its name
+    // through a save.
+    std::string const text = "a.txt\rb.txt\r\n;c.txt\n\n#d.txt\r\n\r\n";
+    auto const names = mpq::parseListfile(std::span<const u8>(reinterpret_cast<const u8*>(text.data()), text.size()));
+    CHECK(names == std::vector<std::string>{"a.txt", "b.txt", ";c.txt", "#d.txt"});
+
+    TempDir dir("whiteout_mpq_update_listfile_lines");
+    fs::path const path = dir.path / "lines.mpq";
+    {
+        auto storage = mpq::Storage::create();
+        REQUIRE(storage.writeFile("#readme.txt", bytesOf("hash")));
+        REQUIRE(storage.save(path.string()));
+    }
+    auto reopened = mpq::Storage::open(path.string());
+    REQUIRE(reopened.has_value());
+    CHECK(reopened->listFiles() == std::vector<std::string>{"#readme.txt"});
 }

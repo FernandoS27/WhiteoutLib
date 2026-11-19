@@ -79,9 +79,10 @@ struct MpqHeader {
     [[nodiscard]] u64 blockTableByteOffset() const {
         return blockTableOffset | (static_cast<u64>(blockTableOffsetHi) << 32);
     }
-    /// Compute sector size in bytes.
+    /// Compute sector size in bytes: 0 when the shift overflows 32 bits.
+    /// Storm shifts as x86 does, by the low five bits of the count.
     [[nodiscard]] u32 sectorSize() const {
-        return 512u << sectorSizeShift;
+        return static_cast<u32>((u64{512} << (sectorSizeShift & 31)) & 0xFFFFFFFF);
     }
 };
 

@@ -98,7 +98,7 @@ public final class Storage implements AutoCloseable {
     }
 
     /**
-     * Read a file from the archive. Checks the overlay first, then the source archive. @return File contents, or std::nullopt if not found or deleted.
+     * Read a file from the archive: its neutral-locale copy, as Storm and StormLib read a name (the last one, when a protected map lists the name twice). Pending writes and deletes count as already saved. @return File contents, or std::nullopt if not found, deleted, or not decodable to its full size.
      *
      * @param name String input.
      */
@@ -118,7 +118,7 @@ public final class Storage implements AutoCloseable {
     }
 
     /**
-     * Read a file with a specific locale.
+     * Read a file's copy in @p locale, else its neutral copy.
      *
      * @param name String input.
      * @param locale short input.
@@ -140,7 +140,7 @@ public final class Storage implements AutoCloseable {
     }
 
     /**
-     * Check if a file exists in the archive (including overlay).
+     * Check if readFile(name) finds a file (including overlay).
      *
      * @param name String input.
      * @return boolean result.
@@ -155,7 +155,7 @@ public final class Storage implements AutoCloseable {
     }
 
     /**
-     * Get information about a file.
+     * Get information about the file readFile(name) reads.
      *
      * @param name String input.
      * @return a fresh java.util.Optional<FileInfo> owning a native allocation.
@@ -204,7 +204,7 @@ public final class Storage implements AutoCloseable {
     }
 
     /**
-     * Write or overwrite a file. Data is held in overlay until save(). @return true on success, false if the hash table is full.
+     * Write or overwrite a file. Data is held in overlay until save(), which replaces every locale of the name with the ones written. @return true on success, false if the storage is not open or the data is over 4 GiB (an MPQ file size is 32-bit).
      *
      * @param name String input.
      * @param data byte[] input.
@@ -222,7 +222,7 @@ public final class Storage implements AutoCloseable {
     }
 
     /**
-     * Delete a file from the archive. @return true if the file was found (in source or overlay), false otherwise.
+     * Delete a file from the archive, every locale of it. @return true if the file was found (in source or overlay), false otherwise.
      *
      * @param name String input.
      */
@@ -236,7 +236,7 @@ public final class Storage implements AutoCloseable {
     }
 
     /**
-     * Save the archive to its original path (temp file + atomic rename). @return false if this Storage was created via create() with no prior save(path).
+     * Save the archive to its original path. @return false if this Storage was created via create() with no prior save(path).
      */
     public boolean save() {
         return ((int) NativeCommon.invokeNative(Native.whiteout_mpq_MpqStorage_save, handle)) != 0;
@@ -244,6 +244,8 @@ public final class Storage implements AutoCloseable {
 
     /**
      * Save the archive to a specific path. After saving, the new file becomes the source archive and the overlay is cleared.
+     * 
+     * The archive is written to an unused name beside @p path, then renamed over it, so a failed save leaves @p path as it was; past 128 MiB it is streamed rather than held in memory. Bytes before the MPQ header (a Warcraft III map's HM3W block) are kept, as are files no (listfile) names, and a v4 archive keeps its HET/BET tables and MD5s. A save that cannot keep every file refuses instead: see lastError().
      *
      * @param path String input.
      * @return boolean result.
@@ -254,6 +256,22 @@ public final class Storage implements AutoCloseable {
                 ? MemorySegment.NULL
                 : arena.allocateFrom(path, StandardCharsets.UTF_8);
             return ((int) NativeCommon.invokeNative(Native.whiteout_mpq_MpqStorage_save_path, handle, path_seg)) != 0;
+        }
+    }
+
+    /**
+     * Why the last save() failed; empty after one that succeeded.
+     * @return String result.
+     */
+    public String lastError() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment __cstr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mpq_MpqStorage_lastError, arena, handle);
+            MemorySegment __chars = __cstr.get(ValueLayout.ADDRESS, 0);
+            long __slen = __cstr.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
+            String __out = (__chars == null || __chars.equals(MemorySegment.NULL))
+                ? "" : __chars.reinterpret(__slen + 1).getString(0L);
+            NativeCommon.invokeNative(Native.whiteout_CString_free, __cstr);
+            return __out;
         }
     }
 

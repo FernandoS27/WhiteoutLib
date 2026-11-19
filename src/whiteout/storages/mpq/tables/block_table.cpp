@@ -18,13 +18,13 @@ bool BlockTable::parse(std::span<const u8> data, u32 count) {
         return false;
 
     // Copy and decrypt in place.
-    std::vector<u32> raw(count * 4);
+    std::vector<u32> raw(size_t{count} * 4);
     std::memcpy(raw.data(), data.data(), expectedSize);
     decryptBlock(raw.data(), raw.size(), hashString("(block table)", HashType::FileKey));
 
     m_entries.resize(count);
     for (u32 i = 0; i < count; ++i) {
-        const u32* src = raw.data() + i * 4;
+        const u32* src = raw.data() + size_t{i} * 4;
         m_entries[i].fileOffset = src[0];
         m_entries[i].compressedSize = src[1];
         m_entries[i].uncompressedSize = src[2];
@@ -58,9 +58,13 @@ void BlockTable::createEmpty() {
 // Append
 // ============================================================================
 
-u32 BlockTable::append(const BlockEntry& entry) {
+u32 BlockTable::append(const BlockEntry& entry, u16 offsetHi) {
     u32 const index = static_cast<u32>(m_entries.size());
     m_entries.push_back(entry);
+    if (offsetHi != 0 || !m_hiBlockOffsets.empty()) {
+        m_hiBlockOffsets.resize(m_entries.size());
+        m_hiBlockOffsets[index] = offsetHi;
+    }
     return index;
 }
 

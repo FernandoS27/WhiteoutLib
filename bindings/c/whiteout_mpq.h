@@ -89,7 +89,7 @@ void whiteout_mpq_MpqArchiveInfo_set_formatVersion(whiteout_MpqArchiveInfo* self
 /* Hash table capacity (always a power of 2). */
 uint32_t whiteout_mpq_MpqArchiveInfo_get_hashTableEntries(const whiteout_MpqArchiveInfo* self);
 void whiteout_mpq_MpqArchiveInfo_set_hashTableEntries(whiteout_MpqArchiveInfo* self, uint32_t value);
-/* Number of occupied block table entries. */
+/* Block table entries, as the header counts them. */
 uint32_t whiteout_mpq_MpqArchiveInfo_get_blockTableEntries(const whiteout_MpqArchiveInfo* self);
 void whiteout_mpq_MpqArchiveInfo_set_blockTableEntries(whiteout_MpqArchiveInfo* self, uint32_t value);
 /* Sector size in bytes (512 << sectorSizeShift). */
@@ -149,13 +149,13 @@ struct whiteout_MpqStorage* whiteout_mpq_MpqStorage_open(const char* path, void*
 struct whiteout_MpqStorage* whiteout_mpq_MpqStorage_create(struct whiteout_MpqCreateOptions* opts, void* pool);
 /* Release all resources. Same effect as letting the Storage go out of scope. */
 void whiteout_mpq_MpqStorage_close(whiteout_MpqStorage* self);
-/* Read a file from the archive. Checks the overlay first, then the source archive. @return File contents, or std::nullopt if not found or deleted. */
+/* Read a file from the archive: its neutral-locale copy, as Storm and StormLib read a name (the last one, when a protected map lists the name twice). Pending writes and deletes count as already saved. @return File contents, or std::nullopt if not found, deleted, or not decodable to its full size. */
 whiteout_Bytes whiteout_mpq_MpqStorage_readFile(const whiteout_MpqStorage* self, const char* name);
-/* Read a file with a specific locale. */
+/* Read a file's copy in @p locale, else its neutral copy. */
 whiteout_Bytes whiteout_mpq_MpqStorage_readFile_name_locale(const whiteout_MpqStorage* self, const char* name, uint16_t locale);
-/* Check if a file exists in the archive (including overlay). */
+/* Check if readFile(name) finds a file (including overlay). */
 int32_t whiteout_mpq_MpqStorage_fileExists(const whiteout_MpqStorage* self, const char* name);
-/* Get information about a file. */
+/* Get information about the file readFile(name) reads. */
 struct whiteout_MpqFileInfo* whiteout_mpq_MpqStorage_fileInfo(const whiteout_MpqStorage* self, const char* name);
 /* Get summary information about the archive. */
 struct whiteout_MpqArchiveInfo* whiteout_mpq_MpqStorage_archiveInfo(const whiteout_MpqStorage* self);
@@ -165,15 +165,15 @@ whiteout_CString whiteout_mpq_MpqStorage_listFiles_at(const whiteout_MpqStorage*
 /* Materialises the whole list in one call. Prefer this over the
  * _count/_at pair above, which re-runs the query per index. */
 struct whiteout_StringList* whiteout_mpq_MpqStorage_listFiles(const whiteout_MpqStorage* self);
-/* Write or overwrite a file. Data is held in overlay until save(). @return true on success, false if the hash table is full. */
+/* Write or overwrite a file. Data is held in overlay until save(), which replaces every locale of the name with the ones written. @return true on success, false if the storage is not open or the data is over 4 GiB (an MPQ file size is 32-bit). */
 int32_t whiteout_mpq_MpqStorage_writeFile(whiteout_MpqStorage* self, const char* name, const uint8_t* data, size_t data_size, struct whiteout_MpqWriteOptions* opts);
-/* Delete a file from the archive. @return true if the file was found (in source or overlay), false otherwise. */
+/* Delete a file from the archive, every locale of it. @return true if the file was found (in source or overlay), false otherwise. */
 int32_t whiteout_mpq_MpqStorage_deleteFile(whiteout_MpqStorage* self, const char* name);
-/* Save the archive to its original path (temp file + atomic rename). @return false if this Storage was created via create() with no prior save(path). */
+/* Save the archive to its original path. @return false if this Storage was created via create() with no prior save(path). */
 int32_t whiteout_mpq_MpqStorage_save(whiteout_MpqStorage* self);
 /* Save the archive to a specific path. After saving, the new file becomes the source archive and the overlay is cleared. */
 /*  */
-/* Bytes before the MPQ header (a Warcraft III map's HM3W block) are kept, as are files no (listfile) names, and a v4 archive keeps its HET/BET tables and MD5s. A save that cannot keep every file refuses instead: see lastError(). */
+/* The archive is written to an unused name beside @p path, then renamed over it, so a failed save leaves @p path as it was; past 128 MiB it is streamed rather than held in memory. Bytes before the MPQ header (a Warcraft III map's HM3W block) are kept, as are files no (listfile) names, and a v4 archive keeps its HET/BET tables and MD5s. A save that cannot keep every file refuses instead: see lastError(). */
 int32_t whiteout_mpq_MpqStorage_save_path(whiteout_MpqStorage* self, const char* path);
 /* Why the last save() failed; empty after one that succeeded. */
 whiteout_CString whiteout_mpq_MpqStorage_lastError(const whiteout_MpqStorage* self);

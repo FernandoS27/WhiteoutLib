@@ -416,7 +416,7 @@ bool test6_extract_parallel_roundtrip(TestWorkerPool* pool) {
     // Extract serially.
     std::string serialErr;
     auto serialExtract = mpq::extractFileData(
-        std::span<const u8>(encoded.data), 0, block, encOpts.sectorSize, 0, &serialErr, nullptr);
+        std::span<const u8>(encoded.data), 0, block, encOpts.sectorSize, 0, &serialErr, nullptr).value_or(std::vector<u8>{});
     if (!expect(!serialExtract.empty(), T, "serial extract failed: %s", serialErr.c_str())) return false;
     if (!expect(vectorsEqual(serialExtract, rawData), T, "serial extract data mismatch")) return false;
 
@@ -424,7 +424,7 @@ bool test6_extract_parallel_roundtrip(TestWorkerPool* pool) {
     if (pool) pool->resetCounters();
     std::string parallelErr;
     auto parallelExtract = mpq::extractFileData(
-        std::span<const u8>(encoded.data), 0, block, encOpts.sectorSize, 0, &parallelErr, pool);
+        std::span<const u8>(encoded.data), 0, block, encOpts.sectorSize, 0, &parallelErr, pool).value_or(std::vector<u8>{});
     if (!expect(!parallelExtract.empty(), T, "parallel extract failed: %s", parallelErr.c_str())) return false;
     if (!expect(vectorsEqual(parallelExtract, rawData), T, "parallel extract data mismatch")) return false;
 
@@ -466,7 +466,7 @@ bool test7_extract_encrypted_roundtrip(TestWorkerPool* pool) {
     // Serial extract.
     std::string serialErr;
     auto serialExtract = mpq::extractFileData(
-        std::span<const u8>(encoded.data), 0, block, encOpts.sectorSize, fileKey, &serialErr, nullptr);
+        std::span<const u8>(encoded.data), 0, block, encOpts.sectorSize, fileKey, &serialErr, nullptr).value_or(std::vector<u8>{});
     if (!expect(!serialExtract.empty(), T, "serial encrypted extract failed: %s", serialErr.c_str())) return false;
     if (!expect(vectorsEqual(serialExtract, rawData), T, "serial encrypted extract mismatch")) return false;
 
@@ -474,7 +474,7 @@ bool test7_extract_encrypted_roundtrip(TestWorkerPool* pool) {
     if (pool) pool->resetCounters();
     std::string parallelErr;
     auto parallelExtract = mpq::extractFileData(
-        std::span<const u8>(encoded.data), 0, block, encOpts.sectorSize, fileKey, &parallelErr, pool);
+        std::span<const u8>(encoded.data), 0, block, encOpts.sectorSize, fileKey, &parallelErr, pool).value_or(std::vector<u8>{});
     if (!expect(!parallelExtract.empty(), T, "parallel encrypted extract failed: %s", parallelErr.c_str())) return false;
     if (!expect(vectorsEqual(parallelExtract, rawData), T, "parallel encrypted extract mismatch")) return false;
 
@@ -505,7 +505,7 @@ bool test8_extract_below_threshold(TestWorkerPool* pool) {
 
     if (pool) pool->resetCounters();
     auto result = mpq::extractFileData(
-        std::span<const u8>(encoded.data), 0, block, encOpts.sectorSize, 0, nullptr, pool);
+        std::span<const u8>(encoded.data), 0, block, encOpts.sectorSize, 0, nullptr, pool).value_or(std::vector<u8>{});
     if (!expect(!result.empty(), T, "extract failed for small file")) return false;
     if (!expect(vectorsEqual(result, rawData), T, "data mismatch for small file")) return false;
 
@@ -757,7 +757,7 @@ bool test12_pkware_compression_parallel(TestWorkerPool* pool) {
     block.flags = parallelResult.flags;
 
     auto extracted = mpq::extractFileData(
-        std::span<const u8>(parallelResult.data), 0, block, opts.sectorSize, 0, nullptr, pool);
+        std::span<const u8>(parallelResult.data), 0, block, opts.sectorSize, 0, nullptr, pool).value_or(std::vector<u8>{});
     if (!expect(!extracted.empty(), T, "PKware parallel extract failed")) return false;
     if (!expect(vectorsEqual(extracted, rawData), T, "PKware parallel extract data mismatch")) return false;
 
@@ -904,7 +904,7 @@ bool test16_incompressible_data(TestWorkerPool* pool) {
     block.flags = parallelResult.flags;
 
     auto extracted = mpq::extractFileData(
-        std::span<const u8>(parallelResult.data), 0, block, opts.sectorSize, 0, nullptr, pool);
+        std::span<const u8>(parallelResult.data), 0, block, opts.sectorSize, 0, nullptr, pool).value_or(std::vector<u8>{});
     if (!expect(vectorsEqual(extracted, rawData), T,
                 "incompressible data: extract mismatch")) return false;
 

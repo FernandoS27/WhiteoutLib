@@ -6,6 +6,8 @@
 
 #include "bzip2.h"
 
+#include "../../../common/output_reserve.h"
+
 #include <algorithm>
 #include <array>
 #include <climits>
@@ -356,57 +358,30 @@ struct Bz2Decoder {
             cumCount[ch]++;
         }
 
-        // Step 4: Follow the transformation vector to produce output.
-        u32 pos = T[origPtr];
-        size_t const outStart = output.size();
-        for (u32 i = 0; i < blockSize; i++) {
-            u8 const ch = block[pos];
-            output.push_back(ch);
-            pos = T[pos];
-            if (output.size() >= maxOutput)
-                break;
-        }
-
-        // Step 5: Undo the bzip2 post-BWT RLE (runs of 4+ identical bytes).
-        // The output so far has the RLE still encoded. We need to decode it.
-        // Actually in bzip2, the RLE is applied BEFORE the BWT, so after inverse
-        // BWT we get RLE-encoded data that needs to be decoded.
-        //
-        // RLE format: if 4 consecutive identical bytes appear, the next byte N
-        // means "repeat that byte N more times" (0-255 additional copies).
-        size_t const rleStart = outStart;
-        size_t const rleEnd = output.size();
-        std::vector<u8> decoded;
-        decoded.reserve(rleEnd - rleStart);
-
-        size_t rp = rleStart;
-        while (rp < rleEnd) {
-            u8 const ch = output[rp++];
-            decoded.push_back(ch);
-            u32 runCount = 1;
-
-            while (rp < rleEnd && output[rp] == ch && runCount < 4) {
-                decoded.push_back(ch);
-                runCount++;
-                rp++;
-            }
-
-            if (runCount == 4 && rp < rleEnd) {
-                u32 const extra = output[rp++];
-                for (u32 j = 0; j < extra; j++) {
-                    decoded.push_back(ch);
-                }
-            }
-        }
-
-        // Replace the BWT output with the RLE-decoded output.
-        output.resize(outStart);
-        output.insert(output.end(), decoded.begin(), decoded.end());
-
-        // Handle the blockRandomised flag (legacy, rarely used).
-        if (blockRandomised) {
-            // Randomised blocks are extremely rare in practice. We don't support them.
+        // Randomised blocks (a legacy encoder option) are not supported.
+        if (blockRandomised)
             return false;
+
+        // Step 4: Follow the transformation vector, undoing the run-length
+        // pass bzip2 applies before the BWT: four equal bytes are followed by
+        // a count of further copies (0-255). The cap is on the final output;
+        // the walk itself is still in that shorter form.
+        u32 pos = T[origPtr];
+        u32 run = 0;
+        u32 last = 0x100; // No byte yet.
+        for (u32 i = 0; i < blockSize && output.size() < maxOutput; i++) {
+            u8 const ch = block[pos];
+            pos = T[pos];
+            if (run == 4) {
+                output.insert(output.end(), std::min<size_t>(ch, maxOutput - output.size()),
+                              static_cast<u8>(last));
+                run = 0;
+                last = 0x100;
+                continue;
+            }
+            run = (ch == last) ? run + 1 : 1;
+            last = ch;
+            output.push_back(ch);
         }
 
         return true;
@@ -442,7 +417,7 @@ std::vector<u8> bzip2Decompress(std::span<const u8> src, size_t expectedSize) {
 
     Bz2BitReader br(src.data(), src.size());
     std::vector<u8> out;
-    out.reserve(expectedSize);
+    out.reserve(whiteout::common::outputReserve(expectedSize, src.size()));
 
     Bz2Decoder decoder(br, out, expectedSize);
     if (!decoder.decode())
@@ -516,22 +491,49 @@ u32 bz2Crc32(const u8* data, size_t len) {
     return crc ^ 0xFFFFFFFF;
 }
 
-// BWT forward transform using suffix array (simple doubling algorithm).
+// BWT forward transform: the block's rotations sorted by prefix doubling,
+// each round a counting sort by the rank of the next 2^k bytes. Comparing
+// rotations byte by byte takes quadratic time on periodic data.
 // Returns the index of the original string in the sorted rotation list.
 u32 bwtForward(const u8* input, u32 len, u8* output) {
-    // Build suffix array via std::sort with circular comparison.
-    std::vector<u32> sa(len);
-    std::iota(sa.begin(), sa.end(), 0u);
+    std::vector<u32> sa(len), rank(len), next(len), byRank(std::max<u32>(len, 256) + 1);
 
-    std::sort(sa.begin(), sa.end(), [&](u32 a, u32 b) {
-        for (u32 i = 0; i < len; i++) {
-            u8 const ca = input[(a + i) % len];
-            u8 const cb = input[(b + i) % len];
-            if (ca != cb)
-                return ca < cb;
+    // Round 0: by the first byte.
+    for (u32 i = 0; i < len; i++)
+        ++byRank[input[i] + 1];
+    for (u32 c = 1; c <= 256; c++)
+        byRank[c] += byRank[c - 1];
+    for (u32 i = 0; i < len; i++)
+        sa[byRank[input[i]]++] = i;
+    u32 classes = 1;
+    rank[sa[0]] = 0;
+    for (u32 j = 1; j < len; j++) {
+        classes += input[sa[j]] != input[sa[j - 1]];
+        rank[sa[j]] = classes - 1;
+    }
+
+    // Each round sorts by (rank of the first k bytes, rank of the next k).
+    for (u32 k = 1; k < len && classes < len; k <<= 1) {
+        // Ordered by the second half already: shift the current order back by k.
+        for (u32 j = 0; j < len; j++)
+            next[j] = (sa[j] + len - k) % len;
+        std::fill(byRank.begin(), byRank.begin() + classes + 1, 0u);
+        for (u32 i = 0; i < len; i++)
+            ++byRank[rank[i] + 1];
+        for (u32 c = 1; c <= classes; c++)
+            byRank[c] += byRank[c - 1];
+        for (u32 j = 0; j < len; j++)
+            sa[byRank[rank[next[j]]]++] = next[j];
+
+        next[sa[0]] = 0;
+        classes = 1;
+        for (u32 j = 1; j < len; j++) {
+            u32 const a = sa[j], b = sa[j - 1];
+            classes += rank[a] != rank[b] || rank[(a + k) % len] != rank[(b + k) % len];
+            next[a] = classes - 1;
         }
-        return false;
-    });
+        rank.swap(next);
+    }
 
     u32 origPtr = 0;
     for (u32 i = 0; i < len; i++) {
@@ -868,19 +870,21 @@ std::vector<u8> bzip2Compress(std::span<const u8> src) {
     bw.writeByte('h');
     bw.writeByte('9'); // Block size 9 (900k) — standard for MPQ.
 
-    // Compute CRC of original data.
-    u32 const blockCrc = bz2Crc32(src.data(), src.size());
-
-    // Encode all data as a single block (BZip2 max block = 900k).
-    // For MPQ sectors, data is always < 900k.
-    encodeBlock(bw, src.data(), static_cast<u32>(src.size()), blockCrc);
+    // A block holds at most 900k bytes after its run-length pass, which can
+    // grow the input by a quarter (a run of four takes a fifth byte).
+    static constexpr size_t kInputPerBlock = (kMaxBlockSize - 20) / 5 * 4;
+    u32 combinedCrc = 0;
+    for (size_t at = 0; at < src.size(); at += kInputPerBlock) {
+        size_t const len = std::min(kInputPerBlock, src.size() - at);
+        u32 const blockCrc = bz2Crc32(src.data() + at, len);
+        encodeBlock(bw, src.data() + at, static_cast<u32>(len), blockCrc);
+        combinedCrc = ((combinedCrc << 1) | (combinedCrc >> 31)) ^ blockCrc;
+    }
 
     // End-of-stream magic: 0x177245385090.
     bw.writeBits(24, 0x177245);
     bw.writeBits(24, 0x385090);
-
-    // Combined CRC (just the one block CRC).
-    bw.writeBits(32, blockCrc);
+    bw.writeBits(32, combinedCrc);
 
     bw.flush();
 

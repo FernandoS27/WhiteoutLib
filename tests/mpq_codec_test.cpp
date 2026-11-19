@@ -9,6 +9,7 @@
 #include <catch2/catch_all.hpp>
 
 #include "../src/whiteout/storages/mpq/codecs/compression.h"
+#include "../src/whiteout/storages/mpq/file_data.h"
 #include "../src/whiteout/storages/mpq/codecs/sparse.h"
 #include "../src/whiteout/storages/mpq/codecs/huffman.h"
 #include "../src/whiteout/storages/common/codecs/bzip2.h"
@@ -20,14 +21,17 @@
 #include <whiteout/common_types.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
 #include <span>
+#include <string>
 #include <vector>
 
 using whiteout::u8;
 using whiteout::u16;
+using whiteout::u32;
 namespace mpq = whiteout::storages::mpq;
 namespace common = whiteout::storages::common;
 
@@ -55,17 +59,15 @@ static void fail(const char* fmt, ...) {
 }
 
 static void expect(bool condition, const char* fmt, ...) {
-    if (condition) {
-        
+    if (condition)
         return;
-    }
-    
-    std::printf("  FAIL: ");
+    char message[512];
     va_list args;
     va_start(args, fmt);
-    std::vprintf(fmt, args);
+    std::vsnprintf(message, sizeof(message), fmt, args);
     va_end(args);
-    std::printf("\n");
+    std::printf("  FAIL: %s\n", message);
+    FAIL_CHECK(message);
 }
 
 // ============================================================================
@@ -378,6 +380,8 @@ TEST_CASE("testPkwareRoundTrip", "[mpq][codec]") {
         auto data = makeCompressibleData(1024);
         auto compressed = mpq::pkwareImplode(data);
         expect(!compressed.empty(), "pkware compress text: not empty");
+        expect(compressed.size() < data.size() / 4, "pkware compress text: actually compressed (%zu)",
+               compressed.size());
         auto decompressed = mpq::pkwareExplode(compressed, data.size());
         expect(decompressed.size() == data.size(), "pkware decompress text: correct size");
         expect(decompressed == data, "pkware round-trip text: data matches");
@@ -542,16 +546,18 @@ TEST_CASE("testMpqCompressDecompress", "[mpq][codec]") {
         if (compressed.empty()) pass("mpq lzma compress correctly refused");
 
         // Verify decompress works with a known-good buffer ("Hello, World!").
-        // Build a full mpqDecompress input: compression byte (0x12) + raw LZMA data.
+        // An MPQ LZMA sector: compression byte (0x12), filter byte (0), the 5
+        // property bytes, the 8-byte uncompressed size, then the stream.
         static const u8 rawLzma[] = {
             0x5D, 0x00, 0x00, 0x80, 0x00, 0x00, 0x24, 0x19,
             0x49, 0x98, 0x6F, 0x16, 0x02, 0x89, 0x0A, 0x98,
             0xE7, 0x3F, 0xA8, 0xC3, 0x95, 0x48, 0x4D, 0xFF,
             0xFF, 0x75, 0xF0, 0x00, 0x00,
         };
-        std::vector<u8> mpqBuf;
-        mpqBuf.push_back(0x12); // LZMA compression byte
-        mpqBuf.insert(mpqBuf.end(), std::begin(rawLzma), std::end(rawLzma));
+        std::vector<u8> mpqBuf{0x12, 0x00};
+        mpqBuf.insert(mpqBuf.end(), std::begin(rawLzma), std::begin(rawLzma) + 5);
+        mpqBuf.insert(mpqBuf.end(), {13, 0, 0, 0, 0, 0, 0, 0});
+        mpqBuf.insert(mpqBuf.end(), std::begin(rawLzma) + 5, std::end(rawLzma));
 
         error.clear();
         auto decompressed = mpq::mpqDecompress(mpqBuf, 13, &error);
@@ -638,6 +644,270 @@ TEST_CASE("testLzmaDecompress", "[mpq][codec]") {
         auto result = common::lzmaDecompress(truncated, 100);
         expect(result.empty(), "lzma truncated input: returns empty");
         if (result.empty()) pass("lzma error: truncated input handled");
+    }
+}
+
+// ============================================================================
+// Interoperability: sectors another MPQ tool wrote (WhiteoutLib issue #4)
+// ============================================================================
+// Each kStorm* array is the one sector of `t.bin` in a fixture attached to
+// issue #4, written by StormLib (mpqcli 0.10.0), compression byte included.
+// kAsciiAllBytes is bytes 0-255 as an ASCII-literal DCL stream; StormLib's
+// explode decodes it to the same bytes.
+
+static const u8 kStormPkwareSector[] = {
+    0x08, 0x00, 0x04, 0xD8, 0xA4, 0x71, 0x53, 0x06, 0x04, 0x0C, 0x1D, 0x20, 0xE8, 0xA0, 0x6D, 0x2B,
+    0x4E, 0x9D, 0x34, 0x63, 0xD6, 0x80, 0x10, 0x23, 0xE7, 0xCD, 0x1D, 0x37, 0x20, 0xCC, 0xBC, 0xC1,
+    0x03, 0x42, 0x4D, 0x9D, 0x36, 0x70, 0x14, 0xBA, 0x40, 0x4C, 0x18, 0x0B, 0xC8, 0x84, 0xB1, 0xC0,
+    0x4C, 0x18, 0x0B, 0xD0, 0x84, 0xB1, 0x40, 0x4D, 0x18, 0x0B, 0xD8, 0x84, 0xB1, 0xC0, 0x4D, 0xB4,
+    0x82, 0x80, 0x7F,
+};
+static const u8 kStormImplodeSector[] = {
+    0x00, 0x04, 0xD8, 0xA4, 0x71, 0x53, 0x06, 0x04, 0x0C, 0x1D, 0x20, 0xE8, 0xA0, 0x6D, 0x2B, 0x4E,
+    0x9D, 0x34, 0x63, 0xD6, 0x80, 0x10, 0x23, 0xE7, 0xCD, 0x1D, 0x37, 0x20, 0xCC, 0xBC, 0xC1, 0x03,
+    0x42, 0x4D, 0x9D, 0x36, 0x70, 0x14, 0xBA, 0x40, 0x4C, 0x18, 0x0B, 0xC8, 0x84, 0xB1, 0xC0, 0x4C,
+    0x18, 0x0B, 0xD0, 0x84, 0xB1, 0x40, 0x4D, 0x18, 0x0B, 0xD8, 0x84, 0xB1, 0xC0, 0x4D, 0xB4, 0x82,
+    0x80, 0x7F,
+};
+static const u8 kStormBzip2Sector[] = {
+    0x10, 0x42, 0x5A, 0x68, 0x39, 0x31, 0x41, 0x59, 0x26, 0x53, 0x59, 0x45, 0x7A, 0x7E, 0xAB, 0x00,
+    0x00, 0x17, 0xC4, 0x00, 0x40, 0x00, 0x30, 0x00, 0x20, 0x00, 0x30, 0xCC, 0x05, 0x53, 0x6A, 0x42,
+    0x04, 0x21, 0xD8, 0x78, 0xBB, 0x92, 0x29, 0xC2, 0x84, 0x82, 0x2B, 0xD3, 0xF5, 0x58,
+};
+static const u8 kStormLzmaSector[] = {
+    0x12, 0x00, 0x5D, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x36, 0x1A, 0x4A, 0x1F, 0x08, 0xA0, 0x26, 0x56, 0x4E, 0x0D, 0x6C, 0xB8, 0xA5, 0xED, 0x63, 0x9C,
+    0x8E, 0x7C, 0xDB, 0x4E, 0xF6, 0x9E, 0x4B, 0x78, 0x18, 0x56, 0x5C, 0xF7, 0x26, 0xEB, 0xD4, 0xA3,
+    0x6D, 0xA5, 0xBC, 0x3A, 0xED, 0x0E, 0x96, 0x1A, 0x53, 0x11, 0xB7, 0x13, 0xD3, 0x8E, 0x9C, 0x0C,
+    0x1E, 0x98, 0xED, 0xD9, 0x9F, 0x3F, 0x4C, 0xB5, 0x3A, 0x00,
+};
+static const u8 kStormHuffmanSector[] = {
+    0x01, 0x00, 0x60, 0xF3, 0x34, 0x72, 0xF3, 0x65, 0x0B, 0xA4, 0xC3, 0x24, 0x9D, 0xF2, 0x74, 0x0A,
+    0x4D, 0xC1, 0xE3, 0xBE, 0x3A, 0xBD, 0xC7, 0xB6, 0x35, 0xCC, 0x62, 0x9D, 0x5C, 0xFD, 0x96, 0xDD,
+    0x55, 0xC5, 0x66, 0xC9, 0xC3, 0x93, 0xAD, 0xE6, 0xB9, 0x36, 0x19, 0x0E, 0x53, 0xA8, 0xBD, 0xDF,
+    0xA7, 0x63, 0xEC, 0x73, 0x7E, 0x7D, 0x6F, 0xBC, 0x5F, 0xBF, 0x78, 0x62, 0x30, 0x5C, 0xAB, 0xD7,
+    0xFD, 0x2C, 0xDB, 0x7C, 0x07, 0xBA, 0x92, 0xD9, 0xBB, 0xEF, 0xD0, 0xFD, 0xD2, 0xBE, 0x77, 0xDF,
+    0xDF, 0x8E, 0xED, 0x5F, 0xBF, 0xFE, 0xF7, 0x7D, 0x5F, 0x01, 0xDE, 0xCA, 0x33, 0x79, 0x29, 0xC2,
+    0xC0, 0x25, 0x4A, 0x06, 0xC1, 0xA5, 0x38, 0x72, 0xE1, 0xC0, 0xBB, 0xAF, 0xF7, 0x20, 0xFE, 0x5D,
+    0xD1, 0x80, 0x01, 0x80, 0x03, 0x8F, 0x01, 0x18, 0x00, 0x0F, 0xD0, 0xC0, 0x03, 0x03, 0xFF, 0xFB,
+    0xBE, 0x83, 0x1F, 0xD7, 0x5F, 0xD3, 0x56, 0x0B, 0x0E, 0x03, 0x07, 0x3C, 0xC3, 0xBF, 0xA2, 0xE1,
+    0xCF, 0x86, 0x01, 0xFD, 0x5F, 0xC7, 0x8F, 0x3B, 0xB2, 0x69, 0xAB, 0x05, 0x87, 0x81, 0x03, 0x9E,
+    0xE1, 0x5F, 0xD1, 0xF0, 0x67, 0xC3, 0x80, 0xF6, 0xAD, 0xE3, 0xC7, 0xDD, 0xBF, 0x69, 0xAB, 0x05,
+    0x87, 0x81, 0x11, 0x1F, 0xC3, 0x1B, 0xD1, 0xF9, 0x6A,
+};
+
+static const u8 kAsciiAllBytes[] = {
+    0x01, 0x06, 0x20, 0x09, 0xFC, 0x81, 0x1F, 0xF0, 0x05, 0x3E, 0xC0, 0x1B, 0x78, 0x01, 0x4F, 0xE0,
+    0x01, 0x97, 0x18, 0xB8, 0x03, 0x37, 0x22, 0xE0, 0x0A, 0x5C, 0x80, 0x33, 0x70, 0x02, 0x8E, 0xC0,
+    0x01, 0xD8, 0x03, 0x3B, 0x60, 0x0B, 0x6C, 0x80, 0x35, 0xB0, 0x02, 0x24, 0x81, 0x25, 0xB0, 0x00,
+    0xE6, 0xC0, 0x0C, 0x98, 0x7A, 0x50, 0xC2, 0x01, 0x26, 0xA0, 0x00, 0xC6, 0x20, 0x87, 0x4D, 0x48,
+    0x00, 0x0B, 0x6C, 0x7C, 0x29, 0x1E, 0x4C, 0x5C, 0x09, 0x0E, 0x36, 0x16, 0x26, 0x0C, 0x0C, 0x74,
+    0xE8, 0xD0, 0x80, 0x11, 0x48, 0xA0, 0x81, 0x05, 0xE2, 0xC0, 0x50, 0x8C, 0x2A, 0x12, 0xBA, 0x28,
+    0x50, 0xA1, 0x08, 0x40, 0x0C, 0x4C, 0x3E, 0x32, 0x8F, 0x8B, 0x04, 0xA2, 0x1C, 0x36, 0x0B, 0x11,
+    0x0C, 0xC8, 0xA0, 0x83, 0x06, 0x22, 0x90, 0x40, 0x18, 0x54, 0x60, 0x00, 0x11, 0xE8, 0x3B, 0x4C,
+    0x06, 0xDD, 0xA6, 0x51, 0x29, 0x16, 0x08, 0x21, 0x98, 0x64, 0x43, 0x27, 0x81, 0x4C, 0x53, 0x15,
+    0x19, 0x02, 0x3C, 0x78, 0x70, 0x20, 0x05, 0x41, 0x10, 0x00, 0x7A, 0x40, 0x17, 0xE8, 0x00, 0x12,
+    0x80, 0x38, 0x20, 0x06, 0x88, 0x02, 0x22, 0x80, 0x30, 0x20, 0x04, 0x08, 0x02, 0x02, 0x00, 0x3F,
+    0xC0, 0x07, 0xF0, 0x02, 0x3C, 0x00, 0x37, 0xC0, 0x05, 0x70, 0x02, 0x1C, 0x00, 0x3B, 0xC0, 0x06,
+    0xB0, 0x02, 0x2C, 0x00, 0x33, 0xC0, 0x04, 0x30, 0x02, 0x0C, 0x00, 0x3D, 0x40, 0x07, 0xD0, 0x02,
+    0x34, 0x00, 0x35, 0x40, 0x05, 0x50, 0x02, 0x14, 0x00, 0x39, 0x40, 0x06, 0x90, 0x02, 0x24, 0x00,
+    0x31, 0x40, 0x04, 0x10, 0x02, 0x04, 0x00, 0x3E, 0x80, 0x07, 0xE0, 0x02, 0x38, 0x00, 0x36, 0x80,
+    0x05, 0x60, 0x02, 0x6D, 0xA0, 0x05, 0x34, 0x81, 0x06, 0x50, 0x07, 0x6A, 0x40, 0x15, 0xA8, 0x00,
+    0x65, 0xA0, 0x04, 0x14, 0x81, 0x02, 0x90, 0x07, 0x72, 0x40, 0x16, 0xC8, 0x00, 0x69, 0x20, 0x05,
+    0x24, 0x81, 0x04, 0x10, 0x07, 0x62, 0x40, 0x14, 0x88, 0x00, 0x61, 0x20, 0x04, 0x04, 0x81, 0x00,
+    0xE0, 0x07, 0x7C, 0x80, 0x17, 0xF0, 0x00, 0x6E, 0xC0, 0x05, 0x38, 0x01, 0x07, 0x60, 0x07, 0x6C,
+    0x80, 0x15, 0xB0, 0x00, 0x66, 0xC0, 0x04, 0x18, 0x01, 0x03, 0xA0, 0x07, 0x74, 0x80, 0x16, 0xD0,
+    0x00, 0x18, 0x80, 0x1A, 0x40, 0x07, 0xD0, 0x00, 0x54, 0x40, 0x05, 0xA0, 0x00, 0xC8, 0x00, 0x12,
+    0xA0, 0x04, 0x10, 0x01, 0x04, 0x00, 0x1E, 0x80, 0x03, 0x14, 0x00, 0x2C, 0x00, 0x03, 0x40, 0x03,
+    0x72, 0x40, 0x06, 0x48, 0x01, 0x28, 0x00, 0x12, 0x80, 0x00, 0xC0, 0x01, 0x30, 0x00, 0x14, 0x00,
+    0x01, 0x80, 0x01, 0x20, 0x00, 0x10, 0x00, 0x08, 0xF8, 0x07,
+};
+
+/// The 256-byte text the fixtures hold.
+static std::vector<u8> issue4Text() {
+    std::string text;
+    for (int line = 0; line < 8; ++line)
+        text += "line " + std::to_string(line) + ": the quick brown fox jump\n";
+    return {text.begin(), text.begin() + 256};
+}
+
+/// "AAAABBBB" eight times: runs of exactly four, bzip2's run-length boundary.
+static std::vector<u8> issue4Runs() {
+    std::vector<u8> runs;
+    for (int i = 0; i < 8; ++i)
+        runs.insert(runs.end(), {'A', 'A', 'A', 'A', 'B', 'B', 'B', 'B'});
+    return runs;
+}
+
+TEST_CASE("MPQ codecs read what StormLib writes", "[mpq][codec]") {
+    std::string error;
+    SECTION("PKware DCL") {
+        CHECK(mpq::mpqDecompress(kStormPkwareSector, 256, &error) == issue4Text());
+    }
+    SECTION("BZip2, runs of four") {
+        CHECK(mpq::mpqDecompress(kStormBzip2Sector, 64, &error) == issue4Runs());
+    }
+    SECTION("LZMA") {
+        CHECK(mpq::mpqDecompress(kStormLzmaSector, 256, &error) == issue4Text());
+    }
+    SECTION("Huffman") {
+        CHECK(mpq::mpqDecompress(kStormHuffmanSector, 256, &error) == issue4Text());
+    }
+    SECTION("PKware DCL, ASCII literals") {
+        std::vector<u8> all(256);
+        for (size_t i = 0; i < all.size(); ++i)
+            all[i] = static_cast<u8>(i);
+        CHECK(mpq::pkwareExplode(kAsciiAllBytes, all.size()) == all);
+    }
+    CHECK(error.empty());
+}
+
+/// @p sector as the one sector of a compressed multi-sector file.
+static std::vector<u8> oneSectorFile(std::span<const u8> sector) {
+    std::vector<u8> file(8);
+    u32 const offsets[2] = {8, static_cast<u32>(8 + sector.size())};
+    std::memcpy(file.data(), offsets, sizeof(offsets));
+    file.insert(file.end(), sector.begin(), sector.end());
+    return file;
+}
+
+TEST_CASE("LZMA copies 5 bytes back (distance slot 4)", "[mpq][codec]") {
+    // An MPQ LZMA sector (Python's lzma, FORMAT_ALONE) of the text below. Its
+    // first copy is 5 bytes back, the slot the old decoder indexed at -1.
+    static const u8 kSector[] = {
+    0x12, 0x00, 0x5D, 0x00, 0x00, 0x01, 0x00, 0x64, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x30, 0x98, 0x88, 0x98, 0x3E, 0xD4, 0xFF, 0xE8, 0xCF, 0x2D, 0x69, 0x35, 0x8B, 0xB3, 0x76, 0x11,
+    0x21, 0x07, 0x58, 0xAD, 0x6F, 0x63, 0x40, 0x83, 0xFF, 0xFF, 0x6C, 0xD8, 0x00, 0x00,
+    };
+    std::string text;
+    for (int i = 0; i < 12; ++i)
+        text += "abcde";
+    for (int i = 0; i < 4; ++i)
+        text += "0123456789";
+    std::string error;
+    auto const data = mpq::mpqDecompress(kSector, text.size(), &error);
+    CHECK(std::string(data.begin(), data.end()) == text);
+}
+
+TEST_CASE("an imploded file's sectors are bare DCL streams", "[mpq][codec]") {
+    // FILE_IMPLODE, not FILE_COMPRESS: no compression byte before the stream.
+    auto const file = oneSectorFile(kStormImplodeSector);
+    mpq::BlockEntry const block{0, static_cast<u32>(file.size()), 256,
+                                mpq::FileFlag::kExists | mpq::FileFlag::kImplode};
+    std::string error;
+    auto data = mpq::extractFileData(file, 0, block, 4096, 0, &error);
+    REQUIRE(data.has_value());
+    CHECK(*data == issue4Text());
+}
+
+TEST_CASE("a block's high offset bits move where it is read", "[mpq][codec]") {
+    auto const file = oneSectorFile(kStormPkwareSector);
+    mpq::BlockEntry const block{0, static_cast<u32>(file.size()), 256,
+                                mpq::FileFlag::kExists | mpq::FileFlag::kCompress};
+    REQUIRE(mpq::extractFileData(file, 0, block, 4096, 0).has_value());
+
+    // The same low bits 4 GiB further on lie past this buffer.
+    std::string error;
+    CHECK_FALSE(mpq::extractFileData(file, 0, block, 4096, 0, &error, nullptr, 1).has_value());
+    CHECK(error == "data out of bounds");
+}
+
+TEST_CASE("a file that decodes short is a failed read", "[mpq][codec]") {
+    // The stream holds 256 bytes; a block table claiming 300 must not get 256.
+    auto const file = oneSectorFile(kStormPkwareSector);
+    mpq::BlockEntry const block{0, static_cast<u32>(file.size()), 300,
+                                mpq::FileFlag::kExists | mpq::FileFlag::kCompress};
+    std::string error;
+    CHECK_FALSE(mpq::extractFileData(file, 0, block, 4096, 0, &error).has_value());
+    CHECK_FALSE(error.empty());
+
+    // A compression bit no codec owns fails rather than passing data through.
+    std::vector<u8> unknown{0x04, 'a', 'b', 'c'};
+    CHECK(mpq::mpqDecompress(unknown, 16, &error).empty());
+}
+
+TEST_CASE("a WAV written with ADPCM keeps its first sector whole", "[mpq][codec]") {
+    // ADPCM is lossy: Blizzard's tools and StormLib compress a wave's first
+    // sector as data, so its RIFF header survives.
+    std::vector<u8> wav = {'R', 'I', 'F', 'F', 0x24, 0x40, 0, 0, 'W', 'A', 'V', 'E', 'f', 'm', 't', ' ',
+                           16,  0,   0,   0,   1,    0,    1, 0, 0x22, 0x56, 0, 0, 0x44, 0xAC, 0, 0,
+                           2,   0,   16,  0,   'd',  'a',  't', 'a', 0, 0x40, 0, 0};
+    for (int i = 0; i < 6000; ++i) {
+        auto const sample = static_cast<std::int16_t>(9000.0 * std::sin(i / 7.0));
+        wav.push_back(static_cast<u8>(sample & 0xFF));
+        wav.push_back(static_cast<u8>((sample >> 8) & 0xFF));
+    }
+    mpq::EncodeOptions opts;
+    opts.compression = mpq::CompressionFlag::kAdpcmMono;
+    opts.sectorSize = 4096;
+    auto const encoded = mpq::encodeFileData(wav, opts);
+    REQUIRE((encoded.flags & mpq::FileFlag::kCompress) == mpq::FileFlag::kCompress);
+    mpq::BlockEntry const block{0, encoded.compressedSize, static_cast<u32>(wav.size()), encoded.flags};
+    auto const decoded = mpq::extractFileData(encoded.data, 0, block, 4096, 0);
+    REQUIRE(decoded.has_value());
+    REQUIRE(decoded->size() == wav.size());
+    CHECK(std::equal(wav.begin(), wav.begin() + 4096, decoded->begin()));
+}
+
+TEST_CASE("bzip2 splits what it compresses into blocks of at most 900k", "[mpq][codec]") {
+    // One block holds at most 900k bytes after its run-length pass: a larger
+    // unit written as one block was a file no bzip2 decoder reads. Periodic
+    // text also keeps the rotation sort honest: compared byte by byte it
+    // takes quadratic time.
+    std::vector<u8> data;
+    char const* words[] = {"unit ", "footman ", "call ", "set ", "endfunction\r\n"};
+    for (u32 i = 0; data.size() < 2'500'000; ++i) {
+        char const* w = words[(i * 7 + i / 5) % 5];
+        data.insert(data.end(), w, w + std::strlen(w));
+    }
+    auto const compressed = common::bzip2Compress(data);
+    REQUIRE_FALSE(compressed.empty());
+    CHECK(compressed.size() < data.size() / 4);
+    CHECK(common::bzip2Decompress(compressed, data.size()) == data);
+}
+
+TEST_CASE("a version 2+ archive's sectors use only masks newer Storm reads", "[mpq][codec]") {
+    // Newer Storm and StormLib read a v2+ archive's sectors with zlib, PKware,
+    // bzip2, LZMA, sparse (alone or before zlib or bzip2) or ADPCM paired
+    // with Huffman; Huffman or ADPCM alone is a sector they cannot open.
+    std::vector<u8> wave(30000);
+    for (size_t i = 0; i + 1 < wave.size(); i += 2) {
+        auto const sample = static_cast<std::int16_t>(8000.0 * std::sin(static_cast<double>(i) / 11.0));
+        wave[i] = static_cast<u8>(sample & 0xFF);
+        wave[i + 1] = static_cast<u8>((sample >> 8) & 0xFF);
+    }
+    auto sectorMasks = [](const mpq::EncodedFile& encoded, size_t size, u32 sectorSize) {
+        std::vector<u8> masks;
+        u32 const sectors = static_cast<u32>((size + sectorSize - 1) / sectorSize);
+        std::vector<u32> offsets(sectors + 1);
+        std::memcpy(offsets.data(), encoded.data.data(), offsets.size() * 4);
+        for (u32 i = 0; i < sectors; ++i) {
+            size_t const plain = std::min<size_t>(sectorSize, size - size_t{i} * sectorSize);
+            if (offsets[i + 1] - offsets[i] < plain)
+                masks.push_back(encoded.data[offsets[i]]);
+        }
+        return masks;
+    };
+    auto const text = makeCompressibleData(30000);
+    for (auto const codec : {mpq::CompressionFlag::kHuffman, mpq::CompressionFlag::kAdpcmMono}) {
+        CAPTURE(static_cast<int>(codec));
+        auto const& data = codec == mpq::CompressionFlag::kHuffman ? text : wave;
+        mpq::EncodeOptions opts;
+        opts.compression = codec;
+        opts.sectorSize = 4096;
+        opts.modernCodecs = true;
+        auto const encoded = mpq::encodeFileData(data, opts);
+        auto const masks = sectorMasks(encoded, data.size(), 4096);
+        REQUIRE(masks.size() > 1);
+        for (u8 const mask : masks)
+            CHECK((mask == 0x02 || mask == 0x08 || mask == 0x41));
+        if (codec == mpq::CompressionFlag::kAdpcmMono)
+            CHECK(masks.back() == 0x41);
+        mpq::BlockEntry const block{0, encoded.compressedSize, static_cast<u32>(data.size()), encoded.flags};
+        auto const decoded = mpq::extractFileData(encoded.data, 0, block, 4096, 0);
+        REQUIRE(decoded.has_value());
+        if (codec == mpq::CompressionFlag::kHuffman)
+            CHECK(*decoded == data);
     }
 }
 

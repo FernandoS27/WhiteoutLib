@@ -37,8 +37,8 @@ struct CodecEntry {
 };
 
 // Thin wrappers to give zlib and ADPCM a uniform signature.
-std::vector<u8> zlibDecompressAdapter(std::span<const u8> src, size_t) {
-    return storages::common::zlibDecompress(src);
+std::vector<u8> zlibDecompressAdapter(std::span<const u8> src, size_t sz) {
+    return storages::common::zlibDecompress(src, sz);
 }
 std::vector<u8> zlibCompressAdapter(std::span<const u8> src) {
     return storages::common::zlibCompress(src);
@@ -59,6 +59,16 @@ std::vector<u8> huffmanCompressAdapter(std::span<const u8> src) {
     return huffmanCompress(src);
 }
 
+// MPQ's LZMA sector: a filter byte (0, none), the 5 property bytes, the
+// 8-byte uncompressed size, then the stream.
+constexpr size_t kLzmaPropsSize = 5;
+constexpr size_t kLzmaHeaderSize = 1 + kLzmaPropsSize + 8;
+std::vector<u8> mpqLzmaDecompress(std::span<const u8> src, size_t sz) {
+    if (src.size() <= kLzmaHeaderSize || src[0] != 0)
+        return {};
+    return lzmaDecompress(src.subspan(1, kLzmaPropsSize), src.subspan(kLzmaHeaderSize), sz);
+}
+
 static constexpr size_t kCodecCount = 8;
 static const std::array<CodecEntry, kCodecCount> kCodecTable = {{
     {CompressionFlag::kBZip2, "BZip2", bzip2Decompress, bzip2Compress},
@@ -70,7 +80,7 @@ static const std::array<CodecEntry, kCodecCount> kCodecTable = {{
     {CompressionFlag::kAdpcmStereo, "ADPCM stereo", adpcmStereoDecompressAdapter,
      adpcmStereoCompressAdapter},
     {CompressionFlag::kSparse, "Sparse", sparseDecompress, sparseCompress},
-    {CompressionFlag::kLZMA, "LZMA", lzmaDecompress, nullptr},
+    {CompressionFlag::kLZMA, "LZMA", mpqLzmaDecompress, nullptr},
 }};
 
 const CodecEntry* findCodec(CompressionFlag flag) {
@@ -150,11 +160,19 @@ std::vector<u8> mpqDecompress(std::span<const u8> src, size_t uncompressedSize,
     }
 
     // Bitmask-based decompression for all other algorithms.
+    CompressionFlag unclaimed = compressionMask;
     for (CompressionFlag const flag : kDecompressOrder) {
         if (hasFlag(compressionMask, flag)) {
             if (!decompressStage(flag, buf, uncompressedSize, error))
                 return {};
+            unclaimed &= ~flag;
         }
+    }
+    // A bit no codec owns means a codec we would skip, not data to pass on.
+    if (unclaimed != CompressionFlag::None) {
+        if (error)
+            *error = "Unknown compression flag: " + std::to_string(static_cast<u8>(unclaimed));
+        return {};
     }
 
     return buf;
@@ -169,7 +187,11 @@ std::vector<u8> mpqCompress(std::span<const u8> src, CompressionFlag compression
     if (src.empty())
         return {};
 
-    const auto* codec = findCodec(compressionType);
+    // ADPCM with Huffman, the way Blizzard stores waves: ADPCM first, then
+    // Huffman over what it gives.
+    CompressionFlag const adpcm = compressionType & (CompressionFlag::kAdpcmMono | CompressionFlag::kAdpcmStereo);
+    bool const paired = adpcm != CompressionFlag::None && hasFlag(compressionType, CompressionFlag::kHuffman);
+    const auto* codec = findCodec(paired ? adpcm : compressionType);
     if (!codec || !codec->compress) {
         if (error)
             *error = codec ? (std::string(codec->name) + " compression not implemented")
@@ -179,6 +201,8 @@ std::vector<u8> mpqCompress(std::span<const u8> src, CompressionFlag compression
     }
 
     auto result = codec->compress(src);
+    if (paired && !result.empty())
+        result = huffmanCompressAdapter(result);
     if (result.empty()) {
         if (error)
             *error = std::string(codec->name) + " compression failed";

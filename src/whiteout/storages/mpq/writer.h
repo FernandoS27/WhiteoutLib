@@ -96,6 +96,21 @@ struct WriteResult {
     std::string error;
 };
 
+/// Where the writer puts an archive: appended in order, offsets counted from
+/// the archive's first byte, the header patched in last.
+class ArchiveSink {
+public:
+    virtual ~ArchiveSink() = default;
+    [[nodiscard]] virtual u64 size() const = 0;
+    virtual void append(std::span<const u8> bytes) = 0;
+    /// Overwrite bytes appended before.
+    virtual void patch(u64 offset, std::span<const u8> bytes) = 0;
+};
+
+/// @ref writeArchive into @p sink; returns why it failed, or an empty string.
+[[nodiscard]] std::string writeArchive(const WritePlan& plan, const std::vector<WriteEntry>& entries,
+                                       ArchiveSink& sink, interfaces::WorkerPool* pool = nullptr);
+
 /// Write a complete MPQ archive to a byte buffer.
 ///
 /// The writer:

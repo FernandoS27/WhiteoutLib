@@ -13,13 +13,14 @@
 
 namespace whiteout::storages::mpq {
 
-/// Decompress data compressed with PKware DCL (implode).
+/// Decompress data compressed with PKware DCL (implode), binary or ASCII mode.
 /// @param src              Compressed data (without the MPQ compression byte prefix).
-/// @param expectedSize     Expected decompressed size.
-/// @return Decompressed data, or empty vector on failure.
+/// @param expectedSize     Expected decompressed size; decoding stops there.
+/// @return Decompressed data — shorter when the stream ends first — or an
+///         empty vector when the stream is malformed.
 [[nodiscard]] std::vector<u8> pkwareExplode(std::span<const u8> src, size_t expectedSize);
 
-/// Compress data using PKware DCL (implode).
+/// Compress data using PKware DCL (implode), binary mode.
 /// @param src Raw data to compress.
 /// @return Compressed data (without the MPQ compression byte prefix), or empty vector on failure.
 [[nodiscard]] std::vector<u8> pkwareImplode(std::span<const u8> src);

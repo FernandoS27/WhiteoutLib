@@ -10,6 +10,7 @@
 #include <cctype>
 #include <cstring>
 #include <unordered_map>
+#include <utility>
 
 namespace whiteout::storages::mpq {
 
@@ -121,7 +122,7 @@ std::optional<HetTable> parseHetTable(std::span<const u8> stored) {
     het.indexSizeExtra = readU32(b, 20);
     het.indexSize = readU32(b, 24);
     u32 const indexTableSize = readU32(b, 28);
-    if (het.indexSize > 32 || het.indexSize > het.indexSizeTotal ||
+    if (het.indexSize > 32 || het.indexSize > het.indexSizeTotal || het.nameHashBitSize > kNameHashBits ||
         kHetHeaderSize + u64{het.totalCount} + indexTableSize > b.size() ||
         u64{het.totalCount} * het.indexSizeTotal > u64{indexTableSize} * 8)
         return std::nullopt;
@@ -162,6 +163,15 @@ std::optional<BetTable> parseBetTable(std::span<const u8> stored) {
                            bet.bitCountFlagIndex, bet.bitCountNameHash2})
         if (bits > 64)
             return std::nullopt;
+    // Every field lies inside its entry, or the last entry reads past the table.
+    for (auto const [index, count] : {std::pair{bet.bitIndexFilePos, bet.bitCountFilePos},
+                                      std::pair{bet.bitIndexFileSize, bet.bitCountFileSize},
+                                      std::pair{bet.bitIndexCmpSize, bet.bitCountCmpSize},
+                                      std::pair{bet.bitIndexFlagIndex, bet.bitCountFlagIndex}})
+        if (u64{index} + count > bet.tableEntrySize)
+            return std::nullopt;
+    if (bet.bitCountNameHash2 > bet.bitTotalNameHash2)
+        return std::nullopt;
     u64 const tableBytes = (u64{bet.entryCount} * bet.tableEntrySize + 7) / 8;
     u64 const flagsEnd = kBetHeaderSize + u64{flagCount} * 4;
     if (flagsEnd + tableBytes + nameHashArraySize > b.size() ||
@@ -230,8 +240,12 @@ std::vector<u8> buildHetTable(std::span<const u64> nameHashes, std::span<const u
     return sealTable(std::move(body), kHetMagic, "(hash table)");
 }
 
-std::vector<u8> buildBetTable(std::span<const BlockEntry> blocks, std::span<const u64> nameHashes) {
+std::vector<u8> buildBetTable(std::span<const BlockEntry> blocks, std::span<const u64> nameHashes,
+                              std::span<const u16> offsetHi) {
     u32 const entryCount = static_cast<u32>(blocks.size());
+    auto position = [&](u32 i) {
+        return blocks[i].fileOffset | (i < offsetHi.size() ? u64{offsetHi[i]} << 32 : 0);
+    };
     // Flags are numbered in the order they are first met.
     std::vector<u32> flags;
     std::vector<u32> flagIndex(entryCount, 0);
@@ -244,7 +258,7 @@ std::vector<u8> buildBetTable(std::span<const BlockEntry> blocks, std::span<cons
         if (fresh)
             flags.push_back(value);
         flagIndex[i] = it->second;
-        maxPos = std::max<u64>(maxPos, be.fileOffset);
+        maxPos = std::max<u64>(maxPos, position(i));
         maxSize = std::max<u64>(maxSize, be.uncompressedSize);
         maxCmp = std::max<u64>(maxCmp, be.compressedSize);
     }
@@ -286,7 +300,7 @@ std::vector<u8> buildBetTable(std::span<const BlockEntry> blocks, std::span<cons
     const std::span<u8> hashes(body.data() + flagsEnd + tableBytes, hashBytes);
     for (u32 i = 0; i < entryCount; ++i) {
         u64 const base = u64{i} * entrySize;
-        writeBits(table, base, bitsPos, blocks[i].fileOffset);
+        writeBits(table, base, bitsPos, position(i));
         writeBits(table, base + bitsPos, bitsSize, blocks[i].uncompressedSize);
         writeBits(table, base + bitsPos + bitsSize, bitsCmp, blocks[i].compressedSize);
         writeBits(table, base + bitsPos + bitsSize + bitsCmp, bitsFlag, flagIndex[i]);

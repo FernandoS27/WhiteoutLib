@@ -3,6 +3,8 @@
 
 #include "adpcm.h"
 
+#include "../../../common/output_reserve.h"
+
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -98,7 +100,7 @@ std::vector<u8> adpcmDecompress(std::span<const u8> src, size_t expectedSize, in
         return {};
 
     std::vector<u8> out;
-    out.reserve(expectedSize);
+    out.reserve(whiteout::common::outputReserve(expectedSize, src.size()));
 
     AdpcmStream is(src.data(), src.size());
 

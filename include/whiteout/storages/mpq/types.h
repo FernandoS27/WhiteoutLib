@@ -42,8 +42,8 @@ enum class Compression : u8 {
     PKware = 0x08,      ///< PKware DCL (implode) compression.
     BZip2 = 0x10,       ///< bzip2 compression.
     Sparse = 0x20,      ///< Sparse / RLE compression.
-    AdpcmMono = 0x40,   ///< IMA ADPCM mono (used for mono audio).
-    AdpcmStereo = 0x80, ///< IMA ADPCM stereo (used for stereo audio).
+    AdpcmMono = 0x40,   ///< IMA ADPCM mono, lossy (a wave's first sector is stored with PKware).
+    AdpcmStereo = 0x80, ///< IMA ADPCM stereo, lossy (a wave's first sector is stored with PKware).
 };
 
 // ============================================================================
@@ -109,7 +109,7 @@ struct FileInfo {
 struct ArchiveInfo {
     u16 formatVersion = 0;     ///< 0 = V1, 1 = V2.
     u32 hashTableEntries = 0;  ///< Hash table capacity (always a power of 2).
-    u32 blockTableEntries = 0; ///< Number of occupied block table entries.
+    u32 blockTableEntries = 0; ///< Block table entries, as the header counts them.
     u32 sectorSize = 0;        ///< Sector size in bytes (512 << sectorSizeShift).
     u64 archiveSize = 0;       ///< Total archive size in bytes.
 };

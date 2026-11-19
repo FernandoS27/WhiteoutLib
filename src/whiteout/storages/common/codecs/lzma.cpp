@@ -9,6 +9,8 @@
 
 #include "lzma.h"
 
+#include "../../../common/output_reserve.h"
+
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -233,8 +235,9 @@ u32 getLenToPosState(u32 len) {
 
 class OutputWindow {
 public:
-    void init(size_t dictSize, size_t expectedSize) {
-        buffer.resize(expectedSize);
+    void init(size_t dictSize, size_t expectedSize, size_t inputSize) {
+        buffer.clear();
+        buffer.reserve(whiteout::common::outputReserve(expectedSize, inputSize));
         writePosition = 0;
         dictionarySize = dictSize;
         outputCapacity = expectedSize;
@@ -245,8 +248,10 @@ public:
     }
 
     void putByte(u8 value) {
-        if (writePosition < outputCapacity)
-            buffer[writePosition++] = value;
+        if (writePosition < outputCapacity) {
+            buffer.push_back(value);
+            ++writePosition;
+        }
     }
 
     u8 getByte(u32 distance) const {
@@ -286,14 +291,21 @@ private:
 // ---------------------------------------------------------------------------
 
 std::vector<u8> lzmaDecompress(std::span<const u8> src, size_t expectedSize) {
-    // Minimum valid input: 5 bytes props header + 5 bytes range coder init
-    if (src.size() < 10 || expectedSize == 0)
+    if (src.size() < 5)
+        return {};
+    return lzmaDecompress(src.first(5), src.subspan(5), expectedSize);
+}
+
+std::vector<u8> lzmaDecompress(std::span<const u8> props, std::span<const u8> stream,
+                               size_t expectedSize) {
+    // The range coder starts with 5 bytes of its own.
+    if (props.size() != 5 || stream.size() < 5 || expectedSize == 0)
         return {};
 
     // -------------------------------------------------------------------
     // Parse properties header (5 bytes)
     // -------------------------------------------------------------------
-    const u8 propsByte = src[0];
+    const u8 propsByte = props[0];
     if (propsByte >= 225) // 9 * 5 * 5 = 225 is the maximum valid value
         return {};
 
@@ -303,19 +315,15 @@ std::vector<u8> lzmaDecompress(std::span<const u8> src, size_t expectedSize) {
     const u32 posBits = remainder / 5;
 
     u32 dictionarySize = 0;
-    std::memcpy(&dictionarySize, src.data() + 1, 4); // little-endian on x86
+    std::memcpy(&dictionarySize, props.data() + 1, 4); // little-endian on x86
     if (dictionarySize < 1)
         dictionarySize = 1;
-
-    // Stream data starts at offset 5
-    const u8* streamData = src.data() + 5;
-    const size_t streamSize = src.size() - 5;
 
     // -------------------------------------------------------------------
     // Initialize range decoder
     // -------------------------------------------------------------------
     RangeDecoder rangeDecoder;
-    if (!rangeDecoder.init(streamData, streamSize))
+    if (!rangeDecoder.init(stream.data(), stream.size()))
         return {};
 
     // -------------------------------------------------------------------
@@ -337,7 +345,8 @@ std::vector<u8> lzmaDecompress(std::span<const u8> src, size_t expectedSize) {
 
     // Distance probs
     std::array<Prob, kNumLenToPosStates * 64> distSlotProbs{}; // 64 = 1<<6, bit-tree of 6 bits
-    std::array<Prob, kNumFullDistances - kEndPosModelIndex> distSpecialProbs{};
+    // Indexed from 1 at (distance - slot), as the reverse bit-tree walks it.
+    std::array<Prob, 1 + kNumFullDistances - kEndPosModelIndex> distSpecialProbs{};
     std::array<Prob, kAlignTableSize> distAlignProbs{};
 
     // Fill all prob arrays with initial value
@@ -358,7 +367,7 @@ std::vector<u8> lzmaDecompress(std::span<const u8> src, size_t expectedSize) {
     // Initialize output + state
     // -------------------------------------------------------------------
     OutputWindow output;
-    output.init(dictionarySize, expectedSize);
+    output.init(dictionarySize, expectedSize, stream.size());
 
     u32 state = 0;
     u32 repDist0 = 0, repDist1 = 0, repDist2 = 0, repDist3 = 0;
@@ -392,18 +401,19 @@ std::vector<u8> lzmaDecompress(std::span<const u8> src, size_t expectedSize) {
                     symbol = (symbol << 1) | rangeDecoder.decodeBit(contextProbs[symbol]);
                 } while (symbol < 0x100);
             } else {
-                // Match-literal: context is the byte at repDist0 distance
+                // Match-literal: context is the byte at repDist0 distance. While
+                // the bits agree with it, the probabilities come from its
+                // 0x100/0x200 halves; after the first difference, from the
+                // plain literal tree (offset 0, no match bit).
                 u32 matchByte = output.getByte(repDist0);
-                u32 matchContextOffset = 0x100;
+                u32 offset = 0x100;
                 do {
                     matchByte <<= 1;
-                    u32 const matchBit = (matchByte >> 8) & 1;
-                    u32 const bit = rangeDecoder.decodeBit(
-                        contextProbs[matchContextOffset + (matchBit << 8) + symbol]);
+                    u32 const matchBit = matchByte & offset;
+                    u32 const bit =
+                        rangeDecoder.decodeBit(contextProbs[offset + matchBit + symbol]);
                     symbol = (symbol << 1) | bit;
-                    // Stay in match-context while bits agree; once they differ, offset→0
-                    // permanently
-                    matchContextOffset = (matchBit == bit) ? matchContextOffset : 0;
+                    offset &= bit ? matchBit : ~matchBit;
                 } while (symbol < 0x100);
             }
 
@@ -441,7 +451,7 @@ std::vector<u8> lzmaDecompress(std::span<const u8> src, size_t expectedSize) {
                     if (distanceSlot < kEndPosModelIndex) {
                         // Context-encoded bits (reverse bit-tree)
                         repDist0 +=
-                            bitTreeReverseDecode(&distSpecialProbs[repDist0 - distanceSlot - 1],
+                            bitTreeReverseDecode(&distSpecialProbs[repDist0 - distanceSlot],
                                                  numDirectBits, rangeDecoder);
                     } else {
                         // Fixed-probability bits + align bits
@@ -457,10 +467,9 @@ std::vector<u8> lzmaDecompress(std::span<const u8> src, size_t expectedSize) {
                     break; // End of stream
                 }
 
-                // Validate distance
-                if (repDist0 >= output.pos() && repDist0 >= dictionarySize) {
-                    return {}; // Invalid distance
-                }
+                // A copy cannot reach before the first byte.
+                if (repDist0 >= output.pos())
+                    return {};
 
             } else {
                 // ---------------------------------------------------

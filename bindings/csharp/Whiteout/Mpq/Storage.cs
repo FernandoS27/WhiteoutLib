@@ -42,7 +42,7 @@ public sealed class Storage : WhiteoutHandle
     }
 
 
-    /// <summary>Read a file from the archive. Checks the overlay first, then the source archive. @return File contents, or std::nullopt if not found or deleted.</summary>
+    /// <summary>Read a file from the archive: its neutral-locale copy, as Storm and StormLib read a name (the last one, when a protected map lists the name twice). Pending writes and deletes count as already saved. @return File contents, or std::nullopt if not found, deleted, or not decodable to its full size.</summary>
     public byte[]? ReadFile(string name)
     {
         var __b = NativeMethods.whiteout_mpq_MpqStorage_readFile(DangerousGet(), name);
@@ -50,7 +50,7 @@ public sealed class Storage : WhiteoutHandle
     }
 
 
-    /// <summary>Read a file with a specific locale.</summary>
+    /// <summary>Read a file's copy in @p locale, else its neutral copy.</summary>
     public byte[]? ReadFileNameLocale(string name, ushort locale)
     {
         var __b = NativeMethods.whiteout_mpq_MpqStorage_readFile_name_locale(DangerousGet(), name, locale);
@@ -58,14 +58,14 @@ public sealed class Storage : WhiteoutHandle
     }
 
 
-    /// <summary>Check if a file exists in the archive (including overlay).</summary>
+    /// <summary>Check if readFile(name) finds a file (including overlay).</summary>
     public bool FileExists(string name)
     {
         return NativeMethods.whiteout_mpq_MpqStorage_fileExists(DangerousGet(), name) != 0;
     }
 
 
-    /// <summary>Get information about a file.</summary>
+    /// <summary>Get information about the file readFile(name) reads.</summary>
     public FileInfo? FileInfo(string name)
     {
         var __h = NativeMethods.whiteout_mpq_MpqStorage_fileInfo(DangerousGet(), name);
@@ -105,21 +105,21 @@ public sealed class Storage : WhiteoutHandle
     }
 
 
-    /// <summary>Write or overwrite a file. Data is held in overlay until save(). @return true on success, false if the hash table is full.</summary>
+    /// <summary>Write or overwrite a file. Data is held in overlay until save(), which replaces every locale of the name with the ones written. @return true on success, false if the storage is not open or the data is over 4 GiB (an MPQ file size is 32-bit).</summary>
     public bool WriteFile(string name, ReadOnlySpan<byte> data, WriteOptions opts)
     {
         return NativeMethods.whiteout_mpq_MpqStorage_writeFile(DangerousGet(), name, data, (nuint)data.Length, opts.DangerousGet()) != 0;
     }
 
 
-    /// <summary>Delete a file from the archive. @return true if the file was found (in source or overlay), false otherwise.</summary>
+    /// <summary>Delete a file from the archive, every locale of it. @return true if the file was found (in source or overlay), false otherwise.</summary>
     public bool DeleteFile(string name)
     {
         return NativeMethods.whiteout_mpq_MpqStorage_deleteFile(DangerousGet(), name) != 0;
     }
 
 
-    /// <summary>Save the archive to its original path (temp file + atomic rename). @return false if this Storage was created via create() with no prior save(path).</summary>
+    /// <summary>Save the archive to its original path. @return false if this Storage was created via create() with no prior save(path).</summary>
     public bool Save()
     {
         return NativeMethods.whiteout_mpq_MpqStorage_save(DangerousGet()) != 0;
@@ -130,6 +130,14 @@ public sealed class Storage : WhiteoutHandle
     public bool SavePath(string path)
     {
         return NativeMethods.whiteout_mpq_MpqStorage_save_path(DangerousGet(), path) != 0;
+    }
+
+
+    /// <summary>Why the last save() failed; empty after one that succeeded.</summary>
+    public string LastError()
+    {
+        var __s = NativeMethods.whiteout_mpq_MpqStorage_lastError(DangerousGet());
+        return __s.ToManagedString();
     }
 
 }
