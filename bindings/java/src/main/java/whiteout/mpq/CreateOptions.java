@@ -77,7 +77,7 @@ public final class CreateOptions implements AutoCloseable {
         handle.set(ValueLayout.JAVA_INT, 4L, value);
     }
     /**
-     * Sector size = 512 << shift (default 3 → 4096 bytes).
+     * Sector size = 512 << shift (default 3 → 4096 bytes). 0 is taken as 1: some StormLib builds, HiveWE's among them, open no archive of 512-byte sectors.
      * @return the sectorSizeShift field of this MpqCreateOptions.
      */
     public short getSectorSizeShift() {

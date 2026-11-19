@@ -88,8 +88,25 @@ void recrypt(std::vector<u8>& data, size_t at, size_t length, u32 from, u32 to) 
 
 } // anonymous namespace
 
+std::optional<std::pair<u32, BlockEntry>> splitPatchFile(std::span<const u8> stored, const BlockEntry& block) {
+    static constexpr u32 kPatchInfoValid = 0x80000000;
+    static constexpr u32 kMaxPatchInfo = 0x400; // StormLib's bound.
+    u32 info[3] = {}; // Length, flags, data size; an MD5 follows.
+    if (stored.size() < sizeof(info))
+        return std::nullopt;
+    std::memcpy(info, stored.data(), sizeof(info));
+    if ((info[1] & kPatchInfoValid) == 0 || info[0] > kMaxPatchInfo || info[0] > stored.size())
+        return std::nullopt;
+    BlockEntry body = block;
+    body.flags &= ~FileFlag::kPatchFile;
+    body.compressedSize = static_cast<u32>(stored.size()) - info[0];
+    body.uncompressedSize = info[2];
+    return std::pair{info[0], body};
+}
+
 std::optional<u32> detectStoredFileKey(std::span<const u8> stored, const BlockEntry& block, u32 sectorSize) {
-    if (block.isSingleUnit() || !block.isCompressed() || block.uncompressedSize == 0 || stored.size() < 4)
+    if (block.isSingleUnit() || !block.isCompressed() || block.uncompressedSize == 0 || stored.size() < 4 ||
+        hasFlag(block.flags, FileFlag::kPatchFile))
         return std::nullopt;
     u32 const entries = sectorTableEntries(block, sectorSize);
     u32 encrypted0 = 0;
@@ -107,6 +124,16 @@ std::optional<u32> detectStoredFileKey(std::span<const u8> stored, const BlockEn
 
 std::optional<std::vector<u8>> rekeyStoredFile(std::span<const u8> stored, const BlockEntry& block, u32 sectorSize,
                                                u32 oldKey, u32 newKey) {
+    if (hasFlag(block.flags, FileFlag::kPatchFile) && block.uncompressedSize != 0 && oldKey != newKey) {
+        // The patch info is never encrypted; the file behind it is.
+        auto const patch = splitPatchFile(stored, block);
+        if (!patch)
+            return std::nullopt;
+        auto body = rekeyStoredFile(stored.subspan(patch->first), patch->second, sectorSize, oldKey, newKey);
+        if (body)
+            body->insert(body->begin(), stored.begin(), stored.begin() + patch->first);
+        return body;
+    }
     std::vector<u8> out(stored.begin(), stored.end());
     if (block.uncompressedSize == 0 || oldKey == newKey)
         return out;
@@ -148,8 +175,8 @@ namespace {
 std::optional<std::vector<u8>> decodeUnit(std::span<const u8> stored, const BlockEntry& block,
                                           u32 size, u32 key, std::string& error) {
     std::vector<u8> buf(stored.begin(), stored.end());
-    if (block.isEncrypted() && key != 0 && buf.size() >= 4)
-        decryptBlock(reinterpret_cast<u32*>(buf.data()), buf.size() / 4, key);
+    if (block.isEncrypted() && key != 0)
+        decryptBytes(buf, key);
     if (buf.size() >= size) {
         buf.resize(size);
         return buf;
@@ -196,6 +223,19 @@ std::optional<std::vector<u8>> extractFileData(std::span<const u8> archiveData, 
 
     auto fileSpan = archiveData.subspan(dataStart, block.compressedSize);
 
+    // -- Patch file --
+    // Read alone, as StormLib reads one outside a patch chain: the patch
+    // data behind its patch info (length, flags, data size, MD5).
+    if (hasFlag(block.flags, FileFlag::kPatchFile)) {
+        auto const patch = splitPatchFile(fileSpan, block);
+        if (!patch) {
+            setErr("patch file without valid patch info");
+            return std::nullopt;
+        }
+        return extractFileData(archiveData, archiveOffset + patch->first, patch->second, sectorSize, fileKey, error,
+                               pool, offsetHi);
+    }
+
     // -- Single-unit file --
     if (block.isSingleUnit()) {
         std::string err;
@@ -225,11 +265,7 @@ std::optional<std::vector<u8>> extractFileData(std::span<const u8> archiveData, 
             for (u32 i = 0; i < numSectors; ++i) {
                 u32 const off = i * sectorSize;
                 u32 const len = std::min(sectorSize, block.uncompressedSize - off);
-                size_t const alignedCount = len / 4;
-                if (alignedCount > 0) {
-                    decryptBlock(reinterpret_cast<u32*>(buf.data() + off), alignedCount,
-                                 fileKey + i);
-                }
+                decryptBytes(std::span<u8>(buf).subspan(off, len), fileKey + i);
             }
         }
         return buf;
@@ -368,12 +404,9 @@ EncodedFile encodeStored(std::span<const u8> rawData, const EncodeOptions& opts,
         flags |= FileFlag::kEncrypted;
         u32 const size = static_cast<u32>(rawData.size());
         u32 const fileKey = deriveFileKey(opts.filename, BlockEntry{0, size, size, flags});
-        for (size_t at = 0, i = 0; at < rawData.size(); at += sectorSize, ++i) {
-            size_t const alignedCount = std::min<size_t>(sectorSize, rawData.size() - at) / 4;
-            if (alignedCount > 0)
-                encryptBlock(reinterpret_cast<u32*>(result.data.data() + at), alignedCount,
-                             fileKey + static_cast<u32>(i));
-        }
+        for (size_t at = 0, i = 0; at < rawData.size(); at += sectorSize, ++i)
+            encryptBytes(std::span<u8>(result.data).subspan(at, std::min<size_t>(sectorSize, rawData.size() - at)),
+                         fileKey + static_cast<u32>(i));
     }
     result.compressedSize = static_cast<u32>(result.data.size());
     result.flags = flags;
@@ -416,10 +449,7 @@ EncodedFile encodeFileData(std::span<const u8> rawData, const EncodeOptions& opt
             fileKey =
                 deriveFileKey(opts.filename, BlockEntry{0, static_cast<u32>(encoded.size()),
                                                         static_cast<u32>(rawData.size()), flags});
-            size_t const alignedCount = encoded.size() / 4;
-            if (alignedCount > 0) {
-                encryptBlock(reinterpret_cast<u32*>(encoded.data()), alignedCount, fileKey);
-            }
+            encryptBytes(encoded, fileKey);
         }
 
         result.data = std::move(encoded);
@@ -520,13 +550,8 @@ EncodedFile encodeFileData(std::span<const u8> rawData, const EncodeOptions& opt
 
     // Encrypt each sector.
     if (fileKey != 0) {
-        for (u32 i = 0; i < numSectors; ++i) {
-            size_t const alignedCount = sectorData[i].size() / 4;
-            if (alignedCount > 0) {
-                encryptBlock(reinterpret_cast<u32*>(sectorData[i].data()), alignedCount,
-                             fileKey + i);
-            }
-        }
+        for (u32 i = 0; i < numSectors; ++i)
+            encryptBytes(sectorData[i], fileKey + i);
     }
 
     // Assemble final data.
@@ -712,12 +737,8 @@ BatchEncodeResult encodeBatch(std::span<const std::pair<std::span<const u8>, Enc
 
             // Encrypt each sector.
             if (fileKey != 0) {
-                for (u32 j = 0; j < numSectors; ++j) {
-                    size_t const aligned = state.sectorResults[j].data.size() / 4;
-                    if (aligned > 0)
-                        encryptBlock(reinterpret_cast<u32*>(state.sectorResults[j].data.data()),
-                                     aligned, fileKey + j);
-                }
+                for (u32 j = 0; j < numSectors; ++j)
+                    encryptBytes(state.sectorResults[j].data, fileKey + j);
             }
 
             // Assemble final data.
@@ -819,7 +840,7 @@ std::vector<std::optional<std::vector<u8>>> extractBatch(std::span<const u8> arc
         auto fileSpan = archiveData.subspan(dataStart, block.compressedSize);
 
         // Single-unit files: single task, no sector offset table.
-        if (block.isSingleUnit()) {
+        if (block.isSingleUnit() && !hasFlag(block.flags, FileFlag::kPatchFile)) {
             state.completeDone = state.sem->next();
             interfaces::WorkerTask task;
             task.fn = [i, &files, &results, fileSpan]() {
@@ -833,8 +854,9 @@ std::vector<std::optional<std::vector<u8>>> extractBatch(std::span<const u8> arc
             continue;
         }
 
-        // A stored multi-sector file has no sector table to split work by.
-        if (!block.isCompressed()) {
+        // A stored multi-sector file has no sector table to split work by,
+        // and a patch file's starts behind its patch info.
+        if (!block.isCompressed() || hasFlag(block.flags, FileFlag::kPatchFile)) {
             results[i] = extractFileData(archiveData, archiveOffset, block, sectorSize, fi.fileKey,
                                          nullptr, nullptr, fi.offsetHi);
             state.completeDone = state.sem->next();

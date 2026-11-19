@@ -528,7 +528,7 @@ impl CreateOptions {
         unsafe { ffi::whiteout_mpq_MpqCreateOptions_set_hashTableSize(self.raw.as_ptr(), value) }
     }
 
-    /// Sector size = 512 << shift (default 3 → 4096 bytes).
+    /// Sector size = 512 << shift (default 3 → 4096 bytes). 0 is taken as 1: some StormLib builds, HiveWE's among them, open no archive of 512-byte sectors.
     pub fn sector_size_shift(&self) -> u16 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_mpq_MpqCreateOptions_get_sectorSizeShift(self.raw.as_ptr()) }
@@ -584,7 +584,7 @@ impl core::fmt::Debug for Storage {
 }
 
 impl Storage {
-    /// Open an existing MPQ archive. Memory-maps the file and parses tables. @param path  Path to the .mpq file. @param pool  Optional WorkerPool for parallel compress/decompress (non-owning). @return A valid Storage, or std::nullopt on failure.
+    /// Open an existing MPQ archive. Memory-maps the file and parses tables. A Warcraft III map (an HM3W block, or a .w3x or .w3m name) is read as the game reads one, so a protected map opens. @param path  Path to the .mpq file. @param pool  Optional WorkerPool for parallel compress/decompress (non-owning). @return A valid Storage, or std::nullopt on failure.
     pub fn open(path: &str, pool: Option<&crate::interfaces::HostWorkerPool>) -> Option<Storage> {
         let path_cstr = std::ffi::CString::new(path).unwrap_or_default();
         // SAFETY: handle is live for the duration of the call.
@@ -618,7 +618,7 @@ impl Storage {
         }
     }
 
-    /// Read a file from the archive: its neutral-locale copy, as Storm and StormLib read a name (the last one, when a protected map lists the name twice). Pending writes and deletes count as already saved. @return File contents, or std::nullopt if not found, deleted, or not decodable to its full size.
+    /// Read a file from the archive: its neutral-locale copy, as Storm and StormLib read a name (the last one, when a protected map lists the name twice). A name with '/' is looked for as Storm hashes it, slash kept, then with '\\'. A patch file reads as its patch data. Pending writes and deletes count as already saved. @return File contents, or std::nullopt if not found, deleted, or not decodable to its full size.
     pub fn read_file(&self, name: &str) -> Option<Bytes> {
         let name_cstr = std::ffi::CString::new(name).unwrap_or_default();
         // SAFETY: handle is live for the duration of the call.
@@ -672,7 +672,7 @@ impl Storage {
         }
     }
 
-    /// List all known filenames (from listfile + overlay additions − deletions).
+    /// List the files (listfile) names that the archive holds, plus overlay additions, minus deletions. A file no (listfile) names is not listed.
     pub fn list_files(&self) -> Vec<String> {
         // SAFETY: one call materialises the list; the
         // elements are borrowed out of it and it is freed
@@ -723,7 +723,7 @@ impl Storage {
 
     /// Save the archive to a specific path. After saving, the new file becomes the source archive and the overlay is cleared.
     ///
-    /// The archive is written to an unused name beside @p path, then renamed over it, so a failed save leaves @p path as it was; past 128 MiB it is streamed rather than held in memory. Bytes before the MPQ header (a Warcraft III map's HM3W block) are kept, as are files no (listfile) names, and a v4 archive keeps its HET/BET tables and MD5s. A save that cannot keep every file refuses instead: see lastError().
+    /// The archive is written to an unused name beside @p path, then renamed over it, so a failed save leaves @p path as it was; past 128 MiB it is streamed rather than held in memory. Bytes before the MPQ header (a Warcraft III map's HM3W block) are kept, as are files no (listfile) names, and a v4 archive keeps its HET/BET tables and MD5s. A copy no lookup can reach (a protected map's decoy) is dropped. When every file has a name, the hash table is built anew, at most three quarters full. A save that cannot keep every file refuses instead: see lastError().
     pub fn save_path(&mut self, path: &str) -> bool {
         let path_cstr = std::ffi::CString::new(path).unwrap_or_default();
         // SAFETY: handle is live for the duration of the call.

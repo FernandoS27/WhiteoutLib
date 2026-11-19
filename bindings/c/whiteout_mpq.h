@@ -130,7 +130,7 @@ void whiteout_mpq_MpqCreateOptions_set_version(whiteout_MpqCreateOptions* self, 
 /* Initial hash table capacity; rounded up to the next power of 2. */
 uint32_t whiteout_mpq_MpqCreateOptions_get_hashTableSize(const whiteout_MpqCreateOptions* self);
 void whiteout_mpq_MpqCreateOptions_set_hashTableSize(whiteout_MpqCreateOptions* self, uint32_t value);
-/* Sector size = 512 << shift (default 3 → 4096 bytes). */
+/* Sector size = 512 << shift (default 3 → 4096 bytes). 0 is taken as 1: some StormLib builds, HiveWE's among them, open no archive of 512-byte sectors. */
 uint16_t whiteout_mpq_MpqCreateOptions_get_sectorSizeShift(const whiteout_MpqCreateOptions* self);
 void whiteout_mpq_MpqCreateOptions_set_sectorSizeShift(whiteout_MpqCreateOptions* self, uint16_t value);
 
@@ -143,13 +143,13 @@ void whiteout_mpq_MpqCreateOptions_set_sectorSizeShift(whiteout_MpqCreateOptions
 /* All public methods are thread-safe: read operations acquire a shared lock; write and persist operations acquire an exclusive lock. */
 void whiteout_mpq_MpqStorage_delete(whiteout_MpqStorage* self);
 
-/* Open an existing MPQ archive. Memory-maps the file and parses tables. @param path  Path to the .mpq file. @param pool  Optional WorkerPool for parallel compress/decompress (non-owning). @return A valid Storage, or std::nullopt on failure. */
+/* Open an existing MPQ archive. Memory-maps the file and parses tables. A Warcraft III map (an HM3W block, or a .w3x or .w3m name) is read as the game reads one, so a protected map opens. @param path  Path to the .mpq file. @param pool  Optional WorkerPool for parallel compress/decompress (non-owning). @return A valid Storage, or std::nullopt on failure. */
 struct whiteout_MpqStorage* whiteout_mpq_MpqStorage_open(const char* path, void* pool);
 /* Create a new empty archive in memory. No file on disk until save(path). */
 struct whiteout_MpqStorage* whiteout_mpq_MpqStorage_create(struct whiteout_MpqCreateOptions* opts, void* pool);
 /* Release all resources. Same effect as letting the Storage go out of scope. */
 void whiteout_mpq_MpqStorage_close(whiteout_MpqStorage* self);
-/* Read a file from the archive: its neutral-locale copy, as Storm and StormLib read a name (the last one, when a protected map lists the name twice). Pending writes and deletes count as already saved. @return File contents, or std::nullopt if not found, deleted, or not decodable to its full size. */
+/* Read a file from the archive: its neutral-locale copy, as Storm and StormLib read a name (the last one, when a protected map lists the name twice). A name with '/' is looked for as Storm hashes it, slash kept, then with '\\'. A patch file reads as its patch data. Pending writes and deletes count as already saved. @return File contents, or std::nullopt if not found, deleted, or not decodable to its full size. */
 whiteout_Bytes whiteout_mpq_MpqStorage_readFile(const whiteout_MpqStorage* self, const char* name);
 /* Read a file's copy in @p locale, else its neutral copy. */
 whiteout_Bytes whiteout_mpq_MpqStorage_readFile_name_locale(const whiteout_MpqStorage* self, const char* name, uint16_t locale);
@@ -159,7 +159,7 @@ int32_t whiteout_mpq_MpqStorage_fileExists(const whiteout_MpqStorage* self, cons
 struct whiteout_MpqFileInfo* whiteout_mpq_MpqStorage_fileInfo(const whiteout_MpqStorage* self, const char* name);
 /* Get summary information about the archive. */
 struct whiteout_MpqArchiveInfo* whiteout_mpq_MpqStorage_archiveInfo(const whiteout_MpqStorage* self);
-/* List all known filenames (from listfile + overlay additions − deletions). */
+/* List the files (listfile) names that the archive holds, plus overlay additions, minus deletions. A file no (listfile) names is not listed. */
 size_t whiteout_mpq_MpqStorage_listFiles_count(const whiteout_MpqStorage* self);
 whiteout_CString whiteout_mpq_MpqStorage_listFiles_at(const whiteout_MpqStorage* self, size_t index);
 /* Materialises the whole list in one call. Prefer this over the
@@ -173,7 +173,7 @@ int32_t whiteout_mpq_MpqStorage_deleteFile(whiteout_MpqStorage* self, const char
 int32_t whiteout_mpq_MpqStorage_save(whiteout_MpqStorage* self);
 /* Save the archive to a specific path. After saving, the new file becomes the source archive and the overlay is cleared. */
 /*  */
-/* The archive is written to an unused name beside @p path, then renamed over it, so a failed save leaves @p path as it was; past 128 MiB it is streamed rather than held in memory. Bytes before the MPQ header (a Warcraft III map's HM3W block) are kept, as are files no (listfile) names, and a v4 archive keeps its HET/BET tables and MD5s. A save that cannot keep every file refuses instead: see lastError(). */
+/* The archive is written to an unused name beside @p path, then renamed over it, so a failed save leaves @p path as it was; past 128 MiB it is streamed rather than held in memory. Bytes before the MPQ header (a Warcraft III map's HM3W block) are kept, as are files no (listfile) names, and a v4 archive keeps its HET/BET tables and MD5s. A copy no lookup can reach (a protected map's decoy) is dropped. When every file has a name, the hash table is built anew, at most three quarters full. A save that cannot keep every file refuses instead: see lastError(). */
 int32_t whiteout_mpq_MpqStorage_save_path(whiteout_MpqStorage* self, const char* path);
 /* Why the last save() failed; empty after one that succeeded. */
 whiteout_CString whiteout_mpq_MpqStorage_lastError(const whiteout_MpqStorage* self);

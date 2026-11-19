@@ -27,6 +27,9 @@ static constexpr u32 kMpqMagic = 0x1A51504D;
 /// MPQ user-data signature "MPQ\x1B".
 static constexpr u32 kMpqUserDataMagic = 0x1B51504D;
 
+/// Warcraft III map preamble signature "HM3W".
+static constexpr u32 kWar3MapMagic = 0x57334D48;
+
 /// Archive alignment boundary when scanning for the header.
 static constexpr u32 kHeaderSearchAlignment = 0x200;
 
@@ -106,10 +109,17 @@ struct HeaderParseResult {
 // Functions
 // ============================================================================
 
+/// Whether Warcraft III reads @p fileData as a map, as StormLib decides it: an
+/// HM3W preamble, or a .w3x or .w3m name.
+[[nodiscard]] bool isWar3Map(const std::string& path, std::span<const u8> fileData);
+
 /// Scan a memory-mapped archive for the MPQ header.
 /// Searches at 0x200-byte boundaries. Returns the parsed header and the byte
 /// offset where the archive begins, or nullopt if no valid header is found.
-[[nodiscard]] std::optional<HeaderParseResult> findAndParseHeader(std::span<const u8> fileData);
+/// A @p war3Map is read as Warcraft III reads it: user data ignored, and
+/// every header taken as version 1.
+[[nodiscard]] std::optional<HeaderParseResult> findAndParseHeader(std::span<const u8> fileData,
+                                                                  bool war3Map = false);
 
 /// Build a new MPQ header from creation parameters.
 [[nodiscard]] MpqHeader buildHeader(u16 formatVersion, u32 hashTableSize, u16 sectorSizeShift);

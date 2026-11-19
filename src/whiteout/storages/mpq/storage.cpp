@@ -38,11 +38,28 @@ using storages::common::normalizePath;
 
 namespace {
 
+/// A name's two hash table checks as one key; @p keepSlashes hashes '/' as
+/// itself, as Storm and StormLib do.
+u64 nameKey(const std::string& name, bool keepSlashes = false) {
+    return (static_cast<u64>(hashString(name, HashType::NameA, keepSlashes)) << 32) |
+           hashString(name, HashType::NameB, keepSlashes);
+}
+
+/// @p fn(key, keepSlashes) for each spelling a table may hold @p name under:
+/// its slashes as slashes (when it has any), then as backslashes.
+template <class Fn>
+void forEachSpelling(const std::string& name, Fn fn) {
+    if (name.find('/') != std::string::npos)
+        fn(nameKey(name, true), true);
+    fn(nameKey(name), false);
+}
+
 /// Result of parsing an MPQ archive from a memory-mapped file.
 struct ParsedArchive {
     storages::common::MappedFile mapping;
     MpqHeader header;
     size_t archiveOffset = 0;
+    bool war3Map = false; ///< Read as Warcraft III reads a map (see isWar3Map).
     HashTable hashTable;
     BlockTable blockTable;
     std::vector<std::string> listfileNames;
@@ -64,13 +81,14 @@ std::optional<ParsedArchive> parseMappedArchive(const std::string& path,
         return std::nullopt;
     }
 
-    auto parseResult = findAndParseHeader(mappedFile->data());
+    ParsedArchive pa;
+    pa.war3Map = isWar3Map(path, mappedFile->data());
+    auto parseResult = findAndParseHeader(mappedFile->data(), pa.war3Map);
     if (!parseResult) {
         setError("no valid MPQ header found (missing MPQ\\x1A signature or header too small)");
         return std::nullopt;
     }
 
-    ParsedArchive pa;
     pa.header = parseResult->header;
     pa.archiveOffset = parseResult->archiveOffset;
     auto archiveSpan = mappedFile->data();
@@ -81,8 +99,18 @@ std::optional<ParsedArchive> parseMappedArchive(const std::string& path,
         return std::nullopt;
     }
 
+    // Storm keeps 28 bits of a table size, as of a block index: it scales
+    // them by 16, and the top four bits shift out.
+    pa.header.hashTableEntries &= kBlockIndexMask;
+    pa.header.blockTableEntries &= kBlockIndexMask;
+    // A version 1 archive's offsets are 32 bits wide and wrap.
+    auto tableAt = [&](u64 offset) {
+        u64 const at = pa.archiveOffset + offset;
+        return pa.header.formatVersion == 0 ? at & 0xFFFFFFFF : at;
+    };
+
     // Parse hash table.
-    u64 const htOffset = pa.archiveOffset + pa.header.hashTableByteOffset();
+    u64 const htOffset = tableAt(pa.header.hashTableByteOffset());
     u64 const htSize = static_cast<u64>(pa.header.hashTableEntries) * 16;
     if (htOffset + htSize > archiveSpan.size()) {
         setError("hash table extends past end of file (offset 0x" + std::to_string(htOffset) +
@@ -95,8 +123,12 @@ std::optional<ParsedArchive> parseMappedArchive(const std::string& path,
         return std::nullopt;
     }
 
-    // Parse block table.
-    u64 const btOffset = pa.archiveOffset + pa.header.blockTableByteOffset();
+    // Parse block table. A version 1 table running past the end of the file
+    // ends there, as StormLib cuts it: map protectors inflate the count.
+    u64 const btOffset = tableAt(pa.header.blockTableByteOffset());
+    if (pa.header.formatVersion == 0 && btOffset <= archiveSpan.size() &&
+        btOffset + u64{pa.header.blockTableEntries} * 16 > archiveSpan.size())
+        pa.header.blockTableEntries = static_cast<u32>((archiveSpan.size() - btOffset) / 16);
     u64 const btSize = static_cast<u64>(pa.header.blockTableEntries) * 16;
     if (btOffset + btSize > archiveSpan.size()) {
         setError("block table extends past end of file (offset 0x" + std::to_string(btOffset) +
@@ -108,6 +140,11 @@ std::optional<ParsedArchive> parseMappedArchive(const std::string& path,
         setError("block table decryption or validation failed");
         return std::nullopt;
     }
+    // Warcraft III's Storm knows fewer flags than later ones: a map's file
+    // is never single-unit, nor a patch.
+    if (pa.war3Map)
+        for (u32 i = 0; i < pa.blockTable.count(); ++i)
+            pa.blockTable.entry(i).flags &= kWar3MapFileFlags;
 
     // Parse hi-block table (V2+).
     if (pa.header.formatVersion >= 1 && pa.header.hiBlockTableOffset != 0) {
@@ -226,6 +263,7 @@ struct Storage::Impl {
     // Parsed tables (read-only snapshot of source archive).
     MpqHeader header{};
     size_t archiveOffset = 0;
+    bool war3Map = false;
     HashTable hashTable;
     BlockTable blockTable;
 
@@ -239,6 +277,9 @@ struct Storage::Impl {
     };
     std::unordered_map<std::string, std::map<u16, OverlayEntry>> pendingWrites;
     std::unordered_set<std::string> pendingDeletes;
+    /// The slash-kept keys of the names with a slash the overlay was given:
+    /// a source file hashed that way goes at save too.
+    std::unordered_set<u64> overlaySlashKeys;
 
     // Parsed (listfile) from source archive.
     std::vector<std::string> sourceListfileNames;
@@ -320,33 +361,39 @@ struct Storage::Impl {
         plan.hashTableCapacity = header.hashTableEntries;
         plan.singleUnitSpecials = header.formatVersion >= 2;
 
-        auto nameKey = [](const std::string& name) {
-            return (static_cast<u64>(hashString(name, HashType::NameA)) << 32) |
-                   hashString(name, HashType::NameB);
-        };
-        // A name keeps its (listfile) line; a new one goes after them all.
+        // A name keeps its (listfile) line, in either spelling; a new one
+        // goes after them all.
         std::unordered_map<u64, u32> ranks;
-        for (const auto& name : sourceListfileNames)
-            ranks.try_emplace(nameKey(name), static_cast<u32>(ranks.size()));
-        u32 const appended = static_cast<u32>(ranks.size());
+        u32 line = 0;
+        for (const auto& name : sourceListfileNames) {
+            forEachSpelling(name, [&](u64 key, bool) { ranks.try_emplace(key, line); });
+            ++line;
+        }
         auto rankOf = [&](u64 key) {
             auto it = ranks.find(key);
-            return it != ranks.end() ? it->second : appended;
+            return it != ranks.end() ? it->second : line;
         };
         // Names the overlay writes or deletes: every locale of one goes, so a
         // replaced file is not shadowed by a localized copy of the old one.
-        std::unordered_set<u64> replaced;
+        std::unordered_set<u64> replaced = overlaySlashKeys;
         for (const auto& [norm, byLocale] : pendingWrites)
             replaced.insert(nameKey(norm));
         for (const auto& norm : pendingDeletes)
             replaced.insert(nameKey(norm));
+        auto overlayOwns = [&](const std::string& name) {
+            std::string const norm = normalizePath(name);
+            return pendingWrites.contains(norm) || pendingDeletes.contains(norm);
+        };
 
         if (sourceArchive) {
-            std::unordered_map<u64, std::string> names;
+            struct Named {
+                std::string name;
+                bool slashHashed;
+            };
+            std::unordered_map<u64, Named> names;
             for (const auto& name : sourceListfileNames)
-                names.try_emplace(nameKey(name), name);
-            std::unordered_set<u64> const specials{nameKey("(listfile)"), nameKey("(attributes)"),
-                                                   nameKey("(signature)")};
+                forEachSpelling(name, [&](u64 key, bool slashes) { names.try_emplace(key, Named{name, slashes}); });
+            std::unordered_set<u64> const specials{nameKey("(listfile)"), nameKey("(attributes)"), nameKey("(signature)")};
 
             // The source's (attributes), carried per block; written again
             // with the same arrays, or not at all when it had none.
@@ -397,8 +444,18 @@ struct Storage::Impl {
                 const BlockEntry& be = blockTable.entry(block);
 
                 WriteEntry we;
-                if (auto it = names.find(key); it != names.end())
-                    we.filename = it->second;
+                if (auto it = names.find(key); it != names.end()) {
+                    const Named& named = it->second;
+                    if (overlayOwns(named.name))
+                        continue;
+                    // Only the entry a lookup lands on is ever read: a decoy
+                    // ahead of it, or a second copy for its locale, goes.
+                    if ((he.platform & 0xFF) == 0 &&
+                        hashTable.findSpelled(named.name, named.slashHashed, he.locale, blockTable.count()) != slot)
+                        continue;
+                    we.filename = named.name;
+                    we.slashHashed = named.slashHashed;
+                }
                 we.listRank = rankOf(key);
                 we.locale = he.locale;
                 we.platform = he.platform;
@@ -452,7 +509,7 @@ struct Storage::Impl {
                 we.rawData = pending.data;
                 we.compression = static_cast<CompressionFlag>(pending.opts.compression);
                 we.encrypt = pending.opts.encrypt;
-                we.singleUnit = pending.opts.singleUnit;
+                we.singleUnit = pending.opts.singleUnit && !war3Map; // Warcraft III reads no single unit.
                 entries.push_back(std::move(we));
             }
         }
@@ -467,7 +524,14 @@ struct Storage::Impl {
         sourceListfileNames.clear();
         pendingWrites.clear();
         pendingDeletes.clear();
+        overlaySlashKeys.clear();
         isValid = false;
+    }
+
+    /// Note a name the overlay now owns, in the spelling it was given.
+    void noteSpelling(const std::string& name) {
+        if (name.find('/') != std::string::npos)
+            overlaySlashKeys.insert(nameKey(name, true));
     }
 
     /// Apply the results of parseMappedArchive() into this Impl, setting it as
@@ -475,6 +539,7 @@ struct Storage::Impl {
     void applyParsedArchive(ParsedArchive& pa, const std::string& path) {
         header = pa.header;
         archiveOffset = pa.archiveOffset;
+        war3Map = pa.war3Map;
         sourcePath = path;
         hashTable = std::move(pa.hashTable);
         blockTable = std::move(pa.blockTable);
@@ -483,6 +548,7 @@ struct Storage::Impl {
         isValid = true;
         pendingWrites.clear();
         pendingDeletes.clear();
+        overlaySlashKeys.clear();
     }
 
     /// Write the archive to @p path and make it the source. Caller holds
@@ -533,8 +599,8 @@ Storage Storage::create(CreateOptions opts, interfaces::WorkerPool* pool) {
     Storage storage;
     auto& impl = *storage.m_impl;
 
-    impl.header =
-        buildHeader(static_cast<u16>(opts.version), opts.hashTableSize, opts.sectorSizeShift);
+    impl.header = buildHeader(static_cast<u16>(opts.version), opts.hashTableSize,
+                              std::max<u16>(opts.sectorSizeShift, 1));
     impl.isValid = true;
     impl.pool = pool;
     return storage;
@@ -659,25 +725,38 @@ std::vector<std::string> Storage::listFiles() const {
     if (!m_impl->isValid)
         return {};
 
-    const auto& deleteSet = m_impl->pendingDeletes;
-    std::unordered_set<std::string> seen;
+    const Impl& impl = *m_impl;
+    std::unordered_set<u64> seen; // The files listed, by name key.
     std::vector<std::string> result;
 
-    // Source listfile names.
-    for (const auto& name : m_impl->sourceListfileNames) {
-        std::string const norm = normalizePath(name);
-        if (deleteSet.contains(norm))
-            continue;
-        if (seen.insert(norm).second) {
-            result.push_back(name);
+    // A (listfile) line is listed when the archive holds a file by that name,
+    // in some locale: a line can name nothing.
+    auto held = [&](const std::string& name, bool& slashes) {
+        for (u32 const slot : impl.hashTable.slotsOf(name, &slashes)) {
+            const HashEntry& he = impl.hashTable.entry(slot);
+            if (he.blockIndex < impl.blockTable.count() && impl.blockTable.entry(he.blockIndex).exists() &&
+                (he.platform & 0xFF) == 0)
+                return true;
         }
+        return false;
+    };
+    for (const auto& name : impl.sourceListfileNames) {
+        std::string const norm = normalizePath(name);
+        if (impl.pendingWrites.contains(norm)) {
+            // Written over: listed once, as the (listfile) spells it.
+            if (seen.insert(nameKey(norm)).second)
+                result.push_back(name);
+            continue;
+        }
+        bool slashes = false;
+        if (!impl.pendingDeletes.contains(norm) && held(name, slashes) && seen.insert(nameKey(name, slashes)).second)
+            result.push_back(name);
     }
 
     // Overlay additions.
-    for (const auto& [norm, byLocale] : m_impl->pendingWrites) {
-        if (seen.insert(norm).second && !byLocale.empty()) {
+    for (const auto& [norm, byLocale] : impl.pendingWrites) {
+        if (!byLocale.empty() && seen.insert(nameKey(norm)).second)
             result.push_back(byLocale.begin()->second.originalName);
-        }
     }
 
     return result;
@@ -705,6 +784,7 @@ bool Storage::writeFile(const std::string& name, std::span<const u8> data, Write
 
     // A pending delete stays: it still takes every source copy of the name.
     m_impl->pendingWrites[normalizePath(name)][opts.locale] = {name, std::vector<u8>(data.begin(), data.end()), opts};
+    m_impl->noteSpelling(name);
     return true;
 }
 
@@ -718,7 +798,10 @@ bool Storage::deleteFile(const std::string& name) {
     // Every locale of the name goes, pending writes included.
     std::string norm = normalizePath(name);
     bool const pending = m_impl->pendingWrites.erase(norm) > 0;
-    bool const inSource = !m_impl->pendingDeletes.contains(norm) && m_impl->hashTable.lookup(name).has_value();
+    bool const gone = m_impl->pendingDeletes.contains(norm);
+    bool const inSource = !gone && m_impl->hashTable.lookup(name).has_value();
+    if (pending || gone || inSource)
+        m_impl->noteSpelling(name); // A source copy under this spelling goes as well.
     if (!pending && !inSource)
         return false;
     m_impl->pendingDeletes.insert(std::move(norm));

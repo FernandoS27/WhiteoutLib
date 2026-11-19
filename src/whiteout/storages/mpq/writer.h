@@ -32,6 +32,9 @@ struct WriteEntry {
     /// Empty for a file of the source archive that no listfile names: it is
     /// carried by @ref hashA / @ref hashB at @ref sourceSlot instead.
     std::string filename;
+    /// The source hashed @ref filename with its slashes as slashes, as Storm
+    /// and StormLib do; it is hashed and listed that way again.
+    bool slashHashed = false;
     u16 locale = 0;
     u16 platform = 0;
     u32 hashA = 0;
@@ -47,8 +50,9 @@ struct WriteEntry {
     /// keep the entry order.
     u32 listRank = 0;
 
-    /// If rawData is non-empty, this is a new/modified file from the overlay.
-    std::vector<u8> rawData;
+    /// A new or modified file's bytes, which must outlive the write: a save
+    /// points it into its overlay rather than copying.
+    std::span<const u8> rawData;
     CompressionFlag compression = CompressionFlag::kZlib;
     bool encrypt = false;
     bool singleUnit = false;
@@ -74,11 +78,14 @@ struct WriteEntry {
 struct WritePlan {
     /// Template header: version, sector size, raw chunk size.
     MpqHeader header;
-    /// The hash table's size, grown to fit when the entries do not.
+    /// The hash table's least size. When every entry has a name, the table
+    /// is built anew and grown to stay at most three quarters full;
+    /// otherwise it grows only when the entries do not fit.
     u32 hashTableCapacity = 1024;
-    /// The source archive's hash table. While the size holds, its slots are
-    /// kept (an entry with a `sourceSlot` goes back where it was, the rest
-    /// become deleted markers) so a nameless entry stays findable.
+    /// The source archive's hash table. While some entry has no name and the
+    /// size holds, its slots are kept (an entry with a `sourceSlot` goes back
+    /// where it was, the rest become deleted markers) so a nameless entry
+    /// stays findable.
     const HashTable* sourceHashTable = nullptr;
     /// Write HET and BET tables (v3+).
     bool hetBet = false;

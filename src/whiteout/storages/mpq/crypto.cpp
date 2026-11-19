@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cctype>
+#include <cstring>
 
 namespace whiteout::storages::mpq {
 
@@ -49,7 +50,7 @@ const u32* getEncryptionTable() {
 // Hash String
 // ============================================================================
 
-u32 hashString(const std::string& filename, HashType hashType) {
+u32 hashString(const std::string& filename, HashType hashType, bool keepSlashes) {
     const auto& table = encryptionTable();
     u32 seed1 = 0x7FED7FED;
     u32 seed2 = 0xEEEEEEEE;
@@ -57,7 +58,7 @@ u32 hashString(const std::string& filename, HashType hashType) {
     for (char const ch : filename) {
         // Normalize: uppercase + '/' → '\\'
         unsigned char uc = static_cast<unsigned char>(ch);
-        if (uc == '/')
+        if (uc == '/' && !keepSlashes)
             uc = '\\';
         uc = static_cast<unsigned char>(std::toupper(uc));
 
@@ -71,30 +72,72 @@ u32 hashString(const std::string& filename, HashType hashType) {
 // Block Encrypt / Decrypt
 // ============================================================================
 
-void decryptBlock(u32* data, size_t count, u32 key) {
-    const auto& table = encryptionTable();
-    u32 seed = 0xEEEEEEEE;
+namespace {
 
-    for (size_t i = 0; i < count; ++i) {
-        seed += table[0x400 + (key & 0xFF)];
-        u32 const ch = data[i] ^ (key + seed);
-        key = ((~key << 21) + 0x11111111) | (key >> 11);
-        seed = ch + seed + (seed << 5) + 3;
-        data[i] = ch;
+/// The cipher's state between words: each word's key and seed follow from
+/// the plaintext of the one before.
+class Cipher {
+public:
+    explicit Cipher(u32 key) : m_key(key) {}
+
+    u32 decrypt(u32 word) {
+        m_seed += m_table[0x400 + (m_key & 0xFF)];
+        u32 const plain = word ^ (m_key + m_seed);
+        advance(plain);
+        return plain;
+    }
+    u32 encrypt(u32 plain) {
+        m_seed += m_table[0x400 + (m_key & 0xFF)];
+        u32 const word = plain ^ (m_key + m_seed);
+        advance(plain);
+        return word;
+    }
+
+private:
+    void advance(u32 plain) {
+        m_key = ((~m_key << 21) + 0x11111111) | (m_key >> 11);
+        m_seed = plain + m_seed + (m_seed << 5) + 3;
+    }
+
+    const std::array<u32, 1280>& m_table = encryptionTable();
+    u32 m_key;
+    u32 m_seed = 0xEEEEEEEE;
+};
+
+/// Each whole word of @p bytes through @p step, by memcpy: a byte buffer is
+/// not a u32 array.
+template <class Step>
+void eachWord(std::span<u8> bytes, Step step) {
+    for (size_t at = 0; at + 4 <= bytes.size(); at += 4) {
+        u32 word = 0;
+        std::memcpy(&word, bytes.data() + at, 4);
+        word = step(word);
+        std::memcpy(bytes.data() + at, &word, 4);
     }
 }
 
-void encryptBlock(u32* data, size_t count, u32 key) {
-    const auto& table = encryptionTable();
-    u32 seed = 0xEEEEEEEE;
+} // anonymous namespace
 
-    for (size_t i = 0; i < count; ++i) {
-        seed += table[0x400 + (key & 0xFF)];
-        u32 const ch = data[i];
-        data[i] = ch ^ (key + seed);
-        key = ((~key << 21) + 0x11111111) | (key >> 11);
-        seed = ch + seed + (seed << 5) + 3;
-    }
+void decryptBlock(u32* data, size_t count, u32 key) {
+    Cipher cipher(key);
+    for (size_t i = 0; i < count; ++i)
+        data[i] = cipher.decrypt(data[i]);
+}
+
+void encryptBlock(u32* data, size_t count, u32 key) {
+    Cipher cipher(key);
+    for (size_t i = 0; i < count; ++i)
+        data[i] = cipher.encrypt(data[i]);
+}
+
+void decryptBytes(std::span<u8> bytes, u32 key) {
+    Cipher cipher(key);
+    eachWord(bytes, [&](u32 word) { return cipher.decrypt(word); });
+}
+
+void encryptBytes(std::span<u8> bytes, u32 key) {
+    Cipher cipher(key);
+    eachWord(bytes, [&](u32 word) { return cipher.encrypt(word); });
 }
 
 // ============================================================================

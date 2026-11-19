@@ -132,7 +132,10 @@ struct WriteOptions {
 struct CreateOptions {
     FormatVersion version = FormatVersion::V1; ///< Archive format version (V1 or V2).
     u32 hashTableSize = 1024; ///< Initial hash table capacity; rounded up to the next power of 2.
-    u16 sectorSizeShift = 3;  ///< Sector size = 512 << shift (default 3 → 4096 bytes).
+    /// Sector size = 512 << shift (default 3 → 4096 bytes). 0 is taken as 1:
+    /// some StormLib builds, HiveWE's among them, open no archive of 512-byte
+    /// sectors.
+    u16 sectorSizeShift = 3;
 };
 
 } // namespace whiteout::storages::mpq

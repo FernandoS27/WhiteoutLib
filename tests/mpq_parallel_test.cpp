@@ -537,16 +537,16 @@ bool test9_write_archive_parallel(const fs::path& tempDir, TestWorkerPool* pool)
     std::vector<mpq::WriteEntry> entries;
     std::vector<std::vector<u8>> fileData;
 
+    fileData.reserve(10);
     for (int i = 0; i < 10; ++i) {
-        auto data = makeCompressibleData(20000 + i * 3000);
+        fileData.push_back(makeCompressibleData(20000 + i * 3000));
         mpq::WriteEntry we;
         we.filename = "file" + std::to_string(i) + ".dat";
-        we.rawData = data;
+        we.rawData = fileData.back();
         we.compression = mpq::CompressionFlag::kZlib;
         we.encrypt = false;
         we.singleUnit = false;
         entries.push_back(std::move(we));
-        fileData.push_back(std::move(data));
     }
 
     // Write with pool (or serially if pool == nullptr).

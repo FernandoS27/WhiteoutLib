@@ -9,6 +9,7 @@
 #pragma once
 
 #include <cstddef>
+#include <span>
 #include <string>
 
 #include <whiteout/common_types.h>
@@ -30,10 +31,11 @@ const u32* getEncryptionTable();
 
 /// Compute an MPQ hash of a filename.
 /// The filename is normalized (uppercase + '/' → '\\') before hashing.
-/// @param filename  Path to hash.
-/// @param hashType  One of the HashType enum values (0–4).
+/// @param filename     Path to hash.
+/// @param hashType     One of the HashType enum values (0–4).
+/// @param keepSlashes  Hash '/' as itself, as Storm and StormLib do.
 /// @return The 32-bit hash value.
-u32 hashString(const std::string& filename, HashType hashType);
+u32 hashString(const std::string& filename, HashType hashType, bool keepSlashes = false);
 
 /// Decrypt a block of u32 values in-place.
 /// @param data   Pointer to the encrypted u32 array.
@@ -46,6 +48,14 @@ void decryptBlock(u32* data, size_t count, u32 key);
 /// @param count  Number of u32 elements to encrypt.
 /// @param key    Encryption key.
 void encryptBlock(u32* data, size_t count, u32 key);
+
+/// decryptBlock() over the whole words of a byte buffer, in place; a tail
+/// of under four bytes is left as it is.
+void decryptBytes(std::span<u8> bytes, u32 key);
+
+/// encryptBlock() over the whole words of a byte buffer, in place; a tail
+/// of under four bytes is left as it is.
+void encryptBytes(std::span<u8> bytes, u32 key);
 
 /// Attempt to detect the file encryption key from known plaintext.
 /// Uses the sector offset table's first entry (which equals the table size

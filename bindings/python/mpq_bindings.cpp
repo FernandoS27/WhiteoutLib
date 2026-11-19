@@ -127,7 +127,7 @@ void bind_mpq(py::module_& m) {
         })
         .def_readwrite("version", &whiteout::storages::mpq::CreateOptions::version, R"doc(Archive format version (V1 or V2).)doc")
         .def_readwrite("hash_table_size", &whiteout::storages::mpq::CreateOptions::hashTableSize, R"doc(Initial hash table capacity; rounded up to the next power of 2.)doc")
-        .def_readwrite("sector_size_shift", &whiteout::storages::mpq::CreateOptions::sectorSizeShift, R"doc(Sector size = 512 << shift (default 3 → 4096 bytes).)doc")
+        .def_readwrite("sector_size_shift", &whiteout::storages::mpq::CreateOptions::sectorSizeShift, R"doc(Sector size = 512 << shift (default 3 → 4096 bytes). 0 is taken as 1: some StormLib builds, HiveWE's among them, open no archive of 512-byte sectors.)doc")
     ;
 
     py::class_<whiteout::storages::mpq::Storage>(m, "Storage", R"doc(RAII wrapper for MPQ archive access
@@ -138,7 +138,7 @@ All public methods are thread-safe: read operations acquire a shared lock; write
         .def_static("open",
             [](const std::string& path, whiteout::interfaces::WorkerPool* pool) {
                 return whiteout::storages::mpq::Storage::open(path, pool);
-            }, py::arg("path"), py::arg("pool") = nullptr, R"doc(Open an existing MPQ archive. Memory-maps the file and parses tables. @param path  Path to the .mpq file. @param pool  Optional WorkerPool for parallel compress/decompress (non-owning). @return A valid Storage, or std::nullopt on failure.)doc")
+            }, py::arg("path"), py::arg("pool") = nullptr, R"doc(Open an existing MPQ archive. Memory-maps the file and parses tables. A Warcraft III map (an HM3W block, or a .w3x or .w3m name) is read as the game reads one, so a protected map opens. @param path  Path to the .mpq file. @param pool  Optional WorkerPool for parallel compress/decompress (non-owning). @return A valid Storage, or std::nullopt on failure.)doc")
         .def_static("create", &whiteout::storages::mpq::Storage::create, py::arg("opts") = whiteout::storages::mpq::CreateOptions{}, py::arg("pool") = nullptr, R"doc(Create a new empty archive in memory. No file on disk until save(path).)doc")
         .def("close", &whiteout::storages::mpq::Storage::close, R"doc(Release all resources. Same effect as letting the Storage go out of scope.)doc")
         .def("read_file",
@@ -147,7 +147,7 @@ All public methods are thread-safe: read operations acquire a shared lock; write
                 if (!__r) return py::object(py::none());
                 return py::object(py::bytes(
                     reinterpret_cast<const char*>(__r->data()), __r->size()));
-            }, py::arg("name"), R"doc(Read a file from the archive: its neutral-locale copy, as Storm and StormLib read a name (the last one, when a protected map lists the name twice). Pending writes and deletes count as already saved. @return File contents, or std::nullopt if not found, deleted, or not decodable to its full size.)doc")
+            }, py::arg("name"), R"doc(Read a file from the archive: its neutral-locale copy, as Storm and StormLib read a name (the last one, when a protected map lists the name twice). A name with '/' is looked for as Storm hashes it, slash kept, then with '\\'. A patch file reads as its patch data. Pending writes and deletes count as already saved. @return File contents, or std::nullopt if not found, deleted, or not decodable to its full size.)doc")
         .def("read_file",
             [](whiteout::storages::mpq::Storage& self, const std::string& name, whiteout::u16 locale) {
                 auto __r = self.readFile(name, locale);
@@ -161,7 +161,7 @@ All public methods are thread-safe: read operations acquire a shared lock; write
                 return self.fileInfo(name);
             }, py::arg("name"), R"doc(Get information about the file readFile(name) reads.)doc")
         .def("archive_info", &whiteout::storages::mpq::Storage::archiveInfo, R"doc(Get summary information about the archive.)doc")
-        .def("list_files", &whiteout::storages::mpq::Storage::listFiles, R"doc(List all known filenames (from listfile + overlay additions − deletions).)doc")
+        .def("list_files", &whiteout::storages::mpq::Storage::listFiles, R"doc(List the files (listfile) names that the archive holds, plus overlay additions, minus deletions. A file no (listfile) names is not listed.)doc")
         .def("write_file",
             [](whiteout::storages::mpq::Storage& self, const std::string& name, py::bytes __py_bytes_1, whiteout::storages::mpq::WriteOptions opts) {
                 std::string __s_1 = __py_bytes_1;
@@ -172,7 +172,7 @@ All public methods are thread-safe: read operations acquire a shared lock; write
         .def("save", py::overload_cast<>(&whiteout::storages::mpq::Storage::save), R"doc(Save the archive to its original path. @return false if this Storage was created via create() with no prior save(path).)doc")
         .def("save", py::overload_cast<const std::string&>(&whiteout::storages::mpq::Storage::save), py::arg("path"), R"doc(Save the archive to a specific path. After saving, the new file becomes the source archive and the overlay is cleared.
 
-The archive is written to an unused name beside @p path, then renamed over it, so a failed save leaves @p path as it was; past 128 MiB it is streamed rather than held in memory. Bytes before the MPQ header (a Warcraft III map's HM3W block) are kept, as are files no (listfile) names, and a v4 archive keeps its HET/BET tables and MD5s. A save that cannot keep every file refuses instead: see lastError().)doc")
+The archive is written to an unused name beside @p path, then renamed over it, so a failed save leaves @p path as it was; past 128 MiB it is streamed rather than held in memory. Bytes before the MPQ header (a Warcraft III map's HM3W block) are kept, as are files no (listfile) names, and a v4 archive keeps its HET/BET tables and MD5s. A copy no lookup can reach (a protected map's decoy) is dropped. When every file has a name, the hash table is built anew, at most three quarters full. A save that cannot keep every file refuses instead: see lastError().)doc")
         .def("last_error", &whiteout::storages::mpq::Storage::lastError, R"doc(Why the last save() failed; empty after one that succeeded.)doc")
     ;
 

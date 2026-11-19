@@ -37,7 +37,7 @@ public sealed class CreateOptions : WhiteoutHandle
     }
 
 
-    /// <summary>Sector size = 512 &lt;&lt; shift (default 3 → 4096 bytes).</summary>
+    /// <summary>Sector size = 512 &lt;&lt; shift (default 3 → 4096 bytes). 0 is taken as 1: some StormLib builds, HiveWE's among them, open no archive of 512-byte sectors.</summary>
     public ushort SectorSizeShift
     {
         get => NativeMethods.whiteout_mpq_MpqCreateOptions_get_sectorSizeShift(DangerousGet());

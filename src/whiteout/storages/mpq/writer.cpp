@@ -14,6 +14,7 @@
 #include <whiteout/utils/job_group.h>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstring>
 #include <unordered_set>
@@ -185,12 +186,23 @@ std::string writeArchive(const WritePlan& plan, const std::vector<WriteEntry>& e
         return "sector size shift " + std::to_string(hdr.sectorSizeShift) + " leaves no sector size";
 
     u32 const specials = plan.attributes ? 2u : 1u;
+    if (entries.size() + specials > kBlockIndexMask / 2)
+        return "too many files for one archive";
     u32 const needed = static_cast<u32>(entries.size()) + specials;
     u32 capacity = nextPowerOf2(std::max(plan.hashTableCapacity, 1u));
-    if (capacity < needed)
+    bool const allNamed =
+        std::all_of(entries.begin(), entries.end(), [](const WriteEntry& entry) { return !entry.filename.empty(); });
+    if (allNamed) {
+        // Every file can be probed for by name, so the table is built anew:
+        // no deleted markers, and at most three quarters full.
+        u32 const roomy = (needed * 4 + 2) / 3;
+        if (capacity < roomy)
+            capacity = nextPowerOf2(roomy);
+    } else if (capacity < needed) {
         capacity = nextPowerOf2(needed + needed / 3);
+    }
     bool const keepSlots =
-        plan.sourceHashTable != nullptr && plan.sourceHashTable->capacity() == capacity;
+        !allNamed && plan.sourceHashTable != nullptr && plan.sourceHashTable->capacity() == capacity;
 
     // A nameless file can neither be hashed into a resized table nor given a
     // HET entry: refuse rather than write an archive that loses it.
@@ -251,35 +263,42 @@ std::string writeArchive(const WritePlan& plan, const std::vector<WriteEntry>& e
         return opts;
     };
 
-    // Pre-encode the new files (parallel when a pool is available).
+    // New files are encoded a window at a time (in parallel when a pool is
+    // available), just before they are written: a save holds one window's
+    // encoded bytes, not every new file's.
+    static constexpr size_t kEncodeWindowBytes = size_t{64} << 20;
     std::vector<EncodedFile> encodedFiles(entries.size());
-    size_t overlayCount = 0;
-    for (const auto& entry : entries)
-        overlayCount += entry.rawCopy ? 0 : 1;
-    if (pool && pool->threadCount() > 0 && overlayCount >= 2) {
-        std::vector<std::pair<std::span<const u8>, EncodeOptions>> batchItems;
-        std::vector<size_t> batchToEntry;
-        batchItems.reserve(overlayCount);
-        batchToEntry.reserve(overlayCount);
-        for (size_t idx = 0; idx < entries.size(); ++idx) {
-            if (entries[idx].rawCopy)
+    size_t windowEnd = 0;
+    auto encodeWindow = [&](size_t from) {
+        std::vector<size_t> fresh;
+        size_t bytes = 0;
+        for (windowEnd = from; windowEnd < entries.size(); ++windowEnd) {
+            const WriteEntry& entry = entries[windowEnd];
+            if (entry.rawCopy)
                 continue;
-            batchItems.emplace_back(std::span<const u8>(entries[idx].rawData), makeEncodeOpts(entries[idx]));
-            batchToEntry.push_back(idx);
+            if (!fresh.empty() && bytes + entry.rawData.size() > kEncodeWindowBytes)
+                break;
+            bytes += entry.rawData.size();
+            fresh.push_back(windowEnd);
         }
-        auto batchResult = encodeBatch(batchItems, pool);
-        for (size_t b = 0; b < batchResult.files.size(); ++b)
-            encodedFiles[batchToEntry[b]] = std::move(batchResult.files[b]);
-    } else {
-        for (size_t idx = 0; idx < entries.size(); ++idx) {
-            if (!entries[idx].rawCopy)
-                encodedFiles[idx] = encodeFileData(std::span<const u8>(entries[idx].rawData),
-                                                   makeEncodeOpts(entries[idx]), pool);
+        if (pool && pool->threadCount() > 0 && fresh.size() >= 2) {
+            std::vector<std::pair<std::span<const u8>, EncodeOptions>> batchItems;
+            batchItems.reserve(fresh.size());
+            for (size_t const idx : fresh)
+                batchItems.emplace_back(entries[idx].rawData, makeEncodeOpts(entries[idx]));
+            auto batchResult = encodeBatch(batchItems, pool);
+            for (size_t b = 0; b < batchResult.files.size(); ++b)
+                encodedFiles[fresh[b]] = std::move(batchResult.files[b]);
+        } else {
+            for (size_t const idx : fresh)
+                encodedFiles[idx] = encodeFileData(entries[idx].rawData, makeEncodeOpts(entries[idx]), pool);
         }
-    }
+    };
 
     // File data, in entry order.
     for (size_t idx = 0; idx < entries.size(); ++idx) {
+        if (idx == windowEnd)
+            encodeWindow(idx);
         const WriteEntry& entry = entries[idx];
         if (entry.rawCopy && entry.rekeyBase) {
             // Keyed to its offset, which this write changes.
@@ -301,9 +320,9 @@ std::string writeArchive(const WritePlan& plan, const std::vector<WriteEntry>& e
             recordAttributes(entry.crc32, entry.filetime, entry.md5, {}, false);
             continue;
         }
-        EncodedFile& encoded = encodedFiles[idx];
+        EncodedFile encoded = std::move(encodedFiles[idx]);
         if (encoded.data.empty() && !entry.rawData.empty()) {
-            encoded.data = entry.rawData;
+            encoded.data.assign(entry.rawData.begin(), entry.rawData.end());
             encoded.compressedSize = static_cast<u32>(entry.rawData.size());
             encoded.flags = FileFlag::kExists;
         }
@@ -314,8 +333,8 @@ std::string writeArchive(const WritePlan& plan, const std::vector<WriteEntry>& e
     }
 
     // (listfile) names every named file once, and not the special files. A
-    // name is listed as it was hashed, slashes as backslashes: Storm and
-    // StormLib hash a slash as itself, so "a/b" would name no file.
+    // name is listed as it was hashed: Storm and StormLib hash a slash as
+    // itself, so a name hashed with backslashes is listed with them.
     std::vector<size_t> listed(entries.size());
     for (size_t idx = 0; idx < entries.size(); ++idx)
         listed[idx] = idx;
@@ -326,11 +345,16 @@ std::string writeArchive(const WritePlan& plan, const std::vector<WriteEntry>& e
         std::unordered_set<std::string> seen;
         for (size_t const idx : listed) {
             const WriteEntry& entry = entries[idx];
-            if (entry.filename.empty() || !seen.insert(common::normalizePath(entry.filename)).second)
+            if (entry.filename.empty())
                 continue;
             std::string name = entry.filename;
-            std::replace(name.begin(), name.end(), '/', '\\');
-            listfileNames.push_back(std::move(name));
+            if (!entry.slashHashed)
+                std::replace(name.begin(), name.end(), '/', '\\');
+            std::string upper = name;
+            std::transform(upper.begin(), upper.end(), upper.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+            if (seen.insert(std::move(upper)).second)
+                listfileNames.push_back(std::move(name));
         }
     }
     auto appendSpecialFile = [&](const std::string& name, const std::vector<u8>& rawData) {
@@ -419,7 +443,7 @@ std::string writeArchive(const WritePlan& plan, const std::vector<WriteEntry>& e
         const WriteEntry& entry = entries[idx];
         if (keepSlots && entry.sourceSlot)
             continue;
-        if (!hashTable.insert(entry.filename, entry.locale, static_cast<u32>(idx)))
+        if (!hashTable.insert(entry.filename, entry.locale, static_cast<u32>(idx), entry.platform, entry.slashHashed))
             return "the hash table is full";
     }
     u32 const listfileBlock = static_cast<u32>(entries.size());

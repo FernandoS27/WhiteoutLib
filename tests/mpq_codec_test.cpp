@@ -9,6 +9,7 @@
 #include <catch2/catch_all.hpp>
 
 #include "../src/whiteout/storages/mpq/codecs/compression.h"
+#include "../src/whiteout/storages/mpq/crypto.h"
 #include "../src/whiteout/storages/mpq/file_data.h"
 #include "../src/whiteout/storages/mpq/codecs/sparse.h"
 #include "../src/whiteout/storages/mpq/codecs/huffman.h"
@@ -915,3 +916,22 @@ TEST_CASE("a version 2+ archive's sectors use only masks newer Storm reads", "[m
 // Entry point
 // ============================================================================
 
+
+TEST_CASE("A byte buffer encrypts word by word, a short tail left as it is", "[mpq][crypto]") {
+    std::vector<u8> plain(4099);
+    for (size_t i = 0; i < plain.size(); ++i)
+        plain[i] = static_cast<u8>(i * 7 + 3);
+    constexpr u32 kKey = 0x9E3779B9;
+
+    std::vector<u32> words(1024);
+    std::memcpy(words.data(), plain.data(), 4096);
+    mpq::encryptBlock(words.data(), words.size(), kKey);
+
+    auto sealed = plain;
+    mpq::encryptBytes(sealed, kKey);
+    CHECK(std::memcmp(sealed.data(), words.data(), 4096) == 0);
+    CHECK(std::equal(sealed.begin() + 4096, sealed.end(), plain.begin() + 4096));
+
+    mpq::decryptBytes(sealed, kKey);
+    CHECK(sealed == plain);
+}

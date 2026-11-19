@@ -31,6 +31,11 @@ enum class FileFlag : u32 {
     kExists = 0x80000000,       ///< File exists.
 };
 
+/// The flags Warcraft III's Storm reads in a map (StormLib's
+/// MPQ_FILE_VALID_FLAGS_W3X; 0x10000000 marks the signature file).
+static constexpr FileFlag kWar3MapFileFlags = static_cast<FileFlag>(0x00000100 | 0x00000200 | 0x00010000 | 0x00020000 |
+                                                                    0x02000000 | 0x04000000 | 0x10000000 | 0x80000000);
+
 inline FileFlag operator|(FileFlag a, FileFlag b) noexcept {
     return static_cast<FileFlag>(static_cast<u32>(a) | static_cast<u32>(b));
 }

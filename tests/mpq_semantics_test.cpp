@@ -12,7 +12,9 @@
 #include "whiteout/storages/mpq/crypto.h"
 #include "whiteout/storages/mpq/tables/hash_table.h"
 #include "whiteout/storages/mpq/tables/header.h"
+#include "whiteout/storages/mpq/writer.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -95,6 +97,19 @@ void addEntry(const fs::path& path, const std::string& name, const std::string& 
     auto const sealed = table.serialize();
     std::copy(sealed.begin(), sealed.end(), file.begin() + static_cast<std::ptrdiff_t>(offset));
     writeAll(path, file);
+}
+
+/// The hash table of the archive at @p path.
+mpq::HashTable hashTableOf(const fs::path& path) {
+    auto const file = readAll(path);
+    auto const at = mpq::findAndParseHeader(file);
+    REQUIRE(at.has_value());
+    u32 const capacity = at->header.hashTableEntries;
+    mpq::HashTable table;
+    REQUIRE(table.parse(std::span<const u8>(file).subspan(at->archiveOffset + at->header.hashTableOffset,
+                                                          size_t{capacity} * 16),
+                        capacity));
+    return table;
 }
 
 } // namespace
@@ -258,4 +273,92 @@ TEST_CASE("A save leaves a file of its temp name alone", "[mpq][semantics]") {
     REQUIRE(storage->save());
     CHECK(readAll(bystander) == bytesOf("not yours"));
     CHECK(storage->readFile("b.txt") == some("b"));
+}
+
+TEST_CASE("A save keeps the entry a read lands on and drops the decoy", "[mpq][semantics]") {
+    // The decoy's block comes after the real one's, so a table rebuilt in
+    // block order would put the decoy last in the chain, where reads land.
+    TempDir dir("whiteout_mpq_semantics_decoy_save");
+    fs::path const path = dir.path / "decoy.mpq";
+    makeArchive(path, {{"real.bin", 0, "real"}, {"x.txt", 0, "decoy"}});
+    addEntry(path, "x.txt", "real.bin", 0);
+
+    auto storage = mpq::Storage::open(path.string());
+    REQUIRE(storage.has_value());
+    REQUIRE(storage->readFile("x.txt") == some("real"));
+    REQUIRE(storage->writeFile("other.txt", bytesOf("other")));
+    REQUIRE(storage->save());
+    CHECK(storage->readFile("x.txt") == some("real"));
+    CHECK(storage->readFile("real.bin") == some("real"));
+    CHECK(storage->archiveInfo().blockTableEntries == 5); // real.bin, x.txt, other.txt and the two specials.
+}
+
+TEST_CASE("listFiles names only the files the archive holds", "[mpq][semantics]") {
+    // A (listfile) line can name nothing: protectors add such lines, and a
+    // block can lose its file.
+    TempDir dir("whiteout_mpq_semantics_list");
+    auto const kept = bytesOf("kept");
+    std::vector<mpq::WriteEntry> entries(2);
+    entries[0].filename = "ghost.txt";
+    entries[0].rawCopy = true; // A block without its exists flag.
+    entries[1].filename = "kept.txt";
+    entries[1].rawData = kept;
+    mpq::WritePlan plan;
+    plan.header = mpq::buildHeader(0, 16, 3);
+    auto const built = mpq::writeArchive(plan, entries);
+    REQUIRE(built.error.empty());
+    fs::path const path = dir.path / "list.mpq";
+    writeAll(path, built.archive);
+
+    auto storage = mpq::Storage::open(path.string());
+    REQUIRE(storage.has_value());
+    auto const listfile = storage->readFile("(listfile)");
+    REQUIRE(listfile.has_value());
+    REQUIRE(std::string(listfile->begin(), listfile->end()).find("ghost.txt") != std::string::npos);
+    CHECK(storage->listFiles() == std::vector<std::string>{"kept.txt"});
+}
+
+TEST_CASE("A save rebuilds the hash table without deleted entries, at most three quarters full",
+          "[mpq][semantics]") {
+    TempDir dir("whiteout_mpq_semantics_load");
+    fs::path const path = dir.path / "load.mpq";
+    auto nameOf = [](int i) { return "file" + std::to_string(i) + ".txt"; };
+    {
+        mpq::CreateOptions opts;
+        opts.hashTableSize = 16;
+        auto storage = mpq::Storage::create(opts);
+        for (int i = 0; i < 14; ++i)
+            REQUIRE(storage.writeFile(nameOf(i), bytesOf("data " + std::to_string(i))));
+        REQUIRE(storage.save(path.string()));
+    }
+    // 14 files, (listfile) and (attributes): 16 entries want 22 slots.
+    auto table = hashTableOf(path);
+    CHECK(table.capacity() == 32);
+    CHECK(table.occupiedCount() == 16);
+
+    {
+        auto storage = mpq::Storage::open(path.string());
+        REQUIRE(storage.has_value());
+        for (int i = 0; i < 8; ++i)
+            REQUIRE(storage->deleteFile(nameOf(i)));
+        REQUIRE(storage->save());
+    }
+    table = hashTableOf(path);
+    CHECK(table.capacity() == 32); // It never shrinks.
+    CHECK(table.occupiedCount() == 8);
+    u32 deleted = 0;
+    for (u32 slot = 0; slot < table.capacity(); ++slot)
+        deleted += table.entry(slot).isDeleted() ? 1 : 0;
+    CHECK(deleted == 0);
+
+    auto storage = mpq::Storage::open(path.string());
+    REQUIRE(storage.has_value());
+    for (int i = 0; i < 14; ++i)
+        CHECK(storage->readFile(nameOf(i)).has_value() == (i >= 8));
+}
+
+TEST_CASE("A created archive's sectors are at least 1 KiB", "[mpq][semantics]") {
+    mpq::CreateOptions opts;
+    opts.sectorSizeShift = 0;
+    CHECK(mpq::Storage::create(opts).archiveInfo().sectorSize == 1024);
 }

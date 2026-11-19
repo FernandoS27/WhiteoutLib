@@ -23,6 +23,9 @@ namespace whiteout::storages::mpq {
 static constexpr u32 kHashEntryEmpty = 0xFFFFFFFF;
 /// Sentinel: deleted slot (was occupied, now free for probe continuation).
 static constexpr u32 kHashEntryDeleted = 0xFFFFFFFE;
+/// The bits of a block index Storm uses: it scales an index by 16, and the
+/// top four shift out. Protected maps set them.
+static constexpr u32 kBlockIndexMask = 0x0FFFFFFF;
 
 // ============================================================================
 // Hash Entry
@@ -66,6 +69,9 @@ public:
     /// Create an empty hash table with the given capacity.
     void createEmpty(u32 capacity);
 
+    // A name with a slash is looked for twice: with its slashes hashed as
+    // slashes, as Storm and StormLib hash them, then as backslashes.
+
     /// Look up a filename with any locale. Returns the hash table index,
     /// or nullopt if not found.
     [[nodiscard]] std::optional<u32> lookup(const std::string& filename) const;
@@ -81,10 +87,18 @@ public:
     [[nodiscard]] std::optional<u32> find(const std::string& filename, u16 locale,
                                           u32 blockCount) const;
 
+    /// find() for one spelling: @p keepSlashes hashes '/' as itself.
+    [[nodiscard]] std::optional<u32> findSpelled(const std::string& filename, bool keepSlashes, u16 locale,
+                                                 u32 blockCount) const;
+
+    /// Every occupied slot naming @p filename, under the first spelling
+    /// with any; @p keepSlashes, when given, receives which one it was.
+    [[nodiscard]] std::vector<u32> slotsOf(const std::string& filename, bool* keepSlashes = nullptr) const;
+
     /// Insert a new entry. Used by the writer during save() when building fresh tables.
     /// Returns the hash table index, or nullopt if the table is full.
-    [[nodiscard]] std::optional<u32> insert(const std::string& filename, u16 locale,
-                                            u32 blockIndex);
+    [[nodiscard]] std::optional<u32> insert(const std::string& filename, u16 locale, u32 blockIndex,
+                                            u16 platform = 0, bool keepSlashes = false);
 
     /// Mark an entry as deleted. Used by the writer during save().
     /// Returns true if the entry was found and removed.

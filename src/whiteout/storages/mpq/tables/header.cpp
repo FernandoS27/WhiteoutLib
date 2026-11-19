@@ -7,6 +7,7 @@
 #include "../../../common/streams.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <sstream>
 
@@ -54,7 +55,7 @@ u32 minimumHeaderSizeForVersion(u16 formatVersion) {
 
 /// Parse the V1-V4 header fields from a BinaryReader positioned at the start
 /// of the magic field.
-std::optional<MpqHeader> parseHeaderFields(BinaryReader& reader, size_t availableBytes) {
+std::optional<MpqHeader> parseHeaderFields(BinaryReader& reader, size_t availableBytes, bool war3Map) {
     if (availableBytes < 32)
         return std::nullopt;
 
@@ -71,6 +72,17 @@ std::optional<MpqHeader> parseHeaderFields(BinaryReader& reader, size_t availabl
     h.blockTableOffset = reader.read<u32>();
     h.hashTableEntries = reader.read<u32>();
     h.blockTableEntries = reader.read<u32>();
+
+    // Storm reads a version 1 header whatever its size field holds past 32,
+    // and Warcraft III's reads every header as version 1: map protectors
+    // fill both fields with junk.
+    if (war3Map || h.formatVersion == 0) {
+        if (h.headerSize < 32)
+            return std::nullopt;
+        h.formatVersion = 0;
+        h.headerSize = 32;
+        return h;
+    }
 
     u32 const minimumHeaderSize = minimumHeaderSizeForVersion(h.formatVersion);
     if (minimumHeaderSize == 0 || h.headerSize < minimumHeaderSize ||
@@ -118,7 +130,21 @@ std::optional<MpqHeader> parseHeaderFields(BinaryReader& reader, size_t availabl
 
 } // anonymous namespace
 
-std::optional<HeaderParseResult> findAndParseHeader(std::span<const u8> fileData) {
+bool isWar3Map(const std::string& path, std::span<const u8> fileData) {
+    u32 words[2] = {};
+    if (fileData.size() >= sizeof(words))
+        std::memcpy(words, fileData.data(), sizeof(words));
+    if (words[0] == kWar3MapMagic && words[1] == 0)
+        return true;
+    auto const dot = path.find_last_of('.');
+    if (dot == std::string::npos || path.find_first_of("/\\", dot) != std::string::npos)
+        return false;
+    std::string ext = path.substr(dot);
+    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return ext == ".w3x" || ext == ".w3m";
+}
+
+std::optional<HeaderParseResult> findAndParseHeader(std::span<const u8> fileData, bool war3Map) {
     if (fileData.size() < 32)
         return std::nullopt;
 
@@ -126,11 +152,22 @@ std::optional<HeaderParseResult> findAndParseHeader(std::span<const u8> fileData
     // Also check offset 0 (some archives have the header right at the start).
     const size_t maxOffset = fileData.size() - 32;
 
+    // As Storm does, a version 1 header whose tables start past the end of
+    // the file is a decoy, and the search goes on. Its offsets wrap at 4 GiB.
+    auto tablesInFile = [&](size_t at, const MpqHeader& h) {
+        if (h.formatVersion != 0)
+            return true;
+        return ((at + h.hashTableOffset) & 0xFFFFFFFF) <= fileData.size() &&
+               ((at + h.blockTableOffset) & 0xFFFFFFFF) <= fileData.size();
+    };
+
     for (size_t offset = 0; offset <= maxOffset; offset += kHeaderSearchAlignment) {
         u32 magic = 0;
         std::memcpy(&magic, fileData.data() + offset, sizeof(u32));
 
-        if (magic == kMpqUserDataMagic && offset == 0) {
+        // Warcraft III never looks for user data, and protectors plant some
+        // that points at no header.
+        if (magic == kMpqUserDataMagic && offset == 0 && !war3Map) {
             // User data block at offset 0 — parse it and find the real header.
             if (fileData.size() < offset + 16)
                 continue;
@@ -156,8 +193,8 @@ std::optional<HeaderParseResult> findAndParseHeader(std::span<const u8> fileData
             std::istream hdrStreamSmall(&hdrBufSmall);
             BinaryReader hdrReaderSmall(hdrStreamSmall);
 
-            auto hdr = parseHeaderFields(hdrReaderSmall, avail);
-            if (!hdr)
+            auto hdr = parseHeaderFields(hdrReaderSmall, avail, war3Map);
+            if (!hdr || !tablesInFile(realHeaderOffset, *hdr))
                 continue;
 
             HeaderParseResult result;
@@ -190,8 +227,8 @@ std::optional<HeaderParseResult> findAndParseHeader(std::span<const u8> fileData
             std::istream stream(&sbuf);
             BinaryReader reader(stream);
 
-            auto hdr = parseHeaderFields(reader, avail);
-            if (!hdr)
+            auto hdr = parseHeaderFields(reader, avail, war3Map);
+            if (!hdr || !tablesInFile(offset, *hdr))
                 continue;
 
             HeaderParseResult result;

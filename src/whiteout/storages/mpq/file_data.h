@@ -35,6 +35,12 @@ namespace whiteout::storages::mpq {
 // Re-keying (a FIX_KEY file moved to another offset)
 // ============================================================================
 
+/// A patch file's @p stored bytes split as StormLib reads one alone: the
+/// length of its patch info, and the block of the file behind it, whose
+/// size the info gives. Nothing when the info is not valid.
+[[nodiscard]] std::optional<std::pair<u32, BlockEntry>> splitPatchFile(std::span<const u8> stored,
+                                                                       const BlockEntry& block);
+
 /// The key a compressed multi-sector file was encrypted with, read off its own
 /// sector offset table, whose first entry is the table's size: how a FIX_KEY
 /// file no listfile names is moved. Nothing for a single-unit or stored file,

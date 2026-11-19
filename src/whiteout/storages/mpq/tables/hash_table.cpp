@@ -31,7 +31,7 @@ bool HashTable::parse(std::span<const u8> data, u32 capacity) {
         m_entries[i].hashB = src[1];
         m_entries[i].locale = static_cast<u16>(src[2] & 0xFFFF);
         m_entries[i].platform = static_cast<u16>((src[2] >> 16) & 0xFFFF);
-        m_entries[i].blockIndex = src[3];
+        m_entries[i].blockIndex = src[3] >= kHashEntryDeleted ? src[3] : src[3] & kBlockIndexMask;
     }
 
     return true;
@@ -51,28 +51,44 @@ void HashTable::createEmpty(u32 capacity) {
 
 namespace {
 
+/// What a name probes with: its two check hashes and its first slot.
+struct NameHashes {
+    u32 hashA;
+    u32 hashB;
+    u32 start;
+};
+
+NameHashes hashesOf(const std::string& filename, bool keepSlashes, u32 capacity) {
+    return {hashString(filename, HashType::NameA, keepSlashes), hashString(filename, HashType::NameB, keepSlashes),
+            hashString(filename, HashType::TableOffset, keepSlashes) & (capacity - 1)};
+}
+
+/// The spellings a table may hold @p filename under, in the order they are
+/// tried: its slashes hashed as slashes, as Storm and StormLib hash them,
+/// then as backslashes. A name with no slash has the one.
+template <class Probe>
+auto eachSpelling(const std::string& filename, Probe probe) -> decltype(probe(false)) {
+    if (filename.find('/') != std::string::npos)
+        if (auto hit = probe(true))
+            return hit;
+    return probe(false);
+}
+
 /// Shared probe logic for both locale-filtered and any-locale lookups.
-std::optional<u32> probeFor(const std::vector<HashEntry>& entries, const std::string& filename,
+std::optional<u32> probeFor(const std::vector<HashEntry>& entries, const NameHashes& name,
                             std::optional<u16> locale) {
-    if (entries.empty())
-        return std::nullopt;
-
     u32 const cap = static_cast<u32>(entries.size());
-    u32 const hashA = hashString(filename, HashType::NameA);
-    u32 const hashB = hashString(filename, HashType::NameB);
-    u32 const startIndex = hashString(filename, HashType::TableOffset) & (cap - 1);
-
-    u32 index = startIndex;
+    u32 index = name.start;
     do {
         const auto& e = entries[index];
         if (e.isEmpty())
             return std::nullopt;
-        if (e.isOccupied() && e.hashA == hashA && e.hashB == hashB) {
+        if (e.isOccupied() && e.hashA == name.hashA && e.hashB == name.hashB) {
             if (!locale || e.locale == *locale)
                 return index;
         }
         index = (index + 1) & (cap - 1);
-    } while (index != startIndex);
+    } while (index != name.start);
 
     return std::nullopt;
 }
@@ -80,67 +96,99 @@ std::optional<u32> probeFor(const std::vector<HashEntry>& entries, const std::st
 } // anonymous namespace
 
 std::optional<u32> HashTable::lookup(const std::string& filename) const {
-    return probeFor(m_entries, filename, std::nullopt);
+    if (m_entries.empty())
+        return std::nullopt;
+    return eachSpelling(filename, [&](bool keepSlashes) {
+        return probeFor(m_entries, hashesOf(filename, keepSlashes, capacity()), std::nullopt);
+    });
 }
 
 std::optional<u32> HashTable::lookup(const std::string& filename, u16 locale) const {
-    return probeFor(m_entries, filename, locale);
+    if (m_entries.empty())
+        return std::nullopt;
+    return eachSpelling(filename, [&](bool keepSlashes) {
+        return probeFor(m_entries, hashesOf(filename, keepSlashes, capacity()), locale);
+    });
 }
 
 std::optional<u32> HashTable::find(const std::string& filename, u16 locale, u32 blockCount) const {
+    return eachSpelling(filename,
+                        [&](bool keepSlashes) { return findSpelled(filename, keepSlashes, locale, blockCount); });
+}
+
+std::optional<u32> HashTable::findSpelled(const std::string& filename, bool keepSlashes, u16 locale,
+                                          u32 blockCount) const {
     if (m_entries.empty())
         return std::nullopt;
 
     u32 const mask = capacity() - 1;
-    u32 const hashA = hashString(filename, HashType::NameA);
-    u32 const hashB = hashString(filename, HashType::NameB);
-    u32 const startIndex = hashString(filename, HashType::TableOffset) & mask;
+    NameHashes const name = hashesOf(filename, keepSlashes, capacity());
 
     // Protected maps plant decoy neutral entries ahead of the real one:
     // the last neutral entry is the one the game reads.
     std::optional<u32> neutral;
-    u32 index = startIndex;
+    u32 index = name.start;
     do {
         const auto& e = m_entries[index];
         if (e.isEmpty())
             break;
-        bool const ours = e.hashA == hashA && e.hashB == hashB && e.blockIndex < blockCount &&
+        bool const ours = e.hashA == name.hashA && e.hashB == name.hashB && e.blockIndex < blockCount &&
                           (e.platform & 0xFF) == 0;
         if (ours && locale != 0 && e.locale == locale)
             return index;
         if (ours && e.locale == 0)
             neutral = index;
         index = (index + 1) & mask;
-    } while (index != startIndex);
+    } while (index != name.start);
     return neutral;
+}
+
+std::vector<u32> HashTable::slotsOf(const std::string& filename, bool* keepSlashes) const {
+    std::vector<u32> slots;
+    if (m_entries.empty())
+        return slots;
+    eachSpelling(filename, [&](bool spelled) {
+        NameHashes const name = hashesOf(filename, spelled, capacity());
+        u32 index = name.start;
+        do {
+            const auto& e = m_entries[index];
+            if (e.isEmpty())
+                break;
+            if (e.isOccupied() && e.hashA == name.hashA && e.hashB == name.hashB)
+                slots.push_back(index);
+            index = (index + 1) & (capacity() - 1);
+        } while (index != name.start);
+        if (keepSlashes)
+            *keepSlashes = spelled;
+        return !slots.empty();
+    });
+    return slots;
 }
 
 // ============================================================================
 // Insert
 // ============================================================================
 
-std::optional<u32> HashTable::insert(const std::string& filename, u16 locale, u32 blockIndex) {
+std::optional<u32> HashTable::insert(const std::string& filename, u16 locale, u32 blockIndex, u16 platform,
+                                     bool keepSlashes) {
     if (m_entries.empty())
         return std::nullopt;
 
-    u32 const hashA = hashString(filename, HashType::NameA);
-    u32 const hashB = hashString(filename, HashType::NameB);
-    u32 const startIndex = hashString(filename, HashType::TableOffset) & (capacity() - 1);
-
-    u32 index = startIndex;
+    NameHashes const name = hashesOf(filename, keepSlashes, capacity());
+    u32 index = name.start;
     do {
         auto& e = m_entries[index];
         if (!e.isOccupied()) {
             // Found a free or deleted slot.
-            e.hashA = hashA;
-            e.hashB = hashB;
+            e.hashA = name.hashA;
+            e.hashB = name.hashB;
             e.locale = locale;
-            e.platform = 0;
+            e.platform = platform;
             e.blockIndex = blockIndex;
             return index;
         }
         index = (index + 1) & (capacity() - 1);
-    } while (index != startIndex);
+    } while (index != name.start);
 
     return std::nullopt; // Table is full.
 }

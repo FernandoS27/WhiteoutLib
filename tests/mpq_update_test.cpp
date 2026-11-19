@@ -294,10 +294,12 @@ TEST_CASE("A table that has to grow refuses to drop a nameless file", "[mpq][upd
     entries[0].hashA = mpq::hashString("hidden.bin", mpq::HashType::NameA);
     entries[0].hashB = mpq::hashString("hidden.bin", mpq::HashType::NameB);
     entries[0].sourceSlot = *slot;
-    entries[0].rawData = bytesOf("hidden");
+    auto const hidden = bytesOf("hidden");
+    auto const data = bytesOf("data");
+    entries[0].rawData = hidden;
     for (int i = 1; i < 4; ++i) {
         entries[i].filename = "file" + std::to_string(i);
-        entries[i].rawData = bytesOf("data");
+        entries[i].rawData = data;
     }
     mpq::WritePlan plan;
     plan.header = mpq::buildHeader(0, 4, 3);

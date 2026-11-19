@@ -19,7 +19,7 @@ public sealed class Storage : WhiteoutHandle
         return true;
     }
 
-    /// <summary>Open an existing MPQ archive. Memory-maps the file and parses tables. @param path  Path to the .mpq file. @param pool  Optional WorkerPool for parallel compress/decompress (non-owning). @return A valid Storage, or std::nullopt on failure.</summary>
+    /// <summary>Open an existing MPQ archive. Memory-maps the file and parses tables. A Warcraft III map (an HM3W block, or a .w3x or .w3m name) is read as the game reads one, so a protected map opens. @param path  Path to the .mpq file. @param pool  Optional WorkerPool for parallel compress/decompress (non-owning). @return A valid Storage, or std::nullopt on failure.</summary>
     public static Storage? Open(string path, Whiteout.Host.WorkerPool pool)
     {
         var __h = NativeMethods.whiteout_mpq_MpqStorage_open(path, pool.DangerousGet());
@@ -42,7 +42,7 @@ public sealed class Storage : WhiteoutHandle
     }
 
 
-    /// <summary>Read a file from the archive: its neutral-locale copy, as Storm and StormLib read a name (the last one, when a protected map lists the name twice). Pending writes and deletes count as already saved. @return File contents, or std::nullopt if not found, deleted, or not decodable to its full size.</summary>
+    /// <summary>Read a file from the archive: its neutral-locale copy, as Storm and StormLib read a name (the last one, when a protected map lists the name twice). A name with '/' is looked for as Storm hashes it, slash kept, then with '\\'. A patch file reads as its patch data. Pending writes and deletes count as already saved. @return File contents, or std::nullopt if not found, deleted, or not decodable to its full size.</summary>
     public byte[]? ReadFile(string name)
     {
         var __b = NativeMethods.whiteout_mpq_MpqStorage_readFile(DangerousGet(), name);
@@ -81,7 +81,7 @@ public sealed class Storage : WhiteoutHandle
     }
 
 
-    /// <summary>List all known filenames (from listfile + overlay additions − deletions).</summary>
+    /// <summary>List the files (listfile) names that the archive holds, plus overlay additions, minus deletions. A file no (listfile) names is not listed.</summary>
     public IReadOnlyList<string> ListFiles
     {
         get
