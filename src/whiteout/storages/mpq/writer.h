@@ -110,6 +110,12 @@ public:
     virtual ~ArchiveSink() = default;
     [[nodiscard]] virtual u64 size() const = 0;
     virtual void append(std::span<const u8> bytes) = 0;
+    /// append() for bytes that stay where they are until the write is over
+    /// (the source archive's mapping): a sink may keep the span and write
+    /// from it later instead of copying it now.
+    virtual void appendLasting(std::span<const u8> bytes) {
+        append(bytes);
+    }
     /// Overwrite bytes appended before.
     virtual void patch(u64 offset, std::span<const u8> bytes) = 0;
 };

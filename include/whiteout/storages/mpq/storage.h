@@ -114,6 +114,16 @@ public:
     /// Read a file's copy in @p locale, else its neutral copy.
     std::optional<std::vector<u8>> readFile(const std::string& name, u16 locale) const;
 
+    /// Read many files at once: each as readFile(name) reads it, in the
+    /// order asked. With a WorkerPool the files are shared between its
+    /// threads and the caller's, small ones a few to a thread, a large one
+    /// split between several; without one they are read in turn.
+    /// @return One entry per name: the contents, or std::nullopt.
+    ///
+    /// @bind skip — vector<optional<bytes>> is not marshalled; call
+    /// readFile() per name.
+    std::vector<std::optional<std::vector<u8>>> readFiles(const std::vector<std::string>& names) const;
+
     /// Check if readFile(name) finds a file (including overlay).
     bool fileExists(const std::string& name) const;
 
@@ -142,6 +152,13 @@ public:
     ///         is over 4 GiB (an MPQ file size is 32-bit).
     bool writeFile(const std::string& name, std::span<const u8> data, WriteOptions opts = {});
 
+    /// writeFile() for data the caller is done with: the buffer is taken,
+    /// not copied. On failure @p data is left as it was.
+    ///
+    /// @bind skip — an rvalue buffer has no meaning across a binding; use
+    /// writeFile().
+    bool writeFileOwned(const std::string& name, std::vector<u8>&& data, WriteOptions opts = {});
+
     /// Delete a file from the archive, every locale of it.
     /// @return true if the file was found (in source or overlay), false otherwise.
     bool deleteFile(const std::string& name);
@@ -156,8 +173,8 @@ public:
     /// the source archive and the overlay is cleared.
     ///
     /// The archive is written to an unused name beside @p path, then renamed
-    /// over it, so a failed save leaves @p path as it was; past 128 MiB it is
-    /// streamed rather than held in memory. Bytes before the MPQ header (a
+    /// over it, so a failed save leaves @p path as it was; it is streamed to
+    /// that file, never held whole in memory. Bytes before the MPQ header (a
     /// Warcraft III map's HM3W block) are kept, as are files no (listfile)
     /// names, and a v4 archive keeps its HET/BET tables and MD5s. A copy no
     /// lookup can reach (a protected map's decoy) is dropped. When every file

@@ -24,6 +24,8 @@
 
 #include "inflate_fast.h"
 
+#include "../../common/checksum.h"
+
 #include <array>
 #include <cstring>
 #include <span>
@@ -367,6 +369,8 @@ struct Inflater {
         br.alignToByte();
         u32 len = br.readBits(16);
         u32 nlen = br.readBits(16);
+        if (br.bitsAvail < 0) // The header itself runs past the input.
+            return false;
         if ((len ^ nlen) != 0xFFFF)
             return false;
         // Rewind bytePos to logical stream position.
@@ -704,6 +708,10 @@ struct Inflater {
         while (!isFinal) {
             isFinal = br.readBits(1) != 0;
             u32 btype = br.readBits(2);
+            // Past the end of the input the reader gives zeros, which decode
+            // to something: a stream that ran out is not a stream.
+            if (br.bitsAvail < 0)
+                return false;
             if (btype == 0) {
                 if (!inflateStored())
                     return false;
@@ -718,6 +726,8 @@ struct Inflater {
             } else {
                 return false;
             }
+            if (br.bitsAvail < 0)
+                return false;
         }
         return true;
     }
@@ -762,6 +772,18 @@ std::optional<size_t> zlibInflateFastInto(std::span<u8> dst, std::span<const u8>
     if (!inflater.run(src.data() + deflateStart, deflateEnd - deflateStart))
         return std::nullopt;
     return inflater.outPos;
+}
+
+std::optional<size_t> zlibInflateCheckedInto(std::span<u8> dst, std::span<const u8> src) {
+    auto const written = zlibInflateFastInto(dst, src);
+    if (!written)
+        return std::nullopt;
+    const u8* const tail = src.data() + src.size() - 4;
+    u32 const stored = (static_cast<u32>(tail[0]) << 24) | (static_cast<u32>(tail[1]) << 16) |
+                       (static_cast<u32>(tail[2]) << 8) | static_cast<u32>(tail[3]);
+    if (adler32(dst.first(*written)) != stored)
+        return std::nullopt;
+    return written;
 }
 
 std::vector<u8> zlibInflateFast(std::span<const u8> src, size_t expectedSize) {

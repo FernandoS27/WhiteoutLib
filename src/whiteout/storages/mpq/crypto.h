@@ -8,9 +8,10 @@
 
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <span>
-#include <string>
+#include <string_view>
 
 #include <whiteout/common_types.h>
 
@@ -29,13 +30,46 @@ enum class HashType : u32 {
 /// The table is shared and immutable after first construction.
 const u32* getEncryptionTable();
 
+/// Storm's case folding: ASCII letters to upper case, whatever the C locale
+/// says, and '/' to '\\' unless the slashes are kept.
+struct NameFold {
+    std::array<u8, 256> folded{};    ///< Upper case, '/' as '\\'.
+    std::array<u8, 256> slashKept{}; ///< Upper case, '/' as itself.
+};
+constexpr NameFold buildNameFold() {
+    NameFold fold;
+    for (u32 c = 0; c < 256; ++c) {
+        u8 const upper = static_cast<u8>(c >= 'a' && c <= 'z' ? c - 32 : c);
+        fold.slashKept[c] = upper;
+        fold.folded[c] = upper == '/' ? u8{'\\'} : upper;
+    }
+    return fold;
+}
+inline constexpr NameFold kNameFold = buildNameFold();
+
 /// Compute an MPQ hash of a filename.
 /// The filename is normalized (uppercase + '/' → '\\') before hashing.
 /// @param filename     Path to hash.
 /// @param hashType     One of the HashType enum values (0–4).
 /// @param keepSlashes  Hash '/' as itself, as Storm and StormLib do.
 /// @return The 32-bit hash value.
-u32 hashString(const std::string& filename, HashType hashType, bool keepSlashes = false);
+u32 hashString(std::string_view filename, HashType hashType, bool keepSlashes = false);
+
+/// What a hash table knows a name by.
+struct NameHash {
+    u32 offset = 0;        ///< HashType::TableOffset: where its probe starts.
+    u32 a = 0;             ///< HashType::NameA.
+    u32 b = 0;             ///< HashType::NameB.
+    bool hasSlash = false; ///< The name holds a '/', so it has a second spelling.
+
+    /// The two check hashes as one key.
+    [[nodiscard]] u64 key() const {
+        return (static_cast<u64>(a) << 32) | b;
+    }
+};
+
+/// The three hashes of hashString() for a table lookup, in one pass.
+[[nodiscard]] NameHash hashName(std::string_view filename, bool keepSlashes = false);
 
 /// Decrypt a block of u32 values in-place.
 /// @param data   Pointer to the encrypted u32 array.

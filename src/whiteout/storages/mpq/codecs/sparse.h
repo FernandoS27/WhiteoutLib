@@ -19,6 +19,11 @@ namespace whiteout::storages::mpq {
 /// @return Decompressed data, or empty vector on failure.
 [[nodiscard]] std::vector<u8> sparseDecompress(std::span<const u8> src, size_t expectedSize);
 
+/// sparseDecompress() into a buffer the caller owns.
+/// @return The bytes written; 0 on failure, or when the stream holds more
+///         than @p dst does.
+[[nodiscard]] size_t sparseDecompressInto(std::span<const u8> src, std::span<u8> dst);
+
 /// Compress data using sparse (zero-run RLE) encoding.
 /// @param src Raw data to compress.
 /// @return Compressed data, or empty vector on failure.

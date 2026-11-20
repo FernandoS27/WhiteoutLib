@@ -21,6 +21,11 @@ namespace whiteout::storages::mpq {
 [[nodiscard]] std::vector<u8> adpcmDecompress(std::span<const u8> src, size_t expectedSize,
                                               int channelCount);
 
+/// adpcmDecompress() into a buffer the caller owns: decoding stops at the
+/// last whole sample @p dst holds.
+/// @return The bytes written; 0 on failure.
+[[nodiscard]] size_t adpcmDecompressInto(std::span<const u8> src, std::span<u8> dst, int channelCount);
+
 /// Compress 16-bit PCM audio data using ADPCM.
 /// @param src          Uncompressed 16-bit PCM data (little-endian).
 /// @param channelCount 1 for mono, 2 for stereo.

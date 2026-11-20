@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 
 namespace whiteout::storages::mpq {
 
@@ -109,52 +110,6 @@ const Codes& codes() {
 // Bit streams (low bit first)
 // ============================================================================
 
-class BitReader {
-public:
-    explicit BitReader(std::span<const u8> src) : m_src(src) {}
-
-    /// The next @p count (<= 16) bits, zeros past the end of the input.
-    u32 peek(u32 count) {
-        refill();
-        return static_cast<u32>(m_buffer) & ((1u << count) - 1);
-    }
-
-    /// Consumes @p count bits; false when the input runs out first.
-    bool skip(u32 count) {
-        refill();
-        if (count > m_count)
-            return false;
-        m_buffer >>= count;
-        m_count -= count;
-        return true;
-    }
-
-    bool read(u32 count, u32& value) {
-        value = peek(count);
-        return skip(count);
-    }
-
-    template <size_t N, u32 MaxBits>
-    bool decode(const PrefixCode<N, MaxBits>& code, u32& symbol) {
-        auto const entry = code.lookup[peek(MaxBits)];
-        symbol = entry.symbol;
-        return entry.bits != 0 && skip(entry.bits);
-    }
-
-private:
-    void refill() {
-        while (m_count <= 56 && m_pos < m_src.size()) {
-            m_buffer |= static_cast<u64>(m_src[m_pos++]) << m_count;
-            m_count += 8;
-        }
-    }
-
-    std::span<const u8> m_src;
-    size_t m_pos = 0;
-    u64 m_buffer = 0;
-    u32 m_count = 0;
-};
-
 class BitWriter {
 public:
     explicit BitWriter(std::vector<u8>& out) : m_out(out) {}
@@ -198,57 +153,109 @@ u32 lengthCode(u32 length) {
 // Explode (decompress)
 // ============================================================================
 
-std::vector<u8> pkwareExplode(std::span<const u8> src, size_t expectedSize) {
+size_t pkwareExplodeInto(std::span<const u8> src, std::span<u8> dst) {
     if (src.size() < 2)
-        return {};
+        return 0;
     u8 const literalMode = src[0];
     u32 const dictBits = src[1];
     if (literalMode > kAsciiLiterals || dictBits < kMinDictBits || dictBits > kMaxDictBits)
-        return {};
+        return 0;
 
     const Codes& c = codes();
-    BitReader br(src.subspan(2));
-    std::vector<u8> out;
-    out.reserve(whiteout::common::outputReserve(expectedSize, src.size()));
+    const u8* in = src.data() + 2;
+    const u8* const inEnd = src.data() + src.size();
+    u64 bits = 0;  // The stream's next bits, low bit first.
+    u32 count = 0; // How many of them came from whole bytes; past the input they are zeros.
+    u8* out = dst.data();
+    u8* const outBase = out;
+    u8* const outEnd = out + dst.size();
 
-    while (out.size() < expectedSize) {
-        u32 isCopy = 0;
-        if (!br.read(1, isCopy))
-            return {};
-        if (!isCopy) {
+    while (out < outEnd) {
+        // One refill covers a whole symbol: the longest is a copy, at
+        // 1 + 7 + 8 + 8 + 6 = 30 bits. Eight bytes at a time while the input
+        // has them; the part of the last byte that does not fit is read again.
+        if (inEnd - in >= 8) {
+            u64 next = 0;
+            std::memcpy(&next, in, 8);
+            bits |= next << count;
+            u32 const take = (63 - count) >> 3;
+            in += take;
+            count += take * 8;
+        } else {
+            while (count <= 56 && in < inEnd) {
+                bits |= static_cast<u64>(*in++) << count;
+                count += 8;
+            }
+        }
+
+        u32 used = 1;
+        if ((bits & 1) == 0) {
             u32 literal = 0;
-            bool const ok = literalMode == kAsciiLiterals ? br.decode(c.ascii, literal) : br.read(8, literal);
-            if (!ok)
-                return {};
-            out.push_back(static_cast<u8>(literal));
+            if (literalMode == kAsciiLiterals) {
+                auto const entry = c.ascii.lookup[(bits >> 1) & 0x1FFF];
+                if (entry.bits == 0)
+                    return 0;
+                literal = entry.symbol;
+                used += entry.bits;
+            } else {
+                literal = static_cast<u32>(bits >> 1) & 0xFF;
+                used += 8;
+            }
+            if (used > count) // The input ran out inside the symbol.
+                return 0;
+            bits >>= used;
+            count -= used;
+            *out++ = static_cast<u8>(literal);
             continue;
         }
 
-        u32 code = 0;
-        u32 extra = 0;
-        if (!br.decode(c.length, code) || !br.read(kLenExtraBits[code], extra))
-            return {};
-        u32 const length = kLenBase[code] + extra;
-        if (length == kEndOfStream)
+        auto const lengthEntry = c.length.lookup[(bits >> used) & 0x7F];
+        if (lengthEntry.bits == 0)
+            return 0;
+        used += lengthEntry.bits;
+        u32 const extraBits = kLenExtraBits[lengthEntry.symbol];
+        u32 const length = kLenBase[lengthEntry.symbol] + (static_cast<u32>(bits >> used) & ((1u << extraBits) - 1));
+        used += extraBits;
+        if (length == kEndOfStream) {
+            if (used > count)
+                return 0;
             break;
+        }
 
         u32 const lowBits = length == 2 ? kShortMatchDistBits : dictBits;
-        u32 high = 0;
-        u32 low = 0;
-        if (!br.decode(c.distance, high) || !br.read(lowBits, low))
-            return {};
-        size_t const distance = ((size_t{high} << lowBits) | low) + 1;
-        if (distance > out.size())
-            return {};
+        auto const distanceEntry = c.distance.lookup[(bits >> used) & 0xFF];
+        if (distanceEntry.bits == 0)
+            return 0;
+        used += distanceEntry.bits;
+        size_t const distance =
+            ((size_t{distanceEntry.symbol} << lowBits) | (static_cast<u32>(bits >> used) & ((1u << lowBits) - 1))) + 1;
+        used += lowBits;
+        if (used > count)
+            return 0;
+        bits >>= used;
+        count -= used;
+        if (distance > static_cast<size_t>(out - outBase))
+            return 0;
 
-        size_t const from = out.size() - distance;
-        size_t const count = std::min<size_t>(length, expectedSize - out.size());
-        for (size_t i = 0; i < count; ++i) {
-            u8 const byte = out[from + i];
-            out.push_back(byte);
+        size_t const room = static_cast<size_t>(outEnd - out);
+        size_t const n = std::min<size_t>(length, room);
+        const u8* from = out - distance;
+        if (distance >= 8 && room >= n + 8) {
+            // Eight bytes a step: what it writes past n, later output writes over.
+            for (size_t i = 0; i < n; i += 8)
+                std::memcpy(out + i, from + i, 8);
+        } else {
+            for (size_t i = 0; i < n; ++i)
+                out[i] = from[i];
         }
+        out += n;
     }
-    return out;
+    return static_cast<size_t>(out - outBase);
+}
+
+std::vector<u8> pkwareExplode(std::span<const u8> src, size_t expectedSize) {
+    return whiteout::common::decodeGrowing(expectedSize, src.size(),
+                                           [&](std::span<u8> dst) { return pkwareExplodeInto(src, dst); });
 }
 
 // ============================================================================

@@ -238,6 +238,10 @@ struct HTreeItem {
     }
 };
 
+/// What the next 7 stream bits decode to, remembered from the last walk
+/// that started with them: a whole symbol when its code is that short, else
+/// the tree item 7 bits down. It holds while the tree keeps the version
+/// (HuffTree::minValidValue) it was stored with.
 struct QuickLink {
     u32 validValue = 0;
     u32 validBits = 0;
@@ -251,22 +255,31 @@ struct QuickLink {
 // Bit reader — LSB-first, matching StormLib's TInputStream.
 // ============================================================================
 
+/// The stream's bits, low bit first. Bytes are loaded several at a time;
+/// what a call can still give depends only on the bits left in the stream.
 struct HuffBitReader {
     const u8* data;
     const u8* end;
-    u32 bitBuf = 0;
+    u64 bitBuf = 0;
     u32 bitsAvail = 0;
 
     HuffBitReader(const u8* d, size_t s) : data(d), end(d + s) {}
 
+    /// Whole bytes into the buffer while they fit.
+    void refill() {
+        while (bitsAvail <= 56 && data < end) {
+            bitBuf |= static_cast<u64>(*data++) << bitsAvail;
+            bitsAvail += 8;
+        }
+    }
+
     bool get1Bit(u32& val) {
         if (bitsAvail == 0) {
-            if (data >= end)
+            refill();
+            if (bitsAvail == 0)
                 return false;
-            bitBuf = *data++;
-            bitsAvail = 8;
         }
-        val = bitBuf & 1;
+        val = static_cast<u32>(bitBuf) & 1;
         bitBuf >>= 1;
         bitsAvail--;
         return true;
@@ -274,12 +287,11 @@ struct HuffBitReader {
 
     bool get8Bits(u32& val) {
         if (bitsAvail < 8) {
-            if (data >= end)
+            refill();
+            if (bitsAvail < 8)
                 return false;
-            bitBuf |= static_cast<u32>(*data++) << bitsAvail;
-            bitsAvail += 8;
         }
-        val = bitBuf & 0xFF;
+        val = static_cast<u32>(bitBuf) & 0xFF;
         bitBuf >>= 8;
         bitsAvail -= 8;
         return true;
@@ -287,22 +299,16 @@ struct HuffBitReader {
 
     bool peek7Bits(u32& val) {
         if (bitsAvail < 7) {
-            if (data >= end)
+            refill();
+            if (bitsAvail < 7)
                 return false;
-            bitBuf |= static_cast<u32>(*data++) << bitsAvail;
-            bitsAvail += 8;
         }
-        val = bitBuf & 0x7F;
+        val = static_cast<u32>(bitBuf) & 0x7F;
         return true;
     }
 
+    /// Consumes bits a peek has already shown to be there.
     void skipBits(u32 count) {
-        if (bitsAvail < count) {
-            if (data >= end)
-                return;
-            bitBuf |= static_cast<u32>(*data++) << bitsAvail;
-            bitsAvail += 8;
-        }
         bitBuf >>= count;
         bitsAvail -= count;
     }
@@ -323,7 +329,7 @@ struct HuffTree {
 
     HTreeItem* itemsByByte[0x102] = {};
     QuickLink quickLinks[kLinkItemCount] = {};
-    u32 minValidValue = 1;
+    u32 minValidValue = 1; ///< The tree's version: every change of its shape raises it.
     u32 isCmp0 = 0;
 
     HTreeItem* listHead() {
@@ -494,6 +500,8 @@ struct HuffTree {
         lastItem->childLo = childLo;
         itemsByByte[value2] = childLo;
 
+        // The last leaf is a branch now: its code grew a bit.
+        minValidValue++;
         incWeightsAndRebalance(childLo);
         return true;
     }
@@ -506,7 +514,7 @@ struct HuffTree {
         bool const hasLink = is.peek7Bits(linkIndex);
 
         HTreeItem* item;
-        if (hasLink && quickLinks[linkIndex].validValue > minValidValue) {
+        if (hasLink && quickLinks[linkIndex].validValue == minValidValue) {
             if (quickLinks[linkIndex].validBits <= 7) {
                 is.skipBits(quickLinks[linkIndex].validBits);
                 return quickLinks[linkIndex].decompressedValue;
@@ -529,7 +537,7 @@ struct HuffTree {
                 itemLink = item;
         }
 
-        if (hasLink && quickLinks[linkIndex].validValue < minValidValue) {
+        if (hasLink && quickLinks[linkIndex].validValue != minValidValue) {
             if (bitCount > 7) {
                 quickLinks[linkIndex].validValue = minValidValue;
                 quickLinks[linkIndex].validBits = bitCount;
@@ -555,9 +563,9 @@ struct HuffTree {
 // Public API
 // ============================================================================
 
-std::vector<u8> huffmanDecompress(std::span<const u8> src, size_t expectedSize) {
-    if (src.empty() || expectedSize == 0)
-        return {};
+size_t huffmanDecompressInto(std::span<const u8> src, std::span<u8> dst) {
+    if (src.empty() || dst.empty())
+        return 0;
 
     HuffBitReader is(src.data(), src.size());
     HuffTree tree;
@@ -566,34 +574,33 @@ std::vector<u8> huffmanDecompress(std::span<const u8> src, size_t expectedSize) 
     // Read compression type (first 8 bits).
     u32 compType = 0;
     if (!is.get8Bits(compType))
-        return {};
+        return 0;
     tree.isCmp0 = (compType == 0) ? 1 : 0;
 
     if (!tree.buildTree(compType))
-        return {};
+        return 0;
 
-    std::vector<u8> out;
-    out.reserve(whiteout::common::outputReserve(expectedSize, src.size()));
-
+    u8* out = dst.data();
+    u8* const outEnd = out + dst.size();
     for (;;) {
         u32 value = tree.decodeOneByte(is);
         if (value == 0x100)
             break; // End of stream.
         if (value == kDecompressError)
-            return {};
+            return 0;
 
         if (value == 0x101) {
             // New symbol — read the 8-bit value.
             if (!is.get8Bits(value))
-                return {};
+                return 0;
             if (!tree.insertNewBranch(tree.last()->decompressedValue, value))
-                return {};
+                return 0;
             if (tree.isCmp0 == 0)
                 tree.incWeightsAndRebalance(tree.itemsByByte[value]);
         }
 
-        out.push_back(static_cast<u8>(value));
-        if (out.size() >= expectedSize)
+        *out++ = static_cast<u8>(value);
+        if (out == outEnd)
             break;
 
         if (tree.isCmp0) {
@@ -601,7 +608,12 @@ std::vector<u8> huffmanDecompress(std::span<const u8> src, size_t expectedSize) 
         }
     }
 
-    return out;
+    return static_cast<size_t>(out - dst.data());
+}
+
+std::vector<u8> huffmanDecompress(std::span<const u8> src, size_t expectedSize) {
+    return whiteout::common::decodeGrowing(expectedSize, src.size(),
+                                           [&](std::span<u8> dst) { return huffmanDecompressInto(src, dst); });
 }
 
 // ============================================================================

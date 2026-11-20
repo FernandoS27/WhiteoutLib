@@ -44,4 +44,12 @@ public sealed class CreateOptions : WhiteoutHandle
         set => NativeMethods.whiteout_mpq_MpqCreateOptions_set_sectorSizeShift(DangerousGet(), value);
     }
 
+
+    /// <summary>Record an MD5 of every file in (attributes), beside its CRC-32 and its time. Blizzard's Warcraft III archives and World Editor maps carry none; StarCraft II's do. An archive that is opened keeps the arrays it came with, whatever this says.</summary>
+    public bool FileHashes
+    {
+        get => NativeMethods.whiteout_mpq_MpqCreateOptions_get_fileHashes(DangerousGet()) != 0;
+        set => NativeMethods.whiteout_mpq_MpqCreateOptions_set_fileHashes(DangerousGet(), value ? 1 : 0);
+    }
+
 }

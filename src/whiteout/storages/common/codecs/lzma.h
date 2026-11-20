@@ -25,6 +25,11 @@ namespace whiteout::storages::common {
 [[nodiscard]] std::vector<u8> lzmaDecompress(std::span<const u8> props, std::span<const u8> stream,
                                              size_t expectedSize);
 
+/// lzmaDecompress() into a buffer the caller owns: decoding stops where
+/// @p dst ends.
+/// @return The bytes written; 0 on failure.
+[[nodiscard]] size_t lzmaDecompressInto(std::span<const u8> props, std::span<const u8> stream, std::span<u8> dst);
+
 /// The same, for property bytes followed directly by the stream.
 [[nodiscard]] std::vector<u8> lzmaDecompress(std::span<const u8> src, size_t expectedSize);
 

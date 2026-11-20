@@ -245,7 +245,7 @@ public final class Storage implements AutoCloseable {
     /**
      * Save the archive to a specific path. After saving, the new file becomes the source archive and the overlay is cleared.
      * 
-     * The archive is written to an unused name beside @p path, then renamed over it, so a failed save leaves @p path as it was; past 128 MiB it is streamed rather than held in memory. Bytes before the MPQ header (a Warcraft III map's HM3W block) are kept, as are files no (listfile) names, and a v4 archive keeps its HET/BET tables and MD5s. A copy no lookup can reach (a protected map's decoy) is dropped. When every file has a name, the hash table is built anew, at most three quarters full. A save that cannot keep every file refuses instead: see lastError().
+     * The archive is written to an unused name beside @p path, then renamed over it, so a failed save leaves @p path as it was; it is streamed to that file, never held whole in memory. Bytes before the MPQ header (a Warcraft III map's HM3W block) are kept, as are files no (listfile) names, and a v4 archive keeps its HET/BET tables and MD5s. A copy no lookup can reach (a protected map's decoy) is dropped. When every file has a name, the hash table is built anew, at most three quarters full. A save that cannot keep every file refuses instead: see lastError().
      *
      * @param path String input.
      * @return boolean result.

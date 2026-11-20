@@ -148,11 +148,11 @@ struct Bz2HuffTable {
 
 struct Bz2Decoder {
     Bz2BitReader& br;
-    std::vector<u8>& output;
-    size_t maxOutput;
+    u8* output;        ///< The caller's buffer.
+    size_t maxOutput;  ///< Its size.
+    size_t written = 0;
 
-    Bz2Decoder(Bz2BitReader& reader, std::vector<u8>& out, size_t maxOut)
-        : br(reader), output(out), maxOutput(maxOut) {}
+    Bz2Decoder(Bz2BitReader& reader, std::span<u8> out) : br(reader), output(out.data()), maxOutput(out.size()) {}
 
     bool decodeBlock() {
         // Read block header magic: 0x314159265359 (48 bits).
@@ -369,19 +369,20 @@ struct Bz2Decoder {
         u32 pos = T[origPtr];
         u32 run = 0;
         u32 last = 0x100; // No byte yet.
-        for (u32 i = 0; i < blockSize && output.size() < maxOutput; i++) {
+        for (u32 i = 0; i < blockSize && written < maxOutput; i++) {
             u8 const ch = block[pos];
             pos = T[pos];
             if (run == 4) {
-                output.insert(output.end(), std::min<size_t>(ch, maxOutput - output.size()),
-                              static_cast<u8>(last));
+                size_t const copies = std::min<size_t>(ch, maxOutput - written);
+                std::memset(output + written, static_cast<int>(last), copies);
+                written += copies;
                 run = 0;
                 last = 0x100;
                 continue;
             }
             run = (ch == last) ? run + 1 : 1;
             last = ch;
-            output.push_back(ch);
+            output[written++] = ch;
         }
 
         return true;
@@ -400,30 +401,29 @@ struct Bz2Decoder {
             return false;
 
         // Decompress blocks until end-of-stream.
-        while (output.size() < maxOutput) {
+        while (written < maxOutput) {
             if (!decodeBlock())
                 break;
         }
 
-        return !output.empty();
+        return written != 0;
     }
 };
 
 } // anonymous namespace
 
-std::vector<u8> bzip2Decompress(std::span<const u8> src, size_t expectedSize) {
+size_t bzip2DecompressInto(std::span<const u8> src, std::span<u8> dst) {
     if (src.size() < 10)
-        return {}; // Minimum: header + end-of-stream block.
+        return 0; // Minimum: header + end-of-stream block.
 
     Bz2BitReader br(src.data(), src.size());
-    std::vector<u8> out;
-    out.reserve(whiteout::common::outputReserve(expectedSize, src.size()));
+    Bz2Decoder decoder(br, dst);
+    return decoder.decode() ? decoder.written : 0;
+}
 
-    Bz2Decoder decoder(br, out, expectedSize);
-    if (!decoder.decode())
-        return {};
-
-    return out;
+std::vector<u8> bzip2Decompress(std::span<const u8> src, size_t expectedSize) {
+    return whiteout::common::decodeGrowing(expectedSize, src.size(),
+                                           [&](std::span<u8> dst) { return bzip2DecompressInto(src, dst); });
 }
 
 // ============================================================================

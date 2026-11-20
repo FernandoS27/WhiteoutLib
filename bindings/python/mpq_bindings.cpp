@@ -114,20 +114,22 @@ void bind_mpq(py::module_& m) {
 
     py::class_<whiteout::storages::mpq::CreateOptions>(m, "CreateOptions", R"doc(Options for creating a new archive.)doc")
         .def(py::init<>())
-        .def(py::init([](whiteout::storages::mpq::FormatVersion version, whiteout::u32 hash_table_size, whiteout::u16 sector_size_shift) {
-            return whiteout::storages::mpq::CreateOptions{version, hash_table_size, sector_size_shift};
-        }), py::arg("version"), py::arg("hash_table_size"), py::arg("sector_size_shift"))
+        .def(py::init([](whiteout::storages::mpq::FormatVersion version, whiteout::u32 hash_table_size, whiteout::u16 sector_size_shift, bool file_hashes) {
+            return whiteout::storages::mpq::CreateOptions{version, hash_table_size, sector_size_shift, file_hashes};
+        }), py::arg("version"), py::arg("hash_table_size"), py::arg("sector_size_shift"), py::arg("file_hashes"))
         .def("__repr__", [](const whiteout::storages::mpq::CreateOptions& self) {
             std::ostringstream oss;
             oss << "CreateOptions(";
             oss << "version=" << static_cast<int>(self.version) << ", ";
             oss << "hash_table_size=" << self.hashTableSize << ", ";
-            oss << "sector_size_shift=" << self.sectorSizeShift << ")";
+            oss << "sector_size_shift=" << self.sectorSizeShift << ", ";
+            oss << "file_hashes=" << self.fileHashes << ")";
             return oss.str();
         })
         .def_readwrite("version", &whiteout::storages::mpq::CreateOptions::version, R"doc(Archive format version (V1 or V2).)doc")
         .def_readwrite("hash_table_size", &whiteout::storages::mpq::CreateOptions::hashTableSize, R"doc(Initial hash table capacity; rounded up to the next power of 2.)doc")
         .def_readwrite("sector_size_shift", &whiteout::storages::mpq::CreateOptions::sectorSizeShift, R"doc(Sector size = 512 << shift (default 3 → 4096 bytes). 0 is taken as 1: some StormLib builds, HiveWE's among them, open no archive of 512-byte sectors.)doc")
+        .def_readwrite("file_hashes", &whiteout::storages::mpq::CreateOptions::fileHashes, R"doc(Record an MD5 of every file in (attributes), beside its CRC-32 and its time. Blizzard's Warcraft III archives and World Editor maps carry none; StarCraft II's do. An archive that is opened keeps the arrays it came with, whatever this says.)doc")
     ;
 
     py::class_<whiteout::storages::mpq::Storage>(m, "Storage", R"doc(RAII wrapper for MPQ archive access
@@ -172,7 +174,7 @@ All public methods are thread-safe: read operations acquire a shared lock; write
         .def("save", py::overload_cast<>(&whiteout::storages::mpq::Storage::save), R"doc(Save the archive to its original path. @return false if this Storage was created via create() with no prior save(path).)doc")
         .def("save", py::overload_cast<const std::string&>(&whiteout::storages::mpq::Storage::save), py::arg("path"), R"doc(Save the archive to a specific path. After saving, the new file becomes the source archive and the overlay is cleared.
 
-The archive is written to an unused name beside @p path, then renamed over it, so a failed save leaves @p path as it was; past 128 MiB it is streamed rather than held in memory. Bytes before the MPQ header (a Warcraft III map's HM3W block) are kept, as are files no (listfile) names, and a v4 archive keeps its HET/BET tables and MD5s. A copy no lookup can reach (a protected map's decoy) is dropped. When every file has a name, the hash table is built anew, at most three quarters full. A save that cannot keep every file refuses instead: see lastError().)doc")
+The archive is written to an unused name beside @p path, then renamed over it, so a failed save leaves @p path as it was; it is streamed to that file, never held whole in memory. Bytes before the MPQ header (a Warcraft III map's HM3W block) are kept, as are files no (listfile) names, and a v4 archive keeps its HET/BET tables and MD5s. A copy no lookup can reach (a protected map's decoy) is dropped. When every file has a name, the hash table is built anew, at most three quarters full. A save that cannot keep every file refuses instead: see lastError().)doc")
         .def("last_error", &whiteout::storages::mpq::Storage::lastError, R"doc(Why the last save() failed; empty after one that succeeded.)doc")
     ;
 

@@ -6,7 +6,8 @@
 ///
 /// Implements RFC 1950 (zlib wrapper) + RFC 1951 (DEFLATE) with:
 ///   - Inflate: stored, fixed Huffman, and dynamic Huffman blocks.
-///   - Deflate: LZ77 with hash-chain matching + fixed Huffman encoding.
+///   - Deflate: LZ77 with hash chains and lazy matching; each block stored,
+///     fixed Huffman or dynamic Huffman, whichever is smallest.
 ///
 /// No external dependencies (no zlib).
 
@@ -19,12 +20,12 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstring>
 
 namespace whiteout {
 
 using BitReader = LsbBitReader;
-using BitWriter = LsbBitWriter;
 using HuffTable = LsbHuffmanTable;
 
 namespace {
@@ -399,181 +400,579 @@ struct Inflater {
 };
 
 // ============================================================================
-// Deflate Implementation (Fixed Huffman + LZ77 Hash Chain)
+// Deflate Implementation (LZ77 with lazy matching + stored/fixed/dynamic blocks)
 // ============================================================================
 
-// Reverse `count` bits of `value` (DEFLATE codes are sent LSB-first).
-u32 reverseBits(u32 value, i32 count) {
-    u32 result = 0;
-    for (i32 i = 0; i < count; ++i) {
-        result = (result << 1) | (value & 1);
-        value >>= 1;
+constexpr u32 kMinMatch = 3;
+constexpr u32 kMaxMatch = 258;
+constexpr u32 kWindowSize = 32768;
+// How hard a match is looked for: zlib's level 6.
+constexpr u32 kMaxChain = 128;   ///< Candidates tried per position.
+constexpr u32 kGoodLength = 8;   ///< With a match this long in hand, a quarter of them.
+constexpr u32 kMaxLazy = 16;     ///< A match shorter than this may lose to one a byte later.
+constexpr u32 kNiceLength = 128; ///< A match this long ends the search.
+constexpr u32 kTooFar = 4096;    ///< A 3-byte match from further back costs more than it saves.
+/// A block ends after this many symbols, so its codes fit what it holds.
+constexpr size_t kBlockSymbols = 16384;
+constexpr u32 kEndOfBlock = 256;
+constexpr u32 kLitLenCodes = 286;
+constexpr u32 kDistCodes = 30;
+constexpr u32 kCodeLenCodes = 19;
+constexpr u32 kMaxCodeBits = 15;
+constexpr u32 kMaxCodeLenBits = 7;
+/// The match finder keeps positions in 32 bits: a longer input is stored.
+constexpr u64 kMaxSearchable = 0xFFFF0000ull;
+
+/// A match length's code (0-28) and a distance's code (0-29), looked up.
+struct SymbolCodes {
+    std::array<u8, kMaxMatch + 1> length{};
+    std::array<u8, 512> distance{}; ///< By distance - 1 up to 256, then by (distance - 1) >> 7.
+};
+constexpr SymbolCodes buildSymbolCodes() {
+    SymbolCodes codes;
+    for (u32 code = 0; code < LENGTH_TABLE.size(); ++code)
+        for (u32 length = LENGTH_TABLE[code].base; length <= kMaxMatch; ++length)
+            codes.length[length] = static_cast<u8>(code);
+    for (u32 code = 0; code < DISTANCE_TABLE.size(); ++code) {
+        for (u32 d = DISTANCE_TABLE[code].base - 1; d < 256; ++d)
+            codes.distance[d] = static_cast<u8>(code);
+        for (u32 d = (DISTANCE_TABLE[code].base - 1) >> 7; d < 256; ++d)
+            if ((d << 7) + 1 >= DISTANCE_TABLE[code].base)
+                codes.distance[256 + d] = static_cast<u8>(code);
     }
-    return result;
+    return codes;
+}
+constexpr SymbolCodes kSymbolCodes = buildSymbolCodes();
+
+inline u32 distanceCode(u32 distance) {
+    u32 const d = distance - 1;
+    return d < 256 ? kSymbolCodes.distance[d] : kSymbolCodes.distance[256 + (d >> 7)];
 }
 
-// Encode a literal/length symbol using fixed Huffman codes (RFC 1951 §3.2.6).
-void writeFixedLitLen(BitWriter& bw, i32 sym) {
-    if (sym <= 143) {
-        bw.writeBits(reverseBits(static_cast<u32>(sym + 0x30), 8), 8);
-    } else if (sym <= 255) {
-        bw.writeBits(reverseBits(static_cast<u32>(sym - 144 + 0x190), 9), 9);
-    } else if (sym <= 279) {
-        bw.writeBits(reverseBits(static_cast<u32>(sym - 256), 7), 7);
-    } else if (sym <= 287) {
-        bw.writeBits(reverseBits(static_cast<u32>(sym - 280 + 0xC0), 8), 8);
-    }
-}
+/// A prefix code as the stream carries it: each symbol's bit length, and its
+/// code with the bits reversed, since DEFLATE sends a code high bit first.
+template <size_t N>
+struct PrefixCode {
+    std::array<u8, N> bits{};
+    std::array<u16, N> code{};
 
-// Encode a distance code using fixed Huffman (5-bit codes 0-29).
-void writeFixedDist(BitWriter& bw, i32 code) {
-    bw.writeBits(reverseBits(static_cast<u32>(code), 5), 5);
-}
-
-// Find the length code index (0-28) for a given match length (3-258).
-i32 lengthToCode(u32 length) {
-    for (i32 i = 28; i >= 0; --i) {
-        if (length >= LENGTH_TABLE[i].base)
-            return i;
-    }
-    return 0;
-}
-
-// Find the distance code (0-29) for a given distance (1-32768).
-i32 distanceToCode(u32 dist) {
-    for (i32 i = 29; i >= 0; --i) {
-        if (dist >= DISTANCE_TABLE[i].base)
-            return i;
-    }
-    return 0;
-}
-
-// LZ77 hash chain parameters.
-static constexpr u32 HASH_BITS = 15;
-static constexpr u32 HASH_SIZE = 1u << HASH_BITS;
-static constexpr u32 HASH_MASK = HASH_SIZE - 1;
-static constexpr u32 MAX_MATCH = 258;
-static constexpr u32 MIN_MATCH = 3;
-static constexpr u32 WINDOW_SIZE = 32768;
-static constexpr u32 MAX_CHAIN = 128; // Max hash chain length to search.
-
-struct Deflater {
-    std::vector<u8> output;
-    BitWriter bw;
-
-    void run(std::span<const u8> input) {
-        bw.init(&output);
-
-        // Single fixed-Huffman block (BFINAL=1, BTYPE=01).
-        bw.writeBits(1, 1); // BFINAL
-        bw.writeBits(1, 2); // BTYPE = fixed Huffman
-
-        if (input.empty()) {
-            writeFixedLitLen(bw, 256); // End of block.
-            bw.flush();
-            return;
+    /// The canonical codes for the lengths in @p bits (RFC 1951 3.2.2).
+    void assignCodes() {
+        std::array<u16, kMaxCodeBits + 2> next{};
+        std::array<u16, kMaxCodeBits + 1> count{};
+        for (u8 const length : bits)
+            ++count[length];
+        count[0] = 0;
+        u32 value = 0;
+        for (u32 length = 1; length <= kMaxCodeBits; ++length) {
+            value = (value + count[length - 1]) << 1;
+            next[length] = static_cast<u16>(value);
         }
+        for (size_t symbol = 0; symbol < N; ++symbol) {
+            u32 const length = bits[symbol];
+            if (length == 0)
+                continue;
+            u32 canonical = next[length]++;
+            u32 reversed = 0;
+            for (u32 bit = 0; bit < length; ++bit, canonical >>= 1)
+                reversed = (reversed << 1) | (canonical & 1);
+            code[symbol] = static_cast<u16>(reversed);
+        }
+    }
+};
 
-        // LZ77 with hash chain.
-        const u8* src = input.data();
-        const size_t srcLen = input.size();
+/// Bit lengths of a prefix code for @p count symbols used @p frequency
+/// times each, none longer than @p maxBits: a Huffman code, its longest
+/// codes shortened to the limit when it has any. A symbol never used gets no
+/// code. At least two symbols get one, as zlib sees to: some inflaters take
+/// no code of a single symbol.
+void codeLengths(const u32* frequency, u32 count, u32 maxBits, u8* bits) {
+    struct Node {
+        u32 weight;
+        u16 symbol;
+    };
+    std::array<Node, kLitLenCodes> leaves;
+    u32 used = 0;
+    for (u32 symbol = 0; symbol < count; ++symbol) {
+        bits[symbol] = 0;
+        if (frequency[symbol] != 0)
+            leaves[used++] = {frequency[symbol], static_cast<u16>(symbol)};
+    }
+    for (u32 symbol = 0; used < 2 && symbol < count; ++symbol) {
+        if (frequency[symbol] == 0)
+            leaves[used++] = {1, static_cast<u16>(symbol)};
+    }
+    std::sort(leaves.begin(), leaves.begin() + used, [](const Node& a, const Node& b) {
+        return a.weight != b.weight ? a.weight < b.weight : a.symbol < b.symbol;
+    });
 
-        std::vector<i32> head(HASH_SIZE, -1);
-        std::vector<i32> prev(WINDOW_SIZE, -1);
+    // Huffman's algorithm over two queues: the leaves, lightest first, and
+    // the branches in the order they are made, which is lightest first too.
+    // A node's parent is always made after it.
+    std::array<u32, kLitLenCodes * 2> weight;
+    std::array<u16, kLitLenCodes * 2> parent;
+    for (u32 i = 0; i < used; ++i)
+        weight[i] = leaves[i].weight;
+    u32 leaf = 0;
+    u32 branch = used;
+    u32 made = used;
+    auto lightest = [&] {
+        if (leaf < used && (branch >= made || weight[leaf] <= weight[branch]))
+            return leaf++;
+        return branch++;
+    };
+    while (made < used * 2 - 1) {
+        u32 const a = lightest();
+        u32 const b = lightest();
+        weight[made] = weight[a] + weight[b];
+        parent[a] = parent[b] = static_cast<u16>(made);
+        ++made;
+    }
 
-        auto hashFunc = [&](size_t pos) -> u32 {
-            if (pos + 2 >= srcLen)
-                return 0;
-            return ((static_cast<u32>(src[pos]) << 10) ^ (static_cast<u32>(src[pos + 1]) << 5) ^
-                    static_cast<u32>(src[pos + 2])) &
-                   HASH_MASK;
-        };
+    // Each leaf's depth, counted from the root down, and how many codes
+    // there are of each length; lengths past the limit are cut to it.
+    std::array<u8, kLitLenCodes * 2> depth;
+    std::array<u32, kMaxCodeBits + 1> perLength{};
+    depth[made - 1] = 0;
+    for (u32 node = made - 1; node-- > 0;) {
+        depth[node] = static_cast<u8>(std::min<u32>(depth[parent[node]] + 1, 255));
+        if (node < used)
+            ++perLength[std::min<u32>(depth[node], maxBits)];
+    }
+    // Cutting them made the code over-full: codes at the limit are paired
+    // off under a shorter code that is lengthened by one, until it fits.
+    u32 space = 0;
+    for (u32 length = 1; length <= maxBits; ++length)
+        space += perLength[length] << (maxBits - length);
+    while (space > (1u << maxBits)) {
+        --perLength[maxBits];
+        for (u32 length = maxBits - 1; length > 0; --length) {
+            if (perLength[length] != 0) {
+                --perLength[length];
+                perLength[length + 1] += 2;
+                break;
+            }
+        }
+        --space;
+    }
+    // The rarest symbols take the longest codes.
+    u32 next = 0;
+    for (u32 length = maxBits; length > 0; --length)
+        for (u32 n = perLength[length]; n > 0; --n)
+            bits[leaves[next++].symbol] = static_cast<u8>(length);
+}
+
+/// The fixed code of RFC 1951 3.2.6.
+struct FixedCodes {
+    PrefixCode<kLitLenCodes + 2> litLen;
+    PrefixCode<kDistCodes + 2> distance;
+    FixedCodes() {
+        for (u32 symbol = 0; symbol < litLen.bits.size(); ++symbol)
+            litLen.bits[symbol] = symbol <= 143 ? 8 : symbol <= 255 ? 9 : symbol <= 279 ? 7 : 8;
+        distance.bits.fill(5);
+        litLen.assignCodes();
+        distance.assignCodes();
+    }
+};
+const FixedCodes& fixedCodes() {
+    static const FixedCodes codes;
+    return codes;
+}
+
+/// What a deflate borrows: the match finder's tables and the symbols of the
+/// block being gathered. Kept per thread, so a 4 KiB input costs no
+/// allocation and clears only the part of the tables it uses.
+struct DeflateWorkspace {
+    std::vector<u32> head; ///< By hash: the last position with it, plus one; 0 for none.
+    std::vector<u32> prev; ///< By position in the window: the one before it with the same hash, plus one.
+    std::vector<u32> symbols;
+};
+
+class Deflater {
+public:
+    /// @p out receives the stream; it must hold bound(input.size()) bytes.
+    Deflater(std::span<const u8> input, u8* out, DeflateWorkspace& workspace)
+        : m_src(input.data()), m_size(input.size()), m_out(out), m_work(workspace) {}
+
+    /// The most a stream of @p size input bytes can come to, with room for
+    /// the bit writer to write a word at a time.
+    [[nodiscard]] static size_t bound(size_t size) {
+        // No block comes to more than it would stored: 5 bytes to each
+        // 65,535 of them, and a block ends every kBlockSymbols symbols.
+        return size + 8 * (size / kBlockSymbols + 2) + 16;
+    }
+
+    /// Writes the whole stream; returns its end.
+    u8* run() {
+        if (m_size == 0) {
+            // One empty fixed block.
+            put(1, 1);
+            put(1, 2);
+            put(fixedCodes().litLen.code[kEndOfBlock], fixedCodes().litLen.bits[kEndOfBlock]);
+            return finish();
+        }
+        if (m_size > kMaxSearchable) {
+            stored(m_size, true);
+            return finish();
+        }
+        prepare();
 
         size_t pos = 0;
-        while (pos < srcLen) {
-            u32 bestLen = 0;
-            u32 bestDist = 0;
-
-            if (pos + MIN_MATCH <= srcLen) {
-                u32 const h = hashFunc(pos);
-                i32 chainPos = head[h];
-                u32 chainCount = 0;
-
-                while (chainPos >= 0 && chainCount < MAX_CHAIN) {
-                    u32 const dist = static_cast<u32>(pos - static_cast<size_t>(chainPos));
-                    if (dist > WINDOW_SIZE)
-                        break;
-
-                    u32 const maxLen =
-                        static_cast<u32>(std::min(static_cast<size_t>(MAX_MATCH), srcLen - pos));
-                    // Fast prefix check: skip chain entries that don't match first 4 bytes.
-                    if (maxLen >= 4 && std::memcmp(src + pos, src + chainPos, 4) != 0) {
-                        chainPos = prev[static_cast<size_t>(chainPos) & (WINDOW_SIZE - 1)];
-                        ++chainCount;
-                        continue;
-                    }
-                    u32 len = 0;
-                    // Compare in 8-byte chunks where possible.
-                    while (len + 8 <= maxLen) {
-                        u64 a, b;
-                        std::memcpy(&a, src + pos + len, 8);
-                        std::memcpy(&b, src + chainPos + len, 8);
-                        if (a != b)
-                            break;
-                        len += 8;
-                    }
-                    // Finish remaining bytes.
-                    while (len < maxLen && src[pos + len] == src[chainPos + len]) {
-                        ++len;
-                    }
-                    if (len >= MIN_MATCH && len > bestLen) {
-                        bestLen = len;
-                        bestDist = dist;
-                        if (len == MAX_MATCH)
-                            break;
-                    }
-
-                    chainPos = prev[static_cast<size_t>(chainPos) & (WINDOW_SIZE - 1)];
-                    ++chainCount;
-                }
-
-                prev[pos & (WINDOW_SIZE - 1)] = head[h];
-                head[h] = static_cast<i32>(pos);
-            }
-
-            if (bestLen >= MIN_MATCH) {
-                i32 const lenCode = lengthToCode(bestLen);
-                writeFixedLitLen(bw, 257 + lenCode);
-                if (LENGTH_TABLE[lenCode].extraBits > 0) {
-                    bw.writeBits(bestLen - LENGTH_TABLE[lenCode].base,
-                                 LENGTH_TABLE[lenCode].extraBits);
-                }
-
-                i32 const distCode = distanceToCode(bestDist);
-                writeFixedDist(bw, distCode);
-                if (DISTANCE_TABLE[distCode].extraBits > 0) {
-                    bw.writeBits(bestDist - DISTANCE_TABLE[distCode].base,
-                                 DISTANCE_TABLE[distCode].extraBits);
-                }
-
-                for (u32 i = 1; i < bestLen; ++i) {
-                    size_t const p = pos + i;
-                    if (p + MIN_MATCH <= srcLen) {
-                        u32 const h = hashFunc(p);
-                        prev[p & (WINDOW_SIZE - 1)] = head[h];
-                        head[h] = static_cast<i32>(p);
-                    }
-                }
-                pos += bestLen;
-            } else {
-                writeFixedLitLen(bw, src[pos]);
+        size_t inserted = 0; // The first position not yet in the hash chains.
+        while (pos < m_size) {
+            Match match = find(pos, 0, inserted);
+            if (match.length == 0) {
+                literal(m_src[pos]);
                 ++pos;
+            } else {
+                // A longer match a byte on is worth this byte as a literal.
+                while (match.length < kMaxLazy && pos + 1 < m_size) {
+                    Match const later = find(pos + 1, match.length, inserted);
+                    if (later.length == 0)
+                        break;
+                    literal(m_src[pos]);
+                    ++pos;
+                    match = later;
+                }
+                copy(match);
+                for (size_t p = inserted; p < pos + match.length; ++p)
+                    insert(p);
+                inserted = std::max(inserted, pos + match.length);
+                pos += match.length;
+            }
+            if (m_work.symbols.size() >= kBlockSymbols)
+                endBlock(pos, pos == m_size);
+        }
+        if (!m_lastBlockWritten)
+            endBlock(m_size, true);
+        return finish();
+    }
+
+private:
+    struct Match {
+        u32 length = 0;
+        u32 distance = 0;
+    };
+
+    // ---- the match finder
+
+    void prepare() {
+        // The hash table is sized to the input: a small one is quick to
+        // clear and stays in cache.
+        m_hashBits = 8;
+        while (m_hashBits < 15 && (size_t{1} << m_hashBits) < m_size)
+            ++m_hashBits;
+        size_t const window = std::min<size_t>(kWindowSize, std::bit_ceil(m_size));
+        m_windowMask = static_cast<u32>(window - 1);
+        if (m_work.head.size() < (size_t{1} << m_hashBits))
+            m_work.head.resize(size_t{1} << m_hashBits);
+        if (m_work.prev.size() < window)
+            m_work.prev.resize(window);
+        std::memset(m_work.head.data(), 0, (size_t{1} << m_hashBits) * sizeof(u32));
+        m_work.symbols.clear();
+        m_work.symbols.reserve(kBlockSymbols + kMaxLazy + 2); // A block may run a few symbols over.
+    }
+
+    [[nodiscard]] u32 hashAt(size_t pos) const {
+        u32 const three = static_cast<u32>(m_src[pos]) | (static_cast<u32>(m_src[pos + 1]) << 8) |
+                          (static_cast<u32>(m_src[pos + 2]) << 16);
+        return (three * 0x9E3779B1u) >> (32 - m_hashBits);
+    }
+
+    /// Puts @p pos at the head of its hash chain; returns what was there.
+    u32 insert(size_t pos) {
+        if (m_size - pos < kMinMatch)
+            return 0;
+        u32 const hash = hashAt(pos);
+        u32 const before = m_work.head[hash];
+        m_work.prev[pos & m_windowMask] = before;
+        m_work.head[hash] = static_cast<u32>(pos) + 1;
+        return before;
+    }
+
+    /// The longest match at @p pos that beats @p held bytes, or none. Enters
+    /// @p pos into the chains; @p inserted follows.
+    Match find(size_t pos, u32 held, size_t& inserted) {
+        u32 candidate = 0;
+        if (pos >= inserted) {
+            candidate = insert(pos);
+            inserted = pos + 1;
+        }
+        size_t const maxLength = std::min<size_t>(kMaxMatch, m_size - pos);
+        if (maxLength < kMinMatch)
+            return {};
+
+        const u8* const here = m_src + pos;
+        u32 best = std::max(held, kMinMatch - 1);
+        if (best >= maxLength)
+            return {};
+        Match match;
+        u32 chain = held >= kGoodLength ? kMaxChain / 4 : kMaxChain;
+        while (candidate != 0 && chain-- != 0) {
+            size_t const at = candidate - 1;
+            size_t const distance = pos - at;
+            if (distance > kWindowSize)
+                break;
+            const u8* const there = m_src + at;
+            // The byte that would make it longer, then the first two.
+            if (there[best] == here[best] && there[0] == here[0] && there[1] == here[1]) {
+                u32 const length = matchLength(here, there, static_cast<u32>(maxLength));
+                if (length > best) {
+                    best = length;
+                    match = {length, static_cast<u32>(distance)};
+                    if (length >= kNiceLength || length == maxLength)
+                        break;
+                }
+            }
+            u32 const next = m_work.prev[at & m_windowMask];
+            if (next >= candidate) // The slot was reused by a later position.
+                break;
+            candidate = next;
+        }
+        if (match.length == kMinMatch && match.distance > kTooFar)
+            return {};
+        return match;
+    }
+
+    static u32 matchLength(const u8* a, const u8* b, u32 maxLength) {
+        u32 length = 0;
+        if constexpr (std::endian::native == std::endian::little) {
+            while (length + 8 <= maxLength) {
+                u64 x = 0;
+                u64 y = 0;
+                std::memcpy(&x, a + length, 8);
+                std::memcpy(&y, b + length, 8);
+                if (x != y)
+                    return length + (static_cast<u32>(std::countr_zero(x ^ y)) >> 3);
+                length += 8;
             }
         }
-
-        writeFixedLitLen(bw, 256); // End of block.
-        bw.flush();
+        while (length < maxLength && a[length] == b[length])
+            ++length;
+        return length;
     }
+
+    // ---- the symbols of a block
+
+    void literal(u8 byte) {
+        m_work.symbols.push_back(byte);
+        ++m_litLenCount[byte];
+    }
+
+    void copy(Match match) {
+        m_work.symbols.push_back((match.distance << 16) | (match.length - kMinMatch));
+        ++m_litLenCount[257 + kSymbolCodes.length[match.length]];
+        ++m_distanceCount[distanceCode(match.distance)];
+    }
+
+    /// Writes the symbols gathered since the last block, which stand for
+    /// the input up to @p end, in whichever of the three block forms is
+    /// smallest.
+    void endBlock(size_t end, bool last) {
+        ++m_litLenCount[kEndOfBlock];
+        PrefixCode<kLitLenCodes + 2> litLen;
+        PrefixCode<kDistCodes + 2> distance;
+        codeLengths(m_litLenCount.data(), kLitLenCodes, kMaxCodeBits, litLen.bits.data());
+        codeLengths(m_distanceCount.data(), kDistCodes, kMaxCodeBits, distance.bits.data());
+
+        // The code lengths themselves, run-length coded and then coded.
+        u32 litLenUsed = kLitLenCodes;
+        while (litLenUsed > 257 && litLen.bits[litLenUsed - 1] == 0)
+            --litLenUsed;
+        u32 distanceUsed = kDistCodes;
+        while (distanceUsed > 1 && distance.bits[distanceUsed - 1] == 0)
+            --distanceUsed;
+        std::array<u8, kLitLenCodes + kDistCodes> lengths;
+        std::copy_n(litLen.bits.begin(), litLenUsed, lengths.begin());
+        std::copy_n(distance.bits.begin(), distanceUsed, lengths.begin() + litLenUsed);
+        struct Run {
+            u8 symbol;
+            u8 extra;
+        };
+        std::array<Run, kLitLenCodes + kDistCodes> runs;
+        u32 runCount = 0;
+        std::array<u32, kCodeLenCodes> codeLenCount{};
+        u32 const total = litLenUsed + distanceUsed;
+        for (u32 i = 0; i < total;) {
+            u8 const length = lengths[i];
+            u32 same = 1;
+            while (i + same < total && lengths[i + same] == length)
+                ++same;
+            i += same;
+            if (length == 0) {
+                for (; same >= 11; ) {
+                    u32 const n = std::min<u32>(same, 138);
+                    runs[runCount++] = {18, static_cast<u8>(n - 11)};
+                    ++codeLenCount[18];
+                    same -= n;
+                }
+                if (same >= 3) {
+                    runs[runCount++] = {17, static_cast<u8>(same - 3)};
+                    ++codeLenCount[17];
+                    same = 0;
+                }
+            } else {
+                // The length once, then repeats of it three to six at a time.
+                runs[runCount++] = {length, 0};
+                ++codeLenCount[length];
+                --same;
+                for (; same >= 3; ) {
+                    u32 const n = std::min<u32>(same, 6);
+                    runs[runCount++] = {16, static_cast<u8>(n - 3)};
+                    ++codeLenCount[16];
+                    same -= n;
+                }
+            }
+            for (; same > 0; --same) {
+                runs[runCount++] = {length, 0};
+                ++codeLenCount[length];
+            }
+        }
+        PrefixCode<kCodeLenCodes> codeLen;
+        codeLengths(codeLenCount.data(), kCodeLenCodes, kMaxCodeLenBits, codeLen.bits.data());
+        u32 codeLenUsed = kCodeLenCodes;
+        while (codeLenUsed > 4 && codeLen.bits[static_cast<size_t>(CL_CODE_ORDER[codeLenUsed - 1])] == 0)
+            --codeLenUsed;
+
+        // What each form would cost, in bits.
+        static constexpr std::array<u8, kCodeLenCodes> kCodeLenExtra = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                                                        0, 0, 0, 0, 0, 0, 2, 3, 7};
+        const FixedCodes& fixed = fixedCodes();
+        u64 extraBits = 0;
+        u64 dynamicBits = 0;
+        u64 fixedBits = 0;
+        for (u32 symbol = 0; symbol < kLitLenCodes; ++symbol) {
+            u64 const count = m_litLenCount[symbol];
+            dynamicBits += count * litLen.bits[symbol];
+            fixedBits += count * fixed.litLen.bits[symbol];
+            if (symbol > kEndOfBlock)
+                extraBits += count * LENGTH_TABLE[symbol - 257].extraBits;
+        }
+        for (u32 symbol = 0; symbol < kDistCodes; ++symbol) {
+            u64 const count = m_distanceCount[symbol];
+            dynamicBits += count * distance.bits[symbol];
+            fixedBits += count * 5;
+            extraBits += count * DISTANCE_TABLE[symbol].extraBits;
+        }
+        dynamicBits += extraBits + 3 + 5 + 5 + 4 + 3 * u64{codeLenUsed};
+        for (u32 symbol = 0; symbol < kCodeLenCodes; ++symbol)
+            dynamicBits += u64{codeLenCount[symbol]} * (codeLen.bits[symbol] + kCodeLenExtra[symbol]);
+        fixedBits += extraBits + 3;
+        // Stored: 65,535 bytes to a block, each after 3 header bits, padding
+        // to a byte and 4 bytes of length.
+        size_t const rawBytes = end - m_blockStart;
+        u64 const storedBlocks = std::max<u64>(1, (rawBytes + 65534) / 65535);
+        u64 const padding = (8 - (m_bitCount + 3) % 8) % 8;
+        u64 const storedBits = u64{rawBytes} * 8 + 35 + padding + (storedBlocks - 1) * 40;
+
+        if (storedBits < dynamicBits && storedBits < fixedBits) {
+            stored(end, last);
+        } else if (fixedBits <= dynamicBits) {
+            put(last ? 1 : 0, 1);
+            put(1, 2);
+            symbols(fixed.litLen, fixed.distance);
+        } else {
+            litLen.assignCodes();
+            distance.assignCodes();
+            codeLen.assignCodes();
+            put(last ? 1 : 0, 1);
+            put(2, 2);
+            put(litLenUsed - 257, 5);
+            put(distanceUsed - 1, 5);
+            put(codeLenUsed - 4, 4);
+            for (u32 i = 0; i < codeLenUsed; ++i)
+                put(codeLen.bits[static_cast<size_t>(CL_CODE_ORDER[i])], 3);
+            for (u32 i = 0; i < runCount; ++i) {
+                put(codeLen.code[runs[i].symbol], codeLen.bits[runs[i].symbol]);
+                if (runs[i].symbol >= 16)
+                    put(runs[i].extra, kCodeLenExtra[runs[i].symbol]);
+            }
+            symbols(litLen, distance);
+        }
+
+        m_work.symbols.clear();
+        m_litLenCount.fill(0);
+        m_distanceCount.fill(0);
+        m_blockStart = end;
+        m_lastBlockWritten = last;
+    }
+
+    template <size_t L, size_t D>
+    void symbols(const PrefixCode<L>& litLen, const PrefixCode<D>& distance) {
+        for (u32 const symbol : m_work.symbols) {
+            u32 const far = symbol >> 16;
+            if (far == 0) {
+                put(litLen.code[symbol], litLen.bits[symbol]);
+                continue;
+            }
+            u32 const length = (symbol & 0xFFFF) + kMinMatch;
+            u32 const lengthCode = kSymbolCodes.length[length];
+            put(litLen.code[257 + lengthCode], litLen.bits[257 + lengthCode]);
+            put(length - LENGTH_TABLE[lengthCode].base, LENGTH_TABLE[lengthCode].extraBits);
+            u32 const code = distanceCode(far);
+            put(distance.code[code], distance.bits[code]);
+            put(far - DISTANCE_TABLE[code].base, DISTANCE_TABLE[code].extraBits);
+        }
+        put(litLen.code[kEndOfBlock], litLen.bits[kEndOfBlock]);
+    }
+
+    /// The input from the block's start to @p end as stored blocks.
+    void stored(size_t end, bool last) {
+        size_t at = m_blockStart;
+        do {
+            size_t const length = std::min<size_t>(65535, end - at);
+            put(last && at + length == end ? 1 : 0, 1);
+            put(0, 2);
+            alignToByte();
+            put(static_cast<u32>(length), 16);
+            put(static_cast<u32>(length) ^ 0xFFFF, 16);
+            flushBytes();
+            std::memcpy(m_out, m_src + at, length);
+            m_out += length;
+            at += length;
+        } while (at < end);
+    }
+
+    // ---- bits, low bit first
+
+    /// @p count (at most 16) bits of @p value.
+    void put(u32 value, u32 count) {
+        m_bits |= static_cast<u64>(value) << m_bitCount;
+        m_bitCount += count;
+        if (m_bitCount >= 32) {
+            for (u32 i = 0; i < 4; ++i)
+                m_out[i] = static_cast<u8>(m_bits >> (8 * i));
+            m_out += 4;
+            m_bits >>= 32;
+            m_bitCount -= 32;
+        }
+    }
+    void alignToByte() {
+        m_bitCount = (m_bitCount + 7) & ~7u;
+    }
+    /// Writes the whole bytes held; the bit count must be a multiple of 8.
+    void flushBytes() {
+        for (; m_bitCount >= 8; m_bitCount -= 8, m_bits >>= 8)
+            *m_out++ = static_cast<u8>(m_bits);
+    }
+    u8* finish() {
+        alignToByte();
+        flushBytes();
+        return m_out;
+    }
+
+    const u8* m_src;
+    size_t m_size;
+    u8* m_out;
+    DeflateWorkspace& m_work;
+    u64 m_bits = 0;
+    u32 m_bitCount = 0;
+    u32 m_hashBits = 8;
+    u32 m_windowMask = 0;
+    size_t m_blockStart = 0;
+    bool m_lastBlockWritten = false;
+    std::array<u32, kLitLenCodes + 2> m_litLenCount{};
+    std::array<u32, kDistCodes + 2> m_distanceCount{};
 };
 
 } // anonymous namespace
@@ -646,30 +1045,36 @@ std::vector<u8> zlib_decompress(std::span<const u8> data, std::string* out_error
     return std::move(inflater.output);
 }
 
-std::vector<u8> zlib_compress(std::span<const u8> data, std::string* /*out_error*/) {
-    Deflater deflater;
-    deflater.run(data);
+bool zlib_compress_append(std::vector<u8>& out, std::span<const u8> data, std::string* /*out_error*/) {
+    thread_local DeflateWorkspace workspace;
+    size_t const start = out.size();
+    out.resize(start + 2 + Deflater::bound(data.size()) + 4);
+    u8* const stream = out.data() + start;
 
-    // Build zlib wrapper.
-    std::vector<u8> result;
-    result.reserve(deflater.output.size() + 6);
+    // Zlib header: CMF=0x78 (CM=8/deflate, CINFO=7/32K window), FLG=0x9C
+    // (default compression, check bits). (0x78 << 8 | 0x9C) % 31 = 0.
+    stream[0] = 0x78;
+    stream[1] = 0x9C;
 
-    // Zlib header: CMF=0x78 (CM=8/deflate, CINFO=7/32K window), FLG=0x01 (check bits).
-    // (0x78 << 8 | 0x01) = 30721, 30721 % 31 = 0  ✓
-    result.push_back(0x78);
-    result.push_back(0x01);
-
-    // DEFLATE data.
-    result.insert(result.end(), deflater.output.begin(), deflater.output.end());
+    Deflater deflater(data, stream + 2, workspace);
+    u8* end = deflater.run();
 
     // Adler-32 checksum (big-endian).
     u32 const check = adler32(data);
-    result.push_back(static_cast<u8>((check >> 24) & 0xFF));
-    result.push_back(static_cast<u8>((check >> 16) & 0xFF));
-    result.push_back(static_cast<u8>((check >> 8) & 0xFF));
-    result.push_back(static_cast<u8>(check & 0xFF));
+    *end++ = static_cast<u8>((check >> 24) & 0xFF);
+    *end++ = static_cast<u8>((check >> 16) & 0xFF);
+    *end++ = static_cast<u8>((check >> 8) & 0xFF);
+    *end++ = static_cast<u8>(check & 0xFF);
 
-    return result;
+    out.resize(static_cast<size_t>(end - out.data()));
+    return true;
+}
+
+std::vector<u8> zlib_compress(std::span<const u8> data, std::string* out_error) {
+    std::vector<u8> out;
+    if (!zlib_compress_append(out, data, out_error))
+        return {};
+    return out;
 }
 
 } // namespace whiteout

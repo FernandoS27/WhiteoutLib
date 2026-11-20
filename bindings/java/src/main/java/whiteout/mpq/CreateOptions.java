@@ -86,8 +86,18 @@ public final class CreateOptions implements AutoCloseable {
     public void setSectorSizeShift(short value) {
         handle.set(ValueLayout.JAVA_SHORT, 8L, value);
     }
+    /**
+     * Record an MD5 of every file in (attributes), beside its CRC-32 and its time. Blizzard's Warcraft III archives and World Editor maps carry none; StarCraft II's do. An archive that is opened keeps the arrays it came with, whatever this says.
+     * @return the fileHashes field of this MpqCreateOptions.
+     */
+    public boolean getFileHashes() {
+        return handle.get(ValueLayout.JAVA_BYTE, 10L) != 0;
+    }
+    public void setFileHashes(boolean value) {
+        handle.set(ValueLayout.JAVA_BYTE, 10L, (byte) (value ? 1 : 0));
+    }
     @Override public String toString() {
-        return "CreateOptions(" + "version=" + getVersion() + ", " + "hashTableSize=" + getHashTableSize() + ", " + "sectorSizeShift=" + getSectorSizeShift() + ")";
+        return "CreateOptions(" + "version=" + getVersion() + ", " + "hashTableSize=" + getHashTableSize() + ", " + "sectorSizeShift=" + getSectorSizeShift() + ", " + "fileHashes=" + getFileHashes() + ")";
     }
 
 }

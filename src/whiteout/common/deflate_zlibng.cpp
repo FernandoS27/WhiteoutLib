@@ -19,6 +19,8 @@
 
 #include <zlib-ng.h>
 
+#include <algorithm>
+
 namespace whiteout {
 
 namespace {
@@ -90,17 +92,67 @@ std::vector<u8> zlib_decompress(std::span<const u8> data, std::string* out_error
     return inflateStream(data, expectedSize, out_error);
 }
 
-std::vector<u8> zlib_compress(std::span<const u8> data, std::string* out_error) {
-    size_t const bound = zng_compressBound(data.size());
-    std::vector<u8> out(bound);
-    size_t destLen = bound;
-    int const rc = zng_compress2(out.data(), &destLen, data.data(), data.size(), kDefaultLevel);
-    if (rc != Z_OK) {
+bool zlib_compress_append(std::vector<u8>& out, std::span<const u8> data, std::string* out_error) {
+    // One deflate stream per thread, reset for each call: setting one up
+    // costs more than compressing a small input does.
+    struct Stream {
+        zng_stream zs{};
+        bool ready = false;
+        ~Stream() {
+            if (ready)
+                zng_deflateEnd(&zs);
+        }
+    };
+    thread_local Stream stream;
+    auto fail = [&] {
         if (out_error)
             *out_error = "zlib compression failed";
-        return {};
+        return false;
+    };
+    zng_stream& zs = stream.zs;
+    if (!stream.ready) {
+        if (zng_deflateInit(&zs, kDefaultLevel) != Z_OK)
+            return fail();
+        stream.ready = true;
+    } else if (zng_deflateReset(&zs) != Z_OK) {
+        return fail();
     }
-    out.resize(destLen);
+
+    size_t const start = out.size();
+    out.resize(start + zng_compressBound(data.size()));
+    // The stream counts its buffers in 32 bits: the input goes in pieces.
+    constexpr size_t kPiece = size_t{1} << 30;
+    size_t fed = 0;
+    size_t written = 0;
+    for (;;) {
+        size_t const piece = std::min(kPiece, data.size() - fed);
+        zs.next_in = data.data() + fed;
+        zs.avail_in = static_cast<uint32_t>(piece);
+        zs.next_out = out.data() + start + written;
+        zs.avail_out = static_cast<uint32_t>(std::min(kPiece, out.size() - start - written));
+        bool const last = fed + piece == data.size();
+        int const rc = zng_deflate(&zs, last ? Z_FINISH : Z_NO_FLUSH);
+        fed += piece - zs.avail_in;
+        written = static_cast<size_t>(zs.next_out - (out.data() + start));
+        if (rc == Z_STREAM_END)
+            break;
+        if (rc != Z_OK && rc != Z_BUF_ERROR) {
+            out.resize(start);
+            return fail();
+        }
+        if (written == out.size() - start) { // The bound did not hold.
+            out.resize(start);
+            return fail();
+        }
+    }
+    out.resize(start + written);
+    return true;
+}
+
+std::vector<u8> zlib_compress(std::span<const u8> data, std::string* out_error) {
+    std::vector<u8> out;
+    if (!zlib_compress_append(out, data, out_error))
+        return {};
     return out;
 }
 
@@ -133,6 +185,10 @@ std::optional<size_t> zlibInflateFastInto(std::span<u8> dst, std::span<const u8>
     if (zng_uncompress(dst.data(), &destLen, src.data(), src.size()) != Z_OK)
         return std::nullopt;
     return destLen;
+}
+
+std::optional<size_t> zlibInflateCheckedInto(std::span<u8> dst, std::span<const u8> src) {
+    return zlibInflateFastInto(dst, src); // zng_uncompress checks the Adler-32 itself.
 }
 
 } // namespace whiteout::storages::common

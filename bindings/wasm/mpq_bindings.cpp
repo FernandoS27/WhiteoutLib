@@ -101,6 +101,7 @@ EMSCRIPTEN_BINDINGS(mpq) {
         .field("version", &whiteout::storages::mpq::CreateOptions::version)
         .field("hashTableSize", &whiteout::storages::mpq::CreateOptions::hashTableSize)
         .field("sectorSizeShift", &whiteout::storages::mpq::CreateOptions::sectorSizeShift)
+        .field("fileHashes", &whiteout::storages::mpq::CreateOptions::fileHashes)
     ;
 
     // ── Classes ──────────────────────────────────────────────────────────
@@ -153,6 +154,7 @@ EMSCRIPTEN_BINDINGS(mpq) {
         .function("deleteFile", &whiteout::storages::mpq::Storage::deleteFile)
         .function("save", select_overload<bool()>(&whiteout::storages::mpq::Storage::save))
         .function("save_path", select_overload<bool(const std::string &)>(&whiteout::storages::mpq::Storage::save))
+        .function("lastError", &whiteout::storages::mpq::Storage::lastError)
     ;
 
     class_<whiteout::utils::MpqFileSystem, base<whiteout::interfaces::VirtualPathFileSystem>>("MpqFileSystem")

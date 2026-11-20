@@ -38,4 +38,10 @@ std::vector<u8> zlibInflateFast(std::span<const u8> src, size_t expectedSize = 0
 /// @return Bytes written, or std::nullopt on failure.
 std::optional<size_t> zlibInflateFastInto(std::span<u8> dst, std::span<const u8> src);
 
+/// zlibInflateFastInto() for data nothing else vouches for: the stream's
+/// Adler-32 is checked against what was written.
+///
+/// @return Bytes written, or std::nullopt on failure or a checksum mismatch.
+std::optional<size_t> zlibInflateCheckedInto(std::span<u8> dst, std::span<const u8> src);
+
 } // namespace whiteout::storages::common

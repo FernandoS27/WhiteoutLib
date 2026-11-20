@@ -68,6 +68,23 @@ inline bool hasFlag(CompressionFlag flags, CompressionFlag flag) noexcept {
 [[nodiscard]] std::vector<u8> mpqDecompress(std::span<const u8> src, size_t uncompressedSize,
                                             std::string* error = nullptr);
 
+/// Buffers a decode borrows for the stages before its last, when a sector is
+/// packed with more than one codec; a caller keeps one across the sectors it
+/// decodes, on one thread.
+struct DecodeScratch {
+    std::vector<u8> stage[2];
+};
+
+/// mpqDecompress() into a buffer the caller owns: @p dst is exactly the
+/// size the data must decode to, and nothing is written outside it. A stage
+/// before the last may give no more than that size either, as in StormLib.
+/// zlib goes through the fast inflater, its Adler-32 checked.
+///
+/// @param[out] error  Optional error message on failure.
+/// @return true when @p src decoded to exactly dst.size() bytes.
+[[nodiscard]] bool mpqDecompressInto(std::span<const u8> src, std::span<u8> dst, DecodeScratch& scratch,
+                                     std::string* error = nullptr);
+
 /// Compress data using a single MPQ compression algorithm.
 /// The output includes the compression byte prefix.
 ///
@@ -77,5 +94,11 @@ inline bool hasFlag(CompressionFlag flags, CompressionFlag flag) noexcept {
 /// @return Compressed data with compression byte prefix, or empty vector on failure.
 [[nodiscard]] std::vector<u8> mpqCompress(std::span<const u8> src, CompressionFlag compressionType,
                                           std::string* error = nullptr);
+
+/// mpqCompress() appended to @p out, which is left as it was when the data
+/// does not come out smaller.
+/// @return true when the compressed data was appended.
+[[nodiscard]] bool mpqCompressAppend(std::span<const u8> src, CompressionFlag compressionType, std::vector<u8>& out,
+                                     std::string* error = nullptr);
 
 } // namespace whiteout::storages::mpq

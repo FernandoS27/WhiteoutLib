@@ -8,9 +8,11 @@
 
 #include <whiteout/common_types.h>
 
+#include "../crypto.h"
+
 #include <optional>
 #include <span>
-#include <string>
+#include <string_view>
 #include <vector>
 
 namespace whiteout::storages::mpq {
@@ -74,38 +76,58 @@ public:
 
     /// Look up a filename with any locale. Returns the hash table index,
     /// or nullopt if not found.
-    [[nodiscard]] std::optional<u32> lookup(const std::string& filename) const;
+    [[nodiscard]] std::optional<u32> lookup(std::string_view filename) const;
 
     /// Look up a filename with a specific locale. Returns the hash table index,
     /// or nullopt if not found.
-    [[nodiscard]] std::optional<u32> lookup(const std::string& filename, u16 locale) const;
+    [[nodiscard]] std::optional<u32> lookup(std::string_view filename, u16 locale) const;
 
     /// The slot the game reads for @p filename in @p locale, as Storm and
     /// StormLib pick it: the first entry of exactly that locale (when it is
     /// not neutral), else the last neutral one. Entries for another platform
     /// or with a block index of @p blockCount or more are skipped.
-    [[nodiscard]] std::optional<u32> find(const std::string& filename, u16 locale,
-                                          u32 blockCount) const;
+    [[nodiscard]] std::optional<u32> find(std::string_view filename, u16 locale, u32 blockCount) const;
 
     /// find() for one spelling: @p keepSlashes hashes '/' as itself.
-    [[nodiscard]] std::optional<u32> findSpelled(const std::string& filename, bool keepSlashes, u16 locale,
+    [[nodiscard]] std::optional<u32> findSpelled(std::string_view filename, bool keepSlashes, u16 locale,
                                                  u32 blockCount) const;
+
+    /// find() for one spelling, already hashed.
+    [[nodiscard]] std::optional<u32> findHashed(const NameHash& name, u16 locale, u32 blockCount) const;
+
+    /// @p fn(slot) for each occupied slot naming the spelling @p name hashes.
+    template <class Fn>
+    void eachSlot(const NameHash& name, Fn fn) const {
+        if (m_entries.empty())
+            return;
+        u32 const mask = capacity() - 1;
+        u32 const start = name.offset & mask;
+        u32 index = start;
+        do {
+            const HashEntry& e = m_entries[index];
+            if (e.isEmpty())
+                return;
+            if (e.isOccupied() && e.hashA == name.a && e.hashB == name.b)
+                fn(index);
+            index = (index + 1) & mask;
+        } while (index != start);
+    }
 
     /// Every occupied slot naming @p filename, under the first spelling
     /// with any; @p keepSlashes, when given, receives which one it was.
-    [[nodiscard]] std::vector<u32> slotsOf(const std::string& filename, bool* keepSlashes = nullptr) const;
+    [[nodiscard]] std::vector<u32> slotsOf(std::string_view filename, bool* keepSlashes = nullptr) const;
 
     /// Insert a new entry. Used by the writer during save() when building fresh tables.
     /// Returns the hash table index, or nullopt if the table is full.
-    [[nodiscard]] std::optional<u32> insert(const std::string& filename, u16 locale, u32 blockIndex,
+    [[nodiscard]] std::optional<u32> insert(std::string_view filename, u16 locale, u32 blockIndex,
                                             u16 platform = 0, bool keepSlashes = false);
 
     /// Mark an entry as deleted. Used by the writer during save().
     /// Returns true if the entry was found and removed.
-    bool remove(const std::string& filename);
+    bool remove(std::string_view filename);
 
     /// Mark an entry with a specific locale as deleted.
-    bool remove(const std::string& filename, u16 locale);
+    bool remove(std::string_view filename, u16 locale);
 
     /// Serialize the hash table to encrypted bytes for archive output.
     [[nodiscard]] std::vector<u8> serialize() const;

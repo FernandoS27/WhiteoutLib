@@ -4,7 +4,6 @@
 #include <whiteout/storages/mpq/storage.h>
 
 #include "../../common/unicode_path.h"
-#include "../../storages/common/jenkins.h"
 #include "../../storages/common/mapped_file.h"
 #include "../../storages/mpq/crypto.h"
 #include "../../storages/mpq/file_data.h"
@@ -30,8 +29,6 @@
 
 namespace whiteout::storages::mpq {
 
-using storages::common::normalizePath;
-
 // ============================================================================
 // Shared archive-parsing helper
 // ============================================================================
@@ -40,19 +37,72 @@ namespace {
 
 /// A name's two hash table checks as one key; @p keepSlashes hashes '/' as
 /// itself, as Storm and StormLib do.
-u64 nameKey(const std::string& name, bool keepSlashes = false) {
-    return (static_cast<u64>(hashString(name, HashType::NameA, keepSlashes)) << 32) |
-           hashString(name, HashType::NameB, keepSlashes);
+u64 nameKey(std::string_view name, bool keepSlashes = false) {
+    return hashName(name, keepSlashes).key();
 }
 
-/// @p fn(key, keepSlashes) for each spelling a table may hold @p name under:
-/// its slashes as slashes (when it has any), then as backslashes.
-template <class Fn>
-void forEachSpelling(const std::string& name, Fn fn) {
-    if (name.find('/') != std::string::npos)
-        fn(nameKey(name, true), true);
-    fn(nameKey(name), false);
-}
+/// A name as the overlay keys it: upper case, '/' as '\\', the way it is
+/// hashed. Short names stay on the stack: a lookup builds no string.
+class OverlayKey {
+public:
+    explicit OverlayKey(std::string_view name) {
+        char* out = m_inline;
+        if (name.size() > sizeof(m_inline)) {
+            m_long.resize(name.size());
+            out = m_long.data();
+        }
+        for (size_t i = 0; i < name.size(); ++i)
+            out[i] = static_cast<char>(kNameFold.folded[static_cast<u8>(name[i])]);
+        m_view = std::string_view(out, name.size());
+    }
+    OverlayKey(const OverlayKey&) = delete;
+    OverlayKey& operator=(const OverlayKey&) = delete;
+
+    [[nodiscard]] std::string_view view() const {
+        return m_view;
+    }
+    [[nodiscard]] std::string str() const {
+        return std::string(m_view);
+    }
+
+private:
+    char m_inline[160];
+    std::string m_long;
+    std::string_view m_view;
+};
+
+/// Hash and equality that let the overlay's maps be asked with a view.
+struct NameViewHash {
+    using is_transparent = void;
+    size_t operator()(std::string_view name) const noexcept {
+        return std::hash<std::string_view>{}(name);
+    }
+};
+struct NameViewEqual {
+    using is_transparent = void;
+    bool operator()(std::string_view a, std::string_view b) const noexcept {
+        return a == b;
+    }
+};
+
+/// The source archive's (listfile), matched against its hash table.
+struct NameIndex {
+    struct Line {
+        std::string_view name;      ///< As the (listfile) spells it; points into `text`.
+        NameHash folded;            ///< Hashed with '/' as '\\'.
+        NameHash slashKept;         ///< Hashed with '/' as itself; `folded` again when it has none.
+        bool held = false;          ///< The archive holds a file by this name, in some locale.
+        bool heldSlashKept = false; ///< The spelling its hash slots are under.
+
+        /// The key of the spelling the archive knows it by.
+        [[nodiscard]] u64 heldKey() const {
+            return (heldSlashKept ? slashKept : folded).key();
+        }
+    };
+    std::vector<u8> text;     ///< The (listfile) as read.
+    std::vector<Line> lines;  ///< In (listfile) order.
+    std::vector<u32> listed;  ///< The lines listFiles gives: held, the first for each file.
+};
 
 /// Result of parsing an MPQ archive from a memory-mapped file.
 struct ParsedArchive {
@@ -62,10 +112,10 @@ struct ParsedArchive {
     bool war3Map = false; ///< Read as Warcraft III reads a map (see isWar3Map).
     HashTable hashTable;
     BlockTable blockTable;
-    std::vector<std::string> listfileNames;
 };
 
-/// Map, parse header, decrypt tables, and read the listfile from an archive on disk.
+/// Map, parse header and decrypt tables from an archive on disk; its
+/// (listfile) is read when something first asks for names.
 /// Returns nullopt on any parse failure.  When @p error is non-null, stores a
 /// diagnostic message explaining the first failure.
 std::optional<ParsedArchive> parseMappedArchive(const std::string& path,
@@ -156,46 +206,48 @@ std::optional<ParsedArchive> parseMappedArchive(const std::string& path,
         }
     }
 
-    // Read (listfile).
-    if (auto lfIdx = pa.hashTable.find("(listfile)", 0, pa.blockTable.count())) {
-        const auto& he = pa.hashTable.entry(*lfIdx);
-        const auto& be = pa.blockTable.entry(he.blockIndex);
-        u32 const fileKey = be.isEncrypted() ? deriveFileKey("(listfile)", be) : 0;
-        auto lfData = extractFileData(mappedFile->data(), pa.archiveOffset, be, pa.header.sectorSize(),
-                                      fileKey, nullptr, nullptr, pa.blockTable.fileOffsetHi(he.blockIndex));
-        if (lfData)
-            pa.listfileNames = parseListfile(std::span<const u8>(*lfData));
-    }
-
     pa.mapping = std::move(*mappedFile);
     return pa;
 }
 
-/// Holds a saved archive in memory until it passes kSpillBytes, then streams
-/// it to the file: a small save is one write, a large one never holds the
-/// whole archive.
-class SpillFileSink final : public ArchiveSink {
+/// Writes a saved archive to its file. Small pieces gather in one fixed
+/// buffer. Bytes that last (files copied whole from the source's mapping)
+/// are not copied at all while they follow one another in memory: the
+/// stretch they make is written from where it lies. A save holds no more of
+/// the archive than that buffer.
+class FileSink final : public ArchiveSink {
 public:
-    static constexpr size_t kSpillBytes = size_t{128} << 20;
+    static constexpr size_t kBufferBytes = size_t{4} << 20;
+    /// A stretch this long is written from where it lies; a shorter one is
+    /// cheaper to gather with its neighbours.
+    static constexpr size_t kDirectBytes = size_t{256} << 10;
+    static constexpr size_t kWriteBytes = size_t{16} << 20; ///< The most given to one write.
 
     /// @p base: what the file holds before the archive (the preamble).
-    SpillFileSink(std::ofstream& out, u64 base) : m_out(out), m_base(base) {}
+    FileSink(std::ofstream& out, u64 base) : m_out(out), m_base(base) {
+        m_buffer.reserve(kBufferBytes);
+    }
 
     [[nodiscard]] u64 size() const override {
-        return m_flushed + m_buffer.size();
+        return m_flushed + m_buffer.size() + m_stretch.size();
     }
 
     void append(std::span<const u8> bytes) override {
-        if (m_buffer.size() + bytes.size() < kSpillBytes) {
-            m_buffer.insert(m_buffer.end(), bytes.begin(), bytes.end());
+        settleStretch();
+        gather(bytes);
+    }
+
+    void appendLasting(std::span<const u8> bytes) override {
+        if (!m_stretch.empty() && m_stretch.data() + m_stretch.size() == bytes.data()) {
+            m_stretch = std::span<const u8>(m_stretch.data(), m_stretch.size() + bytes.size());
             return;
         }
-        flush();
-        write(bytes);
-        m_flushed += bytes.size();
+        settleStretch();
+        m_stretch = bytes;
     }
 
     void patch(u64 offset, std::span<const u8> bytes) override {
+        settleStretch();
         if (offset < m_flushed) {
             size_t const onDisk = static_cast<size_t>(std::min<u64>(bytes.size(), m_flushed - offset));
             m_out.seekp(static_cast<std::streamoff>(m_base + offset));
@@ -209,6 +261,7 @@ public:
 
     /// Writes what is still held; false when any write failed.
     bool finish() {
+        settleStretch();
         flush();
         m_out.flush();
         return static_cast<bool>(m_out);
@@ -216,18 +269,48 @@ public:
 
 private:
     void write(std::span<const u8> bytes) {
-        m_out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+        for (size_t at = 0; at < bytes.size(); at += kWriteBytes) {
+            auto const piece = bytes.subspan(at, std::min(kWriteBytes, bytes.size() - at));
+            m_out.write(reinterpret_cast<const char*>(piece.data()), static_cast<std::streamsize>(piece.size()));
+        }
     }
     void flush() {
         write(m_buffer);
         m_flushed += m_buffer.size();
         m_buffer.clear();
     }
+    /// Bytes into the buffer, which is written out when they do not fit.
+    void gather(std::span<const u8> bytes) {
+        if (m_buffer.size() + bytes.size() > kBufferBytes)
+            flush();
+        if (bytes.size() > kBufferBytes) {
+            write(bytes);
+            m_flushed += bytes.size();
+            return;
+        }
+        m_buffer.insert(m_buffer.end(), bytes.begin(), bytes.end());
+    }
+    /// The stretch of lasting bytes still pending goes out: from where it
+    /// lies when it is long, through the buffer when it is not.
+    void settleStretch() {
+        if (m_stretch.empty())
+            return;
+        std::span<const u8> const stretch = m_stretch;
+        m_stretch = {};
+        if (stretch.size() < kDirectBytes) {
+            gather(stretch);
+            return;
+        }
+        flush();
+        write(stretch);
+        m_flushed += stretch.size();
+    }
 
     std::ofstream& m_out;
     u64 m_base;
     u64 m_flushed = 0;
     std::vector<u8> m_buffer;
+    std::span<const u8> m_stretch; ///< Lasting bytes appended and not yet written.
 };
 
 /// A name beside @p path that no file has yet: a save never writes over a
@@ -275,14 +358,17 @@ struct Storage::Impl {
         std::vector<u8> data;
         WriteOptions opts;
     };
-    std::unordered_map<std::string, std::map<u16, OverlayEntry>> pendingWrites;
-    std::unordered_set<std::string> pendingDeletes;
+    std::unordered_map<std::string, std::map<u16, OverlayEntry>, NameViewHash, NameViewEqual> pendingWrites;
+    std::unordered_set<std::string, NameViewHash, NameViewEqual> pendingDeletes;
     /// The slash-kept keys of the names with a slash the overlay was given:
     /// a source file hashed that way goes at save too.
     std::unordered_set<u64> overlaySlashKeys;
 
-    // Parsed (listfile) from source archive.
-    std::vector<std::string> sourceListfileNames;
+    // The source archive's (listfile) and what it holds of it, built by
+    // names() the first time it is asked for.
+    mutable NameIndex nameIndex;
+    mutable std::mutex nameIndexMutex;
+    mutable std::atomic<bool> nameIndexBuilt{false};
 
     // Thread safety.
     mutable std::shared_mutex mutex;
@@ -294,6 +380,10 @@ struct Storage::Impl {
 
     // Worker pool for parallel compression/decompression (non-owning, may be null).
     interfaces::WorkerPool* pool = nullptr;
+
+    /// The (attributes) arrays an archive made by create() is first saved
+    /// with; one that was opened keeps its own.
+    AttributeFlag createdAttributes = AttributeFlag::kCrc32 | AttributeFlag::kFiletime;
 
     // -- Helpers --
 
@@ -307,8 +397,11 @@ struct Storage::Impl {
 
     /// Resolve @p name as Storm does: the entry of exactly @p locale, else the
     /// neutral one. Caller must hold at least a shared lock on mutex.
-    Found resolve(const std::string& name, u16 locale) const {
-        std::string const norm = normalizePath(name);
+    Found resolve(std::string_view name, u16 locale) const {
+        if (pendingWrites.empty() && pendingDeletes.empty())
+            return {nullptr, hashTable.find(name, locale, blockTable.count())};
+        OverlayKey const key(name);
+        std::string_view const norm = key.view();
         auto const it = pendingWrites.find(norm);
         if (it == pendingWrites.end() && !pendingDeletes.contains(norm))
             return {nullptr, hashTable.find(name, locale, blockTable.count())};
@@ -324,18 +417,85 @@ struct Storage::Impl {
     }
 
     /// Extract the source file at hash @p slot, whose name is @p name.
-    std::optional<std::vector<u8>> extractSlot(u32 slot, const std::string& name,
-                                               std::string* error = nullptr) const {
+    std::optional<std::vector<u8>> extractSlot(u32 slot, std::string_view name, std::string* error = nullptr,
+                                               bool pooled = true) const {
         const auto& he = hashTable.entry(slot);
         const auto& be = blockTable.entry(he.blockIndex);
         u32 const fileKey = be.isEncrypted() ? deriveFileKey(name, be) : 0;
-        return extractFileData(sourceArchive->data(), archiveOffset, be, header.sectorSize(),
-                               fileKey, error, pool, blockTable.fileOffsetHi(he.blockIndex));
+        return extractFileData(sourceArchive->data(), archiveOffset, be, header.sectorSize(), fileKey, error,
+                               pooled ? pool : nullptr, blockTable.fileOffsetHi(he.blockIndex));
+    }
+
+    /// The source's (listfile) matched against its hash table: read and
+    /// built by the first caller, then shared. Caller must hold at least a
+    /// shared lock on mutex.
+    const NameIndex& names() const {
+        if (!nameIndexBuilt.load(std::memory_order_acquire)) {
+            std::lock_guard const lock(nameIndexMutex);
+            if (!nameIndexBuilt.load(std::memory_order_relaxed)) {
+                buildNameIndex();
+                nameIndexBuilt.store(true, std::memory_order_release);
+            }
+        }
+        return nameIndex;
+    }
+
+    void buildNameIndex() const {
+        NameIndex index;
+        if (sourceArchive) {
+            if (auto slot = hashTable.find("(listfile)", 0, blockTable.count()))
+                if (auto data = extractSlot(*slot, "(listfile)", nullptr, false))
+                    index.text = std::move(*data);
+        }
+        forEachListfileLine(index.text, [&](std::string_view name) {
+            NameIndex::Line line;
+            line.name = name;
+            line.folded = hashName(name);
+            line.slashKept = line.folded.hasSlash ? hashName(name, true) : line.folded;
+            index.lines.push_back(line);
+        });
+
+        // A line names a file when the archive holds one by that name, in
+        // some locale, under the first spelling with any hash slot at all.
+        // Two lines for one file share its slots: the first is the one listed.
+        u32 const blockCount = blockTable.count();
+        std::vector<u8> claimed(hashTable.capacity(), 0);
+        for (u32 i = 0; i < index.lines.size(); ++i) {
+            NameIndex::Line& line = index.lines[i];
+            bool any = false;
+            std::optional<u32> heldSlot;
+            auto scan = [&](const NameHash& spelling) {
+                hashTable.eachSlot(spelling, [&](u32 slot) {
+                    any = true;
+                    const HashEntry& he = hashTable.entry(slot);
+                    if (!heldSlot && he.blockIndex < blockCount && blockTable.entry(he.blockIndex).exists() &&
+                        (he.platform & 0xFF) == 0)
+                        heldSlot = slot;
+                });
+            };
+            if (line.folded.hasSlash) {
+                scan(line.slashKept);
+                line.heldSlashKept = any;
+            }
+            if (!line.heldSlashKept)
+                scan(line.folded);
+            line.held = heldSlot.has_value();
+            if (heldSlot && !claimed[*heldSlot]) {
+                claimed[*heldSlot] = 1;
+                index.listed.push_back(i);
+            }
+        }
+        nameIndex = std::move(index);
+    }
+
+    /// Forget the name index: the source it was built from is gone.
+    void resetNameIndex() {
+        nameIndex = NameIndex{};
+        nameIndexBuilt.store(false, std::memory_order_release);
     }
 
     /// Shared readFile logic. Caller must hold at least a shared lock on mutex.
-    std::optional<std::vector<u8>> readFileCore(const std::string& name, u16 locale,
-                                                std::string* error) const {
+    std::optional<std::vector<u8>> readFileCore(std::string_view name, u16 locale, std::string* error) const {
         Found const found = resolve(name, locale);
         if (found.pending)
             return found.pending->data;
@@ -360,18 +520,28 @@ struct Storage::Impl {
         plan.header = header;
         plan.hashTableCapacity = header.hashTableEntries;
         plan.singleUnitSpecials = header.formatVersion >= 2;
+        plan.attributeFlags = createdAttributes;
 
         // A name keeps its (listfile) line, in either spelling; a new one
-        // goes after them all.
-        std::unordered_map<u64, u32> ranks;
-        u32 line = 0;
-        for (const auto& name : sourceListfileNames) {
-            forEachSpelling(name, [&](u64 key, bool) { ranks.try_emplace(key, line); });
-            ++line;
+        // goes after them all. Each spelling's key gives its first line and
+        // which spelling it is.
+        const NameIndex& index = names();
+        struct Named {
+            u32 line;
+            bool slashHashed;
+        };
+        std::unordered_map<u64, Named> named;
+        named.reserve(index.lines.size());
+        for (u32 i = 0; i < index.lines.size(); ++i) {
+            const NameIndex::Line& line = index.lines[i];
+            if (line.folded.hasSlash)
+                named.try_emplace(line.slashKept.key(), Named{i, true});
+            named.try_emplace(line.folded.key(), Named{i, false});
         }
+        u32 const lineCount = static_cast<u32>(index.lines.size());
         auto rankOf = [&](u64 key) {
-            auto it = ranks.find(key);
-            return it != ranks.end() ? it->second : line;
+            auto it = named.find(key);
+            return it != named.end() ? it->second.line : lineCount;
         };
         // Names the overlay writes or deletes: every locale of one goes, so a
         // replaced file is not shadowed by a localized copy of the old one.
@@ -380,19 +550,15 @@ struct Storage::Impl {
             replaced.insert(nameKey(norm));
         for (const auto& norm : pendingDeletes)
             replaced.insert(nameKey(norm));
-        auto overlayOwns = [&](const std::string& name) {
-            std::string const norm = normalizePath(name);
-            return pendingWrites.contains(norm) || pendingDeletes.contains(norm);
+        bool const overlaid = !pendingWrites.empty() || !pendingDeletes.empty();
+        auto overlayOwns = [&](std::string_view name) {
+            if (!overlaid)
+                return false;
+            OverlayKey const key(name);
+            return pendingWrites.contains(key.view()) || pendingDeletes.contains(key.view());
         };
 
         if (sourceArchive) {
-            struct Named {
-                std::string name;
-                bool slashHashed;
-            };
-            std::unordered_map<u64, Named> names;
-            for (const auto& name : sourceListfileNames)
-                forEachSpelling(name, [&](u64 key, bool slashes) { names.try_emplace(key, Named{name, slashes}); });
             std::unordered_set<u64> const specials{nameKey("(listfile)"), nameKey("(attributes)"), nameKey("(signature)")};
 
             // The source's (attributes), carried per block; written again
@@ -444,17 +610,19 @@ struct Storage::Impl {
                 const BlockEntry& be = blockTable.entry(block);
 
                 WriteEntry we;
-                if (auto it = names.find(key); it != names.end()) {
-                    const Named& named = it->second;
-                    if (overlayOwns(named.name))
+                if (auto it = named.find(key); it != named.end()) {
+                    const NameIndex::Line& line = index.lines[it->second.line];
+                    bool const slashHashed = it->second.slashHashed;
+                    if (overlayOwns(line.name))
                         continue;
                     // Only the entry a lookup lands on is ever read: a decoy
                     // ahead of it, or a second copy for its locale, goes.
                     if ((he.platform & 0xFF) == 0 &&
-                        hashTable.findSpelled(named.name, named.slashHashed, he.locale, blockTable.count()) != slot)
+                        hashTable.findHashed(slashHashed ? line.slashKept : line.folded, he.locale,
+                                             blockTable.count()) != slot)
                         continue;
-                    we.filename = named.name;
-                    we.slashHashed = named.slashHashed;
+                    we.filename = std::string(line.name);
+                    we.slashHashed = slashHashed;
                 }
                 we.listRank = rankOf(key);
                 we.locale = he.locale;
@@ -521,7 +689,7 @@ struct Storage::Impl {
         sourceArchive.reset();
         hashTable = HashTable{};
         blockTable = BlockTable{};
-        sourceListfileNames.clear();
+        resetNameIndex();
         pendingWrites.clear();
         pendingDeletes.clear();
         overlaySlashKeys.clear();
@@ -529,8 +697,8 @@ struct Storage::Impl {
     }
 
     /// Note a name the overlay now owns, in the spelling it was given.
-    void noteSpelling(const std::string& name) {
-        if (name.find('/') != std::string::npos)
+    void noteSpelling(std::string_view name) {
+        if (name.find('/') != std::string_view::npos)
             overlaySlashKeys.insert(nameKey(name, true));
     }
 
@@ -544,7 +712,7 @@ struct Storage::Impl {
         hashTable = std::move(pa.hashTable);
         blockTable = std::move(pa.blockTable);
         sourceArchive = std::move(pa.mapping);
-        sourceListfileNames = std::move(pa.listfileNames);
+        resetNameIndex();
         isValid = true;
         pendingWrites.clear();
         pendingDeletes.clear();
@@ -601,6 +769,8 @@ Storage Storage::create(CreateOptions opts, interfaces::WorkerPool* pool) {
 
     impl.header = buildHeader(static_cast<u16>(opts.version), opts.hashTableSize,
                               std::max<u16>(opts.sectorSizeShift, 1));
+    if (opts.fileHashes)
+        impl.createdAttributes |= AttributeFlag::kMd5;
     impl.isValid = true;
     impl.pool = pool;
     return storage;
@@ -654,6 +824,41 @@ std::optional<std::vector<u8>> Storage::readFile(const std::string& name, u16 lo
     if (!m_impl->isValid)
         return std::nullopt;
     return m_impl->readFileCore(name, locale, nullptr);
+}
+
+std::vector<std::optional<std::vector<u8>>> Storage::readFiles(const std::vector<std::string>& names) const {
+    std::vector<std::optional<std::vector<u8>>> results(names.size());
+    if (!m_impl)
+        return results;
+    std::shared_lock const lock(m_impl->mutex);
+    const Impl& impl = *m_impl;
+    if (!impl.isValid)
+        return results;
+
+    // A pending write answers at once; the rest go to the source together.
+    std::vector<ExtractFileInfo> wanted;
+    std::vector<size_t> wantedIndex;
+    for (size_t i = 0; i < names.size(); ++i) {
+        Impl::Found const found = impl.resolve(names[i], Locale::Neutral);
+        if (found.pending) {
+            results[i] = found.pending->data;
+            continue;
+        }
+        if (!found.slot || !impl.sourceArchive)
+            continue;
+        const HashEntry& he = impl.hashTable.entry(*found.slot);
+        const BlockEntry& be = impl.blockTable.entry(he.blockIndex);
+        wanted.push_back({be, be.isEncrypted() ? deriveFileKey(names[i], be) : 0,
+                          impl.blockTable.fileOffsetHi(he.blockIndex)});
+        wantedIndex.push_back(i);
+    }
+    if (wanted.empty())
+        return results;
+    auto extracted = extractBatch(impl.sourceArchive->data(), impl.archiveOffset, wanted, impl.header.sectorSize(),
+                                  impl.pool);
+    for (size_t k = 0; k < extracted.size(); ++k)
+        results[wantedIndex[k]] = std::move(extracted[k]);
+    return results;
 }
 
 bool Storage::fileExists(const std::string& name) const {
@@ -725,32 +930,29 @@ std::vector<std::string> Storage::listFiles() const {
     if (!m_impl->isValid)
         return {};
 
-    const Impl& impl = *m_impl;
-    std::unordered_set<u64> seen; // The files listed, by name key.
-    std::vector<std::string> result;
-
     // A (listfile) line is listed when the archive holds a file by that name,
     // in some locale: a line can name nothing.
-    auto held = [&](const std::string& name, bool& slashes) {
-        for (u32 const slot : impl.hashTable.slotsOf(name, &slashes)) {
-            const HashEntry& he = impl.hashTable.entry(slot);
-            if (he.blockIndex < impl.blockTable.count() && impl.blockTable.entry(he.blockIndex).exists() &&
-                (he.platform & 0xFF) == 0)
-                return true;
-        }
-        return false;
-    };
-    for (const auto& name : impl.sourceListfileNames) {
-        std::string const norm = normalizePath(name);
-        if (impl.pendingWrites.contains(norm)) {
+    const Impl& impl = *m_impl;
+    const NameIndex& index = impl.names();
+    std::vector<std::string> result;
+    if (impl.pendingWrites.empty() && impl.pendingDeletes.empty()) {
+        result.reserve(index.listed.size());
+        for (u32 const line : index.listed)
+            result.emplace_back(index.lines[line].name);
+        return result;
+    }
+
+    std::unordered_set<u64> seen; // The files listed, by name key.
+    for (const NameIndex::Line& line : index.lines) {
+        OverlayKey const key(line.name);
+        if (impl.pendingWrites.contains(key.view())) {
             // Written over: listed once, as the (listfile) spells it.
-            if (seen.insert(nameKey(norm)).second)
-                result.push_back(name);
+            if (seen.insert(line.folded.key()).second)
+                result.emplace_back(line.name);
             continue;
         }
-        bool slashes = false;
-        if (!impl.pendingDeletes.contains(norm) && held(name, slashes) && seen.insert(nameKey(name, slashes)).second)
-            result.push_back(name);
+        if (line.held && !impl.pendingDeletes.contains(key.view()) && seen.insert(line.heldKey()).second)
+            result.emplace_back(line.name);
     }
 
     // Overlay additions.
@@ -783,7 +985,19 @@ bool Storage::writeFile(const std::string& name, std::span<const u8> data, Write
         return false;
 
     // A pending delete stays: it still takes every source copy of the name.
-    m_impl->pendingWrites[normalizePath(name)][opts.locale] = {name, std::vector<u8>(data.begin(), data.end()), opts};
+    m_impl->pendingWrites[OverlayKey(name).str()][opts.locale] = {name, std::vector<u8>(data.begin(), data.end()), opts};
+    m_impl->noteSpelling(name);
+    return true;
+}
+
+bool Storage::writeFileOwned(const std::string& name, std::vector<u8>&& data, WriteOptions opts) {
+    if (!m_impl || data.size() > 0xFFFFFFFFull)
+        return false;
+    std::unique_lock const lock(m_impl->mutex);
+    if (!m_impl->isValid)
+        return false;
+
+    m_impl->pendingWrites[OverlayKey(name).str()][opts.locale] = {name, std::move(data), opts};
     m_impl->noteSpelling(name);
     return true;
 }
@@ -796,7 +1010,7 @@ bool Storage::deleteFile(const std::string& name) {
         return false;
 
     // Every locale of the name goes, pending writes included.
-    std::string norm = normalizePath(name);
+    std::string norm = OverlayKey(name).str();
     bool const pending = m_impl->pendingWrites.erase(norm) > 0;
     bool const gone = m_impl->pendingDeletes.contains(norm);
     bool const inSource = !gone && m_impl->hashTable.lookup(name).has_value();
@@ -866,7 +1080,7 @@ bool Storage::Impl::saveTo(const std::string& path) {
         if (!out)
             return fail("could not open '" + tempPath + "' for writing");
         out.write(reinterpret_cast<const char*>(preamble.data()), static_cast<std::streamsize>(preamble.size()));
-        SpillFileSink sink(out, preamble.size());
+        FileSink sink(out, preamble.size());
         std::string why = writeArchive(plan, entries, sink, pool);
         if (why.empty() && !sink.finish())
             why = "could not write '" + tempPath + "'";

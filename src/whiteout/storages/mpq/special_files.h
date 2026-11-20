@@ -10,6 +10,7 @@
 
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace whiteout::storages::mpq {
@@ -44,8 +45,24 @@ inline bool hasFlag(AttributeFlag flags, AttributeFlag flag) noexcept {
 // (listfile)
 // ============================================================================
 
-/// Parse a `(listfile)` file into a list of filenames.
-/// Splits on CR/LF, skips empty lines and lines starting with `;` or `#`.
+/// @p fn(line) for each line of a `(listfile)`, as StormLib reads it: a line
+/// ends at CR or LF, and every other byte, spaces and a leading '#' or ';'
+/// included, belongs to a name. Empty lines are skipped. A line points into
+/// @p data.
+template <class Fn>
+void forEachListfileLine(std::span<const u8> data, Fn fn) {
+    const char* const text = reinterpret_cast<const char*>(data.data());
+    size_t start = 0;
+    for (size_t i = 0; i <= data.size(); ++i) {
+        if (i < data.size() && text[i] != '\r' && text[i] != '\n')
+            continue;
+        if (i > start)
+            fn(std::string_view(text + start, i - start));
+        start = i + 1;
+    }
+}
+
+/// Parse a `(listfile)` file into a list of filenames (see forEachListfileLine).
 [[nodiscard]] std::vector<std::string> parseListfile(std::span<const u8> data);
 
 /// Build a `(listfile)` from a list of filenames.

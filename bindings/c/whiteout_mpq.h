@@ -133,6 +133,9 @@ void whiteout_mpq_MpqCreateOptions_set_hashTableSize(whiteout_MpqCreateOptions* 
 /* Sector size = 512 << shift (default 3 → 4096 bytes). 0 is taken as 1: some StormLib builds, HiveWE's among them, open no archive of 512-byte sectors. */
 uint16_t whiteout_mpq_MpqCreateOptions_get_sectorSizeShift(const whiteout_MpqCreateOptions* self);
 void whiteout_mpq_MpqCreateOptions_set_sectorSizeShift(whiteout_MpqCreateOptions* self, uint16_t value);
+/* Record an MD5 of every file in (attributes), beside its CRC-32 and its time. Blizzard's Warcraft III archives and World Editor maps carry none; StarCraft II's do. An archive that is opened keeps the arrays it came with, whatever this says. */
+int32_t whiteout_mpq_MpqCreateOptions_get_fileHashes(const whiteout_MpqCreateOptions* self);
+void whiteout_mpq_MpqCreateOptions_set_fileHashes(whiteout_MpqCreateOptions* self, int32_t value);
 
 /* ── MpqStorage ─────────────────────────────────────────────── */
 
@@ -173,7 +176,7 @@ int32_t whiteout_mpq_MpqStorage_deleteFile(whiteout_MpqStorage* self, const char
 int32_t whiteout_mpq_MpqStorage_save(whiteout_MpqStorage* self);
 /* Save the archive to a specific path. After saving, the new file becomes the source archive and the overlay is cleared. */
 /*  */
-/* The archive is written to an unused name beside @p path, then renamed over it, so a failed save leaves @p path as it was; past 128 MiB it is streamed rather than held in memory. Bytes before the MPQ header (a Warcraft III map's HM3W block) are kept, as are files no (listfile) names, and a v4 archive keeps its HET/BET tables and MD5s. A copy no lookup can reach (a protected map's decoy) is dropped. When every file has a name, the hash table is built anew, at most three quarters full. A save that cannot keep every file refuses instead: see lastError(). */
+/* The archive is written to an unused name beside @p path, then renamed over it, so a failed save leaves @p path as it was; it is streamed to that file, never held whole in memory. Bytes before the MPQ header (a Warcraft III map's HM3W block) are kept, as are files no (listfile) names, and a v4 archive keeps its HET/BET tables and MD5s. A copy no lookup can reach (a protected map's decoy) is dropped. When every file has a name, the hash table is built anew, at most three quarters full. A save that cannot keep every file refuses instead: see lastError(). */
 int32_t whiteout_mpq_MpqStorage_save_path(whiteout_MpqStorage* self, const char* path);
 /* Why the last save() failed; empty after one that succeeded. */
 whiteout_CString whiteout_mpq_MpqStorage_lastError(const whiteout_MpqStorage* self);

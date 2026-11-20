@@ -12,17 +12,8 @@ namespace whiteout::storages::mpq {
 // ============================================================================
 
 std::vector<std::string> parseListfile(std::span<const u8> data) {
-    // As StormLib reads it: a line ends at CR or LF, and every other byte,
-    // spaces and a leading '#' or ';' included, belongs to a name.
     std::vector<std::string> result;
-    size_t start = 0;
-    for (size_t i = 0; i <= data.size(); ++i) {
-        if (i < data.size() && data[i] != '\r' && data[i] != '\n')
-            continue;
-        if (i > start)
-            result.emplace_back(reinterpret_cast<const char*>(data.data()) + start, i - start);
-        start = i + 1;
-    }
+    forEachListfileLine(data, [&](std::string_view line) { result.emplace_back(line); });
     return result;
 }
 

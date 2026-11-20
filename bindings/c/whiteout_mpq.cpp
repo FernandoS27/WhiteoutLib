@@ -247,6 +247,14 @@ void whiteout_mpq_MpqCreateOptions_set_sectorSizeShift(whiteout_MpqCreateOptions
     reinterpret_cast<whiteout::storages::mpq::CreateOptions*>(self)->sectorSizeShift = value;
 }
 
+int32_t whiteout_mpq_MpqCreateOptions_get_fileHashes(const whiteout_MpqCreateOptions* self) {
+    return reinterpret_cast<const whiteout::storages::mpq::CreateOptions*>(self)->fileHashes;
+}
+
+void whiteout_mpq_MpqCreateOptions_set_fileHashes(whiteout_MpqCreateOptions* self, int32_t value) {
+    reinterpret_cast<whiteout::storages::mpq::CreateOptions*>(self)->fileHashes = value;
+}
+
 } // extern "C"
 
 // ── MpqStorage ─────────────────────────────────────────────────

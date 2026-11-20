@@ -19,6 +19,11 @@ namespace whiteout::storages::common {
 /// @return Decompressed data, or empty vector on failure.
 [[nodiscard]] std::vector<u8> bzip2Decompress(std::span<const u8> src, size_t expectedSize);
 
+/// bzip2Decompress() into a buffer the caller owns: decoding stops where
+/// @p dst ends.
+/// @return The bytes written; 0 on failure.
+[[nodiscard]] size_t bzip2DecompressInto(std::span<const u8> src, std::span<u8> dst);
+
 /// Compress data using BZip2.
 /// @param src Raw data to compress.
 /// @return Compressed data, or empty vector on failure.

@@ -7,7 +7,9 @@
 #pragma once
 
 #include <array>
+#include <bit>
 #include <cstddef>
+#include <cstring>
 #include <span>
 
 #include <whiteout/common_types.h>
@@ -18,8 +20,11 @@ namespace whiteout {
 // CRC32 (polynomial 0xEDB88320, used by PNG / zlib)
 // ============================================================================
 
-constexpr std::array<u32, 256> buildCrc32Table() {
-    std::array<u32, 256> table{};
+/// The tables for a CRC taken eight bytes a step: table k is the CRC of a
+/// byte followed by k zero bytes, so eight lookups fold eight bytes at once.
+/// Table 0 is the classic byte-at-a-time table.
+constexpr std::array<std::array<u32, 256>, 8> buildCrc32Tables() {
+    std::array<std::array<u32, 256>, 8> tables{};
     for (u32 i = 0; i < 256; ++i) {
         u32 c = i;
         for (i32 j = 0; j < 8; ++j) {
@@ -28,15 +33,34 @@ constexpr std::array<u32, 256> buildCrc32Table() {
             else
                 c >>= 1;
         }
-        table[i] = c;
+        tables[0][i] = c;
     }
-    return table;
+    for (u32 i = 0; i < 256; ++i) {
+        for (size_t k = 1; k < 8; ++k)
+            tables[k][i] = tables[0][tables[k - 1][i] & 0xFF] ^ (tables[k - 1][i] >> 8);
+    }
+    return tables;
 }
 
-inline constexpr auto CRC32_TABLE = buildCrc32Table();
+inline constexpr auto CRC32_TABLES = buildCrc32Tables();
+inline constexpr const std::array<u32, 256>& CRC32_TABLE = CRC32_TABLES[0];
 
 inline u32 crc32(const u8* data, size_t length) {
     u32 crc = 0xFFFFFFFF;
+    if constexpr (std::endian::native == std::endian::little) {
+        const auto& t = CRC32_TABLES;
+        while (length >= 8) {
+            u32 low = 0;
+            u32 high = 0;
+            std::memcpy(&low, data, 4);
+            std::memcpy(&high, data + 4, 4);
+            low ^= crc;
+            crc = t[7][low & 0xFF] ^ t[6][(low >> 8) & 0xFF] ^ t[5][(low >> 16) & 0xFF] ^ t[4][low >> 24] ^
+                  t[3][high & 0xFF] ^ t[2][(high >> 8) & 0xFF] ^ t[1][(high >> 16) & 0xFF] ^ t[0][high >> 24];
+            data += 8;
+            length -= 8;
+        }
+    }
     for (size_t i = 0; i < length; ++i) {
         crc = CRC32_TABLE[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
     }

@@ -4,7 +4,6 @@
 #include "crypto.h"
 
 #include <array>
-#include <cctype>
 #include <cstring>
 
 namespace whiteout::storages::mpq {
@@ -50,22 +49,40 @@ const u32* getEncryptionTable() {
 // Hash String
 // ============================================================================
 
-u32 hashString(const std::string& filename, HashType hashType, bool keepSlashes) {
-    const auto& table = encryptionTable();
+u32 hashString(std::string_view filename, HashType hashType, bool keepSlashes) {
+    const u32* table = encryptionTable().data() + static_cast<u32>(hashType) * 256;
+    const auto& fold = keepSlashes ? kNameFold.slashKept : kNameFold.folded;
     u32 seed1 = 0x7FED7FED;
     u32 seed2 = 0xEEEEEEEE;
 
     for (char const ch : filename) {
-        // Normalize: uppercase + '/' → '\\'
-        unsigned char uc = static_cast<unsigned char>(ch);
-        if (uc == '/' && !keepSlashes)
-            uc = '\\';
-        uc = static_cast<unsigned char>(std::toupper(uc));
-
-        seed1 = table[static_cast<u32>(hashType) * 256 + uc] ^ (seed1 + seed2);
-        seed2 = static_cast<u32>(uc) + seed1 + seed2 + (seed2 << 5) + 3;
+        u32 const uc = fold[static_cast<u8>(ch)];
+        seed1 = table[uc] ^ (seed1 + seed2);
+        seed2 = uc + seed1 + seed2 + (seed2 << 5) + 3;
     }
     return seed1;
+}
+
+NameHash hashName(std::string_view filename, bool keepSlashes) {
+    const u32* table = encryptionTable().data();
+    const auto& fold = keepSlashes ? kNameFold.slashKept : kNameFold.folded;
+    // The three hashes share nothing but the character: three chains a pass.
+    u32 offset1 = 0x7FED7FED, offset2 = 0xEEEEEEEE;
+    u32 a1 = 0x7FED7FED, a2 = 0xEEEEEEEE;
+    u32 b1 = 0x7FED7FED, b2 = 0xEEEEEEEE;
+    u32 slashes = 0;
+
+    for (char const ch : filename) {
+        slashes |= static_cast<u32>(ch == '/');
+        u32 const uc = fold[static_cast<u8>(ch)];
+        offset1 = table[uc] ^ (offset1 + offset2);
+        offset2 = uc + offset1 + offset2 + (offset2 << 5) + 3;
+        a1 = table[0x100 + uc] ^ (a1 + a2);
+        a2 = uc + a1 + a2 + (a2 << 5) + 3;
+        b1 = table[0x200 + uc] ^ (b1 + b2);
+        b2 = uc + b1 + b2 + (b2 << 5) + 3;
+    }
+    return {offset1, a1, b1, slashes != 0};
 }
 
 // ============================================================================

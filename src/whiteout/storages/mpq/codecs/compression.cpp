@@ -3,6 +3,7 @@
 
 #include "../../common/codecs/bzip2.h"
 #include "../../common/codecs/lzma.h"
+#include "../../common/inflate_fast.h"
 #include "../../common/zlib.h"
 #include "adpcm.h"
 
@@ -178,14 +179,108 @@ std::vector<u8> mpqDecompress(std::span<const u8> src, size_t uncompressedSize,
     return buf;
 }
 
+namespace {
+
+/// One stage of the pipeline into @p dst; the bytes written, 0 on failure.
+size_t decompressStageInto(CompressionFlag flag, std::span<const u8> src, std::span<u8> dst) {
+    switch (flag) {
+    case CompressionFlag::kBZip2:
+        return storages::common::bzip2DecompressInto(src, dst);
+    case CompressionFlag::kPKware:
+        return pkwareExplodeInto(src, dst);
+    case CompressionFlag::kZlib:
+        return storages::common::zlibInflateCheckedInto(dst, src).value_or(0);
+    case CompressionFlag::kHuffman:
+        return huffmanDecompressInto(src, dst);
+    case CompressionFlag::kAdpcmMono:
+        return adpcmDecompressInto(src, dst, 1);
+    case CompressionFlag::kAdpcmStereo:
+        return adpcmDecompressInto(src, dst, 2);
+    case CompressionFlag::kSparse:
+        return sparseDecompressInto(src, dst);
+    default:
+        return 0;
+    }
+}
+
+} // anonymous namespace
+
+bool mpqDecompressInto(std::span<const u8> src, std::span<u8> dst, DecodeScratch& scratch, std::string* error) {
+    auto fail = [&](auto describe) {
+        if (error)
+            *error = describe();
+        return false;
+    };
+    auto sizeMismatch = [&](size_t got) {
+        return fail([&] {
+            return "decompressed to " + std::to_string(got) + " bytes, expected " + std::to_string(dst.size());
+        });
+    };
+    if (src.empty())
+        return sizeMismatch(0);
+
+    CompressionFlag const compressionMask = static_cast<CompressionFlag>(src[0]);
+    std::span<const u8> input = src.subspan(1);
+
+    // No codec at all: the payload is the data.
+    if (compressionMask == CompressionFlag::None) {
+        if (input.size() != dst.size())
+            return sizeMismatch(input.size());
+        std::memcpy(dst.data(), input.data(), dst.size());
+        return true;
+    }
+
+    // LZMA is the exact value 0x12, not the two bits it shares with others.
+    if (compressionMask == CompressionFlag::kLZMA) {
+        if (input.size() <= kLzmaHeaderSize || input[0] != 0)
+            return fail([] { return std::string("LZMA decompression failed"); });
+        size_t const got = storages::common::lzmaDecompressInto(input.subspan(1, kLzmaPropsSize),
+                                                                input.subspan(kLzmaHeaderSize), dst);
+        if (got == 0)
+            return fail([] { return std::string("LZMA decompression failed"); });
+        return got == dst.size() ? true : sizeMismatch(got);
+    }
+
+    // A bit no codec owns means a codec we would skip, not data to pass on.
+    CompressionFlag unclaimed = compressionMask;
+    u32 stages = 0;
+    for (CompressionFlag const flag : kDecompressOrder) {
+        if (hasFlag(compressionMask, flag)) {
+            unclaimed &= ~flag;
+            ++stages;
+        }
+    }
+    if (unclaimed != CompressionFlag::None)
+        return fail([&] { return "Unknown compression flag: " + std::to_string(static_cast<u8>(unclaimed)); });
+
+    // Each stage but the last writes into a scratch buffer of the final size.
+    u32 stage = 0;
+    for (CompressionFlag const flag : kDecompressOrder) {
+        if (!hasFlag(compressionMask, flag))
+            continue;
+        std::span<u8> output = dst;
+        if (++stage < stages) {
+            std::vector<u8>& buffer = scratch.stage[stage & 1];
+            if (buffer.size() < dst.size())
+                buffer.resize(dst.size());
+            output = std::span<u8>(buffer.data(), dst.size());
+        }
+        size_t const got = decompressStageInto(flag, input, output);
+        if (got == 0 && !input.empty())
+            return fail([&] { return std::string(findCodec(flag)->name) + " decompression failed"; });
+        input = output.first(got);
+    }
+    return input.size() == dst.size() ? true : sizeMismatch(input.size());
+}
+
 // ============================================================================
 // Compression
 // ============================================================================
 
-std::vector<u8> mpqCompress(std::span<const u8> src, CompressionFlag compressionType,
-                            std::string* error) {
+bool mpqCompressAppend(std::span<const u8> src, CompressionFlag compressionType, std::vector<u8>& out,
+                       std::string* error) {
     if (src.empty())
-        return {};
+        return false;
 
     // ADPCM with Huffman, the way Blizzard stores waves: ADPCM first, then
     // Huffman over what it gives.
@@ -197,7 +292,18 @@ std::vector<u8> mpqCompress(std::span<const u8> src, CompressionFlag compression
             *error = codec ? (std::string(codec->name) + " compression not implemented")
                            : ("Unsupported compression type: " +
                               std::to_string(static_cast<u8>(compressionType)));
-        return {};
+        return false;
+    }
+
+    // zlib writes straight behind the compression type byte.
+    if (compressionType == CompressionFlag::kZlib) {
+        size_t const start = out.size();
+        out.push_back(static_cast<u8>(compressionType));
+        if (!::whiteout::zlib_compress_append(out, src, error) || out.size() - start >= src.size()) {
+            out.resize(start);
+            return false;
+        }
+        return true;
     }
 
     auto result = codec->compress(src);
@@ -206,19 +312,24 @@ std::vector<u8> mpqCompress(std::span<const u8> src, CompressionFlag compression
     if (result.empty()) {
         if (error)
             *error = std::string(codec->name) + " compression failed";
-        return {};
+        return false;
     }
 
-    // Prepend the compression type byte.
-    std::vector<u8> compressed;
-    compressed.reserve(1 + result.size());
-    compressed.push_back(static_cast<u8>(compressionType));
-    compressed.insert(compressed.end(), result.begin(), result.end());
-
     // If compressed is larger than original, store uncompressed.
-    if (compressed.size() >= src.size())
-        return {};
+    if (1 + result.size() >= src.size())
+        return false;
 
+    // The compression type byte, then the data.
+    out.push_back(static_cast<u8>(compressionType));
+    out.insert(out.end(), result.begin(), result.end());
+    return true;
+}
+
+std::vector<u8> mpqCompress(std::span<const u8> src, CompressionFlag compressionType,
+                            std::string* error) {
+    std::vector<u8> compressed;
+    if (!mpqCompressAppend(src, compressionType, compressed, error))
+        return {};
     return compressed;
 }
 

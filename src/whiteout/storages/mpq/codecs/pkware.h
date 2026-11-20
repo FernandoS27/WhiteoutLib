@@ -20,6 +20,12 @@ namespace whiteout::storages::mpq {
 ///         empty vector when the stream is malformed.
 [[nodiscard]] std::vector<u8> pkwareExplode(std::span<const u8> src, size_t expectedSize);
 
+/// pkwareExplode() into a buffer the caller owns: decoding stops where
+/// @p dst ends, and nothing is written past it.
+/// @return The bytes written (fewer than dst.size() when the stream ends
+///         first); 0 when the stream is malformed.
+[[nodiscard]] size_t pkwareExplodeInto(std::span<const u8> src, std::span<u8> dst);
+
 /// Compress data using PKware DCL (implode), binary mode.
 /// @param src Raw data to compress.
 /// @return Compressed data (without the MPQ compression byte prefix), or empty vector on failure.

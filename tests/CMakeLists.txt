@@ -536,6 +536,9 @@ if(WHITEOUT_ENABLE_MPQ)
     whiteout_add_test(mpq_compat_test mpq_compat_test.cpp LINK whiteout_mpq)
     whiteout_test_src(mpq_compat_test)
 
+    whiteout_add_test(mpq_fastpath_test mpq_fastpath_test.cpp LINK whiteout_mpq)
+    whiteout_test_src(mpq_fastpath_test)
+
     add_executable(mpq_codec_test mpq_codec_test.cpp)
     target_link_libraries(mpq_codec_test PRIVATE whiteout_mpq Catch2::Catch2WithMain)
     target_include_directories(mpq_codec_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -545,6 +548,17 @@ if(WHITEOUT_ENABLE_MPQ)
     target_link_libraries(mpq_parallel_test PRIVATE whiteout_mpq Catch2::Catch2WithMain)
     target_include_directories(mpq_parallel_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     catch_discover_tests(mpq_parallel_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+    # MPQ benchmarks -- standalone executable with custom main(), run by hand.
+    # Measures this library and, given its DLL, StormLib, which is loaded at run
+    # time: nothing of it is linked or vendored. Windows only (its clock, its
+    # memory counter and StormLib are Win32).
+    # Usage: mpq_bench <mode> <archive>... [--storm <StormLib.dll>] [--reps N]
+    if(WIN32)
+        add_executable(mpq_bench mpq_bench.cpp)
+        target_link_libraries(mpq_bench PRIVATE whiteout_mpq psapi)
+        target_include_directories(mpq_bench PRIVATE ${CMAKE_SOURCE_DIR}/src/whiteout)
+    endif()
 
 endif() # WHITEOUT_ENABLE_MPQ
 

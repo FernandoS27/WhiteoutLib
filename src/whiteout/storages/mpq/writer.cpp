@@ -231,22 +231,24 @@ std::string writeArchive(const WritePlan& plan, const std::vector<WriteEntry>& e
     u64 const now = currentFiletime();
 
     // Appends one file's stored bytes and, in a V4 archive, its chunk MD5s;
-    // returns where they start.
-    auto appendStored = [&](std::span<const u8> stored) {
+    // returns where they start. @p lasting: the bytes are the source's own
+    // and outlive the write.
+    auto appendStored = [&](std::span<const u8> stored, bool lasting = false) {
         u64 const offset = sink.size();
-        sink.append(stored);
+        if (lasting)
+            sink.appendLasting(stored);
+        else
+            sink.append(stored);
         if (rawChunk != 0)
             sink.append(rawChunkMd5s(stored, rawChunk));
         return offset;
     };
+    // Only the arrays (attributes) will hold are worth a pass over a file,
+    // and that pass is made where the file is encoded.
+    bool const wantCrc32 = plan.attributes && hasFlag(plan.attributeFlags, AttributeFlag::kCrc32);
+    bool const wantMd5 = plan.attributes && hasFlag(plan.attributeFlags, AttributeFlag::kMd5);
     auto recordAttributes = [&](std::optional<u32> crc, std::optional<u64> time,
-                                std::optional<std::array<u8, 16>> md5, std::span<const u8> plain,
-                                bool hasPlain) {
-        if (hasPlain && !crc)
-            crc = crc32(plain.data(), plain.size());
-        // An empty file's MD5 is left zero, as the StarCraft II editor leaves it.
-        if (hasPlain && !md5 && !plain.empty())
-            md5 = common::md5Hash(plain);
+                                std::optional<std::array<u8, 16>> md5) {
         attrs.crc32s.push_back(crc.value_or(0));
         attrs.filetimes.push_back(time.value_or(now));
         attrs.md5s.push_back(md5.value_or(std::array<u8, 16>{}));
@@ -260,6 +262,8 @@ std::string writeArchive(const WritePlan& plan, const std::vector<WriteEntry>& e
         opts.sectorSize = hdr.sectorSize();
         opts.filename = entry.filename;
         opts.modernCodecs = hdr.formatVersion >= 1;
+        opts.crc32 = wantCrc32 && !entry.crc32;
+        opts.md5 = wantMd5 && !entry.md5;
         return opts;
     };
 
@@ -300,11 +304,12 @@ std::string writeArchive(const WritePlan& plan, const std::vector<WriteEntry>& e
         if (idx == windowEnd)
             encodeWindow(idx);
         const WriteEntry& entry = entries[idx];
-        if (entry.rawCopy && entry.rekeyBase) {
-            // Keyed to its offset, which this write changes.
+        // Keyed to its offset: encrypted again when this write moves it, a
+        // plain copy when it lands where it was. The key takes the low 32 bits.
+        if (entry.rawCopy && entry.rekeyBase && static_cast<u32>(sink.size()) != entry.sourceBlock.fileOffset) {
             const BlockEntry& source = entry.sourceBlock;
             u32 const size = source.uncompressedSize;
-            u32 const newOffset = static_cast<u32>(sink.size()); // The key takes the low 32 bits.
+            u32 const newOffset = static_cast<u32>(sink.size());
             auto const rekeyed =
                 rekeyStoredFile(entry.rawSectors, source, hdr.sectorSize(), (*entry.rekeyBase + source.fileOffset) ^ size,
                                 (*entry.rekeyBase + newOffset) ^ size);
@@ -312,12 +317,12 @@ std::string writeArchive(const WritePlan& plan, const std::vector<WriteEntry>& e
                 return "the sector table of '" + (entry.filename.empty() ? std::string("a file") : entry.filename) +
                        "' does not decrypt, so it cannot be moved";
             placeBlock(source, appendStored(*rekeyed));
-            recordAttributes(entry.crc32, entry.filetime, entry.md5, {}, false);
+            recordAttributes(entry.crc32, entry.filetime, entry.md5);
             continue;
         }
         if (entry.rawCopy) {
-            placeBlock(entry.sourceBlock, appendStored(entry.rawSectors));
-            recordAttributes(entry.crc32, entry.filetime, entry.md5, {}, false);
+            placeBlock(entry.sourceBlock, appendStored(entry.rawSectors, true));
+            recordAttributes(entry.crc32, entry.filetime, entry.md5);
             continue;
         }
         EncodedFile encoded = std::move(encodedFiles[idx]);
@@ -329,7 +334,7 @@ std::string writeArchive(const WritePlan& plan, const std::vector<WriteEntry>& e
         if (entry.rawData.empty())
             encoded.flags = FileFlag::kExists;
         placeBlock(makeBlockEntry(encoded, static_cast<u32>(entry.rawData.size())), appendStored(encoded.data));
-        recordAttributes(entry.crc32, entry.filetime, entry.md5, entry.rawData, true);
+        recordAttributes(entry.crc32.value_or(encoded.crc32), entry.filetime, entry.md5.value_or(encoded.md5));
     }
 
     // (listfile) names every named file once, and not the special files. A
@@ -363,6 +368,8 @@ std::string writeArchive(const WritePlan& plan, const std::vector<WriteEntry>& e
         opts.sectorSize = hdr.sectorSize();
         opts.filename = name;
         opts.singleUnit = plan.singleUnitSpecials;
+        opts.crc32 = wantCrc32;
+        opts.md5 = wantMd5;
         auto encoded = encodeFileData(std::span<const u8>(rawData), opts);
         if (encoded.data.empty() && !rawData.empty()) {
             encoded.data = rawData;
@@ -372,13 +379,16 @@ std::string writeArchive(const WritePlan& plan, const std::vector<WriteEntry>& e
         if (rawData.empty())
             encoded.flags = FileFlag::kExists;
         placeBlock(makeBlockEntry(encoded, static_cast<u32>(rawData.size())), appendStored(encoded.data));
+        return encoded;
     };
     auto const listfile = buildListfile(listfileNames);
-    appendSpecialFile("(listfile)", listfile);
-    recordAttributes(std::nullopt, now, std::nullopt, listfile, true);
+    {
+        auto const encoded = appendSpecialFile("(listfile)", listfile);
+        recordAttributes(encoded.crc32, now, encoded.md5);
+    }
     if (plan.attributes) {
         // Its own entry is zero; the arrays cover every block, itself included.
-        recordAttributes(0u, now, std::array<u8, 16>{}, {}, false);
+        recordAttributes(0u, now, std::array<u8, 16>{});
         FileAttributes planned;
         if (hasFlag(plan.attributeFlags, AttributeFlag::kCrc32))
             planned.crc32s = attrs.crc32s;

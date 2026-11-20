@@ -161,6 +161,13 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
+    internal static partial int whiteout_mpq_MpqCreateOptions_get_fileHashes(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_mpq_MpqCreateOptions_set_fileHashes(IntPtr self, int value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
     internal static partial void whiteout_mpq_MpqStorage_delete(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]

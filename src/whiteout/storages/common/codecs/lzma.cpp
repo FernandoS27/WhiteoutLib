@@ -235,23 +235,15 @@ u32 getLenToPosState(u32 len) {
 
 class OutputWindow {
 public:
-    void init(size_t dictSize, size_t expectedSize, size_t inputSize) {
-        buffer.clear();
-        buffer.reserve(whiteout::common::outputReserve(expectedSize, inputSize));
-        writePosition = 0;
-        dictionarySize = dictSize;
-        outputCapacity = expectedSize;
-    }
+    explicit OutputWindow(std::span<u8> out) : buffer(out.data()), outputCapacity(out.size()) {}
 
     bool isFull() const {
         return writePosition >= outputCapacity;
     }
 
     void putByte(u8 value) {
-        if (writePosition < outputCapacity) {
-            buffer.push_back(value);
-            ++writePosition;
-        }
+        if (writePosition < outputCapacity)
+            buffer[writePosition++] = value;
     }
 
     u8 getByte(u32 distance) const {
@@ -268,19 +260,13 @@ public:
         }
     }
 
-    std::vector<u8> finish() {
-        buffer.resize(writePosition);
-        return std::move(buffer);
-    }
-
     size_t pos() const {
         return writePosition;
     }
 
 private:
-    std::vector<u8> buffer;
+    u8* buffer;
     size_t writePosition = 0;
-    size_t dictionarySize = 0;
     size_t outputCapacity = 0;
 };
 
@@ -298,33 +284,36 @@ std::vector<u8> lzmaDecompress(std::span<const u8> src, size_t expectedSize) {
 
 std::vector<u8> lzmaDecompress(std::span<const u8> props, std::span<const u8> stream,
                                size_t expectedSize) {
+    return whiteout::common::decodeGrowing(expectedSize, stream.size(), [&](std::span<u8> dst) {
+        return lzmaDecompressInto(props, stream, dst);
+    });
+}
+
+size_t lzmaDecompressInto(std::span<const u8> props, std::span<const u8> stream, std::span<u8> dst) {
     // The range coder starts with 5 bytes of its own.
-    if (props.size() != 5 || stream.size() < 5 || expectedSize == 0)
-        return {};
+    if (props.size() != 5 || stream.size() < 5 || dst.empty())
+        return 0;
 
     // -------------------------------------------------------------------
     // Parse properties header (5 bytes)
     // -------------------------------------------------------------------
     const u8 propsByte = props[0];
     if (propsByte >= 225) // 9 * 5 * 5 = 225 is the maximum valid value
-        return {};
+        return 0;
 
     const u32 literalContextBits = propsByte % 9;
     const u32 remainder = propsByte / 9;
     const u32 literalPosBits = remainder % 5;
     const u32 posBits = remainder / 5;
 
-    u32 dictionarySize = 0;
-    std::memcpy(&dictionarySize, props.data() + 1, 4); // little-endian on x86
-    if (dictionarySize < 1)
-        dictionarySize = 1;
+    // The dictionary size (props 1-4) is not needed: the output is the window.
 
     // -------------------------------------------------------------------
     // Initialize range decoder
     // -------------------------------------------------------------------
     RangeDecoder rangeDecoder;
     if (!rangeDecoder.init(stream.data(), stream.size()))
-        return {};
+        return 0;
 
     // -------------------------------------------------------------------
     // Initialize probability model
@@ -366,8 +355,7 @@ std::vector<u8> lzmaDecompress(std::span<const u8> props, std::span<const u8> st
     // -------------------------------------------------------------------
     // Initialize output + state
     // -------------------------------------------------------------------
-    OutputWindow output;
-    output.init(dictionarySize, expectedSize, stream.size());
+    OutputWindow output(dst);
 
     u32 state = 0;
     u32 repDist0 = 0, repDist1 = 0, repDist2 = 0, repDist3 = 0;
@@ -377,7 +365,7 @@ std::vector<u8> lzmaDecompress(std::span<const u8> props, std::span<const u8> st
     // -------------------------------------------------------------------
     while (!output.isFull()) {
         if (rangeDecoder.isCorrupted())
-            return {};
+            return 0;
 
         const u32 posState = static_cast<u32>(output.pos()) & ((1u << posBits) - 1);
 
@@ -469,7 +457,7 @@ std::vector<u8> lzmaDecompress(std::span<const u8> props, std::span<const u8> st
 
                 // A copy cannot reach before the first byte.
                 if (repDist0 >= output.pos())
-                    return {};
+                    return 0;
 
             } else {
                 // ---------------------------------------------------
@@ -481,7 +469,7 @@ std::vector<u8> lzmaDecompress(std::span<const u8> props, std::span<const u8> st
                             isRep0LongProbs[state * kNumPosStatesMax + posState]) == 0) {
                         // SHORT REP (length 1)
                         if (output.pos() == 0)
-                            return {}; // can't rep from empty dict
+                            return 0; // can't rep from empty dict
                         state = stateUpdateShortRep(state);
                         output.putByte(output.getByte(repDist0));
                         continue;
@@ -513,7 +501,7 @@ std::vector<u8> lzmaDecompress(std::span<const u8> props, std::span<const u8> st
         }
     }
 
-    return output.finish();
+    return output.pos();
 }
 
 } // namespace whiteout::storages::common

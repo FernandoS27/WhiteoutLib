@@ -12,6 +12,7 @@
 ///   - Error handling: truncated, corrupted, invalid zlib headers.
 ///   - Back-reference patterns: distance=1 (memset), short overlap, long overlap.
 
+#include "../src/whiteout/common/checksum.h"
 #include "../src/whiteout/common/deflate.h"
 #include "../src/whiteout/storages/common/inflate_fast.h"
 
@@ -372,7 +373,7 @@ TEST_CASE("inflate_fast rejects truncated compressed data", "[inflate_fast][erro
     auto compressed = zlib_compress(data);
 
     // Truncate at various points.
-    for (size_t cutAt : {6ULL, compressed.size() / 4, compressed.size() / 2}) {
+    for (size_t cutAt : {size_t{6}, compressed.size() / 4, compressed.size() / 2}) {
         std::vector<u8> truncated(compressed.begin(), compressed.begin() + cutAt);
         auto result = inflateFast(truncated, data.size());
         // Must not crash.  May return empty (failure) or partial data that
@@ -540,4 +541,137 @@ TEST_CASE("bench: 64KB small frame inflate", "[bench]") {
     BENCHMARK("zlibInflateFast 64KB random (known size)") {
         return inflateFast(compressed, data.size());
     };
+}
+
+// ============================================================================
+// The deflater: block forms, sizes, the append form
+// ============================================================================
+
+/// The block type (0 stored, 1 fixed, 2 dynamic) of a zlib stream's first block.
+static u32 firstBlockType(const std::vector<u8>& stream) {
+    return (stream[2] >> 1) & 3;
+}
+
+/// Bytes drawn from a few values, some far likelier than others.
+static std::vector<u8> skewedData(size_t size, u32 seed) {
+    std::mt19937 rng(seed);
+    std::vector<u8> data(size);
+    for (auto& b : data) {
+        u32 const r = rng() % 100;
+        b = static_cast<u8>(r < 50 ? 'e' : r < 75 ? 't' : r < 90 ? 'a' + rng() % 8 : rng());
+    }
+    return data;
+}
+
+TEST_CASE("deflate writes each block in its smallest form", "[deflate]") {
+    // Noise cannot be coded smaller: stored. A handful of bytes is not worth
+    // a table of code lengths: fixed. Skewed data is: dynamic.
+    CHECK(firstBlockType(zlib_compress(randomData(20000, 7))) == 0);
+    CHECK(firstBlockType(zlib_compress(std::vector<u8>{'a', 'b', 'c'})) == 1);
+    CHECK(firstBlockType(zlib_compress(skewedData(20000, 8))) == 2);
+
+    // Stored costs five bytes to each 65,535, and the zlib wrapper six.
+    for (size_t size : {size_t{1}, size_t{4096}, size_t{65535}, size_t{65536}, size_t{300000}}) {
+        auto const data = randomData(size, static_cast<u32>(size));
+        auto const compressed = zlib_compress(data);
+        INFO(size << " bytes");
+        CHECK(compressed.size() <= size + size / 1000 + 64);
+        CHECK(zlib_decompress(compressed) == data);
+        CHECK(inflateFast(compressed, size) == data);
+    }
+}
+
+TEST_CASE("deflate round-trips data of many shapes through both inflaters", "[deflate]") {
+    for (u32 shape = 0; shape < 5; ++shape) {
+        for (size_t size : {size_t{0},     size_t{1},     size_t{2},     size_t{3},      size_t{257},   size_t{258},
+                            size_t{259},   size_t{4095},  size_t{4096},  size_t{32767},  size_t{32768}, size_t{32769},
+                            size_t{70000}, size_t{200000}, size_t{1} << 21}) {
+            std::vector<u8> data;
+            switch (shape) {
+            case 0:
+                data = skewedData(size, static_cast<u32>(size) + 1);
+                break;
+            case 1:
+                data = runOfByte(0x42, size);
+                break;
+            case 2: // A phrase repeated from further back than a short window reaches.
+                data = repeatPattern(randomData(20011, 3), size);
+                break;
+            case 3: // More symbols than one block takes: several blocks, each with its own codes.
+                data = skewedData(size, 5);
+                for (size_t i = 0; i + 4 <= size; i += 7)
+                    data[i] = static_cast<u8>(i >> 8);
+                break;
+            default:
+                data = randomData(size, static_cast<u32>(size) + 9);
+                break;
+            }
+            auto const compressed = zlib_compress(data);
+            INFO("shape " << shape << ", " << size << " bytes");
+            REQUIRE(!compressed.empty());
+            CHECK(zlib_decompress(compressed) == data);
+            if (size != 0)
+                CHECK(inflateFast(compressed, size) == data);
+        }
+    }
+}
+
+TEST_CASE("deflate finds a match at the far end of the window", "[deflate]") {
+    // 32,768 bytes back is the furthest a match may reach; one byte more is
+    // out of reach and must not be used.
+    for (size_t gap : {size_t{32768 - 300}, size_t{32768}, size_t{32769}}) {
+        std::vector<u8> data = randomData(300, 11);
+        std::vector<u8> const filler = randomData(gap - 300, 12);
+        data.insert(data.end(), filler.begin(), filler.end());
+        data.insert(data.end(), data.begin(), data.begin() + 300);
+        auto const compressed = zlib_compress(data);
+        INFO("gap " << gap);
+        CHECK(zlib_decompress(compressed) == data);
+        CHECK(inflateFast(compressed, data.size()) == data);
+    }
+}
+
+TEST_CASE("zlib_compress_append adds a stream behind what is there", "[deflate]") {
+    auto const data = skewedData(10000, 13);
+    auto const alone = zlib_compress(data);
+    std::vector<u8> out = {9, 8, 7};
+    REQUIRE(zlib_compress_append(out, data));
+    REQUIRE(out.size() == alone.size() + 3);
+    CHECK(out[0] == 9);
+    CHECK(out[2] == 7);
+    CHECK(std::equal(alone.begin(), alone.end(), out.begin() + 3));
+    // Again on the same thread: what the compressor keeps between calls
+    // does not leak from one stream into the next.
+    for (size_t size : {size_t{50}, size_t{100000}, size_t{4096}, size_t{0}}) {
+        auto const next = skewedData(size, static_cast<u32>(size));
+        std::vector<u8> stream;
+        REQUIRE(zlib_compress_append(stream, next));
+        CHECK(zlib_decompress(stream) == next);
+        CHECK(stream == zlib_compress(next));
+    }
+}
+
+// ============================================================================
+// CRC-32
+// ============================================================================
+
+TEST_CASE("crc32 gives the reference values at every length and alignment", "[checksum]") {
+    auto of = [](const std::string& text) { return crc32(reinterpret_cast<const u8*>(text.data()), text.size()); };
+    CHECK(of("") == 0x00000000u);
+    CHECK(of("a") == 0xE8B7BE43u);
+    CHECK(of("123456789") == 0xCBF43926u);
+    CHECK(of("The quick brown fox jumps over the lazy dog") == 0x414FA339u);
+
+    // Eight bytes a step against a byte a step.
+    auto const data = randomData(300, 21);
+    for (size_t start = 0; start < 9; ++start) {
+        for (size_t length = 0; start + length <= data.size(); length += (length < 40 ? 1 : 37)) {
+            u32 reference = 0xFFFFFFFF;
+            for (size_t i = 0; i < length; ++i)
+                reference = CRC32_TABLE[(reference ^ data[start + i]) & 0xFF] ^ (reference >> 8);
+            reference ^= 0xFFFFFFFF;
+            INFO("start " << start << ", length " << length);
+            REQUIRE(crc32(data.data() + start, length) == reference);
+        }
+    }
 }

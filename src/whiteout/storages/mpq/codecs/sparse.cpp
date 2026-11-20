@@ -5,49 +5,70 @@
 
 #include "../../../common/output_reserve.h"
 
+#include <algorithm>
 #include <cstring>
 
 namespace whiteout::storages::mpq {
 
-std::vector<u8> sparseDecompress(std::span<const u8> src, size_t expectedSize) {
-    // Need at least 5 bytes: 4-byte big-endian original size + at least 1 token.
+namespace {
+
+/// The size a sparse stream states for itself, when it is long enough to be
+/// one: 4 bytes big-endian, then at least one token.
+bool statedSize(std::span<const u8> src, u32& origSize) {
     if (src.size() < 5)
-        return {};
+        return false;
+    origSize = (static_cast<u32>(src[0]) << 24) | (static_cast<u32>(src[1]) << 16) |
+               (static_cast<u32>(src[2]) << 8) | (static_cast<u32>(src[3]) << 0);
+    return true;
+}
 
-    // Read the 4-byte big-endian original size.
-    u32 const origSize = (static_cast<u32>(src[0]) << 24) | (static_cast<u32>(src[1]) << 16) |
-                         (static_cast<u32>(src[2]) << 8) | (static_cast<u32>(src[3]) << 0);
-
-    if (origSize > expectedSize)
-        return {};
-
-    std::vector<u8> out;
-    out.reserve(whiteout::common::outputReserve(origSize, src.size()));
-
+/// The stream's tokens into @p dst, up to its stated size or the end of
+/// @p dst, whichever comes first. Returns the bytes written; 0 when a
+/// literal run is cut short by the end of the input.
+size_t expandTokens(std::span<const u8> src, std::span<u8> dst, u32 origSize) {
+    size_t const limit = std::min<size_t>(origSize, dst.size());
     size_t inPos = 4;
+    size_t outPos = 0;
 
-    while (inPos < src.size() && out.size() < origSize) {
+    while (inPos < src.size() && outPos < limit) {
         u8 const token = src[inPos++];
+        size_t const room = limit - outPos;
 
         if (token & 0x80) {
             // Literal run: (token & 0x7F) + 1 literal bytes follow.
             size_t const count = (token & 0x7F) + 1;
             if (inPos + count > src.size())
-                return {};
-            size_t const room = origSize - out.size();
+                return 0;
             size_t const toCopy = count < room ? count : room;
-            out.insert(out.end(), src.data() + inPos, src.data() + inPos + toCopy);
+            std::memcpy(dst.data() + outPos, src.data() + inPos, toCopy);
+            outPos += toCopy;
             inPos += count;
         } else {
             // Zero run: (token & 0x7F) + 3 zero bytes.
             size_t const count = (token & 0x7F) + 3;
-            size_t const room = origSize - out.size();
             size_t const toFill = count < room ? count : room;
-            out.resize(out.size() + toFill, 0);
+            std::memset(dst.data() + outPos, 0, toFill);
+            outPos += toFill;
         }
     }
+    return outPos;
+}
 
-    return out;
+} // anonymous namespace
+
+size_t sparseDecompressInto(std::span<const u8> src, std::span<u8> dst) {
+    u32 origSize = 0;
+    if (!statedSize(src, origSize) || origSize > dst.size())
+        return 0;
+    return expandTokens(src, dst, origSize);
+}
+
+std::vector<u8> sparseDecompress(std::span<const u8> src, size_t expectedSize) {
+    u32 origSize = 0;
+    if (!statedSize(src, origSize) || origSize > expectedSize)
+        return {};
+    return whiteout::common::decodeGrowing(origSize, src.size(),
+                                           [&](std::span<u8> dst) { return expandTokens(src, dst, origSize); });
 }
 
 std::vector<u8> sparseCompress(std::span<const u8> src) {

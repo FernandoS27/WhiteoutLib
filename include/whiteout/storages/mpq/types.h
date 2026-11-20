@@ -136,6 +136,11 @@ struct CreateOptions {
     /// some StormLib builds, HiveWE's among them, open no archive of 512-byte
     /// sectors.
     u16 sectorSizeShift = 3;
+    /// Record an MD5 of every file in (attributes), beside its CRC-32 and
+    /// its time. Blizzard's Warcraft III archives and World Editor maps
+    /// carry none; StarCraft II's do. An archive that is opened keeps the
+    /// arrays it came with, whatever this says.
+    bool fileHashes = false;
 };
 
 } // namespace whiteout::storages::mpq

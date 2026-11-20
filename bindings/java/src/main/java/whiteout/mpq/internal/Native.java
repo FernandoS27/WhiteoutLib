@@ -83,6 +83,8 @@ public final class Native {
     public static final MethodHandle whiteout_mpq_MpqCreateOptions_set_hashTableSize = find("whiteout_mpq_MpqCreateOptions_set_hashTableSize", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
     public static final MethodHandle whiteout_mpq_MpqCreateOptions_get_sectorSizeShift = find("whiteout_mpq_MpqCreateOptions_get_sectorSizeShift", FunctionDescriptor.of(ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_mpq_MpqCreateOptions_set_sectorSizeShift = find("whiteout_mpq_MpqCreateOptions_set_sectorSizeShift", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT));
+    public static final MethodHandle whiteout_mpq_MpqCreateOptions_get_fileHashes = find("whiteout_mpq_MpqCreateOptions_get_fileHashes", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mpq_MpqCreateOptions_set_fileHashes = find("whiteout_mpq_MpqCreateOptions_set_fileHashes", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
 
     // -- MpqStorage --
     public static final MethodHandle whiteout_mpq_MpqStorage_delete = find(

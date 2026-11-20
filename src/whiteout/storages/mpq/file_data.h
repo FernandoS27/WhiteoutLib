@@ -11,9 +11,11 @@
 #include "codecs/compression.h"
 #include "tables/block_table.h"
 
+#include <array>
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -29,7 +31,7 @@ namespace whiteout::storages::mpq {
 
 /// Derive the encryption key for a file given its name and block entry.
 /// If the file has the FIX_KEY flag, the key is adjusted by the block offset.
-[[nodiscard]] u32 deriveFileKey(const std::string& filename, const BlockEntry& block);
+[[nodiscard]] u32 deriveFileKey(std::string_view filename, const BlockEntry& block);
 
 // ============================================================================
 // Re-keying (a FIX_KEY file moved to another offset)
@@ -86,6 +88,8 @@ struct EncodedFile {
     std::vector<u8> data;            ///< Encoded file data (sector offset table + sectors).
     u32 compressedSize = 0;          ///< Total compressed size.
     FileFlag flags = FileFlag::None; ///< Block entry flags to use.
+    u32 crc32 = 0;                   ///< Of the raw data, when EncodeOptions::crc32 asked for it.
+    std::array<u8, 16> md5{};        ///< Of the raw data, when EncodeOptions::md5 asked for it.
 };
 
 /// Options for encoding file data.
@@ -98,32 +102,32 @@ struct EncodeOptions {
     /// A version 2+ archive, whose readers (newer Storm, StormLib) take
     /// Huffman only paired with ADPCM: Huffman alone is written as zlib.
     bool modernCodecs = false;
+    /// The checksums of the raw data to take while it is being encoded: on
+    /// whichever thread encodes the file, which with a pool is not the
+    /// writer's.
+    bool crc32 = false;
+    bool md5 = false;
 };
 
 /// Encode raw file data for writing to an archive.
-/// Splits into sectors, compresses, optionally encrypts.
+/// Splits into sectors, compresses, optionally encrypts. With a pool, a
+/// multi-sector file of 4 MiB or more is encoded in runs of its sectors.
 [[nodiscard]] EncodedFile encodeFileData(std::span<const u8> rawData, const EncodeOptions& opts,
                                          interfaces::WorkerPool* pool = nullptr);
 
 // ============================================================================
-// Batch Operations (Flattened Pipeline)
+// Batch Operations
 // ============================================================================
 
-/// Per-sector compression result for the flattened write pipeline.
-struct SectorResult {
-    std::vector<u8> data;       ///< Compressed (or stored) sector data.
-    bool wasCompressed = false; ///< True if compression was effective.
-};
-
-/// Result of batch encoding for the flattened write pipeline.
+/// Result of batch encoding.
 struct BatchEncodeResult {
     std::vector<EncodedFile> files; ///< One per input item.
 };
 
-/// Encode multiple files using a flattened pipeline.
-/// All sector compression tasks are submitted as top-level pool tasks.
-/// Uses timeline semaphores when available, otherwise falls back to the
-/// current parallel-files XOR parallel-sectors strategy.
+/// Encode multiple files, sharing the work between the pool's threads and
+/// the caller's: small files grouped a few to a job, a large one split into
+/// runs of its sectors. Without a pool they are encoded one by one. The
+/// output does not depend on the pool.
 [[nodiscard]] BatchEncodeResult encodeBatch(
     std::span<const std::pair<std::span<const u8>, EncodeOptions>> items,
     interfaces::WorkerPool* pool);
@@ -135,8 +139,9 @@ struct ExtractFileInfo {
     u16 offsetHi = 0; ///< BlockTable::fileOffsetHi of the block.
 };
 
-/// Extract multiple files using a flattened pipeline.
-/// All sector decompression tasks are submitted as top-level pool tasks.
+/// Extract multiple files, sharing the work between the pool's threads and
+/// the caller's: small files grouped a few to a job, a large one split into
+/// runs of its sectors. Without a pool they are extracted one by one.
 /// Returns one entry per input file: the decompressed data, or std::nullopt on failure.
 [[nodiscard]] std::vector<std::optional<std::vector<u8>>> extractBatch(
     std::span<const u8> archiveData, size_t archiveOffset, std::span<const ExtractFileInfo> files,

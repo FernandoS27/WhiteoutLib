@@ -67,107 +67,100 @@ inline int decodeSample(int predicted, int encoded, int stepSize, int difference
     return updatePredictedSample(predicted, encoded, difference);
 }
 
-// Simple stream helpers to match StormLib's TADPCMStream pattern.
-struct AdpcmStream {
-    const u8* data;
-    size_t size;
-    size_t pos = 0;
-
-    AdpcmStream(const u8* d, size_t s) : data(d), size(s) {}
-
-    bool readByte(u8& out) {
-        if (pos >= size)
-            return false;
-        out = data[pos++];
-        return true;
-    }
-
-    bool readWord(short& out) {
-        if (pos + 2 > size)
-            return false;
-        out = static_cast<short>(data[pos] | (static_cast<u16>(data[pos + 1]) << 8));
-        pos += 2;
-        return true;
-    }
+/// What the decoder would otherwise work out per sample, per step index:
+/// the part of the difference the six low bits of an encoded sample select
+/// (decodeSample's six conditional adds), and the step index that follows
+/// the five low bits (getNextStepIndex).
+struct DecodeTables {
+    std::array<std::array<u16, 64>, kMaxStepIndex + 1> difference{};
+    std::array<std::array<u8, 32>, kMaxStepIndex + 1> nextStepIndex{};
 };
+constexpr DecodeTables buildDecodeTables() {
+    DecodeTables tables;
+    for (int index = 0; index <= kMaxStepIndex; ++index) {
+        int const stepSize = kStepSizeTable[static_cast<size_t>(index)];
+        for (int encoded = 0; encoded < 64; ++encoded) {
+            int difference = 0;
+            for (int bit = 0; bit < 6; ++bit)
+                if (encoded & (1 << bit))
+                    difference += stepSize >> bit;
+            tables.difference[static_cast<size_t>(index)][static_cast<size_t>(encoded)] = static_cast<u16>(difference);
+        }
+        for (int encoded = 0; encoded < 32; ++encoded) {
+            int const next = index + kNextStepTable[static_cast<size_t>(encoded)];
+            tables.nextStepIndex[static_cast<size_t>(index)][static_cast<size_t>(encoded)] =
+                static_cast<u8>(next < 0 ? 0 : (next > kMaxStepIndex ? kMaxStepIndex : next));
+        }
+    }
+    return tables;
+}
+constexpr DecodeTables kDecodeTables = buildDecodeTables();
 
 } // anonymous namespace
 
-std::vector<u8> adpcmDecompress(std::span<const u8> src, size_t expectedSize, int channelCount) {
-    if (channelCount < 1 || channelCount > 2)
-        return {};
-    if (src.size() < 4)
-        return {};
+size_t adpcmDecompressInto(std::span<const u8> src, std::span<u8> dst, int channelCount) {
+    if (channelCount < 1 || channelCount > 2 || src.size() < 4)
+        return 0;
 
-    std::vector<u8> out;
-    out.reserve(whiteout::common::outputReserve(expectedSize, src.size()));
+    const u8* in = src.data();
+    const u8* const inEnd = in + src.size();
+    u8* out = dst.data();
+    u8* const outEnd = out + (dst.size() & ~size_t{1}); // Whole 16-bit samples only.
 
-    AdpcmStream is(src.data(), src.size());
+    int predicted[2] = {0, 0};
+    int stepIndex[2] = {kInitialStepIndex, kInitialStepIndex};
 
-    std::array<short, 2> predictedSamples = {0, 0};
-    std::array<short, 2> stepIndexes = {kInitialStepIndex, kInitialStepIndex};
+    // First byte is always 0, second is the bit shift (compression level - 1).
+    // A shift count wraps at the word, as the game's own shift does.
+    ++in;
+    u32 const bitShift = *in++ & 31u;
 
-    // First byte is always 0, second is BitShift (compression level - 1).
-    u8 dummy, bitShift;
-    is.readByte(dummy);
-    if (!is.readByte(bitShift))
-        return {};
-
-    // Read initial sample for each channel.
-    for (int i = 0; i < channelCount; i++) {
-        short initialSample;
-        if (!is.readWord(initialSample))
-            return out;
-        predictedSamples[i] = initialSample;
-        // Write initial sample to output (little-endian 16-bit).
-        u8 const lo = static_cast<u8>(initialSample & 0xFF);
-        u8 const hi = static_cast<u8>((initialSample >> 8) & 0xFF);
-        out.push_back(lo);
-        out.push_back(hi);
+    // Each channel starts from a sample stored whole.
+    for (int i = 0; i < channelCount; ++i) {
+        if (inEnd - in < 2 || out >= outEnd)
+            return static_cast<size_t>(out - dst.data());
+        predicted[i] = static_cast<short>(in[0] | (static_cast<u16>(in[1]) << 8));
+        out[0] = in[0];
+        out[1] = in[1];
+        in += 2;
+        out += 2;
     }
 
-    int channelIndex = channelCount - 1;
+    int const flip = channelCount - 1; // Stereo alternates channels; mono stays on 0.
+    int channel = flip;
+    while (in < inEnd && out < outEnd) {
+        u32 const encoded = *in++;
+        channel ^= flip;
 
-    u8 encodedSample;
-    while (is.readByte(encodedSample)) {
-        // Flip channel index.
-        channelIndex = (channelIndex + 1) % channelCount;
-
-        if (encodedSample == 0x80) {
-            // Step index decrement marker — output the predicted sample unchanged.
-            if (stepIndexes[channelIndex] != 0)
-                stepIndexes[channelIndex]--;
-
-            short const sample = predictedSamples[channelIndex];
-            out.push_back(static_cast<u8>(sample & 0xFF));
-            out.push_back(static_cast<u8>((sample >> 8) & 0xFF));
-        } else if (encodedSample == 0x81) {
-            // Step index increase marker.
-            stepIndexes[channelIndex] += 8;
-            if (stepIndexes[channelIndex] > kMaxStepIndex)
-                stepIndexes[channelIndex] = kMaxStepIndex;
-
-            // Stay on the same channel for the next pass.
-            channelIndex = (channelIndex + 1) % channelCount;
+        if (encoded == 0x80) {
+            // Step index down; the predicted sample is written again.
+            if (stepIndex[channel] != 0)
+                --stepIndex[channel];
+        } else if (encoded == 0x81) {
+            // Step index up, no sample: the next byte is for this channel too.
+            stepIndex[channel] = std::min(stepIndex[channel] + 8, kMaxStepIndex);
+            channel ^= flip;
+            continue;
         } else {
-            int const stepIndex = stepIndexes[channelIndex];
-            int const stepSize = kStepSizeTable[stepIndex];
-
-            predictedSamples[channelIndex] = static_cast<short>(decodeSample(
-                predictedSamples[channelIndex], encodedSample, stepSize, stepSize >> bitShift));
-
-            short const sample = predictedSamples[channelIndex];
-            out.push_back(static_cast<u8>(sample & 0xFF));
-            out.push_back(static_cast<u8>((sample >> 8) & 0xFF));
-
-            stepIndexes[channelIndex] = getNextStepIndex(stepIndex, encodedSample);
+            // Bit 6 is the sign; the sample saturates at 16 bits either way.
+            size_t const index = static_cast<size_t>(stepIndex[channel]);
+            int const difference = (kStepSizeTable[index] >> bitShift) + kDecodeTables.difference[index][encoded & 0x3F];
+            int const sample = predicted[channel] + ((encoded & 0x40) ? -difference : difference);
+            predicted[channel] = std::clamp(sample, -32768, 32767);
+            stepIndex[channel] = kDecodeTables.nextStepIndex[index][encoded & 0x1F];
         }
 
-        if (out.size() >= expectedSize)
-            break;
+        short const sample = static_cast<short>(predicted[channel]);
+        out[0] = static_cast<u8>(sample & 0xFF);
+        out[1] = static_cast<u8>((sample >> 8) & 0xFF);
+        out += 2;
     }
+    return static_cast<size_t>(out - dst.data());
+}
 
-    return out;
+std::vector<u8> adpcmDecompress(std::span<const u8> src, size_t expectedSize, int channelCount) {
+    return whiteout::common::decodeGrowing(
+        expectedSize, src.size(), [&](std::span<u8> dst) { return adpcmDecompressInto(src, dst, channelCount); });
 }
 
 // ============================================================================
