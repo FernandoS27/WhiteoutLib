@@ -214,6 +214,15 @@ else()
         -Wno-gnu-anonymous-struct
         -Wno-nested-anon-types
     )
+    if(WIN32)
+        # clang++ (MSVC target) and MinGW read the same UCRT/MSVC STL headers
+        # as cl does, so they need the definitions the branch above sets.
+        target_compile_definitions(whiteout_strict_flags INTERFACE
+            NOMINMAX
+            _CRT_SECURE_NO_WARNINGS
+            _SILENCE_CXX20_U8PATH_DEPRECATION_WARNING
+        )
+    endif()
 
     if(WHITEOUT_WARNINGS_AS_ERRORS)
         target_compile_options(whiteout_strict_flags INTERFACE -Werror)
@@ -225,6 +234,7 @@ else()
             target_compile_options(whiteout_strict_flags INTERFACE
                 -Wno-error=array-bounds
                 -Wno-error=stringop-overflow
+                -Wno-error=stringop-overread
                 -Wno-error=maybe-uninitialized
                 -Wno-error=free-nonheap-object
             )

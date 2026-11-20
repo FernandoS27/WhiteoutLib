@@ -57,6 +57,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <map>
 #include <memory>
@@ -1177,7 +1178,7 @@ static int benchCopy(const std::string& src, const std::string& dst) {
         DeleteFileW(wdst.c_str());
         ms = timeMs([&] {
             auto map = storages::common::MappedFile::open(src);
-            std::ofstream out(wdst, std::ios::binary | std::ios::trunc);
+            std::ofstream out(std::filesystem::path(wdst), std::ios::binary | std::ios::trunc);
             auto bytes = map->data();
             std::vector<u8> buffer;
             size_t const spill = size_t{128} << 20;

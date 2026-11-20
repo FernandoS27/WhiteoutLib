@@ -23,7 +23,8 @@
 #include <whiteout/models/m2/m2.h>
 #include <whiteout/utils/os_file_system.h>
 
-#ifdef _WIN32
+// SEH translation (/EHa) and the dbghelp pragma exist only on the MSVC ABI.
+#ifdef _MSC_VER
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 // clang-format off — dbghelp.h needs windows.h first
@@ -150,7 +151,7 @@ struct FileResult {
 };
 
 TEST_CASE("M2 corpus parse", "[m2][corpus]") {
-#ifdef _WIN32
+#ifdef _MSC_VER
     _set_se_translator(sehTranslator);
     SymInitialize(GetCurrentProcess(), NULL, TRUE);
 #endif
@@ -415,7 +416,7 @@ TEST_CASE("M2 corpus parse", "[m2][corpus]") {
     std::cout << "  Total particles:   " << totalParticles << std::endl;
     std::cout << "  Total ribbons:     " << totalRibbons << std::endl;
 
-#ifdef _WIN32
+#ifdef _MSC_VER
     SymCleanup(GetCurrentProcess());
 #endif
 

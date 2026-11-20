@@ -834,7 +834,7 @@ int stressConcurrentQueries(const Storage& storage, int threads, int rounds) {
     // a race shows up as threads disagreeing with each other.
     std::atomic<bool> go{false};
     std::atomic<size_t> queries{0};
-    std::vector<std::vector<std::string>> answers{size_t(threads), {}};
+    std::vector<std::vector<std::string>> answers(static_cast<size_t>(threads));
 
     std::vector<std::thread> ts;
     ts.reserve(size_t(threads));

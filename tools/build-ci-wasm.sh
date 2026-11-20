@@ -57,49 +57,58 @@ done
 
 # ── 3. Configure ─────────────────────────────────────────────────────────
 #
-# Both targets share the configure call. `whiteout_wasm_node` is opt-in via
-# WHITEOUT_BUILD_WASM_NODE_BINDINGS=ON; the plain `whiteout_wasm` (web) is
-# always built when WHITEOUT_BUILD_WASM_BINDINGS=ON.
+# WHITEOUT_WASM_TARGET picks what this run builds: `web` (whiteout_wasm),
+# `node` (whiteout_wasm_node) or `all` (default). The two share no objects
+# (the node one links the pthread `_mt` twins), so CI builds each in its own
+# job: together they pass AppVeyor's 60-minute cap on two vCPUs.
+
+wasm_target="${WHITEOUT_WASM_TARGET:-all}"
+case "${wasm_target}" in
+    web)  build_web=1; build_node=0 ;;
+    node) build_web=0; build_node=1 ;;
+    all)  build_web=1; build_node=1 ;;
+    *) echo "WHITEOUT_WASM_TARGET must be web, node or all (got '${wasm_target}')" >&2; exit 1 ;;
+esac
+node_flag=OFF
+targets=()
+[ "${build_web}" = 1 ]  && targets+=(whiteout_wasm)
+[ "${build_node}" = 1 ] && { node_flag=ON; targets+=(whiteout_wasm_node); }
 
 emcmake cmake -S "${repo_root}" -B "${build_dir}" \
     -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.15 \
     -DWHITEOUT_BUILD_WASM_BINDINGS=ON \
-    -DWHITEOUT_BUILD_WASM_NODE_BINDINGS=ON \
+    -DWHITEOUT_BUILD_WASM_NODE_BINDINGS="${node_flag}" \
     -DWHITEOUT_ENABLE_MPQ=ON \
     -DWHITEOUT_WASM_NODE_PTHREAD_POOL_SIZE=8
 
-# ── 4. Build (both targets) ──────────────────────────────────────────────
-#
-# Web variant (whiteout_wasm) and Node variant (whiteout_wasm_node) share
-# source files but link with different emscripten flags (pthread, NODERAWFS,
-# pthread-aware `_mt` archives). Their `.o` files don't overlap because of
-# the `_mt` ABI split, so this roughly doubles wall time vs Node-only.
+# ── 4. Build ─────────────────────────────────────────────────────────────
 
 parallel="${CMAKE_BUILD_PARALLEL_LEVEL:-4}"
-cmake --build "${build_dir}" \
-    --target whiteout_wasm whiteout_wasm_node \
-    --parallel "${parallel}"
+cmake --build "${build_dir}" --target "${targets[@]}" --parallel "${parallel}"
 
 # ── 5. Stage compiled artefacts into the package dirs ────────────────────
 
 dist="${build_dir}/wasm-dist"
 
-# Node package.
-[ -f "${dist}/whiteout-node.wasm" ] || {
-    echo "expected ${dist}/whiteout-node.wasm not produced" >&2; exit 1; }
-cp "${dist}/whiteout-node.js"   "${node_pkg_dir}/"
-cp "${dist}/whiteout-node.wasm" "${node_pkg_dir}/"
-# pthreads worker — only present when pool size > 0.
-[ -f "${dist}/whiteout-node.worker.js" ] && \
-    cp "${dist}/whiteout-node.worker.js" "${node_pkg_dir}/"
+if [ "${build_node}" = 1 ]; then
+    [ -f "${dist}/whiteout-node.wasm" ] || {
+        echo "expected ${dist}/whiteout-node.wasm not produced" >&2; exit 1; }
+    cp "${dist}/whiteout-node.js"   "${node_pkg_dir}/"
+    cp "${dist}/whiteout-node.wasm" "${node_pkg_dir}/"
+    # pthreads worker — emitted only by emscripten older than 3.1.58.
+    if [ -f "${dist}/whiteout-node.worker.js" ]; then
+        cp "${dist}/whiteout-node.worker.js" "${node_pkg_dir}/"
+    fi
+fi
 
-# Web package.
-[ -f "${dist}/whiteout.wasm" ] || {
-    echo "expected ${dist}/whiteout.wasm not produced" >&2; exit 1; }
-cp "${dist}/whiteout.js"   "${web_pkg_dir}/"
-cp "${dist}/whiteout.wasm" "${web_pkg_dir}/"
+if [ "${build_web}" = 1 ]; then
+    [ -f "${dist}/whiteout.wasm" ] || {
+        echo "expected ${dist}/whiteout.wasm not produced" >&2; exit 1; }
+    cp "${dist}/whiteout.js"   "${web_pkg_dir}/"
+    cp "${dist}/whiteout.wasm" "${web_pkg_dir}/"
+fi
 
 # Mirror generated .d.ts into both packages (canonical home is js-ts/types).
 # _shared.d.ts is hand-written per-target — keep each template's copy.
@@ -119,8 +128,8 @@ fi
 # Produces a publishable archive in each package dir; appveyor.yml's artifacts
 # rules glob *.tgz under packages/js-node/ and packages/js-ts/.
 
-(cd "${node_pkg_dir}" && npm pack)
-(cd "${web_pkg_dir}"  && npm pack)
+if [ "${build_node}" = 1 ]; then (cd "${node_pkg_dir}" && npm pack); fi
+if [ "${build_web}" = 1 ];  then (cd "${web_pkg_dir}"  && npm pack); fi
 
 echo "── build-ci-wasm summary ──"
 echo "node package : ${node_pkg_dir}"

@@ -55,8 +55,14 @@ environment:
     # itself.
     - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu2204
       WHITEOUT_TARGET: codegen
+    # One job per WASM package: built together they pass the 60-minute job
+    # cap, as the two share no objects (tools/build-ci-wasm.sh).
     - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu2204
       WHITEOUT_TARGET: wasm
+      WHITEOUT_WASM_TARGET: web
+    - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu2204
+      WHITEOUT_TARGET: wasm
+      WHITEOUT_WASM_TARGET: node
     - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2022
       WHITEOUT_TARGET: native
     - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu2204
@@ -678,32 +684,37 @@ for:
           PY="${CI_PYTHON}"
           export PYTHONIOENCODING=utf-8
 
+          # Each run takes seconds. Build 1.0.161 stalled in one for the whole
+          # 60-minute cap with no output, so a stall now fails in five
+          # minutes, with every Python thread's stack printed.
+          cg() { timeout -s ABRT 300 "$PY" -X faulthandler -m tools.codegen.codegen "$@"; }
+
           modules=(textures mdx m2 m3 utils host mpq casc)
 
           # C ABI (consumed by Java FFM and C# P/Invoke).
-          "$PY" -m tools.codegen.codegen textures --backend c-common-header
-          "$PY" -m tools.codegen.codegen textures --backend c-common
+          cg textures --backend c-common-header
+          cg textures --backend c-common
           for mod in "${modules[@]}"; do
               for backend in c-header c-source; do
-                  "$PY" -m tools.codegen.codegen "${mod}" --backend "${backend}"
+                  cg "${mod}" --backend "${backend}"
               done
           done
 
           # Java FFM.
-          "$PY" -m tools.codegen.codegen textures --backend java-common
+          cg textures --backend java-common
           for mod in "${modules[@]}"; do
-              "$PY" -m tools.codegen.codegen "${mod}" --backend java
+              cg "${mod}" --backend java
           done
 
           # Python pybind11 + .pyi stubs.
           for mod in "${modules[@]}"; do
-              "$PY" -m tools.codegen.codegen "${mod}" --backend pybind11
-              "$PY" -m tools.codegen.codegen "${mod}" --backend pyi
+              cg "${mod}" --backend pybind11
+              cg "${mod}" --backend pyi
           done
 
           # C#.
           for mod in "${modules[@]}"; do
-              "$PY" -m tools.codegen.codegen "${mod}" --backend csharp
+              cg "${mod}" --backend csharp
           done
 
     after_build:
@@ -728,16 +739,31 @@ for:
 
 # ─── Module-switch job overrides ────────────────────────────────────────────
 # One module configuration each (WHITEOUT_MODULE_ARGS): the library and its
-# tests built, the module graph checked, nothing packaged. The image's own
-# gcc, cmake and python3 are all it needs.
+# tests built, the module graph checked, nothing packaged. The image's cmake
+# and python3 do; its gcc 11 does not (no constexpr std::string), so the job
+# takes the native job's gcc from ubuntu-toolchain-r/test.
   - matrix:
       only:
         - WHITEOUT_TARGET: modules
 
-    install: []
+    install:
+      - sh: |
+          set -e
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          sudo apt-get update -qq
+          for v in 15 14 13 12; do
+            if sudo apt-get install -y --no-install-recommends gcc-$v g++-$v; then
+              echo "CC=gcc-$v"  >> linux_cc.env
+              echo "CXX=g++-$v" >> linux_cc.env
+              break
+            fi
+          done
+          [ -f linux_cc.env ] || { echo "no gcc >= 12 available" >&2; exit 1; }
     before_build: []
     build_script:
-      - sh: bash tools/build-ci-modules.sh ${WHITEOUT_MODULE_ARGS}
+      - sh: |
+          set -a; . ./linux_cc.env; set +a
+          bash tools/build-ci-modules.sh ${WHITEOUT_MODULE_ARGS}
     after_build: []
     artifacts: []
 

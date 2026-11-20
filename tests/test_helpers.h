@@ -32,10 +32,9 @@ inline bool spanEqual(std::span<const u8> a, std::span<const u8> b) {
 /// Search common candidate paths for a corpus directory.
 inline std::string findCorpusBase(const char* subdir = "Corpus") {
     namespace fs = std::filesystem;
-    for (auto candidate : {subdir,
-                           (std::string("../") + subdir).c_str(),
-                           (std::string("../../") + subdir).c_str(),
-                           (std::string("C:/Projects/WhiteoutLib/") + subdir).c_str()}) {
+    for (const std::string& candidate :
+         {std::string(subdir), std::string("../") + subdir, std::string("../../") + subdir,
+          std::string("C:/Projects/WhiteoutLib/") + subdir}) {
         if (fs::exists(candidate))
             return candidate;
     }

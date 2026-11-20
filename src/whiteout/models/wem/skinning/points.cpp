@@ -55,11 +55,11 @@ struct CellKey {
 
 struct CellHash {
     std::size_t operator()(const CellKey& key) const {
-        std::size_t h = 1469598103934665603ull;
+        u64 h = 1469598103934665603ull;
         for (const i64 word : {key.x, key.y, key.z}) {
-            h = (h ^ static_cast<std::size_t>(word)) * 1099511628211ull;
+            h = (h ^ static_cast<u64>(word)) * 1099511628211ull;
         }
-        return h;
+        return static_cast<std::size_t>(h);
     }
 };
 
