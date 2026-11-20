@@ -128,6 +128,7 @@ cmake -S "${repo_root}" -B "${build_dir}" \
     -DWHITEOUT_ENABLE_MPQ=ON \
     -DWHITEOUT_ENABLE_CASC=ON \
     -DWHITEOUT_WARNINGS_AS_ERRORS=ON \
+    -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.15
 
 # ── 3. Build ─────────────────────────────────────────────────────────────

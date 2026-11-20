@@ -126,14 +126,23 @@ $cmakeArgs = @(
     "-DWHITEOUT_ENABLE_MPQ=ON",
     "-DWHITEOUT_ENABLE_CASC=ON",
     "-DWHITEOUT_WARNINGS_AS_ERRORS=ON",
+    # Defined, so pybind11 adds no /GL + /LTCG of its own: the LTCG of the
+    # Python module alone took 20 of AppVeyor's 60 minutes.
+    "-DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF",
     "-DCMAKE_POLICY_VERSION_MINIMUM=3.15"
 )
 & cmake @cmakeArgs
 if ($LASTEXITCODE -ne 0) { throw "cmake configure failed" }
 
 # ── 3. Build ─────────────────────────────────────────────────────────────
+#
+# --parallel is MSBuild's project count, and the libraries build in a chain,
+# so it alone leaves cl compiling one file at a time. cl reads /MP from the
+# CL variable. Two projects of /MP each keep the pybind11 TUs (~2 GB peak
+# apiece) inside the 8 GB worker.
 
-$parallel = if ($env:CMAKE_BUILD_PARALLEL_LEVEL) { $env:CMAKE_BUILD_PARALLEL_LEVEL } else { 4 }
+$parallel = if ($env:CMAKE_BUILD_PARALLEL_LEVEL) { $env:CMAKE_BUILD_PARALLEL_LEVEL } else { 2 }
+$env:CL = "/MP"
 & cmake --build $buildDir --config Release --parallel $parallel
 if ($LASTEXITCODE -ne 0) { throw "cmake build failed" }
 
