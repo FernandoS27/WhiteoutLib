@@ -686,6 +686,7 @@ TEST_CASE("M3 each editor rule names what breaks it", "[m3][compat][rules]") {
         model.bones.push_back(second);
         for (Bone& bone : model.bones) {
             bone.position.animId = 0x1234ABCDu;
+            bone.position.flags = 0x6; // bound to its own track, as the converter and the game write it
         }
         AnimBlock<Vector3f> keys{};
         keys.timestamps = {0};

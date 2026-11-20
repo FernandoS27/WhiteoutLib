@@ -2820,11 +2820,6 @@ EMSCRIPTEN_BINDINGS(wem) {
     register_optional<whiteout::models::wem::Document>();
 
     // ── Vector containers ────────────────────────────────────────────────
-    register_vector<whiteout::u64>("VectorU64")
-        .function("view",
-                  optional_override([](std::vector<whiteout::u64>& self) {
-                      return val(typed_memory_view(self.size(), self.data()));
-                  }));
     register_vector<whiteout::models::wem::AnimChannel>("VectorWemAnimChannel");
     register_vector<whiteout::models::wem::AnimSet>("VectorWemAnimSet");
     register_vector<whiteout::models::wem::AnimTag>("VectorWemAnimTag");

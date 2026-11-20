@@ -634,10 +634,15 @@ public:
         }
         if (!key.particle && !key.mesh && mat.diffuseLayer.has_value()) {
             // Warcraft III runs a ribbon's U along its length; StarCraft II its
-            // V (§4.5 row 10). A quarter turn lays one on the other.
-            Rest(mat.diffuseLayer->uvAngle, Vector3f{0.0f, 0.0f, -kPi * 0.5f});
+            // V (§4.5 row 10). A quarter turn lays one on the other. Its null
+            // stays at zero: the game builds a layer's UV transform only from
+            // an init off its null, as Blizzard's conversions write it.
+            const Vector3f turn{0.0f, 0.0f, -kPi * 0.5f};
+            mat.diffuseLayer->uvAngle.initValue = turn;
+            mat.diffuseLayer->uvAngle.nullValue = Vector3f{0.0f, 0.0f, 0.0f};
             if (mat.alphaLayer1.has_value()) {
-                Rest(mat.alphaLayer1->uvAngle, Vector3f{0.0f, 0.0f, -kPi * 0.5f});
+                mat.alphaLayer1->uvAngle.initValue = turn;
+                mat.alphaLayer1->uvAngle.nullValue = Vector3f{0.0f, 0.0f, 0.0f};
             }
         }
         return mat;
@@ -2282,6 +2287,18 @@ private:
     }
 
     void placeParticle(u32 node, m3::ParticleEmitter record) {
+        // The game uploads a record's cells only when both counts are set, and
+        // otherwise its flipbook layers read the cells some other emitter left
+        // in the batch slot: a texture with no sheet is one whole cell.
+        if (record.flipbookColumns == 0 || record.flipbookRows == 0) {
+            record.flipbookColumns = 1;
+            record.flipbookRows = 1;
+            record.flipbookColumnFraction = 1.0f;
+            record.flipbookRowFraction = 1.0f;
+            record.flipbookStartInitIndex = record.flipbookStartStopIndex = 0;
+            record.flipbookEndInitIndex = record.flipbookEndStopIndex = 0;
+            record.flipbookMidTime = kMidTimeRest;
+        }
         keyChannels(node, NodeKind::Sc2ParticleEmitter, record,
                     [](auto& r, auto&& f) { wem::m3_emitters::ForEachParticleRef(r, f); });
         Node& target = model_.nodes.nodes[node];

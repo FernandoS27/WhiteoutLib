@@ -295,6 +295,33 @@ TEST_CASE("wem m3 every sequence ends with the event the engine waits for",
     }
 }
 
+TEST_CASE("wem m3 events are keyed in time order, the end marker last", "[wem][anim][m3]") {
+    // An `.mdx` lists a clip's events by event object, so a Tree of Life's
+    // Walk crossed as 167, 1333, 1333, 200, ... ms; the game walks the keys
+    // in order.
+    m3::Model model = makeModel();
+    keyTranslation(model, 11, {0, 1000}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 1}});
+
+    Document document = convert(model);
+    REQUIRE_FALSE(document.clips.empty());
+    Clip& clip = document.clips[0];
+    clip.events.clear();
+    for (const f32 time : {0.8f, 0.2f, 0.5f, 0.2f}) {
+        ClipEvent event;
+        event.time = time;
+        event.name = "SNDxTEST";
+        clip.events.push_back(event);
+    }
+
+    M3Converter converter;
+    const Result<m3::Model> written = converter.toM3(document, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    const m3::AnimBlock<m3::Event>& block = written->subTrackCollections[0].sdev[0];
+    REQUIRE(block.keys.size() == 5);
+    CHECK(std::is_sorted(block.timestamps.begin(), block.timestamps.end()));
+    CHECK(block.keys.back().name.rfind("Evt_SeqEnd", 0) == 0);
+}
+
 TEST_CASE("wem m3 the end marker is replaced on a round trip, never doubled",
           "[wem][anim][m3]") {
     // The marker comes back as a clip event like any other, so an export that

@@ -2236,6 +2236,26 @@ private:
             entry.timestamps.push_back(origin + Ticks(clip.duration));
             entry.keys.push_back(std::move(end));
         }
+        // The game walks the keys in order, so they go by time whatever order
+        // the clip lists them in (an `.mdx` lists them by event object); the
+        // end marker stays last.
+        std::vector<std::size_t> order(entry.keys.size());
+        for (std::size_t i = 0; i < order.size(); ++i) {
+            order[i] = i;
+        }
+        std::stable_sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
+            const bool endA = entry.keys[a].name == kSequenceEndEvent;
+            const bool endB = entry.keys[b].name == kSequenceEndEvent;
+            return endA != endB ? endB : entry.timestamps[a] < entry.timestamps[b];
+        });
+        std::vector<i32> times;
+        std::vector<m3::Event> keys;
+        for (const std::size_t i : order) {
+            times.push_back(entry.timestamps[i]);
+            keys.push_back(std::move(entry.keys[i]));
+        }
+        entry.timestamps = std::move(times);
+        entry.keys = std::move(keys);
 
         // A block of one key is flagged, and one of several is not: 2,317 of
         // 2,317 single-key blocks carry 1 and all 61 longer ones carry 0.

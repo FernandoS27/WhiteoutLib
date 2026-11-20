@@ -1231,6 +1231,8 @@ TEST_CASE("wem m3 a CORN node's placed ribbon reads back as the RIB_ it was give
     CHECK(mat.blendMode == m3::BlendMode::AlphaAdd);
     REQUIRE(mat.diffuseLayer.has_value());
     CHECK(mat.diffuseLayer->uvAngle.initValue.z == Catch::Approx(-3.14159265f * 0.5f));
+    // The game writes the turn only from an init off its null.
+    CHECK(mat.diffuseLayer->uvAngle.nullValue.z == 0.0f);
     // An identity child of the quarter-turned frame: it rides the frame's
     // bone.
     const u32 frame = boneNamed(read, "Trail_corn");
@@ -2830,6 +2832,8 @@ TEST_CASE("wem m3 a Warcraft III ribbon reads back as the RIB_ its rows name",
     REQUIRE(mat.diffuseLayer.has_value());
     CHECK(mat.diffuseLayer->uvMapping == m3::UVMappingMode::ExplicitUV0);
     CHECK(mat.diffuseLayer->uvAngle.initValue.z == Catch::Approx(-3.14159265f * 0.5f));
+    // The game writes the turn only from an init off its null.
+    CHECK(mat.diffuseLayer->uvAngle.nullValue.z == 0.0f);
     REQUIRE(mat.alphaLayer1.has_value());
     CHECK(out.report.ribbonRecords == 1u);
 }

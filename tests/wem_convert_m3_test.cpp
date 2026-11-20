@@ -644,6 +644,35 @@ TEST_CASE("wem m3 carries IREF through the document as a matrix", "[wem][convert
     }
 }
 
+TEST_CASE("wem m3 a bone value no animId names is its rest", "[wem][convert][m3]") {
+    // A baked effect plane: bound at identity, shown scaled and turned. With
+    // no animId there is no channel to hold either, and the game shows them in
+    // every clip -- an import that rested it at its bind drew the plane whole.
+    m3::Model source = makeModel(29);
+    source.initialReference.resize(2);
+    source.bones[1].position.initValue = Vector3f{0, 0, 0};
+    source.bones[1].scale.initValue = Vector3f{0.025f, 1.0f, 0.025f};
+    source.bones[1].rotation.initValue = Quaternion{0.0f, -0.70710677f, 0.70710677f, 0.0f};
+
+    const M3Converter converter;
+    for (const bool editing : {false, true}) {
+        INFO("edit layout " << editing);
+        M3ImportOptions options;
+        options.foldRecordBones = options.splitByMaterial = editing;
+        Result<Document> document = converter.fromM3(source, ProfileId::Count, options);
+        REQUIRE(document.ok());
+        Result<m3::Model> back = converter.toM3(*document, ProfileId::Sc2, 29);
+        REQUIRE(back.ok());
+        REQUIRE(back->bones.size() == 2);
+        const m3::Bone& bone = back->bones[1];
+        CHECK(bone.scale.initValue.x == Catch::Approx(0.025f));
+        CHECK(bone.scale.initValue.y == Catch::Approx(1.0f));
+        CHECK(bone.scale.initValue.z == Catch::Approx(0.025f));
+        const Quaternion& r = bone.rotation.initValue;
+        CHECK(std::fabs(r.y * -0.70710677f + r.z * 0.70710677f) == Catch::Approx(1.0f));
+    }
+}
+
 TEST_CASE("wem m3 derives IREF when the document carries none", "[wem][convert][m3]") {
     // A document from another format has no `iref` pose, and a bind pose is the
     // one thing an M3 cannot be written without. The inverse of the composed

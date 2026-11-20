@@ -1176,24 +1176,4 @@ D3's `.ans` is the shape this exists for: 30 tag maps in one asset, one core and
         .def_readwrite("ripple", &whiteout::models::wem::SoftEffect::ripple)
     ;
 
-    py::class_<whiteout::models::wem::SoftBody>(m, "SoftBody")
-        .def(py::init<>())
-        .def_readwrite("id", &whiteout::models::wem::SoftBody::id, R"doc(From `PhysicsSet::allocateId`: a channel names it.)doc")
-        .def_readwrite("name", &whiteout::models::wem::SoftBody::name, R"doc(Also the prefix of the bones an export makes.)doc")
-        .def_readwrite("meshes", &whiteout::models::wem::SoftBody::meshes, R"doc(The meshes that hold its points.)doc")
-        .def_readwrite("detail", &whiteout::models::wem::SoftBody::detail, R"doc(Surface lumps asked for, apart from those places claim (§6.2).)doc")
-        .def_readwrite("copy_all", &whiteout::models::wem::SoftBody::copyAll, R"doc(Copy every bone, shared or not (§6.2).)doc")
-        .def_readwrite("chains_as_they_are", &whiteout::models::wem::SoftBody::chainsAsTheyAre, R"doc(Bones with bones below them are used, and only turn (§6.2).)doc")
-        .def_readwrite("inside", &whiteout::models::wem::SoftBody::inside, R"doc(What the body keeps clear of (§5.4).)doc")
-        .def_readwrite("riders", &whiteout::models::wem::SoftBody::riders, R"doc(Parts in the region that ride rigidly (§5.4): each has a lump for every bone it rides, and its points are those lumps' whole.)doc")
-        .def_readwrite("blend", &whiteout::models::wem::SoftBody::blend, R"doc(Of the region's size (§5.2).)doc")
-        .def_readwrite("influences", &whiteout::models::wem::SoftBody::influences, R"doc(The weights a point the lanes were solved for (§6.4).)doc")
-        .def_readwrite("equal_shares", &whiteout::models::wem::SoftBody::equalShares, R"doc(Solved for classic groups.)doc")
-        .def_readwrite("lumps", &whiteout::models::wem::SoftBody::lumps)
-        .def_readwrite("effects", &whiteout::models::wem::SoftBody::effects, R"doc(In the order they run.)doc")
-        .def_readwrite("colliders", &whiteout::models::wem::SoftBody::colliders, R"doc(`ClothCollider::id`s.)doc")
-        .def_readwrite("drips", &whiteout::models::wem::SoftBody::drips, R"doc(The mesh Drip added, or none.)doc")
-        .def_readwrite("next_effect", &whiteout::models::wem::SoftBody::nextEffect, R"doc(The next effect id: never reused.)doc")
-    ;
-
 }

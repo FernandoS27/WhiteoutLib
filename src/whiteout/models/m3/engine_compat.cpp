@@ -237,6 +237,12 @@ constexpr u32 kEventStreamAnimIds[] = {0x063F6D59u, 0x65BD3215u};
 /// The most bones one region's palette may name (63 in 436 shipped regions,
 /// 64 in none).
 constexpr u32 kRegionBoneLimit = 63;
+/// The AnimRef flags of a property a track answers: bound, and to this
+/// model's own track (0x6 on all 15,633 shipped bone refs; the converter's
+/// `kBound`).
+constexpr u32 kAnimRefBound = 0x6u;
+/// The flag bits an AnimRef is ever seen with (0x8, 0x10 besides the pair).
+constexpr u32 kAnimRefFlagBits = 0xFFu;
 
 bool HasInnerNul(const std::string& text) {
     const std::size_t nul = text.find('\0');
@@ -251,8 +257,8 @@ std::string Shown(const std::string& text) {
 
 /// Each id a container drives, against how many AnimRefs in @p bytes name it.
 /// An AnimRef is `{u16 interp; u16 flags; u32 animId; ...}`, so an id is
-/// counted where it sits 4-aligned, after an interpolation the format has,
-/// in a chunk that is a record -- not a list of ids, keys or times.
+/// counted where it sits 4-aligned, after an interpolation the format has and
+/// the bound flag, in a chunk that is a record -- not a list of ids, keys or times.
 std::map<u32, u32> AnimRefsNaming(const std::vector<u8>& bytes, const std::set<u32>& driven) {
     std::map<u32, u32> counts;
     const auto word = [&](std::size_t at) {
@@ -290,8 +296,14 @@ std::map<u32, u32> AnimRefsNaming(const std::vector<u8>& bytes, const std::set<u
             ++span;
         }
         const u32 id = word(at);
+        // A driven AnimRef states it is bound. Without that test a small id --
+        // ours count from 1 -- matched plain record data: a PAR_'s flags
+        // (0x220000) before its rotation flags (6).
+        const u32 head = word(at - 4);
+        const u32 flags = head >> 16;
         if (spans.empty() || spans[span].offset > at || kData.count(spans[span].tag) != 0 ||
-            driven.count(id) == 0 || (word(at - 4) & 0xFFFFu) > 3u) {
+            driven.count(id) == 0 || (head & 0xFFFFu) > 3u || (flags & kAnimRefBound) != kAnimRefBound ||
+            (flags & ~kAnimRefFlagBits) != 0) {
             continue;
         }
         // And its closing `unused` -1, past an init and a null of one of the

@@ -75,6 +75,9 @@ CONFIG = ModuleConfig(
         'VectorU8', 'VectorString',
         'VectorVector2f', 'VectorVector3f', 'VectorVector4f', 'VectorQuaternion',
         'VectorU16', 'VectorU32', 'VectorF32',
+        # Registered by m3_bindings, which binds first; a second registration
+        # fails the import ("type VectorU64 is already registered").
+        'VectorU64',
     ],
     skip_class_js_names=['Vector2f', 'Vector3f', 'Vector4f', 'Quaternion', 'Matrix44f'],
     auto_bind=True,

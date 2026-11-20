@@ -536,6 +536,20 @@ NodeTree ImportNodes(const m3::Model& source) {
         node.local = bound ? RestUnder(node.parent < b ? tree.worldBind(node.parent) : Transform::identity(),
                                        FromMatrix(Matrix44f::inverse(iref)))
                            : init;
+        // A value with no animId has no channel to hold it, and the game
+        // shows it in every clip: that part of the rest is the BONE's. A baked
+        // effect plane rests scaled or turned off its bind this way.
+        if (bound) {
+            if (!bone.position.isAnimated()) {
+                node.local.translation = init.translation;
+            }
+            if (!bone.rotation.isAnimated()) {
+                node.local.rotation = init.rotation;
+            }
+            if (!bone.scale.isAnimated()) {
+                node.local.scale = init.scale;
+            }
+        }
         node.poseMatrices.push_back(iref);
         // Derived, and never read back: it is what a TRS-only consumer gets.
         node.poses.push_back(FromMatrix(iref));
