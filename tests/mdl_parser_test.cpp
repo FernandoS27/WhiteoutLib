@@ -8,6 +8,8 @@
 
 #include "whiteout/models/mdx/mdl_parser.h"
 
+#include <clocale>
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <sstream>
@@ -603,4 +605,45 @@ TEST_CASE("v800_corpus_saurus_warrior", "[mdl_parser][corpus]") {
         if (foundHermiteOrBezier) break;
     }
     CHECK(foundHermiteOrBezier);
+}
+
+// ============================================================================
+// Robustness: host locale, old MSVC non-finite spellings, malformed values
+// ============================================================================
+
+TEST_CASE("numbers_ignore_host_decimal_comma_locale", "[mdl_parser]") {
+    // A host may run with a ',' LC_NUMERIC (3ds Max 2027 on a German
+    // Windows); strtod would then stop at the '.' of "194.9608".
+    const char* before = std::setlocale(LC_NUMERIC, nullptr);
+    std::string restore = before ? before : "C";
+    const char* applied = std::setlocale(LC_NUMERIC, "de_DE.UTF-8");
+    if (!applied) applied = std::setlocale(LC_NUMERIC, "de-DE");
+    auto doc = MdlParser::parse("Model \"M\" {\n\tBoundsRadius 194.9608,\n}\n");
+    std::setlocale(LC_NUMERIC, restore.c_str());
+    if (!applied) SKIP("no German locale available");
+    REQUIRE_FALSE(doc.hasErrors());
+    CHECK(prop(doc.roots[0], 0).values[0].asNumber() == Catch::Approx(194.9608));
+}
+
+TEST_CASE("msvc_nonfinite_spellings", "[mdl_parser]") {
+    // Old exporters printed NaN/inf through MSVC's printf: "-1.#IND00".
+    auto doc = MdlParser::parse("Normals 2 {\n\t{ -1.#IND00, 1.#INF00, -1.#INF00 },\n\t{ 1.#QNAN0, 0, 1 },\n}\n");
+    REQUIRE_FALSE(doc.hasErrors());
+    const auto& a = prop(doc.roots[0], 0).values[0].asArray();
+    REQUIRE(a.size() == 3);
+    CHECK(std::isnan(a[0].asNumber()));
+    CHECK(std::isinf(a[1].asNumber()));
+    CHECK(a[1].asNumber() > 0);
+    CHECK(a[2].asNumber() < 0);
+    CHECK(std::isnan(prop(doc.roots[0], 1).values[0].asArray()[0].asNumber()));
+}
+
+TEST_CASE("wrong_value_kind_does_not_abort", "[mdl_parser]") {
+    // The library is built without exceptions: reading a string as a number
+    // must give a neutral value, not std::get's abort.
+    auto doc = MdlParser::parse("Model \"M\" {\n\tBoundsRadius \"x\",\n}\n");
+    const auto& v = prop(doc.roots[0], 0).values[0];
+    CHECK(v.isString());
+    CHECK(v.asNumber() == 0.0);
+    CHECK(v.asArray().empty());
 }
