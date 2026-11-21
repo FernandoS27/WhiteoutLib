@@ -3,15 +3,19 @@
 
 #include <whiteout/models/wem/inline_models.h>
 
+#include <whiteout/models/wem/anim/pose.h>
 #include <whiteout/models/wem/anim/track_read.h>
 #include <whiteout/models/wem/nodes/remove.h>
 #include <whiteout/models/wem/physics/references.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
 #include <map>
 #include <numeric>
+#include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -112,15 +116,175 @@ void ScaleFloats(std::vector<u8>& bytes, f32 factor) {
     std::memcpy(bytes.data(), values.data(), values.size() * sizeof(f32));
 }
 
-/// One attached model's share of the work: its slots and materials, added once,
-/// and the global loops its clips became, which every placement keys.
-struct Adopted {
-    std::vector<u32> slots;                   ///< Its slot -> the host's.
-    std::vector<std::pair<u32, u32>> loops;   ///< (its clip, the host's loop).
-    u32 frameLoop = kInvalidIndex;            ///< Where a placed frame's one key goes.
+/// Where a clip of the placed model plays in the host: the whole of it as a
+/// loop of its own, or, on a span, from `span.played` through `span.clip`'s
+/// stretch.
+struct Route {
+    u32 source = 0;
+    u32 target = 0;
+    bool stretch = false;
+    ShownSpan span;
 };
 
-Adopted Adopt(Document& document, u32 into, u32 from, u32& nextChannel, InlineReport& report) {
+/// One attached model's share of the work: its slots and materials, added once,
+/// and where its clips play, which every placement keys.
+struct Adopted {
+    std::vector<u32> slots;        ///< Its slot -> the host's.
+    std::vector<Route> routes;
+    u32 frameLoop = kInvalidIndex; ///< Where a placed frame's one key goes.
+};
+
+/// Two keys this close are one.
+constexpr f32 kSameTime = 1e-4f;
+
+/// @p track's value at @p time, one element's bytes: sampled where it is
+/// floats, the key held otherwise.
+std::vector<u8> ValueAt(const SubTrack& track, geom::AttrType type, f32 time) {
+    const std::size_t size = geom::AttrTypeSize(type);
+    std::vector<u8> value(size, 0);
+    switch (type) {
+    case geom::AttrType::F32:
+    case geom::AttrType::F32x2:
+    case geom::AttrType::F32x3:
+    case geom::AttrType::F32x4:
+    case geom::AttrType::Quat:
+    case geom::AttrType::Extent: {
+        std::vector<f32> floats(size / sizeof(f32));
+        SampleTrack(track, type, time, floats.data(), static_cast<u32>(floats.size()));
+        std::memcpy(value.data(), floats.data(), size);
+        break;
+    }
+    default: {
+        std::size_t k = 0;
+        while (k + 1 < track.times.size() && track.times[k + 1] <= time) {
+            ++k;
+        }
+        std::memcpy(value.data(), track.values.data() + k * ValuesPerKey(track.interp) * size, size);
+        break;
+    }
+    }
+    return value;
+}
+
+/// @p track from @p from for @p length, laid at @p at onto @p into, with a key
+/// at its start, and at its end where @p close, where it has none: what it
+/// plays there whichever keys fall outside. A wrap's next lap starts where an
+/// end key would sit, so it leaves that one out.
+void AppendStretch(SubTrack& into, const SubTrack& track, geom::AttrType type, f32 from, f32 length, f32 at,
+                   bool close) {
+    if (track.times.empty() || !track.wellSized(type)) {
+        return;
+    }
+    const std::size_t size = geom::AttrTypeSize(type);
+    const std::size_t stride = ValuesPerKey(track.interp) * size;
+    const bool tcb = track.tcb.size() == track.times.size() * 3;
+    if (into.times.empty()) {
+        into.interp = track.interp;
+    }
+    const auto push = [&](f32 time, const u8* key, const f32* params) {
+        // A lap's last key and the next lap's first meet: the first holds.
+        if (!into.times.empty() && time <= into.times.back() + kSameTime) {
+            return;
+        }
+        into.times.push_back(time);
+        into.values.insert(into.values.end(), key, key + stride);
+        if (tcb) {
+            into.tcb.insert(into.tcb.end(), params, params + 3);
+        }
+    };
+    const f32 flat[3] = {0.0f, 0.0f, 0.0f};
+    // A key of its own: flat, a Bezier's controls on its value, a Hermite's
+    // tangents zero.
+    const auto pushSampled = [&](f32 time, f32 source) {
+        std::vector<u8> key(stride, 0);
+        const std::vector<u8> value = ValueAt(track, type, source);
+        std::memcpy(key.data(), value.data(), size);
+        if (track.interp == Interpolation::Bezier) {
+            std::memcpy(key.data() + size, value.data(), size);
+            std::memcpy(key.data() + 2 * size, value.data(), size);
+        }
+        push(time, key.data(), flat);
+    };
+    const f32 to = from + length;
+    bool first = true;
+    f32 last = from;
+    for (std::size_t k = 0; k < track.times.size(); ++k) {
+        const f32 t = track.times[k];
+        if (t < from - kSameTime || t > to + kSameTime) {
+            continue;
+        }
+        if (first && t > from + kSameTime) {
+            pushSampled(at, from);
+        }
+        first = false;
+        last = t;
+        push(at + std::clamp(t - from, 0.0f, length), track.values.data() + k * stride,
+             tcb ? track.tcb.data() + k * 3 : flat);
+    }
+    if (first) {
+        pushSampled(at, from);
+        last = from;
+    }
+    if (close && last < to - kSameTime) {
+        pushSampled(at + length, to);
+    }
+}
+
+/// The host's track for channel @p id in @p clip, made where there is none.
+SubTrack& TrackIn(Clip& clip, std::size_t container, u32 id) {
+    if (clip.containers.empty()) {
+        clip.containers.emplace_back();
+    }
+    SubTrackContainer& box = clip.containers[std::min(container, clip.containers.size() - 1)];
+    for (SubTrack& track : box.subTracks) {
+        if (track.channel == id) {
+            return track;
+        }
+    }
+    SubTrack& made = box.subTracks.emplace_back();
+    made.channel = id;
+    return made;
+}
+
+/// Every track the routes carry whose channel @p rename names (the host's id
+/// and its type), after @p touch, into the host's clips: a loop's as it is, a
+/// span's as the stretch of it the span plays, wrapped where its clip loops.
+template <class Rename, class Touch>
+void CopyTracks(Document& document, const Adopted& adopted, Rename rename, Touch touch) {
+    for (const Route& route : adopted.routes) {
+        const Clip& source = document.clips[route.source];
+        for (std::size_t c = 0; c < source.containers.size(); ++c) {
+            for (SubTrack track : document.clips[route.source].containers[c].subTracks) {
+                const auto renamed = rename(track.channel);
+                if (!renamed) {
+                    continue;
+                }
+                touch(track);
+                track.channel = renamed->first;
+                if (!route.stretch) {
+                    document.clips[route.target].containers[c].subTracks.push_back(std::move(track));
+                    continue;
+                }
+                SubTrack& into = TrackIn(document.clips[route.target], c, renamed->first);
+                const f32 duration = document.clips[route.source].duration;
+                const bool wraps = document.clips[route.source].looping && duration > 0.0f;
+                f32 at = route.span.start;
+                f32 from = wraps ? std::fmod(route.span.played, duration) : route.span.played;
+                while (at < route.span.end - kSameTime) {
+                    const f32 length = wraps ? std::min(route.span.end - at, duration - from)
+                                             : route.span.end - at;
+                    const bool more = at + length < route.span.end - kSameTime;
+                    AppendStretch(into, track, renamed->second, from, length, at, !more);
+                    at += length;
+                    from = 0.0f;
+                }
+            }
+        }
+    }
+}
+
+Adopted Adopt(Document& document, u32 into, u32 from, u32& nextChannel, InlineReport& report,
+              const std::vector<ShownSpan>* spans) {
     Model& host = document.models[into];
     const Model& model = document.models[from];
     Adopted adopted;
@@ -153,7 +317,8 @@ Adopted Adopt(Document& document, u32 into, u32 from, u32& nextChannel, InlineRe
         }
     }
 
-    // What it plays in place: `Stand`, else its first clip; and its global loops.
+    // What it plays in place: `Stand`, else its first clip -- on spans, its
+    // first, as StarCraft II starts a model particle's; and its global loops.
     u32 played = kInvalidIndex;
     for (u32 c = 0; c < document.clips.size(); ++c) {
         const Clip& clip = document.clips[c];
@@ -161,14 +326,20 @@ Adopted Adopt(Document& document, u32 into, u32 from, u32& nextChannel, InlineRe
             continue;
         }
         played = played == kInvalidIndex ? c : played;
-        if (clip.native.value("animationId", -1) == 0) {
+        if (spans != nullptr || clip.native.value("animationId", -1) == 0) {
             played = c;
             break;
         }
     }
+    if (spans != nullptr && played != kInvalidIndex) {
+        for (const ShownSpan& span : *spans) {
+            adopted.routes.push_back(Route{played, span.clip, true, span});
+        }
+    }
     const u32 clips = static_cast<u32>(document.clips.size());
     for (u32 c = 0; c < clips; ++c) {
-        if (document.clips[c].model != from || (c != played && !IsGlobalLoop(document.clips[c]))) {
+        if (document.clips[c].model != from || (c != played && !IsGlobalLoop(document.clips[c])) ||
+            (c == played && spans != nullptr)) {
             continue;
         }
         Clip loop = document.clips[c];
@@ -181,7 +352,7 @@ Adopted Adopt(Document& document, u32 into, u32 from, u32& nextChannel, InlineRe
         for (SubTrackContainer& container : loop.containers) {
             container.subTracks.clear();
         }
-        adopted.loops.emplace_back(c, static_cast<u32>(document.clips.size()));
+        adopted.routes.push_back(Route{c, static_cast<u32>(document.clips.size()), false, ShownSpan{}});
         if (c == played || adopted.frameLoop == kInvalidIndex) {
             adopted.frameLoop = static_cast<u32>(document.clips.size());
         }
@@ -191,32 +362,31 @@ Adopted Adopt(Document& document, u32 into, u32 from, u32& nextChannel, InlineRe
 
     // Its material channels drive the materials it shares between placements,
     // so they come in once.
-    std::unordered_map<u32, u32> ids;
+    std::unordered_map<u32, std::pair<u32, geom::AttrType>> ids;
     for (AnimChannel channel : model.animChannels.channels) {
         if (!IsMaterialTarget(channel.target.kind) || channel.target.material.slot >= adopted.slots.size()) {
             continue;
         }
         channel.target.material.slot = adopted.slots[channel.target.material.slot];
         channel.target.material.look = 0;
-        ids[channel.id] = nextChannel;
+        ids[channel.id] = {nextChannel, channel.valueType};
         channel.id = nextChannel++;
         host.animChannels.add(channel);
     }
-    for (const auto& [source, loop] : adopted.loops) {
-        for (std::size_t k = 0; k < document.clips[source].containers.size(); ++k) {
-            for (SubTrack track : document.clips[source].containers[k].subTracks) {
-                if (const auto it = ids.find(track.channel); it != ids.end()) {
-                    track.channel = it->second;
-                    document.clips[loop].containers[k].subTracks.push_back(std::move(track));
-                }
-            }
-        }
-    }
+    CopyTracks(
+        document, adopted,
+        [&](u32 channel) -> std::optional<std::pair<u32, geom::AttrType>> {
+            const auto it = ids.find(channel);
+            return it != ids.end() ? std::optional(it->second) : std::nullopt;
+        },
+        [](SubTrack&) {});
     return adopted;
 }
 
+/// The roots hang from @p hang, and a section with no gate of its own takes
+/// @p gate, where it is a node.
 void Place(Document& document, u32 into, u32 attachment, u32 from, Adopted& adopted, u32& nextChannel,
-           Diagnostics& diagnostics) {
+           u32 hang, u32 gate, Diagnostics& diagnostics) {
     const Model& model = document.models[from];
     NodeTree nodes = model.nodes;
     std::vector<Mesh> meshes = model.meshes;
@@ -234,7 +404,7 @@ void Place(Document& document, u32 into, u32 attachment, u32 from, Adopted& adop
 
     const Node& at = host.nodes.nodes[attachment];
     const std::string prefix = at.name;
-    const u32 parent = at.parent;
+    const u32 parent = hang;
     const Vector3f parentPivot = parent < base ? host.nodes.nodes[parent].pivot : Vector3f{0, 0, 0};
     const Transform world = host.nodes.worldBind(attachment);
     Placement placement;
@@ -311,6 +481,10 @@ void Place(Document& document, u32 into, u32 attachment, u32 from, Adopted& adop
             if (!section.name.empty()) {
                 section.name = Behind(prefix, section.name);
             }
+            const i64 own = section.native.value(kSectionVisibilityNode, kSectionAlwaysDrawn);
+            if (gate != kInvalidNode && (own < 0 || own == kSectionAlwaysDrawn)) {
+                section.native.set(kSectionVisibilityNode, static_cast<i64>(gate));
+            }
         }
         mesh.recomputeBounds();
         host.meshes.push_back(std::move(mesh));
@@ -361,24 +535,21 @@ void Place(Document& document, u32 into, u32 attachment, u32 from, Adopted& adop
         channel.id = nextChannel++;
         host.animChannels.add(channel);
     }
-    for (const auto& [source, loop] : adopted.loops) {
-        for (std::size_t c = 0; c < document.clips[source].containers.size(); ++c) {
-            for (SubTrack track : document.clips[source].containers[c].subTracks) {
-                const auto it = ids.find(track.channel);
-                if (it == ids.end()) {
-                    continue;
-                }
-                if (it->second.node) {
-                    PlaceValues(it->second.what, it->second.type, it->second.frame, placement, track.values);
-                }
-                if (it->second.spread != 1.0f) {
-                    ScaleFloats(track.values, it->second.spread);
-                }
-                track.channel = it->second.id;
-                document.clips[loop].containers[c].subTracks.push_back(std::move(track));
+    CopyTracks(
+        document, adopted,
+        [&](u32 channel) -> std::optional<std::pair<u32, geom::AttrType>> {
+            const auto it = ids.find(channel);
+            return it != ids.end() ? std::optional(std::pair{it->second.id, it->second.type}) : std::nullopt;
+        },
+        [&](SubTrack& track) {
+            const Placed& placed = ids.at(track.channel);
+            if (placed.node) {
+                PlaceValues(placed.what, placed.type, placed.frame, placement, track.values);
             }
-        }
-    }
+            if (placed.spread != 1.0f) {
+                ScaleFloats(track.values, placed.spread);
+            }
+        });
 
     // A turned frame no key turns says so with a key of its own.
     for (u32 k = 0; k < nodes.size(); ++k) {
@@ -445,7 +616,7 @@ bool SameSchema(const NodeTree& a, const NodeTree& b) {
 /// rederived: `p W` skinned by `W^-1 B^-1` and `world * A(t)` is `p B^-1 world
 /// A(t)`, the model riding the attachment, whatever W the bind took.
 void PlaceExplicit(Document& document, u32 into, u32 attachment, u32 from, Adopted& adopted, u32& nextChannel,
-                   Diagnostics& diagnostics) {
+                   u32 hang, u32 gate, Diagnostics& diagnostics) {
     const Model& model = document.models[from];
     NodeTree nodes = model.nodes;
     std::vector<Mesh> meshes = model.meshes;
@@ -469,7 +640,7 @@ void PlaceExplicit(Document& document, u32 into, u32 attachment, u32 from, Adopt
 
     for (u32 k = 0; k < nodes.size(); ++k) {
         Node node = std::move(nodes.nodes[k]);
-        node.parent = node.parent >= nodes.size() ? attachment : base + node.parent;
+        node.parent = node.parent >= nodes.size() ? hang : base + node.parent;
         node.name = Behind(prefix, node.name);
         if (!schema) {
             // Rebuilt from the rest chain under the attachment by `conformPoses`.
@@ -524,6 +695,10 @@ void PlaceExplicit(Document& document, u32 into, u32 attachment, u32 from, Adopt
             if (!section.name.empty()) {
                 section.name = Behind(prefix, section.name);
             }
+            const i64 own = section.native.value(kSectionVisibilityNode, kSectionAlwaysDrawn);
+            if (gate != kInvalidNode && (own < 0 || own == kSectionAlwaysDrawn)) {
+                section.native.set(kSectionVisibilityNode, static_cast<i64>(gate));
+            }
         }
         mesh.recomputeBounds();
         host.meshes.push_back(std::move(mesh));
@@ -531,7 +706,7 @@ void PlaceExplicit(Document& document, u32 into, u32 attachment, u32 from, Adopt
 
     // Its node and section channels as they are: the keys are its parent's
     // frame, which the attachment now is. The material ones came in once.
-    std::unordered_map<u32, u32> ids;
+    std::unordered_map<u32, std::pair<u32, geom::AttrType>> ids;
     for (AnimChannel channel : channels.channels) {
         if (IsMaterialTarget(channel.target.kind) || IsPhysicsChannel(channel.target) ||
             IsStageChannel(channel.target)) {
@@ -543,20 +718,17 @@ void PlaceExplicit(Document& document, u32 into, u32 attachment, u32 from, Adopt
                    (channel.target.node < base || channel.target.node - base >= nodes.size())) {
             continue;
         }
-        ids[channel.id] = nextChannel;
+        ids[channel.id] = {nextChannel, channel.valueType};
         channel.id = nextChannel++;
         host.animChannels.add(channel);
     }
-    for (const auto& [source, loop] : adopted.loops) {
-        for (std::size_t c = 0; c < document.clips[source].containers.size(); ++c) {
-            for (SubTrack track : document.clips[source].containers[c].subTracks) {
-                if (const auto it = ids.find(track.channel); it != ids.end()) {
-                    track.channel = it->second;
-                    document.clips[loop].containers[c].subTracks.push_back(std::move(track));
-                }
-            }
-        }
-    }
+    CopyTracks(
+        document, adopted,
+        [&](u32 channel) -> std::optional<std::pair<u32, geom::AttrType>> {
+            const auto it = ids.find(channel);
+            return it != ids.end() ? std::optional(it->second) : std::nullopt;
+        },
+        [](SubTrack&) {});
 
     for (u32 m = meshBase; m < host.meshes.size(); ++m) {
         const Extent& bounds = host.meshes[m].bounds;
@@ -568,13 +740,183 @@ void PlaceExplicit(Document& document, u32 into, u32 attachment, u32 from, Adopt
     FinishExtent(host.bounds);
 }
 
+/// The helper a placement on spans hangs from, under @p attachment at its
+/// rest: shown through each span and hidden otherwise, rest included.
+u32 AddSpanGate(Document& document, u32 into, u32 attachment, const std::vector<ShownSpan>& spans,
+                u32& nextChannel) {
+    Model& host = document.models[into];
+    Node gate;
+    gate.kind = NodeKind::Helper;
+    gate.resetPayloadForKind();
+    gate.name = host.nodes.nodes[attachment].name + "_Model";
+    if (gate.name.size() > kNameBytes) {
+        gate.name.resize(kNameBytes);
+    }
+    gate.parent = attachment;
+    gate.pivot = host.nodes.nodes[attachment].pivot;
+    gate.local = Transform::identity();
+    const u32 index = host.nodes.size();
+    host.nodes.add(std::move(gate));
+    if (host.nodes.rig != RigConvention::PivotRelative) {
+        host.nodes.conformPoses();
+    }
+
+    AnimChannel channel;
+    channel.id = nextChannel++;
+    channel.target.kind = TrackTarget::Kind::Node;
+    channel.target.node = index;
+    channel.target.channel = Channel::Visibility;
+    channel.valueType = geom::AttrType::F32;
+    channel.initValue.resize(sizeof(f32));
+    const f32 hidden = 0.0f;
+    std::memcpy(channel.initValue.data(), &hidden, sizeof(f32));
+    host.animChannels.add(channel);
+
+    std::map<u32, SubTrack> tracks;
+    const auto key = [](SubTrack& track, f32 time, f32 value) {
+        track.times.push_back(time);
+        const u8* bytes = reinterpret_cast<const u8*>(&value);
+        track.values.insert(track.values.end(), bytes, bytes + sizeof(f32));
+    };
+    for (const ShownSpan& span : spans) {
+        SubTrack& track = tracks[span.clip];
+        track.channel = channel.id;
+        track.interp = Interpolation::Step;
+        if (track.times.empty() && span.start > kSameTime) {
+            key(track, 0.0f, 0.0f);
+        }
+        key(track, span.start, 1.0f);
+        if (span.end < document.clips[span.clip].duration - kSameTime) {
+            key(track, span.end, 0.0f);
+        }
+    }
+    // Every other clip says hidden: a Warcraft III export fills a clip that
+    // keys nothing from the timeline around it, which is a span.
+    for (u32 c = 0; c < document.clips.size(); ++c) {
+        const Clip& clip = document.clips[c];
+        if (clip.model == into && !IsGlobalLoop(clip) && tracks.find(c) == tracks.end()) {
+            SubTrack& track = tracks[c];
+            track.channel = channel.id;
+            track.interp = Interpolation::Step;
+            key(track, 0.0f, 0.0f);
+        }
+    }
+    for (auto& [clip, track] : tracks) {
+        TrackIn(document.clips[clip], 0, channel.id) = std::move(track);
+    }
+    return index;
+}
+
 } // namespace
 
-InlineReport InlineAttachedModels(Document& document, u32 into) {
+std::vector<ShownSpan> ShownSpans(const Document& document, u32 model, u32 node) {
+    std::vector<ShownSpan> out;
+    if (model >= document.models.size()) {
+        return out;
+    }
+    const Model& owner = document.models[model];
+    const AnimChannel* channel = nullptr;
+    for (const AnimChannel& entry : owner.animChannels.channels) {
+        if (entry.target.kind == TrackTarget::Kind::Node && entry.target.node == node &&
+            entry.target.channel == Channel::Visibility && entry.valueType == geom::AttrType::F32) {
+            channel = &entry;
+        }
+    }
+    f32 rest = 1.0f;
+    if (channel != nullptr && channel->hasInitValue() && channel->initValue.size() >= sizeof(f32)) {
+        std::memcpy(&rest, channel->initValue.data(), sizeof(f32));
+    }
+
+    constexpr f32 kShortestSpan = 1e-3f;
+    std::vector<std::vector<ShownSpan>> spans(document.clips.size());
+    for (u32 c = 0; c < document.clips.size(); ++c) {
+        const Clip& clip = document.clips[c];
+        if (clip.model != model || clip.duration <= 0.0f || IsGlobalLoop(clip)) {
+            continue;
+        }
+        const SubTrack* track = channel != nullptr ? FindSubTrack(clip, channel->id) : nullptr;
+        // The clip's breakpoints: its ends and the keys it plays.
+        std::vector<f32> times{0.0f, clip.duration};
+        if (track != nullptr) {
+            for (const f32 t : track->times) {
+                if (t > 0.0f && t < clip.duration) {
+                    times.push_back(t);
+                }
+            }
+        }
+        std::sort(times.begin(), times.end());
+        times.erase(std::unique(times.begin(), times.end()), times.end());
+        const auto shown = [&](f32 time) {
+            f32 v = rest;
+            if (track != nullptr && !track->times.empty()) {
+                SampleTrack(*track, geom::AttrType::F32, time, &v, 1);
+            }
+            return v > 0.0f;
+        };
+        f32 start = -1.0f;
+        const auto close = [&](f32 end) {
+            if (end - start >= kShortestSpan) {
+                spans[c].push_back(ShownSpan{c, start, end, 0.0f, end - start});
+            }
+            start = -1.0f;
+        };
+        for (std::size_t k = 0; k + 1 < times.size(); ++k) {
+            // A segment shows where its middle does: a step holds its left
+            // key, and a line above 0 at either end is above 0 inside.
+            const bool on = shown(0.5f * (times[k] + times[k + 1]));
+            if (on && start < 0.0f) {
+                start = times[k];
+            }
+            if (!on && start >= 0.0f) {
+                close(times[k]);
+            }
+        }
+        if (start >= 0.0f) {
+            close(clip.duration);
+        }
+    }
+
+    // Death -> Decay, by the names both games give them, a number after them
+    // aside ("Death 1" and "Decay", "Death 01" and "Decay 01"): what shows to
+    // the Death's end plays on into the Decay that starts shown.
+    const auto after = [](const std::string& name, std::string_view word) -> std::optional<std::string> {
+        if (name.rfind(word, 0) != 0) {
+            return std::nullopt;
+        }
+        std::string rest = name.substr(word.size());
+        while (!rest.empty() && (rest.back() == ' ' || (rest.back() >= '0' && rest.back() <= '9'))) {
+            rest.pop_back();
+        }
+        return rest;
+    };
+    for (u32 c = 0; c < document.clips.size(); ++c) {
+        const std::optional<std::string> death = after(document.clips[c].name, "Death");
+        if (spans[c].empty() || !death || spans[c].back().end < document.clips[c].duration - kShortestSpan) {
+            continue;
+        }
+        for (u32 d = 0; d < document.clips.size(); ++d) {
+            if (d != c && after(document.clips[d].name, "Decay") == death && !spans[d].empty() &&
+                spans[d].front().start <= 0.0f && spans[d].front().played == 0.0f) {
+                ShownSpan& born = spans[c].back();
+                spans[d].front().played = born.end - born.start;
+                born.life += spans[d].front().life;
+                spans[d].front().life = 0.0f;
+                break;
+            }
+        }
+    }
+    for (std::vector<ShownSpan>& clip : spans) {
+        out.insert(out.end(), clip.begin(), clip.end());
+    }
+    return out;
+}
+
+InlineReport InlineAttachedModels(Document& document, u32 into, const InlineOptions& options) {
     InlineReport report;
     if (into >= document.models.size()) {
         return report;
     }
+    const bool onSpans = options.clock == InlineClock::ShownSpans;
     // Gathered first: a placement grows the host's nodes.
     std::vector<std::pair<u32, u32>> placements;
     const NodeTree& tree = document.models[into].nodes;
@@ -592,24 +934,44 @@ InlineReport InlineAttachedModels(Document& document, u32 into) {
 
     u32 nextChannel = document.models[into].animChannels.nextFreeId();
     std::map<u32, Adopted> adopted;
+    std::set<u32> models;
     u32 skipped = 0;
     u32 unplayed = 0;
+    u32 unshown = 0;
     for (const auto& [attachment, from] : placements) {
         const Model& model = document.models[from];
         if (model.nodes.rig != rig) {
             ++skipped;
             continue;
         }
+        AttachmentPayload& payload =
+            std::get<AttachmentPayload>(document.models[into].nodes.nodes[attachment].payload);
+        u32 hang = document.models[into].nodes.nodes[attachment].parent;
+        u32 gate = kInvalidNode;
         auto it = adopted.find(from);
-        if (it == adopted.end()) {
-            it = adopted.emplace(from, Adopt(document, into, from, nextChannel, report)).first;
+        if (onSpans) {
+            // Its own materials and keys each: the spans are the placement's.
+            const std::vector<ShownSpan> spans = ShownSpans(document, into, attachment);
+            payload.model = kInvalidIndex;
+            payload.asset.path.clear();
+            if (spans.empty()) {
+                ++unshown;
+                continue;
+            }
+            it = adopted.emplace(attachment, Adopt(document, into, from, nextChannel, report, &spans)).first;
+            hang = gate = AddSpanGate(document, into, attachment, spans, nextChannel);
+        } else if (it == adopted.end()) {
+            it = adopted.emplace(from, Adopt(document, into, from, nextChannel, report, nullptr)).first;
+        }
+        if (models.insert(from).second) {
             ++report.models;
             unplayed += model.physics.empty() && model.poseStages.empty() ? 0u : 1u;
         }
         if (rig == RigConvention::PivotRelative) {
-            Place(document, into, attachment, from, it->second, nextChannel, report.diagnostics);
+            Place(document, into, attachment, from, it->second, nextChannel, hang, gate, report.diagnostics);
         } else {
-            PlaceExplicit(document, into, attachment, from, it->second, nextChannel, report.diagnostics);
+            PlaceExplicit(document, into, attachment, from, it->second, nextChannel,
+                          onSpans ? hang : attachment, gate, report.diagnostics);
         }
         std::get<AttachmentPayload>(document.models[into].nodes.nodes[attachment].payload).model = kInvalidIndex;
         ++report.placements;
@@ -619,8 +981,15 @@ InlineReport InlineAttachedModels(Document& document, u32 into) {
         report.diagnostics.info(DiagCode::LossyKindConversion,
                                 std::to_string(report.placements) + " placement(s) of " +
                                     std::to_string(report.models) +
-                                    " attached model(s) written into the model where they sit, playing on " +
-                                    std::to_string(report.loops) + " global loop(s)",
+                                    " attached model(s) written into the model where they sit, " +
+                                    (onSpans ? std::string("playing where their attachment shows")
+                                             : "playing on " + std::to_string(report.loops) + " global loop(s)"),
+                                ElementRef(ElementKind::Document, 0));
+    }
+    if (unshown != 0) {
+        report.diagnostics.info(DiagCode::FeatureDropped,
+                                std::to_string(unshown) +
+                                    " attached model(s) left out: their attachment shows in no clip",
                                 ElementRef(ElementKind::Document, 0));
     }
     if (skipped != 0) {

@@ -18,6 +18,7 @@
 #include <whiteout/models/wem/anim/pose.h>
 #include <whiteout/models/wem/converters.h>
 #include <whiteout/models/wem/geometry/builder.h>
+#include <whiteout/models/wem/inline_models.h>
 
 #include "../wem/converters/m3_emitters.h"
 #include "../wem/converters/m3_track_sink.h"
@@ -1564,6 +1565,11 @@ public:
                     ribbon(n);
                 }
                 break;
+            case NodeKind::Attachment:
+                if (options_.particles) {
+                    attachedModel(n);
+                }
+                break;
             // A `.wem` written before `CORN` had a kind of its own holds one
             // as the generic reference.
             case NodeKind::Wc3CornEmitter:
@@ -2017,6 +2023,111 @@ private:
         dropSystemChannels(n);
         placeParticle(n, std::move(p));
         ++report_.modelParticleRecords;
+    }
+
+    // --- ATCH with a model --------------------------------------------------
+
+    /// A model riding an attachment point. Warcraft III starts it from its
+    /// first frame each time the point shows and hides it with the point
+    /// (`ApplyAttachmentStates`); a StarCraft II point carries no model. So a
+    /// model particle on the point bursts one copy where each visible span of
+    /// it starts, living that span: the game plays a model particle's first
+    /// sequence from its birth (4.8 `ProcessPendingSpawns` -> the instance's
+    /// bind, `sub_1028DD860`). Emitter-oriented in the emitter's space, the
+    /// copy moves and turns with the point.
+    void attachedModel(u32 n) {
+        const auto* payload = std::get_if<wem::AttachmentPayload>(&model_.nodes.nodes[n].payload);
+        if (payload == nullptr || payload->asset.path.empty()) {
+            return;
+        }
+        const std::string path = payload->asset.path;
+        const std::string name = model_.nodes.nodes[n].name;
+        const ElementRef where(ElementKind::Node, n);
+        const auto written = options_.attachedModels.find(path);
+        if (written == options_.attachedModels.end() || written->second.empty()) {
+            report_.diagnostics.warn(DiagCode::FeatureDropped,
+                                     "attachment '" + name + "' carries '" + path +
+                                         "', which the export did not write; it is not drawn",
+                                     where);
+            return;
+        }
+        Keyed bursts;
+        Keyed lives;
+        visibleSpans(n, bursts, lives);
+        if (bursts.empty()) {
+            report_.diagnostics.info(DiagCode::FeatureDropped,
+                                     "attachment '" + name + "' carries '" + path +
+                                         "' but shows in no clip",
+                                     where);
+            return;
+        }
+
+        m3::ParticleEmitter p = RestParticle();
+        p.flags |= m3::ParticleFlag::ModelParticles;
+        p.modelPaths = {written->second};
+        p.instanceType = m3::ParticleInstanceType::EmitterOriented;
+        p.emitterShape = m3::EmitterShape::Point;
+        Rest(p.sizeAnimation, Vector3f{1.0f, 1.0f, 1.0f});
+        const m3::ColorBGRA white = Color(Vector3f{1.0f, 1.0f, 1.0f}, 255);
+        Rest(p.colorStart, white);
+        Rest(p.colorMid, white);
+        Rest(p.colorEnd, white);
+        RestEmission(p.emissionRate, 0.0f);
+        bind(std::move(bursts), {&p.squirtAmount});
+        Rest(p.lifetime, 1.0f);
+        Rest(p.lifetimeRandom, 1.0f);
+        bind(std::move(lives), {&p.lifetime, &p.lifetimeRandom});
+        // One copy a span; a loop's next copy is born the frame the last dies.
+        p.maxParticles = 4;
+        MaterialKey key;
+        key.particle = true;
+        p.materialIndex = materials_.slot(key);
+
+        // The pose takes the model's axes from the emitter's rows as (x, -z,
+        // y), a quarter turn the record bone's +90 degrees about its x undoes:
+        // WEM's y, the bases a quarter turn about z apart (`m3_converter`).
+        const u32 record = addRecordNode(n, "_Model", false);
+        Node& node = model_.nodes.nodes[record];
+        const f32 h = std::sqrt(0.5f);
+        node.local.rotation = Quaternion{0.0f, h, 0.0f, h};
+        node.poses.assign(model_.nodes.poseSchema.size(), node.local);
+        {
+            // A row vector's quarter turn about y, and its inverse.
+            Matrix44f turn = Matrix44f::identity();
+            turn.data[0][0] = 0.0f;
+            turn.data[0][2] = -1.0f;
+            turn.data[2][0] = 1.0f;
+            turn.data[2][2] = 0.0f;
+            Matrix44f back = turn;
+            back.data[0][2] = 1.0f;
+            back.data[2][0] = -1.0f;
+            bindUnder(node, turn, back);
+        }
+        placeParticle(record, std::move(p));
+        ++report_.attachedModelRecords;
+    }
+
+    /// Per clip, a burst of one where each span @p node is visible starts
+    /// (`wem::ShownSpans`: Warcraft III's test, above 0, a Death shown into its
+    /// Decay one copy) and the life of what is born there.
+    void visibleSpans(u32 node, Keyed& bursts, Keyed& lives) const {
+        std::map<u32, std::pair<SubTrack, SubTrack>> keyed;
+        for (const wem::ShownSpan& span : wem::ShownSpans(document_, 0, node)) {
+            if (span.played > 0.0f) {
+                continue; // the Death's copy, playing on
+            }
+            auto& [burst, life] = keyed[span.clip];
+            burst.interp = Interpolation::Step;
+            life.interp = Interpolation::Step;
+            burst.times.push_back(span.start);
+            AppendValue(burst.values, u32{1});
+            life.times.push_back(span.start);
+            AppendValue(life.values, span.life);
+        }
+        for (auto& [clip, tracks] : keyed) {
+            bursts.emplace_back(clip, std::move(tracks.first));
+            lives.emplace_back(clip, std::move(tracks.second));
+        }
     }
 
     // --- RIBB ---------------------------------------------------------------

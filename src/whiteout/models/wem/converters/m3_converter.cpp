@@ -2120,9 +2120,19 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         switch (node.kind) {
         case NodeKind::Attachment: {
             // An ATT_ has no model slot: what a Warcraft III point spawns is the
-            // game's to attach, and nothing in the file can name it.
+            // game's to attach, unless a model particle under the point shows
+            // it (`cross::CrossWc3Emitters`).
+            const auto shownByChild = [&] {
+                for (u32 c = 0; c < nodeCount; ++c) {
+                    const Node& child = model.nodes.nodes[c];
+                    if (child.parent == n && held(c) && child.kind == NodeKind::Sc2ParticleEmitter) {
+                        return true;
+                    }
+                }
+                return false;
+            };
             if (const auto* payload = std::get_if<AttachmentPayload>(&node.payload);
-                payload != nullptr && !payload->asset.path.empty()) {
+                payload != nullptr && !payload->asset.path.empty() && !shownByChild()) {
                 diagnostics.info(DiagCode::FeatureDropped,
                                  "attachment '" + node.name + "' spawns '" + payload->asset.path +
                                      "'; an ATT_ names no model, so it is not attached",
@@ -2534,6 +2544,10 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     const auto binaryStep = [&document](u32 channelId) {
         bool any = false;
         for (const Clip& clip : document.clips) {
+            // Another model's clips key ids of its own table.
+            if (clip.model != 0) {
+                continue;
+            }
             for (const SubTrackContainer& container : clip.containers) {
                 for (const SubTrack& track : container.subTracks) {
                     if (track.channel != channelId) {
@@ -3228,7 +3242,11 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
             // draw. The bone is a root with an identity rest, appended after
             // `skinBoneCount` because it skins nothing; the anim export wires
             // its AnimRef to the channel's own stream (`sectionGateBones`).
-            if (batch.boneCount == static_cast<u16>(kSectionAlwaysDrawn)) {
+            // A Warcraft III section that a node gates as well -- an attached
+            // model written in, hidden with its helper -- keeps both: its gate
+            // bone hangs under the node's, and a hidden bone hides its subtree.
+            const u16 storedGate = batch.boneCount;
+            if (batch.boneCount == static_cast<u16>(kSectionAlwaysDrawn) || warcraftDocument) {
                 // A binary step gates (`binaryStep`, above); a fade rides the
                 // material.
                 const AnimChannel* vis = nullptr;
@@ -3261,6 +3279,9 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                     // batches, and a gate bone per batch would be noise.
                     const auto everZero = [&document](u32 channelId) {
                         for (const Clip& clip : document.clips) {
+                            if (clip.model != 0) {
+                                continue;
+                            }
                             for (const SubTrackContainer& container : clip.containers) {
                                 for (const SubTrack& track : container.subTracks) {
                                     if (track.channel != channelId) {
@@ -3378,7 +3399,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                         bone.name = mesh.name.empty()
                                         ? "section_vis_" + std::to_string(m)
                                         : mesh.name + "_vis";
-                        bone.parentIndex = 0xFFFFu;
+                        bone.parentIndex = storedGate;
                         bone.rotation.initValue = Quaternion{0, 0, 0, 1};
                         bone.scale.initValue = Vector3f{1, 1, 1};
                         f32 rest = 1.0f;

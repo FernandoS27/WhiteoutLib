@@ -32,6 +32,8 @@
 #include <whiteout/models/mdx/structures.h>
 #include <whiteout/models/wem/anim/pose.h>
 #include <whiteout/models/wem/converters.h>
+#include <whiteout/models/wem/inline_models.h>
+#include <whiteout/models/wem/materials/ops.h>
 #include <whiteout/models/wem/parser.h>
 #include <whiteout/models/wem/retarget.h>
 #include <whiteout/models/wem/validate.h>
@@ -641,6 +643,7 @@ struct Crossed {
     struct Report {
         u32 particleRecords = 0;
         u32 modelParticleRecords = 0;
+        u32 attachedModelRecords = 0;
         u32 ribbonRecords = 0;
         u32 cameraRecords = 0;
         u32 hitTests = 0;
@@ -655,6 +658,7 @@ struct Plan {
     std::vector<std::string> textures;
     std::string teamGlowMask;
     std::map<std::string, std::string> spawned;
+    std::map<std::string, std::string> attached;
 };
 
 Crossed crossDocument(Document document, const mdx::Model& source, const Plan& plan) {
@@ -669,6 +673,7 @@ Crossed crossDocument(Document document, const mdx::Model& source, const Plan& p
         document.textures.push_back(mask);
     }
     emitters.spawnedModels = plan.spawned;
+    emitters.attachedModels = plan.attached;
     emitters.lengthScale = 0.01f;
     Diagnostics prepared;
     cross::PrepareWc3Effects(document, prepared);
@@ -690,6 +695,7 @@ Crossed crossDocument(Document document, const mdx::Model& source, const Plan& p
         cross::CrossWc3Effects(source, document, out.map, options, *converted);
     out.report.particleRecords = crossed.particleRecords;
     out.report.modelParticleRecords = crossed.modelParticleRecords;
+    out.report.attachedModelRecords = crossed.attachedModelRecords;
     out.report.ribbonRecords = crossed.ribbonRecords;
     out.report.cameraRecords = effects.cameraRecords;
     out.report.hitTests = effects.hitTests;
@@ -2476,9 +2482,255 @@ TEST_CASE("wem m3 a model-spawning emitter is a model particle naming the writte
     CHECK(wide.velocityType == 3u);
 }
 
+TEST_CASE("wem m3 an attached model is a model particle born each time its point shows",
+          "[wem][m3][particles]") {
+    mdx::Model model = makeModel();
+    // Shown for the first 600 ms of Stand, then hidden; Walk stays hidden.
+    mdx::Attachment birth;
+    birth.node = makeNode("Birth Ref", 1, 0);
+    birth.path = "Buildings\\Undead\\Necropolis\\NecropolisBirth.mdl";
+    birth.visibilityTracks =
+        makeTrack(mdx::InterpolationType::None, {0, 600}, std::vector<f32>{1.0f, 0.0f});
+    model.attachments.push_back(birth);
+    setPivot(model, 1, Vector3f{0, 0, 40});
+    // No visibility: shown through every clip.
+    mdx::Attachment always;
+    always.node = makeNode("Always Ref", 2, 0);
+    always.path = "Buildings\\Other\\Glow.mdl";
+    always.attachmentId = 1;
+    model.attachments.push_back(always);
+    setPivot(model, 2, Vector3f{0, 0, 0});
+    // Its model was not written.
+    mdx::Attachment orphan;
+    orphan.node = makeNode("Orphan Ref", 3, 0);
+    orphan.path = "Buildings\\Other\\Missing.mdl";
+    orphan.attachmentId = 2;
+    model.attachments.push_back(orphan);
+    setPivot(model, 3, Vector3f{0, 0, 0});
+
+    Plan plan;
+    plan.attached = {{"Buildings\\Undead\\Necropolis\\NecropolisBirth.mdl", "Assets/Models/NecropolisBirth.m3"},
+                     {"Buildings\\Other\\Glow.mdl", "Assets/Models/Glow.m3"}};
+    const Crossed out = crossDocument(importMdx(model), model, plan);
+    REQUIRE(out.model.particleEmitters.size() == 2u);
+    CHECK(out.report.attachedModelRecords == 2u);
+    CHECK(out.report.diagnostics.countOf(DiagCode::FeatureDropped) >= 1u);
+    CHECK(out.model.attachmentPoints.size() == 3u);
+
+    const u32 owner = boneNamed(out.model, "Birth Ref");
+    const u32 record = boneNamed(out.model, "Birth Ref_Model");
+    REQUIRE(owner != kInvalidIndex);
+    REQUIRE(record != kInvalidIndex);
+    const m3::ParticleEmitter* found = nullptr;
+    for (const m3::ParticleEmitter& p : out.model.particleEmitters) {
+        if (p.boneIndex == record) {
+            found = &p;
+        }
+    }
+    REQUIRE(found != nullptr);
+    const m3::ParticleEmitter& p = *found;
+    REQUIRE(p.modelPaths.size() == 1u);
+    std::string path = p.modelPaths[0];
+    while (!path.empty() && path.back() == '\0') {
+        path.pop_back();
+    }
+    CHECK(path == "Assets/Models/NecropolisBirth.m3");
+    CHECK(hasFlag(p.flags, m3::ParticleFlag::ModelParticles));
+    // It rides the point: in the emitter's space, turned by its bone.
+    CHECK_FALSE(hasFlag(p.additionalFlags, m3::ParticleAdditionalFlag::WorldSpace));
+    CHECK(p.instanceType == m3::ParticleInstanceType::EmitterOriented);
+    CHECK(p.emitterShape == m3::EmitterShape::Point);
+    CHECK(p.emissionRate.initValue == 0.0f);
+    CHECK_FALSE(p.emissionRate.isAnimated());
+
+    // One copy where the span starts, living the span; Walk shows nothing.
+    const auto bursts = keysOf(out.model, "Stand", p.squirtAmount, &m3::SubTrackContainer::sds6, 7);
+    REQUIRE(bursts.size() == 1u);
+    CHECK(bursts[0].first == 0);
+    CHECK(bursts[0].second == 1);
+    const auto lives = keysOf(out.model, "Stand", p.lifetime, &m3::SubTrackContainer::sdr3, 5);
+    REQUIRE(lives.size() == 1u);
+    CHECK(lives[0].second == Catch::Approx(0.6f));
+    CHECK(keysOf(out.model, "Walk", p.squirtAmount, &m3::SubTrackContainer::sds6, 7).empty());
+
+    // The record turns +90 degrees about x under its point, which the pose's
+    // (x, -z, y) rows turn back; the point's visibility moves to a leaf, so
+    // the record's bone never hides.
+    CHECK(out.model.bones[record].parentIndex == owner);
+    const Quaternion q = out.model.bones[record].rotation.initValue;
+    CHECK(std::fabs(q.x) == Catch::Approx(std::sqrt(0.5f)).margin(1e-4));
+    CHECK(std::fabs(q.w) == Catch::Approx(std::sqrt(0.5f)).margin(1e-4));
+    CHECK(q.x * q.w > 0.0f);
+    CHECK_FALSE(out.model.bones[record].visibility.isAnimated());
+    CHECK(boneNamed(out.model, "Birth Ref_Vis") != kInvalidIndex);
+
+    // Shown throughout: a copy at each clip's start, living the clip.
+    const u32 alwaysRecord = boneNamed(out.model, "Always Ref_Model");
+    REQUIRE(alwaysRecord != kInvalidIndex);
+    for (const m3::ParticleEmitter& other : out.model.particleEmitters) {
+        if (other.boneIndex != alwaysRecord) {
+            continue;
+        }
+        for (const char* clip : {"Stand", "Walk"}) {
+            const auto b = keysOf(out.model, clip, other.squirtAmount, &m3::SubTrackContainer::sds6, 7);
+            const auto l = keysOf(out.model, clip, other.lifetime, &m3::SubTrackContainer::sdr3, 5);
+            REQUIRE(b.size() == 1u);
+            REQUIRE(l.size() == 1u);
+            CHECK(b[0].first == 0);
+            CHECK(l[0].second == Catch::Approx(1.0f));
+        }
+    }
+    CHECK(boneNamed(out.model, "Orphan Ref_Model") == kInvalidIndex);
+}
+
+TEST_CASE("wem m3 an attached model shown from Death into Decay is one copy",
+          "[wem][m3][particles]") {
+    mdx::Model model = makeModel();
+    mdx::Sequence death;
+    death.name = "Death";
+    death.intervalStart = 4000;
+    death.intervalEnd = 5000;
+    model.sequences.push_back(death);
+    mdx::Sequence decay;
+    decay.name = "Decay";
+    decay.intervalStart = 6000;
+    decay.intervalEnd = 8000;
+    model.sequences.push_back(decay);
+    mdx::Attachment link;
+    link.node = makeNode("Death Ref", 1, 0);
+    link.path = "Buildings\\Other\\Collapse.mdl";
+    link.visibilityTracks = makeTrack(mdx::InterpolationType::None, {0, 4000, 5000, 6000, 8000},
+                                      std::vector<f32>{0.0f, 1.0f, 1.0f, 1.0f, 1.0f});
+    model.attachments.push_back(link);
+    setPivot(model, 1, Vector3f{0, 0, 0});
+
+    Plan plan;
+    plan.attached = {{"Buildings\\Other\\Collapse.mdl", "Assets/Models/Collapse.m3"}};
+    const Crossed out = crossDocument(importMdx(model), model, plan);
+    REQUIRE(out.model.particleEmitters.size() == 1u);
+    const m3::ParticleEmitter& p = out.model.particleEmitters[0];
+    // Born in Death, it lives through Death and the Decay after it ...
+    const auto bursts = keysOf(out.model, "Death", p.squirtAmount, &m3::SubTrackContainer::sds6, 7);
+    const auto lives = keysOf(out.model, "Death", p.lifetime, &m3::SubTrackContainer::sdr3, 5);
+    REQUIRE(bursts.size() == 1u);
+    REQUIRE(lives.size() == 1u);
+    CHECK(bursts[0].first == 0);
+    CHECK(lives[0].second == Catch::Approx(3.0f));
+    // ... and the Decay bursts none of its own.
+    CHECK(keysOf(out.model, "Decay", p.squirtAmount, &m3::SubTrackContainer::sds6, 7).empty());
+    CHECK(keysOf(out.model, "Stand", p.squirtAmount, &m3::SubTrackContainer::sds6, 7).empty());
+}
+
 // ============================================================================
 // C8.2 -- hit tests
 // ============================================================================
+
+TEST_CASE("wem m3 an attached model written in plays where its point shows", "[wem][m3][particles]") {
+    mdx::Model model = makeModel();
+    mdx::Attachment birth;
+    birth.node = makeNode("Birth Ref", 1, 0);
+    birth.path = "Buildings\\Other\\Birth.mdl";
+    birth.visibilityTracks = makeTrack(mdx::InterpolationType::None, {0, 600, 2000},
+                                       std::vector<f32>{1.0f, 0.0f, 0.0f});
+    model.attachments.push_back(birth);
+    setPivot(model, 1, Vector3f{10, 0, 0});
+
+    // The child rises 100 over its one clip and shows its geoset from 300 ms.
+    mdx::Model child = makeModel();
+    child.sequences.resize(1);
+    child.sequences[0].name = "Birth";
+    child.bones[0].node.translationTracks = makeTrack(
+        mdx::InterpolationType::Linear, {0, 1000}, std::vector<Vector3f>{Vector3f{0, 0, 0}, Vector3f{0, 0, 100}});
+    mdx::GeosetAnimation shows;
+    shows.geosetId = 0;
+    shows.alphaTracks = makeTrack(mdx::InterpolationType::None, {0, 300}, std::vector<f32>{0.0f, 1.0f});
+    child.geosetAnimations.push_back(shows);
+
+    Document document = importMdx(model);
+    const u32 point = nodeWithObjectId(document, 1);
+    REQUIRE(point != kInvalidIndex);
+    Diagnostics appended;
+    const u32 at = AppendDocument(document, importMdx(child), appended);
+    REQUIRE(at == 1u);
+    std::get<AttachmentPayload>(document.models[0].nodes.nodes[point].payload).model = at;
+    InlineOptions options;
+    options.clock = InlineClock::ShownSpans;
+    const InlineReport report = InlineAttachedModels(document, 0, options);
+    CHECK(report.placements == 1u);
+    CHECK(std::get<AttachmentPayload>(document.models[0].nodes.nodes[point].payload).asset.path.empty());
+
+    // It hangs from a helper on the point ...
+    const Model& host = document.models[0];
+    u32 gate = kInvalidNode;
+    u32 root = kInvalidNode;
+    for (u32 n = 0; n < host.nodes.size(); ++n) {
+        if (host.nodes.nodes[n].name == "Birth Ref_Model") {
+            gate = n;
+        } else if (host.nodes.nodes[n].name == "Birth Ref root") {
+            root = n;
+        }
+    }
+    REQUIRE(gate != kInvalidNode);
+    REQUIRE(root != kInvalidNode);
+    CHECK(host.nodes.nodes[gate].parent == point);
+    CHECK(host.nodes.nodes[root].parent == gate);
+    const auto trackOf = [&](u32 node, Channel what, const std::string& clip) -> const SubTrack* {
+        for (const AnimChannel& channel : host.animChannels.channels) {
+            if (channel.target.kind != TrackTarget::Kind::Node || channel.target.node != node ||
+                channel.target.channel != what) {
+                continue;
+            }
+            for (const Clip& c : document.clips) {
+                if (c.model == 0 && c.name == clip) {
+                    for (const SubTrackContainer& box : c.containers) {
+                        if (const SubTrack* track = box.find(channel.id)) {
+                            return track;
+                        }
+                    }
+                }
+            }
+        }
+        return nullptr;
+    };
+    // ... shown through the span alone ...
+    const SubTrack* shown = trackOf(gate, Channel::Visibility, "Stand");
+    REQUIRE(shown != nullptr);
+    REQUIRE(shown->times.size() == 2u);
+    CHECK(shown->times[0] == Catch::Approx(0.0f));
+    CHECK(shown->times[1] == Catch::Approx(0.6f));
+    // Hidden through a clip it does not show in, keyed so: the export would
+    // fill an unkeyed clip from the timeline around it.
+    const SubTrack* hidden = trackOf(gate, Channel::Visibility, "Walk");
+    REQUIRE(hidden != nullptr);
+    REQUIRE(hidden->times.size() == 1u);
+    f32 off = 1.0f;
+    std::memcpy(&off, hidden->values.data(), sizeof(f32));
+    CHECK(off == 0.0f);
+    // ... and playing its clip from the span's start, cut at its end.
+    const SubTrack* rises = trackOf(root, Channel::Translation, "Stand");
+    REQUIRE(rises != nullptr);
+    REQUIRE(rises->times.size() == 2u);
+    CHECK(rises->times[1] == Catch::Approx(0.6f));
+    Vector3f end{};
+    std::memcpy(&end, rises->values.data() + sizeof(Vector3f), sizeof(Vector3f));
+    CHECK(end.z == Catch::Approx(60.0f));
+    CHECK(trackOf(root, Channel::Translation, "Walk") == nullptr);
+
+    // In the .m3 the helper is a bone that rests hidden, and the geoset's own
+    // gate hangs under it, so either hides it.
+    const Crossed out = crossDocument(std::move(document), model, Plan{});
+    const u32 gateBone = boneNamed(out.model, "Birth Ref_Model");
+    REQUIRE(gateBone != kInvalidIndex);
+    CHECK(out.model.bones[gateBone].visibility.initValue == 0u);
+    bool gated = false;
+    for (const m3::Batch& batch : out.model.divisions[0].batches) {
+        if (batch.boneCount < out.model.bones.size() && out.model.bones[batch.boneCount].parentIndex == gateBone) {
+            gated = true;
+        }
+    }
+    CHECK(gated);
+    CHECK(out.model.particleEmitters.empty());
+}
 
 TEST_CASE("wem m3 a collision shape is a fuzzy hit test on its node's bone",
           "[wem][m3][hittests]") {

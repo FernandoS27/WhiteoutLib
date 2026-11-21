@@ -54,6 +54,10 @@ struct Wc3EmitterOptions {
     /// for it, as the written model names it. An emitter whose model is missing
     /// here keeps only its placement, with a diagnostic.
     std::map<std::string, std::string> spawnedModels;
+    /// Per model an attachment point carries (`AttachmentPayload::asset`, as
+    /// written there): the `.m3` the export wrote for it, as `spawnedModels`.
+    /// A point whose model is missing here draws none.
+    std::map<std::string, std::string> attachedModels;
     bool particles = true;
     bool ribbons = true;
 };
@@ -61,6 +65,7 @@ struct Wc3EmitterOptions {
 struct Wc3EmitterReport {
     u32 particleRecords = 0;      ///< `Sc2ParticleEmitter` nodes (a head and a tail make two).
     u32 modelParticleRecords = 0; ///< Of those, model particles from `PREM`.
+    u32 attachedModelRecords = 0; ///< Of those, the models attachment points carry.
     u32 ribbonRecords = 0;        ///< `Sc2RibbonEmitter` nodes.
     u32 materials = 0;            ///< Material slots added for them.
     u32 keyedChannels = 0;        ///< `EmitterProperty` channels keyed on them.
@@ -92,7 +97,9 @@ void PrepareWc3Effects(wem::Document& document, wem::Diagnostics& diagnostics,
 /// in StarCraft II's units -- and before `toM3` with
 /// `M3ExportSettings::effectNodeBones`: every `Wc3ParticleEmitter2`,
 /// `Wc3ParticleEmitter1` and `Wc3RibbonEmitter` node of the first model becomes
-/// the StarCraft II emitter that draws it.
+/// the StarCraft II emitter that draws it, and an attachment point carrying a
+/// model in `Wc3EmitterOptions::attachedModels` gains a model particle child
+/// that shows it.
 ///
 /// The node itself becomes the first record, so it keeps its transform, its
 /// visibility, its children and the bone `toM3` gives it. A second record of
