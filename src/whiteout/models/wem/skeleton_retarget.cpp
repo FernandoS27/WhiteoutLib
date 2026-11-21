@@ -503,6 +503,15 @@ Matrix44f SampleLocal(const Transform& rest, f32 time, const ChannelSlot slots[3
     return ToMatrix(local);
 }
 
+/// What a container that keys none of @p node's channels shows: each channel's
+/// declared value, else @p rest. An `.m3` bone rests at its bind but declares
+/// the BONE's values, which the game shows where a clip keys nothing.
+Matrix44f UnkeyedLocal(const AnimChannelTable& table, u32 node, const Transform& rest) {
+    ChannelSlot slots[3];
+    CollectSlots(table, SubTrackContainer{}, node, slots);
+    return SampleLocal(rest, 0.0f, slots);
+}
+
 void PushVec3(std::vector<f32>& into, const Vector3f& v) {
     into.push_back(v.x);
     into.push_back(v.y);
@@ -548,7 +557,8 @@ struct NodePlan {
      * carrying the target translation unmodified.
      */
     Vector3f composePivot{0, 0, 0};
-    Matrix44f rest = Matrix44f::identity();             ///< The conjugated rest node transform.
+    Matrix44f rest = Matrix44f::identity();             ///< The conjugated unkeyed transform
+                                                        ///< (`UnkeyedLocal`).
     Transform sourceLocal;                              ///< The source rest, kept because
                                                         ///< `local` is overwritten with the
                                                         ///< pivot chain before pass two.
@@ -598,8 +608,12 @@ void ToPivotRelative(Model& model, std::vector<Clip*>& clips, const ElementRef& 
     for (u32 n = 0; n < sourceCount; ++n) {
         plan[n].detached = DetachedFromParent(model.nodes.nodes[n]);
         const Matrix44f parentInverse = plan[n].parentConjugateInverse(plan);
-        plan[n].rest =
-            plan[n].conjugate * ToMatrix(model.nodes.nodes[n].local) * parentInverse;
+        // What a clip that keys none of its channels shows, as pass two samples
+        // it: against the node's rest alone, a bone whose declared values are
+        // not its bind (an `.m3` forearm unkeyed in Stand) wrote no key, and the
+        // pivot rig stood it at its bind.
+        plan[n].rest = plan[n].conjugate *
+                       UnkeyedLocal(model.animChannels, n, model.nodes.nodes[n].local) * parentInverse;
         plan[n].restIsIdentity = NearlyIdentity(plan[n].rest, 1e-5f);
         plan[n].sheared = ShearOf(plan[n].rest) > options.shearTolerance;
         plan[n].needsTracks = !plan[n].restIsIdentity;
@@ -661,7 +675,8 @@ void ToPivotRelative(Model& model, std::vector<Clip*>& clips, const ElementRef& 
             }
         }
         for (u32 n = 0; rebased && n < sourceCount; ++n) {
-            plan[n].rest = plan[n].conjugate * ToMatrix(model.nodes.nodes[n].local) *
+            plan[n].rest = plan[n].conjugate *
+                           UnkeyedLocal(model.animChannels, n, model.nodes.nodes[n].local) *
                            plan[n].parentConjugateInverse(plan);
             plan[n].restIsIdentity = NearlyIdentity(plan[n].rest, 1e-5f);
             plan[n].needsTracks = plan[n].needsTracks || !plan[n].restIsIdentity;

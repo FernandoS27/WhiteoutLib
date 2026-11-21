@@ -586,6 +586,40 @@ TEST_CASE("skeleton retarget does not step a channel the source never keyed") {
     CHECK(spineTrack->interp == Interpolation::Step);
 }
 
+TEST_CASE("skeleton retarget keys what a clip shows where it keys a bone not at all") {
+    // An `.m3` bone rests at its bind and declares its BONE values, which the
+    // game shows wherever a clip keys nothing (the marine's forearm in Stand).
+    // A pivot rig shows its bind there instead, so those values become keys.
+    Document before = MakeExplicitRig(Vector3f{1.5f, 1.5f, 1.5f});
+    Model& model = before.models[0];
+    const auto declare = [&](u32 node, Channel channel, geom::AttrType type, std::vector<f32> value) {
+        const AnimChannel* found = FindChannel(model.animChannels, node, channel);
+        const u32 id = found != nullptr ? found->id : DeclareChannel(model, node, channel, type);
+        AnimChannel* entry = nullptr;
+        for (AnimChannel& candidate : model.animChannels.channels) {
+            if (candidate.id == id) {
+                entry = &candidate;
+            }
+        }
+        REQUIRE(entry != nullptr);
+        entry->initValue.resize(value.size() * sizeof(f32));
+        std::memcpy(entry->initValue.data(), value.data(), entry->initValue.size());
+    };
+    // Keyed in "wave", left alone in "idle"; and the root, keyed by neither.
+    declare(1, Channel::Rotation, geom::AttrType::Quat, {0.3827f, 0, 0, 0.9239f});
+    declare(0, Channel::Translation, geom::AttrType::F32x3, {0.5f, 0, 0});
+    Clip idle;
+    idle.name = "idle";
+    idle.model = 0;
+    idle.duration = 1.0f;
+    idle.containers.emplace_back();
+    before.clips.push_back(std::move(idle));
+
+    Document after = before;
+    REQUIRE(RetargetSkeleton(after, ProfileId::Wc3Classic).ok);
+    CHECK(WorstSkinError(before, after, kProbeTimes) < 1e-3f);
+}
+
 TEST_CASE("skeleton retarget writes new tracks that carry no TCB") {
     // The retarget samples every source curve at the union of its key times
     // and writes Linear, Slerp or Step, so it keeps no parameters that would no
