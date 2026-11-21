@@ -141,6 +141,11 @@ struct ExportContext {
     /// export then wires the channel's SDFG stream to that bone's AnimRef.
     std::map<u32 /*channel id*/, u32 /*bone index*/> sectionGateBones;
 
+    /// A Warcraft III document's projectors: a `PROJ` casts whatever its bone
+    /// shows, so the nearest node at or above it whose visibility is keyed
+    /// switches its `active` with the same keys. Node -> the `PROJ`s it switches.
+    std::map<u32 /*node*/, std::vector<u32 /*projector*/>> projectorSwitches;
+
     /// The FADES: a section alpha that is not a binary step cannot gate a
     /// batch, so it rides the material instead -- a Color-flag alpha layer
     /// whose `mapAlpha` carries the keys (float, the same Sdr3 stream the

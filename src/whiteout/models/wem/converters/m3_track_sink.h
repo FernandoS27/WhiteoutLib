@@ -143,7 +143,7 @@ void ShareAnimationStates(m3::Model& out);
 
 /// The `animId` of every AnimRef an export can key: bones, lights, standard
 /// material layers, particle and ribbon emitters, force fields, vertex warps and
-/// the physics switches. The pointers stay valid while
+/// the physics switches and projectors' `active`. The pointers stay valid while
 /// no record is added to @p out.
 std::vector<u32*> KeyableAnimIds(m3::Model& out);
 

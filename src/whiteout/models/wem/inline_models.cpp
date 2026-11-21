@@ -450,6 +450,9 @@ void Place(Document& document, u32 into, u32 attachment, u32 from, Adopted& adop
         } else if (auto* ribbon = std::get_if<Wc3RibbonEmitterPayload>(&node.payload)) {
             ribbon->materialSlot =
                 ribbon->materialSlot < adopted.slots.size() ? adopted.slots[ribbon->materialSlot] : 0u;
+        } else if (auto* projector = std::get_if<ProjectorPayload>(&node.payload)) {
+            projector->materialSlot =
+                projector->materialSlot < adopted.slots.size() ? adopted.slots[projector->materialSlot] : kInvalidIndex;
         } else if (auto* pe2 = std::get_if<Wc3ParticleEmitter2Payload>(&node.payload)) {
             pe2->speed *= placement.scale;
             pe2->width *= placement.scale;
@@ -668,6 +671,9 @@ void PlaceExplicit(Document& document, u32 into, u32 attachment, u32 from, Adopt
         } else if (auto* ribbon = std::get_if<Wc3RibbonEmitterPayload>(&node.payload)) {
             ribbon->materialSlot =
                 ribbon->materialSlot < adopted.slots.size() ? adopted.slots[ribbon->materialSlot] : 0u;
+        } else if (auto* projector = std::get_if<ProjectorPayload>(&node.payload)) {
+            projector->materialSlot =
+                projector->materialSlot < adopted.slots.size() ? adopted.slots[projector->materialSlot] : kInvalidIndex;
         }
         host.nodes.add(std::move(node));
     }
@@ -807,7 +813,109 @@ u32 AddSpanGate(Document& document, u32 into, u32 attachment, const std::vector<
     return index;
 }
 
+/// What follows @p word in @p name, a number after it aside ("Death 1" and
+/// "Decay", "Death 01" and "Decay 01"), where @p name starts with it: the
+/// names both games give a Death and the Decay it plays on into.
+std::optional<std::string> After(const std::string& name, std::string_view word) {
+    if (name.rfind(word, 0) != 0) {
+        return std::nullopt;
+    }
+    std::string rest = name.substr(word.size());
+    while (!rest.empty() && (rest.back() == ' ' || (rest.back() >= '0' && rest.back() <= '9'))) {
+        rest.pop_back();
+    }
+    return rest;
+}
+
+/// One placement on spans: materials and keys of its own, hung from a helper
+/// under @p at that shows through the spans.
+void PlaceOnSpans(Document& document, u32 into, u32 at, u32 from, const std::vector<ShownSpan>& spans,
+                  u32& nextChannel, InlineReport& report) {
+    Adopted adopted = Adopt(document, into, from, nextChannel, report, &spans);
+    const u32 gate = AddSpanGate(document, into, at, spans, nextChannel);
+    if (document.models[into].nodes.rig == RigConvention::PivotRelative) {
+        Place(document, into, at, from, adopted, nextChannel, gate, gate, report.diagnostics);
+    } else {
+        PlaceExplicit(document, into, at, from, adopted, nextChannel, gate, gate, report.diagnostics);
+    }
+}
+
 } // namespace
+
+std::vector<ShownSpan> FiredSpans(const Document& document, u32 model, u32 node, f32 life) {
+    std::vector<ShownSpan> out;
+    if (model >= document.models.size() || !(life > 0.0f)) {
+        return out;
+    }
+    const auto keysIn = [&](u32 c) {
+        const Clip& clip = document.clips[c];
+        std::vector<f32> keys;
+        for (const ClipEvent& event : clip.events) {
+            if (event.node == node && event.time >= -kSameTime && event.time < clip.duration - kSameTime) {
+                keys.push_back(std::max(event.time, 0.0f));
+            }
+        }
+        std::sort(keys.begin(), keys.end());
+        keys.erase(std::unique(keys.begin(), keys.end(), [](f32 a, f32 b) { return b - a <= kSameTime; }),
+                   keys.end());
+        return keys;
+    };
+    const auto playable = [&](u32 c) {
+        const Clip& clip = document.clips[c];
+        return clip.model == model && clip.duration > 0.0f && !IsGlobalLoop(clip);
+    };
+    for (u32 c = 0; c < document.clips.size(); ++c) {
+        if (!playable(c)) {
+            continue;
+        }
+        const Clip& clip = document.clips[c];
+        const std::vector<f32> keys = keysIn(c);
+        for (std::size_t k = 0; k < keys.size(); ++k) {
+            const f32 next = k + 1 < keys.size() ? keys[k + 1] : clip.duration;
+            const f32 end = std::min(keys[k] + life, next);
+            out.push_back(ShownSpan{c, keys[k], end, 0.0f, end - keys[k]});
+        }
+        // What a Death's last key starts and its end cuts plays on into its
+        // Decay (`After`), up to the Decay's own first key.
+        const std::optional<std::string> death = After(clip.name, "Death");
+        if (keys.empty() || !death || out.back().end < clip.duration - kSameTime ||
+            out.back().life >= life - kSameTime) {
+            continue;
+        }
+        for (u32 d = 0; d < document.clips.size(); ++d) {
+            if (d == c || !playable(d) || After(document.clips[d].name, "Decay") != death) {
+                continue;
+            }
+            const std::vector<f32> own = keysIn(d);
+            ShownSpan& born = out.back();
+            const f32 end = std::min({life - born.life, document.clips[d].duration,
+                                      own.empty() ? document.clips[d].duration : own.front()});
+            if (end > kSameTime) {
+                out.push_back(ShownSpan{d, 0.0f, end, born.end - born.start, 0.0f});
+                out[out.size() - 2].life += end;
+            }
+            break;
+        }
+    }
+    std::stable_sort(out.begin(), out.end(), [](const ShownSpan& a, const ShownSpan& b) {
+        return a.clip != b.clip ? a.clip < b.clip : a.start < b.start;
+    });
+    return out;
+}
+
+InlineReport InlineModelAt(Document& document, u32 into, u32 at, u32 from, const std::vector<ShownSpan>& spans) {
+    InlineReport report;
+    if (into >= document.models.size() || from >= document.models.size() || from == into ||
+        at >= document.models[into].nodes.size() || spans.empty() ||
+        document.models[from].nodes.rig != document.models[into].nodes.rig) {
+        return report;
+    }
+    u32 nextChannel = document.models[into].animChannels.nextFreeId();
+    PlaceOnSpans(document, into, at, from, spans, nextChannel, report);
+    report.placements = 1;
+    report.models = 1;
+    return report;
+}
 
 std::vector<ShownSpan> ShownSpans(const Document& document, u32 model, u32 node) {
     std::vector<ShownSpan> out;
@@ -876,26 +984,15 @@ std::vector<ShownSpan> ShownSpans(const Document& document, u32 model, u32 node)
         }
     }
 
-    // Death -> Decay, by the names both games give them, a number after them
-    // aside ("Death 1" and "Decay", "Death 01" and "Decay 01"): what shows to
-    // the Death's end plays on into the Decay that starts shown.
-    const auto after = [](const std::string& name, std::string_view word) -> std::optional<std::string> {
-        if (name.rfind(word, 0) != 0) {
-            return std::nullopt;
-        }
-        std::string rest = name.substr(word.size());
-        while (!rest.empty() && (rest.back() == ' ' || (rest.back() >= '0' && rest.back() <= '9'))) {
-            rest.pop_back();
-        }
-        return rest;
-    };
+    // Death -> Decay (`After`): what shows to the Death's end plays on into the
+    // Decay that starts shown.
     for (u32 c = 0; c < document.clips.size(); ++c) {
-        const std::optional<std::string> death = after(document.clips[c].name, "Death");
+        const std::optional<std::string> death = After(document.clips[c].name, "Death");
         if (spans[c].empty() || !death || spans[c].back().end < document.clips[c].duration - kShortestSpan) {
             continue;
         }
         for (u32 d = 0; d < document.clips.size(); ++d) {
-            if (d != c && after(document.clips[d].name, "Decay") == death && !spans[d].empty() &&
+            if (d != c && After(document.clips[d].name, "Decay") == death && !spans[d].empty() &&
                 spans[d].front().start <= 0.0f && spans[d].front().played == 0.0f) {
                 ShownSpan& born = spans[c].back();
                 spans[d].front().played = born.end - born.start;

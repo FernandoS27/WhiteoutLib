@@ -2095,6 +2095,28 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
                                       : ribbonOf[n];
         }
     }
+    // A Warcraft III projector (a splat written in) casts while what it hangs
+    // from shows: the nearest keyed visibility at or above it is its `active`.
+    if (IsWc3(document.assetSource())) {
+        std::vector<bool> keyedVisibility(nodeCount, false);
+        for (const AnimChannel& channel : model.animChannels.channels) {
+            if (channel.target.kind == TrackTarget::Kind::Node && channel.target.node < nodeCount &&
+                channel.target.channel == Channel::Visibility) {
+                keyedVisibility[channel.target.node] = true;
+            }
+        }
+        for (u32 n = 0; n < nodeCount; ++n) {
+            if (projectorOf[n] == kInvalidIndex) {
+                continue;
+            }
+            for (u32 up = n; up < nodeCount; up = model.nodes.nodes[up].parent) {
+                if (keyedVisibility[up]) {
+                    animContext.projectorSwitches[up].push_back(projectorOf[n]);
+                    break;
+                }
+            }
+        }
+    }
     m3_emitters::ExportLinks emitterLinks;
     emitterLinks.particleOf = &particleOf;
     emitterLinks.ribbonOf = &ribbonOf;

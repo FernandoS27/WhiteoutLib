@@ -2481,6 +2481,15 @@ private:
         const u32 carrier = node < context_.nodeBone.size() ? context_.nodeBone[node] : kInvalidIndex;
         const u32 visCarrier =
             node < context_.nodeVisBone.size() ? context_.nodeVisBone[node] : kInvalidIndex;
+        if (channel.target.channel == Channel::Visibility) {
+            if (const auto it = context_.projectorSwitches.find(node); it != context_.projectorSwitches.end()) {
+                for (const u32 p : it->second) {
+                    if (p < out_.projections.size()) {
+                        Wire(out_.projections[p].active, exportId(channel.id), track.interp);
+                    }
+                }
+            }
+        }
         if (channel.target.channel == Channel::Visibility && visCarrier < out_.bones.size()) {
             Wire(out_.bones[visCarrier].visibility, exportId(channel.id), track.interp);
             return;

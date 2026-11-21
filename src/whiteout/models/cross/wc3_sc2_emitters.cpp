@@ -1618,6 +1618,7 @@ private:
         const bool squirt = pe.squirt;
         const bool line = pe.lineEmitter;
         const bool xyQuad = pe.xyQuad;
+        const bool groundSplat = model_.nodes.nodes[n].native.find(kWc3GroundSplat) != nullptr;
 
         m3::ParticleEmitter p = RestParticle();
 
@@ -1838,7 +1839,11 @@ private:
         if (head) {
             m3::ParticleEmitter h = p;
             Flipbook(h, pe, pe.headLife, pe.headDecay);
-            if (xyQuad && !allFacing && modelSpace) {
+            if (groundSplat) {
+                // A splat written in: flat on the ground, whatever it flies.
+                h.instanceType = m3::ParticleInstanceType::TerrainOriented;
+                h.instanceAngle = Vector3f{1.0f, 0.0f, 0.0f};
+            } else if (xyQuad && !allFacing && modelSpace) {
                 // Row 16, model space: Warcraft III turns the quad by the
                 // velocity's XY in the particle's own frame, which here is the
                 // node's (`particle_geometry.cpp`), so a turned node stands the

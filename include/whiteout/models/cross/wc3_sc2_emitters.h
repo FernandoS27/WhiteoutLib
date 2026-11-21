@@ -35,6 +35,12 @@ namespace whiteout {
 namespace models {
 namespace cross {
 
+/// A host's mark (`NativeBag` key, any value) on a `PRE2` node that is a
+/// Warcraft III ground splat written into the model: its quad crosses lying on
+/// the ground (`TerrainOriented`). Warcraft III's own XY quad turns to its
+/// velocity, and a splat has none to turn by.
+inline constexpr const char* kWc3GroundSplat = "wc3GroundSplat";
+
 /// What the caller decides that the document does not say.
 struct Wc3EmitterOptions {
     /// The StarCraft II profile being written: the set the records' materials

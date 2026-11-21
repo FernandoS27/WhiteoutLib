@@ -71,6 +71,13 @@ struct ShownSpan {
 /// Every span @p node of model @p model shows in, by clip and then by time.
 std::vector<ShownSpan> ShownSpans(const Document& document, u32 model, u32 node);
 
+/// Every span what event @p node of model @p model starts plays in, as a
+/// Warcraft III event object spawns it: from each of its keys in a clip of the
+/// model (global loops aside) for @p life seconds, cut at the clip's end and at
+/// the node's next key, where it starts again. What a Death's end cuts plays on
+/// into its Decay, as on `ShownSpans`.
+std::vector<ShownSpan> FiredSpans(const Document& document, u32 model, u32 node, f32 life);
+
 enum class InlineClock : u8 {
     OwnLoops,   ///< Global loops of its own, as a doodad plays.
     ShownSpans, ///< From each span its attachment shows in, hidden outside them.
@@ -90,6 +97,12 @@ struct InlineOptions {
 /// `<attachment>_Model`, whose visibility is its spans; its sections hide with
 /// it, and each takes its materials of its own.
 InlineReport InlineAttachedModels(Document& document, u32 into, const InlineOptions& options = {});
+
+/// Copies model @p from into @p into at node @p at, as `InlineAttachedModels`
+/// places one on `ShownSpans`, playing its first clip from each of @p spans
+/// (`ShownSpans`, `FiredSpans`) and hidden outside them. Nothing where the
+/// rigs differ or no span is given.
+InlineReport InlineModelAt(Document& document, u32 into, u32 at, u32 from, const std::vector<ShownSpan>& spans);
 
 } // namespace wem
 } // namespace models

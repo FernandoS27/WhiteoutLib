@@ -748,6 +748,9 @@ std::vector<u32*> KeyableAnimIds(m3::Model& out) {
     for (m3::ClothPhysics& cloth : out.clothPhysics) {
         Note(ids, cloth.active);
     }
+    for (m3::Projector& projector : out.projections) {
+        Note(ids, projector.active);
+    }
     return ids;
 }
 

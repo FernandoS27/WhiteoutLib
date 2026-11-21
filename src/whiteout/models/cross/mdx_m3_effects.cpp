@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <set>
 
 #include "../wem/converters/m3_anim.h"
 #include "../wem/converters/m3_track_sink.h"
@@ -487,10 +488,20 @@ Wc3EffectReport CrossWc3Effects(const mdx::Model& source, const wem::Document& s
     // triggers the game looks up by name in its SLKs. They cross as named event
     // keys (the timing survives), but StarCraft II plays sounds and splats from
     // actor data, so they fire nothing on their own; Blizzard's conversions
-    // dropped every one (0 of 912 models keep a source event).
-    if (!source.eventObjects.empty()) {
+    // dropped every one (0 of 912 models keep a source event). Counted in the
+    // staged model: a host may have written some in where they fire.
+    std::set<u32> named;
+    for (const wem::Clip& clip : staged.clips) {
+        if (clip.model != 0) {
+            continue;
+        }
+        for (const wem::ClipEvent& event : clip.events) {
+            named.insert(event.node);
+        }
+    }
+    if (!source.eventObjects.empty() && !named.empty()) {
         report.diagnostics.info(DiagCode::FeatureDropped,
-                                std::to_string(source.eventObjects.size()) +
+                                std::to_string(named.size()) +
                                     " event object(s) (EVTS) crossed as named model events; "
                                     "StarCraft II plays sounds and splats from actor data",
                                 ElementRef());

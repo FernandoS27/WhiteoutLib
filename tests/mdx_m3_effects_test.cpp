@@ -2732,6 +2732,134 @@ TEST_CASE("wem m3 an attached model written in plays where its point shows", "[w
     CHECK(out.model.particleEmitters.empty());
 }
 
+TEST_CASE("wem m3 a splat event written in casts a projector from each key", "[wem][m3][particles]") {
+    mdx::Model model = makeModel();
+    // Fired 200 and 700 ms into Stand, never in Walk.
+    mdx::EventObject splat;
+    splat.node = makeNode("SPLxTEST", 1, 0);
+    splat.node.type = mdx::Node::NodeType::EventObject;
+    splat.eventTrackTimes = {200, 700};
+    model.eventObjects.push_back(splat);
+    setPivot(model, 1, Vector3f{0, 0, 30});
+
+    // The splat: a material and the projector a helper becomes.
+    mdx::Model cast;
+    cast.version = 800;
+    mdx::Sequence birth;
+    birth.name = "Birth";
+    birth.intervalEnd = 400;
+    birth.flags = mdx::Sequence::Flag::NonLooping;
+    cast.sequences.push_back(birth);
+    mdx::Texture texture;
+    texture.fileName = "ReplaceableTextures\\Splats\\Splat.blp";
+    cast.textures.push_back(texture);
+    mdx::Material material;
+    mdx::Layer layer;
+    layer.filterMode = mdx::Layer::FilterMode::Blend;
+    material.layers.push_back(layer);
+    cast.materials.push_back(material);
+    mdx::Helper helper;
+    helper.node = makeNode("SPLxTEST_Splat", 0, mdx::Node::NO_PARENT);
+    cast.helpers.push_back(helper);
+    cast.pivotPoints = {Vector3f{0, 0, 0}};
+    Document made = importMdx(cast);
+    Node& caster = made.models[0].nodes.nodes[0];
+    caster.kind = NodeKind::Projector;
+    caster.resetPayloadForKind();
+    std::get<ProjectorPayload>(caster.payload).materialSlot = 0;
+    std::get<ProjectorPayload>(caster.payload).record.projectionType = native::M3ProjectionType::Orthographic;
+
+    Document document = importMdx(model);
+    const u32 event = nodeWithObjectId(document, 1);
+    REQUIRE(event != kInvalidIndex);
+    Diagnostics appended;
+    const u32 from = AppendDocument(document, std::move(made), appended);
+    REQUIRE(from == 1u);
+
+    // A span from each key, the second cut where Stand ends.
+    const std::vector<ShownSpan> spans = FiredSpans(document, 0, event, 0.4f);
+    REQUIRE(spans.size() == 2u);
+    CHECK(spans[0].start == Catch::Approx(0.2f));
+    CHECK(spans[0].end == Catch::Approx(0.6f));
+    CHECK(spans[1].start == Catch::Approx(0.7f));
+    CHECK(spans[1].end == Catch::Approx(1.0f));
+    // A life past the next key is cut at it: the event starts it again.
+    const std::vector<ShownSpan> long_ = FiredSpans(document, 0, event, 2.0f);
+    REQUIRE(long_.size() == 2u);
+    CHECK(long_[0].end == Catch::Approx(0.7f));
+
+    const InlineReport report = InlineModelAt(document, 0, event, from, spans);
+    CHECK(report.placements == 1u);
+    const Model& host = document.models[0];
+    u32 placed = kInvalidNode;
+    for (u32 n = 0; n < host.nodes.size(); ++n) {
+        if (host.nodes.nodes[n].kind == NodeKind::Projector) {
+            placed = n;
+        }
+    }
+    REQUIRE(placed != kInvalidNode);
+    const u32 slot = std::get<ProjectorPayload>(host.nodes.nodes[placed].payload).materialSlot;
+    CHECK(slot != kInvalidIndex);
+    CHECK(slot >= 1u); // its own slot, after the host's
+
+    // The .m3's projector casts while the gate shows: its `active` keys Stand
+    // and Walk, the gate's keys.
+    const Crossed out = crossDocument(std::move(document), model, Plan{});
+    REQUIRE(out.model.projections.size() == 1u);
+    const m3::Projector& p = out.model.projections[0];
+    CHECK(p.active.animId != 0u);
+    CHECK(p.active.flags == 0x6u);
+    const u32 gateBone = boneNamed(out.model, "SPLxTEST_Model");
+    REQUIRE(gateBone != kInvalidIndex);
+    CHECK(p.active.animId != out.model.bones[gateBone].visibility.animId);
+    const auto stand = keysOf(out.model, "Stand", p.active, &m3::SubTrackContainer::sdfg, 11);
+    // On at each key, off where the first span ends; the writer holds the
+    // last key to the clip's end.
+    REQUIRE(stand.size() == 5u);
+    CHECK(stand[0].first == 0);
+    CHECK(stand[1].first == 200);
+    CHECK(stand[2].first == 600);
+    CHECK(stand[3].first == 700);
+    CHECK(stand[4].first == 1000);
+    CHECK(keysOf(out.model, "Walk", p.active, &m3::SubTrackContainer::sdfg, 11).size() == 1u);
+    CHECK(p.materialReferenceIndex < out.model.materialMaps.size());
+}
+
+TEST_CASE("wem m3 what an event fires late in Death plays on into the Decay", "[wem][m3][particles]") {
+    mdx::Model model = makeModel();
+    mdx::Sequence death;
+    death.name = "Death";
+    death.intervalStart = 4000;
+    death.intervalEnd = 5000;
+    model.sequences.push_back(death);
+    mdx::Sequence decay;
+    decay.name = "Decay";
+    decay.intervalStart = 6000;
+    decay.intervalEnd = 8000;
+    model.sequences.push_back(decay);
+    mdx::EventObject scorch;
+    scorch.node = makeNode("UBRxTEST", 1, 0);
+    scorch.node.type = mdx::Node::NodeType::EventObject;
+    scorch.eventTrackTimes = {4500};
+    model.eventObjects.push_back(scorch);
+    setPivot(model, 1, Vector3f{0, 0, 0});
+
+    const Document document = importMdx(model);
+    const u32 event = nodeWithObjectId(document, 1);
+    REQUIRE(event != kInvalidIndex);
+    const std::vector<ShownSpan> spans = FiredSpans(document, 0, event, 2.0f);
+    REQUIRE(spans.size() == 2u);
+    CHECK(document.clips[spans[0].clip].name == "Death");
+    CHECK(spans[0].start == Catch::Approx(0.5f));
+    CHECK(spans[0].end == Catch::Approx(1.0f));
+    CHECK(spans[0].life == Catch::Approx(2.0f));
+    // The Decay plays the rest of it, from where the Death left it.
+    CHECK(document.clips[spans[1].clip].name == "Decay");
+    CHECK(spans[1].start == Catch::Approx(0.0f));
+    CHECK(spans[1].end == Catch::Approx(1.5f));
+    CHECK(spans[1].played == Catch::Approx(0.5f));
+}
+
 TEST_CASE("wem m3 a collision shape is a fuzzy hit test on its node's bone",
           "[wem][m3][hittests]") {
     mdx::Model model = makeModel();
