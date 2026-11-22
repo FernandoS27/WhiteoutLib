@@ -89,19 +89,24 @@ if(WHITEOUT_BUILD_PYTHON_WHEEL)
     # Codegen: produce <stub>.pyi for every module. Runs at configure time
     # so the generated files are present when install() rules fire below.
     foreach(_mod IN ITEMS mdx m2 m3 textures)
-        execute_process(
-            COMMAND ${Python_EXECUTABLE} -m tools.codegen.codegen ${_mod}
-                    --backend pyi
-                    --repo-root ${CMAKE_SOURCE_DIR}
-            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-            OUTPUT_VARIABLE _codegen_out
-            ERROR_VARIABLE  _codegen_err
-            RESULT_VARIABLE _codegen_rc
-        )
-        if(NOT _codegen_rc EQUAL 0)
-            message(FATAL_ERROR
-                "pyi codegen for '${_mod}' failed (exit ${_codegen_rc}):\n"
-                "${_codegen_err}")
+        # CI ships the stubs with the codegen job's sources (.codegen-done);
+        # generating them again took 3 minutes of macOS configure.
+        if(NOT (EXISTS "${CMAKE_SOURCE_DIR}/.codegen-done" AND
+                EXISTS "${CMAKE_SOURCE_DIR}/packages/python/whiteout-stubs/${_mod}.pyi"))
+            execute_process(
+                COMMAND ${Python_EXECUTABLE} -m tools.codegen.codegen ${_mod}
+                        --backend pyi
+                        --repo-root ${CMAKE_SOURCE_DIR}
+                WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+                OUTPUT_VARIABLE _codegen_out
+                ERROR_VARIABLE  _codegen_err
+                RESULT_VARIABLE _codegen_rc
+            )
+            if(NOT _codegen_rc EQUAL 0)
+                message(FATAL_ERROR
+                    "pyi codegen for '${_mod}' failed (exit ${_codegen_rc}):\n"
+                    "${_codegen_err}")
+            endif()
         endif()
         # Codegen emits to packages/python/whiteout-stubs/<mod>.pyi by
         # default — pull it into the build dir for install().

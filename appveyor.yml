@@ -36,7 +36,7 @@ environment:
   # CMAKE_BUILD_PARALLEL_LEVEL is intentionally NOT set globally — the
   # safe default varies per OS. tools/build-ci.sh defaults to 2 on Linux
   # (OOM-prone: 7 GB RAM, pybind11 wrappers peak ~2 GB each) and 4 on
-  # macOS; tools/build-ci.ps1 defaults to 2 projects of /MP on Windows. CI can still
+  # macOS; tools/build-ci.ps1 defaults to 2 on Windows. CI can still
   # override via the env var if a future runner has more RAM.
   # JDK 22+ is required for stable FFM; 25 is the current LTS. Windows
   # picks a staged JDK or falls back to chocolatey, Linux uses apt, macOS
@@ -57,8 +57,17 @@ environment:
       WHITEOUT_TARGET: codegen
     # macOS next: the job least proven to fit the 60-minute cap. It cannot go
     # before codegen, whose sources its before_build waits for.
+    #
+    # Its build alone runs ~85 minutes on this worker, so it is two jobs:
+    # part 1 builds for WHITEOUT_BUILD_BUDGET_MIN and uploads build-ci/,
+    # part 2 resumes that build directory and packages the outputs.
     - APPVEYOR_BUILD_WORKER_IMAGE: macos-sonoma
       WHITEOUT_TARGET: native
+      WHITEOUT_BUILD_PART: "1"
+      WHITEOUT_BUILD_BUDGET_MIN: "45"
+    - APPVEYOR_BUILD_WORKER_IMAGE: macos-sonoma
+      WHITEOUT_TARGET: native
+      WHITEOUT_BUILD_PART: "2"
     # One job per WASM package: built together they pass the 60-minute job
     # cap, as the two share no objects (tools/build-ci-wasm.sh).
     - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu2204
@@ -405,6 +414,9 @@ artifacts:
     name: native-binary
   - path: build-ci/c-dist/**/libwhiteout_native.dylib
     name: native-binary
+  # Part 1 of a split build only (see the macOS matrix entries).
+  - path: build-part1.tar.gz
+    name: build-part1
 
 test: off
 
@@ -540,6 +552,22 @@ for:
           # Windows poller. See build-ci.{ps1,sh} for the matching check.
           : > "${APPVEYOR_BUILD_FOLDER}/.codegen-done"
 
+          # Part 2 of a split build resumes part 1's build-ci/. ninja rebuilds
+          # whatever is newer than its outputs, and this checkout, the venv
+          # and the JDK are all newer than part 1, so date them back first;
+          # the tarball keeps part 1's dates.
+          if [ "${WHITEOUT_BUILD_PART:-}" = "2" ]; then
+              part1="$(curl -fsS "${api_base}" | jq -r --arg img "APPVEYOR_BUILD_WORKER_IMAGE=${APPVEYOR_BUILD_WORKER_IMAGE}," \
+                  '.build.jobs[] | select((.name | contains($img)) and (.name | contains("WHITEOUT_BUILD_PART=1"))) | .jobId + " " + .status' | head -n1)"
+              [ "${part1#* }" = "success" ] || { echo "part 1 job not successful: ${part1}" >&2; exit 1; }
+              curl -fsSL "https://ci.appveyor.com/api/buildjobs/${part1%% *}/artifacts/build-part1.tar.gz" \
+                  -o "${APPVEYOR_BUILD_FOLDER}/build-part1.tar.gz"
+              find "${APPVEYOR_BUILD_FOLDER}" -exec touch -h -t 202001010000 {} +
+              tar -xzf "${APPVEYOR_BUILD_FOLDER}/build-part1.tar.gz" -C "${APPVEYOR_BUILD_FOLDER}"
+              rm "${APPVEYOR_BUILD_FOLDER}/build-part1.tar.gz"
+              echo "resuming part 1's build (${part1%% *})"
+          fi
+
     # Native-only packaging. The native jobs produce ONE per-platform
     # output that the package job consumes: a Python wheel. The Java
     # universal jar is built once in the package job (it embeds all three
@@ -582,6 +610,12 @@ for:
           }
       - sh: |
           set -e
+          # Part 1 of a split build hands its build directory to part 2.
+          if [ "${WHITEOUT_BUILD_PART:-}" = "1" ]; then
+              tar -czf build-part1.tar.gz build-ci
+              ls -la build-part1.tar.gz
+              exit 0
+          fi
           if [ -f ci_python.env ]; then set -a; . ./ci_python.env; set +a; fi
           PY="${CI_PYTHON:-$(command -v python3 || command -v python)}"
           "$PY" tools/pack_python_wheel.py \
@@ -868,7 +902,7 @@ for:
               [codegen]='codegen|'
               [windows]='Visual Studio 2022|native'
               [linux]='Ubuntu2204|native'
-              [macos]='macos-sonoma|native'
+              [macos]='macos-sonoma|WHITEOUT_BUILD_PART=2'
           )
 
           echo "Polling ${api_base} for native + codegen jobs..."

@@ -9,7 +9,7 @@
 #   build-ci/<lib + examples>                          C++ static lib + examples
 #
 # Counterpart to tools/build-ci.ps1 (Windows). Identical configure flags;
-# different cmake generator (Unix Makefiles vs Visual Studio).
+# both build with Ninja (this script falls back to Makefiles without it).
 
 set -euo pipefail
 
@@ -165,7 +165,30 @@ else
     parallel=4
 fi
 echo "build parallelism: ${parallel}"
-cmake --build "${build_dir}" --config Release --parallel "${parallel}"
+
+# WHITEOUT_BUILD_BUDGET_MIN: part 1 of a build split across two CI jobs
+# (macOS, see appveyor.yml). Build until the budget runs out, then leave
+# build-ci/ for the next job to resume. ninja is run directly because it
+# stops its compilers and drops their partial outputs on SIGINT.
+if [ -n "${WHITEOUT_BUILD_BUDGET_MIN:-}" ]; then
+    [ -n "${ninja_bin}" ] || { echo "WHITEOUT_BUILD_BUDGET_MIN needs ninja" >&2; exit 1; }
+    "${ninja_bin}" -C "${build_dir}" -j "${parallel}" &
+    ninja_pid=$!
+    deadline=$(( $(date +%s) + WHITEOUT_BUILD_BUDGET_MIN * 60 ))
+    while kill -0 "${ninja_pid}" 2>/dev/null && [ "$(date +%s)" -lt "${deadline}" ]; do
+        sleep 10
+    done
+    if kill -0 "${ninja_pid}" 2>/dev/null; then
+        kill -INT "${ninja_pid}"
+        wait "${ninja_pid}" || true
+        echo "build budget of ${WHITEOUT_BUILD_BUDGET_MIN} min reached;" \
+             "$("${ninja_bin}" -C "${build_dir}" -n | grep -c '^\[') steps left for the next job"
+        exit 0
+    fi
+    wait "${ninja_pid}"
+else
+    cmake --build "${build_dir}" --config Release --parallel "${parallel}"
+fi
 
 # ── 4. Report outputs ────────────────────────────────────────────────────
 
