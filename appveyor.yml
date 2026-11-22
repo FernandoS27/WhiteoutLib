@@ -611,37 +611,39 @@ for:
       - sh: |
           set -e
           # Part 1 of a split build hands its build directory to part 2.
+          # No `exit 0` for it: every sh step runs in one shell, so an exit
+          # ends the job before AppVeyor uploads the artifacts.
           if [ "${WHITEOUT_BUILD_PART:-}" = "1" ]; then
               tar -czf build-part1.tar.gz build-ci
               ls -la build-part1.tar.gz
-              exit 0
-          fi
-          if [ -f ci_python.env ]; then set -a; . ./ci_python.env; set +a; fi
-          PY="${CI_PYTHON:-$(command -v python3 || command -v python)}"
-          "$PY" tools/pack_python_wheel.py \
-              --build-dir build-ci \
-              --out-dir   packages/python/dist
-          # Same fail-loud check as the Windows path: AppVeyor's artifact
-          # upload silently no-ops on glob mismatches, so verify both
-          # outputs exist while we can still surface a usable error.
-          case "$(uname -s)" in
-              Darwin) native_lib="libwhiteout_native.dylib" ;;
-              *)      native_lib="libwhiteout_native.so"    ;;
-          esac
-          missing=""
-          if ! find build-ci/c-dist -name "${native_lib}" 2>/dev/null | grep -q .; then
-              missing="${missing} ${native_lib}"
-          fi
-          if ! find packages/python/dist -name '*.whl' 2>/dev/null | grep -q .; then
-              missing="${missing} *.whl"
-          fi
-          if [ -n "${missing}" ]; then
-              echo "MISSING ARTIFACTS:${missing}" >&2
-              echo "--- build-ci/c-dist listing ---"
-              find build-ci/c-dist -mindepth 1 2>/dev/null | head -50 || true
-              echo "--- packages/python/dist listing ---"
-              find packages/python/dist -mindepth 1 2>/dev/null | head -50 || true
-              exit 1
+          else
+              if [ -f ci_python.env ]; then set -a; . ./ci_python.env; set +a; fi
+              PY="${CI_PYTHON:-$(command -v python3 || command -v python)}"
+              "$PY" tools/pack_python_wheel.py \
+                  --build-dir build-ci \
+                  --out-dir   packages/python/dist
+              # Same fail-loud check as the Windows path: AppVeyor's artifact
+              # upload silently no-ops on glob mismatches, so verify both
+              # outputs exist while we can still surface a usable error.
+              case "$(uname -s)" in
+                  Darwin) native_lib="libwhiteout_native.dylib" ;;
+                  *)      native_lib="libwhiteout_native.so"    ;;
+              esac
+              missing=""
+              if ! find build-ci/c-dist -name "${native_lib}" 2>/dev/null | grep -q .; then
+                  missing="${missing} ${native_lib}"
+              fi
+              if ! find packages/python/dist -name '*.whl' 2>/dev/null | grep -q .; then
+                  missing="${missing} *.whl"
+              fi
+              if [ -n "${missing}" ]; then
+                  echo "MISSING ARTIFACTS:${missing}" >&2
+                  echo "--- build-ci/c-dist listing ---"
+                  find build-ci/c-dist -mindepth 1 2>/dev/null | head -50 || true
+                  echo "--- packages/python/dist listing ---"
+                  find packages/python/dist -mindepth 1 2>/dev/null | head -50 || true
+                  exit 1
+              fi
           fi
 
 # ─── Codegen job overrides ──────────────────────────────────────────────────
