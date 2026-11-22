@@ -317,6 +317,8 @@ install:
           echo "HOMEBREW_NO_AUTO_UPDATE=1"
         } >> macos_env.env
         java -version
+        # AppVeyor publishes no macOS worker specs, and their speed varies ~6x.
+        echo "worker: $(sysctl -n hw.ncpu) cpus, $(( $(sysctl -n hw.memsize) / 1073741824 )) GB"
       fi
   - sh:  |
       # Pin Python 3.12 — wheels must share the cp312-cp312-{platform} tag
