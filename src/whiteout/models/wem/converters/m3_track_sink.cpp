@@ -451,6 +451,17 @@ u32 WriteStream(m3::SubTrackContainer& stc, const StreamSpec& spec, const SubTra
         stc.sds6.push_back(std::move(out));
         break;
     }
+    case Stream::Sdu6: {
+        auto out = NewBlock<u16>(stamps, endFrame);
+        for (std::size_t k = 0; k < count; ++k) {
+            u32 value = 0;
+            std::memcpy(&value, values[k], sizeof(value));
+            out.keys.push_back(static_cast<u16>((std::min)(value, u32{0xFFFF})));
+        }
+        block = static_cast<u32>(stc.sdu6.size());
+        stc.sdu6.push_back(std::move(out));
+        break;
+    }
     case Stream::Sdu3: {
         auto out = NewBlock<u32>(stamps, endFrame);
         for (std::size_t k = 0; k < count; ++k) {

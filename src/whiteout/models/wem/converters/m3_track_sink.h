@@ -38,6 +38,7 @@ enum class Stream : u32 {
     Sdcc = 4,
     Sdr3 = 5,
     Sds6 = 7,
+    Sdu6 = 8,
     Sdu3 = 10,
     Sdfg = 11,
 };
@@ -55,7 +56,8 @@ bool WarcraftWindow(const Clip& clip);
 struct StreamSpec {
     Stream stream = Stream::None;
     /// The layout of one key's value in the sub-track: F32, F32x2, F32x3, F32x4
-    /// (an RGBA colour for `Sdcc`), Quat, or U32 (`Sdu3`, and `Sds6`'s counts).
+    /// (an RGBA colour for `Sdcc`), Quat, or U32 (`Sdu3`, and `Sds6`'s counts
+    /// and `Sdu6`'s frames).
     geom::AttrType type = geom::AttrType::F32;
     /// WEM's canonical basis back into StarCraft II's, on a vector or rotation key.
     bool unrebaseVector = false;

@@ -1572,6 +1572,12 @@ private:
                 return Stream::Sds6;
             }
         }
+        // A layer's flipbook frame is u16 in SDU6 (1,243 of 1,243 shipped
+        // keyed frames); in SDU3 the engine reads no track and stays on cell 0.
+        if (channel.target.kind == TrackTarget::Kind::MaterialLayer &&
+            channel.target.channel == Channel::TextureIndex) {
+            return Stream::Sdu6;
+        }
         switch (channel.valueType) {
         case geom::AttrType::F32x2:
             return Stream::Sd2v;
