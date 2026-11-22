@@ -1139,12 +1139,20 @@ public:
         for (std::size_t k = 0; k <= count; ++k) {
             times[k] = period * static_cast<f32>(k) / static_cast<f32>(count);
         }
-        // Greedy: from each kept key, as far as a line to a later one draws
-        // every key between within the tolerance.
+        document_.clips[loopClip(period)].containers.front().subTracks.push_back(
+            thinned(channel.id, times, keys, width, tolerance));
+        ++report_.keyedChannels;
+    }
+
+    /// @p keys (@p width floats each) at @p times as @p channel's linear
+    /// track. Greedy: from each kept key, as far as a line to a later one
+    /// draws every key between within @p tolerance.
+    static SubTrack thinned(u32 channel, const std::vector<f32>& times,
+                            const std::vector<f32>& keys, u32 width, f32 tolerance) {
         std::vector<std::size_t> kept{0};
-        for (std::size_t a = 0; a < count;) {
+        for (std::size_t a = 0; a + 1 < times.size();) {
             std::size_t b = a + 1;
-            for (std::size_t c = a + 2; c <= count; ++c) {
+            for (std::size_t c = a + 2; c < times.size(); ++c) {
                 bool fits = true;
                 for (std::size_t m = a + 1; m < c && fits; ++m) {
                     const f32 f = (times[m] - times[a]) / (times[c] - times[a]);
@@ -1163,15 +1171,138 @@ public:
             a = b;
         }
         SubTrack track;
-        track.channel = channel.id;
+        track.channel = channel;
         track.interp = Interpolation::Linear;
         for (const std::size_t k : kept) {
             track.times.push_back(times[k]);
             const auto* raw = reinterpret_cast<const u8*>(keys.data() + k * width);
             track.values.insert(track.values.end(), raw, raw + width * sizeof(f32));
         }
-        document_.clips[loopClip(period)].containers.front().subTracks.push_back(std::move(track));
+        return track;
+    }
+
+    /// The births of @p born in one clip, from @p first: one past the last.
+    static std::size_t birthsEnd(const std::vector<std::pair<u32, f32>>& born, std::size_t first) {
+        std::size_t last = first;
+        while (last < born.size() && born[last].first == born[first].first) {
+            ++last;
+        }
+        return last;
+    }
+
+    /// @p values as `keyLoop` takes them, one life of @p period seconds, as
+    /// @p channel's track in each clip of @p born: a key a step from each
+    /// birth there up to the next, held at its first key from the clip's
+    /// start and at its last to the clip's end (StarCraft II wraps a track at
+    /// its own last key while a sequence loops).
+    void keyLives(AnimChannel channel, u32 width, const std::vector<f32>& values, f32 period,
+                  f32 tolerance, const std::vector<std::pair<u32, f32>>& born) {
+        // A hold's key lies this long before the birth it holds to, where
+        // the last key lies more than twice that before it.
+        constexpr f32 kHoldLead = 1e-3f;
+        const std::size_t count = values.size() / width;
+        const f32 step = period / static_cast<f32>(count);
+        channel.id = nextId_++;
+        model_.animChannels.add(channel);
         ++report_.keyedChannels;
+        for (std::size_t first = 0, last = 0; first < born.size(); first = last) {
+            last = birthsEnd(born, first);
+            if (born[first].first >= document_.clips.size()) {
+                continue;
+            }
+            wem::Clip& clip = document_.clips[born[first].first];
+            std::vector<f32> times;
+            std::vector<f32> keys;
+            std::size_t held = 0;
+            const auto put = [&](f32 at, std::size_t k) {
+                times.push_back(at);
+                keys.insert(keys.end(), values.begin() + static_cast<std::ptrdiff_t>(k * width),
+                            values.begin() + static_cast<std::ptrdiff_t>((k + 1) * width));
+                held = k;
+            };
+            for (std::size_t b = first; b < last && born[b].second < clip.duration; ++b) {
+                const f32 from = born[b].second;
+                const f32 until = b + 1 < last ? born[b + 1].second : clip.duration;
+                if (times.empty() && from > 0.0f) {
+                    put(0.0f, 0);
+                }
+                if (!times.empty() && times.back() < from - 2.0f * kHoldLead) {
+                    put(from - kHoldLead, held);
+                }
+                for (std::size_t k = 0; k < count; ++k) {
+                    const f32 at = from + step * static_cast<f32>(k);
+                    if (at > until || (k > 0 && b + 1 < last && at >= until)) {
+                        break;
+                    }
+                    if (times.empty() || at > times.back()) {
+                        put(at, k);
+                    }
+                }
+            }
+            if (times.empty()) {
+                continue;
+            }
+            if (times.back() < clip.duration) {
+                put(clip.duration, held);
+            }
+            if (clip.containers.empty()) {
+                clip.containers.emplace_back();
+            }
+            clip.containers.front().subTracks.push_back(
+                thinned(channel.id, times, keys, width, tolerance));
+        }
+    }
+
+    /// A stream of @p sprite that moves: on its period's loop, or, of one
+    /// that lives and dies, from each of its births.
+    void keyStream(const Sc2BakedSprite& sprite, const AnimChannel& channel, u32 width,
+                   const std::vector<f32>& values, f32 period) {
+        if (sprite.life > 0.0f) {
+            keyLives(channel, width, values, period, toleranceOf(values, width), sprite.born);
+        } else {
+            keyLoop(channel, width, values, period, toleranceOf(values, width));
+        }
+    }
+
+    /// @p channel, a visibility's, stepped to 1 over each life of @p sprite
+    /// in the clips it is born in, and 0 between them.
+    void showLives(u32 channel, const Sc2BakedSprite& sprite) {
+        const std::vector<std::pair<u32, f32>>& born = sprite.born;
+        for (std::size_t first = 0, last = 0; first < born.size(); first = last) {
+            last = birthsEnd(born, first);
+            if (born[first].first >= document_.clips.size()) {
+                continue;
+            }
+            wem::Clip& clip = document_.clips[born[first].first];
+            SubTrack track;
+            track.channel = channel;
+            track.interp = Interpolation::Step;
+            const auto step = [&track](f32 at, f32 shown) {
+                if (!track.times.empty() && at <= track.times.back()) {
+                    track.values.resize(track.values.size() - sizeof shown);
+                    track.times.pop_back();
+                }
+                track.times.push_back(at);
+                const auto* raw = reinterpret_cast<const u8*>(&shown);
+                track.values.insert(track.values.end(), raw, raw + sizeof shown);
+            };
+            step(0.0f, 0.0f);
+            f32 shown = 0.0f;
+            for (std::size_t b = first; b < last && born[b].second < clip.duration; ++b) {
+                step(born[b].second, shown = 1.0f);
+                if (const f32 dies = born[b].second + sprite.life;
+                    dies < clip.duration && (b + 1 == last || born[b + 1].second > dies)) {
+                    step(dies, shown = 0.0f);
+                }
+            }
+            if (track.times.back() < clip.duration) {
+                step(clip.duration, shown);
+            }
+            if (clip.containers.empty()) {
+                clip.containers.emplace_back();
+            }
+            clip.containers.front().subTracks.push_back(std::move(track));
+        }
     }
 
     /// A tolerance for keys spanning @p values: a five-hundredth of their
@@ -1282,8 +1413,7 @@ public:
         const auto key = [&](u32 node, Channel which, geom::AttrType type, u32 width,
                              const std::vector<f32>& values, f32 period) {
             if (period > 0.0f && values.size() > width && moves(values, width)) {
-                keyLoop(nodeChannel(node, which, type), width, values, period,
-                        toleranceOf(values, width));
+                keyStream(sprite, nodeChannel(node, which, type), width, values, period);
             }
         };
 
@@ -1333,7 +1463,8 @@ public:
         }
 
         // Its facing.
-        const u32 facing = addRecordNode(drawnAt, "_face", sprite.hidden.empty());
+        const bool mortal = sprite.life > 0.0f;
+        const u32 facing = addRecordNode(drawnAt, "_face", sprite.hidden.empty() && !mortal);
         {
             Node& node = model_.nodes.nodes[facing];
             if (sprite.facing == Sc2BakedSprite::Facing::Plane ||
@@ -1366,8 +1497,9 @@ public:
                 node.flags = node.flags | wem::Sc2BillboardFlags(6);
             }
         }
-        // Hidden in the clips the effect is off in: a step to 0 there.
-        if (!sprite.hidden.empty()) {
+        // Hidden in the clips the effect is off in: a step to 0 there. One
+        // that lives and dies shows over its lives alone.
+        if (!sprite.hidden.empty() || mortal) {
             AnimChannel channel = nodeChannel(facing, Channel::Visibility, geom::AttrType::F32);
             channel.id = nextId_++;
             const f32 one = 1.0f;
@@ -1390,6 +1522,9 @@ public:
                 track.values.assign(reinterpret_cast<const u8*>(&zero),
                                     reinterpret_cast<const u8*>(&zero) + sizeof zero);
                 clip.containers.front().subTracks.push_back(std::move(track));
+            }
+            if (mortal) {
+                showLives(channel.id, sprite);
             }
             ++report_.keyedChannels;
         }
@@ -1465,7 +1600,7 @@ public:
             channel.initValue.assign(reinterpret_cast<const u8*>(&rest),
                                      reinterpret_cast<const u8*>(&rest) + sizeof rest);
             layer->rgbMultiply.animId = nextId_;
-            keyLoop(channel, 1, values, loop.period, toleranceOf(values, 1));
+            keyStream(sprite, channel, 1, values, loop.period);
         };
         keyLayer(colour, sprite.brightness);
         keyLayer(coverage, sprite.alpha);
@@ -1526,8 +1661,43 @@ public:
         placeRiders(sprite, host, drawnAt);
     }
 
+    /// Where @p sprite's riders hang below @p at: a child shown only where
+    /// `lays` has them lay, stepped on its loop, or @p at itself.
+    u32 layNode(const Sc2BakedSprite& sprite, u32 at) {
+        const std::vector<f32>& keys = sprite.lays.keys;
+        if (sprite.lays.period <= 0.0f || (sprite.riders.empty() && sprite.ribbons.empty()) ||
+            std::all_of(keys.begin(), keys.end(), [](f32 v) { return v != 0.0f; })) {
+            return at;
+        }
+        const u32 node = addRecordNode(at, "_lay", false);
+        AnimChannel channel = nodeChannel(node, Channel::Visibility, geom::AttrType::F32);
+        channel.id = nextId_++;
+        const f32 one = 1.0f;
+        channel.initValue.assign(reinterpret_cast<const u8*>(&one),
+                                 reinterpret_cast<const u8*>(&one) + sizeof one);
+        model_.animChannels.add(channel);
+        SubTrack track;
+        track.channel = channel.id;
+        track.interp = Interpolation::Step;
+        for (std::size_t k = 0; k < keys.size(); ++k) {
+            if (k != 0 && (keys[k - 1] != 0.0f) == (keys[k] != 0.0f)) {
+                continue;
+            }
+            const f32 shown = keys[k] != 0.0f ? 1.0f : 0.0f;
+            track.times.push_back(sprite.lays.period * static_cast<f32>(k) /
+                                  static_cast<f32>(keys.size()));
+            const auto* raw = reinterpret_cast<const u8*>(&shown);
+            track.values.insert(track.values.end(), raw, raw + sizeof shown);
+        }
+        document_.clips[loopClip(sprite.lays.period)].containers.front().subTracks.push_back(
+            std::move(track));
+        ++report_.keyedChannels;
+        return node;
+    }
+
     /// @p sprite's riders and strips, where it draws (@p at).
     void placeRiders(const Sc2BakedSprite& sprite, u32 host, u32 at) {
+        at = layNode(sprite, at);
         for (std::size_t r = 0; r < sprite.riders.size(); ++r) {
             placeRecord(sprite.riders[r], host, at, "_ride" + std::to_string(r), false);
         }

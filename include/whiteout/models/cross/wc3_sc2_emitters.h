@@ -251,11 +251,24 @@ struct Sc2BakedSprite {
     Vector4f cell{0.0f, 0.0f, 1.0f, 1.0f};
     /// The document's clips it is hidden in: the effect is off there.
     std::vector<u32> hidden;
+    /// A particle that lives and dies, born at set times (D§12.4): the
+    /// seconds it lives (0: it never dies), and each birth as the document's
+    /// clip and the seconds into it, clip by clip in order. Each stream's
+    /// loop is then one life long, a key a step from the birth, keyed in
+    /// those clips from each birth and on no global loop, and the quad draws
+    /// only while it lives.
+    f32 life = 0.0f;
+    std::vector<std::pair<u32, f32>> born;
     /// Records riding it, on its place alone (D§7.4: a keyed bone carries a
     /// world-space `PAR_`).
     std::vector<Sc2ParticleSpec> riders;
     /// Strips riding it the same way (D§13: a `RIB_` off a keyed head).
     std::vector<Sc2RibbonSpec> ribbons;
+    /// Whether its riders lay, a key a step of its loop (0 or 1, held to the
+    /// next); empty: throughout. A place that ends its loop away from where
+    /// it starts flies back there, and what a world-space rider births on
+    /// the way would be swept along it.
+    Sc2Loop<f32> lays;
     /// False for a head that draws nothing (D§12.3): its place, orbit and
     /// riders alone, no quad; only `position` is read.
     bool draws = true;
