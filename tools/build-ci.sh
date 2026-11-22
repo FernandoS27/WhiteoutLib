@@ -114,6 +114,17 @@ if [ "$(uname -s)" = "Darwin" ]; then
     )
 fi
 
+# Ninja when there is one (CI pip-installs it beside the Python it picked):
+# Makefiles build each library before starting the next, which idles the
+# cores at every target's tail and against AppVeyor's 60-minute cap.
+ninja_bin="$(command -v ninja || true)"
+if [ -z "${ninja_bin}" ] && [ -x "$(dirname "${PYTHON}")/ninja" ]; then
+    ninja_bin="$(dirname "${PYTHON}")/ninja"
+fi
+if [ -n "${ninja_bin}" ]; then
+    cmake_platform_args+=(-G Ninja -DCMAKE_MAKE_PROGRAM="${ninja_bin}")
+fi
+
 cmake -S "${repo_root}" -B "${build_dir}" \
     "${cmake_platform_args[@]+"${cmake_platform_args[@]}"}" \
     -DCMAKE_BUILD_TYPE=Release \

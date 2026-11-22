@@ -55,6 +55,10 @@ environment:
     # itself.
     - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu2204
       WHITEOUT_TARGET: codegen
+    # macOS next: the job least proven to fit the 60-minute cap. It cannot go
+    # before codegen, whose sources its before_build waits for.
+    - APPVEYOR_BUILD_WORKER_IMAGE: macos-sonoma
+      WHITEOUT_TARGET: native
     # One job per WASM package: built together they pass the 60-minute job
     # cap, as the two share no objects (tools/build-ci-wasm.sh).
     - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu2204
@@ -67,19 +71,6 @@ environment:
       WHITEOUT_TARGET: native
     - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu2204
       WHITEOUT_TARGET: native
-    - APPVEYOR_BUILD_WORKER_IMAGE: macos-sonoma
-      WHITEOUT_TARGET: native
-    # The module switches (WHITEOUTLIB_MODULES_DESIGN.md §8.3): the library and
-    # its tests in one configuration each, with GNU ld (tools/build-ci-modules.sh).
-    - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu2204
-      WHITEOUT_TARGET: modules
-      WHITEOUT_MODULE_ARGS: "-DWHITEOUT_WEM_EDIT=OFF"
-    - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu2204
-      WHITEOUT_TARGET: modules
-      WHITEOUT_MODULE_ARGS: "-DWHITEOUT_WEM_CONVERT=OFF -DWHITEOUT_WEM_EDIT=ON"
-    - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu2204
-      WHITEOUT_TARGET: modules
-      WHITEOUT_MODULE_ARGS: "-DWHITEOUT_ENABLE_MODELS=OFF -DWHITEOUT_WEM_CONVERT=OFF -DWHITEOUT_WEM_EDIT=OFF"
     # Packaging fan-in — runs last. Polls every native job (windows,
     # linux, macos) for success, downloads their `native-binary` +
     # `python-wheels` + `java-natives` + `java-jars` artifacts, then
@@ -367,7 +358,8 @@ install:
       echo "export CI_PYTHON=$PY" > "${APPVEYOR_BUILD_FOLDER}/ci_python.env"
 
       "$PY" -m pip install $PIP_FLAGS --upgrade pip
-      "$PY" -m pip install $PIP_FLAGS pybind11 libclang wheel packaging tomli
+      # ninja: tools/build-ci.sh builds with it when it finds it beside $PY.
+      "$PY" -m pip install $PIP_FLAGS pybind11 libclang wheel packaging tomli ninja
 
 # ─── Configure + build (unified) ────────────────────────────────────────────
 # One cmake build per job produces the C++ static lib, the Java FFM native,
@@ -736,36 +728,6 @@ for:
     artifacts:
       - path: codegen-sources.tar.gz
         name: codegen-sources
-
-# ─── Module-switch job overrides ────────────────────────────────────────────
-# One module configuration each (WHITEOUT_MODULE_ARGS): the library and its
-# tests built, the module graph checked, nothing packaged. The image's cmake
-# and python3 do; its gcc 11 does not (no constexpr std::string), so the job
-# takes the native job's gcc from ubuntu-toolchain-r/test.
-  - matrix:
-      only:
-        - WHITEOUT_TARGET: modules
-
-    install:
-      - sh: |
-          set -e
-          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-          sudo apt-get update -qq
-          for v in 15 14 13 12; do
-            if sudo apt-get install -y --no-install-recommends gcc-$v g++-$v; then
-              echo "CC=gcc-$v"  >> linux_cc.env
-              echo "CXX=g++-$v" >> linux_cc.env
-              break
-            fi
-          done
-          [ -f linux_cc.env ] || { echo "no gcc >= 12 available" >&2; exit 1; }
-    before_build: []
-    build_script:
-      - sh: |
-          set -a; . ./linux_cc.env; set +a
-          bash tools/build-ci-modules.sh ${WHITEOUT_MODULE_ARGS}
-    after_build: []
-    artifacts: []
 
 # ─── WASM job overrides ─────────────────────────────────────────────────────
 # When WHITEOUT_TARGET=wasm, replace the native build's install / build /

@@ -164,7 +164,7 @@ std::optional<BetTable> parseBetTable(std::span<const u8> stored) {
         if (bits > 64)
             return std::nullopt;
     // Every field lies inside its entry, or the last entry reads past the table.
-    for (auto const [index, count] : {std::pair{bet.bitIndexFilePos, bet.bitCountFilePos},
+    for (auto const& [index, count] : {std::pair{bet.bitIndexFilePos, bet.bitCountFilePos},
                                       std::pair{bet.bitIndexFileSize, bet.bitCountFileSize},
                                       std::pair{bet.bitIndexCmpSize, bet.bitCountCmpSize},
                                       std::pair{bet.bitIndexFlagIndex, bet.bitCountFlagIndex}})

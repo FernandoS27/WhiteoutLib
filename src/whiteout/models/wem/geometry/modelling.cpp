@@ -8780,7 +8780,7 @@ bool FitPlane(std::span<const Vector3f> points, Vector3f* origin, Vector3f* norm
         if (!(off > 1e-30 * diagonal)) {
             break;
         }
-        for (const auto [p, q] : {std::pair<u32, u32>{0, 1}, {0, 2}, {1, 2}}) {
+        for (const auto& [p, q] : {std::pair<u32, u32>{0, 1}, {0, 2}, {1, 2}}) {
             const f64 apq = a[p][q];
             if (apq == 0.0) {
                 continue;
