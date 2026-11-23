@@ -2811,6 +2811,9 @@ TEST_CASE("wem m3 a splat event written in casts a projector from each key", "[w
     CHECK(p.active.flags == 0x6u);
     const u32 gateBone = boneNamed(out.model, "SPLxTEST_Model");
     REQUIRE(gateBone != kInvalidIndex);
+    // Where the event is (30 up, in StarCraft II's hundredths): the event
+    // node has no bone, and its rest is kept.
+    CHECK(out.model.bones[gateBone].position.initValue.z == Catch::Approx(0.3f));
     CHECK(p.active.animId != out.model.bones[gateBone].visibility.animId);
     const auto stand = keysOf(out.model, "Stand", p.active, &m3::SubTrackContainer::sdfg, 11);
     // On at each key, off where the first span ends; the writer holds the

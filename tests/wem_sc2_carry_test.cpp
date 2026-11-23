@@ -494,6 +494,50 @@ TEST_CASE("wem m3 a stream no record of the model declares passes through under 
     CHECK(found->keys[1].z == 3.0f);
 }
 
+TEST_CASE("wem m3 a projector's box edges never rest at their nulls", "[wem][m3][projector]") {
+    // The game builds the box only from edges a track plays or that differ
+    // from their null (sub_1025DDE60); every shipped null is 0.
+    constexpr u32 kKeyedLeft = 0x9A0B0001u;
+    m3::Model model = shippedModel();
+    m3::Projector& p = model.projections[0];
+    p.boxOffsetXLeft = still(-1.0f);
+    p.boxOffsetXLeft.nullValue = -1.0f;
+    p.boxOffsetXLeft.animId = kKeyedLeft;
+    p.boxOffsetXLeft.flags = 1;
+    p.boxOffsetXRight = still(1.0f);
+    p.boxOffsetXRight.nullValue = 1.0f;
+    p.boxOffsetYFront = still(0.0f);
+    p.boxOffsetYBack = still(2.0f);
+    p.boxOffsetYBack.nullValue = 5.0f;
+    p.boxOffsetZBottom = still(-1.0f);
+    // Driven from an `.m3a` alone: its header says so, no track here does.
+    p.boxOffsetZTop = still(0.0f);
+    p.boxOffsetZTop.animId = 0x9A0B0002u;
+    p.boxOffsetZTop.flags = 6;
+    m3::AnimBlock<f32> block{};
+    block.timestamps = {0, 1000};
+    block.keys = {-1.0f, -2.0f};
+    model.subTrackCollections[0].sdr3.push_back(block);
+    model.subTrackCollections[0].animIds.push_back(kKeyedLeft);
+    model.subTrackCollections[0].animRefs.push_back((5u << 16) | 0u);
+
+    M3Converter converter;
+    Result<Document> read = converter.fromM3(model, ProfileId::Sc2);
+    REQUIRE(read.ok());
+    const Result<m3::Model> written = converter.toM3(*read.value, ProfileId::Sc2, 29);
+    REQUIRE(written.ok());
+    REQUIRE(written->projections.size() == 1u);
+    const m3::Projector& out = written->projections[0];
+    // Keyed at its null, as the dethlazor reticle is: its track plays it.
+    CHECK(out.boxOffsetXLeft.nullValue == -1.0f);
+    CHECK(out.boxOffsetXRight.nullValue == 0.0f);
+    CHECK(out.boxOffsetYFront.nullValue == 1.0f);
+    CHECK(out.boxOffsetYBack.nullValue == 0.0f);
+    CHECK(out.boxOffsetZTop.nullValue == 0.0f);
+    // No STBM, so not a terrain bake.
+    CHECK((static_cast<u32>(out.flags) & 0x4u) == 0u);
+}
+
 TEST_CASE("wem m3 a camera's keyed lens is a channel on its node, and comes back keyed", "[wem][m3][camera]") {
     constexpr u32 kFov = 0xCA3E0001u;
     m3::Model model = shippedModel();

@@ -92,6 +92,33 @@ constexpr u32 kModelBoundsAnimId = 0x001F9BD2;
 /// shipped attachment addons and every camera one measured is 0xFFFF.
 constexpr u16 kNoAddon = 0xFFFFu;
 
+/// The two things a `PROJ` owes the game that no edit states. The game builds
+/// a projector's box only from edges that are "live": played by a track, or
+/// valued unlike their null (`sub_1025DDE60`), so an edge at its null never
+/// draws. Every shipped null is 0; an edge that is 0 itself takes 1. And flag
+/// 0x4 is the terrain bake's: on all 7,593 shipped `STBM` projectors and on
+/// no other.
+void SettleProjectors(m3::Model& out) {
+    std::set<u32> played;
+    for (const m3::SubTrackContainer& stc : out.subTrackCollections) {
+        played.insert(stc.animIds.begin(), stc.animIds.end());
+    }
+    for (m3::Projector& p : out.projections) {
+        for (m3::AnimRef<f32>* edge : {&p.boxOffsetXLeft, &p.boxOffsetXRight, &p.boxOffsetYFront, &p.boxOffsetYBack,
+                                       &p.boxOffsetZBottom, &p.boxOffsetZTop}) {
+            // Flags 0x2: driven, by a track here or in an `.m3a`.
+            if (played.count(edge->animId) == 0 && (edge->flags & 0x2u) == 0) {
+                edge->nullValue = edge->initValue == 0.0f ? 1.0f : 0.0f;
+            }
+        }
+        const bool bake = p.materialReferenceIndex < out.materialMaps.size() &&
+                          out.materialMaps[p.materialReferenceIndex].materialType == m3::MaterialType::SplatTerrainBake;
+        const u32 flags = static_cast<u32>(p.flags) & ~static_cast<u32>(m3::ProjectorFlag::UnknownFlag0x4);
+        p.flags = static_cast<m3::ProjectorFlag>(bake ? flags | static_cast<u32>(m3::ProjectorFlag::UnknownFlag0x4)
+                                                      : flags);
+    }
+}
+
 /// Reorders `MATM` so every composite follows the entries its sections name,
 /// and repoints everything that indexes the map. The editor builds the map in
 /// index order and resolves a section through the material it already built at
@@ -1751,7 +1778,18 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
         const u32 parentBone =
             hasFlag(node.flags, NodeFlags::ModelSpace) ? 0xFFFFu : nearestBone(n);
         bone.parentIndex = parentBone == 0xFFFFu ? u16(0xFFFFu) : static_cast<u16>(parentBone);
-        const Transform init = UnkeyedLocal(model, static_cast<u32>(n));
+        Transform init = UnkeyedLocal(model, static_cast<u32>(n));
+        // The boneless ancestors it hangs from (an event node a written-in
+        // splat hangs from, say) keep their rests in it.
+        for (u32 p = node.parent; !hasFlag(node.flags, NodeFlags::ModelSpace); p = model.nodes.nodes[p].parent) {
+            if (p >= nodeCount || boneOf[p] != 0xFFFFu) {
+                break;
+            }
+            init = Compose(UnkeyedLocal(model, p), init);
+            if (hasFlag(model.nodes.nodes[p].flags, NodeFlags::ModelSpace)) {
+                break;
+            }
+        }
         bone.position.initValue = Unrebase(init.translation);
         const Quaternion& rotation = init.rotation;
         bone.rotation.initValue = Quaternion{rotation.y, -rotation.x, rotation.z, rotation.w};
@@ -3602,6 +3640,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     }
 
     PlaceSectionsFirst(out);
+    SettleProjectors(out);
 
     // The two parallel arrays MODL owes its scene objects. Every one of 1,535
     // shipped models with attachment points carries one addon entry per point
