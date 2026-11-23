@@ -171,34 +171,871 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 3 of bind_wem(), which calls the parts in order.
 void bind_wem_3(py::module_& m) {
-    py::bind_vector<std::vector<whiteout::models::wem::Look>>(m, "VectorWemLook");
-    py::bind_vector<std::vector<whiteout::models::wem::Material>>(m, "VectorWemMaterial");
-    py::bind_vector<std::vector<whiteout::models::wem::MaterialFeature>>(m, "VectorWemMaterialFeature");
-    py::bind_vector<std::vector<whiteout::models::wem::Mesh>>(m, "VectorWemMesh");
-    py::bind_vector<std::vector<whiteout::models::wem::MeshSection>>(m, "VectorWemMeshSection");
-    py::bind_vector<std::vector<whiteout::models::wem::Model>>(m, "VectorWemModel");
-    py::bind_vector<std::vector<whiteout::models::wem::NativeKind>>(m, "VectorWemNativeKind");
-    py::bind_vector<std::vector<whiteout::models::wem::Node>>(m, "VectorWemNode");
-    py::bind_vector<std::vector<whiteout::models::wem::PhysicsBody>>(m, "VectorWemPhysicsBody");
-    py::bind_vector<std::vector<whiteout::models::wem::PhysicsJoint>>(m, "VectorWemPhysicsJoint");
-    py::bind_vector<std::vector<whiteout::models::wem::PhysicsRig>>(m, "VectorWemPhysicsRig");
-    py::bind_vector<std::vector<whiteout::models::wem::PhysicsShape>>(m, "VectorWemPhysicsShape");
-    py::bind_vector<std::vector<whiteout::models::wem::PoseSchema>>(m, "VectorWemPoseSchema");
-    py::bind_vector<std::vector<whiteout::models::wem::ProfileId>>(m, "VectorWemProfileId");
-    py::bind_vector<std::vector<whiteout::models::wem::ProfileMaterialSet>>(m, "VectorWemProfileMaterialSet");
-    py::bind_vector<std::vector<whiteout::models::wem::Sc2Billboard>>(m, "VectorWemSc2Billboard");
-    py::bind_vector<std::vector<whiteout::models::wem::Sc2Property<whiteout::Vector3f>>>(m, "VectorWemSc2PropertyVector3f");
-    py::bind_vector<std::vector<whiteout::models::wem::Sc2RibbonSplinePoint>>(m, "VectorWemSc2RibbonSplinePoint");
-    py::bind_vector<std::vector<whiteout::models::wem::SlotBinding>>(m, "VectorWemSlotBinding");
-    py::bind_vector<std::vector<whiteout::models::wem::SoftBody>>(m, "VectorWemSoftBody");
-    py::bind_vector<std::vector<whiteout::models::wem::SoftEffect>>(m, "VectorWemSoftEffect");
-    py::bind_vector<std::vector<whiteout::models::wem::SoftLump>>(m, "VectorWemSoftLump");
-    py::bind_vector<std::vector<whiteout::models::wem::SoftPart>>(m, "VectorWemSoftPart");
-    py::bind_vector<std::vector<whiteout::models::wem::SubTrack>>(m, "VectorWemSubTrack");
-    py::bind_vector<std::vector<whiteout::models::wem::SubTrackContainer>>(m, "VectorWemSubTrackContainer");
-    py::bind_vector<std::vector<whiteout::models::wem::TextureRef>>(m, "VectorWemTextureRef");
-    py::bind_vector<std::vector<whiteout::models::wem::TrackSet>>(m, "VectorWemTrackSet");
-    py::bind_vector<std::vector<whiteout::models::wem::Transform>>(m, "VectorWemTransform");
-    py::bind_vector<std::vector<whiteout::models::wem::UnknownChunk>>(m, "VectorWemUnknownChunk");
+    py::class_<whiteout::models::wem::Sc2ParticleEmitterPayload>(m, "Sc2ParticleEmitterPayload", R"doc(`PAR_` — the StarCraft II particle system — or one `PARC` copy of it.
+
+Field names are the M3 record's. The bit words keep the file's own bits: `flags` is `m3::ParticleFlag`, `additionalFlags` `m3::ParticleAdditionalFlag`, `rotationFlags` `m3::ParticleRotationFlag`.
+
+**A copy is a node too.** A `PARC` is another emission point of one system — its own bone, emission rate and squirt, the source's everything else — so it imports as a `Sc2ParticleEmitter` node under that bone whose `copyOf` names the source, and reads nothing of its payload but `emissionRate` and `squirtAmount`. The engine numbers copies as slots 1..n in node order.)doc")
+        .def(py::init<>())
+        .def_readwrite("copy_of", &whiteout::models::wem::Sc2ParticleEmitterPayload::copyOf, R"doc(Set on a `PARC`: the emitter it copies.)doc")
+        .def_readwrite("material_slot", &whiteout::models::wem::Sc2ParticleEmitterPayload::materialSlot, R"doc(-> `Model::materialSlots`.)doc")
+        .def_readwrite("additional_flags", &whiteout::models::wem::Sc2ParticleEmitterPayload::additionalFlags)
+        .def_readwrite("initial_speed", &whiteout::models::wem::Sc2ParticleEmitterPayload::initialSpeed)
+        .def_readwrite("initial_speed_random", &whiteout::models::wem::Sc2ParticleEmitterPayload::initialSpeedRandom)
+        .def_readwrite("initial_yaw", &whiteout::models::wem::Sc2ParticleEmitterPayload::initialYaw)
+        .def_readwrite("initial_pitch", &whiteout::models::wem::Sc2ParticleEmitterPayload::initialPitch)
+        .def_readwrite("initial_horizontal", &whiteout::models::wem::Sc2ParticleEmitterPayload::initialHorizontal)
+        .def_readwrite("initial_vertical", &whiteout::models::wem::Sc2ParticleEmitterPayload::initialVertical)
+        .def_readwrite("lifetime", &whiteout::models::wem::Sc2ParticleEmitterPayload::lifetime)
+        .def_readwrite("lifetime_random", &whiteout::models::wem::Sc2ParticleEmitterPayload::lifetimeRandom)
+        .def_readwrite("kill_radius", &whiteout::models::wem::Sc2ParticleEmitterPayload::killRadius)
+        .def_readwrite("gravity_x", &whiteout::models::wem::Sc2ParticleEmitterPayload::gravityX, R"doc(Stored as the file does; 0 everywhere shipped.)doc")
+        .def_readwrite("gravity_y", &whiteout::models::wem::Sc2ParticleEmitterPayload::gravityY)
+        .def_readwrite("gravity", &whiteout::models::wem::Sc2ParticleEmitterPayload::gravity)
+        .def_readwrite("size_mid_time", &whiteout::models::wem::Sc2ParticleEmitterPayload::sizeMidTime)
+        .def_readwrite("color_mid_time", &whiteout::models::wem::Sc2ParticleEmitterPayload::colorMidTime)
+        .def_readwrite("alpha_mid_time", &whiteout::models::wem::Sc2ParticleEmitterPayload::alphaMidTime)
+        .def_readwrite("rotation_mid_time", &whiteout::models::wem::Sc2ParticleEmitterPayload::rotationMidTime)
+        .def_readwrite("size_mid_hold_time", &whiteout::models::wem::Sc2ParticleEmitterPayload::sizeMidHoldTime)
+        .def_readwrite("color_mid_hold_time", &whiteout::models::wem::Sc2ParticleEmitterPayload::colorMidHoldTime)
+        .def_readwrite("alpha_mid_hold_time", &whiteout::models::wem::Sc2ParticleEmitterPayload::alphaMidHoldTime)
+        .def_readwrite("rotation_mid_hold_time", &whiteout::models::wem::Sc2ParticleEmitterPayload::rotationMidHoldTime)
+        .def_readwrite("size_animation", &whiteout::models::wem::Sc2ParticleEmitterPayload::sizeAnimation, R"doc(Birth, middle, death.)doc")
+        .def_readwrite("rotation_animation", &whiteout::models::wem::Sc2ParticleEmitterPayload::rotationAnimation, R"doc(Birth, middle, death.)doc")
+        .def_readwrite("color_start", &whiteout::models::wem::Sc2ParticleEmitterPayload::colorStart)
+        .def_readwrite("color_mid", &whiteout::models::wem::Sc2ParticleEmitterPayload::colorMid)
+        .def_readwrite("color_end", &whiteout::models::wem::Sc2ParticleEmitterPayload::colorEnd)
+        .def_readwrite("drag", &whiteout::models::wem::Sc2ParticleEmitterPayload::drag)
+        .def_readwrite("mass", &whiteout::models::wem::Sc2ParticleEmitterPayload::mass)
+        .def_readwrite("mass_random", &whiteout::models::wem::Sc2ParticleEmitterPayload::massRandom)
+        .def_readwrite("mass_size_multiplier", &whiteout::models::wem::Sc2ParticleEmitterPayload::massSizeMultiplier)
+        .def_readwrite("local_forces", &whiteout::models::wem::Sc2ParticleEmitterPayload::localForces, R"doc(Force channel masks.)doc")
+        .def_readwrite("world_forces", &whiteout::models::wem::Sc2ParticleEmitterPayload::worldForces)
+        .def_readwrite("local_forces_fallback", &whiteout::models::wem::Sc2ParticleEmitterPayload::localForcesFallback)
+        .def_readwrite("world_forces_fallback", &whiteout::models::wem::Sc2ParticleEmitterPayload::worldForcesFallback)
+        .def_readwrite("world_forces_mass_multiplier", &whiteout::models::wem::Sc2ParticleEmitterPayload::worldForcesMassMultiplier)
+        .def_readwrite("noise_amplitude", &whiteout::models::wem::Sc2ParticleEmitterPayload::noiseAmplitude)
+        .def_readwrite("noise_frequency", &whiteout::models::wem::Sc2ParticleEmitterPayload::noiseFrequency)
+        .def_readwrite("noise_coherence", &whiteout::models::wem::Sc2ParticleEmitterPayload::noiseCoherence)
+        .def_readwrite("noise_edge", &whiteout::models::wem::Sc2ParticleEmitterPayload::noiseEdge)
+        .def_readwrite("index_plus_length", &whiteout::models::wem::Sc2ParticleEmitterPayload::indexPlusLength)
+        .def_readwrite("max_particles", &whiteout::models::wem::Sc2ParticleEmitterPayload::maxParticles)
+        .def_readwrite("emission_rate", &whiteout::models::wem::Sc2ParticleEmitterPayload::emissionRate)
+        .def_readwrite("emitter_shape", &whiteout::models::wem::Sc2ParticleEmitterPayload::emitterShape)
+        .def_readwrite("shape_outer", &whiteout::models::wem::Sc2ParticleEmitterPayload::shapeOuter)
+        .def_readwrite("shape_inner", &whiteout::models::wem::Sc2ParticleEmitterPayload::shapeInner)
+        .def_readwrite("outer_radius", &whiteout::models::wem::Sc2ParticleEmitterPayload::outerRadius)
+        .def_readwrite("inner_radius", &whiteout::models::wem::Sc2ParticleEmitterPayload::innerRadius)
+        .def_readwrite("shape_sections", &whiteout::models::wem::Sc2ParticleEmitterPayload::shapeSections, R"doc(The mesh sections a `Mesh` shape emits from, each a `Sc2ShapeSection`; the export writes the regions they became.)doc")
+        .def_readwrite("velocity_type", &whiteout::models::wem::Sc2ParticleEmitterPayload::velocityType)
+        .def_readwrite("size_random_enable", &whiteout::models::wem::Sc2ParticleEmitterPayload::sizeRandomEnable)
+        .def_readwrite("size_random_animation", &whiteout::models::wem::Sc2ParticleEmitterPayload::sizeRandomAnimation)
+        .def_readwrite("rotation_random_enable", &whiteout::models::wem::Sc2ParticleEmitterPayload::rotationRandomEnable)
+        .def_readwrite("rotation_random_animation", &whiteout::models::wem::Sc2ParticleEmitterPayload::rotationRandomAnimation)
+        .def_readwrite("color_random_enable", &whiteout::models::wem::Sc2ParticleEmitterPayload::colorRandomEnable)
+        .def_readwrite("color_start_random", &whiteout::models::wem::Sc2ParticleEmitterPayload::colorStartRandom)
+        .def_readwrite("color_mid_random", &whiteout::models::wem::Sc2ParticleEmitterPayload::colorMidRandom)
+        .def_readwrite("color_end_random", &whiteout::models::wem::Sc2ParticleEmitterPayload::colorEndRandom)
+        .def_readwrite("alpha_random_enable", &whiteout::models::wem::Sc2ParticleEmitterPayload::alphaRandomEnable)
+        .def_readwrite("squirt_amount", &whiteout::models::wem::Sc2ParticleEmitterPayload::squirtAmount, R"doc(A burst count, keyed as a step.)doc")
+        .def_readwrite("flipbook_start_init_index", &whiteout::models::wem::Sc2ParticleEmitterPayload::flipbookStartInitIndex)
+        .def_readwrite("flipbook_start_stop_index", &whiteout::models::wem::Sc2ParticleEmitterPayload::flipbookStartStopIndex)
+        .def_readwrite("flipbook_end_init_index", &whiteout::models::wem::Sc2ParticleEmitterPayload::flipbookEndInitIndex)
+        .def_readwrite("flipbook_end_stop_index", &whiteout::models::wem::Sc2ParticleEmitterPayload::flipbookEndStopIndex)
+        .def_readwrite("flipbook_mid_time", &whiteout::models::wem::Sc2ParticleEmitterPayload::flipbookMidTime)
+        .def_readwrite("flipbook_columns", &whiteout::models::wem::Sc2ParticleEmitterPayload::flipbookColumns)
+        .def_readwrite("flipbook_rows", &whiteout::models::wem::Sc2ParticleEmitterPayload::flipbookRows)
+        .def_readwrite("flipbook_column_fraction", &whiteout::models::wem::Sc2ParticleEmitterPayload::flipbookColumnFraction)
+        .def_readwrite("flipbook_row_fraction", &whiteout::models::wem::Sc2ParticleEmitterPayload::flipbookRowFraction)
+        .def_readwrite("bounce", &whiteout::models::wem::Sc2ParticleEmitterPayload::bounce)
+        .def_readwrite("friction", &whiteout::models::wem::Sc2ParticleEmitterPayload::friction)
+        .def_readwrite("collision_spawn", &whiteout::models::wem::Sc2ParticleEmitterPayload::collisionSpawn, R"doc(The emitter a collision spawns from.)doc")
+        .def_readwrite("collision_spawn_min", &whiteout::models::wem::Sc2ParticleEmitterPayload::collisionSpawnMin)
+        .def_readwrite("collision_spawn_max", &whiteout::models::wem::Sc2ParticleEmitterPayload::collisionSpawnMax)
+        .def_readwrite("collision_spawn_chance", &whiteout::models::wem::Sc2ParticleEmitterPayload::collisionSpawnChance)
+        .def_readwrite("collision_spawn_energy", &whiteout::models::wem::Sc2ParticleEmitterPayload::collisionSpawnEnergy)
+        .def_readwrite("collision_die_bounce", &whiteout::models::wem::Sc2ParticleEmitterPayload::collisionDieBounce)
+        .def_readwrite("instance_type", &whiteout::models::wem::Sc2ParticleEmitterPayload::instanceType)
+        .def_readwrite("tail_length", &whiteout::models::wem::Sc2ParticleEmitterPayload::tailLength)
+        .def_readwrite("instance_angle", &whiteout::models::wem::Sc2ParticleEmitterPayload::instanceAngle)
+        .def_readwrite("instance_distance", &whiteout::models::wem::Sc2ParticleEmitterPayload::instanceDistance)
+        .def_readwrite("pitch", &whiteout::models::wem::Sc2ParticleEmitterPayload::pitch)
+        .def_readwrite("yaw", &whiteout::models::wem::Sc2ParticleEmitterPayload::yaw)
+        .def_readwrite("speed", &whiteout::models::wem::Sc2ParticleEmitterPayload::speed)
+        .def_readwrite("size", &whiteout::models::wem::Sc2ParticleEmitterPayload::size)
+        .def_readwrite("alpha", &whiteout::models::wem::Sc2ParticleEmitterPayload::alpha)
+        .def_readwrite("color", &whiteout::models::wem::Sc2ParticleEmitterPayload::color)
+        .def_readwrite("rotation", &whiteout::models::wem::Sc2ParticleEmitterPayload::rotation)
+        .def_readwrite("horizontal", &whiteout::models::wem::Sc2ParticleEmitterPayload::horizontal)
+        .def_readwrite("vertical", &whiteout::models::wem::Sc2ParticleEmitterPayload::vertical)
+        .def_readwrite("particle_velocity", &whiteout::models::wem::Sc2ParticleEmitterPayload::particleVelocity)
+        .def_readwrite("phase_shift", &whiteout::models::wem::Sc2ParticleEmitterPayload::phaseShift)
+        .def_readwrite("flags", &whiteout::models::wem::Sc2ParticleEmitterPayload::flags)
+        .def_readwrite("rotation_flags", &whiteout::models::wem::Sc2ParticleEmitterPayload::rotationFlags)
+        .def_readwrite("color_smoothing", &whiteout::models::wem::Sc2ParticleEmitterPayload::colorSmoothing)
+        .def_readwrite("size_smoothing", &whiteout::models::wem::Sc2ParticleEmitterPayload::sizeSmoothing)
+        .def_readwrite("rotation_smoothing", &whiteout::models::wem::Sc2ParticleEmitterPayload::rotationSmoothing)
+        .def_readwrite("alpha_threshold", &whiteout::models::wem::Sc2ParticleEmitterPayload::alphaThreshold)
+        .def_readwrite("uv_offset", &whiteout::models::wem::Sc2ParticleEmitterPayload::uvOffset)
+        .def_readwrite("uv_angle", &whiteout::models::wem::Sc2ParticleEmitterPayload::uvAngle)
+        .def_readwrite("uv_tiling", &whiteout::models::wem::Sc2ParticleEmitterPayload::uvTiling)
+        .def_readwrite("spline_points", &whiteout::models::wem::Sc2ParticleEmitterPayload::splinePoints, R"doc(A `Spline` shape's path.)doc")
+        .def_readwrite("wind_multiplier", &whiteout::models::wem::Sc2ParticleEmitterPayload::windMultiplier)
+        .def_readwrite("lod_reduce", &whiteout::models::wem::Sc2ParticleEmitterPayload::lodReduce)
+        .def_readwrite("lod_cut", &whiteout::models::wem::Sc2ParticleEmitterPayload::lodCut)
+        .def_readwrite("lower_bound", &whiteout::models::wem::Sc2ParticleEmitterPayload::lowerBound)
+        .def_readwrite("upper_bound", &whiteout::models::wem::Sc2ParticleEmitterPayload::upperBound)
+        .def_readwrite("trail_link", &whiteout::models::wem::Sc2ParticleEmitterPayload::trailLink, R"doc(The emitter this one leaves trails with.)doc")
+        .def_readwrite("trail_chance", &whiteout::models::wem::Sc2ParticleEmitterPayload::trailChance)
+        .def_readwrite("trail_emission_rate", &whiteout::models::wem::Sc2ParticleEmitterPayload::trailEmissionRate)
+        .def_readwrite("splat_projection_index", &whiteout::models::wem::Sc2ParticleEmitterPayload::splatProjectionIndex, R"doc(Retired at `NODE` v26: the `PROJ` index as the file had it. Written as -1; an older chunk's becomes `splatProjector` on read.)doc")
+        .def_readwrite("splat_chance", &whiteout::models::wem::Sc2ParticleEmitterPayload::splatChance)
+        .def_readwrite("splat_projector", &whiteout::models::wem::Sc2ParticleEmitterPayload::splatProjector, R"doc(The `Projector` a collision casts its splat with; none on every shipped emitter measured. `NODE` v26.)doc")
+        .def_readwrite("models", &whiteout::models::wem::Sc2ParticleEmitterPayload::models, R"doc(Model particles, by path (`SCHR`).)doc")
+        .def_readwrite("model_orientation", &whiteout::models::wem::Sc2ParticleEmitterPayload::modelOrientation, R"doc(`PAR_+0x5D0` and `+0x5D4`, raw: the model particles' legacy orientation and its variant (SC2_PARTICLE_RE.md §16.15), which the community layout read as a ribbon a bounce spawns and nothing spawns. `NODE` v26.)doc")
+        .def_readwrite("model_orientation_variant", &whiteout::models::wem::Sc2ParticleEmitterPayload::modelOrientationVariant)
+        .def_readwrite("ribbon_link", &whiteout::models::wem::Sc2ParticleEmitterPayload::ribbonLink, R"doc(Retired at `NODE` v26: the variant word read as a link to the ribbon it indexed. Written as none; an older chunk's turns back into that ribbon's index on read, and one that indexed no ribbon into -1.)doc")
+        .def_readwrite("noise_smoothness", &whiteout::models::wem::Sc2ParticleEmitterPayload::noiseSmoothness, R"doc(Pre-v12 only; the upgrade has nowhere to put it.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::Sc2RibbonSplinePoint>(m, "Sc2RibbonSplinePoint", R"doc(`SRIB`: one control point of a `RIB_`'s spline, riding a bone of its own.)doc")
+        .def(py::init<>())
+        .def_readwrite("node", &whiteout::models::wem::Sc2RibbonSplinePoint::node, R"doc(The bone it rides.)doc")
+        .def_readwrite("emission_offset", &whiteout::models::wem::Sc2RibbonSplinePoint::emissionOffset, R"doc(The curve's start, emitter-local.)doc")
+        .def_readwrite("emission_vector", &whiteout::models::wem::Sc2RibbonSplinePoint::emissionVector, R"doc(Its start tangent.)doc")
+        .def_readwrite("velocity", &whiteout::models::wem::Sc2RibbonSplinePoint::velocity, R"doc(Retired at `S2RS` v2: the community layout's reading of the bytes that hold `endTangent` and `endOffset`, of which only these three floats crossed. Written as zero; an older chunk's are read into the two below.)doc")
+        .def_readwrite("reserved", &whiteout::models::wem::Sc2RibbonSplinePoint::reserved)
+        .def_readwrite("velocity_base_factor", &whiteout::models::wem::Sc2RibbonSplinePoint::velocityBaseFactor)
+        .def_readwrite("velocity_end_factor", &whiteout::models::wem::Sc2RibbonSplinePoint::velocityEndFactor)
+        .def_readwrite("yaw_variation", &whiteout::models::wem::Sc2RibbonSplinePoint::yawVariation)
+        .def_readwrite("pitch_variation", &whiteout::models::wem::Sc2RibbonSplinePoint::pitchVariation)
+        .def_readwrite("velocity_variation", &whiteout::models::wem::Sc2RibbonSplinePoint::velocityVariation)
+        .def_readwrite("yaw", &whiteout::models::wem::Sc2RibbonSplinePoint::yaw)
+        .def_readwrite("pitch", &whiteout::models::wem::Sc2RibbonSplinePoint::pitch)
+        .def_readwrite("emission_vector_norm_factor", &whiteout::models::wem::Sc2RibbonSplinePoint::emissionVectorNormFactor, R"doc(Shipped as ~0.01 / |emissionVector|.)doc")
+        .def_readwrite("velocity_norm_factor", &whiteout::models::wem::Sc2RibbonSplinePoint::velocityNormFactor, R"doc(Shipped as ~0.01 / velocity.)doc")
+        .def_readwrite("end_tangent", &whiteout::models::wem::Sc2RibbonSplinePoint::endTangent, R"doc(The end tangent and the end point, in the bone's frame: the curve's last two control points (SC2_RIBBON_RE.md §1.2). `S2RS` v2.)doc")
+        .def_readwrite("end_offset", &whiteout::models::wem::Sc2RibbonSplinePoint::endOffset)
+    ;
+
+    py::class_<whiteout::models::wem::Sc2RibbonEmitterPayload>(m, "Sc2RibbonEmitterPayload", R"doc(`RIB_` — the StarCraft II ribbon.
+
+Its bone is the node's parent. The record's second `u16` beside the bone is the high half of one `u32` bone index to the editor, zero on every shipped ribbon, and is written as zero rather than carried. `flags` is `m3::RibbonFlag`, `additionalFlags` `m3::RibbonAdditionalFlag`.)doc")
+        .def(py::init<>())
+        .def_readwrite("material_slot", &whiteout::models::wem::Sc2RibbonEmitterPayload::materialSlot, R"doc(-> `Model::materialSlots`.)doc")
+        .def_readwrite("additional_flags", &whiteout::models::wem::Sc2RibbonEmitterPayload::additionalFlags)
+        .def_readwrite("initial_speed", &whiteout::models::wem::Sc2RibbonEmitterPayload::initialSpeed)
+        .def_readwrite("initial_speed_random", &whiteout::models::wem::Sc2RibbonEmitterPayload::initialSpeedRandom)
+        .def_readwrite("initial_yaw", &whiteout::models::wem::Sc2RibbonEmitterPayload::initialYaw)
+        .def_readwrite("initial_pitch", &whiteout::models::wem::Sc2RibbonEmitterPayload::initialPitch)
+        .def_readwrite("initial_horizontal", &whiteout::models::wem::Sc2RibbonEmitterPayload::initialHorizontal)
+        .def_readwrite("initial_vertical", &whiteout::models::wem::Sc2RibbonEmitterPayload::initialVertical)
+        .def_readwrite("lifetime", &whiteout::models::wem::Sc2RibbonEmitterPayload::lifetime)
+        .def_readwrite("lifetime_random", &whiteout::models::wem::Sc2RibbonEmitterPayload::lifetimeRandom)
+        .def_readwrite("kill_radius", &whiteout::models::wem::Sc2RibbonEmitterPayload::killRadius, R"doc(A `u32` in the ribbon record, unlike the particle's.)doc")
+        .def_readwrite("gravity_x", &whiteout::models::wem::Sc2RibbonEmitterPayload::gravityX)
+        .def_readwrite("gravity_y", &whiteout::models::wem::Sc2RibbonEmitterPayload::gravityY)
+        .def_readwrite("gravity", &whiteout::models::wem::Sc2RibbonEmitterPayload::gravity)
+        .def_readwrite("size_mid_time", &whiteout::models::wem::Sc2RibbonEmitterPayload::sizeMidTime)
+        .def_readwrite("color_mid_time", &whiteout::models::wem::Sc2RibbonEmitterPayload::colorMidTime)
+        .def_readwrite("alpha_mid_time", &whiteout::models::wem::Sc2RibbonEmitterPayload::alphaMidTime)
+        .def_readwrite("rotation_mid_time", &whiteout::models::wem::Sc2RibbonEmitterPayload::rotationMidTime)
+        .def_readwrite("size_mid_hold_time", &whiteout::models::wem::Sc2RibbonEmitterPayload::sizeMidHoldTime)
+        .def_readwrite("color_mid_hold_time", &whiteout::models::wem::Sc2RibbonEmitterPayload::colorMidHoldTime)
+        .def_readwrite("alpha_mid_hold_time", &whiteout::models::wem::Sc2RibbonEmitterPayload::alphaMidHoldTime)
+        .def_readwrite("rotation_mid_hold_time", &whiteout::models::wem::Sc2RibbonEmitterPayload::rotationMidHoldTime)
+        .def_readwrite("size_animation", &whiteout::models::wem::Sc2RibbonEmitterPayload::sizeAnimation)
+        .def_readwrite("rotation_animation", &whiteout::models::wem::Sc2RibbonEmitterPayload::rotationAnimation)
+        .def_readwrite("color_start", &whiteout::models::wem::Sc2RibbonEmitterPayload::colorStart)
+        .def_readwrite("color_mid", &whiteout::models::wem::Sc2RibbonEmitterPayload::colorMid)
+        .def_readwrite("color_end", &whiteout::models::wem::Sc2RibbonEmitterPayload::colorEnd)
+        .def_readwrite("drag", &whiteout::models::wem::Sc2RibbonEmitterPayload::drag)
+        .def_readwrite("mass", &whiteout::models::wem::Sc2RibbonEmitterPayload::mass)
+        .def_readwrite("mass_random", &whiteout::models::wem::Sc2RibbonEmitterPayload::massRandom)
+        .def_readwrite("mass_size_multiplier", &whiteout::models::wem::Sc2RibbonEmitterPayload::massSizeMultiplier)
+        .def_readwrite("local_forces", &whiteout::models::wem::Sc2RibbonEmitterPayload::localForces)
+        .def_readwrite("world_forces", &whiteout::models::wem::Sc2RibbonEmitterPayload::worldForces)
+        .def_readwrite("local_forces_fallback", &whiteout::models::wem::Sc2RibbonEmitterPayload::localForcesFallback)
+        .def_readwrite("world_forces_fallback", &whiteout::models::wem::Sc2RibbonEmitterPayload::worldForcesFallback)
+        .def_readwrite("world_forces_mass_multiplier", &whiteout::models::wem::Sc2RibbonEmitterPayload::worldForcesMassMultiplier)
+        .def_readwrite("noise_amplitude", &whiteout::models::wem::Sc2RibbonEmitterPayload::noiseAmplitude)
+        .def_readwrite("noise_frequency", &whiteout::models::wem::Sc2RibbonEmitterPayload::noiseFrequency)
+        .def_readwrite("noise_coherence", &whiteout::models::wem::Sc2RibbonEmitterPayload::noiseCoherence)
+        .def_readwrite("noise_edge", &whiteout::models::wem::Sc2RibbonEmitterPayload::noiseEdge)
+        .def_readwrite("index_plus_length", &whiteout::models::wem::Sc2RibbonEmitterPayload::indexPlusLength)
+        .def_readwrite("cross_section", &whiteout::models::wem::Sc2RibbonEmitterPayload::crossSection)
+        .def_readwrite("cull_method", &whiteout::models::wem::Sc2RibbonEmitterPayload::cullMethod)
+        .def_readwrite("divisions", &whiteout::models::wem::Sc2RibbonEmitterPayload::divisions)
+        .def_readwrite("edges", &whiteout::models::wem::Sc2RibbonEmitterPayload::edges)
+        .def_readwrite("inner_radius", &whiteout::models::wem::Sc2RibbonEmitterPayload::innerRadius)
+        .def_readwrite("max_length", &whiteout::models::wem::Sc2RibbonEmitterPayload::maxLength)
+        .def_readwrite("spline_points", &whiteout::models::wem::Sc2RibbonEmitterPayload::splinePoints, R"doc(`SRIB`.)doc")
+        .def_readwrite("active", &whiteout::models::wem::Sc2RibbonEmitterPayload::active, R"doc(A flag, keyed as one. Rests at null 0 on every shipped ribbon.)doc")
+        .def_readwrite("flags", &whiteout::models::wem::Sc2RibbonEmitterPayload::flags)
+        .def_readwrite("size_smoothing", &whiteout::models::wem::Sc2RibbonEmitterPayload::sizeSmoothing)
+        .def_readwrite("color_smoothing", &whiteout::models::wem::Sc2RibbonEmitterPayload::colorSmoothing)
+        .def_readwrite("friction", &whiteout::models::wem::Sc2RibbonEmitterPayload::friction)
+        .def_readwrite("bounce", &whiteout::models::wem::Sc2RibbonEmitterPayload::bounce)
+        .def_readwrite("lod_reduce", &whiteout::models::wem::Sc2RibbonEmitterPayload::lodReduce)
+        .def_readwrite("lod_cut", &whiteout::models::wem::Sc2RibbonEmitterPayload::lodCut)
+        .def_readwrite("yaw", &whiteout::models::wem::Sc2RibbonEmitterPayload::yaw)
+        .def_readwrite("pitch", &whiteout::models::wem::Sc2RibbonEmitterPayload::pitch)
+        .def_readwrite("speed", &whiteout::models::wem::Sc2RibbonEmitterPayload::speed)
+        .def_readwrite("size", &whiteout::models::wem::Sc2RibbonEmitterPayload::size)
+        .def_readwrite("alpha", &whiteout::models::wem::Sc2RibbonEmitterPayload::alpha)
+        .def_readwrite("particle_velocity", &whiteout::models::wem::Sc2RibbonEmitterPayload::particleVelocity)
+        .def_readwrite("overlay", &whiteout::models::wem::Sc2RibbonEmitterPayload::overlay)
+        .def_readwrite("deprecated_unknown", &whiteout::models::wem::Sc2RibbonEmitterPayload::deprecatedUnknown, R"doc(Pre-v7 only (`unknown3fbae7d6`).)doc")
+    ;
+
+    py::class_<whiteout::models::wem::ForceFieldPayload>(m, "ForceFieldPayload", R"doc(StarCraft II `FOR_`: pushes what is inside a volume. Particles and ribbons feel it when `affectsParticles` is set, rigid bodies when `affectsBodies` is and `channels` shares a bit with their `PhysicsBody::forceChannels`. Cloth has no force-field path.)doc")
+        .def(py::init<>())
+        .def_readwrite("kind", &whiteout::models::wem::ForceFieldPayload::kind)
+        .def_readwrite("volume", &whiteout::models::wem::ForceFieldPayload::volume)
+        .def_readwrite("falloff", &whiteout::models::wem::ForceFieldPayload::falloff)
+        .def_readwrite("height_gradient", &whiteout::models::wem::ForceFieldPayload::heightGradient)
+        .def_readwrite("unbounded", &whiteout::models::wem::ForceFieldPayload::unbounded)
+        .def_readwrite("affects_particles", &whiteout::models::wem::ForceFieldPayload::affectsParticles)
+        .def_readwrite("affects_bodies", &whiteout::models::wem::ForceFieldPayload::affectsBodies)
+        .def_readwrite("channels", &whiteout::models::wem::ForceFieldPayload::channels)
+        .def_readwrite("scope", &whiteout::models::wem::ForceFieldPayload::scope, R"doc(`FOR_` +8, read as the field's scope (0 = the model's own); no reader is traced yet, so it crosses verbatim.)doc")
+        .def_readwrite("strength", &whiteout::models::wem::ForceFieldPayload::strength)
+        .def_readwrite("width", &whiteout::models::wem::ForceFieldPayload::width)
+        .def_readwrite("height", &whiteout::models::wem::ForceFieldPayload::height)
+        .def_readwrite("length", &whiteout::models::wem::ForceFieldPayload::length)
+    ;
+
+    py::class_<whiteout::models::wem::VertexWarpPayload>(m, "VertexWarpPayload", R"doc(StarCraft II `WRP_`: a vertex-shader deformation particles and ribbons opt into. An effect, not physics.)doc")
+        .def(py::init<>())
+        .def_readwrite("type", &whiteout::models::wem::VertexWarpPayload::type)
+        .def_readwrite("reserved", &whiteout::models::wem::VertexWarpPayload::reserved, R"doc(`WRP_` +8; no reader is traced yet, so it crosses verbatim.)doc")
+        .def_readwrite("radius", &whiteout::models::wem::VertexWarpPayload::radius)
+        .def_readwrite("height", &whiteout::models::wem::VertexWarpPayload::height)
+        .def_readwrite("strength", &whiteout::models::wem::VertexWarpPayload::strength)
+        .def_readwrite("angular", &whiteout::models::wem::VertexWarpPayload::angular)
+        .def_readwrite("axial", &whiteout::models::wem::VertexWarpPayload::axial)
+        .def_readwrite("radial", &whiteout::models::wem::VertexWarpPayload::radial)
+    ;
+
+    py::class_<whiteout::models::wem::Transform>(m, "Transform", R"doc(TRS everywhere in WEM. Nothing stores a matrix that a TRS can express.)doc")
+        .def(py::init<>())
+        .def_readwrite("translation", &whiteout::models::wem::Transform::translation)
+        .def_readwrite("rotation", &whiteout::models::wem::Transform::rotation)
+        .def_readwrite("scale", &whiteout::models::wem::Transform::scale)
+    ;
+
+    py::class_<whiteout::models::wem::Sphere>(m, "Sphere")
+        .def(py::init<>())
+        .def_readwrite("center", &whiteout::models::wem::Sphere::center)
+        .def_readwrite("radius", &whiteout::models::wem::Sphere::radius)
+    ;
+
+    py::class_<whiteout::models::wem::HelperPayload>(m, "HelperPayload", R"doc(Empty for a Helper; the alternatives below are one per kind. Both empty payloads still reflect: an empty body writes nothing, and having one keeps every alternative visitable without the payload switch special-casing two.)doc")
+        .def(py::init<>())
+    ;
+
+    py::class_<whiteout::models::wem::BonePayload>(m, "BonePayload")
+        .def(py::init<>())
+        .def_readwrite("bounds", &whiteout::models::wem::BonePayload::bounds, R"doc(D3 ships both a box and a sphere, per bone.)doc")
+        .def_readwrite("sphere", &whiteout::models::wem::BonePayload::sphere)
+        .def_readwrite("gate_mesh", &whiteout::models::wem::BonePayload::gateMesh, R"doc(MDX's bone -> geoset link: the mesh whose geoset animation gates this bone (its subtree is hidden while the mesh's alpha is 0) and, when that mesh is `SectionFlags::ProjectedShadow`, places it as a drop shadow. `kInvalidIndex`: none. `NODE` v5; an older chunk's link is migrated on read (`Node::migrateBoneGate`).)doc")
+    ;
+
+    py::class_<whiteout::models::wem::AttachmentPayload>(m, "AttachmentPayload", R"doc(An attach point, and what is riding it.
+
+The placement is the node — that is the whole of an MDX or `.m2` attachment, and of a D3 hardpoint, which is skeleton-relative data shipped with the skeleton. The equip-slot key (M2's attachment `id`, the hardpoint's own name) lives in `native`.
+
+What rides it is the other half, and it is here rather than in a parallel list for §10.2's reason: removing or reparenting the node has to move everything that is *about* it, and a side table of `{node, child}` pairs would be one more referencer §10.6 has to invalidate.
+
+Both halves are optional and independent. `asset` is what the source named — an effect WEM does not contain (§18), or a model it does. `model` is filled when that name resolved to something the document now holds, which is how a D3 child actor arrives: it converts to a `Model` of its own and the attach point points at it.)doc")
+        .def(py::init<>())
+        .def_readwrite("asset", &whiteout::models::wem::AttachmentPayload::asset, R"doc(What the source named, resolved or not.)doc")
+        .def_readwrite("model", &whiteout::models::wem::AttachmentPayload::model, R"doc(-> `Document::models[]` once it resolved.)doc")
+        .def_readwrite("sc2_volume_addons", &whiteout::models::wem::AttachmentPayload::sc2VolumeAddons, R"doc(Each volume's two MODL addons as read, the first in the low half: the volume's bone and place in most files, zeros in older ones. Parallel to `sc2Volumes`, or empty to write the bone and the place.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::LightPayload>(m, "LightPayload")
+        .def(py::init<>())
+        .def_readwrite("kind", &whiteout::models::wem::LightPayload::kind)
+        .def_readwrite("color", &whiteout::models::wem::LightPayload::color)
+        .def_readwrite("intensity", &whiteout::models::wem::LightPayload::intensity)
+        .def_readwrite("attenuation_start", &whiteout::models::wem::LightPayload::attenuationStart)
+        .def_readwrite("attenuation_end", &whiteout::models::wem::LightPayload::attenuationEnd)
+        .def_readwrite("hot_spot", &whiteout::models::wem::LightPayload::hotSpot, R"doc(Spot cone inner angle.)doc")
+        .def_readwrite("falloff", &whiteout::models::wem::LightPayload::falloff, R"doc(Spot cone outer angle.)doc")
+        .def_readwrite("shadow_casting", &whiteout::models::wem::LightPayload::shadowCasting, R"doc(MDX v1300: the light casts shadows, over `shadowCastingStart` .. `shadowCastingEnd` from it — its shadow cube's near and far.)doc")
+        .def_readwrite("shadow_casting_start", &whiteout::models::wem::LightPayload::shadowCastingStart)
+        .def_readwrite("shadow_casting_end", &whiteout::models::wem::LightPayload::shadowCastingEnd)
+        .def_readwrite("quadratic_falloff", &whiteout::models::wem::LightPayload::quadraticFalloff, R"doc(MDX v1600: the distance falloff, a factor of `exp(-damping d²) / (1 + linearFalloff d + quadraticFalloff d²)` — unrelated to the spot cone's `falloff`.)doc")
+        .def_readwrite("linear_falloff", &whiteout::models::wem::LightPayload::linearFalloff)
+        .def_readwrite("damping", &whiteout::models::wem::LightPayload::damping)
+        .def_readwrite("sc2", &whiteout::models::wem::LightPayload::sc2, R"doc(The `LITE` a StarCraft II light was read from, whole: what the fields above do not say -- its LOD cuts, specular colour and multiplier, range and every AnimRef's own header. An export starts from it and writes the fields above over it. `NODE` v22.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::CameraPayload>(m, "CameraPayload")
+        .def(py::init<>())
+        .def_readwrite("fov", &whiteout::models::wem::CameraPayload::fov)
+        .def_readwrite("near_clip", &whiteout::models::wem::CameraPayload::nearClip)
+        .def_readwrite("far_clip", &whiteout::models::wem::CameraPayload::farClip)
+        .def_readwrite("target", &whiteout::models::wem::CameraPayload::target, R"doc(Where the camera looks, in model space. MDX and M2 store one; M3 and glTF aim a camera by its node's orientation instead, and leave this at the origin — which is also what a v3 `NODE` reads as. `Channel::Target` keys offset it, as `Translation` keys offset the node.)doc")
+        .def_readwrite("focus_distance", &whiteout::models::wem::CameraPayload::focusDistance, R"doc(Warcraft III 3.0's depth of field; 0 is unset. The game blurs only where all three have a value (`AnimateCamera`), and MDX stores no rests for them, only the IDUF/ELAF/PTSF keys.)doc")
+        .def_readwrite("focal_length", &whiteout::models::wem::CameraPayload::focalLength, R"doc(Millimetres.)doc")
+        .def_readwrite("f_stop", &whiteout::models::wem::CameraPayload::fStop)
+        .def_readwrite("sc2", &whiteout::models::wem::CameraPayload::sc2, R"doc(The `CAM_` a StarCraft II camera was read from, whole: its vertical FOV, depth of field, shadow clip, focus and bokeh. An export starts from it and writes the fields above over it. `NODE` v22.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::Wc3FaceFxPayload>(m, "Wc3FaceFxPayload", R"doc(`FAFX`: the FaceFX actor Warcraft III 3.0 plays on the model.
+
+In the file it is a model-level entry — a name and the actor's path, with no transform and no object id. It is a node here so that it is made, named, removed and masked by profile the way everything else a model carries is; where it stands means nothing to the game, as a camera's parent does not. The entry's name is the node's (every shipped one is "Node"), and the game opens the first entry alone (`ProcessFacialAnimation`): the first such node in tree order.)doc")
+        .def(py::init<>())
+        .def_readwrite("actor", &whiteout::models::wem::Wc3FaceFxPayload::actor, R"doc(The actor, by path as the `.mdx` stores it — a `.facefx`.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::ParticlePayload>(m, "ParticlePayload")
+        .def(py::init<>())
+        .def_readwrite("system", &whiteout::models::wem::ParticlePayload::system, R"doc(WHAT runs here, never how (§18).)doc")
+    ;
+
+    py::class_<whiteout::models::wem::RibbonPayload>(m, "RibbonPayload")
+        .def(py::init<>())
+        .def_readwrite("system", &whiteout::models::wem::RibbonPayload::system)
+    ;
+
+    py::class_<whiteout::models::wem::EventPayload>(m, "EventPayload")
+        .def(py::init<>())
+        .def_readwrite("id", &whiteout::models::wem::EventPayload::id, R"doc(World of Warcraft's event identifier. From a Warcraft III file, the global sequence it named, as read: the one written is the global loop the event's times are keyed in.)doc")
+        .def_readwrite("category", &whiteout::models::wem::EventPayload::category, R"doc(What the event does and which row of that table it names (`NODE` v19), so the node's name is free to say what the event is FOR. With `None` the name is the whole event, as an imported object's was before v19.)doc")
+        .def_readwrite("code", &whiteout::models::wem::EventPayload::code)
+    ;
+
+    py::class_<whiteout::models::wem::EventName>(m, "EventName", R"doc(A Warcraft III event object's name, read: `SNDxAHEA` is `Sound`, `AHEA`. `None` and no code for a name the game does nothing with.)doc")
+        .def(py::init<>())
+        .def_readwrite("category", &whiteout::models::wem::EventName::category)
+        .def_readwrite("code", &whiteout::models::wem::EventName::code)
+    ;
+
+    py::class_<whiteout::models::wem::CollisionShapeDesc>(m, "CollisionShapeDesc")
+        .def(py::init<>())
+        .def_readwrite("kind", &whiteout::models::wem::CollisionShapeDesc::kind)
+        .def_readwrite("box", &whiteout::models::wem::CollisionShapeDesc::box)
+        .def_readwrite("sphere", &whiteout::models::wem::CollisionShapeDesc::sphere)
+        .def_readwrite("height", &whiteout::models::wem::CollisionShapeDesc::height, R"doc(Capsule / cylinder length along the shape's local axis.)doc")
+        .def_readwrite("hit_test", &whiteout::models::wem::CollisionShapeDesc::hitTest, R"doc(StarCraft II's role for the shape, and the `SSGS` it was read from, whole, in StarCraft II's basis. `NODE` v22.)doc")
+        .def_readwrite("sc2", &whiteout::models::wem::CollisionShapeDesc::sc2)
+    ;
+
+    py::class_<whiteout::models::wem::ProjectorPayload>(m, "ProjectorPayload", R"doc(An `.m3` projector (`PROJ`): a splat or a decal cast from the node.
+
+The record is kept whole, in StarCraft II's basis -- its projection, box, fade and lifetime, and every AnimRef's own header; the export writes it on the bone it rides and names the material slot below. `NODE` v22.)doc")
+        .def(py::init<>())
+        .def_readwrite("material_slot", &whiteout::models::wem::ProjectorPayload::materialSlot, R"doc(-> `Model::materialSlots`.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::CollisionPayload>(m, "CollisionPayload")
+        .def(py::init<>())
+        .def_readwrite("shape", &whiteout::models::wem::CollisionPayload::shape)
+    ;
+
+    py::class_<whiteout::models::wem::Sc2Billboard>(m, "Sc2Billboard", R"doc(StarCraft II's billboard on a bone: its `BBSC` record (EDIT_MODE_SC2_PROFILE_PLAN.md P2).
+
+The node flags are the shared part, and every profile reads them; this is what only StarCraft II and Heroes spell. Where both exist, `type` is the authority and the flags follow it (`Sc2BillboardFlags`). The pre-rotations are in StarCraft II's bone frame, as read: nothing but a `BBSC` reads them.)doc")
+        .def(py::init<>())
+        .def_readwrite("type", &whiteout::models::wem::Sc2Billboard::type, R"doc(`m3::BillboardType`: which axes may turn.)doc")
+        .def_readwrite("camera_look_at", &whiteout::models::wem::Sc2Billboard::cameraLookAt, R"doc(Aim at the eye; false aims along the view.)doc")
+        .def_readwrite("up", &whiteout::models::wem::Sc2Billboard::up, R"doc(The pre-rotation types 0-2 apply.)doc")
+        .def_readwrite("forward", &whiteout::models::wem::Sc2Billboard::forward, R"doc(The one type 6 applies under a parent bone.)doc")
+        .def_readwrite("dependents", &whiteout::models::wem::Sc2Billboard::dependents, R"doc(As read; empty in every shipped record.)doc")
+        .def_readwrite("place", &whiteout::models::wem::Sc2Billboard::place, R"doc(Where the file listed it among its `BBSC`s; -1 for one made here.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::Node>(m, "Node")
+        .def(py::init<>())
+        .def_readwrite("name", &whiteout::models::wem::Node::name)
+        .def_readwrite("parent", &whiteout::models::wem::Node::parent, R"doc(Index into `NodeTree::nodes`; invalid = a root.)doc")
+        .def_readwrite("kind", &whiteout::models::wem::Node::kind)
+        .def_readwrite("flags", &whiteout::models::wem::Node::flags)
+        .def_readwrite("pivot", &whiteout::models::wem::Node::pivot, R"doc(MDX `PIVT`; zero for the other three formats — a D3 `PRSTransform` is complete with no separate pivot.)doc")
+        .def_readwrite("local", &whiteout::models::wem::Node::local, R"doc(Bind-time local TRS.)doc")
+        .def_readwrite("uniform_scale_only", &whiteout::models::wem::Node::uniformScaleOnly, R"doc(D3 stores ONE scale float per bone; export asserts on this rather than silently writing the x component of a non-uniform scale.)doc")
+        .def_readwrite("poses", &whiteout::models::wem::Node::poses, R"doc(Values for `NodeTree::poseSchema` — sized to it for Bone nodes, empty for kinds that carry none (§10.5).)doc")
+        .def_readwrite("native", &whiteout::models::wem::Node::native)
+        .def_readwrite("profiles", &whiteout::models::wem::Node::profiles, R"doc(Which profiles hold this node (§6), as `MeshSection::profiles` says which draw a section. A profile outside it writes the node as a helper when a node under it is inside, and not at all otherwise (`NodePresenceIn`). Every profile on a `NODE` written before v16.)doc")
+        .def_readwrite("sc2_billboards", &whiteout::models::wem::Node::sc2Billboards, R"doc(StarCraft II's billboard, when a `BBSC` names the node's bone: one, or on a few shipped bones several, the first the node's. `NODE` v22; none on an older chunk.)doc")
+        .def_readwrite("sc2_shadow_box", &whiteout::models::wem::Node::sc2ShadowBox, R"doc(StarCraft II's shadow box (`SHBX`), when one rides the node's bone: the record as read, its length, width and height animatable. `NODE` v22.)doc")
+        .def_readwrite("removed", &whiteout::models::wem::Node::removed, R"doc(Transient removal marker (§10.6).
+
+`RemoveNode` marks; `CompactNodes` collects. It lives on the node rather than in a parallel status array for the same reason the poses do: removing or copying a node has to move everything that is about it. Never serialized — a written document is always compacted first.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::PoseSchema>(m, "PoseSchema")
+        .def(py::init<>())
+        .def_readwrite("name", &whiteout::models::wem::PoseSchema::name, R"doc("bind", "bindA", "bindAInverse", …)doc")
+        .def_readwrite("space", &whiteout::models::wem::PoseSchema::space)
+        .def_readwrite("inverse", &whiteout::models::wem::PoseSchema::inverse)
+        .def_readwrite("storage", &whiteout::models::wem::PoseSchema::storage)
+    ;
+
+    py::class_<whiteout::models::wem::NodeTree>(m, "NodeTree")
+        .def(py::init<>())
+        .def_readwrite("nodes", &whiteout::models::wem::NodeTree::nodes, R"doc(Parents precede children.)doc")
+        .def_readwrite("pose_schema", &whiteout::models::wem::NodeTree::poseSchema)
+        .def_readwrite("authoritative_pose", &whiteout::models::wem::NodeTree::authoritativePose, R"doc(Which schema entry a profile treats as *the* bind pose.)doc")
+        .def_readwrite("rig", &whiteout::models::wem::NodeTree::rig, R"doc(What convention the values above are in — the fact that decides whether a `.mdx` exporter may write `pivot` and an `.m3` one may write `IREF` straight through.
+
+Set by every importer, read by `RetargetSkeleton` and by the four exporters. It is a property of what the tree *holds*, and `ProfileDesc::rig` is the property of what a format *wants*; a retarget is the operation between them.)doc")
+        .def("size", &whiteout::models::wem::NodeTree::size)
+        .def("empty", &whiteout::models::wem::NodeTree::empty)
+        .def("add", &whiteout::models::wem::NodeTree::add, py::arg("node"), R"doc(Appends a node and returns its index. The caller is responsible for the parents-precede-children invariant; `Validate` checks it.)doc")
+        .def("clear", &whiteout::models::wem::NodeTree::clear)
+        .def("parents_precede_children", &whiteout::models::wem::NodeTree::parentsPrecedeChildren, R"doc(True when every node's parent index precedes it (or is invalid).)doc")
+        .def("sort_parents_first", &whiteout::models::wem::NodeTree::sortParentsFirst, R"doc(Reorders `nodes` so parents precede children and returns the remap (`remap[old] == new`). A cycle leaves the tree untouched and returns an empty remap.)doc")
+        .def("ensure_hierarchy", &whiteout::models::wem::NodeTree::ensureHierarchy, R"doc(Builds the child lists and the depth-first pre-order from `parent`.
+
+Children come out in index order, so the build is deterministic and golden tests can compare traversal orders. Dropped by any structural mutation.
+
+The pre-order is stored as one flat array with a per-node (offset, size), the Euler-tour layout: that makes `subtree()` a contiguous slice rather than a walk, so it can be a real range and two callers can hold two subtree ranges at once.)doc")
+        .def("invalidate_hierarchy", &whiteout::models::wem::NodeTree::invalidateHierarchy)
+        .def("has_hierarchy", &whiteout::models::wem::NodeTree::hasHierarchy)
+        .def("depth", &whiteout::models::wem::NodeTree::depth, py::arg("node"))
+        .def("world_bind", &whiteout::models::wem::NodeTree::worldBind, py::arg("node"), R"doc(Composes locals up the chain, honouring the inherit flags.
+
+The same composition D3's `Skeleton_ComposeWorldPose` performs. A node flagged `ModelSpace` stops the walk: its local *is* its world.)doc")
+        .def("pose_of", &whiteout::models::wem::NodeTree::poseOf, py::arg("node"), py::arg("pose"), R"doc(The pose value for @p node under schema entry @p pose, or its `local` (composed to the schema's space) when the node carries no pose array.
+
+A `PoseStorage::Matrix` entry answers with the *decomposition* of the stored matrix, which is what `poses` holds — use @ref poseMatrixOf when the exact value is what matters.)doc")
+        .def("pose_matrix_of", &whiteout::models::wem::NodeTree::poseMatrixOf, py::arg("node"), py::arg("pose"), R"doc(The same value as a matrix, and the authoritative one: a `PoseStorage::Matrix` entry with a stored matrix answers with it unchanged, and everything else composes @ref poseOf.)doc")
+        .def("conform_poses", &whiteout::models::wem::NodeTree::conformPoses, R"doc(Resizes every node's `poses` to `poseSchema.size()`, filling new entries from `worldBind`/`local` as the schema's space asks. Every kind, because a pose entry need not be a bind: MDX's `BPOS` is one and it is indexed by `objectId`, which numbers attachments, events and collision shapes too.)doc")
+        .def("inverse_bind_matrix", &whiteout::models::wem::NodeTree::inverseBindMatrix, py::arg("node"), R"doc(The matrix a skinning palette multiplies @p node's animated frame by — `skin = inverseBindMatrix(b) * world(b)`.
+
+The one question every exporter and every evaluator actually has, and the only place `rig` needs to be read to answer it: an `ExplicitBind` tree answers with the shipped `IREF`/`tTransform4`, and a `PivotRelative` one with the inverse of the composed rest chain — identity in the animation's own terms, but the pivot chain is what `local` holds there, so the inverse of `worldBind` is what makes the two agree at the bind pose.)doc")
+        .def("inferred_rig", &whiteout::models::wem::NodeTree::inferredRig, R"doc(The convention `poseSchema` implies, for a tree that never recorded one: an inverse or matrix pose entry exists only to carry an explicit bind.)doc")
+        .def("bind_frame_entry", &whiteout::models::wem::NodeTree::bindFrameEntry, R"doc(Which schema entry is the bind frame row (`kBindFrameRow`), or `kInvalidIndex` when the tree carries none.)doc")
+        .def("bind_frame", &whiteout::models::wem::NodeTree::bindFrame, py::arg("node"), R"doc(@p node's bind frame: the axes its joint is oriented to, standing at its rest (EDIT_MODE_BIND_ORIENTATION_DESIGN.md §4).
+
+On a pivot rig, the row's 3x3 as stored (a uniform scale kept) at the pivot, and the identity at the pivot where the node has no value; on an explicit bind, `worldBind`, whose rotation the rest already holds.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::MaterialChannelRef>(m, "MaterialChannelRef", R"doc(Which material a channel drives, along the profile and look axes.
+
+A material *index* alone is ambiguous the moment a model carries several sets (§6.3) and several looks (§8), so the reference is spelled the way `Resolve` is: profile, slot, look. It is deliberately not the resolved index — a look removal renumbers those, and a slot name does not.)doc")
+        .def(py::init<>())
+        .def_readwrite("profile", &whiteout::models::wem::MaterialChannelRef::profile)
+        .def_readwrite("slot", &whiteout::models::wem::MaterialChannelRef::slot, R"doc(-> `Model::materialSlots`.)doc")
+        .def_readwrite("look", &whiteout::models::wem::MaterialChannelRef::look, R"doc(-> the set's `LookTable`.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::TrackTarget>(m, "TrackTarget")
+        .def(py::init<>())
+        .def_readwrite("node", &whiteout::models::wem::TrackTarget::node, R"doc(`Kind::Node`: -> `Model::nodes`.)doc")
+        .def_readwrite("mesh", &whiteout::models::wem::TrackTarget::mesh, R"doc(`Kind::Section`: -> `Model::meshes`.)doc")
+        .def_readwrite("material", &whiteout::models::wem::TrackTarget::material)
+        .def_readwrite("sub", &whiteout::models::wem::TrackTarget::sub, R"doc(What `kind` says it is. For a node it separates same-named properties of one node — an `.m2` light keys an ambient colour beside its diffuse one — and is 0 for everything with only one.)doc")
+        .def_readwrite("channel", &whiteout::models::wem::TrackTarget::channel)
+    ;
+
+    py::class_<whiteout::models::wem::AnimChannel>(m, "AnimChannel", R"doc(One animatable property, declared once. M3's AnimRef, hoisted out of the owner structs into a per-model table.)doc")
+        .def(py::init<>())
+        .def_readwrite("id", &whiteout::models::wem::AnimChannel::id, R"doc(The join key, stable for the model's life and **never reused**. M3's animId arrives here unchanged, which is what makes an `.m3a` merge a concatenation rather than a re-resolution; the other three importers allocate ids and the value is theirs to choose.)doc")
+        .def_readwrite("target", &whiteout::models::wem::AnimChannel::target)
+        .def_readwrite("init_value", &whiteout::models::wem::AnimChannel::initValue, R"doc(One element of `valueType`, or empty. What an **opaque** container contributes for this channel when it holds no sub-track for it — the asymmetry M3's split-body playback is built on (§10.8.1). Empty means the source declared no rest value, not "zero".)doc")
+    ;
+
+    py::class_<whiteout::models::wem::AnimChannelTable>(m, "AnimChannelTable", R"doc(The animatable properties of one model (§10.8).
+
+Empty is a normal state — a model with no animation carries no channels.)doc")
+        .def(py::init<>())
+        .def_readwrite("channels", &whiteout::models::wem::AnimChannelTable::channels)
+    ;
+
+    py::class_<whiteout::models::wem::TrackSet>(m, "TrackSet", R"doc(A named group of channels a clip can play on its own layer — the StarCraft II Art Tools' "track set", the source of split-body animation.
+
+Only the grouping lives here. Which clips play a set, and at what priority, is each clip's `Clip::trackSets`; the containers themselves are made at export (`LayeredContainers`), so a clip's edited tracks stay in one place.)doc")
+        .def(py::init<>())
+        .def_readwrite("name", &whiteout::models::wem::TrackSet::name)
+        .def_readwrite("channels", &whiteout::models::wem::TrackSet::channels, R"doc(`AnimChannel::id`s. A stale id is ignored, not an error.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::SubTrack>(m, "SubTrack", R"doc(One channel's keyframe stream. M3's SD entry.
+
+`times` are **seconds**, converted at import from whatever ticks the source counts in, and are **not clamped or padded to `Clip::duration`**: M3 wraps the playhead modulo the *track's* own length, so a sub-track outlasting or undershooting its clip is data, not an error (§10.8.2).)doc")
+        .def(py::init<>())
+        .def_readwrite("channel", &whiteout::models::wem::SubTrack::channel, R"doc(An `AnimChannel::id`, never an index into the table.)doc")
+        .def_readwrite("interp", &whiteout::models::wem::SubTrack::interp)
+        .def_readwrite("times", &whiteout::models::wem::SubTrack::times)
+        .def_readwrite("values", &whiteout::models::wem::SubTrack::values, R"doc(`times.size() * ValuesPerKey(interp) * AttrTypeSize(channel's valueType)` bytes. The type is on the channel because every sub-track that drives one must agree about it, and storing it here would let two disagree.)doc")
+        .def_readwrite("tcb", &whiteout::models::wem::SubTrack::tcb, R"doc(TCB parameters, three per key (tension, continuity, bias), or empty. Only meaningful on a `Hermite` sub-track: the tangents in `values` are the ones these produce, so a consumer that ignores this field plays the same curve. An editor keeps them to derive the tangents again when a key changes; a format without TCB drops them and keeps the curve.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::SubTrackContainer>(m, "SubTrackContainer", R"doc(One layer of a clip. M3's STC_.
+
+`concurrent` is the asymmetry: a **transparent** container (true) holding no sub-track for a channel is skipped and lower layers show through; an **opaque** one contributes the channel's `initValue` at full weight, forcing un-keyed channels back to rest. Every non-M3 importer writes one opaque container at priority 0, which is the degenerate case of the same rule.)doc")
+        .def(py::init<>())
+        .def_readwrite("name", &whiteout::models::wem::SubTrackContainer::name)
+        .def_readwrite("priority", &whiteout::models::wem::SubTrackContainer::priority, R"doc(STC `animPriority`.)doc")
+        .def_readwrite("concurrent", &whiteout::models::wem::SubTrackContainer::concurrent, R"doc(STC `runsConcurrent`.)doc")
+        .def_readwrite("sub_tracks", &whiteout::models::wem::SubTrackContainer::subTracks)
+        .def_readwrite("native", &whiteout::models::wem::SubTrackContainer::native)
+    ;
+
+    py::class_<whiteout::models::wem::ClipEvent>(m, "ClipEvent", R"doc(A discrete key firing at a node — the node is the *where*, the key is the *when*.
+
+MDX's `EventObject` plus its KEVT timestamps, M3's SDEV keys, D3's `flEventFrame`. What the event *means* is the host's: WEM carries the name and one integer because that is all three formats agree on.
+
+The node's **kind is not fixed**: MDX and `.m2` name a dedicated `Event` node, `.m3` names the bone the SDEV key sits on, and D3 names the attachment its hardpoint resolves to. All three are the place the event happens.)doc")
+        .def(py::init<>())
+        .def_readwrite("time", &whiteout::models::wem::ClipEvent::time, R"doc(Seconds from the clip's start.)doc")
+        .def_readwrite("node", &whiteout::models::wem::ClipEvent::node, R"doc(The node it fires at, of any kind; a §10.6 referencer.)doc")
+        .def_readwrite("name", &whiteout::models::wem::ClipEvent::name)
+        .def_readwrite("value", &whiteout::models::wem::ClipEvent::value)
+        .def_readwrite("option", &whiteout::models::wem::ClipEvent::option, R"doc(`optionString`.)doc")
+        .def_readwrite("extra", &whiteout::models::wem::ClipEvent::extra, R"doc(`extraParameter`.)doc")
+        .def_readwrite("unknown", &whiteout::models::wem::ClipEvent::unknown, R"doc(As read; -1 on every shipped key.)doc")
+        .def_readwrite("rtt", &whiteout::models::wem::ClipEvent::rtt, R"doc(`rttChannelIndex`.)doc")
+        .def_readwrite("native", &whiteout::models::wem::ClipEvent::native, R"doc(What a format plays the event by beside the above, format-prefixed (`CLEV` v3): a Diablo III trigger's delay, its stop key, its driver.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::ClipTrackSet>(m, "ClipTrackSet", R"doc(One of the model's `TrackSet`s this clip plays on a layer of its own.
+
+Every clip also plays the "default" set — whatever no listed set claims — in its own containers, at their priority.)doc")
+        .def(py::init<>())
+        .def_readwrite("set", &whiteout::models::wem::ClipTrackSet::set, R"doc(-> the clip's `Model::trackSets`.)doc")
+        .def_readwrite("priority", &whiteout::models::wem::ClipTrackSet::priority, R"doc(The layer's STC `animPriority`.)doc")
+        .def_readwrite("concurrent", &whiteout::models::wem::ClipTrackSet::concurrent, R"doc(The layer's STC `runsConcurrent`: transparent, so a channel it does not key falls through to the layers under it. Opacity is per container, and a container is a use. CTSU v2; a v1 use reads as transparent.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::BakeWorldForce>(m, "BakeWorldForce", R"doc(A wind or a blast of one clip's bake (§4.7). Never exported: the bake writes what it does into keys.)doc")
+        .def(py::init<>())
+        .def_readwrite("start", &whiteout::models::wem::BakeWorldForce::start, R"doc(Seconds; a blast's moment.)doc")
+        .def_readwrite("end", &whiteout::models::wem::BakeWorldForce::end, R"doc(Seconds; a wind's end.)doc")
+        .def_readwrite("ramp_in", &whiteout::models::wem::BakeWorldForce::rampIn)
+        .def_readwrite("ramp_out", &whiteout::models::wem::BakeWorldForce::rampOut)
+        .def_readwrite("strength", &whiteout::models::wem::BakeWorldForce::strength, R"doc(In g.)doc")
+        .def_readwrite("heading", &whiteout::models::wem::BakeWorldForce::heading, R"doc(Wind: degrees about +Z from +X.)doc")
+        .def_readwrite("rise", &whiteout::models::wem::BakeWorldForce::rise, R"doc(Wind: degrees up from level.)doc")
+        .def_readwrite("gusts", &whiteout::models::wem::BakeWorldForce::gusts, R"doc(Wind: the gusts' share of its strength.)doc")
+        .def_readwrite("gust_speed", &whiteout::models::wem::BakeWorldForce::gustSpeed, R"doc(Wind: gusts a second.)doc")
+        .def_readwrite("radius", &whiteout::models::wem::BakeWorldForce::radius, R"doc(Blast: model heights.)doc")
+        .def_readwrite("height", &whiteout::models::wem::BakeWorldForce::height, R"doc(Blast: how high over the model's feet it goes off, model heights.)doc")
+        .def_readwrite("centre_node", &whiteout::models::wem::BakeWorldForce::centreNode, R"doc(Blast: where it goes off; the model's middle when invalid. A node referencer.)doc")
+        .def_readwrite("channels", &whiteout::models::wem::BakeWorldForce::channels, R"doc(The World channels it pushes on: Wind (1 << 16) or Explosion (1 << 17) by kind, never none.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::PhysicsBake>(m, "PhysicsBake", R"doc(What a bake replaced and wrote, so it can be redone and undone (§8.4).)doc")
+        .def(py::init<>())
+        .def_readwrite("source", &whiteout::models::wem::PhysicsBake::source, R"doc(Per container of the clip, the sub-tracks the bake replaced or cleared, as they were (a TCB track in its TCB form); and each one's place in its container, container by container, so an Unbake puts it back there.)doc")
+        .def_readwrite("positions", &whiteout::models::wem::PhysicsBake::positions)
+        .def_readwrite("channels", &whiteout::models::wem::PhysicsBake::channels, R"doc(The channels the bake wrote; and those a bake declared that it keeps, its own before a Rebake and any it keyed again, which an Unbake drops where nothing keys them.)doc")
+        .def_readwrite("appended", &whiteout::models::wem::PhysicsBake::appended)
+        .def_readwrite("inputs", &whiteout::models::wem::PhysicsBake::inputs, R"doc(What went in, to tell a clip out of date; and what came out, to tell baked keys edited since.)doc")
+        .def_readwrite("written", &whiteout::models::wem::PhysicsBake::written)
+        .def_readwrite("nodes", &whiteout::models::wem::PhysicsBake::nodes, R"doc(Nodes written.)doc")
+        .def_readwrite("keys", &whiteout::models::wem::PhysicsBake::keys, R"doc(Keys written.)doc")
+        .def_readwrite("restated", &whiteout::models::wem::PhysicsBake::restated, R"doc(TCB tracks restated as Hermite.)doc")
+        .def_readwrite("max_error", &whiteout::models::wem::PhysicsBake::maxError, R"doc(Against a key every step, model units.)doc")
+        .def_readwrite("seam_before", &whiteout::models::wem::PhysicsBake::seamBefore, R"doc(Degrees, the worst node's, before matching.)doc")
+        .def_readwrite("seam_after", &whiteout::models::wem::PhysicsBake::seamAfter)
+        .def_readwrite("settling", &whiteout::models::wem::PhysicsBake::settling, R"doc(After each preheat loop, the largest change from the loop before, in degrees (§7.5).)doc")
+        .def_readwrite("cloth_ids", &whiteout::models::wem::PhysicsBake::clothIds, R"doc(Each cloth the bake carried (EDIT_MODE_PHYSICS_CLOTH_DESIGN.md §10.2): its id, how far its bones missed it (0 in full detail), and its size.)doc")
+        .def_readwrite("cloth_fits", &whiteout::models::wem::PhysicsBake::clothFits)
+        .def_readwrite("cloth_sizes", &whiteout::models::wem::PhysicsBake::clothSizes)
+        .def_readwrite("soft_ids", &whiteout::models::wem::PhysicsBake::softIds, R"doc(Each soft body the bake carried (EDIT_MODE_SOFTBODY_DESIGN.md §11.2): its id, how many of its lumps got keys and how many keys, how far its points are from where a key every step had them (model units), and *follows within* over the clip (§6.6): the mean miss over the largest move. (The worst point's, in a file baked before the mean was what is said.))doc")
+        .def_readwrite("soft_lumps", &whiteout::models::wem::PhysicsBake::softLumps)
+        .def_readwrite("soft_keys", &whiteout::models::wem::PhysicsBake::softKeys)
+        .def_readwrite("soft_within", &whiteout::models::wem::PhysicsBake::softWithin)
+        .def_readwrite("soft_follows", &whiteout::models::wem::PhysicsBake::softFollows)
+        .def_readwrite("soft_push", &whiteout::models::wem::PhysicsBake::softPush, R"doc(Where a Jiggle acted: the farthest its push would have swung the body, over its *Limit*, before the ceiling (over 1, it was limited); and for a clip played once, how much of a swing it ends with. 0 where none acted.)doc")
+        .def_readwrite("soft_at_end", &whiteout::models::wem::PhysicsBake::softAtEnd)
+        .def_readwrite("soft_channels", &whiteout::models::wem::PhysicsBake::softChannels, R"doc(The node channels the soft bodies keyed in place, for their bones used as they are: what `source` holds of them is the pose the soft bodies were stepped on (`SoftSourcePose`).)doc")
+        .def_readwrite("soft_source", &whiteout::models::wem::PhysicsBake::softSource, R"doc(For one of those that a rigid body's bake had keyed first: the keys it left, which the soft bodies were stepped on and wrote over. `source` holds what the clip had before either.)doc")
+        .def_readwrite("made_settings", &whiteout::models::wem::PhysicsBake::madeSettings, R"doc(The bake added the clip's settings to hold this record: the clip was not set up (`IsSetUp`), and an Unbake leaves it so.)doc")
+        .def_readwrite("stretch_channels", &whiteout::models::wem::PhysicsBake::stretchChannels, R"doc(Where the bake keyed a node's own channels and a stage's weight (§8.4): for each of `stretchChannels`, `stretchCounts` stretches of the clip, each three of `stretchTimes`: where its keys begin, where the simulation takes over, where they end. A key outside them is the clip's own animation, which a Rebake and an Unbake keep as it stands. `stretchOutside` is each channel's such keys as the bake left them, hashed (0 for a channel listed with no stretch: its keys were taken away, and the track is the clip's own), and `stretchInside` what it wrote, hashed: 0 in a record made before the stretches were kept.)doc")
+        .def_readwrite("stretch_counts", &whiteout::models::wem::PhysicsBake::stretchCounts)
+        .def_readwrite("stretch_times", &whiteout::models::wem::PhysicsBake::stretchTimes)
+        .def_readwrite("stretch_outside", &whiteout::models::wem::PhysicsBake::stretchOutside)
+        .def_readwrite("stretch_inside", &whiteout::models::wem::PhysicsBake::stretchInside)
+    ;
+
+    py::class_<whiteout::models::wem::ClipPhysics>(m, "ClipPhysics", R"doc(One clip's bake settings (§9.2): a clip is *set up* once it has them.)doc")
+        .def(py::init<>())
+        .def_readwrite("plays", &whiteout::models::wem::ClipPhysics::plays)
+        .def_readwrite("comes_from", &whiteout::models::wem::ClipPhysics::comesFrom)
+        .def_readwrite("comes_from_clip", &whiteout::models::wem::ClipPhysics::comesFromClip, R"doc(`BakeFrom::Clip`: by name, as the games name sequences.)doc")
+        .def_readwrite("preheat", &whiteout::models::wem::ClipPhysics::preheat, R"doc(Loops run before frame 0, 0-20.)doc")
+        .def_readwrite("goes_to", &whiteout::models::wem::ClipPhysics::goesTo)
+        .def_readwrite("goes_to_clip", &whiteout::models::wem::ClipPhysics::goesToClip)
+        .def_readwrite("match", &whiteout::models::wem::ClipPhysics::match)
+        .def_readwrite("where", &whiteout::models::wem::ClipPhysics::where)
+        .def_readwrite("window", &whiteout::models::wem::ClipPhysics::window, R"doc(The match's width, a share of the clip.)doc")
+        .def_readwrite("ease", &whiteout::models::wem::ClipPhysics::ease)
+        .def_readwrite("curve", &whiteout::models::wem::ClipPhysics::curve, R"doc(`MatchEase::Custom`: 0 -> 1, both ends pinned.)doc")
+        .def_readwrite("tolerance", &whiteout::models::wem::ClipPhysics::tolerance, R"doc(The visible error the keys may leave, a share of the model's height; 0 keeps a key every step (§8.3).)doc")
+        .def_readwrite("mesh_measure", &whiteout::models::wem::ClipPhysics::meshMeasure)
+        .def_readwrite("key_rate", &whiteout::models::wem::ClipPhysics::keyRate, R"doc(Keys a second at most, with no reduction.)doc")
+        .def_readwrite("step_rate", &whiteout::models::wem::ClipPhysics::stepRate, R"doc(Simulation steps a second: 60, 120 or 240.)doc")
+        .def_readwrite("floor", &whiteout::models::wem::ClipPhysics::floor)
+        .def_readwrite("travel", &whiteout::models::wem::ClipPhysics::travel, R"doc(Carried forward at the clip's move speed (§4.8).)doc")
+        .def_readwrite("world", &whiteout::models::wem::ClipPhysics::world)
+        .def_readwrite("baked", &whiteout::models::wem::ClipPhysics::baked)
+    ;
+
+    py::class_<whiteout::models::wem::Clip>(m, "Clip", R"doc(One playable animation. M3's SEQS plus its STG_.
+
+`model` exists because a document holds several models (§9.1) and a channel id is only meaningful within one model's table — a clip that did not say whose nodes its sub-tracks name would be ambiguous the moment a D3 actor brought a second model along on a hardpoint.)doc")
+        .def(py::init<>())
+        .def_readwrite("name", &whiteout::models::wem::Clip::name)
+        .def_readwrite("model", &whiteout::models::wem::Clip::model, R"doc(-> `Document::models[]`. Whose channel table this drives.)doc")
+        .def_readwrite("duration", &whiteout::models::wem::Clip::duration, R"doc(Seconds.)doc")
+        .def_readwrite("looping", &whiteout::models::wem::Clip::looping)
+        .def_readwrite("flags", &whiteout::models::wem::Clip::flags)
+        .def_readwrite("containers", &whiteout::models::wem::Clip::containers, R"doc(>= 1; one is the common case.)doc")
+        .def_readwrite("events", &whiteout::models::wem::Clip::events)
+        .def_readwrite("native", &whiteout::models::wem::Clip::native)
+        .def_readwrite("bounds", &whiteout::models::wem::Clip::bounds, R"doc(What the model occupies while this clip plays, when the source said so. All zeros when it did not — which `valid()` calls well-formed, so test the extent for volume, not validity.
+
+The one place WEM stores a bound it does not recompute. All four formats ship one per sequence — MDX's `Sequence::extent`, M2's `bounds`, M3's SEQS extents — and it is not derivable from the geometry: it is the union over the *posed* mesh across the clip, so recovering it means evaluating the whole skeleton at a sampling the source never recorded. A host reads it to frame a camera, and a conservative substitute (the model's own bounds) frames every clip as though it were the widest.)doc")
+        .def_readwrite("track_sets", &whiteout::models::wem::Clip::trackSets, R"doc(The track sets this clip plays split out of container 0; see `LayeredContainers`.)doc")
+        .def_readwrite("read_rule", &whiteout::models::wem::Clip::readRule, R"doc(How its tracks are read. A clip written before v4 derives it once, as it is read (`DerivedReadRule`).)doc")
+        .def_readwrite("physics", &whiteout::models::wem::Clip::physics, R"doc(How its physics is simulated and baked into it; none for a clip not set up (EDIT_MODE_PHYSICS_BAKE_DESIGN.md §9.2).)doc")
+    ;
+
+    py::class_<whiteout::models::wem::AnimTag>(m, "AnimTag", R"doc(One (tag -> clip) row. A struct rather than a `std::pair` because a pair has no `reflect()` and naming the halves is worth more than the two lines.)doc")
+        .def(py::init<>())
+        .def_readwrite("tag_id", &whiteout::models::wem::AnimTag::tagId, R"doc(The source's own tag id; D3 hashes a name into it.)doc")
+        .def_readwrite("clip", &whiteout::models::wem::AnimTag::clip, R"doc(-> `Document::clips[]`.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::AnimSet>(m, "AnimSet", R"doc(A named (tag -> clip) map, with a fallback.
+
+D3's `.ans` is the shape this exists for: 30 tag maps in one asset, one core and 29 keyed by what the character is holding, and the runtime falls back to core when the weapon's map has no row for a tag. That is **one `AnimSet` per map**, with `baseAnimSet` pointing at the core one — the fallback field spelling the fallback, rather than a 30-wide struct nothing else could use. `.ans`'s own `snoBaseAnimSet` link is not a set of its own: the import folds the base chain's rows into these maps, in the order the runtime would reach them.)doc")
+        .def(py::init<>())
+        .def_readwrite("name", &whiteout::models::wem::AnimSet::name)
+        .def_readwrite("by_tag", &whiteout::models::wem::AnimSet::byTag)
+        .def_readwrite("base_anim_set", &whiteout::models::wem::AnimSet::baseAnimSet, R"doc(-> `Document::animSets[]`.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::SoftPart>(m, "SoftPart", R"doc(A mesh, or the part of one that draws with a material.)doc")
+        .def(py::init<>())
+        .def_readwrite("mesh", &whiteout::models::wem::SoftPart::mesh)
+        .def_readwrite("material", &whiteout::models::wem::SoftPart::material, R"doc(A material slot; none is the whole mesh.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::SoftPlace>(m, "SoftPlace", R"doc(A place on the region's surface, which rides it: a bulge's middle, a ripple's source.)doc")
+        .def(py::init<>())
+        .def_readwrite("mesh", &whiteout::models::wem::SoftPlace::mesh)
+        .def_readwrite("face", &whiteout::models::wem::SoftPlace::face)
+        .def_readwrite("weights", &whiteout::models::wem::SoftPlace::weights, R"doc(Barycentric, in the face's first triangle.)doc")
+        .def_readwrite("radius", &whiteout::models::wem::SoftPlace::radius, R"doc(Model units; 0 is a point.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::SoftLump>(m, "SoftLump")
+        .def(py::init<>())
+        .def_readwrite("kind", &whiteout::models::wem::SoftLump::kind)
+        .def_readwrite("anchor", &whiteout::models::wem::SoftLump::anchor, R"doc(On the surface, or its bone's pivot, at the bind: what lanes are solved from.)doc")
+        .def_readwrite("rest", &whiteout::models::wem::SoftLump::rest, R"doc(Its pivot, model space, at the bind (§6.1).)doc")
+        .def_readwrite("depth", &whiteout::models::wem::SoftLump::depth, R"doc(Half the body's thickness under it: Blobify's ball.)doc")
+        .def_readwrite("clear", &whiteout::models::wem::SoftLump::clear, R"doc(The space between its points and the things inside, at the bind (§5.4); 0 is none to keep.)doc")
+        .def_readwrite("carrier", &whiteout::models::wem::SoftLump::carrier, R"doc(The bone it hangs from (§6.3). `Bone`: its parent, or none.)doc")
+        .def_readwrite("node", &whiteout::models::wem::SoftLump::node, R"doc(`Bone`: the bone that is the lump. `Copy`: the bone it copies.)doc")
+        .def_readwrite("effect", &whiteout::models::wem::SoftLump::effect, R"doc(The effect whose place claimed it; 0 is none.)doc")
+        .def_readwrite("rider", &whiteout::models::wem::SoftLump::rider, R"doc(The part it carries rigidly: its place in the body's `riders` + 1 (§5.4).)doc")
+        .def_readwrite("swings", &whiteout::models::wem::SoftLump::swings, R"doc(Jiggle moves it (§8.3). A yes or no, never a stiffness.)doc")
+        .def_readwrite("rigid", &whiteout::models::wem::SoftLump::rigid, R"doc(A rigid part's lump: it never scales (§5.4).)doc")
+    ;
+
+    py::class_<whiteout::models::wem::SoftInflate>(m, "SoftInflate", R"doc(§8.1. The Amount is a share of the volume: 0.3 swells by 30 %.)doc")
+        .def(py::init<>())
+        .def_readwrite("along", &whiteout::models::wem::SoftInflate::along)
+        .def_readwrite("toward_place", &whiteout::models::wem::SoftInflate::towardPlace, R"doc(Swells most at the effect's place, fading over its radius.)doc")
+        .def_readwrite("round", &whiteout::models::wem::SoftInflate::round, R"doc(0 keeps the creases; 1 swells toward the body's blob. Along the surface only.)doc")
+        .def_readwrite("keep_volume", &whiteout::models::wem::SoftInflate::keepVolume)
+        .def_readwrite("pulse", &whiteout::models::wem::SoftInflate::pulse)
+        .def_readwrite("rate", &whiteout::models::wem::SoftInflate::rate, R"doc(Beats a second.)doc")
+        .def_readwrite("depth", &whiteout::models::wem::SoftInflate::depth, R"doc(How far the pulse falls back between beats.)doc")
+        .def_readwrite("smooth", &whiteout::models::wem::SoftInflate::smooth, R"doc(Passes that even the normals. Along the surface only.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::SoftBulge>(m, "SoftBulge", R"doc(§8.2. The Amount is the height, a share of the place's radius; negative is a dent.)doc")
+        .def(py::init<>())
+        .def_readwrite("along", &whiteout::models::wem::SoftBulge::along)
+        .def_readwrite("shape", &whiteout::models::wem::SoftBulge::shape)
+        .def_readwrite("keep_volume", &whiteout::models::wem::SoftBulge::keepVolume)
+        .def_readwrite("from", &whiteout::models::wem::SoftBulge::from)
+        .def_readwrite("event", &whiteout::models::wem::SoftBulge::event, R"doc(`Events`: the clip events' name.)doc")
+        .def_readwrite("rise", &whiteout::models::wem::SoftBulge::rise, R"doc(An impact's rise and fall, seconds.)doc")
+        .def_readwrite("fall", &whiteout::models::wem::SoftBulge::fall)
+        .def_readwrite("travels", &whiteout::models::wem::SoftBulge::travels)
+        .def_readwrite("chain", &whiteout::models::wem::SoftBulge::chain, R"doc(`travels`: along these bones, in order; node indices.)doc")
+        .def_readwrite("line", &whiteout::models::wem::SoftBulge::line, R"doc(... or along this line over the surface, model space at the bind.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::SoftJiggle>(m, "SoftJiggle", R"doc(§8.3. One model for the body: none of these is set per lump or per bone.)doc")
+        .def(py::init<>())
+        .def_readwrite("preset", &whiteout::models::wem::SoftJiggle::preset)
+        .def_readwrite("looseness", &whiteout::models::wem::SoftJiggle::looseness, R"doc(The slowest swing's rate, swings a second.)doc")
+        .def_readwrite("bounce", &whiteout::models::wem::SoftJiggle::bounce, R"doc(0 is no overshoot.)doc")
+        .def_readwrite("weight", &whiteout::models::wem::SoftJiggle::weight, R"doc(Gravity's sag.)doc")
+        .def_readwrite("hold_shape", &whiteout::models::wem::SoftJiggle::holdShape, R"doc(How alike neighbouring points move.)doc")
+        .def_readwrite("keep_volume", &whiteout::models::wem::SoftJiggle::keepVolume, R"doc(How stiff the one direction that changes the volume is.)doc")
+        .def_readwrite("limit", &whiteout::models::wem::SoftJiggle::limit, R"doc(The farthest a lump may leave its goal, of the region's size.)doc")
+        .def_readwrite("keep_in_place", &whiteout::models::wem::SoftJiggle::keepInPlace, R"doc(Takes out the swing in which the whole body lags as one.)doc")
+        .def_readwrite("meets_floor", &whiteout::models::wem::SoftJiggle::meetsFloor)
+        .def_readwrite("world_forces", &whiteout::models::wem::SoftJiggle::worldForces, R"doc(The clip's winds and blasts push it.)doc")
+        .def_readwrite("kick_ids", &whiteout::models::wem::SoftJiggle::kickIds)
+        .def_readwrite("kick_mesh", &whiteout::models::wem::SoftJiggle::kickMesh)
+        .def_readwrite("kick_face", &whiteout::models::wem::SoftJiggle::kickFace)
+        .def_readwrite("kick_weights", &whiteout::models::wem::SoftJiggle::kickWeights)
+        .def_readwrite("kick_direction", &whiteout::models::wem::SoftJiggle::kickDirection, R"doc(Model space, unit; none is into the body at its place.)doc")
+        .def_readwrite("kick_strength", &whiteout::models::wem::SoftJiggle::kickStrength, R"doc(In g.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::SoftWobble>(m, "SoftWobble", R"doc(§8.4. The Amount is how far, a share of the region's size.)doc")
+        .def(py::init<>())
+        .def_readwrite("pattern", &whiteout::models::wem::SoftWobble::pattern)
+        .def_readwrite("speed", &whiteout::models::wem::SoftWobble::speed, R"doc(Swings a second.)doc")
+        .def_readwrite("size", &whiteout::models::wem::SoftWobble::size, R"doc(Roll's wavelength, in regions.)doc")
+        .def_readwrite("overlap", &whiteout::models::wem::SoftWobble::overlap, R"doc(The far end trails the near end.)doc")
+        .def_readwrite("axis", &whiteout::models::wem::SoftWobble::axis)
+        .def_readwrite("axis_bone", &whiteout::models::wem::SoftWobble::axisBone)
+        .def_readwrite("keep_volume", &whiteout::models::wem::SoftWobble::keepVolume)
+    ;
+
+    py::class_<whiteout::models::wem::SoftBlobify>(m, "SoftBlobify", R"doc(§8.5. The Amount runs from the model (0) to its blob (1).)doc")
+        .def(py::init<>())
+        .def_readwrite("roundness", &whiteout::models::wem::SoftBlobify::roundness, R"doc(How far the balls reach.)doc")
+        .def_readwrite("swell", &whiteout::models::wem::SoftBlobify::swell, R"doc(A little more volume.)doc")
+        .def_readwrite("keep_volume", &whiteout::models::wem::SoftBlobify::keepVolume)
+    ;
+
+    py::class_<whiteout::models::wem::SoftDrip>(m, "SoftDrip", R"doc(§8.6.)doc")
+        .def(py::init<>())
+        .def_readwrite("preset", &whiteout::models::wem::SoftDrip::preset)
+        .def_readwrite("neck", &whiteout::models::wem::SoftDrip::neck)
+        .def_readwrite("sites_by_hand", &whiteout::models::wem::SoftDrip::sitesByHand)
+        .def_readwrite("sites", &whiteout::models::wem::SoftDrip::sites, R"doc(Auto: how many.)doc")
+        .def_readwrite("overhang", &whiteout::models::wem::SoftDrip::overhang, R"doc(Radians from straight down past which a face sheds: 60 degrees.)doc")
+        .def_readwrite("spacing", &whiteout::models::wem::SoftDrip::spacing, R"doc(Between sites, of the region's size.)doc")
+        .def_readwrite("to_ground", &whiteout::models::wem::SoftDrip::toGround)
+        .def_readwrite("length", &whiteout::models::wem::SoftDrip::length, R"doc(When not to the ground: of the region's size.)doc")
+        .def_readwrite("speed", &whiteout::models::wem::SoftDrip::speed, R"doc(Of the height a second.)doc")
+        .def_readwrite("thickness", &whiteout::models::wem::SoftDrip::thickness, R"doc(Of the region's size.)doc")
+        .def_readwrite("neck_width", &whiteout::models::wem::SoftDrip::neckWidth, R"doc(Of the thickness.)doc")
+        .def_readwrite("tip", &whiteout::models::wem::SoftDrip::tip, R"doc(Of the thickness.)doc")
+        .def_readwrite("stagger", &whiteout::models::wem::SoftDrip::stagger)
+        .def_readwrite("sway", &whiteout::models::wem::SoftDrip::sway, R"doc(How far a strand swings as it hangs: 0 is still, 1 twenty degrees.)doc")
+        .def_readwrite("pull", &whiteout::models::wem::SoftDrip::pull, R"doc(*Pull the surface*: how far the skin under a strand comes down with it.)doc")
+        .def_readwrite("pinch_every", &whiteout::models::wem::SoftDrip::pinchEvery, R"doc(Seconds between droplets; 0 is never.)doc")
+        .def_readwrite("material", &whiteout::models::wem::SoftDrip::material, R"doc(A material slot; none is the surface's.)doc")
+        .def_readwrite("site_mesh", &whiteout::models::wem::SoftDrip::siteMesh)
+        .def_readwrite("site_face", &whiteout::models::wem::SoftDrip::siteFace)
+        .def_readwrite("site_weights", &whiteout::models::wem::SoftDrip::siteWeights)
+        .def_readwrite("site_thickness", &whiteout::models::wem::SoftDrip::siteThickness, R"doc(Of the region's size; 0 is the setting's.)doc")
+        .def_readwrite("strand_nodes", &whiteout::models::wem::SoftDrip::strandNodes)
+        .def_readwrite("strand_at", &whiteout::models::wem::SoftDrip::strandAt)
+        .def_readwrite("strand_width", &whiteout::models::wem::SoftDrip::strandWidth)
+        .def_readwrite("drop_nodes", &whiteout::models::wem::SoftDrip::dropNodes, R"doc(The droplets as built, where the effect pinches off: one bone a strand, in the strands' order. Empty where it does not.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::SoftSquash>(m, "SoftSquash", R"doc(§8.7. Keyed, the Amount runs from a squash (-1) to a stretch (+1).)doc")
+        .def(py::init<>())
+        .def_readwrite("mode", &whiteout::models::wem::SoftSquash::mode)
+        .def_readwrite("axis", &whiteout::models::wem::SoftSquash::axis)
+        .def_readwrite("axis_bone", &whiteout::models::wem::SoftSquash::axisBone)
+        .def_readwrite("stretch", &whiteout::models::wem::SoftSquash::stretch, R"doc(At speed.)doc")
+        .def_readwrite("squash", &whiteout::models::wem::SoftSquash::squash, R"doc(On a stop, a landing or a turn back.)doc")
+        .def_readwrite("turning", &whiteout::models::wem::SoftSquash::turning, R"doc(A swung part stretches away from the axis it turns about.)doc")
+        .def_readwrite("drag", &whiteout::models::wem::SoftSquash::drag, R"doc(The far parts trail the motion.)doc")
+        .def_readwrite("wind_up", &whiteout::models::wem::SoftSquash::windUp, R"doc(The body leans back before a move and carries past its end.)doc")
+        .def_readwrite("anchor", &whiteout::models::wem::SoftSquash::anchor)
+        .def_readwrite("smoothing", &whiteout::models::wem::SoftSquash::smoothing, R"doc(Seconds the speed is read over.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::SoftMelt>(m, "SoftMelt", R"doc(§8.8. Its span is a progress: 0 at the start, 1 at the end.)doc")
+        .def(py::init<>())
+        .def_readwrite("order", &whiteout::models::wem::SoftMelt::order)
+        .def_readwrite("solidity", &whiteout::models::wem::SoftMelt::solidity, R"doc(Jelly 0, wax 0.5, ice 1: how long the middle stands.)doc")
+        .def_readwrite("on_grid", &whiteout::models::wem::SoftMelt::onGrid, R"doc(The floor is the grid; else `floor`.)doc")
+        .def_readwrite("floor", &whiteout::models::wem::SoftMelt::floor, R"doc(A height, model units.)doc")
+        .def_readwrite("puddle", &whiteout::models::wem::SoftMelt::puddle, R"doc(The widest it spreads, times the footprint.)doc")
+        .def_readwrite("uneven", &whiteout::models::wem::SoftMelt::uneven)
+        .def_readwrite("backward", &whiteout::models::wem::SoftMelt::backward, R"doc(The body rises out of its puddle.)doc")
+        .def_readwrite("stays_in_decay", &whiteout::models::wem::SoftMelt::staysInDecay, R"doc(The clips named Decay hold the end.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::SoftRipple>(m, "SoftRipple", R"doc(§8.9. The Amount is the height, a share of the region's size.)doc")
+        .def(py::init<>())
+        .def_readwrite("along", &whiteout::models::wem::SoftRipple::along)
+        .def_readwrite("plays", &whiteout::models::wem::SoftRipple::plays)
+        .def_readwrite("from", &whiteout::models::wem::SoftRipple::from, R"doc(`Once`: spans, times or events.)doc")
+        .def_readwrite("event", &whiteout::models::wem::SoftRipple::event)
+        .def_readwrite("wavelength", &whiteout::models::wem::SoftRipple::wavelength, R"doc(Of the region's size.)doc")
+        .def_readwrite("speed", &whiteout::models::wem::SoftRipple::speed, R"doc(Regions a second.)doc")
+        .def_readwrite("through", &whiteout::models::wem::SoftRipple::through)
+        .def_readwrite("water", &whiteout::models::wem::SoftRipple::water, R"doc(The envelope moves at its own speed.)doc")
+        .def_readwrite("envelope", &whiteout::models::wem::SoftRipple::envelope, R"doc(... this many times the crests'.)doc")
+        .def_readwrite("fade_distance", &whiteout::models::wem::SoftRipple::fadeDistance)
+        .def_readwrite("fade_time", &whiteout::models::wem::SoftRipple::fadeTime, R"doc(Seconds.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::SoftEffect>(m, "SoftEffect", R"doc(One effect of a soft body. Exactly the settings its kind names are set.)doc")
+        .def(py::init<>())
+        .def_readwrite("id", &whiteout::models::wem::SoftEffect::id, R"doc(Stable in its body, from 1: its `SoftAmount` channel's sub.)doc")
+        .def_readwrite("kind", &whiteout::models::wem::SoftEffect::kind)
+        .def_readwrite("name", &whiteout::models::wem::SoftEffect::name)
+        .def_readwrite("enabled", &whiteout::models::wem::SoftEffect::enabled)
+        .def_readwrite("amount", &whiteout::models::wem::SoftEffect::amount, R"doc(What a span at full is.)doc")
+        .def_readwrite("everywhere", &whiteout::models::wem::SoftEffect::everywhere, R"doc(`SoftAmount`'s rest: on where nothing keys it.)doc")
+        .def_readwrite("drives_jiggle", &whiteout::models::wem::SoftEffect::drivesJiggle, R"doc(§7. Off by default for Wobble and Ripple.)doc")
+        .def_readwrite("seed", &whiteout::models::wem::SoftEffect::seed)
+        .def_readwrite("place", &whiteout::models::wem::SoftEffect::place)
+        .def_readwrite("inflate", &whiteout::models::wem::SoftEffect::inflate)
+        .def_readwrite("bulge", &whiteout::models::wem::SoftEffect::bulge)
+        .def_readwrite("jiggle", &whiteout::models::wem::SoftEffect::jiggle)
+        .def_readwrite("wobble", &whiteout::models::wem::SoftEffect::wobble)
+        .def_readwrite("blobify", &whiteout::models::wem::SoftEffect::blobify)
+        .def_readwrite("drip", &whiteout::models::wem::SoftEffect::drip)
+        .def_readwrite("squash", &whiteout::models::wem::SoftEffect::squash)
+        .def_readwrite("melt", &whiteout::models::wem::SoftEffect::melt)
+        .def_readwrite("ripple", &whiteout::models::wem::SoftEffect::ripple)
+    ;
+
+    py::class_<whiteout::models::wem::SoftBody>(m, "SoftBody")
+        .def(py::init<>())
+        .def_readwrite("id", &whiteout::models::wem::SoftBody::id, R"doc(From `PhysicsSet::allocateId`: a channel names it.)doc")
+        .def_readwrite("name", &whiteout::models::wem::SoftBody::name, R"doc(Also the prefix of the bones an export makes.)doc")
+        .def_readwrite("meshes", &whiteout::models::wem::SoftBody::meshes, R"doc(The meshes that hold its points.)doc")
+        .def_readwrite("detail", &whiteout::models::wem::SoftBody::detail, R"doc(Surface lumps asked for, apart from those places claim (§6.2).)doc")
+        .def_readwrite("copy_all", &whiteout::models::wem::SoftBody::copyAll, R"doc(Copy every bone, shared or not (§6.2).)doc")
+        .def_readwrite("chains_as_they_are", &whiteout::models::wem::SoftBody::chainsAsTheyAre, R"doc(Bones with bones below them are used, and only turn (§6.2).)doc")
+        .def_readwrite("inside", &whiteout::models::wem::SoftBody::inside, R"doc(What the body keeps clear of (§5.4).)doc")
+        .def_readwrite("riders", &whiteout::models::wem::SoftBody::riders, R"doc(Parts in the region that ride rigidly (§5.4): each has a lump for every bone it rides, and its points are those lumps' whole.)doc")
+        .def_readwrite("blend", &whiteout::models::wem::SoftBody::blend, R"doc(Of the region's size (§5.2).)doc")
+        .def_readwrite("influences", &whiteout::models::wem::SoftBody::influences, R"doc(The weights a point the lanes were solved for (§6.4).)doc")
+        .def_readwrite("equal_shares", &whiteout::models::wem::SoftBody::equalShares, R"doc(Solved for classic groups.)doc")
+        .def_readwrite("lumps", &whiteout::models::wem::SoftBody::lumps)
+        .def_readwrite("effects", &whiteout::models::wem::SoftBody::effects, R"doc(In the order they run.)doc")
+        .def_readwrite("colliders", &whiteout::models::wem::SoftBody::colliders, R"doc(`ClothCollider::id`s.)doc")
+        .def_readwrite("drips", &whiteout::models::wem::SoftBody::drips, R"doc(The mesh Drip added, or none.)doc")
+        .def_readwrite("next_effect", &whiteout::models::wem::SoftBody::nextEffect, R"doc(The next effect id: never reused.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::PhysicsMaterial>(m, "PhysicsMaterial")
+        .def(py::init<>())
+        .def_readwrite("density", &whiteout::models::wem::PhysicsMaterial::density, R"doc(The StarCraft II upgrade's default.)doc")
+        .def_readwrite("friction", &whiteout::models::wem::PhysicsMaterial::friction)
+        .def_readwrite("restitution", &whiteout::models::wem::PhysicsMaterial::restitution)
+    ;
+
+    py::class_<whiteout::models::wem::PhysicsShape>(m, "PhysicsShape")
+        .def(py::init<>())
+        .def_readwrite("kind", &whiteout::models::wem::PhysicsShape::kind)
+        .def_readwrite("half_extents", &whiteout::models::wem::PhysicsShape::halfExtents, R"doc(Box.)doc")
+        .def_readwrite("radius", &whiteout::models::wem::PhysicsShape::radius, R"doc(Sphere, capsule, cylinder.)doc")
+        .def_readwrite("length", &whiteout::models::wem::PhysicsShape::length, R"doc(Along own +Z, centred: a cylinder's whole, and a capsule's between its cap centres when it does not state them in `points`.)doc")
+        .def_readwrite("points", &whiteout::models::wem::PhysicsShape::points, R"doc(Own frame. A convex hull's vertex set; a capsule's two cap centres when the source states its ends (World of Warcraft, Diablo III), which a centred frame cannot hold to the bit.)doc")
+        .def_readwrite("vertices", &whiteout::models::wem::PhysicsShape::vertices, R"doc(Triangle mesh, own frame.)doc")
+        .def_readwrite("triangles", &whiteout::models::wem::PhysicsShape::triangles, R"doc(Triangle mesh, three per face.)doc")
+        .def_readwrite("material", &whiteout::models::wem::PhysicsShape::material)
+        .def_readwrite("game_flags", &whiteout::models::wem::PhysicsShape::gameFlags, R"doc(Domino's fixture `gameFlags`, for a game's contact callbacks. World of Warcraft authors it (0 in every shipped shape).)doc")
+    ;
 
 }

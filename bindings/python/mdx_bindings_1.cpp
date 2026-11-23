@@ -129,6 +129,12 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 1 of bind_mdx(), which calls the parts in order.
 void bind_mdx_1(py::module_& m) {
+    py::bind_vector<std::vector<whiteout::u32>>(m, "VectorU32", py::buffer_protocol());
+    py::bind_vector<std::vector<whiteout::u16>>(m, "VectorU16", py::buffer_protocol());
+    bindBufferVector<whiteout::Quaternion, float, 4>(m, "VectorQuaternion");
+    bindBufferVector<whiteout::Vector2f, float, 2>(m, "VectorVector2f");
+    bindBufferVector<whiteout::Vector3f, float, 3>(m, "VectorVector3f");
+    bindBufferVector<whiteout::Vector4f, float, 4>(m, "VectorVector4f");
     py::bind_vector<std::vector<whiteout::f32>>(m, "VectorF32", py::buffer_protocol());
     py::bind_vector<std::vector<whiteout::mdx::Attachment>>(m, "VectorMdxAttachment");
     py::bind_vector<std::vector<whiteout::mdx::Bone>>(m, "VectorMdxBone");

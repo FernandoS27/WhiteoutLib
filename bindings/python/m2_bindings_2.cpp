@@ -169,6 +169,14 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 2 of bind_m2(), which calls the parts in order.
 void bind_m2_2(py::module_& m) {
+    py::bind_vector<std::vector<std::vector<whiteout::m2::CompatQuaternion>>>(m, "VectorVectorM2CompatQuaternion");
+    py::bind_vector<std::vector<std::vector<whiteout::u16>>>(m, "VectorVectorU16");
+    py::bind_vector<std::vector<std::vector<whiteout::u8>>>(m, "VectorVectorU8");
+    py::bind_vector<std::vector<whiteout::m2::AnimationTrackBase>>(m, "VectorM2AnimationTrackBase");
+    py::bind_vector<std::vector<whiteout::m2::Attachment>>(m, "VectorM2Attachment");
+    py::bind_vector<std::vector<whiteout::m2::Batch>>(m, "VectorM2Batch");
+    py::bind_vector<std::vector<whiteout::m2::Bone>>(m, "VectorM2Bone");
+    py::bind_vector<std::vector<whiteout::m2::BoneOverride>>(m, "VectorM2BoneOverride");
     py::bind_vector<std::vector<whiteout::m2::BoneOverrideSet>>(m, "VectorM2BoneOverrideSet");
     py::bind_vector<std::vector<whiteout::m2::BoxShape>>(m, "VectorM2BoxShape");
     py::bind_vector<std::vector<whiteout::m2::Camera>>(m, "VectorM2Camera");
@@ -186,8 +194,4 @@ void bind_m2_2(py::module_& m) {
     py::bind_vector<std::vector<whiteout::m2::GlobalSequence>>(m, "VectorM2GlobalSequence");
     py::bind_vector<std::vector<whiteout::m2::Light>>(m, "VectorM2Light");
     py::bind_vector<std::vector<whiteout::m2::Material>>(m, "VectorM2Material");
-    py::bind_vector<std::vector<whiteout::m2::ParticleEmitter>>(m, "VectorM2ParticleEmitter");
-    py::bind_vector<std::vector<whiteout::m2::ParticleGeosetData>>(m, "VectorM2ParticleGeosetData");
-    py::bind_vector<std::vector<whiteout::m2::PhysicsBody>>(m, "VectorM2PhysicsBody");
-    py::bind_vector<std::vector<whiteout::m2::PhysicsJoint>>(m, "VectorM2PhysicsJoint");
 }

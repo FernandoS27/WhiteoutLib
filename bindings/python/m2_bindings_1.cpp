@@ -169,6 +169,312 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 1 of bind_m2(), which calls the parts in order.
 void bind_m2_1(py::module_& m) {
+    py::class_<whiteout::m2::ParticleEmitter>(m, "ParticleEmitter")
+        .def(py::init<>())
+        .def_readwrite("particle_id", &whiteout::m2::ParticleEmitter::particleId)
+        .def_readwrite("flags", &whiteout::m2::ParticleEmitter::flags)
+        .def_readwrite("position", &whiteout::m2::ParticleEmitter::position)
+        .def_readwrite("bone_id", &whiteout::m2::ParticleEmitter::boneId)
+        .def_readwrite("particle_model_filename", &whiteout::m2::ParticleEmitter::particleModelFilename)
+        .def_readwrite("child_emitters_model_filename", &whiteout::m2::ParticleEmitter::childEmittersModelFilename)
+        .def_readwrite("blending_type", &whiteout::m2::ParticleEmitter::blendingType)
+        .def_readwrite("emitter_type", &whiteout::m2::ParticleEmitter::emitterType)
+        .def_readwrite("particle_color_index", &whiteout::m2::ParticleEmitter::particleColorIndex)
+        .def_readwrite("particle_type", &whiteout::m2::ParticleEmitter::particleType)
+        .def_readwrite("head_or_tail", &whiteout::m2::ParticleEmitter::headOrTail)
+        .def_readwrite("texture_tilerotation", &whiteout::m2::ParticleEmitter::textureTilerotation)
+        .def_readwrite("rows", &whiteout::m2::ParticleEmitter::rows)
+        .def_readwrite("columns", &whiteout::m2::ParticleEmitter::columns)
+        .def_readwrite("emission_speed", &whiteout::m2::ParticleEmitter::emissionSpeed)
+        .def_readwrite("speed_variation", &whiteout::m2::ParticleEmitter::speedVariation)
+        .def_readwrite("vertical_range", &whiteout::m2::ParticleEmitter::verticalRange)
+        .def_readwrite("horizontal_range", &whiteout::m2::ParticleEmitter::horizontalRange)
+        .def_readwrite("gravity", &whiteout::m2::ParticleEmitter::gravity)
+        .def_readwrite("lifespan", &whiteout::m2::ParticleEmitter::lifespan)
+        .def_readwrite("lifespan_variation", &whiteout::m2::ParticleEmitter::lifespanVariation)
+        .def_readwrite("emission_rate", &whiteout::m2::ParticleEmitter::emissionRate)
+        .def_readwrite("emission_rate_variation", &whiteout::m2::ParticleEmitter::emissionRateVariation)
+        .def_readwrite("emission_area_width", &whiteout::m2::ParticleEmitter::emissionAreaWidth)
+        .def_readwrite("emission_area_length", &whiteout::m2::ParticleEmitter::emissionAreaLength)
+        .def_readwrite("z_source", &whiteout::m2::ParticleEmitter::zSource)
+        .def_readwrite("color_track", &whiteout::m2::ParticleEmitter::colorTrack)
+        .def_readwrite("scale_track", &whiteout::m2::ParticleEmitter::scaleTrack)
+        .def_readwrite("scale_vary", &whiteout::m2::ParticleEmitter::scaleVary)
+        .def_readwrite("tail_length", &whiteout::m2::ParticleEmitter::tailLength)
+        .def_readwrite("twinkle_speed", &whiteout::m2::ParticleEmitter::twinkleSpeed)
+        .def_readwrite("twinkle_percent", &whiteout::m2::ParticleEmitter::twinklePercent)
+        .def_readwrite("twinkle_scale", &whiteout::m2::ParticleEmitter::twinkleScale)
+        .def_readwrite("inherit_velocity_scale", &whiteout::m2::ParticleEmitter::inheritVelocityScale)
+        .def_readwrite("drag", &whiteout::m2::ParticleEmitter::drag)
+        .def_readwrite("base_spin", &whiteout::m2::ParticleEmitter::baseSpin)
+        .def_readwrite("base_spin_variation", &whiteout::m2::ParticleEmitter::baseSpinVariation)
+        .def_readwrite("spin_speed", &whiteout::m2::ParticleEmitter::spinSpeed)
+        .def_readwrite("spin_speed_variation", &whiteout::m2::ParticleEmitter::spinSpeedVariation)
+        .def_readwrite("tumble", &whiteout::m2::ParticleEmitter::tumble)
+        .def_readwrite("wind_vector", &whiteout::m2::ParticleEmitter::windVector)
+        .def_readwrite("wind_time", &whiteout::m2::ParticleEmitter::windTime)
+        .def_readwrite("follow_speed1", &whiteout::m2::ParticleEmitter::followSpeed1)
+        .def_readwrite("follow_scale1", &whiteout::m2::ParticleEmitter::followScale1)
+        .def_readwrite("follow_speed2", &whiteout::m2::ParticleEmitter::followSpeed2)
+        .def_readwrite("follow_scale2", &whiteout::m2::ParticleEmitter::followScale2)
+        .def_readwrite("spline_points", &whiteout::m2::ParticleEmitter::splinePoints)
+        .def_readwrite("enabled_in", &whiteout::m2::ParticleEmitter::enabledIn)
+        .def_readwrite("extension", &whiteout::m2::ParticleEmitter::extension)
+        .def("get_multi_tex_scale",
+            [](const whiteout::m2::ParticleEmitter& self) {
+                return std::vector<whiteout::fixed_point<signed char, 5>>(self.multiTexScale.begin(), self.multiTexScale.end());
+            })
+        .def("set_multi_tex_scale",
+            [](whiteout::m2::ParticleEmitter& self, const std::vector<whiteout::fixed_point<signed char, 5>>& v) {
+                if (v.size() != self.multiTexScale.size())
+                    throw std::runtime_error("setter expected exactly "
+                        + std::to_string(self.multiTexScale.size()) + " elements");
+                for (std::size_t i = 0; i < v.size(); ++i) self.multiTexScale[i] = v[i];
+            })
+        .def("get_multi_tex_scroll_mid",
+            [](const whiteout::m2::ParticleEmitter& self) {
+                return std::vector<std::array<whiteout::fixed_point<unsigned short, 9>, 2>>(self.multiTexScrollMid.begin(), self.multiTexScrollMid.end());
+            })
+        .def("set_multi_tex_scroll_mid",
+            [](whiteout::m2::ParticleEmitter& self, const std::vector<std::array<whiteout::fixed_point<unsigned short, 9>, 2>>& v) {
+                if (v.size() != self.multiTexScrollMid.size())
+                    throw std::runtime_error("setter expected exactly "
+                        + std::to_string(self.multiTexScrollMid.size()) + " elements");
+                for (std::size_t i = 0; i < v.size(); ++i) self.multiTexScrollMid[i] = v[i];
+            })
+        .def("get_multi_tex_scroll_range",
+            [](const whiteout::m2::ParticleEmitter& self) {
+                return std::vector<std::array<whiteout::fixed_point<unsigned short, 9>, 2>>(self.multiTexScrollRange.begin(), self.multiTexScrollRange.end());
+            })
+        .def("set_multi_tex_scroll_range",
+            [](whiteout::m2::ParticleEmitter& self, const std::vector<std::array<whiteout::fixed_point<unsigned short, 9>, 2>>& v) {
+                if (v.size() != self.multiTexScrollRange.size())
+                    throw std::runtime_error("setter expected exactly "
+                        + std::to_string(self.multiTexScrollRange.size()) + " elements");
+                for (std::size_t i = 0; i < v.size(); ++i) self.multiTexScrollRange[i] = v[i];
+            })
+    ;
+
+    py::class_<whiteout::m2::Event>(m, "Event")
+        .def(py::init<>())
+        .def_readwrite("identifier", &whiteout::m2::Event::identifier)
+        .def_readwrite("data", &whiteout::m2::Event::data)
+        .def_readwrite("bone_id", &whiteout::m2::Event::boneId)
+        .def_readwrite("position", &whiteout::m2::Event::position)
+        .def_readwrite("enabled", &whiteout::m2::Event::enabled)
+    ;
+
+    py::class_<whiteout::m2::PhysicsBody>(m, "PhysicsBody", R"doc(One rigid body, bound to a single model bone — BODY/BDY2/BDY3/BDY4.
+
+The four on-disk layouts are the same fields accreting over time, so they share one struct; PhysicsData::version decides which of them is written back, and fields the older layouts lack keep the values the client's upgrader gives them (`PHYS_FORMAT.md` §5).)doc")
+        .def(py::init<>())
+        .def_readwrite("type", &whiteout::m2::PhysicsBody::type)
+        .def_readwrite("bone_index", &whiteout::m2::PhysicsBody::boneIndex, R"doc(BODY/BDY2 store it as a u32 at +16 and the client keeps the low 16 bits; BDY3 moved it into the u16 at +2.)doc")
+        .def_readwrite("position", &whiteout::m2::PhysicsBody::position, R"doc(The body's model-space origin, where the client creates it; the first step moves it onto its bone's animated pivot.)doc")
+        .def_readwrite("shape_index", &whiteout::m2::PhysicsBody::shapeIndex, R"doc(First entry in PhysicsData::shapes belonging to this body. 32 bits wide in every layout.)doc")
+        .def_readwrite("shape_count", &whiteout::m2::PhysicsBody::shapeCount)
+        .def_readwrite("gravity_scale", &whiteout::m2::PhysicsBody::gravityScale, R"doc(BDY2+. 1.0 on all but 45 of 1213 kinematic bodies but tuned freely on dynamic ones, negatives included — `dmBodyDef+0x30`.)doc")
+        .def_readwrite("inertia_scale", &whiteout::m2::PhysicsBody::inertiaScale, R"doc(BDY3+. 1.0 in 3457 of 3526 bodies, otherwise 1.1-10 — `dmBodyDef+0x2C`.)doc")
+        .def_readwrite("linear_damping", &whiteout::m2::PhysicsBody::linearDamping, R"doc(BDY3+. Zero on 1196 of 1213 kinematic bodies and 0-10 on dynamic ones — `dmBodyDef+0x24`.)doc")
+        .def_readwrite("angular_damping", &whiteout::m2::PhysicsBody::angularDamping, R"doc(BDY3+. Same kinematic/dynamic split as @ref linearDamping — `dmBodyDef+0x28`.)doc")
+        .def_readwrite("follow_factor", &whiteout::m2::PhysicsBody::followFactor, R"doc(BDY4. The fraction of the way a kinematic body is snapped to its animated pose each step, ramping to a full teleport when the motion is fast. Not a Domino parameter. Older layouts get the upgrader's 0.9.)doc")
+        .def_readwrite("attachment", &whiteout::m2::PhysicsBody::attachment, R"doc(BDY3+ (+40 in BDY3, +44 in BDY4): see the `kPhysicsAttachment*` constants.)doc")
+        .def_readwrite("padding", &whiteout::m2::PhysicsBody::padding, R"doc(BDY3+. Zero in every corpus body.)doc")
+    ;
+
+    py::class_<whiteout::m2::PhysicsShape>(m, "PhysicsShape", R"doc(One collision shape reference — SHAP/SHP2. Points at an entry of the box/capsule/sphere/polytope array named by @ref shapeType.)doc")
+        .def(py::init<>())
+        .def_readwrite("shape_type", &whiteout::m2::PhysicsShape::shapeType)
+        .def_readwrite("shape_index", &whiteout::m2::PhysicsShape::shapeIndex)
+        .def_readwrite("game_flags", &whiteout::m2::PhysicsShape::gameFlags, R"doc(`dmFixtureDef.gameFlags`. Zero in every corpus shape.)doc")
+        .def_readwrite("padding06", &whiteout::m2::PhysicsShape::padding06)
+        .def_readwrite("friction", &whiteout::m2::PhysicsShape::friction)
+        .def_readwrite("restitution", &whiteout::m2::PhysicsShape::restitution)
+        .def_readwrite("density", &whiteout::m2::PhysicsShape::density, R"doc(Rescaled by the client for capsules in files of version 4 and below (`PHYS_FORMAT.md` §4.2).)doc")
+        .def_readwrite("unused14", &whiteout::m2::PhysicsShape::unused14, R"doc(@name SHP2+, parsed and never read The client copies these onto its shape def and no `CreateInstance` reads them (`PHYS_FORMAT.md` §4.5). SHAP's upgrade gives 0, 1.0 and 0. @{)doc")
+        .def_readwrite("unused18", &whiteout::m2::PhysicsShape::unused18, R"doc(1.0 in 3229 of 3230 shapes, and still not the fixture scale.)doc")
+        .def_readwrite("unused1c", &whiteout::m2::PhysicsShape::unused1c)
+        .def_readwrite("padding1e", &whiteout::m2::PhysicsShape::padding1e, R"doc(SHP2+. Uninitialised on disk; kept so writes match.)doc")
+    ;
+
+    py::class_<whiteout::m2::BoxShape>(m, "BoxShape", R"doc(BOXS — an oriented box. The client turns it straight into a polytope via `CPhysicsBoxShapeDef::SetPolytopeData(frame, halfExtents)`.)doc")
+        .def(py::init<>())
+        .def_readwrite("frame", &whiteout::m2::BoxShape::frame)
+        .def_readwrite("half_extents", &whiteout::m2::BoxShape::halfExtents)
+    ;
+
+    py::class_<whiteout::m2::CapsuleShape>(m, "CapsuleShape", R"doc(CAPS — a capsule between two local points.)doc")
+        .def(py::init<>())
+        .def_readwrite("local_position1", &whiteout::m2::CapsuleShape::localPosition1)
+        .def_readwrite("local_position2", &whiteout::m2::CapsuleShape::localPosition2)
+        .def_readwrite("radius", &whiteout::m2::CapsuleShape::radius)
+    ;
+
+    py::class_<whiteout::m2::SphereShape>(m, "SphereShape", R"doc(SPHS — a sphere at a local point.)doc")
+        .def(py::init<>())
+        .def_readwrite("local_position", &whiteout::m2::SphereShape::localPosition)
+        .def_readwrite("radius", &whiteout::m2::SphereShape::radius)
+    ;
+
+    py::class_<whiteout::m2::PolytopeHalfEdge>(m, "PolytopeHalfEdge", R"doc(One half-edge of a polytope — Domino's `dmSubEdge`, four bytes.
+
+Half-edges are stored in twin pairs at adjacent indices, and the ones bounding a face form a cycle through @ref nextEdge.)doc")
+        .def(py::init<>())
+        .def_readwrite("twin_offset", &whiteout::m2::PolytopeHalfEdge::twinOffset, R"doc(Signed step to the paired half-edge: the twin of edge `i` is `i + twinOffset`. Only +1 and -1 occur, in equal numbers.)doc")
+        .def_readwrite("origin_vertex", &whiteout::m2::PolytopeHalfEdge::originVertex, R"doc(Where this half-edge starts, indexing PolytopeShape::vertices.)doc")
+        .def_readwrite("face_index", &whiteout::m2::PolytopeHalfEdge::faceIndex, R"doc(The face this half-edge bounds, indexing PolytopeShape::facePlanes.)doc")
+        .def_readwrite("next_edge", &whiteout::m2::PolytopeHalfEdge::nextEdge, R"doc(Next half-edge around @ref faceIndex.)doc")
+    ;
+
+    py::class_<whiteout::m2::PolytopeShape>(m, "PolytopeShape", R"doc(PLYT — a convex hull, version 3+. Domino's `dmPolytope`.
+
+The chunk stores fixed-size headers and variable-size payloads in two blocks; both halves are folded into this one struct, and the header's counts are recomputed from the vectors on write. The header's four pointer fields are filled in by the client at load time and are zero in every file, so they are not kept.)doc")
+        .def(py::init<>())
+        .def_readwrite("vertices", &whiteout::m2::PolytopeShape::vertices, R"doc(Hull corners.)doc")
+        .def_readwrite("face_planes", &whiteout::m2::PolytopeShape::facePlanes, R"doc(Outward plane of each face, `xyz` normal and `w` offset.)doc")
+        .def_readwrite("face_first_edges", &whiteout::m2::PolytopeShape::faceFirstEdges, R"doc(One entry per face: any half-edge bounding it, as the entry point for walking the face through PolytopeHalfEdge::nextEdge.)doc")
+        .def_readwrite("edges", &whiteout::m2::PolytopeShape::edges)
+        .def_readwrite("centroid", &whiteout::m2::PolytopeShape::centroid, R"doc(Volume-weighted, not the vertex average.)doc")
+        .def_readwrite("volume", &whiteout::m2::PolytopeShape::volume, R"doc(Hull volume.)doc")
+        .def_readwrite("surface_area", &whiteout::m2::PolytopeShape::surfaceArea, R"doc(Hull surface area.)doc")
+        .def_readwrite("padding04", &whiteout::m2::PolytopeShape::padding04, R"doc(The four-byte gaps each count leaves in front of its 64-bit pointer, and the one that trails the header. Uninitialised in the files — some carry fragments of unrelated strings — so they are kept verbatim for writing.)doc")
+        .def_readwrite("padding14", &whiteout::m2::PolytopeShape::padding14)
+        .def_readwrite("padding2c", &whiteout::m2::PolytopeShape::padding2c)
+        .def_readwrite("padding4c", &whiteout::m2::PolytopeShape::padding4c)
+    ;
+
+    py::class_<whiteout::m2::PhysicsJoint>(m, "PhysicsJoint", R"doc(JOIN — connects two bodies with the joint named by @ref jointType.)doc")
+        .def(py::init<>())
+        .def_readwrite("body_a_index", &whiteout::m2::PhysicsJoint::bodyAIndex)
+        .def_readwrite("body_b_index", &whiteout::m2::PhysicsJoint::bodyBIndex)
+        .def_readwrite("padding08", &whiteout::m2::PhysicsJoint::padding08, R"doc(Zero in every corpus joint.)doc")
+        .def_readwrite("joint_type", &whiteout::m2::PhysicsJoint::jointType)
+        .def_readwrite("joint_id", &whiteout::m2::PhysicsJoint::jointId, R"doc(Entry index within the joint array @ref jointType selects.)doc")
+    ;
+
+    py::class_<whiteout::m2::WeldJoint>(m, "WeldJoint", R"doc(WELJ/WLJ2/WLJ3 — a soft rigid connection. Zero frequency means the axis is solved as a hard constraint.)doc")
+        .def(py::init<>())
+        .def_readwrite("frame_a", &whiteout::m2::WeldJoint::frameA)
+        .def_readwrite("frame_b", &whiteout::m2::WeldJoint::frameB)
+        .def_readwrite("angular_frequency_hz", &whiteout::m2::WeldJoint::angularFrequencyHz)
+        .def_readwrite("angular_damping_ratio", &whiteout::m2::WeldJoint::angularDampingRatio)
+        .def_readwrite("linear_frequency_hz", &whiteout::m2::WeldJoint::linearFrequencyHz, R"doc(WLJ2+)doc")
+        .def_readwrite("linear_damping_ratio", &whiteout::m2::WeldJoint::linearDampingRatio, R"doc(WLJ2+)doc")
+        .def_readwrite("unused70", &whiteout::m2::WeldJoint::unused70, R"doc(WLJ3+. Copied onto the weld def and never sent to Domino. Zero in 265 of 274 weld joints.)doc")
+    ;
+
+    py::class_<whiteout::m2::SphericalJoint>(m, "SphericalJoint", R"doc(SPHJ — a ball joint between two anchor points.)doc")
+        .def(py::init<>())
+        .def_readwrite("anchor_a", &whiteout::m2::SphericalJoint::anchorA)
+        .def_readwrite("anchor_b", &whiteout::m2::SphericalJoint::anchorB)
+        .def_readwrite("friction_torque", &whiteout::m2::SphericalJoint::frictionTorque)
+    ;
+
+    py::class_<whiteout::m2::ShoulderJoint>(m, "ShoulderJoint", R"doc(SHOJ/SHJ2 — a twist-and-cone joint, the one that chains cloth.)doc")
+        .def(py::init<>())
+        .def_readwrite("frame_a", &whiteout::m2::ShoulderJoint::frameA)
+        .def_readwrite("frame_b", &whiteout::m2::ShoulderJoint::frameB)
+        .def_readwrite("lower_twist_angle", &whiteout::m2::ShoulderJoint::lowerTwistAngle, R"doc(Degrees, like the cone; the client converts both to radians and enables the twist limit when `upper > lower`.)doc")
+        .def_readwrite("upper_twist_angle", &whiteout::m2::ShoulderJoint::upperTwistAngle)
+        .def_readwrite("cone_angle", &whiteout::m2::ShoulderJoint::coneAngle, R"doc(Degrees: the corpus holds 20, 35, 45 and 60. Stored as authored, so the conversion is the consumer's.)doc")
+        .def_readwrite("max_motor_torque", &whiteout::m2::ShoulderJoint::maxMotorTorque)
+        .def_readwrite("motor_mode", &whiteout::m2::ShoulderJoint::motorMode, R"doc(low byte: 0 off, 1 position, 2 velocity)doc")
+        .def_readwrite("motor_frequency_hz", &whiteout::m2::ShoulderJoint::motorFrequencyHz, R"doc(SHJ2. A SHOJ gets the upgrader's 1.0 Hz and 0.7 (`PHYS_FORMAT.md` §5).)doc")
+        .def_readwrite("motor_damping_ratio", &whiteout::m2::ShoulderJoint::motorDampingRatio, R"doc(SHJ2)doc")
+    ;
+
+    py::class_<whiteout::m2::PrismaticJoint>(m, "PrismaticJoint", R"doc(PRSJ/PRS2 — a sliding joint, version 2+.)doc")
+        .def(py::init<>())
+        .def_readwrite("frame_a", &whiteout::m2::PrismaticJoint::frameA)
+        .def_readwrite("frame_b", &whiteout::m2::PrismaticJoint::frameB)
+        .def_readwrite("lower_limit", &whiteout::m2::PrismaticJoint::lowerLimit, R"doc(Distances, not angles; the limit is enabled when `upper > lower`.)doc")
+        .def_readwrite("upper_limit", &whiteout::m2::PrismaticJoint::upperLimit)
+        .def_readwrite("reference_translation", &whiteout::m2::PrismaticJoint::referenceTranslation, R"doc(The zero point the limit is measured from. No `dmJointDef` slot: the client writes it into the live joint after creation. Zero in all twelve corpus prismatics.)doc")
+        .def_readwrite("max_motor_force", &whiteout::m2::PrismaticJoint::maxMotorForce)
+        .def_readwrite("motor_speed", &whiteout::m2::PrismaticJoint::motorSpeed, R"doc(Target velocity, written into the live joint like @ref referenceTranslation.)doc")
+        .def_readwrite("motor_mode", &whiteout::m2::PrismaticJoint::motorMode)
+        .def_readwrite("motor_frequency_hz", &whiteout::m2::PrismaticJoint::motorFrequencyHz, R"doc(PRS2; the upgrader's value for a PRSJ)doc")
+        .def_readwrite("motor_damping_ratio", &whiteout::m2::PrismaticJoint::motorDampingRatio, R"doc(PRS2)doc")
+    ;
+
+    py::class_<whiteout::m2::RevoluteJoint>(m, "RevoluteJoint", R"doc(REVJ/REV2 — a hinge, version 2+.)doc")
+        .def(py::init<>())
+        .def_readwrite("frame_a", &whiteout::m2::RevoluteJoint::frameA)
+        .def_readwrite("frame_b", &whiteout::m2::RevoluteJoint::frameB)
+        .def_readwrite("lower_angle", &whiteout::m2::RevoluteJoint::lowerAngle, R"doc(Degrees; the limit is enabled when `upper > lower`.)doc")
+        .def_readwrite("upper_angle", &whiteout::m2::RevoluteJoint::upperAngle)
+        .def_readwrite("max_motor_torque", &whiteout::m2::RevoluteJoint::maxMotorTorque)
+        .def_readwrite("motor_mode", &whiteout::m2::RevoluteJoint::motorMode, R"doc(1: position mode (frequency > 0), 2: velocity mode.)doc")
+        .def_readwrite("motor_frequency_hz", &whiteout::m2::RevoluteJoint::motorFrequencyHz, R"doc(REV2; the upgrader's value for a REVJ)doc")
+        .def_readwrite("motor_damping_ratio", &whiteout::m2::RevoluteJoint::motorDampingRatio, R"doc(REV2)doc")
+    ;
+
+    py::class_<whiteout::m2::DistanceJoint>(m, "DistanceJoint", R"doc(DSTJ — holds two anchors a fixed distance apart, version 2+.)doc")
+        .def(py::init<>())
+        .def_readwrite("local_anchor_a", &whiteout::m2::DistanceJoint::localAnchorA)
+        .def_readwrite("local_anchor_b", &whiteout::m2::DistanceJoint::localAnchorB)
+        .def_readwrite("distance", &whiteout::m2::DistanceJoint::distance)
+    ;
+
+    py::class_<whiteout::m2::PhysicsTuning>(m, "PhysicsTuning", R"doc(PHYV — the per-model vegetation push: the six `physVeg*` console variables in registration order (`PHYS_FORMAT.md` §3.9).
+
+Read only for a `PHYT` 2 model, which becomes a phantom pushed by units walking through it rather than a ragdoll.)doc")
+        .def(py::init<>())
+        .def_readwrite("pos_max_push", &whiteout::m2::PhysicsTuning::posMaxPush, R"doc(Yards a bone may be pushed from its base before it is clamped.)doc")
+        .def_readwrite("pos_push_amt", &whiteout::m2::PhysicsTuning::posPushAmt, R"doc(The fraction of its target a bone is pushed each frame while a unit moves along it; 12.1 does not scale it by dt.)doc")
+        .def_readwrite("pos_relax_speed", &whiteout::m2::PhysicsTuning::posRelaxSpeed, R"doc(How fast the bone returns to rest once the unit leaves.)doc")
+        .def_readwrite("vel_max_push", &whiteout::m2::PhysicsTuning::velMaxPush, R"doc(Extra push along a moving unit's velocity.)doc")
+        .def_readwrite("vel_speed", &whiteout::m2::PhysicsTuning::velSpeed, R"doc(How fast the bone sways along that velocity.)doc")
+        .def_readwrite("min_push_dist", &whiteout::m2::PhysicsTuning::minPushDist, R"doc(**Squared** distance inside which a unit starts pushing. The client uses 8.0 for a model with no PHYV.)doc")
+    ;
+
+    py::class_<whiteout::m2::PhysicsAllowList>(m, "PhysicsAllowList", R"doc(PHAO — the host skeletons this file's follow factors were tuned on.
+
+On a host whose key-bone-4 name CRC is not listed, the client discards every body's @ref PhysicsBody::followFactor for a flat 0.7. No shipped file has one.)doc")
+        .def(py::init<>())
+        .def_readwrite("header", &whiteout::m2::PhysicsAllowList::header, R"doc(The chunk's leading u32. The client keeps its low byte and never reads it.)doc")
+        .def_readwrite("keys", &whiteout::m2::PhysicsAllowList::keys)
+    ;
+
+    py::class_<whiteout::m2::PhysicsUnknownChunk>(m, "PhysicsUnknownChunk", R"doc(A `.phys` chunk this library does not know, kept verbatim so a parse/write cycle does not drop it.)doc")
+        .def(py::init<>())
+        .def_readwrite("data", &whiteout::m2::PhysicsUnknownChunk::data)
+        .def("get_tag",
+            [](const whiteout::m2::PhysicsUnknownChunk& self) {
+                return std::vector<char>(self.tag.begin(), self.tag.end());
+            })
+        .def("set_tag",
+            [](whiteout::m2::PhysicsUnknownChunk& self, const std::vector<char>& v) {
+                if (v.size() != self.tag.size())
+                    throw std::runtime_error("setter expected exactly "
+                        + std::to_string(self.tag.size()) + " elements");
+                for (std::size_t i = 0; i < v.size(); ++i) self.tag[i] = v[i];
+            })
+    ;
+
+    py::class_<whiteout::m2::PhysicsData>(m, "PhysicsData", R"doc(A whole `.phys` file — Blizzard's Domino rigid-body setup for a model, either a `.phys` sibling or an M2's inline PFDC chunk.
+
+Bodies attach to bones and are linked by joints; each body owns a run of @ref shapes, and each shape indexes the array its type names.)doc")
+        .def(py::init<>())
+        .def_readwrite("version", &whiteout::m2::PhysicsData::version, R"doc(0 (MoP) through 6. Decides which layout each chunk is written in — see the per-field version notes on the structs above.)doc")
+        .def_readwrite("phyt", &whiteout::m2::PhysicsData::phyt, R"doc(PHYT, version 1+: a PhysicsObjectKind, kept raw so any value round-trips.)doc")
+        .def_readwrite("allow_list", &whiteout::m2::PhysicsData::allowList, R"doc(PHAO. Absent in every shipped file.)doc")
+        .def_readwrite("bodies", &whiteout::m2::PhysicsData::bodies)
+        .def_readwrite("shapes", &whiteout::m2::PhysicsData::shapes)
+        .def_readwrite("box_shapes", &whiteout::m2::PhysicsData::boxShapes)
+        .def_readwrite("capsule_shapes", &whiteout::m2::PhysicsData::capsuleShapes)
+        .def_readwrite("sphere_shapes", &whiteout::m2::PhysicsData::sphereShapes)
+        .def_readwrite("polytope_shapes", &whiteout::m2::PhysicsData::polytopeShapes)
+        .def_readwrite("joints", &whiteout::m2::PhysicsData::joints)
+        .def_readwrite("weld_joints", &whiteout::m2::PhysicsData::weldJoints)
+        .def_readwrite("spherical_joints", &whiteout::m2::PhysicsData::sphericalJoints)
+        .def_readwrite("shoulder_joints", &whiteout::m2::PhysicsData::shoulderJoints)
+        .def_readwrite("prismatic_joints", &whiteout::m2::PhysicsData::prismaticJoints)
+        .def_readwrite("revolute_joints", &whiteout::m2::PhysicsData::revoluteJoints)
+        .def_readwrite("distance_joints", &whiteout::m2::PhysicsData::distanceJoints)
+        .def_readwrite("tuning", &whiteout::m2::PhysicsData::tuning, R"doc(PHYV. A file that has one carries nothing else.)doc")
+    ;
+
     py::class_<whiteout::m2::BoneOverride>(m, "BoneOverride", R"doc(One bone's replacement transform, from a `.bone` file.)doc")
         .def(py::init<>())
         .def_readwrite("bone_index", &whiteout::m2::BoneOverride::boneIndex, R"doc(Indexes Model::bones. Every id in the WoW corpus is below its model's bone count, and the ids within a file are strictly ascending.)doc")
@@ -370,12 +676,4 @@ The @p fs passed to parse() has to outlive the returned Model, because the defer
     py::bind_vector<std::vector<std::vector<whiteout::f32>>>(m, "VectorVectorF32");
     py::bind_vector<std::vector<std::vector<whiteout::i16>>>(m, "VectorVectorI16");
     py::bind_vector<std::vector<std::vector<whiteout::m2::CameraSpline>>>(m, "VectorVectorM2CameraSpline");
-    py::bind_vector<std::vector<std::vector<whiteout::m2::CompatQuaternion>>>(m, "VectorVectorM2CompatQuaternion");
-    py::bind_vector<std::vector<std::vector<whiteout::u16>>>(m, "VectorVectorU16");
-    py::bind_vector<std::vector<std::vector<whiteout::u8>>>(m, "VectorVectorU8");
-    py::bind_vector<std::vector<whiteout::m2::AnimationTrackBase>>(m, "VectorM2AnimationTrackBase");
-    py::bind_vector<std::vector<whiteout::m2::Attachment>>(m, "VectorM2Attachment");
-    py::bind_vector<std::vector<whiteout::m2::Batch>>(m, "VectorM2Batch");
-    py::bind_vector<std::vector<whiteout::m2::Bone>>(m, "VectorM2Bone");
-    py::bind_vector<std::vector<whiteout::m2::BoneOverride>>(m, "VectorM2BoneOverride");
 }

@@ -171,6 +171,16 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 3 of bind_m3(), which calls the parts in order.
 void bind_m3_3(py::module_& m) {
+    py::bind_vector<std::vector<whiteout::m3::Bone>>(m, "VectorM3Bone");
+    py::bind_vector<std::vector<whiteout::m3::BoneAnimationSet>>(m, "VectorM3BoneAnimationSet");
+    py::bind_vector<std::vector<whiteout::m3::Camera>>(m, "VectorM3Camera");
+    py::bind_vector<std::vector<whiteout::m3::ClothCollider>>(m, "VectorM3ClothCollider");
+    py::bind_vector<std::vector<whiteout::m3::ClothPhysics>>(m, "VectorM3ClothPhysics");
+    py::bind_vector<std::vector<whiteout::m3::ClothProxy>>(m, "VectorM3ClothProxy");
+    py::bind_vector<std::vector<whiteout::m3::CompositeMaterial>>(m, "VectorM3CompositeMaterial");
+    py::bind_vector<std::vector<whiteout::m3::CompositeSection>>(m, "VectorM3CompositeSection");
+    py::bind_vector<std::vector<whiteout::m3::ConvexHullHalfEdge>>(m, "VectorM3ConvexHullHalfEdge");
+    py::bind_vector<std::vector<whiteout::m3::CreepMaterial>>(m, "VectorM3CreepMaterial");
     py::bind_vector<std::vector<whiteout::m3::DataDrivenGroup>>(m, "VectorM3DataDrivenGroup");
     py::bind_vector<std::vector<whiteout::m3::DataDrivenMaterial>>(m, "VectorM3DataDrivenMaterial");
     py::bind_vector<std::vector<whiteout::m3::DataDrivenProperty>>(m, "VectorM3DataDrivenProperty");
@@ -187,9 +197,4 @@ void bind_m3_3(py::module_& m) {
     py::bind_vector<std::vector<whiteout::m3::MaterialMap>>(m, "VectorM3MaterialMap");
     py::bind_vector<std::vector<whiteout::m3::MeshDivision>>(m, "VectorM3MeshDivision");
     py::bind_vector<std::vector<whiteout::m3::MeshSection>>(m, "VectorM3MeshSection");
-    py::bind_vector<std::vector<whiteout::m3::OneBoneSolver>>(m, "VectorM3OneBoneSolver");
-    py::bind_vector<std::vector<whiteout::m3::ParticleEmitter>>(m, "VectorM3ParticleEmitter");
-    py::bind_vector<std::vector<whiteout::m3::ParticleEmitterCopy>>(m, "VectorM3ParticleEmitterCopy");
-    py::bind_vector<std::vector<whiteout::m3::PhysicsJoint>>(m, "VectorM3PhysicsJoint");
-    py::bind_vector<std::vector<whiteout::m3::PhysicsMeshBvhNode>>(m, "VectorM3PhysicsMeshBvhNode");
 }

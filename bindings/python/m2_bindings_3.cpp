@@ -169,6 +169,10 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 3 of bind_m2(), which calls the parts in order.
 void bind_m2_3(py::module_& m) {
+    py::bind_vector<std::vector<whiteout::m2::ParticleEmitter>>(m, "VectorM2ParticleEmitter");
+    py::bind_vector<std::vector<whiteout::m2::ParticleGeosetData>>(m, "VectorM2ParticleGeosetData");
+    py::bind_vector<std::vector<whiteout::m2::PhysicsBody>>(m, "VectorM2PhysicsBody");
+    py::bind_vector<std::vector<whiteout::m2::PhysicsJoint>>(m, "VectorM2PhysicsJoint");
     py::bind_vector<std::vector<whiteout::m2::PhysicsShape>>(m, "VectorM2PhysicsShape");
     py::bind_vector<std::vector<whiteout::m2::PhysicsTuning>>(m, "VectorM2PhysicsTuning");
     py::bind_vector<std::vector<whiteout::m2::PivotDisplacementData>>(m, "VectorM2PivotDisplacementData");

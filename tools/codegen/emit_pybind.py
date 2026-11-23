@@ -640,20 +640,21 @@ def _vector_py_name(v: TypeRef, prefix: str) -> str:
     return _py_name(js, prefix)
 
 
-# GCC 15.2 peak RSS (GB) of a binding TU at the CI flags (-O3 -flto), fitted
-# over whole and split m2/m3/wem/mdx TUs. bind_vector dominates: each one
-# instantiates pybind11's full list interface.
-_TU_BASE_GB = 0.41
+# GCC 15.2 peak RSS (GB) of a binding TU at the CI flags (-O3, no LTO), fitted
+# over the 15 m2/m3/wem/mdx parts (within 0.3 GB). bind_vector instantiates
+# pybind11's full list interface and enum_ its whole enum machinery, per type;
+# an enum's values cost next to nothing.
+_TU_BASE_GB = 0.63
 _STMT_COST_GB = (
-    (re.compile(r'\.def_read(?:write|only)\('), 0.0015),
-    (re.compile(r'\.def(?:_static|_property|_property_readonly)?\('), 0.0033),
-    (re.compile(r'\.value\('), 0.0010),
-    (re.compile(r'py::bind_vector<|bindBufferVector<'), 0.0446),
+    (re.compile(r'\.def_read(?:write|only)\('), 0.0016),
+    (re.compile(r'\.def(?:_static|_property|_property_readonly)?\('), 0.0085),
+    (re.compile(r'py::bind_vector<|bindBufferVector<'), 0.051),
+    (re.compile(r'py::enum_<'), 0.033),
 )
 
-# AppVeyor's Linux worker (~7 GB) compiles two TUs at once; a part above
-# this gets the runner OOM-killed, which AppVeyor reports as a green job.
-PART_BUDGET_GB = 1.75
+# AppVeyor's Linux worker (~7 GB) compiles two TUs at once; a pair above it
+# gets the runner OOM-killed, which AppVeyor reports as a green job.
+PART_BUDGET_GB = 2.4
 
 
 def _stmt_cost(text: str) -> float:

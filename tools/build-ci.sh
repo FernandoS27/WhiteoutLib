@@ -149,7 +149,7 @@ cmake -S "${repo_root}" -B "${build_dir}" \
 # is killed, the step still reports exit 0, after_build never runs, and the
 # job goes green with NO artifacts (the package job then fails on
 # "missing linux native"). Codegen splits the large binding modules so no
-# TU peaks above ~2 GB (see PART_BUDGET_GB in tools/codegen/emit_pybind.py);
+# TU peaks above ~2.5 GB (see PART_BUDGET_GB in tools/codegen/emit_pybind.py);
 # that only holds at this parallelism.
 #
 # Cap parallelism on Linux to match vCPU count (2), unless CI explicitly

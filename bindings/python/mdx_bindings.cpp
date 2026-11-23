@@ -281,7 +281,7 @@ void bind_mdx(py::module_& m) {
         .value("AMBIENT", whiteout::mdx::Light::LightType::Ambient, R"doc(Ambient light (affects everything equally))doc")
     ;
 
-    py::enum_<whiteout::mdx::CollisionShape::ShapeType>(m, "CollisionShapeShapeType")
+    py::enum_<whiteout::mdx::CollisionShape::ShapeType>(m, "CollisionShapeShapeType", R"doc(The enumerators' values are this library's, not the file's: `CLID` numbers a cylinder 1 and a plane 3 (`collisionShapeFileType`).)doc")
         .value("BOX", whiteout::mdx::CollisionShape::ShapeType::Box)
         .value("PLANE", whiteout::mdx::CollisionShape::ShapeType::Plane)
         .value("SPHERE", whiteout::mdx::CollisionShape::ShapeType::Sphere)
@@ -819,11 +819,13 @@ Cameras define viewpoints that can be used for portrait renders or in-game cutsc
 
     py::class_<whiteout::mdx::CollisionShape>(m, "CollisionShape", R"doc(Collision volume for physics
 
-Collision shapes define simplified geometry for collision detection.)doc")
+Collision shapes define simplified geometry for collision detection.
+
+What each type holds here, and what `CLID` stores for it (Warcraft III 3.0's `MDL::ReadBinCollisions`, the same at every version): - Box: two corners. 24 bytes. - Cylinder: `vertices` is its base and its top, which stands straight above the base on Z; the file stores the base, the height and the radius. 20. - Sphere: its centre, and the radius. 16. - Plane: two corners whose X span is its length and Y span its width, which are the two numbers the file stores. 8.)doc")
         .def(py::init<>())
         .def_readwrite("node", &whiteout::mdx::CollisionShape::node, R"doc(Base node data)doc")
         .def_readwrite("type", &whiteout::mdx::CollisionShape::type, R"doc(Shape type)doc")
-        .def_readwrite("vertices", &whiteout::mdx::CollisionShape::vertices, R"doc(Shape vertices (box only))doc")
+        .def_readwrite("vertices", &whiteout::mdx::CollisionShape::vertices, R"doc(Shape vertices (see the type list above))doc")
         .def_readwrite("radius", &whiteout::mdx::CollisionShape::radius, R"doc(Radius (sphere/cylinder only))doc")
     ;
 
@@ -884,6 +886,8 @@ The Writer takes a Model structure and writes it to disk in binary MDX format or
 
 The format is selected either by file extension (.mdl → text, .mdx → binary) or by an explicit MDLXFormat parameter.
 
+What is written is the model made loadable (`makeLoadable`): a model built by hand, converted, or read from a file another tool wrote can hold what Warcraft III fails a whole model on, and no route to a file should be able to skip the check. The caller's model is never changed -- the repairs are made on a copy -- and `lastReport` says what they were. `setRepairs(false)` writes the model exactly as given, for a tool that is after the bytes.
+
 Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.)doc")
         .def(py::init<>())
         .def("write", py::overload_cast<const std::string&, const whiteout::mdx::Model&, whiteout::mdx::MdlFormat>(&whiteout::mdx::Writer::write), py::arg("filePath"), py::arg("mdlx"), py::arg("mdlFormat") = whiteout::mdx::MdlFormat{}, R"doc(Write a model file to disk
@@ -909,7 +913,7 @@ Tracks store animation data as a series of keyframes. The interpolation type det
         .def_readwrite("interpolation_type", &whiteout::mdx::Track<whiteout::Vector3f>::interpolationType, R"doc(Interpolation type)doc")
         .def_readwrite("global_sequence_id", &whiteout::mdx::Track<whiteout::Vector3f>::globalSequenceId, R"doc(Global sequence ID if applicable)doc")
         .def_readwrite("key_count", &whiteout::mdx::Track<whiteout::Vector3f>::keyCount, R"doc(Number of keyframes)doc")
-        .def_readwrite("timestamps", &whiteout::mdx::Track<whiteout::Vector3f>::timestamps, R"doc(Keyframe timestamps (in frames))doc")
+        .def_readwrite("timestamps", &whiteout::mdx::Track<whiteout::Vector3f>::timestamps, R"doc(Keyframe times, in milliseconds (see `keyTime`))doc")
         .def_readwrite("keys", &whiteout::mdx::Track<whiteout::Vector3f>::keys_data, R"doc(Raw keyframe data)doc")
     ;
 
@@ -923,7 +927,7 @@ Tracks store animation data as a series of keyframes. The interpolation type det
         .def_readwrite("interpolation_type", &whiteout::mdx::Track<whiteout::Quaternion>::interpolationType, R"doc(Interpolation type)doc")
         .def_readwrite("global_sequence_id", &whiteout::mdx::Track<whiteout::Quaternion>::globalSequenceId, R"doc(Global sequence ID if applicable)doc")
         .def_readwrite("key_count", &whiteout::mdx::Track<whiteout::Quaternion>::keyCount, R"doc(Number of keyframes)doc")
-        .def_readwrite("timestamps", &whiteout::mdx::Track<whiteout::Quaternion>::timestamps, R"doc(Keyframe timestamps (in frames))doc")
+        .def_readwrite("timestamps", &whiteout::mdx::Track<whiteout::Quaternion>::timestamps, R"doc(Keyframe times, in milliseconds (see `keyTime`))doc")
         .def_readwrite("keys", &whiteout::mdx::Track<whiteout::Quaternion>::keys_data, R"doc(Raw keyframe data)doc")
     ;
 
@@ -937,7 +941,7 @@ Tracks store animation data as a series of keyframes. The interpolation type det
         .def_readwrite("interpolation_type", &whiteout::mdx::Track<whiteout::u32>::interpolationType, R"doc(Interpolation type)doc")
         .def_readwrite("global_sequence_id", &whiteout::mdx::Track<whiteout::u32>::globalSequenceId, R"doc(Global sequence ID if applicable)doc")
         .def_readwrite("key_count", &whiteout::mdx::Track<whiteout::u32>::keyCount, R"doc(Number of keyframes)doc")
-        .def_readwrite("timestamps", &whiteout::mdx::Track<whiteout::u32>::timestamps, R"doc(Keyframe timestamps (in frames))doc")
+        .def_readwrite("timestamps", &whiteout::mdx::Track<whiteout::u32>::timestamps, R"doc(Keyframe times, in milliseconds (see `keyTime`))doc")
         .def_readwrite("keys", &whiteout::mdx::Track<whiteout::u32>::keys_data, R"doc(Raw keyframe data)doc")
     ;
 
@@ -951,16 +955,10 @@ Tracks store animation data as a series of keyframes. The interpolation type det
         .def_readwrite("interpolation_type", &whiteout::mdx::Track<whiteout::f32>::interpolationType, R"doc(Interpolation type)doc")
         .def_readwrite("global_sequence_id", &whiteout::mdx::Track<whiteout::f32>::globalSequenceId, R"doc(Global sequence ID if applicable)doc")
         .def_readwrite("key_count", &whiteout::mdx::Track<whiteout::f32>::keyCount, R"doc(Number of keyframes)doc")
-        .def_readwrite("timestamps", &whiteout::mdx::Track<whiteout::f32>::timestamps, R"doc(Keyframe timestamps (in frames))doc")
+        .def_readwrite("timestamps", &whiteout::mdx::Track<whiteout::f32>::timestamps, R"doc(Keyframe times, in milliseconds (see `keyTime`))doc")
         .def_readwrite("keys", &whiteout::mdx::Track<whiteout::f32>::keys_data, R"doc(Raw keyframe data)doc")
     ;
 
     py::bind_vector<std::vector<std::vector<whiteout::Vector2f>>>(m, "VectorVectorVector2f");
-    py::bind_vector<std::vector<whiteout::u32>>(m, "VectorU32", py::buffer_protocol());
-    py::bind_vector<std::vector<whiteout::u16>>(m, "VectorU16", py::buffer_protocol());
-    bindBufferVector<whiteout::Quaternion, float, 4>(m, "VectorQuaternion");
-    bindBufferVector<whiteout::Vector2f, float, 2>(m, "VectorVector2f");
-    bindBufferVector<whiteout::Vector3f, float, 3>(m, "VectorVector3f");
-    bindBufferVector<whiteout::Vector4f, float, 4>(m, "VectorVector4f");
     bind_mdx_1(m);
 }

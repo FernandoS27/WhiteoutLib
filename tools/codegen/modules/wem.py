@@ -68,7 +68,7 @@ CONFIG = ModuleConfig(
         'include/whiteout/models/wem/validate.h',
     ],
     output_path='bindings/wasm/wem_bindings.cpp',
-    pybind_parts=4,
+    pybind_parts=6,
     include_dirs=['include'],
     # bindings.cpp registers these — don't double-register here.
     skip_vector_js_names=[

@@ -35,7 +35,7 @@ clone_depth: 5
 environment:
   # CMAKE_BUILD_PARALLEL_LEVEL is intentionally NOT set globally — the
   # safe default varies per OS. tools/build-ci.sh defaults to 2 on Linux
-  # (OOM-prone: 7 GB RAM, pybind11 wrappers peak ~2 GB each) and 4 on
+  # (OOM-prone: 7 GB RAM, pybind11 wrappers peak ~2.5 GB each) and 4 on
   # macOS; tools/build-ci.ps1 defaults to 2 on Windows. CI can still
   # override via the env var if a future runner has more RAM.
   # JDK 22+ is required for stable FFM; 25 is the current LTS. Windows

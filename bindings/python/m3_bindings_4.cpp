@@ -171,6 +171,11 @@ auto bindBufferVector(py::module_& m, const char* name) {
 } // namespace
 // Part 4 of bind_m3(), which calls the parts in order.
 void bind_m3_4(py::module_& m) {
+    py::bind_vector<std::vector<whiteout::m3::OneBoneSolver>>(m, "VectorM3OneBoneSolver");
+    py::bind_vector<std::vector<whiteout::m3::ParticleEmitter>>(m, "VectorM3ParticleEmitter");
+    py::bind_vector<std::vector<whiteout::m3::ParticleEmitterCopy>>(m, "VectorM3ParticleEmitterCopy");
+    py::bind_vector<std::vector<whiteout::m3::PhysicsJoint>>(m, "VectorM3PhysicsJoint");
+    py::bind_vector<std::vector<whiteout::m3::PhysicsMeshBvhNode>>(m, "VectorM3PhysicsMeshBvhNode");
     py::bind_vector<std::vector<whiteout::m3::PhysicsShape>>(m, "VectorM3PhysicsShape");
     py::bind_vector<std::vector<whiteout::m3::Projector>>(m, "VectorM3Projector");
     py::bind_vector<std::vector<whiteout::m3::ReflectionMaterial>>(m, "VectorM3ReflectionMaterial");
