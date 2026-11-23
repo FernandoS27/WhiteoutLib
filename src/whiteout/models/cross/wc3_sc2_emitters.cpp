@@ -429,10 +429,12 @@ struct MaterialKey {
     f32 tileU = 1.0f, tileV = 1.0f;
     /// `Sc2Look::displace`.
     f32 displace = 0.0f;
+    /// A ribbon's `Sc2RibbonSpec::textureTurns`.
+    i32 turns = -1;
 
     auto tie() const {
         return std::tie(texture, filter, unshaded, unfogged, twoSided, priority, particle, teamGlow,
-                        glowMask, wrap, blend, softness, gain, mesh, tileU, tileV, displace);
+                        glowMask, wrap, blend, softness, gain, mesh, tileU, tileV, displace, turns);
     }
     bool operator<(const MaterialKey& other) const {
         return tie() < other.tie();
@@ -633,12 +635,12 @@ public:
             mat.hdrEmissiveMultiplier = key.gain / kCoreEmissive;
             mat.emissiveLayer1->colorType = m3::ColorChannelSelect::Red;
         }
-        if (!key.particle && !key.mesh && mat.diffuseLayer.has_value()) {
+        if (!key.particle && !key.mesh && key.turns != 0 && mat.diffuseLayer.has_value()) {
             // Warcraft III runs a ribbon's U along its length; StarCraft II its
             // V (§4.5 row 10). A quarter turn lays one on the other. Its null
             // stays at zero: the game builds a layer's UV transform only from
             // an init off its null, as Blizzard's conversions write it.
-            const Vector3f turn{0.0f, 0.0f, -kPi * 0.5f};
+            const Vector3f turn{0.0f, 0.0f, kPi * 0.5f * static_cast<f32>(key.turns)};
             mat.diffuseLayer->uvAngle.initValue = turn;
             mat.diffuseLayer->uvAngle.nullValue = Vector3f{0.0f, 0.0f, 0.0f};
             if (mat.alphaLayer1.has_value()) {
@@ -947,6 +949,7 @@ public:
         });
         MaterialKey key = keyOf(spec.look);
         key.particle = false;
+        key.turns = spec.textureTurns;
         r.materialIndex = materials_.slot(key);
         const u32 target = addRecordNode(parent, suffix.c_str());
         if (spec.offset.x != 0.0f || spec.offset.y != 0.0f || spec.offset.z != 0.0f) {

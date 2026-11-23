@@ -192,11 +192,15 @@ struct Sc2ParticleSpec {
 m3::ParticleEmitter Sc2RestParticle();
 
 /// A `RIB_` fitted to a PopcornFX ribbon (D§13), keyed as a particle spec is.
-/// Its look's U runs along the strip, as a Warcraft III ribbon's does.
 struct Sc2RibbonSpec {
     m3::RibbonEmitter record;
     std::vector<Sc2Keyed> keys;
     Sc2Look look;
+    /// Quarter turns of the look's texture about its centre, on StarCraft II's
+    /// strip (U across, V its points' age): -1 where the texture's U runs
+    /// along the strip from its head, as a Warcraft III ribbon's does; 2
+    /// where its V runs along it from its tail (PopcornFX's RotateTexture).
+    i32 textureTurns = -1;
     /// Where the strip leaves, in the effect's frame.
     Vector3f offset{0.0f, 0.0f, 0.0f};
 };
