@@ -78,8 +78,15 @@ environment:
       WHITEOUT_WASM_TARGET: node
     - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2022
       WHITEOUT_TARGET: native
+    # Linux is split like macOS: its install takes ~13 minutes and its build
+    # ~57 at -j2 (2 vCPUs, 7 GB). The budget leaves each part ~45 minutes.
     - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu2204
       WHITEOUT_TARGET: native
+      WHITEOUT_BUILD_PART: "1"
+      WHITEOUT_BUILD_BUDGET_MIN: "30"
+    - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu2204
+      WHITEOUT_TARGET: native
+      WHITEOUT_BUILD_PART: "2"
     # Packaging fan-in — runs last. Polls every native job (windows,
     # linux, macos) for success, downloads their `native-binary` +
     # `python-wheels` + `java-natives` + `java-jars` artifacts, then
@@ -416,7 +423,7 @@ artifacts:
     name: native-binary
   - path: build-ci/c-dist/**/libwhiteout_native.dylib
     name: native-binary
-  # Part 1 of a split build only (see the macOS matrix entries).
+  # Part 1 of a split build only (see the macOS and Linux matrix entries).
   - path: build-part1.tar.gz
     name: build-part1
 
@@ -565,6 +572,11 @@ for:
               curl -fsSL "https://ci.appveyor.com/api/buildjobs/${part1%% *}/artifacts/build-part1.tar.gz" \
                   -o "${APPVEYOR_BUILD_FOLDER}/build-part1.tar.gz"
               find "${APPVEYOR_BUILD_FOLDER}" -exec touch -h -t 202001010000 {} +
+              # Linux has no venv (pip installs with --user), so pybind11 sits
+              # outside the checkout; fresh headers rebuild every pybind TU.
+              . "${APPVEYOR_BUILD_FOLDER}/ci_python.env"
+              pybind11_pkg="$("${CI_PYTHON}" -c 'import os, pybind11; print(os.path.dirname(pybind11.__file__))')"
+              find "${pybind11_pkg}" -exec touch -h -t 202001010000 {} +
               tar -xzf "${APPVEYOR_BUILD_FOLDER}/build-part1.tar.gz" -C "${APPVEYOR_BUILD_FOLDER}"
               rm "${APPVEYOR_BUILD_FOLDER}/build-part1.tar.gz"
               echo "resuming part 1's build (${part1%% *})"
@@ -905,7 +917,7 @@ for:
           declare -A want=(
               [codegen]='codegen|'
               [windows]='Visual Studio 2022|native'
-              [linux]='Ubuntu2204|native'
+              [linux]='Ubuntu2204|WHITEOUT_BUILD_PART=2'
               [macos]='macos-sonoma|WHITEOUT_BUILD_PART=2'
           )
 

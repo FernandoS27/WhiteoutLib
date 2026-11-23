@@ -167,7 +167,7 @@ fi
 echo "build parallelism: ${parallel}"
 
 # WHITEOUT_BUILD_BUDGET_MIN: part 1 of a build split across two CI jobs
-# (macOS, see appveyor.yml). Build until the budget runs out, then leave
+# (macOS and Linux, see appveyor.yml). Build until the budget runs out, then leave
 # build-ci/ for the next job to resume. ninja is run directly because it
 # stops its compilers and drops their partial outputs on SIGINT.
 if [ -n "${WHITEOUT_BUILD_BUDGET_MIN:-}" ]; then
